@@ -11,6 +11,7 @@ import (
 
 func TestDelegationByValIndexDualWrite(t *testing.T) {
 	_, app, ctx := createTestInput(t)
+	ctx = ctx.WithClosestUpgradeName("v6.7")
 
 	addrDels, valAddrs := generateAddresses(app, ctx, 1)
 	delegation := types.NewDelegation(addrDels[0], valAddrs[0], sdk.NewDec(1))
@@ -22,6 +23,25 @@ func TestDelegationByValIndexDualWrite(t *testing.T) {
 
 	app.StakingKeeper.SetDelegation(ctx, delegation)
 	require.True(t, store.Has(indexKey))
+	require.NotNil(t, store.Get(types.GetDelegationKey(addrDels[0], valAddrs[0])))
+
+	app.StakingKeeper.RemoveDelegation(ctx, delegation)
+	require.False(t, store.Has(indexKey))
+	require.Nil(t, store.Get(types.GetDelegationKey(addrDels[0], valAddrs[0])))
+}
+
+func TestDelegationByValIndexPreUpgradeNoDualWrite(t *testing.T) {
+	_, app, ctx := createTestInput(t)
+	ctx = ctx.WithClosestUpgradeName("v6.6")
+
+	addrDels, valAddrs := generateAddresses(app, ctx, 1)
+	delegation := types.NewDelegation(addrDels[0], valAddrs[0], sdk.NewDec(1))
+
+	store := ctx.KVStore(app.StakingKeeper.GetStoreKey())
+	indexKey := types.GetDelegationByValIndexKey(addrDels[0], valAddrs[0])
+
+	app.StakingKeeper.SetDelegation(ctx, delegation)
+	require.False(t, store.Has(indexKey))
 	require.NotNil(t, store.Get(types.GetDelegationKey(addrDels[0], valAddrs[0])))
 
 	app.StakingKeeper.RemoveDelegation(ctx, delegation)

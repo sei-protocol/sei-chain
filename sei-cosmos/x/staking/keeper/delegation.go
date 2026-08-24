@@ -103,7 +103,9 @@ func (k Keeper) SetDelegation(ctx sdk.Context, delegation types.Delegation) {
 	store := ctx.KVStore(k.storeKey)
 	b := types.MustMarshalDelegation(k.cdc, delegation)
 	store.Set(types.GetDelegationKey(delegatorAddress, valAddr), b)
-	store.Set(types.GetDelegationByValIndexKey(delegatorAddress, valAddr), []byte{}) // index, store empty bytes
+	if delegationByValIndexActive(ctx) {
+		store.Set(types.GetDelegationByValIndexKey(delegatorAddress, valAddr), []byte{}) // index, store empty bytes
+	}
 }
 
 // RemoveDelegation removes a delegation.
@@ -114,7 +116,9 @@ func (k Keeper) RemoveDelegation(ctx sdk.Context, delegation types.Delegation) {
 	k.BeforeDelegationRemoved(ctx, delegatorAddress, valAddr)
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetDelegationKey(delegatorAddress, valAddr))
-	store.Delete(types.GetDelegationByValIndexKey(delegatorAddress, valAddr))
+	if delegationByValIndexActive(ctx) {
+		store.Delete(types.GetDelegationByValIndexKey(delegatorAddress, valAddr))
+	}
 }
 
 // GetUnbondingDelegations returns a given amount of all the delegator unbonding-delegations.

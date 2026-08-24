@@ -3,9 +3,19 @@ package keeper
 import (
 	"time"
 
+	"golang.org/x/mod/semver"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
+
+// DelegationByValIndexUpgrade is the upgrade at which SetDelegation and
+// RemoveDelegation begin maintaining the validator-indexed delegation store.
+const DelegationByValIndexUpgrade = "v6.7"
+
+func delegationByValIndexActive(ctx sdk.Context) bool {
+	return semver.Compare(ctx.ClosestUpgradeName(), DelegationByValIndexUpgrade) >= 0
+}
 
 // BackfillDelegationByValIndexResult reports the outcome of a delegation index backfill.
 type BackfillDelegationByValIndexResult struct {
