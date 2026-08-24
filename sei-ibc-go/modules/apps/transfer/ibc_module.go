@@ -7,13 +7,11 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	porttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
-	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibcexported "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
@@ -68,7 +66,6 @@ func (im IBCModule) OnChanOpenInit(
 	connectionHops []string,
 	portID string,
 	channelID string,
-	chanCap *capabilitytypes.Capability,
 	counterparty channeltypes.Counterparty,
 	version string,
 ) error {
@@ -78,11 +75,6 @@ func (im IBCModule) OnChanOpenInit(
 
 	if version != types.Version {
 		return sdkerrors.Wrapf(types.ErrInvalidVersion, "got %s, expected %s", version, types.Version)
-	}
-
-	// Claim channel capability passed back by IBC module
-	if err := im.keeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-		return err
 	}
 
 	return nil
@@ -95,7 +87,6 @@ func (im IBCModule) OnChanOpenTry(
 	connectionHops []string,
 	portID,
 	channelID string,
-	chanCap *capabilitytypes.Capability,
 	counterparty channeltypes.Counterparty,
 	counterpartyVersion string,
 ) (string, error) {
@@ -105,17 +96,6 @@ func (im IBCModule) OnChanOpenTry(
 
 	if counterpartyVersion != types.Version {
 		return "", sdkerrors.Wrapf(types.ErrInvalidVersion, "invalid counterparty version: got: %s, expected %s", counterpartyVersion, types.Version)
-	}
-
-	// Module may have already claimed capability in OnChanOpenInit in the case of crossing hellos
-	// (ie chainA and chainB both call ChanOpenInit before one of them calls ChanOpenTry)
-	// If module can already authenticate the capability then module already owns it so we don't need to claim
-	// Otherwise, module does not have channel capability and we must claim it from IBC
-	if !im.keeper.AuthenticateCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)) {
-		// Only claim channel capability passed back by IBC module if we do not already own it
-		if err := im.keeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-			return "", err
-		}
 	}
 
 	return types.Version, nil

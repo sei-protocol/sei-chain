@@ -5,11 +5,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
-	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 )
 
@@ -21,10 +18,8 @@ type Keeper struct {
 
 	ics4Wrapper   types.ICS4Wrapper
 	channelKeeper types.ChannelKeeper
-	portKeeper    types.PortKeeper
 	authKeeper    types.AccountKeeper
 	bankKeeper    types.BankKeeper
-	scopedKeeper  capabilitykeeper.ScopedKeeper
 
 	addressHandler types.AddressHandler
 }
@@ -32,8 +27,8 @@ type Keeper struct {
 // NewKeeper creates a new IBC transfer Keeper instance
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
-	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
-	authKeeper types.AccountKeeper, bankKeeper types.BankKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
+	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper,
+	authKeeper types.AccountKeeper, bankKeeper types.BankKeeper,
 ) Keeper {
 	// ensure ibc transfer module account is set
 	if addr := authKeeper.GetModuleAddress(types.ModuleName); addr == nil {
@@ -51,10 +46,8 @@ func NewKeeper(
 		paramSpace:     paramSpace,
 		ics4Wrapper:    ics4Wrapper,
 		channelKeeper:  channelKeeper,
-		portKeeper:     portKeeper,
 		authKeeper:     authKeeper,
 		bankKeeper:     bankKeeper,
-		scopedKeeper:   scopedKeeper,
 		addressHandler: types.SeiAddressHandler{},
 	}
 }
@@ -62,11 +55,11 @@ func NewKeeper(
 // NewKeeperWithAddressHandler creates a new IBC transfer Keeper instance with an address handler
 func NewKeeperWithAddressHandler(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
-	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
-	authKeeper types.AccountKeeper, bankKeeper types.BankKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
+	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper,
+	authKeeper types.AccountKeeper, bankKeeper types.BankKeeper,
 	addressHandler types.AddressHandler,
 ) Keeper {
-	keeper := NewKeeper(cdc, key, paramSpace, ics4Wrapper, channelKeeper, portKeeper, authKeeper, bankKeeper, scopedKeeper)
+	keeper := NewKeeper(cdc, key, paramSpace, ics4Wrapper, channelKeeper, authKeeper, bankKeeper)
 	if keeper.addressHandler = addressHandler; keeper.addressHandler == nil {
 		panic("the IBC transfer module address handler has not been set")
 	}
@@ -76,19 +69,6 @@ func NewKeeperWithAddressHandler(
 // GetTransferAccount returns the ICS20 - transfers ModuleAccount
 func (k Keeper) GetTransferAccount(ctx sdk.Context) authtypes.ModuleAccountI {
 	return k.authKeeper.GetModuleAccount(ctx, types.ModuleName)
-}
-
-// IsBound checks if the transfer module is already bound to the desired port
-func (k Keeper) IsBound(ctx sdk.Context, portID string) bool {
-	_, ok := k.scopedKeeper.GetCapability(ctx, host.PortPath(portID))
-	return ok
-}
-
-// BindPort defines a wrapper function for the ort Keeper's function in
-// order to expose it to module's InitGenesis function
-func (k Keeper) BindPort(ctx sdk.Context, portID string) error {
-	cap := k.portKeeper.BindPort(ctx, portID)
-	return k.ClaimCapability(ctx, cap, host.PortPath(portID))
 }
 
 // GetPort returns the portID for the transfer module. Used in ExportGenesis
@@ -153,15 +133,4 @@ func (k Keeper) IterateDenomTraces(ctx sdk.Context, cb func(denomTrace types.Den
 			break
 		}
 	}
-}
-
-// AuthenticateCapability wraps the scopedKeeper's AuthenticateCapability function
-func (k Keeper) AuthenticateCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) bool {
-	return k.scopedKeeper.AuthenticateCapability(ctx, cap, name)
-}
-
-// ClaimCapability allows the transfer module that can claim a capability that IBC module
-// passes to it
-func (k Keeper) ClaimCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) error {
-	return k.scopedKeeper.ClaimCapability(ctx, cap, name)
 }

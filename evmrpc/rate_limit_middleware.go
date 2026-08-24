@@ -14,11 +14,11 @@ var errBodyTooLarge = errors.New("request body too large")
 
 type rateLimitMiddleware struct {
 	inner http.Handler
-	gate  *RateLimitGate
+	gate  *ratelimiter.Gate
 }
 
-func newRateLimitMiddleware(inner http.Handler, gate *RateLimitGate) http.Handler {
-	if gate == nil || !gate.enabled {
+func newRateLimitMiddleware(inner http.Handler, gate *ratelimiter.Gate) http.Handler {
+	if gate == nil {
 		return inner
 	}
 	return &rateLimitMiddleware{inner: inner, gate: gate}
@@ -30,8 +30,8 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ip := m.gate.registry.IPFromHTTPRequest(r)
-	body, err := readBoundedBody(r.Body, m.gate.maxBodyBytes)
+	ip := m.gate.Registry().IPFromHTTPRequest(r)
+	body, err := readBoundedBody(r.Body, m.gate.MaxBodyBytes())
 	if err != nil {
 		if isRequestBodyTooLarge(err) {
 			m.rejectAdmission(r.Context(), w, ip, rejectReasonOversize, http.StatusRequestEntityTooLarge, "request body too large")
@@ -42,7 +42,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
-	allowed, rejectMethod, checkErr := m.gate.Check(r.Context(), ip, bytes.NewReader(body))
+	allowed, rejectMethod, checkErr := m.gate.CheckJSONRPC(r.Context(), ip, bytes.NewReader(body))
 	if checkErr != nil {
 		if ratelimiter.IsBodyTooLarge(checkErr) {
 			m.rejectAdmission(r.Context(), w, ip, rejectReasonOversize, http.StatusRequestEntityTooLarge, "request body too large")
@@ -53,7 +53,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !allowed {
-		logger.Debug("rate limit rejected request", "ip", ip, "method", rejectMethod, "plane", m.gate.plane)
+		logger.Debug("rate limit rejected request", "ip", ip, "method", rejectMethod, "plane", m.gate.Plane())
 		recordRequestRejected(r.Context(), rejectReasonRateLimited)
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
@@ -63,7 +63,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 }
 
 func (m *rateLimitMiddleware) rejectAdmission(ctx context.Context, w http.ResponseWriter, ip, reason string, status int, msg string) {
-	if m.gate.chargeAdmissionRejection(ctx, ip) {
+	if m.gate.ChargeAdmissionRejection(ctx, ip) {
 		recordRequestRejected(ctx, rejectReasonRateLimited)
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return

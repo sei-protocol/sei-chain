@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -13,7 +14,8 @@ import (
 )
 
 func newTestDataState(cfg *data.Config) *data.State {
-	return utils.OrPanic1(data.NewState(cfg, memblock.NewBlockDB()))
+	store := utils.OrPanic1(blockstore.New(memblock.NewBlockDB()))
+	return utils.OrPanic1(data.NewState(cfg, store))
 }
 
 func testSignedBlock(key types.SecretKey, lane types.LaneID, n types.BlockNumber, parent types.BlockHeaderHash, rng utils.Rng) *types.Signed[*types.LaneProposal] {

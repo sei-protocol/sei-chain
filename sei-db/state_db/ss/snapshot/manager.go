@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/management"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -42,7 +42,7 @@ type Config struct {
 	Backend         string
 	KeepRecent      int
 	ExternalPruning bool
-	Scheduler       management.CheckpointScheduler
+	Scheduler       controller.CheckpointScheduler
 	// Floor names a height this member's retention must keep. Leave it nil when the member is the only
 	// one that has to hold the height a restore starts from.
 	Floor *Floor
@@ -115,12 +115,16 @@ type Manager struct {
 	backend         string
 	keepRecent      int
 	externalPruning bool
-	scheduler       management.CheckpointScheduler
+	scheduler       controller.CheckpointScheduler
 	floor           *Floor
 	snapshotSizes   map[int64]int64
 
 	publishMu     sync.Mutex
 	lastPublished int64
+}
+
+type snapshotWALPruner interface {
+	PruneWALBeforeVersion(version int64) error
 }
 
 // Staged names a checkpoint that has been written to a staging directory but
@@ -386,7 +390,11 @@ func (m *Manager) PruneSnapshots(cutLine int64) error {
 			candidates = append(candidates, v)
 		}
 	}
-	return m.removeSnapshots(candidates)
+	if err := m.removeSnapshots(candidates); err != nil {
+		return err
+	}
+	m.pruneWALToOldestSnapshot()
+	return nil
 }
 
 // removeSnapshots deletes each candidate except the current snapshot and the shared floor. Every
@@ -470,6 +478,29 @@ func (m *Manager) prune() {
 	}
 	if err := m.removeSnapshots(versions[:len(versions)-keep]); err != nil {
 		logger.Error("failed to prune state store snapshots", "store", m.name, "error", err)
+		return
+	}
+	m.pruneWALToOldestSnapshot()
+}
+
+func (m *Manager) pruneWALToOldestSnapshot() {
+	pruner, ok := m.scheduler.(snapshotWALPruner)
+	if !ok {
+		return
+	}
+	versions, err := m.Versions()
+	if err != nil {
+		logger.Error("failed to list state store snapshots for WAL pruning",
+			"store", m.name, "error", err)
+		return
+	}
+	if len(versions) == 0 {
+		return
+	}
+	oldest := versions[0]
+	if err := pruner.PruneWALBeforeVersion(oldest); err != nil {
+		logger.Error("failed to prune state store changelog WAL",
+			"store", m.name, "version", oldest, "error", err)
 	}
 }
 
