@@ -54,6 +54,50 @@ jobs:
 
       - name: Verify build binary
         run: ./build/seid version --long
+
+  linux-arm64:
+    name: "Linux ARM64"
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout code
+        # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Verify Go installation
+        run: |
+          go version
+          echo "GOARCH: $(go env GOARCH)"
+          echo "GOOS: $(go env GOOS)"
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Run make install
+        run: make install
+
+      - name: Verify install binary
+        run: seid version --long
+
+      - name: Run make build
+        run: make build
+
+      - name: Verify build binary
+        run: ./build/seid version --long
+
+      # The link-directive tests are per-platform: the arm64 expectations only
+      # compile into the test binary on an arm64 host, so amd64 jobs cannot run them.
+      - name: Verify cgo link directives for this architecture
+        run: go test -count=1 -v -run 'TestLinkConstraints|TestLinkDirectivesResolve|TestArtifactsHaveNoOrphans' .
   # Detect PRs that change the static-build inputs so they run the full static
   # job below even when targeting main; otherwise a change to the static build
   # only gets exercised once it reaches a release branch.
