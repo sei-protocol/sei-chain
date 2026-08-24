@@ -39,10 +39,10 @@ var (
 	DelegationKey                    = []byte{0x31} // key for a delegation
 	UnbondingDelegationKey           = []byte{0x32} // key for an unbonding-delegation
 	UnbondingDelegationByValIndexKey = []byte{0x33} // prefix for each key for an unbonding-delegation, by validator operator
-	DelegationByValIndexKey          = []byte{0x37} // prefix for each key for a delegation, by validator operator
 	RedelegationKey                  = []byte{0x34} // key for a redelegation
 	RedelegationByValSrcIndexKey     = []byte{0x35} // prefix for each key for an redelegation, by source validator operator
 	RedelegationByValDstIndexKey     = []byte{0x36} // prefix for each key for an redelegation, by destination validator operator
+	DelegationByValIndexKey          = []byte{0x37} // prefix for each key for a delegation, by validator operator
 
 	UnbondingQueueKey    = []byte{0x41} // prefix for the timestamps in unbonding queue
 	RedelegationQueueKey = []byte{0x42} // prefix for the timestamps in redelegations queue
