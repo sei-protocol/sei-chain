@@ -20,7 +20,7 @@ func BackfillDelegationIndexCmd() *cobra.Command {
 
 By default this runs in dry-run mode and does not modify state. Pass --write to
 persist index keys. When using --write, stop the node and operate on a copy of
-the data directory.`,
+the data directory. --write cannot be combined with --height.`,
 		RunE: runBackfillDelegationIndex,
 	}
 
@@ -41,6 +41,10 @@ func runBackfillDelegationIndex(cmd *cobra.Command, _ []string) error {
 	}
 	dryRun := !write
 
+	if write && height > 0 {
+		return fmt.Errorf("--write cannot be used with --height")
+	}
+
 	if write {
 		fmt.Fprintln(os.Stderr, "WARNING: --write mutates application state. Stop the node and use a data copy.")
 	}
@@ -49,6 +53,7 @@ func runBackfillDelegationIndex(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	defer seiApp.Close()
 
 	blockHeight := seiApp.LastBlockHeight()
 	if blockHeight == 0 {
@@ -74,7 +79,7 @@ func runBackfillDelegationIndex(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	commitID := seiApp.CommitMultiStore().Commit(false)
+	commitID := seiApp.CommitMultiStore().Commit(true)
 	fmt.Printf("committed_version=%d\n", commitID.Version)
 	return nil
 }
