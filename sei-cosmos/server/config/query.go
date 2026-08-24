@@ -40,6 +40,21 @@ func DefaultQueryConfig() QueryConfig {
 	}
 }
 
+// ApplyQueryDefaults replaces zero max caps with their package defaults.
+func ApplyQueryDefaults(cfg QueryConfig) QueryConfig {
+	defaults := DefaultQueryConfig()
+	if cfg.MaxLimit == 0 {
+		cfg.MaxLimit = defaults.MaxLimit
+	}
+	if cfg.MaxOffset == 0 {
+		cfg.MaxOffset = defaults.MaxOffset
+	}
+	if cfg.MaxIterations == 0 {
+		cfg.MaxIterations = defaults.MaxIterations
+	}
+	return cfg
+}
+
 // ValidateQueryConfig checks trusted CIDR entries for unsafe patterns.
 func ValidateQueryConfig(cfg QueryConfig) []string {
 	var warnings []string

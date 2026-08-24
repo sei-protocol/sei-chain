@@ -83,7 +83,7 @@ func readQueryConfig(appOpts servertypes.AppOptions) (srvconfig.QueryConfig, err
 			return cfg, fmt.Errorf("invalid %s: %w", FlagQueryMaxIterations, err)
 		}
 	}
-	return cfg, nil
+	return srvconfig.ApplyQueryDefaults(cfg), nil
 }
 
 func warnQueryConfig(cfg srvconfig.QueryConfig) {

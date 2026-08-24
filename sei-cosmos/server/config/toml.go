@@ -104,13 +104,13 @@ disable-limits = {{ .Query.DisableLimits }}
 # internal indexer subnets or loopback for local services.
 trusted-cidrs = [{{ range $i, $cidr := .Query.TrustedCIDRs }}{{if $i}}, {{end}}"{{ $cidr }}"{{ end }}]
 
-# MaxLimit is the maximum page size for untrusted query origins.
+# MaxLimit is the maximum page size for untrusted query origins. 0 uses the default.
 max-limit = {{ .Query.MaxLimit }}
 
-# MaxOffset is the maximum offset for untrusted query origins.
+# MaxOffset is the maximum offset for untrusted query origins. 0 uses the default.
 max-offset = {{ .Query.MaxOffset }}
 
-# MaxIterations is the maximum store entries a single untrusted query may scan.
+# MaxIterations is the maximum store entries a single untrusted query may scan. 0 uses the default.
 max-iterations = {{ .Query.MaxIterations }}
 `
 
