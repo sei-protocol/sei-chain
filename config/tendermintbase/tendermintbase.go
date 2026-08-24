@@ -23,8 +23,9 @@ const (
 // a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
 	registry.RegisterSectionExcluding(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
-		"max-outbound-connections")
-	registry.RegisterSection(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults)
+		filledFromTheCommandLine, "max-outbound-connections")
+	registry.RegisterSectionExcluding(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
+		filledFromTheCommandLine)
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.
@@ -42,7 +43,16 @@ func forMode(mode registry.Mode) *tmcfg.Config {
 	return out
 }
 
-// The one path this section does not declare.
+// filledFromTheCommandLine is the path five of these sections carry and none declares.
+//
+// Each holds a root directory field tagged the same as the one at the top of the file, and the node fills
+// every one of them from the command line after the file is read. So the file never carries the value, and
+// what these sections state for it is the empty string. Declaring it would hand a delivery an empty root to
+// write over a running node's, and a node that cannot find its data directory, its genesis file or its
+// signing key does not start.
+const filledFromTheCommandLine = "home"
+
+// The other path the peer-to-peer section does not declare.
 //
 // The outbound connection ceiling is a pointer the defaults leave unset, and unset is what selects the
 // behaviour: the node derives a ceiling from the total connection limit instead. Declaring it would need a

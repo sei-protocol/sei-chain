@@ -3,6 +3,7 @@ package tendermintbase
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -105,8 +106,8 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 		proto   any
 		exclude int
 	}{
-		{P2PSectionName, &tmcfg.P2PConfig{}, 1},
-		{RPCSectionName, &tmcfg.RPCConfig{}, 0},
+		{P2PSectionName, &tmcfg.P2PConfig{}, 2},
+		{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 	} {
 		registered, ok := registry.Lookup(tc.section)
 		if !ok {
@@ -135,8 +136,8 @@ func TestTheExcludedPathIsTheOneWithNoDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s is not registered", P2PSectionName)
 	}
-	if want := []string{P2PSectionName + ".max-outbound-connections"}; !reflect.DeepEqual(registered.Excluded, want) {
-		t.Fatalf("excluded is %v, want %v", registered.Excluded, want)
+	if !slices.Contains(registered.Excluded, P2PSectionName+".max-outbound-connections") {
+		t.Fatalf("excluded is %v and does not name the outbound ceiling", registered.Excluded)
 	}
 	if got := tmcfg.DefaultP2PConfig().MaxOutboundConnections; got != nil {
 		t.Errorf("the node now defaults the outbound ceiling to %v, so it states a value and belongs "+
@@ -183,4 +184,24 @@ func hasOpt(opts []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestNoSectionDeclaresTheRootDirectory covers a field five of these sections carry.
+//
+// Each holds a root directory tagged the same as the key at the top of the file, and the node fills every
+// one from the command line after the file is read. So each states the empty string, and a delivery that
+// wrote a declared value would blank the root a running node found its data, its genesis file and its
+// signing key under.
+//
+// Checked across every registered section rather than the five, so a section added later that carries the
+// same field fails here instead of shipping the same hole.
+func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
+	for _, s := range registry.Sections() {
+		for _, key := range s.Keys {
+			if key == "home" || strings.HasSuffix(key, ".home") {
+				t.Errorf("%s declares %q, and the node fills that field from the command line after the "+
+					"file is read, so what this section states for it is the empty string", s.Name, key)
+			}
+		}
+	}
 }
