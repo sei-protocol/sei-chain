@@ -81,6 +81,14 @@ type CryptoSimConfig struct {
 	Erc20InteractionsPerAccount int
 
 	// The number of transactions that will be processed in each "block".
+	//
+	// This trades latency for throughput, and the benchmark values only throughput. A block carries a cost
+	// that does not scale with its contents — sealing takes every shard's lock in every store, twice, and
+	// each version carries its own diff maps, reference counter and history entries — so larger blocks
+	// spread that cost over more transactions and hold fewer versions in memory at the same rate.
+	//
+	// Note that limits denominated in blocks or versions (MaxUnflushedVersions, HashQueueSize,
+	// MaxSnapshotLagBlocks, SnapshotInterval) permit proportionally more bytes as this grows.
 	TransactionsPerBlock int
 
 	// The directory to store the benchmark data.
@@ -279,7 +287,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		Erc20StorageSlotSize:              32,
 		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
-		TransactionsPerBlock:              5000,
+		TransactionsPerBlock:              10_000,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
