@@ -41,16 +41,17 @@ type PebbleDBConfig struct {
 
 	// Size, in bytes, of a memtable for this database.
 	//
-	// Every write is a skiplist insert into the memtable, and the cost of that insert grows with how
-	// many entries the memtable already holds: a deeper structure to descend, over a working set less
-	// likely to be cached. Smaller memtables make writes cheaper and are paid for with more frequent
-	// flushes, and so more L0 files for compaction to absorb.
+	// Larger is preferable: a memtable is flushed to an L0 file, so halving this doubles the number of
+	// L0 files compaction has to absorb, and that cost is paid on cores the rest of the system wants.
+	// The counterweight is that every write is a skiplist insert whose cost grows with how many entries
+	// the memtable holds, but that is only true of writes arriving in random order — the flush path
+	// sorts each version's keys, so inserts descend from a cached splice rather than from the top.
 	//
 	// Keep this above twice the snapshot engine's TargetBytesPerFlush. Pebble diverts a batch larger
 	// than half a memtable onto its flushable-batch slow path, which hurts read amplification and
 	// compaction shape.
 	//
-	// Default: 16 MB
+	// Default: 64 MB
 	MemTableSize uint64 `mapstructure:"mem-table-size"`
 
 	// How many memtables may exist before writes block waiting for one to be flushed.
@@ -71,7 +72,7 @@ func DefaultConfig() PebbleDBConfig {
 		MetricsScrapeInterval:       10 * time.Second,
 		BlockCacheSize:              int64(512 * unit.MB),
 		MaxConcurrentCompactions:    max(4, runtime.NumCPU()/4),
-		MemTableSize:                uint64(16 * unit.MB),
+		MemTableSize:                uint64(64 * unit.MB),
 		MemTableStopWritesThreshold: 16,
 	}
 }

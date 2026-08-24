@@ -1117,6 +1117,34 @@ func (c *snapshotEngine) determineVersionsToRetireLocked() (
 	return firstVersion, lastVersion
 }
 
+// diffEntry is one write from a version's diff. A nil value is a tombstone, matching the convention in
+// the shards' diff maps. The key is a string because that is how the shards hold it; converting to bytes
+// happens once, at the batch.
+type diffEntry struct {
+	key   string
+	value []byte
+}
+
+// collectVersionEntries gathers every shard's writes at one version into a single slice, reusing the
+// backing array of the slice passed in. versionIndex is the offset of the version within the range the
+// diffs were collected for.
+//
+// No deduplication is needed or possible: a key belongs to exactly one shard.
+func collectVersionEntries(
+	reuse []diffEntry,
+	diffsByShard [][]map[string][]byte,
+	versionIndex uint64,
+) []diffEntry {
+
+	entries := reuse[:0]
+	for _, shardDiffs := range diffsByShard {
+		for key, value := range shardDiffs[versionIndex] {
+			entries = append(entries, diffEntry{key: key, value: value})
+		}
+	}
+	return entries
+}
+
 // flushSnapshots collects diffs for [firstVersion, lastVersion) from all shards,
 // writes them to the underlying DB in batches, then drops the versions from the shards.
 func (c *snapshotEngine) flushSnapshots(
@@ -1128,42 +1156,17 @@ func (c *snapshotEngine) flushSnapshots(
 	versionWrites map[uint64][]*proto.KVPair,
 ) error {
 
-	// Collect diffs from all shards.
+	// Collect diffs from all shards. Held per shard rather than merged into one map per version: a key
+	// belongs to exactly one shard, so merging can never combine anything, and the merge cost is a full
+	// copy into a map that grows as it fills.
 	c.metrics.setLifecyclePhase("flush_collect_diffs")
-	diffsByVersion := make(map[uint64]map[string][]byte)
-	for version := firstVersion; version < lastVersion; version++ {
-		diffsByVersion[version] = make(map[string][]byte)
-	}
-	for _, shard := range c.shards {
+	diffsByShard := make([][]map[string][]byte, len(c.shards))
+	for i, shard := range c.shards {
 		shardDiffs, err := shard.GetDiffsForVersions(firstVersion, lastVersion)
 		if err != nil {
 			return fmt.Errorf("failed to get diffs for shard: %w", err)
 		}
-		for diffIndex, diff := range shardDiffs {
-			// diffIndex is bounded by the version count, so this conversion is safe.
-			version := firstVersion + uint64(diffIndex) //nolint:gosec
-			for key, value := range diff {
-				diffsByVersion[version][key] = value
-			}
-		}
-	}
-
-	// Fold each version's finalization writes into its diff, so that the caller's metadata is written
-	// to the DB atomically with its block's data. A nil value in the diff map is a tombstone, so a
-	// Delete pair maps to nil and a pair carrying an empty value is normalized to a non-nil empty
-	// slice to keep the two distinguishable.
-	for version := firstVersion; version < lastVersion; version++ {
-		for _, pair := range versionWrites[version] {
-			if pair.Delete {
-				diffsByVersion[version][string(pair.Key)] = nil
-				continue
-			}
-			value := pair.Value
-			if value == nil {
-				value = []byte{}
-			}
-			diffsByVersion[version][string(pair.Key)] = value
-		}
+		diffsByShard[i] = shardDiffs
 	}
 
 	// Write diffs to the DB in batches, oldest version first.
@@ -1175,20 +1178,53 @@ func (c *snapshotEngine) flushSnapshots(
 		}
 	}()
 	versionsInBatch := uint64(0)
+	var entries []diffEntry
 	for version := firstVersion; version < lastVersion; version++ {
 		versionsInBatch++
 		if batch == nil {
 			batch = c.db.NewBatch()
 		}
-		for key, value := range diffsByVersion[version] {
-			if value == nil {
-				if err := batch.Delete([]byte(key)); err != nil {
+
+		entries = collectVersionEntries(entries, diffsByShard, version-firstVersion)
+
+		// Ordered by key so the memtable receives an ascending run. Pebble's skiplist caches the splice
+		// it last inserted at and reuses it when the next key falls inside; a key outside restarts the
+		// descent from the top of the list. Arriving in map order made every insert a full-height
+		// descent.
+		//
+		// Ordered within a version and never across them: pebble resolves two writes to one key by
+		// sequence number, which it assigns in batch order, so a key written in several of a batch's
+		// versions must reach it oldest first.
+		sort.Slice(entries, func(a int, b int) bool { return entries[a].key < entries[b].key })
+
+		for _, entry := range entries {
+			if entry.value == nil {
+				if err := batch.Delete([]byte(entry.key)); err != nil {
 					return fmt.Errorf("flush failed to delete key: %w", err)
 				}
 			} else {
-				if err := batch.Set([]byte(key), value); err != nil {
+				if err := batch.Set([]byte(entry.key), entry.value); err != nil {
 					return fmt.Errorf("flush failed to set key: %w", err)
 				}
+			}
+		}
+
+		// The caller's metadata is written in the same batch as its block's data, and last, so that a
+		// metadata key colliding with a data key still wins. A Delete pair becomes a tombstone, and a
+		// pair carrying an empty value is normalized to a non-nil empty slice to keep the two distinct.
+		for _, pair := range versionWrites[version] {
+			if pair.Delete {
+				if err := batch.Delete(pair.Key); err != nil {
+					return fmt.Errorf("flush failed to delete metadata key: %w", err)
+				}
+				continue
+			}
+			value := pair.Value
+			if value == nil {
+				value = []byte{}
+			}
+			if err := batch.Set(pair.Key, value); err != nil {
+				return fmt.Errorf("flush failed to set metadata key: %w", err)
 			}
 		}
 
