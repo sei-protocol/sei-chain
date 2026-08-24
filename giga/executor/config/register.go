@@ -19,7 +19,7 @@ func init() {
 	registry.RegisterSection(SectionName, &Config{}, defaults)
 }
 
-// defaults is what this section resolves to for a node that has written nothing.
+// defaults is what the seid init command writes for a node of this kind.
 //
 // The same values for every mode. Nothing in the binary makes either setting follow from what kind of
 // node is asking, so a default that varied here would be this section inventing a rule rather than

@@ -21,7 +21,7 @@ func init() {
 	registry.RegisterSection(ReceiptStoreSectionName, &ReceiptStoreConfig{}, receiptStoreDefaults)
 }
 
-// receiptStoreDefaults is what this section resolves to for a node that has written nothing.
+// receiptStoreDefaults is what the seid init command writes for a node of this kind.
 //
 // The database directory resolves to an empty string, and the emptiness carries meaning rather than
 // standing in for a path nobody chose. The app layer fills it only while it is empty, and what it fills

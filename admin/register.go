@@ -15,5 +15,5 @@ func init() {
 	registry.RegisterSection(SectionName, &Config{}, defaults)
 }
 
-// defaults is what this section resolves to for a node that has written nothing.
+// defaults is what the seid init command writes for a node of this kind.
 func defaults(registry.Mode) any { return DefaultConfig }

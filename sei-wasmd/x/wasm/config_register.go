@@ -10,6 +10,13 @@ import (
 // SectionName is this section's name in the configuration key space.
 const SectionName = "wasm"
 
+// GeneratedQueryGasLimit is the smart-query gas limit a generated app.toml carries.
+//
+// A tenth of what this module's own default holds, and it is the value every node provisioned by the
+// binary runs. Declared here, beside the section, and read by the command that renders the file, so the
+// number that reaches an operator and the number this section states are one statement.
+const GeneratedQueryGasLimit uint64 = 300_000
+
 // wasmSchema names the keys this module's reader resolves.
 //
 // A schema rather than types.WasmConfig itself, which carries no mapstructure tags at all, so registering
@@ -37,19 +44,19 @@ func init() {
 	registry.RegisterSection(SectionName, &wasmSchema{}, sectionDefaults)
 }
 
-// sectionDefaults is what this section resolves to for a node that has written nothing.
+// sectionDefaults is what the seid init command writes for a node of this kind.
 //
-// The query gas limit is the one value here that the binary states twice. This is what a file with no
-// wasm section resolves to, and the template writes a tenth of it into every file it generates, so a node
-// provisioned by the binary runs the smaller number and a node whose file predates the section runs this
-// one. Whoever renders declared values into a file has to decide which of the two survives, and the
-// decision is not this section's to make: the limit bounds the work one smart query can ask of a node
-// that serves queries to anyone.
+// The query gas limit is a tenth of what this module's own default holds, and that is deliberate: it is
+// the number the binary writes into every file it generates, so it is what every provisioned node runs.
+// Declaring the module's larger default instead would have a caller rendering a file that loosens the
+// only bound on the work one smart query can ask of a node serving queries to anyone. The module's
+// default is still what a node whose file has no wasm section resolves, which is a different question and
+// recorded as one.
 func sectionDefaults(registry.Mode) any {
 	live := types.DefaultWasmConfig()
 	schema := wasmSchema{
 		MemoryCacheSize: live.MemoryCacheSize,
-		QueryGasLimit:   live.SmartQueryGasLimit,
+		QueryGasLimit:   GeneratedQueryGasLimit,
 	}
 	if live.SimulationGasLimit != nil {
 		schema.SimulationGasLimit = strconv.FormatUint(*live.SimulationGasLimit, 10)
