@@ -74,18 +74,22 @@ func BuildTransaction(
 	captureMetrics := dataGenerator.rand.Float64() < dataGenerator.config.TransactionMetricsSampleRate
 
 	return &transaction{
-		srcAccount:        srcAccountAddress,
-		isSrcNew:          isSrcNew,
-		dstAccount:        dstAccountAddress,
-		isDstNew:          isDstNew,
-		srcAccountSlot:    srcAccountSlot,
-		dstAccountSlot:    dstAccountSlot,
-		erc20Contract:     erc20Contract,
-		newSrcBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
-		newDstBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
-		newFeeBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
-		newSrcAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
-		newDstAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
+		srcAccount:     srcAccountAddress,
+		isSrcNew:       isSrcNew,
+		dstAccount:     dstAccountAddress,
+		isDstNew:       isDstNew,
+		srcAccountSlot: srcAccountSlot,
+		dstAccountSlot: dstAccountSlot,
+		erc20Contract:  erc20Contract,
+		// Windows onto the canned buffer rather than copies of it. The buffer is never written after
+		// construction, and every consumer of a value copies it — Put keeps the slice only until the
+		// WAL write, and flatkv's value types copy into storage of their own. A copy here would be a
+		// copy of bytes nothing can change, five times per transaction.
+		newSrcBalance:     dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize),
+		newDstBalance:     dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize),
+		newFeeBalance:     dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize),
+		newSrcAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
+		newDstAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
 		captureMetrics:    captureMetrics,
 	}, nil
 }
@@ -155,11 +159,11 @@ func (txn *transaction) Execute(
 		}
 	}
 
-	// The five writes this transaction makes — both accounts' balances, both ERC20 storage slots, and
-	// the fee collection account — were recorded when the block was generated, so there is nothing to
-	// write here. See blockBuilder.writeTransaction: the values are pre-generated and depend on nothing
-	// that was just read, so issuing them on this thread only took time away from the reads, which are
-	// what this benchmark exists to measure.
+	// The writes this transaction makes — both accounts' balances and both ERC20 storage slots, plus
+	// the block's single fee collection write — were recorded when the block was generated, so there is
+	// nothing to write here. See blockBuilder.writeTransaction: the values are pre-generated and depend
+	// on nothing that was just read, so issuing them on this thread only took time away from the reads,
+	// which are what this benchmark exists to measure.
 	phaseTimer.Reset()
 
 	return nil

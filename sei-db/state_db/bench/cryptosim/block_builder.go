@@ -82,6 +82,11 @@ func (b *blockBuilder) buildBlock() *block {
 	blk := NewBlock(b.config, b.metrics, b.nextBlockNumber, b.config.TransactionsPerBlock)
 	b.nextBlockNumber++
 
+	// The fee balance of the last transaction to produce one. Every transaction draws a fee balance,
+	// because the draw is part of the sequence this block's randomness is defined by, but they all
+	// write the same key — so only the last one survives, and only the last one is written.
+	var feeBalance []byte
+
 	for i := 0; i < b.config.TransactionsPerBlock; i++ {
 		// BuildTransaction writes account and contract data of its own for newly created accounts, so
 		// the accumulating map is already being filled from this goroutine before writeTransaction adds
@@ -97,6 +102,7 @@ func (b *blockBuilder) buildBlock() *block {
 			fmt.Printf("failed to record transaction writes: %v\n", err)
 			continue
 		}
+		feeBalance = txn.newFeeBalance
 
 		if b.config.GenerateReceipts {
 			receipt, err := BuildERC20TransferReceiptFromTxn(
@@ -111,6 +117,14 @@ func (b *blockBuilder) buildBlock() *block {
 				continue
 			}
 			blk.AddReceipt(receipt)
+		}
+	}
+
+	// Written once, after the transactions, because every transaction writes the same key: issuing it
+	// per transaction produced one map entry out of TransactionsPerBlock writes and threw the rest away.
+	if feeBalance != nil {
+		if err := b.database.Put(b.dataGenerator.FeeCollectionAddress(), feeBalance); err != nil {
+			fmt.Printf("failed to record fee collection write: %v\n", err)
 		}
 	}
 
@@ -130,7 +144,7 @@ func (b *blockBuilder) buildBlock() *block {
 }
 
 // writeTransaction records the writes a transaction makes: the two accounts' balances, their two
-// ERC20 storage slots, and the fee collection account.
+// ERC20 storage slots. The fee collection account is written once per block instead: see buildBlock.
 //
 // These used to be issued by Execute on the executor threads. They are issued here because the
 // values are pre-generated and independent of everything the transaction reads, so making the
@@ -145,7 +159,6 @@ func (b *blockBuilder) writeTransaction(txn *transaction) error {
 		{txn.dstAccount, txn.newDstBalance},
 		{txn.srcAccountSlot, txn.newSrcAccountSlot},
 		{txn.dstAccountSlot, txn.newDstAccountSlot},
-		{b.dataGenerator.FeeCollectionAddress(), txn.newFeeBalance},
 	}
 	for _, write := range writes {
 		if err := b.database.Put(write.key, write.value); err != nil {
