@@ -7,9 +7,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
+	"github.com/sei-protocol/seilog"
 	db "github.com/tendermint/tm-db"
 
 	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
@@ -22,6 +21,8 @@ import (
 
 var _ porttypes.ICS4Wrapper = Keeper{}
 
+var logger = seilog.NewLogger("ibc-go", "modules", "core", "04-channel", "keeper")
+
 // Keeper defines the IBC channel keeper
 type Keeper struct {
 	// implements gRPC QueryServer interface
@@ -32,15 +33,12 @@ type Keeper struct {
 	paramSpace       paramtypes.Subspace
 	clientKeeper     types.ClientKeeper
 	connectionKeeper types.ConnectionKeeper
-	portKeeper       types.PortKeeper
-	scopedKeeper     capabilitykeeper.ScopedKeeper
 }
 
 // NewKeeper creates a new IBC channel Keeper instance
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	clientKeeper types.ClientKeeper, connectionKeeper types.ConnectionKeeper,
-	portKeeper types.PortKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
 ) Keeper {
 	return Keeper{
 		storeKey:         key,
@@ -48,8 +46,6 @@ func NewKeeper(
 		paramSpace:       paramSpace,
 		clientKeeper:     clientKeeper,
 		connectionKeeper: connectionKeeper,
-		portKeeper:       portKeeper,
-		scopedKeeper:     scopedKeeper,
 	}
 }
 
@@ -71,16 +67,6 @@ func (k Keeper) IsInboundEnabled(ctx sdk.Context) bool {
 	var inbound bool
 	k.paramSpace.Get(ctx, KeyInboundEnabled, &inbound)
 	return inbound
-}
-
-// GenerateChannelIdentifier returns the next channel identifier.
-func (k Keeper) GenerateChannelIdentifier(ctx sdk.Context) string {
-	nextChannelSeq := k.GetNextChannelSequence(ctx)
-	channelID := types.FormatChannelIdentifier(nextChannelSeq)
-
-	nextChannelSeq++
-	k.SetNextChannelSequence(ctx, nextChannelSeq)
-	return channelID
 }
 
 // GetChannel returns a channel with a particular identifier binded to a specific port
@@ -445,16 +431,6 @@ func (k Keeper) GetChannelConnection(ctx sdk.Context, portID, channelID string) 
 	}
 
 	return connectionID, connection, nil
-}
-
-// LookupModuleByChannel will return the IBCModule along with the capability associated with a given channel defined by its portID and channelID
-func (k Keeper) LookupModuleByChannel(ctx sdk.Context, portID, channelID string) (string, *capabilitytypes.Capability, error) {
-	modules, cap, err := k.scopedKeeper.LookupModules(ctx, host.ChannelCapabilityPath(portID, channelID))
-	if err != nil {
-		return "", nil, err
-	}
-
-	return porttypes.GetModuleOwner(modules), cap, nil
 }
 
 // common functionality for IteratePacketCommitment and IteratePacketAcknowledgement

@@ -35,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"golang.org/x/net/netutil"
 )
 
@@ -49,8 +50,8 @@ type HTTPConfig struct {
 	SeiLegacyAllowlist map[string]struct{}
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
-	// rateLimitGate applies per-IP JSON-RPC rate limiting when non-nil and enabled.
-	rateLimitGate *RateLimitGate
+	// rateLimitGate applies per-IP JSON-RPC rate limiting when non-nil.
+	rateLimitGate *ratelimiter.Gate
 }
 
 // WsConfig is the JSON-RPC/Websocket configuration

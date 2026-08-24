@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -275,6 +276,53 @@ func TestUnbondingDelegation(t *testing.T) {
 
 	resUnbonds = app.StakingKeeper.GetAllUnbondingDelegations(ctx, delAddrs[0])
 	require.Equal(t, 0, len(resUnbonds))
+}
+
+func TestEndBlockRetainsUnbondingForInvalidRecipient(t *testing.T) {
+	_, app, ctx := createTestInput(t)
+	maturity := time.Unix(1, 0).UTC()
+	ctx = ctx.WithBlockTime(maturity)
+	evmAddr := common.HexToAddress("0x3333333333333333333333333333333333333333")
+	delegator := sdk.AccAddress(evmAddr[:])
+	app.EvmKeeper.SetAddressMapping(ctx, delegator, evmAddr)
+	app.EvmKeeper.SetAddressMapping(
+		ctx,
+		sdk.AccAddress(common.HexToAddress("0x4444444444444444444444444444444444444444").Bytes()),
+		evmAddr,
+	)
+	validator := sdk.ValAddress(seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(10000))[0])
+	amount := sdk.NewInt(40)
+	bondDenom := app.StakingKeeper.BondDenom(ctx)
+	notBondedPool := app.StakingKeeper.GetNotBondedPool(ctx)
+	coins := sdk.NewCoins(sdk.NewCoin(bondDenom, amount))
+
+	require.NoError(t, apptesting.FundModuleAccount(
+		app.BankKeeper,
+		ctx,
+		notBondedPool.GetName(),
+		coins,
+	))
+
+	unbonding := types.NewUnbondingDelegation(delegator, validator, 0, maturity, amount)
+	app.StakingKeeper.SetUnbondingDelegation(ctx, unbonding)
+	app.StakingKeeper.InsertUBDQueue(ctx, unbonding, maturity)
+	require.False(t, app.BankKeeper.CanSendTo(ctx, delegator))
+
+	poolBalanceBefore := app.BankKeeper.GetBalance(ctx, notBondedPool.GetAddress(), bondDenom)
+	require.NotPanics(t, func() {
+		staking.EndBlocker(ctx, app.StakingKeeper)
+	})
+
+	poolBalanceAfter := app.BankKeeper.GetBalance(ctx, notBondedPool.GetAddress(), bondDenom)
+	require.Equal(t, poolBalanceBefore, poolBalanceAfter)
+	require.True(t, app.BankKeeper.GetBalance(ctx, delegator, bondDenom).IsZero())
+	retained, found := app.StakingKeeper.GetUnbondingDelegation(ctx, delegator, validator)
+	require.True(t, found)
+	require.Equal(t, unbonding, retained)
+
+	iterator := app.StakingKeeper.UBDQueueIterator(ctx, maturity)
+	require.False(t, iterator.Valid())
+	require.NoError(t, iterator.Close())
 }
 
 func TestUnbondDelegation(t *testing.T) {

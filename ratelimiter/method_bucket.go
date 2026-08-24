@@ -3,6 +3,9 @@ package ratelimiter
 import "strings"
 
 const (
+	// PlaneCometBFT is the rate-limit plane label for Tendermint RPC HTTP.
+	PlaneCometBFT = "cometbft"
+
 	// rpcMethodBucketOther is the fallback label for unrecognized methods.
 	rpcMethodBucketOther = "other"
 	// MethodInvalid labels rate-limit charges for unparseable request bodies.
@@ -29,13 +32,73 @@ var knownRPCNamespaces = map[string]struct{}{
 	"web3":     {},
 }
 
+// knownCometBFTRPCMethods lists Tendermint RPC method names registered by the
+// node. Rejection metrics on PlaneCometBFT record the method name directly
+// rather than an EVM-style namespace prefix.
+var knownCometBFTRPCMethods = map[string]struct{}{
+	"abci_info":            {},
+	"abci_query":           {},
+	"block":                {},
+	"block_by_hash":        {},
+	"block_results":        {},
+	"block_search":         {},
+	"blockchain":           {},
+	"broadcast_evidence":   {},
+	"broadcast_tx":         {},
+	"broadcast_tx_async":   {},
+	"broadcast_tx_commit":  {},
+	"broadcast_tx_sync":    {},
+	"catalog":              {},
+	"check_tx":             {},
+	"commit":               {},
+	"consensus_params":     {},
+	"consensus_state":      {},
+	"dump_consensus_state": {},
+	"events":               {},
+	"genesis":              {},
+	"genesis_chunked":      {},
+	"header":               {},
+	"header_by_hash":       {},
+	"health":               {},
+	"lag_status":           {},
+	"net_info":             {},
+	"num_unconfirmed_txs":  {},
+	"status":               {},
+	"subscribe":            {},
+	"tx":                   {},
+	"tx_search":            {},
+	"unconfirmed_txs":      {},
+	"unsubscribe":          {},
+	"unsubscribe_all":      {},
+	"unsafe_flush_mempool": {},
+	"validators":           {},
+	"websocket":            {},
+}
+
 // bucketRPCMethod maps a raw JSON-RPC method name to a low-cardinality label
 // suitable for OTel/Prometheus metrics. Attacker-controlled method strings
 // collapse to rpcMethodBucketOther.
-func bucketRPCMethod(method string) string {
+func bucketRPCMethod(plane, method string) string {
 	if method == MethodInvalid {
 		return MethodInvalid
 	}
+	if plane == PlaneCometBFT {
+		return bucketCometBFTRPCMethod(method)
+	}
+	return bucketNamespacedRPCMethod(method)
+}
+
+func bucketCometBFTRPCMethod(method string) string {
+	if method == "" || len(method) > maxRPCMethodLen {
+		return rpcMethodBucketOther
+	}
+	if _, ok := knownCometBFTRPCMethods[method]; ok {
+		return method
+	}
+	return rpcMethodBucketOther
+}
+
+func bucketNamespacedRPCMethod(method string) string {
 	if method == "" || len(method) > maxRPCMethodLen {
 		return rpcMethodBucketOther
 	}

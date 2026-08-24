@@ -54,7 +54,7 @@ func (q Keeper) Channels(c context.Context, req *types.QueryChannelsRequest) (*t
 	channels := []*types.IdentifiedChannel{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), []byte(host.KeyChannelEndPrefix))
 
-	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(ctx, store, req.Pagination, func(key, value []byte) error {
 		var result types.Channel
 		if err := q.cdc.Unmarshal(value, &result); err != nil {
 			return err
@@ -96,7 +96,7 @@ func (q Keeper) ConnectionChannels(c context.Context, req *types.QueryConnection
 	channels := []*types.IdentifiedChannel{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), []byte(host.KeyChannelEndPrefix))
 
-	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(ctx, store, req.Pagination, func(key, value []byte) error {
 		var result types.Channel
 		if err := q.cdc.Unmarshal(value, &result); err != nil {
 			return err
@@ -238,7 +238,7 @@ func (q Keeper) PacketCommitments(c context.Context, req *types.QueryPacketCommi
 	commitments := []*types.PacketState{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), []byte(host.PacketCommitmentPrefixPath(req.PortId, req.ChannelId)))
 
-	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(ctx, store, req.Pagination, func(key, value []byte) error {
 		keySplit := strings.Split(string(key), "/")
 
 		sequence, err := strconv.ParseUint(keySplit[len(keySplit)-1], 10, 64)
@@ -345,7 +345,7 @@ func (q Keeper) PacketAcknowledgements(c context.Context, req *types.QueryPacket
 		}, nil
 	}
 
-	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(ctx, store, req.Pagination, func(key, value []byte) error {
 		keySplit := strings.Split(string(key), "/")
 
 		sequence, err := strconv.ParseUint(keySplit[len(keySplit)-1], 10, 64)

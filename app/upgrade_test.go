@@ -30,6 +30,28 @@ func TestDistributionCommunityTaxParamMigration(t *testing.T) {
 	testWrapper.Require().Equal(params.CommunityTax, sdk.NewDec(0))
 }
 
+func TestV67RemovesRetiredModuleVersions(t *testing.T) {
+	t.Setenv("UPGRADE_VERSION_LIST", "v6.7")
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	testWrapper.App.RegisterUpgradeHandlers()
+
+	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
+	versionMap["capability"] = 1
+	versionMap["feegrant"] = 1
+	testWrapper.App.UpgradeKeeper.SetModuleVersionMap(testWrapper.Ctx, versionMap)
+
+	testWrapper.App.UpgradeKeeper.ApplyUpgrade(testWrapper.Ctx, types.Plan{
+		Name:   "v6.7",
+		Height: testWrapper.Ctx.BlockHeight(),
+	})
+
+	versionMap = testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
+	require.NotContains(t, versionMap, "capability")
+	require.NotContains(t, versionMap, "feegrant")
+}
+
 func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	t.Parallel()
 

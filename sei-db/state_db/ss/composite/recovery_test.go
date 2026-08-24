@@ -23,11 +23,11 @@ func newCompositeStateStoreWithStores(
 	evmStore types.StateStore,
 	ssConfig config.StateStoreConfig,
 ) *CompositeStateStore {
-	return &CompositeStateStore{
+	return &CompositeStateStore{compositeState: compositeState{
 		cosmosStore: cosmosStore,
 		evmStore:    evmStore,
 		config:      ssConfig,
-	}
+	}}
 }
 
 // TestEVMSSDirectoryCheck: populated Cosmos SS + missing/empty EVM SS dir must abort startup.
@@ -321,6 +321,50 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	val, err := compositeStore.evmStore.Get("evm", 10, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, []byte{10}, val)
+}
+
+func TestSplitRecoveryAdvancesEVMVersionWithoutEVMData(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_split_gap_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Backend = config.PebbleDBBackend
+	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
+	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
+	require.NoError(t, err)
+	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
+
+	changelogDir := filepath.Join(dir, "changelog")
+	walLog, err := wal.NewChangelogWAL(changelogDir, wal.Config{})
+	require.NoError(t, err)
+	for version := int64(1); version <= 3; version++ {
+		err := walLog.Write(proto.ChangelogEntry{
+			Version: version,
+			Changesets: []*proto.NamedChangeSet{{
+				Name: "bank",
+				Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{
+					Key: []byte("supply"), Value: []byte{byte(version)},
+				}}},
+			}},
+		})
+		require.NoError(t, err)
+	}
+	require.NoError(t, walLog.Close())
+
+	ssConfig.EVMSplit = true
+	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
+	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig)
+	require.NoError(t, err)
+	compositeStore := newCompositeStateStoreWithStores(cosmosStore, evmStore, ssConfig)
+	defer compositeStore.Close()
+
+	require.NoError(t, RecoverCompositeStateStore(changelogDir, compositeStore))
+	require.Equal(t, int64(3), compositeStore.evmStore.GetLatestVersion())
+
+	has, err := compositeStore.evmStore.Has(evm.EVMStoreKey, 3, evmStorageKey())
+	require.NoError(t, err)
+	require.False(t, has)
 }
 
 func TestExtractEVMChanges(t *testing.T) {

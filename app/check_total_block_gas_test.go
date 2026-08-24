@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -93,8 +92,8 @@ func buildSignedLegacyEVMTx(t *testing.T, a *App, nonce, gasWanted, gasEstimate 
 	return encodeDecodeTx(t, a, txb.GetTx())
 }
 
-// TestCheckTotalBlockGas_MultipleEVMUnderLimit covers the fast path where valid
-// single-message EVM txs skip IsTxGasless but still accumulate gas toward the block cap.
+// TestCheckTotalBlockGas_MultipleEVMUnderLimit verifies that multiple EVM transactions
+// accumulate gas toward the block cap.
 func TestCheckTotalBlockGas_MultipleEVMUnderLimit(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
@@ -134,9 +133,8 @@ func TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted(t *testing.T) {
 	require.True(t, a.checkTotalBlockGas(ctx, txs))
 }
 
-// TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes exercises txs that are not
-// EVM and not oracle/associate: couldBeGaslessTransaction is false so IsTxGasless is skipped.
-func TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes(t *testing.T) {
+// TestCheckTotalBlockGas_CosmosBankSend exercises Cosmos transaction gas accounting.
+func TestCheckTotalBlockGas_CosmosBankSend(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
 
@@ -156,10 +154,9 @@ func TestCheckTotalBlockGas_NilDecodedTx(t *testing.T) {
 	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{nil, evmTx}))
 }
 
-// TestCheckTotalBlockGas_AssociateTxIsGasless verifies that a MsgAssociate from an
-// unassociated address is excluded from block gas accounting. MaxGas is set below the
-// tx's gas limit so the test fails iff the tx is incorrectly counted.
-func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
+// TestCheckTotalBlockGas_AssociateTxCountsTowardLimit verifies that deprecated
+// MsgAssociate transactions are charged against the block gas limit.
+func TestCheckTotalBlockGas_AssociateTxCountsTowardLimit(t *testing.T) {
 	a := Setup(t, false, false, false)
 	ctx := newBlockGasCtx(t, a, 100, 1_000_000)
 
@@ -168,22 +165,16 @@ func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
 		CustomMessage: "test",
 	}
 	tx := buildCosmosTx(t, a, msg, 1_000) // 1_000 > MaxGas=100 if counted
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
 }
 
-// TestCheckTotalBlockGas_OracleVoteIsGasless verifies that a valid oracle aggregate vote
-// from a bonded validator with no prior vote is excluded from block gas accounting.
-func TestCheckTotalBlockGas_OracleVoteIsGasless(t *testing.T) {
+// TestCheckTotalBlockGas_OracleVoteCountsTowardLimit verifies that deprecated oracle
+// votes are charged against the block gas limit.
+func TestCheckTotalBlockGas_OracleVoteCountsTowardLimit(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	tw := NewTestWrapper(t, time.Now().UTC(), valPub, false)
 
-	// Promote the validator to Bonded so ValidateFeeder succeeds.
 	valAddr := sdk.ValAddress(valPub.Address())
-	val, found := tw.App.StakingKeeper.GetValidator(tw.Ctx, valAddr)
-	require.True(t, found)
-	tw.App.StakingKeeper.SetValidator(tw.Ctx, val.UpdateStatus(stakingtypes.Bonded))
-
-	// Self-feeder oracle vote; no prior aggregate vote exists in fresh state.
 	vote := &oracletypes.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
 		Feeder:        sdk.AccAddress(valAddr).String(),
@@ -192,5 +183,5 @@ func TestCheckTotalBlockGas_OracleVoteIsGasless(t *testing.T) {
 	tx := buildCosmosTx(t, tw.App, vote, 1_000) // 1_000 > MaxGas=100 if counted
 
 	ctx := tw.Ctx.WithConsensusParams(blockGasParams(100, 1_000_000))
-	require.True(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+	require.False(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
 }

@@ -43,6 +43,7 @@ type Context struct {
 	checkTx            bool
 	recheckTx          bool // if recheckTx == true, then checkTx must also be true
 	abciQuery          bool // true only for BaseApp.Query; never transaction/block execution
+	paginationLimits   PaginationLimits
 	isGenesis          bool
 	minGasPrice        DecCoins
 	consParams         *tmproto.ConsensusParams
@@ -137,6 +138,10 @@ func (c Context) IsReCheckTx() bool {
 
 func (c Context) IsABCIQuery() bool {
 	return c.abciQuery
+}
+
+func (c Context) PaginationLimits() PaginationLimits {
+	return c.paginationLimits
 }
 
 func (c Context) IsGenesis() bool {
@@ -392,6 +397,11 @@ func (c Context) WithIsReCheckTx(isRecheckTx bool) Context {
 
 func (c Context) WithIsABCIQuery(isABCIQuery bool) Context {
 	c.abciQuery = isABCIQuery
+	return c
+}
+
+func (c Context) WithPaginationLimits(limits PaginationLimits) Context {
+	c.paginationLimits = limits
 	return c
 }
 

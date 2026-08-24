@@ -50,13 +50,13 @@ type gigaRouterCommon struct {
 }
 
 // BuildDataState validates the common config, constructs the committee, and
-// returns an initialised data.State backed by blockDB.
+// returns an initialised data.State backed by blockStore.
 //
-// The caller owns blockDB: close it after giga.Run returns, or immediately if
+// The caller owns blockStore: close it after giga.Run returns, or immediately if
 // construction of the GigaRouter fails. data.State never closes it. nodeImpl
-// opens BlockDB in setup and closes after Run via SpawnCritical; tests that call
-// BuildDataState directly must open and Close blockDB themselves.
-func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.State, error) {
+// opens BlockStore in setup and closes after Run via SpawnCritical; tests that call
+// BuildDataState directly must open and Close blockStore themselves.
+func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -79,7 +79,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{Registry: registry}, blockDB)
+	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
@@ -117,7 +117,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
 		// (env.Block, evmrpc, ops tooling) get the same error type they
 		// already handle on the CometBFT path. base is None because the
-		// active lower bound lives in BlockDB's prune watermark (internal
+		// active lower bound lives in BlockStore's prune watermark (internal
 		// to the store); both call sites format through the same helper.
 		if errors.Is(err, atypes.ErrPruned) {
 			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
@@ -133,7 +133,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 // unknown hashes: returns &ResultBlock{Block: nil} with no error.
 //
 // The lookup delegates to data.State.GlobalBlockByHash: an in-memory hash
-// index first, then BlockDB for heights evicted after persist. Hashes not yet
+// index first, then BlockStore for heights evicted after persist. Hashes not yet
 // seen or below the prune watermark are read as "unknown". Wrong-size inputs
 // are rejected at the call site (env.BlockByHash) so this method can stay
 // strongly typed on atypes.BlockHeaderHash.
@@ -400,15 +400,15 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
 	} else {
-		// BuildDataState caps recovery at BlockDB's durable block tip, so a crash
-		// after app.Commit but before the BlockDB flush resumes by syncing the
+		// BuildDataState caps recovery at BlockStore's durable block tip, so a crash
+		// after app.Commit but before the BlockStore flush resumes by syncing the
 		// missing suffix. If retention instead passed the app tip, GlobalBlock
 		// returns ErrPruned here. A readable tip restores the last header and
 		// replays AppHash.
 		b, err := r.data.GlobalBlock(ctx, last)
 		if err != nil {
 			if errors.Is(err, atypes.ErrPruned) {
-				return fmt.Errorf("app tip %d is unavailable in BlockDB; restore matching BlockDB data or state-sync the node: %w", last, err)
+				return fmt.Errorf("app tip %d is unavailable in BlockStore; restore matching BlockStore data or state-sync the node: %w", last, err)
 			}
 			return fmt.Errorf("r.data.GlobalBlock(): %w", err)
 		}
