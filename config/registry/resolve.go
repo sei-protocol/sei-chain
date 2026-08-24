@@ -10,6 +10,15 @@ import (
 // Resolved is every declared key's value, plus what a caller has to be told about how it got there.
 type Resolved struct {
 	// Values carries one value per declared key.
+	//
+	// A key's Go type depends on which source answered it, and a caller that type-asserts has to expect
+	// all three. A default arrives as the field's own type, so a duration is a duration and a list is a
+	// list. A file arrives as whatever the file format decodes to, so the same duration is text and the
+	// same list is a list of untyped elements. An environment variable arrives as one string, always. This
+	// resolves values and does not convert them, so the reader that owns a key remains the thing that
+	// turns any of the three into what that key means.
+	//
+	// A value is the caller's to write into. Nothing here shares storage with a section's own default.
 	Values map[string]any
 	// Overrides are the declared keys something other than this node's defaults supplied, sorted.
 	//
@@ -264,9 +273,41 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 			}
 			continue
 		}
-		out[path] = fv.Interface()
+		out[path] = detach(fv)
 	}
 	return nil
+}
+
+// detach returns a field's value with nothing shared with the struct it came from.
+//
+// A section's default is usually a package-level variable, so a slice or a map field hands out the
+// backing array that variable holds. A caller sorting or de-duplicating a resolved list in place, which is
+// what a caller producing deterministic output does, would rewrite that variable for the whole process:
+// every later resolution, and every reader that copies the same struct. Two of the lists that reach here
+// are deny lists, so the rewrite is silent and it is a security control.
+//
+// Lookup already copies a section's keys for this reason. This is the same guarantee for its values.
+func detach(v reflect.Value) any {
+	switch v.Kind() {
+	case reflect.Slice:
+		if v.IsNil() {
+			return v.Interface()
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		reflect.Copy(out, v)
+		return out.Interface()
+	case reflect.Map:
+		if v.IsNil() {
+			return v.Interface()
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		for _, key := range v.MapKeys() {
+			out.SetMapIndex(key, v.MapIndex(key))
+		}
+		return out.Interface()
+	default:
+		return v.Interface()
+	}
 }
 
 // envValues reads the keys an environment supplies, from the caller's declared set.
