@@ -77,3 +77,9 @@ func (b *iterationBudget) begin(key []byte) (resumeKey []byte, stop bool) {
 func (b *iterationBudget) omitTotal() bool {
 	return b != nil && b.truncated
 }
+
+func (b *iterationBudget) offsetNotReachedError() error {
+	return status.Errorf(codes.InvalidArgument,
+		"scanned more than %d entries before reaching offset; use key-based pagination instead",
+		b.params.maxIterations)
+}

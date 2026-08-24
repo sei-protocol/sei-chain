@@ -53,6 +53,53 @@ func TestUntrustedQueryFlatIterationReturnsPartialPage(t *testing.T) {
 	require.NotNil(t, res.NextKey)
 }
 
+func TestUntrustedQueryRejectsBudgetExhaustBeforeOffsetFiltered(t *testing.T) {
+	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, 50))
+	store := prefix.NewStore(newTestKVStore(t), []byte("prop/"))
+
+	for i := 0; i < 1000; i++ {
+		store.Set([]byte(fmt.Sprintf("%04d", i)), []byte("v"))
+	}
+
+	_, err := query.FilteredPaginate(ctx, store, &query.PageRequest{Offset: 100, Limit: 10}, func(key, _ []byte, _ bool) (bool, error) {
+		n, err := strconv.Atoi(string(key))
+		return err == nil && n%2 == 0, nil
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "scanned more than 50 entries before reaching offset")
+}
+
+func TestUntrustedQueryRejectsBudgetExhaustBeforeOffsetUnfiltered(t *testing.T) {
+	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, 50))
+	store := newTestKVStore(t)
+
+	for i := 0; i < 200; i++ {
+		store.Set([]byte(fmt.Sprintf("%03d", i)), []byte("v"))
+	}
+
+	_, err := query.Paginate(ctx, store, &query.PageRequest{Offset: 100, Limit: 10}, func(_, _ []byte) error { return nil })
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "scanned more than 50 entries before reaching offset")
+}
+
+func TestUntrustedQueryPartialPageWhenBudgetExhaustDuringCollect(t *testing.T) {
+	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, 25))
+	store := newTestKVStore(t)
+
+	for i := 0; i < 100; i++ {
+		store.Set([]byte(fmt.Sprintf("%03d", i)), []byte("v"))
+	}
+
+	var count int
+	res, err := query.Paginate(ctx, store, &query.PageRequest{Offset: 10, Limit: 20}, func(_, _ []byte) error {
+		count++
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 15, count)
+	require.NotNil(t, res.NextKey)
+}
+
 func TestUntrustedQueryFlatIterationExactBudget(t *testing.T) {
 	ctx := sdk.Context{}.WithIsABCIQuery(true).WithPaginationLimits(sdk.UntrustedPaginationLimits(1000, 10_000, 10))
 	store := newTestKVStore(t)

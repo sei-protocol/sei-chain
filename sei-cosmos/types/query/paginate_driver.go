@@ -158,15 +158,18 @@ func (c *offsetScanCursor) phase() scanPhase {
 	}
 }
 
-func (c *offsetScanCursor) beginIteration(key []byte) (stop bool) {
+func (c *offsetScanCursor) beginIteration(key []byte) (stop bool, err error) {
 	if resumeKey, exhausted := c.budget.begin(key); exhausted {
+		if c.phase() == scanPhaseSkip {
+			return true, c.budget.offsetNotReachedError()
+		}
 		if c.nextKey == nil {
 			c.nextKey = resumeKey
 		}
-		return true
+		return true, nil
 	}
 	c.scanned++
-	return false
+	return false, nil
 }
 
 func (c *offsetScanCursor) accumulate() bool {
@@ -214,7 +217,9 @@ func runOffsetPathUnfiltered(
 
 loop:
 	for ; iterator.Valid(); iterator.Next() {
-		if cursor.beginIteration(iterator.Key()) {
+		if stop, err := cursor.beginIteration(iterator.Key()); err != nil {
+			return nil, err
+		} else if stop {
 			break
 		}
 
@@ -255,7 +260,9 @@ func runOffsetPathFiltered(
 	cursor := newOffsetScanCursor(req, budget, true)
 
 	for ; iterator.Valid(); iterator.Next() {
-		if cursor.beginIteration(iterator.Key()) {
+		if stop, err := cursor.beginIteration(iterator.Key()); err != nil {
+			return nil, err
+		} else if stop {
 			break
 		}
 
