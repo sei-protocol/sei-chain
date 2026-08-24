@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // This file contains the messages that can be sent to the block hasher's goroutine.
@@ -36,14 +38,73 @@ type hashRequest struct {
 	// started, or nil outside replay. It travels with the request because finalization consults it per
 	// database, and by the time this is hashed the store has moved on.
 	alreadyHave map[string]int64
+
+	// oldValues is the read of the values this block replaced, started when the hasher pulled the block
+	// into its look-ahead window. Nil for a block the hasher reached without reading ahead, which reads
+	// inline instead.
+	oldValues *pendingOldValues
 }
 
-// release hands back every reservation this request holds, for both blocks, so the databases can resume
-// writing out later blocks.
+// pendingOldValues is an in-progress or completed read of the values one block replaced.
+type pendingOldValues struct {
+	// done is closed once changed and err are set.
+	done chan struct{}
+
+	// changed is every key the block changed with the value it replaced, one entry per data store. Valid
+	// only once done is closed.
+	changed []lthash.DBPairs
+
+	// err is the read's failure. Valid only once done is closed.
+	err error
+}
+
+// await blocks until the read completes and reports its result.
+func (p *pendingOldValues) await() ([]lthash.DBPairs, error) {
+	<-p.done
+	return p.changed, p.err
+}
+
+// awaitOldValues reports the values this block replaced, reading them now if none was started ahead of time.
+func (r *hashRequest) awaitOldValues(pool threading.Pool) ([]lthash.DBPairs, error) {
+	if r.oldValues == nil {
+		return changedValuesByStore(pool, r.current, r.previous)
+	}
+	return r.oldValues.await()
+}
+
+// releasePrevious hands back the preceding block's reservations, which are needed only for the old-value
+// read. Called as soon as that read finishes, so the databases resume flushing while this block waits its
+// turn to be folded rather than after it.
+//
+// Idempotent: it clears previous, and release covers whatever is left.
+func (r *hashRequest) releasePrevious() error {
+	previous := r.previous
+	r.previous = nil
+
+	var errs []error
+	for name, snap := range previous {
+		if err := snap.Release(); err != nil {
+			errs = append(errs, fmt.Errorf("release previous %s snapshot at version %d: %w",
+				name, r.version, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// release hands back every reservation this request still holds, so the databases can resume writing out
+// later blocks.
 //
 // Every reservation is handed back even if one of them fails, because a reservation left held stalls its
 // database's flushes indefinitely. The failures are joined and returned.
 func (r *hashRequest) release() error {
+	// A read started ahead of time reads through these snapshots and hands the preceding block's back
+	// itself, so it has to finish before this decides what is left. Awaiting here rather than at each
+	// caller is what stops a path that abandons a block without hashing it from releasing snapshots out
+	// from under a read that is still running.
+	if r.oldValues != nil {
+		_, _ = r.oldValues.await()
+	}
+
 	var errs []error
 	for label, snapshots := range map[string]map[string]snapshot.Snapshot{
 		"current": r.current, "previous": r.previous,

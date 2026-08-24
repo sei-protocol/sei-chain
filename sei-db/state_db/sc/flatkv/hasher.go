@@ -295,31 +295,118 @@ func (h *blockHasher) enqueue(message hasherMessage) error {
 }
 
 // run drains the queue until the hasher is stopped or a block fails to hash.
+//
+// Blocks are pulled off the queue before they are folded so each one's old-value read runs while the blocks
+// ahead of it are still being folded. Folding order is unchanged: strictly the order they arrived.
 func (h *blockHasher) run() {
 	defer close(h.exited)
 
+	var window []any
+
 	for {
-		select {
-		case <-h.ctx.Done():
-			h.finishQueued()
-			return
-		case message := <-h.messages:
-			err := h.dispatch(message)
-			if errors.Is(err, ErrBlockHasherClosed) {
-				// Stopped part way through a message rather than failing. The block was finalized
-				// and its reservations handed back before this point, so only the published hash is
-				// lost, and whoever would have read it is why the hasher is stopping.
+		window = h.fillWindow(window)
+
+		if len(window) == 0 {
+			select {
+			case <-h.ctx.Done():
 				h.finishQueued()
 				return
+			case message := <-h.messages:
+				window = append(window, h.readAhead(message))
 			}
-			if err != nil {
-				h.brick(err)
-				// The accumulator now describes nothing that can be trusted, so no further block
-				// may have metadata written from it. What is queued is discarded instead.
-				h.discardQueued()
-				return
-			}
+			continue
 		}
+
+		// Cleared before advancing: reslicing leaves the entry reachable through the backing array, and a
+		// dispatched request holds snapshots that have already been handed back.
+		message := window[0]
+		window[0] = nil
+		window = window[1:]
+
+		err := h.dispatch(message)
+		if errors.Is(err, ErrBlockHasherClosed) {
+			// Stopped part way through a message rather than failing. The block was finalized
+			// and its reservations handed back before this point, so only the published hash is
+			// lost, and whoever would have read it is why the hasher is stopping.
+			h.finishWindow(window)
+			h.finishQueued()
+			return
+		}
+		if err != nil {
+			h.brick(err)
+			// The accumulator now describes nothing that can be trusted, so no further block
+			// may have metadata written from it. What is queued is discarded instead.
+			h.discardWindow(window)
+			h.discardQueued()
+			return
+		}
+	}
+}
+
+// fillWindow moves everything already queued into the look-ahead window, starting each block's old-value
+// read as it goes.
+//
+// The window is deliberately unbounded: it is bounded by the queue, and pulling a block in strictly reduces
+// what the pipeline holds. A queued block pins the preceding block's snapshots, which stops every database's
+// flush frontier and so keeps that block's diffs resident anyway. Reading it turns a reservation plus the
+// resident diff into just the values read, and lets the databases start writing again.
+func (h *blockHasher) fillWindow(window []any) []any {
+	for {
+		select {
+		case message := <-h.messages:
+			window = append(window, h.readAhead(message))
+		default:
+			return window
+		}
+	}
+}
+
+// readAhead starts the old-value read of a block entering the look-ahead window, and passes any other
+// message through untouched.
+//
+// Best-effort by design: a block the hasher reaches without one reads inline instead, which is what lets
+// every shutdown path stay correct without knowing that read-ahead exists.
+func (h *blockHasher) readAhead(message any) any {
+	request, ok := message.(*hashRequest)
+	if !ok {
+		return message
+	}
+	pending := &pendingOldValues{done: make(chan struct{})}
+	request.oldValues = pending
+	h.miscPool.Submit(func() {
+		defer close(pending.done)
+		pending.changed, pending.err = changedValuesByStore(h.miscPool, request.current, request.previous)
+
+		// Handed back even when the read failed: a reservation left held stalls its database's flushes
+		// indefinitely, and the read's own failure is reported either way.
+		releaseErr := request.releasePrevious()
+		if pending.err == nil {
+			pending.err = releaseErr
+		}
+	})
+	return message
+}
+
+// finishWindow deals with the blocks already pulled into the look-ahead window when the hasher stopped.
+//
+// Same reasoning as finishQueued: a block that was accepted has to be finalized, because its rows are already
+// on disk and dropping it would leave the store's bookkeeping describing an earlier block.
+func (h *blockHasher) finishWindow(window []any) {
+	for i, message := range window {
+		err := h.dispatch(message)
+		if err == nil || errors.Is(err, ErrBlockHasherClosed) {
+			continue
+		}
+		h.brick(err)
+		h.discardWindow(window[i+1:])
+		return
+	}
+}
+
+// discardWindow abandons every message left in the look-ahead window.
+func (h *blockHasher) discardWindow(window []any) {
+	for _, message := range window {
+		h.discardMessage(message)
 	}
 }
 
@@ -392,11 +479,18 @@ func (h *blockHasher) hash(request *hashRequest) (err error) {
 		}
 	}()
 
-	changed, err := changedValuesByStore(h.miscPool, request.current, request.previous)
+	readStart := time.Now()
+	changed, err := request.awaitOldValues(h.miscPool)
+	otelMetrics.HashReadOldValuesLatency.Record(h.ctx, secondsSince(readStart),
+		metric.WithAttributes(successAttr(err)))
 	if err != nil {
 		return fmt.Errorf("gather changed values: %w", err)
 	}
+
+	foldStart := time.Now()
 	result, err := h.ltCalc.Compute(changed, h.perDBLtHash, h.perDBModuleLtHash, h.perDBModuleStats)
+	otelMetrics.HashFoldLatency.Record(h.ctx, secondsSince(foldStart),
+		metric.WithAttributes(successAttr(err)))
 	if err != nil {
 		return fmt.Errorf("compute lt hash: %w", err)
 	}
@@ -491,19 +585,25 @@ func (h *blockHasher) discardQueued() {
 	for {
 		select {
 		case message := <-h.messages:
-			switch request := message.(type) {
-			case *hashRequest:
-				h.discard(request)
-			case *hashFlushRequest:
-				request.responseChan <- struct{}{}
-			case *hasherSeedRequest:
-				request.responseChan <- h.seed()
-			case *hasherReseedRequest:
-				request.responseChan <- struct{}{}
-			}
+			h.discardMessage(message)
 		default:
 			return
 		}
+	}
+}
+
+// discardMessage abandons one message without acting on it, answering anything waiting on a response so its
+// caller is not left blocked.
+func (h *blockHasher) discardMessage(message any) {
+	switch request := message.(type) {
+	case *hashRequest:
+		h.discard(request)
+	case *hashFlushRequest:
+		request.responseChan <- struct{}{}
+	case *hasherSeedRequest:
+		request.responseChan <- h.seed()
+	case *hasherReseedRequest:
+		request.responseChan <- struct{}{}
 	}
 }
 

@@ -33,6 +33,8 @@ var (
 		SnapshotPruneAttempts     metric.Int64Counter
 		CurrentSnapshotHeight     metric.Int64Gauge
 		BlockHashLatency          metric.Float64Histogram
+		HashReadOldValuesLatency  metric.Float64Histogram
+		HashFoldLatency           metric.Float64Histogram
 		CurrentHashedHeight       metric.Int64Gauge
 		HashQueueDepth            metric.Int64Gauge
 		RollbackLatency           metric.Float64Histogram
@@ -135,6 +137,20 @@ var (
 		BlockHashLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_block_hash_latency",
 			metric.WithDescription("Time taken to compute one block's FlatKV lattice hash"),
+			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+		)),
+		HashReadOldValuesLatency: must(flatkvMeter.Float64Histogram(
+			"flatkv_hash_read_old_values_latency",
+			metric.WithDescription(
+				"Time the block hasher spends reading the values a block replaced, per block"),
+			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
+		)),
+		HashFoldLatency: must(flatkvMeter.Float64Histogram(
+			"flatkv_hash_fold_latency",
+			metric.WithDescription(
+				"Time the block hasher spends folding leaf hashes into the lattice hash, per block"),
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 		)),
