@@ -5,8 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
@@ -29,15 +27,14 @@ import (
 )
 
 type BeginBlockKeepers struct {
-	EpochKeeper      *epochmodulekeeper.Keeper
-	UpgradeKeeper    *upgradekeeper.Keeper
-	CapabilityKeeper *capabilitykeeper.Keeper
-	DistrKeeper      *distrkeeper.Keeper
-	SlashingKeeper   *slashingkeeper.Keeper
-	EvidenceKeeper   *evidencekeeper.Keeper
-	StakingKeeper    *stakingkeeper.Keeper
-	IBCKeeper        *ibckeeper.Keeper
-	EvmKeeper        *evmkeeper.Keeper
+	EpochKeeper    *epochmodulekeeper.Keeper
+	UpgradeKeeper  *upgradekeeper.Keeper
+	DistrKeeper    *distrkeeper.Keeper
+	SlashingKeeper *slashingkeeper.Keeper
+	EvidenceKeeper *evidencekeeper.Keeper
+	StakingKeeper  *stakingkeeper.Keeper
+	IBCKeeper      *ibckeeper.Keeper
+	EvmKeeper      *evmkeeper.Keeper
 }
 
 func BeginBlock(
@@ -56,7 +53,6 @@ func BeginBlock(
 
 	keepers.EpochKeeper.BeginBlock(ctx)
 	upgrade.BeginBlocker(*keepers.UpgradeKeeper, ctx)
-	capability.BeginBlocker(ctx, *keepers.CapabilityKeeper)
 	distribution.BeginBlocker(ctx, votes, *keepers.DistrKeeper)
 	slashing.BeginBlocker(ctx, votes, *keepers.SlashingKeeper)
 	evidence.BeginBlocker(ctx, byzantineValidators, *keepers.EvidenceKeeper)
