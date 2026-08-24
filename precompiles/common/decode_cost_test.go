@@ -114,6 +114,56 @@ func TestDecodeStringCopyBytes_Aliased(t *testing.T) {
 	}
 }
 
+func TestDecodeStringCopyBytes_AliasedVoteWeighted(t *testing.T) {
+	const (
+		k = uint64(18432)
+		s = uint64(602592)
+	)
+	args := abi.Arguments{
+		{Type: mustABIType(t, "uint64", nil)},
+		{Type: mustABIType(t, "tuple[]", []abi.ArgumentMarshaling{
+			{Name: "option", Type: "int32"},
+			{Name: "weight", Type: "string"},
+		})},
+	}
+	data := newAliasedVoteWeightedArgs(k, s)
+
+	n, ok := decodeStringCopyBytes(args, data)
+	require.True(t, ok)
+	require.Equal(t, k*s, n)
+
+	// DecodeGasCost must price the amplified copy volume, not just len(input).
+	input := append([]byte{0x59, 0x63, 0x4a, 0x88}, data...)
+	gas, ok := DecodeGasCost(args, input)
+	require.True(t, ok)
+	base := DefaultGasCost(input, false)
+	require.Equal(t, satAdd(base, satMul(storetypes.KVGasConfig().ReadCostPerByte, k*s)), gas)
+	require.Greater(t, gas, uint64(12_500_000))
+	require.Less(t, uint64(len(input)), uint64(2<<20)) // compact calldata, ~1.2MiB
+}
+
+// newAliasedVoteWeightedArgs builds non-canonical voteWeighted argument
+// bytes: k dynamic-tuple offsets all point at one shared (option, weight) body
+// whose weight string has length s. Calldata stays O(k+s); decoded copy volume
+// is O(k*s).
+func newAliasedVoteWeightedArgs(k, s uint64) []byte {
+	tupleRel := 32 * k // offset within the array payload (after the length word)
+	arrayPayload := make([]byte, 0, int(32*k+64+s))
+	for range k {
+		arrayPayload = append(arrayPayload, abiWord(tupleRel)...)
+	}
+	// Shared dynamic tuple: word0 = s (option / string length via offset 0),
+	// word1 = 0 (string offset), then s payload bytes starting at tuple+32.
+	arrayPayload = append(arrayPayload, abiWord(s)...)
+	arrayPayload = append(arrayPayload, abiWord(0)...)
+	arrayPayload = append(arrayPayload, make([]byte, s)...)
+
+	data := append(abiWord(1), abiWord(64)...) // proposalID, options offset
+	data = append(data, abiWord(k)...)
+	data = append(data, arrayPayload...)
+	return data
+}
+
 func TestDecodeStringCopyBytes_Malformed(t *testing.T) {
 	// A string[] header claiming an offset past the end of the buffer must not
 	// be scanned as if valid.

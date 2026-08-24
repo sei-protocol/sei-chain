@@ -131,8 +131,11 @@ type PageResponse struct {
 	// next_key is the key to be passed to PageRequest.key to
 	// query the next page most efficiently
 	NextKey []byte `protobuf:"bytes,1,opt,name=next_key,json=nextKey,proto3" json:"next_key,omitempty"`
-	// total is total number of results available if PageRequest.count_total
-	// was set, its value is undefined otherwise
+	// total is the number of matching results when PageRequest.count_total was set
+	// and the scan finished without hitting a pagination limit. When an iteration
+	// budget truncates the scan, total is omitted (0) even with count_total set;
+	// resume with next_key. A non-nil next_key with total 0 and count_total set
+	// means the total is unknown, not zero results.
 	Total uint64 `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
 }
 

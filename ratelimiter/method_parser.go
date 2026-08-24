@@ -46,10 +46,10 @@ type MethodParser struct {
 }
 
 // NewMethodParser returns a MethodParser that accepts request bodies of at most
-// maxProbeBytes bytes. Non-positive values use DefaultMaxProbeBytes.
+// maxProbeBytes bytes. Non-positive values mean unlimited (no parser-imposed cap).
 func NewMethodParser(maxProbeBytes int64) *MethodParser {
 	if maxProbeBytes <= 0 {
-		maxProbeBytes = DefaultMaxProbeBytes
+		maxProbeBytes = 0
 	}
 	if maxProbeBytes == math.MaxInt64 {
 		// Prevent overflow when constructing the LimitedReader budget (+1).
@@ -65,11 +65,18 @@ func NewMethodParser(maxProbeBytes int64) *MethodParser {
 // Fail-closed contract: callers must reject on every returned error, including
 // ErrProbeLimit. See the package doc for HTTP/RPC mapping guidance.
 func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err error) {
+	if p.maxProbeBytes <= 0 {
+		dec := json.NewDecoder(r)
+		return parseMethods(dec, nil)
+	}
 	// N is maxProbeBytes+1 so that lr.N reaching 0 unambiguously means the body
 	// exceeded the budget.
 	lr := &io.LimitedReader{R: r, N: p.maxProbeBytes + 1}
 	dec := json.NewDecoder(lr)
+	return parseMethods(dec, lr)
+}
 
+func parseMethods(dec *json.Decoder, lr *io.LimitedReader) (methods []string, batch bool, err error) {
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, false, classifyErr(err, lr)
@@ -108,7 +115,7 @@ func (p *MethodParser) Parse(r io.Reader) (methods []string, batch bool, err err
 // trailing non-whitespace data.
 func expectEOF(dec *json.Decoder, lr *io.LimitedReader) error {
 	if _, err := dec.Token(); err != nil {
-		if errors.Is(err, io.EOF) && lr.N > 0 {
+		if errors.Is(err, io.EOF) && (lr == nil || lr.N > 0) {
 			return nil
 		}
 		return err
@@ -211,7 +218,7 @@ func classifyErr(err error, lr *io.LimitedReader) error {
 	if err == nil {
 		return nil
 	}
-	if (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && lr.N <= 0 {
+	if lr != nil && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) && lr.N <= 0 {
 		return ErrProbeLimit
 	}
 	if errors.Is(err, ErrNoMethod) || errors.Is(err, ErrMethodNotString) ||

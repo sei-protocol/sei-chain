@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -1539,6 +1540,27 @@ func (suite *IntegrationTestSuite) TestUndelegateCoins_Invalid() {
 	app.AccountKeeper.SetAccount(ctx, acc)
 
 	suite.Require().Error(app.BankKeeper.UndelegateCoins(ctx, addrModule, addr1, delCoins))
+}
+
+func (suite *IntegrationTestSuite) TestUndelegateCoins_InvalidRecipientIsAtomic() {
+	app, ctx := suite.app, suite.ctx
+	moduleAddr := sdk.AccAddress([]byte("moduleAcc___________"))
+	delegatorAddr := sdk.AccAddress([]byte("delegator___________"))
+	amount := sdk.NewCoins(sdk.NewInt64Coin("usei", 50))
+
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, moduleAddr))
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, delegatorAddr))
+	suite.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, moduleAddr, amount))
+	app.BankKeeper.RegisterRecipientChecker(func(_ sdk.Context, recipient sdk.AccAddress) bool {
+		return !recipient.Equals(delegatorAddr)
+	})
+
+	moduleBalanceBefore := app.BankKeeper.GetAllBalances(ctx, moduleAddr)
+	delegatorBalanceBefore := app.BankKeeper.GetAllBalances(ctx, delegatorAddr)
+	err := app.BankKeeper.UndelegateCoins(ctx, moduleAddr, delegatorAddr, amount)
+	suite.Require().ErrorIs(err, sdkerrors.ErrInvalidRecipient)
+	suite.Require().Equal(moduleBalanceBefore, app.BankKeeper.GetAllBalances(ctx, moduleAddr))
+	suite.Require().Equal(delegatorBalanceBefore, app.BankKeeper.GetAllBalances(ctx, delegatorAddr))
 }
 
 func (suite *IntegrationTestSuite) TestSetDenomMetaData() {

@@ -5,9 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
+
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/management/gc"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
@@ -15,7 +16,7 @@ import (
 // The GC surface reads the snapshot directory and two plain fields, so most of it can be exercised
 // without opening the five PebbleDBs a real store carries. Only the tests that assert against
 // snapshots WriteSnapshot produced, or against a concurrent committer, pay for a live store.
-func gcStore(t *testing.T, dir string) (*CommitStore, gc.PrunableStore) {
+func gcStore(t *testing.T, dir string) (*CommitStore, controller.PrunableStore) {
 	t.Helper()
 	s := &CommitStore{config: config.Config{DataDir: dir}}
 	return s, s
@@ -23,7 +24,7 @@ func gcStore(t *testing.T, dir string) (*CommitStore, gc.PrunableStore) {
 
 // gcStoreAtHead is gcStore with a committed head. The head is what the rollback window is resolved
 // against, so a test that wants a particular depth sets one rather than passing a height in.
-func gcStoreAtHead(t *testing.T, dir string, head int64) (*CommitStore, gc.PrunableStore) {
+func gcStoreAtHead(t *testing.T, dir string, head int64) (*CommitStore, controller.PrunableStore) {
 	t.Helper()
 	s, store := gcStore(t, dir)
 	s.committedVersion = head
@@ -444,7 +445,7 @@ func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 	// A fresh store starts at the initial snapshot; the interval adds one every other block.
 	require.Equal(t, []int64{0, 2, 4, 6}, snapshotVersions(t, cfg.DataDir))
 
-	store, ok := any(s).(gc.PrunableStore)
+	store, ok := any(s).(controller.PrunableStore)
 	require.True(t, ok, "a FlatKV commit store must satisfy gc.PrunableStore")
 
 	latest, err := store.GetLatestBlock()
@@ -483,7 +484,7 @@ func TestGCConcurrentWithCommitter(t *testing.T) {
 	require.NoError(t, s.LoadLatest())
 	defer func() { require.NoError(t, s.Close()) }()
 
-	store := gc.PrunableStore(s)
+	store := controller.PrunableStore(s)
 
 	const blocks = 30
 	done := make(chan struct{})

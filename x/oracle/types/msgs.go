@@ -30,7 +30,7 @@ func NewMsgAggregateExchangeRateVote(exchangeRates string, feeder sdk.AccAddress
 }
 
 // Route implements sdk.Msg
-func (msg MsgAggregateExchangeRateVote) Route() string { return RouterKey }
+func (msg MsgAggregateExchangeRateVote) Route() string { return ModuleName }
 
 // Type implements sdk.Msg
 func (msg MsgAggregateExchangeRateVote) Type() string { return TypeMsgAggregateExchangeRateVote }
@@ -91,7 +91,7 @@ func NewMsgDelegateFeedConsent(operatorAddress sdk.ValAddress, feederAddress sdk
 }
 
 // Route implements sdk.Msg
-func (msg MsgDelegateFeedConsent) Route() string { return RouterKey }
+func (msg MsgDelegateFeedConsent) Route() string { return ModuleName }
 
 // Type implements sdk.Msg
 func (msg MsgDelegateFeedConsent) Type() string { return TypeMsgDelegateFeedConsent }

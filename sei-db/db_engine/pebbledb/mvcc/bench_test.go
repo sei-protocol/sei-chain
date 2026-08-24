@@ -1,11 +1,12 @@
 package mvcc
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
+	sstest "github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
 )
 
 func BenchmarkDBBackend(b *testing.B) {
