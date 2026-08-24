@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 
@@ -147,6 +148,79 @@ func flatten(prefix string, in map[string]any, out map[string]any) {
 		}
 		out[path] = value
 	}
+}
+
+// DescribeForTest reads what a node's configuration holds for each key, as text.
+//
+// Exported for the test that measures the two generators against each other, which lives beside the boot
+// because only a boot produces a generated file.
+func DescribeForTest(cfg *tmcfg.Config, keys []string) map[string]string { return describe(cfg, keys) }
+
+// refuseBareNumbersForDurations reports the keys written as a plain number where the field is a length of
+// time, with what an operator should have written.
+//
+// The file format has no way to say how long something is, so a length of time is written as text with a
+// unit. A plain number is accepted by the decoder and read as nanoseconds, which is the shortest unit there
+// is: sixty means sixty billionths of a second, the node starts, and the setting is off by a factor of a
+// billion. Nothing later objects, because the value decoded cleanly.
+//
+// So the delivery refuses it and says what to write instead. This is the one place the check can happen: the
+// resolution sees a number and a key, and only the struct says the key is a length of time.
+func refuseBareNumbersForDurations(cfg *tmcfg.Config, values map[string]any) []string {
+	durations := durationKeys(reflect.TypeOf(*cfg), "")
+	var bad []string
+	for key, value := range values {
+		if !durations[key] {
+			continue
+		}
+		switch value.(type) {
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+			bad = append(bad, fmt.Sprintf("%s = %v (write a unit, as \"%vs\")", key, value, value))
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// durationKeys returns the dotted keys whose field is a length of time.
+func durationKeys(t reflect.Type, prefix string) map[string]bool {
+	out := map[string]bool{}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue
+		}
+		tag, ok := f.Tag.Lookup("mapstructure")
+		if !ok {
+			continue
+		}
+		name := strings.Split(tag, ",")[0]
+		squash := strings.Contains(tag, ",squash")
+		ft := f.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		path := name
+		if prefix != "" && name != "" {
+			path = prefix + "." + name
+		}
+		if squash {
+			for key := range durationKeys(ft, prefix) {
+				out[key] = true
+			}
+			continue
+		}
+		if ft == reflect.TypeOf(time.Duration(0)) {
+			out[path] = true
+			continue
+		}
+		if ft.Kind() == reflect.Struct {
+			for key := range durationKeys(ft, path) {
+				out[key] = true
+			}
+		}
+	}
+	return out
 }
 
 // referencePathsIn returns every path in a type that a copy has to detach, for the test that holds

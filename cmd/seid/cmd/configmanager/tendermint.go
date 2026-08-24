@@ -59,6 +59,15 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 		source.Set(key, value)
 	}
 
+	// Refused before the decode, because a plain number where a length of time belongs decodes cleanly
+	// and means nanoseconds. Nothing after this can tell that apart from a value somebody meant.
+	if bad := refuseBareNumbersForDurations(ctx.Config, values); len(bad) > 0 {
+		log.Error("a length of time in this section is written as a plain number, which reads as "+
+			"nanoseconds; none of the section is applied and every one of its keys reads as it always has",
+			"section", name, "written", strings.Join(bad, "; "))
+		return
+	}
+
 	candidate, err := copyNodeConfig(ctx.Config)
 	if err != nil {
 		log.Error("cannot copy this node's configuration, so nothing can be delivered into it without "+

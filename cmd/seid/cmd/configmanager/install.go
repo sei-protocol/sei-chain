@@ -167,11 +167,20 @@ func readSeiToml(cmd *cobra.Command, log *slog.Logger) (*seitoml.File, bool) {
 		log.Warn("cannot resolve the home directory; every key reads as it always has", "err", err)
 		return nil, false
 	}
-	path := filepath.Join(home, "config", seiTomlName)
+	file, ok := readSeiTomlAt(home)
+	if !ok {
+		log.Debug("no readable sei.toml; every key reads as it always has", "home", home)
+	}
+	return file, ok
+}
 
-	file, err := seitoml.Load(path)
+// readSeiTomlAt loads the sei.toml under a home directory.
+//
+// Separate from the reporting, so the check command can ask the same question without a logger and get the
+// same answer for the same file.
+func readSeiTomlAt(home string) (*seitoml.File, bool) {
+	file, err := seitoml.Load(filepath.Join(home, "config", seiTomlName))
 	if err != nil {
-		log.Debug("no readable sei.toml; every key reads as it always has", "path", path, "err", err)
 		return nil, false
 	}
 	return file, true
@@ -218,14 +227,37 @@ func TypedFlags(cmd *cobra.Command) map[string]string {
 	return out
 }
 
-// flagValues renders a snapshot of typed flags as a configuration source.
+// flagValues renders a snapshot of typed flags as a configuration source, under the keys the sections
+// declare.
+//
+// A flag's name and the key it carries are not always spelled the same. The node's own flags separate words
+// with an underscore where the tag they decode through uses a hyphen, so a flag named for a declared key is
+// not equal to it, and comparing the two by string leaves an operator's typed flag looking like a name
+// nothing declares. It is then dropped, and the file wins over the command line: the one channel somebody
+// reaches for during an incident is the one that loses.
+//
+// Matched through the environment spelling, where a dot and a hyphen and an underscore are all the same
+// character. That is an equivalence the registry already refuses to let two declared keys share, so a flag
+// matches at most one key and no ambiguity is possible here.
+//
+// A flag matching no declared key is left under its own name. Most of the flags a node starts with were
+// never configuration keys, and the resolution reports the unmatched ones from the file alone.
 func flagValues(typed map[string]string) map[string]any {
 	if len(typed) == 0 {
 		return nil
 	}
+	byEnvName := map[string]string{}
+	for _, key := range registry.Keys() {
+		byEnvName[registry.EnvName(key)] = key
+	}
+
 	out := make(map[string]any, len(typed))
 	for name, value := range typed {
-		out[name] = value
+		key := name
+		if declared, ok := byEnvName[registry.EnvName(name)]; ok {
+			key = declared
+		}
+		out[key] = value
 	}
 	return out
 }

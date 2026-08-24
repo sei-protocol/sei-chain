@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel/sdk/trace"
 
@@ -180,4 +181,79 @@ func TestTheDeliveryLeavesTheRootDirectoryAlone(t *testing.T) {
 		t.Error("the signing key's root directory is empty after the delivery. A node that cannot find " +
 			"its key does not sign")
 	}
+}
+
+// TestATypedFlagReachesTheKeyItCarries covers the one channel an operator reaches for under pressure.
+//
+// A flag's name and the key it carries are not always spelled the same: the node's own flags separate words
+// with an underscore where the tag they decode through uses a hyphen. Compared as strings such a flag looks
+// like a name nothing declares, so it is dropped, and the file wins over the command line.
+//
+// Driven with the file and the flag disagreeing, and read off the struct the node runs from, because this
+// key belongs to a section delivered by a decode.
+func TestATypedFlagReachesTheKeyItCarries(t *testing.T) {
+	const key = "p2p.unconditional-peer-ids"
+	const flag = "p2p.unconditional_peer_ids"
+	configtest.Isolate(t)
+
+	home := configtest.NewHome(t)
+	dir := filepath.Join(home.Root, "config")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmcfg.WriteConfigFile(home.Root, tmcfg.DefaultConfig()); err != nil {
+		t.Fatalf("render the node's configuration file: %v", err)
+	}
+	body := nodeFileHeader + "\n[p2p]\nunconditional-peer-ids = \"from-the-file\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "sei.toml"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write sei.toml: %v", err)
+	}
+
+	cmd := server.StartCmd(nil, home.Root, []trace.TracerProviderOption{})
+	if err := cmd.Flags().Set("home", home.Root); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Flags().Set(flag, "from-the-command-line"); err != nil {
+		t.Skipf("--%s is not on this command, so nothing here can carry the key: %v", flag, err)
+	}
+	ctx, err := runManager(t, configmanager.SeiConfigManager{}, cmd)
+	if err != nil {
+		t.Fatalf("the boot was refused: %v", err)
+	}
+
+	if got := ctx.Config.P2P.UnconditionalPeerIDs; got != "from-the-command-line" {
+		t.Errorf("the node runs %q with --%s typed and a different value in the file, want the typed "+
+			"one. The flag's name and the key it carries are spelled differently, so comparing them as "+
+			"strings drops the flag and the file wins over the command line", got, flag)
+	}
+}
+
+// TestALengthOfTimeWrittenAsAPlainNumberIsRefused covers a value that decodes cleanly and is wrong by a
+// factor of a billion.
+//
+// The file format has no way to say how long something is, so a length of time is written as text with a
+// unit. A plain number decodes as nanoseconds, the shortest unit there is, so sixty means sixty billionths
+// of a second and the node starts. Nothing later objects, because nothing later can tell.
+func TestALengthOfTimeWrittenAsAPlainNumberIsRefused(t *testing.T) {
+	configtest.Isolate(t)
+	was := tmcfg.DefaultConfig().Mempool.TTLDuration
+
+	t.Run("a plain number is refused and the section is left alone", func(t *testing.T) {
+		ctx := bootWithNodeFile(t, nodeFileHeader+"\n[mempool]\nttl-duration = 60\nsize = 4321\n", nil)
+		if got := ctx.Config.Mempool.TTLDuration; got != was {
+			t.Errorf("the node runs a time-to-live of %v after a plain 60 was written, want the %v it "+
+				"had. Sixty read as nanoseconds is sixty billionths of a second", got, was)
+		}
+		if got := ctx.Config.Mempool.Size; got == 4321 {
+			t.Error("the value beside the refused one was applied, so the section was published in part")
+		}
+	})
+
+	t.Run("the same number with a unit is applied", func(t *testing.T) {
+		ctx := bootWithNodeFile(t, nodeFileHeader+"\n[mempool]\nttl-duration = \"60s\"\n", nil)
+		if got := ctx.Config.Mempool.TTLDuration; got != 60*time.Second {
+			t.Errorf("the node runs %v with \"60s\" written, want 60s. Refusing a plain number must not "+
+				"refuse the written form an operator is being asked for", got)
+		}
+	})
 }
