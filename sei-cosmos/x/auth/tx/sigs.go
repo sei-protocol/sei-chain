@@ -91,7 +91,7 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 		}, nil
 
 	default:
-		panic(fmt.Errorf("unexpected ModeInfo data type %T", modeInfo))
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrTxDecode, "unexpected ModeInfo data type %T", modeInfo)
 	}
 }
 

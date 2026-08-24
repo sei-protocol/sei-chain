@@ -97,4 +97,8 @@ func TestModeInfoAndSigToSignatureData(t *testing.T) {
 	}}
 	_, err = ModeInfoAndSigToSignatureData(nestedBad, rawNested)
 	require.ErrorIs(t, err, sdkerrors.ErrTxDecode)
+
+	// non-nil ModeInfo with unset Sum oneof must error (not panic)
+	_, err = ModeInfoAndSigToSignatureData(&txtypes.ModeInfo{}, []byte("a"))
+	require.ErrorIs(t, err, sdkerrors.ErrTxDecode)
 }
