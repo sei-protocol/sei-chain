@@ -1,6 +1,8 @@
 package snapshot
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -141,4 +143,82 @@ func TestShardConcurrentReadsCollapseToOneDBRead(t *testing.T) {
 		require.Equal(t, "v", string(r.val))
 	}
 	require.Equal(t, int64(1), db.getCalls.Load(), "concurrent Gets must collapse to one DB read")
+}
+
+// DropVersions releases the shard lock part way through migrating a retired version's keys, so a read
+// arriving mid-migration can find a key already gone from the versioned data. It must still get the
+// right value, whether it comes from the cache the key was moved into or from the database it was
+// flushed to.
+//
+// The key count is deliberately several times dropChunkSize, so the migration hands the lock over many
+// times while the readers are running.
+func TestShardDropVersionsServesCorrectValuesDuringMigration(t *testing.T) {
+	const keyCount = dropChunkSize * 4
+
+	// The database holds every key, because retirement only ever happens after a flush — a reader that
+	// misses both the versioned data and the cache has to find it here.
+	seed := make(map[string][]byte, keyCount)
+	for i := 0; i < keyCount; i++ {
+		seed[string(dropTestKey(i))] = dropTestValue(i)
+	}
+	s := newTestShard(t, 1<<30, newTestDB(seed))
+
+	for i := 0; i < keyCount; i++ {
+		require.NoError(t, s.Set(dropTestKey(i), dropTestValue(i)))
+	}
+	sealed := s.Commit()
+
+	// Readers hammer the shard at the live version while the retirement runs underneath them.
+	var readers sync.WaitGroup
+	stop := make(chan struct{})
+	failures := make(chan error, 8)
+	for reader := 0; reader < 8; reader++ {
+		readers.Add(1)
+		go func(offset int) {
+			defer readers.Done()
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				index := (i*7 + offset) % keyCount
+				value, found, err := s.Get(dropTestKey(index), sealed, false)
+				if err != nil {
+					failures <- fmt.Errorf("read %d: %w", index, err)
+					return
+				}
+				if !found {
+					failures <- fmt.Errorf("read %d: key missing", index)
+					return
+				}
+				if string(value) != string(dropTestValue(index)) {
+					failures <- fmt.Errorf("read %d: got %q, want %q",
+						index, value, dropTestValue(index))
+					return
+				}
+			}
+		}(reader)
+	}
+
+	require.NoError(t, s.DropVersions(sealed-1, sealed))
+	close(stop)
+	readers.Wait()
+
+	select {
+	case err := <-failures:
+		t.Fatal(err)
+	default:
+	}
+
+	// Every key's newest write was in the retired version, so none of them keep any history.
+	require.Empty(t, s.versionedData)
+}
+
+func dropTestKey(i int) []byte {
+	return []byte(fmt.Sprintf("drop/key/%06d", i))
+}
+
+func dropTestValue(i int) []byte {
+	return []byte(fmt.Sprintf("drop/value/%06d", i))
 }
