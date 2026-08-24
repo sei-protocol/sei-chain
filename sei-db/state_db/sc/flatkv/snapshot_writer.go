@@ -9,6 +9,7 @@ import (
 
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -53,6 +54,10 @@ type SnapshotWriter struct {
 	// exited is closed once the background goroutine has returned.
 	exited chan struct{}
 
+	// phaseTimer breaks down where the writer's goroutine spends its time. Driven only by that
+	// goroutine, since a PhaseTimer instance is not safe for concurrent use.
+	phaseTimer *metrics.PhaseTimer
+
 	// fatalErr latches the first failure. Nil until something fails.
 	fatalErr error
 }
@@ -73,13 +78,14 @@ func newSnapshotWriter(
 ) *SnapshotWriter {
 	ctx, stop := context.WithCancel(parent)
 	w := &SnapshotWriter{
-		layout:   layout,
-		interval: interval,
-		dbs:      dbs,
-		ctx:      ctx,
-		stop:     stop,
-		messages: make(chan any, max(queueDepth, 1)),
-		exited:   make(chan struct{}),
+		layout:     layout,
+		interval:   interval,
+		dbs:        dbs,
+		ctx:        ctx,
+		stop:       stop,
+		messages:   make(chan any, max(queueDepth, 1)),
+		exited:     make(chan struct{}),
+		phaseTimer: metrics.NewPhaseTimer(flatkvMeter, "seidb_snapshot_writer"),
 	}
 	go w.run()
 	go w.reportQueueDepth()
@@ -186,6 +192,9 @@ func (w *SnapshotWriter) run() {
 	defer w.discardQueued()
 
 	for {
+		// Charged for however long the queue stays empty, so a writer that is never idle is one the
+		// cadence is outrunning.
+		w.phaseTimer.SetPhase("idle")
 		select {
 		case <-w.ctx.Done():
 			return
@@ -204,6 +213,7 @@ func (w *SnapshotWriter) dispatch(message any) error {
 	switch request := message.(type) {
 	case *snapshotRequest:
 		if !w.shouldSnapshot(request.version) {
+			w.phaseTimer.SetPhase("release_declined_block")
 			if err := request.release(); err != nil {
 				return fmt.Errorf("release version %d after declining to snapshot it: %w",
 					request.version, err)
@@ -265,7 +275,8 @@ func (w *SnapshotWriter) write(request *snapshotRequest) (err error) {
 	// would instead abort its AwaitFlush and brick the writer on the way out.
 	workCtx := context.WithoutCancel(w.ctx)
 
-	tmpPath, checkpointErr := checkpointDatabases(workCtx, w.layout.dir, request.version, request.snapshots, w.dbs)
+	tmpPath, checkpointErr := checkpointDatabases(
+		workCtx, w.layout.dir, request.version, request.snapshots, w.dbs, w.phaseTimer)
 
 	// The reservations are only needed while the copy above reads the databases. Handing them back
 	// here rather than when the request ends keeps the blocks piling up in memory meanwhile proportional
@@ -286,6 +297,10 @@ func (w *SnapshotWriter) write(request *snapshotRequest) (err error) {
 		return fmt.Errorf("hand back reservations for version %d: %w", request.version, releaseErr)
 	}
 
+	// Deliberately after the hand-back above: publishing scales with snapshot size and prunes old
+	// directories, and holding a reservation across it would stall the databases for work that has
+	// nothing to do with reading them.
+	w.phaseTimer.SetPhase("publish_snapshot")
 	pruned, err := publishSnapshot(workCtx, w.layout, request.version, tmpPath)
 	if err != nil {
 		return fmt.Errorf("publish snapshot at version %d: %w", request.version, err)

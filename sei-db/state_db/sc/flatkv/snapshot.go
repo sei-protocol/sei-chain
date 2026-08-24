@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -491,7 +492,8 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		}
 	}
 
-	tmpPath, err := checkpointDatabases(s.ctx, s.flatkvDir(), version, s.lastSealed, s.checkpointables())
+	tmpPath, err := checkpointDatabases(
+		s.ctx, s.flatkvDir(), version, s.lastSealed, s.checkpointables(), s.phaseTimer)
 	if err != nil {
 		return fmt.Errorf("checkpoint databases at version %d: %w", version, err)
 	}
@@ -511,20 +513,27 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 // The caller must hold a reservation on each snapshot passed in, and must keep holding it until this
 // returns. That is what stops a later block reaching Pebble mid-copy, and so what makes the result a
 // view of exactly this version rather than of no single moment.
+//
+// phaseTimer reports the two halves of the call separately — waiting for the databases to reach this
+// version, then copying them — because the reservation is held across both and they are the same
+// duration to a caller measuring only the total. It may be nil.
 func checkpointDatabases(
 	ctx context.Context,
 	dir string,
 	version int64,
 	snapshots map[string]snapshot.Snapshot,
 	dbs map[string]types.Checkpointable,
+	phaseTimer *metrics.PhaseTimer,
 ) (_ string, err error) {
 	// The databases are already flushing this block in the background; this waits for them to finish.
 	// On return Pebble holds exactly this block, and stays there while the reservations are held.
+	phaseTimer.SetPhase("snapshot_await_flush")
 	for name, snap := range snapshots {
 		if flushErr := snap.AwaitFlush(ctx); flushErr != nil {
 			return "", fmt.Errorf("await flush of %s at version %d: %w", name, version, flushErr)
 		}
 	}
+	phaseTimer.SetPhase("snapshot_copy_databases")
 
 	tmpPath := filepath.Join(dir, snapshotName(version)) + tmpSuffix
 	_ = os.RemoveAll(tmpPath)

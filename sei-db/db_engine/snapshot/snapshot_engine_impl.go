@@ -988,9 +988,11 @@ func (c *snapshotEngine) brickLocked(err error) {
 // Flushes and retires snapshots. Continues running until there is no more work, then returns.
 func (c *snapshotEngine) doLifecycleWork() error {
 	hasWork := true
+	terminalPhase := "idle"
 
 	for hasWork {
 
+		c.metrics.setLifecyclePhase("determine_work")
 		c.versionLock.Lock()
 
 		firstFlushVersion, lastFlushVersion, versionWrites, err := c.determineVersionsToFlushLocked()
@@ -1005,6 +1007,10 @@ func (c *snapshotEngine) doLifecycleWork() error {
 		unretiredCount := lastRetireVersion - firstRetireVersion
 		hasWork = unflushedCount > 0 || unretiredCount > 0
 
+		if !hasWork {
+			terminalPhase = c.idleReasonLocked()
+		}
+
 		c.versionLock.Unlock()
 
 		err = c.flushSnapshots(firstFlushVersion, lastFlushVersion, versionWrites)
@@ -1012,13 +1018,29 @@ func (c *snapshotEngine) doLifecycleWork() error {
 			return fmt.Errorf("unable to flush snapshots: %w", err)
 		}
 
+		c.metrics.setLifecyclePhase("retire")
 		err = c.retireSnapshots(firstRetireVersion, lastRetireVersion)
 		if err != nil {
 			return fmt.Errorf("unable to retire snapshots: %w", err)
 		}
 	}
 
+	// The runner parks until it is woken again, so this phase is charged for the whole sleep.
+	c.metrics.setLifecyclePhase(terminalPhase)
+
 	return nil
+}
+
+// idleReasonLocked names why the lifecycle found no work. A reservation on the oldest tracked version
+// blocks flushing past it and retiring it both, and that is the case worth telling apart: it is the one
+// where committed versions accumulate in memory with nothing able to release them.
+//
+// The Locked postfix indicates that the caller must hold the versionLock.
+func (c *snapshotEngine) idleReasonLocked() string {
+	if counter, ok := c.versionMap[c.oldestVersion]; ok && counter.referenceCount > 0 {
+		return "blocked_on_pinned_version"
+	}
+	return "idle"
 }
 
 // Determine which versions need to be flushed to disk.
@@ -1107,6 +1129,7 @@ func (c *snapshotEngine) flushSnapshots(
 ) error {
 
 	// Collect diffs from all shards.
+	c.metrics.setLifecyclePhase("flush_collect_diffs")
 	diffsByVersion := make(map[uint64]map[string][]byte)
 	for version := firstVersion; version < lastVersion; version++ {
 		diffsByVersion[version] = make(map[string][]byte)
@@ -1144,6 +1167,7 @@ func (c *snapshotEngine) flushSnapshots(
 	}
 
 	// Write diffs to the DB in batches, oldest version first.
+	c.metrics.setLifecyclePhase("flush_build_batch")
 	var batch types.Batch
 	defer func() {
 		if batch != nil {
@@ -1170,6 +1194,7 @@ func (c *snapshotEngine) flushSnapshots(
 
 		// Len is non-negative, so the conversion is safe.
 		if uint64(batch.Len()) >= c.config.TargetBytesPerFlush { //nolint:gosec
+			c.metrics.setLifecyclePhase("flush_commit_batch")
 			commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
 			closeErr := batch.Close()
 			batch = nil
@@ -1183,9 +1208,11 @@ func (c *snapshotEngine) flushSnapshots(
 				return fmt.Errorf("flush failed to record flushed versions: %w", err)
 			}
 			versionsInBatch = 0
+			c.metrics.setLifecyclePhase("flush_build_batch")
 		}
 	}
 	if batch != nil {
+		c.metrics.setLifecyclePhase("flush_commit_batch")
 		commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
 		closeErr := batch.Close()
 		batch = nil

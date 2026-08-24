@@ -34,6 +34,12 @@ type SnapshotEngineMetrics struct {
 	missLatency        metric.Float64Histogram
 	snapshotPhaseTimer *metrics.PhaseTimer
 
+	// Phases of the flush/retire lifecycle. A separate timer from snapshotPhaseTimer because a
+	// PhaseTimer instance is not safe for concurrent use, and the two are driven by different
+	// goroutines: Commit drives snapshotPhaseTimer on the caller's thread, while this one is driven
+	// by the lifecycle runner.
+	lifecyclePhaseTimer *metrics.PhaseTimer
+
 	// Closed by collectLoop when it exits. awaitStopped blocks on it so engine Close can
 	// guarantee the scrape goroutine is gone before returning.
 	collectDone chan struct{}
@@ -98,18 +104,20 @@ func newSnapshotEngineMetrics(
 	)
 	cacheAttr := attribute.String("cache", cacheName)
 	snapshotPhaseTimer := metrics.NewPhaseTimer(meter, "snapshot_engine_snapshot", cacheAttr)
+	lifecyclePhaseTimer := metrics.NewPhaseTimer(meter, "snapshot_engine_lifecycle", cacheAttr)
 
 	cm := &SnapshotEngineMetrics{
-		attrs:              metric.WithAttributes(cacheAttr),
-		sizeBytes:          sizeBytes,
-		sizeEntries:        sizeEntries,
-		unflushedVersions:  unflushedVersions,
-		retainedVersions:   retainedVersions,
-		hits:               hits,
-		misses:             misses,
-		missLatency:        missLatency,
-		snapshotPhaseTimer: snapshotPhaseTimer,
-		collectDone:        make(chan struct{}),
+		attrs:               metric.WithAttributes(cacheAttr),
+		sizeBytes:           sizeBytes,
+		sizeEntries:         sizeEntries,
+		unflushedVersions:   unflushedVersions,
+		retainedVersions:    retainedVersions,
+		hits:                hits,
+		misses:              misses,
+		missLatency:         missLatency,
+		snapshotPhaseTimer:  snapshotPhaseTimer,
+		lifecyclePhaseTimer: lifecyclePhaseTimer,
+		collectDone:         make(chan struct{}),
 	}
 
 	go cm.collectLoop(ctx, scrapeInterval, getSize, getRetention)
@@ -191,4 +199,13 @@ func (cm *SnapshotEngineMetrics) setSnapshotPhase(phase string) {
 	} else {
 		cm.snapshotPhaseTimer.SetPhase(phase)
 	}
+}
+
+// setLifecyclePhase sets the phase for the flush/retire lifecycle phase timer. Must be called only
+// from the lifecycle runner's goroutine.
+func (cm *SnapshotEngineMetrics) setLifecyclePhase(phase string) {
+	if cm == nil {
+		return
+	}
+	cm.lifecyclePhaseTimer.SetPhase(phase)
 }
