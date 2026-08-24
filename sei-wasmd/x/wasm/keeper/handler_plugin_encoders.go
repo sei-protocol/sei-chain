@@ -12,7 +12,6 @@ import (
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	ibcclienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -262,16 +261,14 @@ func EncodeWasmMsg(sender sdk.AccAddress, msg *wasmvmtypes.WasmMsg) ([]sdk.Msg, 
 	}
 }
 
-func EncodeIBCMsg(_ sdk.Context, sender sdk.AccAddress, _ string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
+func EncodeIBCMsg(_ sdk.Context, _ sdk.AccAddress, _ string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
 	switch {
-	case msg.CloseChannel != nil:
-		return []sdk.Msg{&channeltypes.MsgChannelCloseInit{
-			PortId:    PortIDForContract(sender),
-			ChannelId: msg.CloseChannel.ChannelID,
-			Signer:    sender.String(),
-		}}, nil
+	case msg.SendPacket != nil:
+		return nil, sdkerrors.Wrap(types.ErrUnknownMsg, "ibc send packet")
 	case msg.Transfer != nil:
 		return nil, sdkerrors.Wrap(types.ErrUnsupportedForContract, "ibc transfer")
+	case msg.CloseChannel != nil:
+		return nil, sdkerrors.Wrap(types.ErrUnsupportedForContract, "ibc close channel")
 	default:
 		return nil, sdkerrors.Wrap(types.ErrUnknownMsg, "Unknown variant of IBC")
 	}

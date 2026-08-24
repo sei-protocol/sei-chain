@@ -6,7 +6,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	"github.com/stretchr/testify/assert"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -398,7 +397,7 @@ func TestEncoding(t *testing.T) {
 			isError: true,
 			errorIs: types.ErrUnsupportedForContract,
 		},
-		"IBC close channel": {
+		"IBC close channel is unsupported": {
 			sender:             addr1,
 			srcContractIBCPort: "myIBCPort",
 			srcMsg: wasmvmtypes.CosmosMsg{
@@ -408,13 +407,25 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
-				&channeltypes.MsgChannelCloseInit{
-					PortId:    "wasm." + addr1.String(),
-					ChannelId: "channel-1",
-					Signer:    addr1.String(),
+			isError: true,
+			errorIs: types.ErrUnsupportedForContract,
+		},
+		"IBC send packet falls through to raw packet handler": {
+			sender:             addr1,
+			srcContractIBCPort: "myIBCPort",
+			srcMsg: wasmvmtypes.CosmosMsg{
+				IBC: &wasmvmtypes.IBCMsg{
+					SendPacket: &wasmvmtypes.SendPacketMsg{
+						ChannelID: "channel-1",
+						Data:      []byte("myData"),
+						Timeout: wasmvmtypes.IBCTimeout{
+							Block: &wasmvmtypes.IBCTimeoutBlock{Revision: 1, Height: 2},
+						},
+					},
 				},
 			},
+			isError: true,
+			errorIs: types.ErrUnknownMsg,
 		},
 		"Gov vote: yes": {
 			sender:             addr1,
