@@ -13,7 +13,18 @@ import (
 // RemoveDelegation begin maintaining the validator-indexed delegation store.
 const DelegationByValIndexUpgrade = "v6.7"
 
+// delegationByValIndexActive reports whether SetDelegation and RemoveDelegation
+// should maintain the validator-indexed delegation store.
+//
+// Live execution always does: the current binary only ever executes at/after
+// the upgrade that ships this behavior, so a non-tracing block is never a
+// pre-upgrade block. The only place pre-upgrade behavior must be reproduced is
+// when re-tracing a historical block, where the era is signaled through
+// ClosestUpgradeName (see app.RPCContextProvider).
 func delegationByValIndexActive(ctx sdk.Context) bool {
+	if !ctx.IsTracing() {
+		return true
+	}
 	return semver.Compare(ctx.ClosestUpgradeName(), DelegationByValIndexUpgrade) >= 0
 }
 
