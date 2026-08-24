@@ -183,6 +183,11 @@ dblint:
 build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 
+build-frozen-rpc-router:
+	mkdir -p ./build
+	go build -o ./build/frozen-rpc-router ./cmd/frozen-rpc-router
+.PHONY: build-frozen-rpc-router
+
 build-verbose:
 	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 
@@ -248,7 +253,7 @@ build-seid-in-localnode: build-docker-node
 		-w /sei-protocol/sei-chain \
 		-e LEDGER_ENABLED=false \
 		sei-chain/localnode \
-		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && make build-frozen-rpc-router && mkdir -p build/generated && echo DONE > build/generated/build.complete'
 .PHONY: build-seid-in-localnode
 
 # CI variant: assumes localnode image already built by Buildx in prepare-cluster (skips docker build).
@@ -263,10 +268,10 @@ build-seid-in-localnode-ci: ensure-integration-ci-images
 		-w /sei-protocol/sei-chain \
 		-e LEDGER_ENABLED=false \
 		sei-chain/localnode \
-		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && make build-frozen-rpc-router && mkdir -p build/generated && echo DONE > build/generated/build.complete'
 .PHONY: build-seid-in-localnode-ci
 
-# Images + seid binary for integration-test CI (see .github/workflows/integration-test.yml).
+# Images plus seid and frozen-rpc-router binaries for integration-test CI.
 # build-seid-in-localnode already depends on build-docker-node, so omit it here to avoid building localnode twice.
 build-integration-ci-artifacts: build-rpc-node build-seid-in-localnode
 .PHONY: build-integration-ci-artifacts
@@ -374,6 +379,8 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
 	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
 
+FROZEN_RPC_COMPOSE_FILES = -f docker-compose.yml -f docker-compose.frozen-rpc-router.yml
+
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -420,6 +427,48 @@ docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
 docker-cluster-stop:
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
 .PHONY: localnet-stop
+
+# Run the localnet with two non-validating archival nodes frozen before heights
+# 10 and 20, two live validators, and frozen-rpc-router published on port 8553.
+docker-frozen-rpc-cluster-start: docker-frozen-rpc-cluster-stop build-docker-node
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@mkdir -p $(shell go env GOMODCACHE)
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		$(CLUSTER_ENV_VARS) docker compose $(FROZEN_RPC_COMPOSE_FILES) up $$DETACH_FLAG
+.PHONY: docker-frozen-rpc-cluster-start
+
+# CI variant: use the prebuilt image and binaries from integration-build.tar.gz.
+docker-frozen-rpc-cluster-start-ci: docker-frozen-rpc-cluster-stop ensure-integration-ci-images
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@test -f $(PROJECT_HOME)/build/seid || (echo "build/seid missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
+	@test -f $(PROJECT_HOME)/build/frozen-rpc-router || (echo "build/frozen-rpc-router missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
+	@mkdir -p $(shell go env GOMODCACHE)
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose $(FROZEN_RPC_COMPOSE_FILES) up $$DETACH_FLAG
+.PHONY: docker-frozen-rpc-cluster-start-ci
+
+docker-frozen-rpc-cluster-stop:
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose $(FROZEN_RPC_COMPOSE_FILES) down --remove-orphans
+.PHONY: docker-frozen-rpc-cluster-stop
+
+frozen-rpc-router-integration-test:
+	@set -e; \
+		trap '$(MAKE) docker-frozen-rpc-cluster-stop' EXIT; \
+		DOCKER_DETACH=true $(MAKE) docker-frozen-rpc-cluster-start; \
+		go test -tags frozen_rpc_integration -v -count=1 -timeout 5m ./integration_test/frozen_rpc_router/...
+.PHONY: frozen-rpc-router-integration-test
 
 # Start 4-node cluster with Prometheus and Grafana monitoring
 docker-cluster-start-monitoring: docker-cluster-stop-monitoring build-docker-node
