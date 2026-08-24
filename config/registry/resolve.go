@@ -31,7 +31,14 @@ type Resolved struct {
 	// An ignored one is read, and the operator reached for the one channel that cannot carry it, so the
 	// value they wrote elsewhere is what applies. EnvCannotDeliver says why, per key.
 	Ignored []string
-	// Unknown are keys a source carried that no section declares, sorted.
+	// Unknown are keys the file carried that no section declares, sorted.
+	//
+	// The file only, and not every source, because an undeclared name means something different in each.
+	// A file exists to carry declared keys, so one that is not is a typo. The environment layer looks up
+	// only names a section declares, so it cannot produce one at all. The command line is a namespace
+	// this package does not own: most of the flags a node starts with are not configuration keys, and a
+	// misspelled one is refused by the command before any of this runs, so reporting those would bury the
+	// file's one typo under forty names that are working exactly as intended.
 	//
 	// Reported rather than an error, because what to do about one is the caller's decision: a
 	// generate path may want to refuse, while a boot on an operator's existing file must not.
@@ -121,16 +128,23 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	// order, which is why nothing exports it.
 	fromEnv, ignored := envValues(declared, undeliverable, from.LookupEnv)
 	out.Ignored = ignored
-	for _, values := range []map[string]any{
-		fileValues(from.File),
-		fromEnv,
-		from.Flags,
+	for _, layer := range []struct {
+		values map[string]any
+		// namesAreAllKeys says every name in this layer is meant to be a declared key, so one that is
+		// not gets reported. True of the file alone; Unknown records why.
+		namesAreAllKeys bool
+	}{
+		{values: fileValues(from.File), namesAreAllKeys: true},
+		{values: fromEnv},
+		{values: from.Flags},
 	} {
-		for key, v := range values {
+		for key, v := range layer.values {
 			if !declared[key] {
-				// A key nothing declares cannot be resolved into anything, and silently dropping it is
-				// how an operator's typo becomes invisible.
-				unknown[key] = true
+				// A key nothing declares cannot be resolved into anything, and silently dropping one the
+				// operator meant as a setting is how a typo becomes invisible.
+				if layer.namesAreAllKeys {
+					unknown[key] = true
+				}
 				continue
 			}
 			out.Values[key] = v

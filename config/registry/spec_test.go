@@ -1406,3 +1406,55 @@ func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
 		t.Errorf("the refusal reads %q and does not name the untagged field", got)
 	}
 }
+
+// TestOnlyTheFileReportsAKeyNoSectionDeclares holds the one distinction between the three layers.
+//
+// An undeclared name means something different in each. In a file it is a typo, and reporting it is the
+// only way an operator learns their setting does nothing. On the command line it is the ordinary case:
+// most of the flags a node starts with are not configuration keys, so reporting them would produce a
+// warning naming forty flags that work on every boot, with the file's one real typo somewhere inside it.
+func TestOnlyTheFileReportsAKeyNoSectionDeclares(t *testing.T) {
+	type layers struct {
+		Kept string `mapstructure:"kept"`
+	}
+	registry.RegisterSection("layers_undeclared_names", &layers{}, func(registry.Mode) any {
+		return layers{Kept: "declared"}
+	})
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{
+		File: map[string]any{
+			"layers_undeclared_names.kept": "from-file",
+			"layers_undeclared_names.typo": "x",
+		},
+		Flags: map[string]any{"home": "/tmp", "log_level": "info"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	for _, key := range resolved.Unknown {
+		if key == "home" || key == "log_level" {
+			t.Errorf("%q is reported as a key no section declares, and it is a flag name. Every boot "+
+				"carries flags that were never configuration keys, so this fires always and the file's "+
+				"one real typo is somewhere inside a list of forty", key)
+		}
+	}
+	if !contains(resolved.Unknown, "layers_undeclared_names.typo") {
+		t.Errorf("Unknown is %v and does not name the file's misspelled key. An operator learns their "+
+			"setting does nothing only from this", resolved.Unknown)
+	}
+	if got := resolved.Values["layers_undeclared_names.kept"]; got != "from-file" {
+		t.Errorf("layers_undeclared_names.kept is %#v, want the file's value; not reporting a layer's "+
+			"undeclared names must not stop its declared ones applying", got)
+	}
+}
+
+// contains reports whether a sorted key list holds a key.
+func contains(keys []string, want string) bool {
+	for _, key := range keys {
+		if key == want {
+			return true
+		}
+	}
+	return false
+}

@@ -80,10 +80,22 @@ func (m SeiConfigManager) log() *slog.Logger {
 // handler and return nil, turning a boot the legacy path aborts into a successful one.
 // TestApplyPropagatesALegacyHandlerPanic fails on that combination.
 func (m SeiConfigManager) Apply(cmd *cobra.Command, customAppConfigTemplate string, customAppConfig any) error {
+	// Before the handler, because the handler copies configuration values into flags and marks them
+	// changed. Afterwards there is no way to tell a flag an operator typed from a key their app.toml
+	// holds, and treating the second as the first would put app.toml above sei.toml.
+	typed := TypedFlags(cmd)
+
 	out := validateAdvisory(cmd)
 	err := server.InterceptConfigsPreRunHandler(cmd, customAppConfigTemplate, customAppConfig)
 	reportAdvisory(m.log(), out)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// After the handler, because the source it builds is the one the resolved values go into and it does
+	// not exist before. Nothing this does can refuse the boot.
+	installResolved(cmd, typed, m.log())
+	return nil
 }
 
 // reportAdvisory logs an advisory outcome, containing a panic from the logging itself.
