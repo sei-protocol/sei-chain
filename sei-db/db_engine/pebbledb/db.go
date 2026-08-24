@@ -14,7 +14,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -37,7 +36,7 @@ func Open(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	pebbleCache := pebble.NewCache(int64(512 * unit.MB))
+	pebbleCache := pebble.NewCache(config.BlockCacheSize)
 	defer pebbleCache.Unref()
 
 	popts := &pebble.Options{

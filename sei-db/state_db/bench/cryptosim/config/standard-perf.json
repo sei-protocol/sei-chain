@@ -7,7 +7,12 @@
     "FlatKVConfig": {
         "AccountStoreConfig": { "MaxSize": 1073741824, "ShardCount": 32 },
         "CodeStoreConfig": { "MaxSize": 1073741824, "ShardCount": 32 },
-        "StorageStoreConfig": { "MaxSize": 4294967296, "ShardCount": 32 }
+        "StorageStoreConfig": { "MaxSize": 4294967296, "ShardCount": 32 },
+        "AccountDBConfig": { "BlockCacheSize": 8589934592 },
+        "StorageDBConfig": { "BlockCacheSize": 25769803776 },
+        "CodeDBConfig": { "BlockCacheSize": 2147483648 },
+        "MiscDBConfig": { "BlockCacheSize": 1073741824 },
+        "MetadataDBConfig": { "BlockCacheSize": 536870912 }
     },
     "MutexProfileFraction": 100,
     "BlockProfileRate": 10000

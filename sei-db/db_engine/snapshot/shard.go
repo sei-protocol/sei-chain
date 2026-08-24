@@ -56,10 +56,6 @@ type shard struct {
 	// The oldest version number kept in versionedData.
 	oldestVersion uint64
 
-	// How many retired keys to migrate per acquisition of lock. See
-	// SnapshotEngineConfig.RetirementChunkSize.
-	retirementChunkSize int
-
 	// The number of iterators currently reading this shard. Close reports a non-zero count as a
 	// leaked iterator, since reading one after the database has closed is undefined behaviour (see
 	// SnapshotEngine.Close).
@@ -187,8 +183,6 @@ func NewShard(
 		versionDiffs:   versionDiffs,
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
-
-		retirementChunkSize: config.RetirementChunkSize,
 	}
 	s.cache = newReadCache(
 		ctx, db, readPool, &s.lock, maxSize, config.EstimatedOverheadPerEntry, shutdownError, reportReadFailure)
@@ -725,19 +719,16 @@ func (s *shard) materializeCurrentOverrides(lowerBound []byte, upperBound []byte
 // Drop versions, pushing their data down into the read cache. The first version to drop must be
 // equal to the oldest version currently being tracked.
 //
-// The lock is released and retaken every RetirementChunkSize keys rather than held for the whole set, so a
-// read can arrive with the migration half done. Three things make that safe:
-//
-// Each key moves atomically. Its removal from the versioned data and its arrival in the cache happen
-// under one hold, so a read finds it in one place or the other, never neither.
-//
-// The version bounds do not move until every key has. lookupVersionedLocked reads oldestVersion as a
-// promise that nothing below it is left in the versioned data, so advancing it early would send a read
-// at lastVersion to a cache that had not yet received the entry it wanted.
+// The whole migration happens under one acquisition of the lock. Splitting it and handing the lock over
+// part way through was measured as strictly worse: Go's RWMutex prefers writers, so each handover
+// releases the readers already queued and the immediate reacquisition drains and refills that queue.
+// N handovers cost N convoys where one hold costs one, and the resulting stalls fed back into deeper
+// retention and larger retirements — the benchmark oscillated between half and double its throughput
+// with the amplitude growing over time.
 //
 // A version is only retired once it is flushed (see scanForRetirementEligibilityLocked), so every key
-// here is already durable. A read that reaches the database rather than the cache is therefore slower
-// but never wrong.
+// here is already durable. That is what makes the read cache insert below an optimisation rather than a
+// correctness requirement.
 func (s *shard) DropVersions(
 	// The first version to drop (inclusive).
 	firstVersion uint64,
@@ -750,14 +741,13 @@ func (s *shard) DropVersions(
 	}
 
 	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	if firstVersion != s.oldestVersion {
-		s.lock.Unlock()
 		return fmt.Errorf("firstVersion (%d) must be equal to the oldest version (%d)",
 			firstVersion, s.oldestVersion)
 	}
 	if lastVersion > s.currentVersion {
-		s.lock.Unlock()
 		return fmt.Errorf("lastVersion (%d) must be less than or equal to the current version (%d)",
 			lastVersion, s.currentVersion)
 	}
@@ -782,29 +772,10 @@ func (s *shard) DropVersions(
 		delete(s.versionDiffs, v)
 	}
 
-	s.migrateRetiredDataLocked(combinedData, lastVersion)
-
-	// Advanced only once every key has moved. lookupVersionedLocked treats a read at oldestVersion as a
-	// read of the oldest entry it still holds, on the understanding that everything below oldestVersion
-	// has already been migrated out — so advancing this while keys were still to move would make a read
-	// at lastVersion miss the entry it needs and fall through to a cache that has not received it yet.
-	s.oldestVersion = lastVersion
-
-	s.lock.Unlock()
-	return nil
-}
-
-// migrateRetiredDataLocked moves the retired versions' data out of the versioned map and down into the
-// read cache, in chunks, releasing the lock at each chunk boundary.
-//
-// A key whose newest write was in the retired range leaves the versioned map entirely and is served from
-// the cache from then on; a key written since keeps the remainder of its history.
-//
-// The Locked postfix indicates that the caller must hold the lock; it is still held on return, having
-// been handed over and retaken in between.
-func (s *shard) migrateRetiredDataLocked(retired map[string][]byte, lastVersion uint64) {
-	remainingInChunk := s.retirementChunkSize
-	for key, value := range retired {
+	// Move each key out of the versioned data and down into the read cache. A key whose newest write was
+	// in the retired range leaves the versioned map entirely and is served from the cache from then on; a
+	// key written since keeps the remainder of its history.
+	for key, value := range combinedData {
 		history, remaining := s.versionedData[key].dropOlderThan(lastVersion)
 		if remaining {
 			s.versionedData[key] = history
@@ -812,29 +783,22 @@ func (s *shard) migrateRetiredDataLocked(retired map[string][]byte, lastVersion 
 			delete(s.versionedData, key)
 		}
 
-		// The per-key form rather than putRetiredLocked, which would evict once per chunk. Eviction is
-		// left to the single pass below.
 		if value == nil {
 			s.cache.deleteRetiredLocked(key)
 		} else {
 			s.cache.setRetiredLocked(key, value)
 		}
-
-		remainingInChunk--
-		if remainingInChunk == 0 {
-			// Handing the lock over mid-migration is the point of chunking: readers waiting on this
-			// shard get in here rather than behind the whole retirement. Not a no-op even though the
-			// lock is retaken immediately — RWMutex.Unlock releases every reader already waiting, and
-			// the Lock below then waits for them, so the readers drain rather than this barging back in.
-			s.lock.Unlock()
-			s.lock.Lock()
-			remainingInChunk = s.retirementChunkSize
-		}
 	}
 
-	// The insertions above may have taken the cache over its size budget, and the per-key form does not
-	// evict, so this is the enforcement point for the whole migration.
+	// The per-key inserts above do not evict, so this is the enforcement point for the whole migration.
 	s.cache.evictLocked(s.cache.hardCapLocked())
+
+	// Advanced only once every key has moved. lookupVersionedLocked treats a read at oldestVersion as a
+	// read of the oldest entry it still holds, on the understanding that everything below oldestVersion
+	// has already been migrated out.
+	s.oldestVersion = lastVersion
+
+	return nil
 }
 
 // maintainCache advances the cache's epoch and brings it back within its size budget.

@@ -150,12 +150,11 @@ func TestShardConcurrentReadsCollapseToOneDBRead(t *testing.T) {
 // right value, whether it comes from the cache the key was moved into or from the database it was
 // flushed to.
 //
-// The chunk size is pinned here rather than taken from the default, so the test exercises handover
-// regardless of how the default is tuned, and the key count stays several times the chunk size so the
-// migration hands the lock over many times while the readers are running.
+// Reads must stay correct while a retirement covering their keys is running. Retirement moves a key out
+// of the versioned data and into the read cache, and only ever touches versions that are already
+// flushed, so a read must find the right value wherever it lands.
 func TestShardDropVersionsServesCorrectValuesDuringMigration(t *testing.T) {
-	const chunkSize = 64
-	const keyCount = chunkSize * 4
+	const keyCount = 4096
 
 	// The database holds every key, because retirement only ever happens after a flush — a reader that
 	// misses both the versioned data and the cache has to find it here.
@@ -164,7 +163,6 @@ func TestShardDropVersionsServesCorrectValuesDuringMigration(t *testing.T) {
 		seed[string(dropTestKey(i))] = dropTestValue(i)
 	}
 	s := newTestShard(t, 1<<30, newTestDB(seed))
-	s.retirementChunkSize = chunkSize
 
 	for i := 0; i < keyCount; i++ {
 		require.NoError(t, s.Set(dropTestKey(i), dropTestValue(i)))
