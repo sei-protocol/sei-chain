@@ -432,7 +432,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 			if !wtx.readyEl.IsPresent() {
 				s.priorityReservoir.Add(wtx.priority)
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
-				if !(recordAdded && wtx == newTx && insertedAtNextNonce) {
+				if !recordAdded || wtx != newTx || !insertedAtNextNonce {
 					recordPendingNonceAccepted()
 				}
 			}
