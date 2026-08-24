@@ -12,14 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// dropChunkSize is how many retired keys DropVersions migrates per acquisition of the shard lock.
-//
-// Migrating a retired version is the longest exclusive hold on a shard, and every read on that shard
-// queues behind it — Go's RWMutex makes an arriving reader wait for a waiting writer. Chunking bounds
-// how long any one read waits. Large enough that the handoff is not the cost, small enough that a read
-// does not wait out a whole retirement.
-const dropChunkSize = 1024
-
 // A single shard of a SnapshotEngine. The shard owns the MVCC layer: versioned in-memory data
 // awaiting flush, per-version diffs, and version bookkeeping. Reads that miss the versioned data
 // fall through to the shard's read-through DB cache (see readCache).
@@ -63,6 +55,10 @@ type shard struct {
 
 	// The oldest version number kept in versionedData.
 	oldestVersion uint64
+
+	// How many retired keys to migrate per acquisition of lock. See
+	// SnapshotEngineConfig.RetirementChunkSize.
+	retirementChunkSize int
 
 	// The number of iterators currently reading this shard. Close reports a non-zero count as a
 	// leaked iterator, since reading one after the database has closed is undefined behaviour (see
@@ -191,6 +187,8 @@ func NewShard(
 		versionDiffs:   versionDiffs,
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
+
+		retirementChunkSize: config.RetirementChunkSize,
 	}
 	s.cache = newReadCache(
 		ctx, db, readPool, &s.lock, maxSize, config.EstimatedOverheadPerEntry, shutdownError, reportReadFailure)
@@ -727,7 +725,7 @@ func (s *shard) materializeCurrentOverrides(lowerBound []byte, upperBound []byte
 // Drop versions, pushing their data down into the read cache. The first version to drop must be
 // equal to the oldest version currently being tracked.
 //
-// The lock is released and retaken every dropChunkSize keys rather than held for the whole set, so a
+// The lock is released and retaken every RetirementChunkSize keys rather than held for the whole set, so a
 // read can arrive with the migration half done. Three things make that safe:
 //
 // Each key moves atomically. Its removal from the versioned data and its arrival in the cache happen
@@ -805,7 +803,7 @@ func (s *shard) DropVersions(
 // The Locked postfix indicates that the caller must hold the lock; it is still held on return, having
 // been handed over and retaken in between.
 func (s *shard) migrateRetiredDataLocked(retired map[string][]byte, lastVersion uint64) {
-	remainingInChunk := dropChunkSize
+	remainingInChunk := s.retirementChunkSize
 	for key, value := range retired {
 		history, remaining := s.versionedData[key].dropOlderThan(lastVersion)
 		if remaining {
@@ -830,7 +828,7 @@ func (s *shard) migrateRetiredDataLocked(retired map[string][]byte, lastVersion 
 			// the Lock below then waits for them, so the readers drain rather than this barging back in.
 			s.lock.Unlock()
 			s.lock.Lock()
-			remainingInChunk = dropChunkSize
+			remainingInChunk = s.retirementChunkSize
 		}
 	}
 

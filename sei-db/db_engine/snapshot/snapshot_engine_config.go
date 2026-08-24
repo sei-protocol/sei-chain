@@ -37,6 +37,16 @@ type SnapshotEngineConfig struct {
 	// release falls behind (see Snapshot).
 	MaxUnflushedVersions uint64
 
+	// How many retired keys DropVersions migrates out of the versioned data per acquisition of a
+	// shard's lock.
+	//
+	// Retiring a version is the longest exclusive hold on a shard and every read queues behind it, so
+	// the migration hands the lock over this often rather than holding it for the whole set. Smaller
+	// bounds how long any one read waits; larger reduces the number of handovers, each of which
+	// releases a batch of waiting readers before the writer reacquires. A value at or above the number
+	// of keys a retirement covers is effectively unchunked.
+	RetirementChunkSize int
+
 	// Target size, in bytes, of a write batch when flushing snapshot data to the underlying DB.
 	// A batch is committed once it reaches this size at a version boundary; batches only ever
 	// split between versions (each committed batch must leave the DB at a consistent version with
@@ -78,9 +88,14 @@ func DefaultSnapshotEngineConfig(name string, reservedPrefix string) *SnapshotEn
 		// steady-state trickle: a 10s checkpoint at a 5ms block accumulates ~2000 versions, none of
 		// which count as flush-eligible until the pin is handed back.
 		MaxUnflushedVersions: 4096,
-		TargetBytesPerFlush:  unit.MB * 4,
-		ReservedPrefix:       reservedPrefix,
-		FlushSync:            false,
+		// EXPERIMENT, not a settled default: effectively unchunked, to be compared against 1024.
+		// Chunking at 1024 was measured holding 98% of the lock delay that the throughput oscillation
+		// tracks, and every handover releases a batch of waiting readers before the writer reacquires —
+		// so hundreds of handovers per retirement may be causing the convoying rather than relieving it.
+		RetirementChunkSize: 1 << 30,
+		TargetBytesPerFlush: unit.MB * 4,
+		ReservedPrefix:      reservedPrefix,
+		FlushSync:           false,
 	}
 }
 
@@ -99,6 +114,9 @@ func (c *SnapshotEngineConfig) MetricsScrapeInterval() time.Duration {
 func (c *SnapshotEngineConfig) Validate() error {
 	if c.ShardCount == 0 || (c.ShardCount&(c.ShardCount-1)) != 0 {
 		return fmt.Errorf("ShardCount must be a power of two and greater than 0, got %d", c.ShardCount)
+	}
+	if c.RetirementChunkSize <= 0 {
+		return fmt.Errorf("RetirementChunkSize must be greater than 0, got %d", c.RetirementChunkSize)
 	}
 	if c.MaxSize == 0 {
 		return fmt.Errorf("MaxSize must be greater than 0")
