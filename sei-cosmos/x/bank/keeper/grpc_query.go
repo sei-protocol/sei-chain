@@ -70,7 +70,7 @@ func (k BaseKeeper) AllBalances(ctx context.Context, req *types.QueryAllBalances
 	})
 
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "paginate: %v", err)
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryAllBalancesResponse{Balances: balances, Pagination: pageRes}, nil
@@ -99,7 +99,7 @@ func (k BaseKeeper) SpendableBalances(ctx context.Context, req *types.QuerySpend
 		return nil
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "paginate: %v", err)
+		return nil, query.WrapGRPCError(err)
 	}
 
 	result := sdk.NewCoins()
@@ -117,7 +117,7 @@ func (k BaseKeeper) TotalSupply(ctx context.Context, req *types.QueryTotalSupply
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	totalSupply, pageRes, err := k.GetPaginatedTotalSupply(sdkCtx, req.Pagination)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryTotalSupplyResponse{Supply: totalSupply, Pagination: pageRes}, nil
@@ -170,7 +170,7 @@ func (k BaseKeeper) DenomsMetadata(c context.Context, req *types.QueryDenomsMeta
 	})
 
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryDenomsMetadataResponse{

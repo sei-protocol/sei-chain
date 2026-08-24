@@ -1,7 +1,8 @@
 package query
 
 import (
-	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	db "github.com/tendermint/tm-db"
@@ -31,7 +32,7 @@ func normalizePageRequest(pageRequest *PageRequest) (pageRequestNorm, error) {
 	}
 
 	if pageRequest.Offset > 0 && pageRequest.Key != nil {
-		return pageRequestNorm{}, fmt.Errorf("invalid request, either offset or key is expected, got both")
+		return pageRequestNorm{}, status.Error(codes.InvalidArgument, "invalid request, either offset or key is expected, got both")
 	}
 
 	limit := pageRequest.Limit

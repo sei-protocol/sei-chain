@@ -168,7 +168,7 @@ func (s *paginationTestSuite) TestPagination() {
 	request = types.NewQueryAllBalancesRequest(addr1, pageReq)
 	_, err = queryClient.AllBalances(gocontext.Background(), request)
 	s.Require().Error(err)
-	s.Require().Equal("rpc error: code = InvalidArgument desc = paginate: invalid request, either offset or key is expected, got both", err.Error())
+	s.Require().Equal("rpc error: code = InvalidArgument desc = invalid request, either offset or key is expected, got both", err.Error())
 
 	s.T().Log("verify paginate with offset greater than total results")
 	pageReq = &query.PageRequest{Offset: 300, Limit: defaultLimit, CountTotal: false}
@@ -292,7 +292,7 @@ func (s *paginationTestSuite) TestReversePagination() {
 	request = types.NewQueryAllBalancesRequest(addr1, pageReq)
 	_, err = queryClient.AllBalances(gocontext.Background(), request)
 	s.Require().Error(err)
-	s.Require().Equal("rpc error: code = InvalidArgument desc = paginate: invalid request, either offset or key is expected, got both", err.Error())
+	s.Require().Equal("rpc error: code = InvalidArgument desc = invalid request, either offset or key is expected, got both", err.Error())
 
 	s.T().Log("verify paginate with offset greater than total results")
 	pageReq = &query.PageRequest{Offset: 300, Limit: defaultLimit, CountTotal: false, Reverse: true}

@@ -38,7 +38,7 @@ func (ak AccountKeeper) Accounts(c context.Context, req *types.QueryAccountsRequ
 	})
 
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "paginate: %v", err)
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryAccountsResponse{Accounts: accounts, Pagination: pageRes}, err
