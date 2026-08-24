@@ -3,6 +3,7 @@ package cryptosim
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -102,5 +103,61 @@ func TestBuildBlockValuesSurviveLaterBlocks(t *testing.T) {
 	for i, pair := range first.Changeset() {
 		require.True(t, bytes.Equal(before[i], pair.Value),
 			"value %d changed after later blocks were built", i)
+	}
+}
+
+// dispatchBlock splits a block across the executors by range, so the partition arithmetic is the whole
+// risk: an off-by-one in how the remainder is spread would silently drop or double-run transactions.
+// Counts are chosen to divide evenly, to leave a remainder, and to be smaller than the executor count.
+func TestDispatchBlockCoversEveryTransactionExactlyOnce(t *testing.T) {
+	for _, tc := range []struct {
+		transactions int
+		executors    int
+	}{
+		{transactions: 512, executors: 64},
+		{transactions: 511, executors: 64},
+		{transactions: 513, executors: 64},
+		{transactions: 7, executors: 64},
+		{transactions: 0, executors: 64},
+		{transactions: 100, executors: 1},
+	} {
+		t.Run(fmt.Sprintf("txns=%d/executors=%d", tc.transactions, tc.executors), func(t *testing.T) {
+			blk := &block{transactions: make([]*transaction, tc.transactions)}
+			for i := range blk.transactions {
+				blk.transactions[i] = &transaction{}
+			}
+
+			// Stand-in for the executors: record which ranges were handed out without running anything.
+			ranges := make([][]*transaction, 0, tc.executors)
+			c := &CryptoSim{executors: make([]*TransactionExecutor, tc.executors)}
+			dispatched := func(_ int, txns []*transaction) { ranges = append(ranges, txns) }
+
+			partitionBlock(c, blk, dispatched)
+
+			seen := make(map[*transaction]int, tc.transactions)
+			total := 0
+			for _, r := range ranges {
+				require.NotEmpty(t, r, "an empty range must not be dispatched")
+				total += len(r)
+				for _, txn := range r {
+					seen[txn]++
+				}
+			}
+			require.Equal(t, tc.transactions, total, "ranges must cover the block exactly")
+			require.Len(t, seen, tc.transactions, "every transaction must appear")
+			for txn, count := range seen {
+				require.Equal(t, 1, count, "transaction %p dispatched %d times", txn, count)
+			}
+
+			// The split must stay even: no executor may carry more than one extra transaction.
+			if len(ranges) > 1 {
+				smallest, largest := len(ranges[0]), len(ranges[0])
+				for _, r := range ranges {
+					smallest = min(smallest, len(r))
+					largest = max(largest, len(r))
+				}
+				require.LessOrEqual(t, largest-smallest, 1, "ranges are unevenly sized")
+			}
+		})
 	}
 }

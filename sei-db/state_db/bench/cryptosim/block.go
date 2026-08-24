@@ -72,6 +72,12 @@ func (b *block) Iterator() iter.Seq[*transaction] {
 	}
 }
 
+// Transactions returns the block's transactions. The caller must not modify the slice or its contents:
+// once the block has been dispatched the executors read it concurrently.
+func (b *block) Transactions() []*transaction {
+	return b.transactions
+}
+
 // Adds a transaction to the block.
 func (b *block) AddTransaction(txn *transaction) {
 	b.transactions = append(b.transactions, txn)

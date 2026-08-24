@@ -119,8 +119,13 @@ func (d *Database) Get(key []byte) ([]byte, bool, error) {
 
 // Signal that a transaction has been added to the current block.
 func (d *Database) IncrementTransactionCount() {
-	d.transactionCount++
-	d.transactionsInCurrentBlock++
+	d.AddTransactionCount(1)
+}
+
+// Signal that count transactions have been added to the current block.
+func (d *Database) AddTransactionCount(count int64) {
+	d.transactionCount += count
+	d.transactionsInCurrentBlock += count
 }
 
 // Reset the transaction count. Useful for when changing test phases.

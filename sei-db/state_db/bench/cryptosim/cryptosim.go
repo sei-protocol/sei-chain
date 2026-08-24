@@ -57,11 +57,9 @@ type CryptoSim struct {
 	// The database for the benchmark.
 	database *Database
 
-	// The transaction executors for the benchmark. Transactions are distributed round-robin to the executors.
+	// The transaction executors for the benchmark. A block is split into one contiguous range per
+	// executor; see dispatchBlock.
 	executors []*TransactionExecutor
-
-	// The index of the next executor to receive a transaction.
-	nextExecutorIndex int
 
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
@@ -434,6 +432,44 @@ func (c *CryptoSim) maybeThrottle() {
 	}
 }
 
+// dispatchBlock hands each executor one contiguous range of the block's transactions.
+//
+// Ranges rather than round-robin because the executors are equivalent and the transactions are
+// independent: an even split needs no cursor carried between blocks, and every executor has all of its
+// work after len(executors) sends instead of after one send per transaction.
+//
+// The remainder of an uneven division is spread over the leading executors, one extra each, so no
+// single executor carries the whole of it.
+func (c *CryptoSim) dispatchBlock(blk *block) {
+	partitionBlock(c, blk, func(index int, txns []*transaction) {
+		c.executors[index].ScheduleRange(txns)
+	})
+}
+
+// partitionBlock splits a block into one contiguous range per executor and hands each to dispatch.
+//
+// Separated from dispatchBlock so the split can be checked without executors: the arithmetic is what
+// would silently drop or double-run a transaction, and that is invisible from the outside.
+func partitionBlock(c *CryptoSim, blk *block, dispatch func(index int, txns []*transaction)) {
+	transactions := blk.Transactions()
+	executorCount := len(c.executors)
+	perExecutor := len(transactions) / executorCount
+	remainder := len(transactions) % executorCount
+
+	start := 0
+	for i := 0; i < executorCount; i++ {
+		size := perExecutor
+		if i < remainder {
+			size++
+		}
+		if size == 0 {
+			continue
+		}
+		dispatch(i, transactions[start:start+size])
+		start += size
+	}
+}
+
 // Execute and finalize the next block.
 func (c *CryptoSim) handleNextBlock(blk *block) {
 	c.mostRecentBlock = blk
@@ -445,16 +481,16 @@ func (c *CryptoSim) handleNextBlock(blk *block) {
 
 	c.metrics.SetMainThreadPhase("send_to_executors")
 
-	for i := int64(0); i < blk.TransactionCount(); i++ {
-		c.database.IncrementTransactionCount()
-	}
+	c.database.AddTransactionCount(blk.TransactionCount())
 
 	// TODO: skip executor dispatch and FinalizeBlock when DisableTransactionExecution
 	// is true and only receipts are being benchmarked. FlatKV commits waste I/O here.
-	for txn := range blk.Iterator() {
-		c.executors[c.nextExecutorIndex].ScheduleForExecution(txn)
-		c.nextExecutorIndex = (c.nextExecutorIndex + 1) % len(c.executors)
-	}
+	//
+	// One message per executor naming a contiguous range, rather than one per transaction. The sends
+	// are hidden behind execution either way, so this is about the work itself: at thousands of
+	// transactions per block, the channel operations on both ends were a measurable share of the main
+	// thread's time and of each executor's.
+	c.dispatchBlock(blk)
 
 	if err := c.database.FinalizeBlock(blk.NextAccountID(), blk.NextErc20ContractID()); err != nil {
 		fmt.Printf("failed to finalize block: %v\n", err)
