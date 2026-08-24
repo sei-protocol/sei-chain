@@ -198,7 +198,8 @@ func TestMetricsCollectLoopStopsOnCtxCancel(t *testing.T) {
 		func() (uint64, uint64) {
 			scrapes.Add(1)
 			return 0, 0
-		})
+		},
+		func() (uint64, uint64) { return 0, 0 })
 
 	require.Eventually(t, func() bool { return scrapes.Load() > 0 },
 		2*time.Second, time.Millisecond, "scrape loop never ran")

@@ -214,7 +214,8 @@ func NewSnapshotEngine(
 
 	if config.MetricsEnabled {
 		metrics := newSnapshotEngineMetrics(
-			childCtx, config.Name, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
+			childCtx, config.Name, config.MetricsScrapeInterval(),
+			c.getCacheSizeInfo, c.getRetentionInfo)
 		for _, s := range c.shards {
 			s.metrics = metrics
 			s.cache.metrics = metrics
@@ -234,6 +235,18 @@ func (c *snapshotEngine) getCacheSizeInfo() (bytes uint64, entries uint64) {
 		entries += e
 	}
 	return bytes, entries
+}
+
+// getRetentionInfo reports how many versions the engine is holding in memory: those finalized but not
+// yet flushed, and the whole span from oldest to current.
+//
+// Every per-version structure scales with the second number — the pre-sized diff map each shard
+// allocates per version, the version histories, and the values themselves — so it is the quantity that
+// sets the engine's memory footprint, and MaxUnflushedVersions cannot be chosen without seeing it.
+func (c *snapshotEngine) getRetentionInfo() (unflushed uint64, retained uint64) {
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+	return c.unflushedCount, c.currentVersion - c.oldestVersion
 }
 
 func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
@@ -1218,6 +1231,38 @@ func (c *snapshotEngine) recordFlushedVersions(versionCount uint64) error {
 	return nil
 }
 
+// dropVersionsFromShards retires a version range from every shard, one task per shard.
+//
+// Retiring a shard is the longest exclusive hold it takes, and a read that arrives while its own shard
+// is held waits for the whole of it. Run in sequence, the shard being retired walks around the ring for
+// the length of the whole pass, so an executor keeps stumbling into it — with six reads to a transaction
+// over thirty-two shards, roughly one transaction in six touches whichever shard is currently held.
+// Overlapping the shards collapses that into a single interruption after which every shard is clear.
+//
+// Each shard takes its own lock exactly once here, which is what distinguishes this from splitting one
+// shard's hold into pieces: that multiplies hand-offs, and each hand-off re-drains the readers queued on
+// that shard.
+//
+// Every shard is awaited before any error is reported, so a failure is diagnosed against a settled set
+// rather than racing the shards still retiring.
+func (c *snapshotEngine) dropVersionsFromShards(firstVersion uint64, lastVersion uint64) error {
+	errs := make([]error, len(c.shards))
+
+	var wg sync.WaitGroup
+	for i, shard := range c.shards {
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			if err := shard.DropVersions(firstVersion, lastVersion); err != nil {
+				errs[i] = fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
+			}
+		})
+	}
+	wg.Wait()
+
+	return errors.Join(errs...)
+}
+
 // Retire all eligible snapshots.
 func (c *snapshotEngine) retireSnapshots(
 	// The first version to retire (inclusive).
@@ -1232,11 +1277,8 @@ func (c *snapshotEngine) retireSnapshots(
 		return nil
 	}
 
-	for i, shard := range c.shards {
-		err := shard.DropVersions(firstVersion, lastVersion)
-		if err != nil {
-			return fmt.Errorf("failed to drop versions from shard %d: %w", i, err)
-		}
+	if err := c.dropVersionsFromShards(firstVersion, lastVersion); err != nil {
+		return err
 	}
 
 	c.versionLock.Lock()

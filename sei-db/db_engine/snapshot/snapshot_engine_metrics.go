@@ -27,6 +27,8 @@ type SnapshotEngineMetrics struct {
 
 	sizeBytes          metric.Int64Gauge
 	sizeEntries        metric.Int64Gauge
+	unflushedVersions  metric.Int64Gauge
+	retainedVersions   metric.Int64Gauge
 	hits               metric.Int64Counter
 	misses             metric.Int64Counter
 	missLatency        metric.Float64Histogram
@@ -50,6 +52,7 @@ func newSnapshotEngineMetrics(
 	cacheName string,
 	scrapeInterval time.Duration,
 	getSize func() (bytes uint64, entries uint64),
+	getRetention func() (unflushed uint64, retained uint64),
 ) *SnapshotEngineMetrics {
 	meter := otel.Meter(snapshotEngineMeterName)
 
@@ -61,6 +64,20 @@ func newSnapshotEngineMetrics(
 	sizeEntries, _ := meter.Int64Gauge(
 		"snapshot_engine_size_entries",
 		metric.WithDescription("Current number of entries in the cache"),
+		metric.WithUnit("{count}"),
+	)
+	unflushedVersions, _ := meter.Int64Gauge(
+		"snapshot_engine_unflushed_versions",
+		metric.WithDescription(
+			"Versions finalized but not yet written to the backing store. Commit blocks at "+
+				"MaxUnflushedVersions."),
+		metric.WithUnit("{count}"),
+	)
+	retainedVersions, _ := meter.Int64Gauge(
+		"snapshot_engine_retained_versions",
+		metric.WithDescription(
+			"Versions still held in memory, i.e. current minus oldest. Every per-version structure — "+
+				"the diff maps, the version histories, the values — scales with this."),
 		metric.WithUnit("{count}"),
 	)
 	hits, _ := meter.Int64Counter(
@@ -86,6 +103,8 @@ func newSnapshotEngineMetrics(
 		attrs:              metric.WithAttributes(cacheAttr),
 		sizeBytes:          sizeBytes,
 		sizeEntries:        sizeEntries,
+		unflushedVersions:  unflushedVersions,
+		retainedVersions:   retainedVersions,
 		hits:               hits,
 		misses:             misses,
 		missLatency:        missLatency,
@@ -93,7 +112,7 @@ func newSnapshotEngineMetrics(
 		collectDone:        make(chan struct{}),
 	}
 
-	go cm.collectLoop(ctx, scrapeInterval, getSize)
+	go cm.collectLoop(ctx, scrapeInterval, getSize, getRetention)
 
 	return cm
 }
@@ -125,6 +144,7 @@ func (cm *SnapshotEngineMetrics) collectLoop(
 	ctx context.Context,
 	interval time.Duration,
 	getSize func() (bytes uint64, entries uint64),
+	getRetention func() (unflushed uint64, retained uint64),
 ) {
 
 	if cm == nil {
@@ -142,6 +162,11 @@ func (cm *SnapshotEngineMetrics) collectLoop(
 			// G115: safe — cache size and entry count fit in int64.
 			cm.sizeBytes.Record(ctx, int64(bytes), cm.attrs)     //nolint:gosec
 			cm.sizeEntries.Record(ctx, int64(entries), cm.attrs) //nolint:gosec
+
+			unflushed, retained := getRetention()
+			// G115: safe — version counts fit in int64.
+			cm.unflushedVersions.Record(ctx, int64(unflushed), cm.attrs) //nolint:gosec
+			cm.retainedVersions.Record(ctx, int64(retained), cm.attrs)   //nolint:gosec
 		}
 	}
 }

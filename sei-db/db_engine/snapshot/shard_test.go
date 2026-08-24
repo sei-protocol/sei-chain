@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -222,4 +223,56 @@ func dropTestKey(i int) []byte {
 
 func dropTestValue(i int) []byte {
 	return []byte(fmt.Sprintf("drop/value/%06d", i))
+}
+
+// Retirement now runs one task per shard concurrently. This covers what the single-shard test cannot:
+// that a fanned-out retirement leaves every shard consistent, losing and corrupting nothing across the
+// whole key space.
+//
+// Reads here are sequential and after the fact. Concurrent reads against a live retirement are covered
+// at the shard level by TestShardDropVersionsServesCorrectValuesDuringMigration, and engine-wide by
+// TestConcurrentDifferential — which reads through sealed snapshots, because the engine contract forbids
+// operating on the mutable version while Commit runs.
+func TestEngineRetirementAcrossShardsKeepsEveryKey(t *testing.T) {
+	const shardCount = 8
+	const keyCount = 2000
+	const versions = 20
+
+	seed := make(map[string][]byte, keyCount)
+	for i := 0; i < keyCount; i++ {
+		seed[string(dropTestKey(i))] = dropTestValue(i)
+	}
+	engine, _ := newTestEngine(t, seed, shardCount, 1<<30)
+
+	updates := make([]StringKVPair, 0, keyCount)
+	for i := 0; i < keyCount; i++ {
+		updates = append(updates, StringKVPair{Key: string(dropTestKey(i)), Value: dropTestValue(i)})
+	}
+
+	// Each version is flushed and released, which is what makes it retirement-eligible, so the lifecycle
+	// runner fans out a retirement across all eight shards repeatedly while this loop runs.
+	for v := 0; v < versions; v++ {
+		require.NoError(t, engine.BatchSetString(updates))
+		snap, err := engine.Commit()
+		require.NoError(t, err)
+		require.NoError(t, snap.Finalize(nil))
+		require.NoError(t, snap.AwaitFlush(context.Background()))
+		require.NoError(t, snap.Release())
+	}
+
+	impl, ok := engine.(*snapshotEngine)
+	require.True(t, ok)
+	impl.versionLock.Lock()
+	oldest := impl.oldestVersion
+	impl.versionLock.Unlock()
+	require.Greater(t, oldest, uint64(1), "nothing was retired, so this proves nothing")
+
+	// Every key must survive, whether it is now served from a shard's versioned data, its read cache, or
+	// the database it was flushed to.
+	for i := 0; i < keyCount; i++ {
+		value, found, err := engine.Get(dropTestKey(i), false)
+		require.NoError(t, err, "key %d", i)
+		require.True(t, found, "key %d went missing across retirement", i)
+		require.Equal(t, dropTestValue(i), value, "key %d", i)
+	}
 }
