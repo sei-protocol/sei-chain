@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -256,7 +255,8 @@ func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 }
 
 func TestNodeSetPrivValIPC(t *testing.T) {
-	tmpfile := filepath.Join(t.TempDir(), "kms.sock")
+	tmpfile := "/tmp/kms." + tmrand.Str(6) + ".sock"
+	defer os.Remove(tmpfile) // clean up
 
 	ctx := t.Context()
 
