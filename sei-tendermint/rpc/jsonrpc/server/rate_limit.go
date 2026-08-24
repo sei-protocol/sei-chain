@@ -9,8 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 )
 
-const cometbftRateLimitPlane = "cometbft"
-
 // cometbftMethodCatalog is the fixed bucket label for browser catalog probes to /.
 const cometbftMethodCatalog = "catalog"
 
@@ -32,7 +30,7 @@ func NewRateLimitGate(registry *ratelimiter.Registry, maxBodyBytes int64) *RateL
 		maxBodyBytes = 0
 	}
 	return &RateLimitGate{
-		Gate: ratelimiter.NewGate(registry, cometbftRateLimitPlane, maxBodyBytes),
+		Gate: ratelimiter.NewGate(registry, ratelimiter.PlaneCometBFT, maxBodyBytes),
 	}
 }
 

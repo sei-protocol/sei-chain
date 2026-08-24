@@ -355,10 +355,11 @@ func TestRateLimitMiddleware_POST_RejectionEmitsMetric(t *testing.T) {
 			sum := m.Data.(metricdata.Sum[int64])
 			for _, dp := range sum.DataPoints {
 				plane := attributeValue(dp.Attributes, "plane")
-				if plane != cometbftRateLimitPlane {
+				if plane != ratelimiter.PlaneCometBFT {
 					continue
 				}
 				require.Equal(t, int64(1), dp.Value)
+				require.Equal(t, "status", attributeValue(dp.Attributes, "method_namespace"))
 				found = true
 			}
 		}
