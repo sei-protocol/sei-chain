@@ -389,3 +389,113 @@ func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
 		t.Errorf("the registry refused %s: %v", d.Section, d.Err)
 	}
 }
+
+// TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries closes the one place a spelling is restated.
+//
+// The root section declares against a schema rather than the node's top-level type, because that type
+// carries the nine tables as well and declaring against it would declare their keys twice. The schema
+// squashes the same base group, so fourteen keys still derive from the node's own tags, and it restates two
+// fields by hand. This holds those two to the type they came from: name, tag and type each, and the count of
+// non-table fields, so a third one appearing there fails here rather than going undeclared.
+func TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries(t *testing.T) {
+	live := reflect.TypeOf(tmcfg.Config{})
+	schema := reflect.TypeOf(nodeRootSchema{})
+
+	var restated int
+	for i := 0; i < live.NumField(); i++ {
+		f := live.Field(i)
+		tag, ok := f.Tag.Lookup("mapstructure")
+		if !ok {
+			continue
+		}
+		// The squashed base group and the nine tables are not restated; everything else is.
+		if strings.Contains(tag, "squash") {
+			continue
+		}
+		if f.Type.Kind() == reflect.Pointer && f.Type.Elem().Kind() == reflect.Struct {
+			continue
+		}
+		restated++
+
+		got, found := schema.FieldByName(f.Name)
+		if !found {
+			t.Errorf("the node's type carries %s (%s) at its root and the schema does not, so the key is "+
+				"not declared at all", f.Name, tag)
+			continue
+		}
+		if want := got.Tag.Get("mapstructure"); want != tag {
+			t.Errorf("%s is tagged %q on the node's type and %q here, so the declared key is not the one "+
+				"the reader decodes", f.Name, tag, want)
+		}
+		if got.Type != f.Type {
+			t.Errorf("%s is a %s on the node's type and a %s here, so the declared value has a shape the "+
+				"reader does not read", f.Name, f.Type, got.Type)
+		}
+	}
+
+	// The schema holds the squashed group plus exactly the restated fields, so a field added here that the
+	// node's type does not carry fails too.
+	if want := restated + 1; schema.NumField() != want {
+		t.Errorf("the schema carries %d fields and the node's type has %d root fields beside the squashed "+
+			"group, so %d were expected", schema.NumField(), restated, want)
+	}
+}
+
+// TestTheRootPathsLeftOutAreTheOnesTheFileAlreadyStates names why two root paths are not declared.
+//
+// The home directory is where this file is found, so a value inside it would be the file naming its own
+// location, and the command line already carries it. The node mode is the fact the file states at the top
+// under its own name, and a second spelling would let the two disagree: the resolution answers for one and
+// the node reads the other.
+//
+// Written out here rather than read from the list the registration uses. Comparing that list against itself
+// agrees however it changes, so a path dropped from it would leave this passing while the key became
+// declared.
+func TestTheRootPathsLeftOutAreTheOnesTheFileAlreadyStates(t *testing.T) {
+	registered, ok := registry.Lookup(RootSectionName)
+	if !ok {
+		t.Fatalf("%s is not registered; Defects: %v", RootSectionName, registry.Defects())
+	}
+	declared := map[string]bool{}
+	for _, key := range registered.Keys {
+		declared[key] = true
+	}
+	for key, why := range map[string]string{
+		"home": "the file's own location, which the command line carries",
+		"mode": "the fact the file states at the top under its own name",
+	} {
+		if declared[key] {
+			t.Errorf("%q is declared at the root and it is %s, so an operator can write a second value "+
+				"for something already settled", key, why)
+		}
+	}
+	if len(registered.Excluded) != 2 {
+		t.Errorf("the root section excludes %v and two paths were expected", registered.Excluded)
+	}
+}
+
+// TestNoRootKeyCollidesWithAnotherSectionsName covers the collision the registry does not refuse.
+//
+// A key at the top of the file that is also a section's name cannot be written: no file holds both a value
+// for that name and a table under it, so one of the two settings is unreachable and nothing says which. The
+// registry does not catch it, and this package is the first to declare root keys beside another package's,
+// so the check belongs here until it moves.
+func TestNoRootKeyCollidesWithAnotherSectionsName(t *testing.T) {
+	sections := map[string]bool{}
+	for _, s := range registry.Sections() {
+		if s.Prefix != "" {
+			sections[s.Prefix] = true
+		}
+	}
+	for _, s := range registry.Sections() {
+		if s.Prefix != "" {
+			continue
+		}
+		for _, key := range s.Keys {
+			if sections[key] {
+				t.Errorf("%s declares %q at the top of the file and a section is named %q, so one of the "+
+					"two cannot be written and nothing reports which", s.Name, key, key)
+			}
+		}
+	}
+}

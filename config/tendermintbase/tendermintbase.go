@@ -18,7 +18,33 @@ const (
 	InstrumentationSectionName = "instrumentation"
 	PrivValidatorSectionName   = "priv-validator"
 	SelfRemediationSectionName = "self-remediation"
+
+	// RootSectionName identifies the keys that sit at the top of the file with no table of their own. The
+	// name is for lookups and reports and is not part of any key.
+	RootSectionName = "node_base"
 )
+
+// notWritableInThisFile are root paths this section does not declare.
+//
+// Neither is a setting an operator can usefully write here. The home directory is where this file is found,
+// so a value inside it would be the file naming its own location, and the command line already carries it.
+// The node mode is the same fact the file states at the top under its own name, and declaring a second
+// spelling would let the two disagree, with the resolution answering for one and the node reading the
+// other.
+var notWritableInThisFile = []string{"home", "mode"}
+
+// nodeRootSchema declares the keys that sit at the root of the node's configuration file.
+//
+// The node's own top-level type carries these and the nine tables both, so declaring against it directly
+// would declare every table's keys a second time. This squashes the same base group that type squashes, so
+// fourteen spellings still come from the node's own tags, and restates only the two fields it holds beside
+// that group. A test holds those two against it.
+type nodeRootSchema struct {
+	tmcfg.BaseConfig `mapstructure:",squash"`
+
+	AutobahnConfigFile      string `mapstructure:"autobahn-config-file"`
+	HashVaultDisabledUnsafe bool   `mapstructure:"hash-vault-disabled-unsafe"`
+}
 
 // removedSettings are the consensus paths this section does not declare.
 //
@@ -72,6 +98,8 @@ func init() {
 	registry.RegisterSection(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, privValidatorDefaults)
 	registry.RegisterSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
 		selfRemediationDefaults)
+	registry.RegisterRootKeysExcluding(RootSectionName, &nodeRootSchema{}, rootDefaults,
+		notWritableInThisFile...)
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.
@@ -151,6 +179,19 @@ func instrumentationDefaults(mode registry.Mode) any { return *forMode(mode).Ins
 // does not sign simply does not use them, so varying them by kind would state a difference the binary does
 // not make.
 func privValidatorDefaults(mode registry.Mode) any { return *forMode(mode).PrivValidator }
+
+// rootDefaults is what a generated file carries at the top of the node's configuration file.
+//
+// The same values for every mode. These name where a node keeps its data and how it logs, and nothing in
+// the binary makes either follow from what kind of node is asking.
+func rootDefaults(mode registry.Mode) any {
+	live := forMode(mode)
+	return nodeRootSchema{
+		BaseConfig:              live.BaseConfig,
+		AutobahnConfigFile:      live.AutobahnConfigFile,
+		HashVaultDisabledUnsafe: live.HashVaultDisabledUnsafe,
+	}
+}
 
 // selfRemediationDefaults is what a generated file carries for the self remediation section.
 //
