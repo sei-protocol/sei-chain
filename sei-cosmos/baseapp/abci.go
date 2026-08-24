@@ -483,7 +483,7 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 		resp = handleQueryStore(ctx, app, path, *req)
 
 	case "custom":
-		resp = handleQueryCustom(app, path, *req)
+		resp = handleQueryCustom(ctx, app, path, *req)
 	default:
 		resp = sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "unknown query path"), app.trace)
 	}
@@ -943,7 +943,7 @@ func handleQueryStore(ctx context.Context, app *BaseApp, path []string, req abci
 	return resp
 }
 
-func handleQueryCustom(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
+func handleQueryCustom(ctx context.Context, app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	// path[0] should be "custom" because "/custom" prefix is required for keeper
 	// queries.
 	//
@@ -958,16 +958,18 @@ func handleQueryCustom(app *BaseApp, path []string, req abci.RequestQuery) abci.
 		return sdkerrors.QueryResultWithDebug(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "no custom querier found for route %s", path[1]), app.trace)
 	}
 
-	ctx, err := app.CreateQueryContext(req.Height, req.Prove)
+	sdkCtx, err := app.CreateQueryContext(req.Height, req.Prove)
 	if err != nil {
 		return sdkerrors.QueryResultWithDebug(err, app.trace)
 	}
+
+	sdkCtx = app.enrichABCIQueryContext(ctx, sdkCtx)
 
 	// Passes the rest of the path as an argument to the querier.
 	//
 	// For example, in the path "custom/gov/proposal/test", the gov querier gets
 	// []string{"proposal", "test"} as the path.
-	resBytes, err := querier(ctx, path[2:], req)
+	resBytes, err := querier(sdkCtx, path[2:], req)
 	if err != nil {
 		res := sdkerrors.QueryResultWithDebug(err, app.trace)
 		res.Height = req.Height

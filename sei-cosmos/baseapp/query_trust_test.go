@@ -1,11 +1,13 @@
 package baseapp
 
 import (
+	"context"
 	"net"
 	"testing"
 
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/peer"
 )
@@ -62,4 +64,26 @@ func TestStripHostPort(t *testing.T) {
 	require.Equal(t, "127.0.0.1", stripHostPort("127.0.0.1:9090"))
 	require.Equal(t, "2001:db8::1", stripHostPort("[2001:db8::1]:9090"))
 	require.Equal(t, "203.0.113.1", stripHostPort("203.0.113.1"))
+}
+
+func TestCustomQueryEnrichesABCIContext(t *testing.T) {
+	var captured sdk.Context
+	querierOpt := func(bapp *BaseApp) {
+		bapp.QueryRouter().AddRoute("capture", func(ctx sdk.Context, _ []string, _ abci.RequestQuery) ([]byte, error) {
+			captured = ctx
+			return []byte("ok"), nil
+		})
+	}
+
+	app := setupBaseApp(t, querierOpt)
+	app.InitChain(&abci.RequestInitChain{})
+
+	res, err := app.Query(context.Background(), &abci.RequestQuery{
+		Path: "/custom/capture/test",
+	})
+	require.NoError(t, err)
+	require.Equal(t, []byte("ok"), res.Value)
+	require.True(t, captured.IsABCIQuery())
+	require.True(t, captured.PaginationLimits().Enforce)
+	require.Equal(t, srvconfig.DefaultQueryMaxLimit, captured.PaginationLimits().MaxLimit)
 }
