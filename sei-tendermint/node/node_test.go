@@ -236,7 +236,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 	ctx := t.Context()
 
-	addrNoPrefix := "127.0.0.1:1234"
+	addrNoPrefix := freeLoopbackAddr(t)
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_priv_val_tcp_test")
 	require.NoError(t, err)
