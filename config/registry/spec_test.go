@@ -1406,3 +1406,86 @@ func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
 		t.Errorf("the refusal reads %q and does not name the untagged field", got)
 	}
 }
+
+// TestAnExclusionDropsAPathFromBothWalks holds the property that makes an exclusion usable.
+//
+// A section is walked twice, once as a type to decide what it declares and once as a value to decide what
+// it states. An exclusion that reached one walk and not the other would leave a section declaring a key
+// nothing answers, or answering a key it never declared, and the registry refuses both. So it has to reach
+// both, and the only way to see that is through a resolution.
+func TestAnExclusionDropsAPathFromBothWalks(t *testing.T) {
+	type leftOut struct {
+		Kept    string `mapstructure:"kept"`
+		Dropped string `mapstructure:"dropped"`
+	}
+	registry.RegisterSectionExcluding("exclusion_both_walks", &leftOut{}, func(registry.Mode) any {
+		return leftOut{Kept: "a", Dropped: "b"}
+	}, "dropped")
+
+	registered, ok := registry.Lookup("exclusion_both_walks")
+	if !ok {
+		t.Fatalf("not registered; Defects: %v", registry.Defects())
+	}
+	if want := []string{"exclusion_both_walks.kept"}; !reflect.DeepEqual(registered.Keys, want) {
+		t.Errorf("declares %v, want %v", registered.Keys, want)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if _, answered := resolved.Values["exclusion_both_walks.dropped"]; answered {
+		t.Error("the excluded path is answered, so the value walk kept what the type walk dropped")
+	}
+	if got := resolved.Values["exclusion_both_walks.kept"]; got != "a" {
+		t.Errorf("the kept key answers %#v; excluding one path must not drop the others", got)
+	}
+}
+
+// TestAnExclusionCoveringNothingIsRefused keeps a stale exclusion from reading as a deliberate omission.
+//
+// The field an exclusion names can be renamed or removed. Left alone, the exclusion then excludes nothing
+// while still saying in the source that this section deliberately leaves a setting out.
+func TestAnExclusionCoveringNothingIsRefused(t *testing.T) {
+	type present struct {
+		Kept string `mapstructure:"kept"`
+	}
+	registry.RegisterSectionExcluding("exclusion_covers_nothing", &present{}, func(registry.Mode) any {
+		return present{Kept: "a"}
+	}, "renamed-away")
+
+	if _, ok := registry.Lookup("exclusion_covers_nothing"); ok {
+		t.Fatal("the section registered with an exclusion naming no field it carries")
+	}
+	var found bool
+	for _, d := range registry.Defects() {
+		if d.Section == "exclusion_covers_nothing" && strings.Contains(d.Err.Error(), "covers nothing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no defect says the exclusion covers nothing; Defects: %v", registry.Defects())
+	}
+}
+
+// TestAFieldCollectingUnmatchedKeysDeclaresNone covers the one tag option that has no name.
+//
+// A remaining field is where the decode puts what it matched no field for, so what lands in it is what an
+// operator misspelled. No exclusion can reach it, because an exclusion names a key and this field has none.
+func TestAFieldCollectingUnmatchedKeysDeclaresNone(t *testing.T) {
+	type collector struct {
+		Kept  string         `mapstructure:"kept"`
+		Other map[string]any `mapstructure:",remain"`
+	}
+	registry.RegisterSection("remaining_field", &collector{}, func(registry.Mode) any {
+		return collector{Kept: "a"}
+	})
+
+	registered, ok := registry.Lookup("remaining_field")
+	if !ok {
+		t.Fatalf("a struct carrying a remaining field was refused; Defects: %v", registry.Defects())
+	}
+	if want := []string{"remaining_field.kept"}; !reflect.DeepEqual(registered.Keys, want) {
+		t.Errorf("declares %v, want %v; the collector itself is not a setting", registered.Keys, want)
+	}
+}

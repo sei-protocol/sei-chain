@@ -51,6 +51,13 @@ type Section struct {
 	Prefix string
 	// Keys are the dotted paths this section declares, sorted.
 	Keys []string
+	// Excluded are dotted paths the struct carries that this section deliberately does not declare,
+	// sorted.
+	//
+	// Kept rather than discarded because both walks have to agree. The type walk decides what is declared
+	// and the value walk decides what is stated, and a path dropped from one and not the other makes a
+	// section that either declares a key nothing answers or answers a key it never declared.
+	Excluded []string
 	// Defaults returns the section's default for a mode.
 	Defaults func(Mode) any
 }
@@ -87,7 +94,20 @@ var (
 // It never panics. A registration this package cannot use is recorded as a Defect and the
 // section is not registered.
 func RegisterSection(name string, prototype any, defaults func(Mode) any) {
-	record(name, name, prototype, defaults)
+	record(name, name, prototype, defaults, nil)
+}
+
+// RegisterSectionExcluding records a section, leaving out paths the struct carries that are not settings.
+//
+// Each excluding path is relative to the section, so "max-outbound-connections" rather than the dotted key
+// it becomes. A path matching nothing the struct declares is refused, because an exclusion covering
+// nothing reads as though it covered something.
+//
+// Two kinds of field earn this. One a reader refuses outright, where writing the key stops the node, so
+// declaring it would put a setting in the space whose only effect is an outage. And one whose absence is
+// itself the setting, where any default would be this package inventing one.
+func RegisterSectionExcluding(name string, prototype any, defaults func(Mode) any, excluding ...string) {
+	record(name, name, prototype, defaults, excluding)
 }
 
 // RegisterRootKeys records a section whose keys sit at the root of the file, with no section of their own.
@@ -98,12 +118,23 @@ func RegisterSection(name string, prototype any, defaults func(Mode) any) {
 // Some settings are node-wide and are written at the top of a file rather than inside a table. Giving them
 // a section would rename them, and a renamed key is one an operator's existing file no longer reaches.
 func RegisterRootKeys(name string, prototype any, defaults func(Mode) any) {
-	record(name, "", prototype, defaults)
+	record(name, "", prototype, defaults, nil)
+}
+
+// RegisterRootKeysExcluding records a root-key section, leaving out paths that are not settings.
+//
+// RegisterSectionExcluding says which fields earn an exclusion and how a path is spelled.
+func RegisterRootKeysExcluding(name string, prototype any, defaults func(Mode) any, excluding ...string) {
+	record(name, "", prototype, defaults, excluding)
 }
 
 // record is the one path both registrations take.
-func record(name, prefix string, prototype any, defaults func(Mode) any) {
+func record(name, prefix string, prototype any, defaults func(Mode) any, excluding []string) {
 	keys, err := deriveKeys(name, prefix, prototype)
+	var excluded []string
+	if err == nil {
+		keys, excluded, err = withoutExcluded(prefix, keys, excluding)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -121,8 +152,48 @@ func record(name, prefix string, prototype any, defaults func(Mode) any) {
 			defects = append(defects, Defect{Section: name, Err: err})
 			return
 		}
-		sections[name] = Section{Name: name, Prefix: prefix, Keys: keys, Defaults: defaults}
+		sections[name] = Section{
+			Name: name, Prefix: prefix, Keys: keys, Excluded: excluded, Defaults: defaults,
+		}
 	}
+}
+
+// withoutExcluded splits derived paths into the ones a section declares and the ones it does not.
+//
+// An exclusion is spelled relative to the section, so this is where it becomes the dotted key both walks
+// compare against. One matching no derived path is refused: the field it named was renamed or removed, and
+// an exclusion for a field that is gone stops excluding anything while still reading as a deliberate
+// omission.
+func withoutExcluded(prefix string, derived, excluding []string) (keys, excluded []string, err error) {
+	if len(excluding) == 0 {
+		return derived, nil, nil
+	}
+	drop := make(map[string]bool, len(excluding))
+	for _, rel := range excluding {
+		key := rel
+		if prefix != "" {
+			key = prefix + "." + rel
+		}
+		drop[key] = true
+	}
+	for _, key := range derived {
+		if drop[key] {
+			excluded = append(excluded, key)
+			delete(drop, key)
+			continue
+		}
+		keys = append(keys, key)
+	}
+	if len(drop) > 0 {
+		missing := make([]string, 0, len(drop))
+		for key := range drop {
+			missing = append(missing, key)
+		}
+		sort.Strings(missing)
+		return nil, nil, fmt.Errorf("%v is excluded and the struct declares no such key, so the "+
+			"exclusion covers nothing", missing)
+	}
+	return keys, excluded, nil
 }
 
 // envNamesAreDistinct refuses keys that share one environment spelling. Callers hold mu.
@@ -353,7 +424,10 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool
 			"unreachable through their tags", prefix, f.Name)
 	}
 
-	name, squash = parseTag(tag)
+	name, squash, remain := parseTag(tag)
+	if remain {
+		return "", false, true, nil
+	}
 	if squash {
 		if name != "" {
 			return "", false, false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
@@ -380,15 +454,23 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool
 	return name, false, false, nil
 }
 
-// parseTag splits a mapstructure tag into the name it gives a field and whether it squashes.
-func parseTag(tag string) (name string, squash bool) {
+// parseTag splits a mapstructure tag into the name it gives a field and the options that change what the
+// field is.
+//
+// A squashed field contributes its own fields at this level rather than a segment of its own. A remaining
+// field is where the decode puts what it matched no field for, so it declares no key: what lands in it is
+// what an operator misspelled, and giving it a key would offer the collector itself as a setting.
+func parseTag(tag string) (name string, squash, remain bool) {
 	parts := strings.Split(tag, ",")
 	for _, opt := range parts[1:] {
-		if opt == "squash" {
+		switch opt {
+		case "squash":
 			squash = true
+		case "remain":
+			remain = true
 		}
 	}
-	return parts[0], squash
+	return parts[0], squash, remain
 }
 
 // assignedOutsideConfiguration reports whether a tag excludes its field from configuration.

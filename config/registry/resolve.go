@@ -180,6 +180,11 @@ func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
 		if err != nil {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
 		}
+		// The same paths the declaration left out. Both walks read the one struct, so a path dropped from
+		// the declared side and kept here would be a value under a key nothing declares.
+		for _, key := range s.Excluded {
+			delete(values, key)
+		}
 		if err := matchesDeclaration(s.Keys, values); err != nil {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
 		}
