@@ -44,6 +44,7 @@ const (
 	flagCPUProfile         = "cpu-profile"
 	FlagMinGasPrices       = "minimum-gas-prices"
 	FlagHaltHeight         = "halt-height"
+	FlagFreezeHeight       = "freeze-height"
 	FlagHaltTime           = "halt-time"
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
@@ -102,6 +103,9 @@ the ABCI Commit phase, the node will check if the current block height is greate
 the halt-height or if the current block time is greater than or equal to the halt-time. If so, the
 node will attempt to gracefully shutdown and the block will not be committed. In addition, the node
 will not be able to commit subsequent blocks.
+The '--freeze-height' flag puts a full node in read-only freeze mode. Query RPC remains available,
+but transaction and evidence submission, mempool gossip, and state sync are disabled from startup.
+Block sync and consensus stop before executing the configured height.
 For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
 which accepts a path for the resulting pprof file.
 The node may be started in a 'query only' mode where only the gRPC and JSON HTTP
@@ -208,6 +212,7 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(FlagMinGasPrices, "", "Minimum gas prices to accept for transactions; Any fee in a tx must meet this minimum (e.g. 0.01photino;0.0001stake)")
 	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
 	cmd.Flags().Uint64(FlagHaltHeight, 0, "Block height at which to gracefully halt the chain and shutdown the node")
+	cmd.Flags().Uint64(FlagFreezeHeight, 0, "Block height at which a full node stops executing while continuing to serve query RPC")
 	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
@@ -304,6 +309,13 @@ func startInProcess(
 	if err != nil {
 		return err
 	}
+	if err := config.ValidateFreeze(); err != nil {
+		return err
+	}
+	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
+	if gRPCOnly && config.FreezeHeight > 0 {
+		return errors.New("freeze-height cannot be used with grpc-only mode")
+	}
 
 	if err := config.ValidateBasic(ctx.Config); err != nil {
 		logger.Error("WARNING: The minimum-gas-prices config in app.toml is set to the empty string. " +
@@ -317,8 +329,6 @@ func startInProcess(
 			logger.Error("error closing database", "err", err)
 		}
 	}()
-
-	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
 
 	var restartMtx sync.Mutex
 	restartCh := make(chan struct{})
@@ -359,6 +369,7 @@ func startInProcess(
 			gen,
 			tracerProviderOptions,
 			tmtypes.DefaultConsensusPolicy(),
+			node.WithFreezeHeight(config.FreezeHeight),
 		)
 		if err != nil {
 			return fmt.Errorf("error creating node: %w", err)

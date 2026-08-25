@@ -92,6 +92,17 @@ func (app *App) RegisterUpgradeHandlers() {
 				return newVM, err
 			}
 
+			if upgradeName == "v6.7" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return nil, err
+				}
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, capabilityModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
+				return newVM, nil
+			}
+
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 		})
 	}

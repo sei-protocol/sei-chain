@@ -58,6 +58,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.NotContains(t, flatKVSection, "snapshot-interval", "FlatKV snapshot-interval should not be exposed in app.toml")
 	require.NotContains(t, flatKVSection, "snapshot-keep-recent", "FlatKV snapshot-keep-recent should not be exposed in app.toml")
 	require.NotContains(t, flatKVSection, "enable-read-write-metrics", "FlatKV read/write metrics flag should not be exposed in app.toml")
+	require.NotContains(t, flatKVSection, "external-pruning", "FlatKV external-pruning should not be exposed in app.toml")
 
 	// sc-snapshot-writer-limit is intentionally removed from template (hardcoded to 4)
 	// but old configs with this field still parse fine via mapstructure
@@ -96,6 +97,7 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "ss-prune-interval =", "Missing ss-prune-interval")
 	require.Contains(t, output, "ss-import-num-workers =", "Missing ss-import-num-workers")
 	require.Contains(t, output, "ss-enable-read-write-metrics = false", "Missing state-store read/write metrics flag")
+	require.Contains(t, output, "ss-snapshot-enable = false", "Missing or incorrect ss-snapshot-enable")
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
 	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")

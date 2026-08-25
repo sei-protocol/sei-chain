@@ -6,10 +6,16 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-func (s *State) SubscribeLaneProposals(first types.BlockNumber) *LaneProposalsRecv {
-	return &LaneProposalsRecv{s, s.key.Public(), first}
+// SubscribeLaneProposals binds lane for this node's validator key.
+// Recv returns ErrLaneClosed after that lane's maps are dropped.
+func (s *State) SubscribeLaneProposals(lane types.LaneID, first types.BlockNumber) *LaneProposalsRecv {
+	if lane.Validator != s.key.Public() {
+		panic(fmt.Sprintf("SubscribeLaneProposals: lane validator %v != local %v", lane.Validator, s.key.Public()))
+	}
+	return &LaneProposalsRecv{s, lane, first}
 }
 
 type LaneProposalsRecv struct {
@@ -23,6 +29,11 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 		b, err := r.state.Block(ctx, r.lane, r.next)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
+				for inner := range r.state.inner.Lock() {
+					if _, ok := inner.blocks[r.lane]; !ok {
+						return nil, ErrLaneClosed
+					}
+				}
 				r.next += 1
 				continue
 			}
@@ -31,6 +42,26 @@ func (r *LaneProposalsRecv) Recv(ctx context.Context) (*types.Signed[*types.Lane
 		r.next += 1
 		return b, nil
 	}
+}
+
+// WaitForNextLane waits until the applied committee has a LaneID for pk.
+// If exclude is Some, also requires the LaneID to differ (e.g. after the
+// previous identity was closed and a new LaneID allocated).
+func (s *State) WaitForNextLane(ctx context.Context, pk types.PublicKey, exclude utils.Option[types.LaneID]) (types.LaneID, error) {
+	ep, err := s.Epoch().Wait(ctx, func(ep *types.Epoch) bool {
+		got, ok := ep.Committee().Lane(pk).Get()
+		if !ok {
+			return false
+		}
+		if prev, has := exclude.Get(); has && got == prev {
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		return types.LaneID{}, err
+	}
+	return ep.Committee().Lane(pk).OrPanic("WaitForNextLane"), nil
 }
 
 func (s *State) SubscribeLaneVotes() *LaneVotesRecv {
@@ -76,29 +107,20 @@ type AppVotesRecv struct {
 }
 
 func (s *State) SubscribeAppVotes() *AppVotesRecv {
-	return &AppVotesRecv{s, 0}
+	return &AppVotesRecv{s, s.data.NextAppQC()}
 }
 
 func (r *AppVotesRecv) Recv(ctx context.Context) (*types.Signed[*types.AppVote], error) {
 	for {
-		// If needed, fast forward to the first global number without known AppQC.
-		if qc, ok := r.state.LastAppQC().Get(); ok {
-			r.next = max(r.next, qc.Proposal().GlobalNumber()+1)
-		}
-		// Fetch the proposal.
-		p, err := r.state.data.AppProposal(ctx, r.next)
+		vote, err := r.state.data.AppVote(ctx, r.next)
 		if err != nil {
 			if errors.Is(err, types.ErrPruned) {
-				r.next = max(r.next+1, r.state.data.FirstAppProposal())
+				r.next = max(r.next, r.state.data.NextAppQC())
 				continue
 			}
 			return nil, err
 		}
-		// AppProposal currently might return a proposal with a higher global number than the one we requested.
-		// Correct the n in such a case.
-		// TODO(gprusak): perhaps it would be possible to require AppHash at every block from the execution engine.
-		// This would simplify the data state.
-		r.next = p.GlobalNumber() + 1
-		return types.Sign(r.state.key, types.NewAppVote(p)), nil
+		r.next = vote.Proposal().GlobalRange().Next
+		return types.Sign(r.state.key, vote), nil
 	}
 }

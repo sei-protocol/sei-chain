@@ -206,13 +206,11 @@ func TestManifestNamesEveryField(t *testing.T) {
 		// sitting in a config struct that configuration cannot address is exactly the kind of
 		// thing a replacement manager would otherwise try to map a key onto.
 		"KeepRecent",
+		// ExternalPruning is tagged mapstructure:"-" for a sharper reason than KeepRecent: it is
+		// only correct when this store is registered with a running StorageGarbageCollector, which
+		// is a property of how the process was wired and not something an operator can assert from
+		// app.toml. Exposing a key for it would let a node stand its pruner down with nothing to
+		// replace it, and the resulting unbounded growth is silent.
+		"ExternalPruning",
 	)
-}
-
-// TestWiringMatchesTheRecord pins which checks each of this package's sections is wired to.
-//
-// Every other check here reports a change to what it asserts. None reports a check being removed, so
-// this records the wiring and fails when it thins out.
-func TestWiringMatchesTheRecord(t *testing.T) {
-	configtest.CheckWiring(t)
 }

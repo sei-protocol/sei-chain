@@ -27,20 +27,19 @@ var (
 
 // KVStore key prefixes for IBC
 const (
-	KeyClientState             = "clientState"
-	KeyConsensusStatePrefix    = "consensusStates"
-	KeyConnectionPrefix        = "connections"
-	KeyChannelEndPrefix        = "channelEnds"
-	KeyChannelPrefix           = "channels"
-	KeyPortPrefix              = "ports"
-	KeySequencePrefix          = "sequences"
-	KeyChannelCapabilityPrefix = "capabilities"
-	KeyNextSeqSendPrefix       = "nextSequenceSend"
-	KeyNextSeqRecvPrefix       = "nextSequenceRecv"
-	KeyNextSeqAckPrefix        = "nextSequenceAck"
-	KeyPacketCommitmentPrefix  = "commitments"
-	KeyPacketAckPrefix         = "acks"
-	KeyPacketReceiptPrefix     = "receipts"
+	KeyClientState            = "clientState"
+	KeyConsensusStatePrefix   = "consensusStates"
+	KeyConnectionPrefix       = "connections"
+	KeyChannelEndPrefix       = "channelEnds"
+	KeyChannelPrefix          = "channels"
+	KeyPortPrefix             = "ports"
+	KeySequencePrefix         = "sequences"
+	KeyNextSeqSendPrefix      = "nextSequenceSend"
+	KeyNextSeqRecvPrefix      = "nextSequenceRecv"
+	KeyNextSeqAckPrefix       = "nextSequenceAck"
+	KeyPacketCommitmentPrefix = "commitments"
+	KeyPacketAckPrefix        = "acks"
+	KeyPacketReceiptPrefix    = "receipts"
 )
 
 // FullClientPath returns the full path of a specific client path in the format:
@@ -136,12 +135,6 @@ func ChannelKey(portID, channelID string) []byte {
 	return []byte(ChannelPath(portID, channelID))
 }
 
-// ChannelCapabilityPath defines the path under which capability keys associated
-// with a channel are stored
-func ChannelCapabilityPath(portID, channelID string) string {
-	return fmt.Sprintf("%s/%s", KeyChannelCapabilityPrefix, channelPath(portID, channelID))
-}
-
 // NextSequenceSendPath defines the next send sequence counter store path
 func NextSequenceSendPath(portID, channelID string) string {
 	return fmt.Sprintf("%s/%s", KeyNextSeqSendPrefix, channelPath(portID, channelID))
@@ -224,12 +217,4 @@ func channelPath(portID, channelID string) string {
 
 func sequencePath(sequence uint64) string {
 	return fmt.Sprintf("%s/%d", KeySequencePrefix, sequence)
-}
-
-// ICS05
-// The following paths are the keys to the store as defined in https://github.com/cosmos/ibc/tree/master/spec/core/ics-005-port-allocation#store-paths
-
-// PortPath defines the path under which ports paths are stored on the capability module
-func PortPath(portID string) string {
-	return fmt.Sprintf("%s/%s", KeyPortPrefix, portID)
 }

@@ -353,7 +353,7 @@ func (inner *txStoreInner) shouldReject(txHash types.TxHash) bool {
 	return false
 }
 
-func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
+func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
 	}
@@ -371,8 +371,11 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		// Reject transactions with old nonces.
 		if evm.nonce < account.firstNonce {
 			inner.cache.Push(wtx.Hash(), utils.None[cacheEvm]())
+			recordPendingNonceRejected()
 			return errOldNonce
 		}
+		insertedAtNextNonce := evm.nonce == account.nextNonce
+		newTx := wtx
 		inner.cache.Push(wtx.Hash(), utils.Some(cacheEvm{
 			priority:        wtx.priority,
 			address:         evm.address,
@@ -429,6 +432,9 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			if !wtx.readyEl.IsPresent() {
 				s.priorityReservoir.Add(wtx.priority)
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
+				if !recordAdded || wtx != newTx || !insertedAtNextNonce {
+					recordPendingNonceAccepted()
+				}
 			}
 		}
 	} else {
@@ -442,6 +448,9 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	}
 	inner.byHash[wtx.Hash()] = wtx
 	inner.state.Store(state)
+	if recordAdded && wtx.evm.IsPresent() {
+		recordPendingNonceAdded()
+	}
 	return nil
 }
 
@@ -501,7 +510,7 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 // txStore takes ownership of wtx.
 func (s *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range s.inner.Lock() {
-		if err := s.insert(inner, wtx); err != nil {
+		if err := s.insert(inner, wtx, true); err != nil {
 			return err
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
@@ -538,7 +547,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		total.Inc(wtx.Size())
 		limitOk := total.LessEqual(&inner.softLimit)
 		// NOTE: insertion is lazily evaluated here.
-		if !limitOk || s.insert(inner, wtx) != nil {
+		if !limitOk || s.insert(inner, wtx, false) != nil {
 			Global.RemovedTxsAt().Add(1)
 			Global.EvictedTxsAt().Add(1)
 			if el, ok := wtx.readyEl.Get(); ok {
@@ -594,8 +603,12 @@ func (s *txStore) Update(spec updateSpec) {
 			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
-			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
+			removedByExpiry := expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx))
+			remove := invalid || executed || removedByExpiry
 			if remove {
+				if removedByExpiry && wtx.evm.IsPresent() {
+					recordPendingNonceExpired()
+				}
 				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
 				// Executed txs invalidation was handled earlier.
 				if s.config.KeepInvalidTxsInCache && !executed {

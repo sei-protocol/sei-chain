@@ -6,7 +6,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 
 	clientkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/keeper"
@@ -19,13 +18,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 )
 
-var _ types.QueryServer = (*Keeper)(nil)
-
 // Keeper defines each ICS keeper for IBC
 type Keeper struct {
-	// implements gRPC QueryServer interface
-	types.QueryServer
-
 	cdc codec.BinaryCodec
 
 	ClientKeeper     clientkeeper.Keeper
@@ -41,7 +35,6 @@ type Keeper struct {
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	stakingKeeper clienttypes.StakingKeeper, upgradeKeeper clienttypes.UpgradeKeeper,
-	scopedKeeper capabilitykeeper.ScopedKeeper,
 ) *Keeper {
 	// register paramSpace at top level keeper
 	// set KeyTable if it has not already been set
@@ -62,14 +55,10 @@ func NewKeeper(
 		panic(fmt.Errorf("cannot initialize IBC keeper: empty upgrade keeper"))
 	}
 
-	if reflect.DeepEqual(capabilitykeeper.ScopedKeeper{}, scopedKeeper) {
-		panic(fmt.Errorf("cannot initialize IBC keeper: empty scoped keeper"))
-	}
-
 	clientKeeper := clientkeeper.NewKeeper(cdc, key, paramSpace, stakingKeeper, upgradeKeeper)
 	connectionKeeper := connectionkeeper.NewKeeper(cdc, key, paramSpace, clientKeeper)
-	portKeeper := portkeeper.NewKeeper(scopedKeeper)
-	channelKeeper := channelkeeper.NewKeeper(cdc, key, paramSpace, clientKeeper, connectionKeeper, portKeeper, scopedKeeper)
+	portKeeper := portkeeper.NewKeeper()
+	channelKeeper := channelkeeper.NewKeeper(cdc, key, paramSpace, clientKeeper, connectionKeeper)
 
 	return &Keeper{
 		cdc:              cdc,

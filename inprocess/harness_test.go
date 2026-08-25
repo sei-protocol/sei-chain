@@ -124,7 +124,7 @@ func TestStartRejectsZeroValidators(t *testing.T) {
 // a regression in CI rather than relying on reviewer memory.
 func TestBuildNodeConfigMetricsOff(t *testing.T) {
 	dir := t.TempDir()
-	tmCfg, _, err := buildNodeConfig(dir, "node0", time.Second)
+	tmCfg, _, err := buildNodeConfig(dir, "node0")
 	if err != nil {
 		t.Fatalf("buildNodeConfig: %v", err)
 	}

@@ -41,6 +41,7 @@ func TestConv(t *testing.T) {
 			TimeConv.Test(utils.GenTimestamp(rng)),
 			DurationConv.Test(time.Duration(int64(rng.Uint64()))),
 			PublicKeyConv.Test(GenPublicKey(rng)),
+			LaneIDConv.Test(GenLaneID(rng)),
 			SignatureConv.Test(GenSignature(rng)),
 			BlockHeaderConv.Test(GenBlockHeader(rng)),
 			PayloadConv.Test(GenPayload(rng)),
@@ -116,7 +117,7 @@ func TestNewTimeoutQC(t *testing.T) {
 			Number:     GenViewNumber(rng) % view.Number,
 			EpochIndex: view.EpochIndex,
 		}
-		p := newProposal(pView, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), utils.Some(GenAppProposal(rng)), GlobalBlockNumber(rng.Uint64()))
+		p := newProposal(pView, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), GlobalBlockNumber(rng.Uint64()))
 		if wantView.Less(pView) {
 			wantView = pView
 		}
@@ -147,7 +148,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
-	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view)))
+	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view, ep.FirstBlock())))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -201,7 +202,7 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
 		pView := View{Index: 0, Number: vn, EpochIndex: ep.EpochIndex()}
-		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView)))
+		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView, ep.FirstBlock())))
 	}
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.

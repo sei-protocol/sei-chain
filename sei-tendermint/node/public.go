@@ -17,11 +17,30 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "node")
 
-// New constructs a tendermint node. The provided app runs in the same
-// process as the tendermint node and will be wrapped in a local ABCI client
-// inside this function. The final option is a pointer to a Genesis document:
-// if the value is nil, the genesis document is read from the file specified
-// in the config, and otherwise the node uses value of the final argument.
+type options struct {
+	freezeHeight uint64
+}
+
+// Option configures optional node behavior.
+type Option func(*options)
+
+// WithFreezeHeight stops block sync and consensus before executing height; 0 disables freezing.
+func WithFreezeHeight(height uint64) Option {
+	return func(opts *options) {
+		opts.freezeHeight = height
+	}
+}
+
+func resolveOptions(nodeOptions ...Option) options {
+	var opts options
+	for _, apply := range nodeOptions {
+		apply(&opts)
+	}
+	return opts
+}
+
+// New constructs a Tendermint node around an in-process ABCI application.
+// A non-nil genesis document overrides the file selected by the node config.
 func New(
 	ctx context.Context,
 	conf *config.Config,
@@ -30,7 +49,16 @@ func New(
 	gen *tmtypes.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy tmtypes.ConsensusPolicy,
+	nodeOptions ...Option,
 ) (local.NodeService, error) {
+	if err := validateNodeSetupConfig(conf); err != nil {
+		return nil, err
+	}
+	opts := resolveOptions(nodeOptions...)
+	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
+		return nil, err
+	}
+	app = prepareApplication(conf, app)
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -63,6 +91,7 @@ func New(
 			config.DefaultDBProvider,
 			tracerProviderOptions,
 			consensusPolicy,
+			nodeOptions...,
 		)
 	case config.ModeSeed:
 		return makeSeedNode(
@@ -74,4 +103,33 @@ func New(
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
 	}
+}
+
+func validateFreezeMode(mode string, freezeHeight uint64) error {
+	if freezeHeight == 0 || mode == config.ModeFull {
+		return nil
+	}
+	switch mode {
+	case config.ModeValidator, config.ModeSeed:
+		return fmt.Errorf("freeze height is not supported in %s mode", mode)
+	default:
+		return nil
+	}
+}
+
+func validateNodeSetupConfig(conf *config.Config) error {
+	if conf.MockApp && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("mock-app requires autobahn-config-file")
+	}
+	return nil
+}
+
+func prepareApplication(conf *config.Config, app abci.Application) abci.Application {
+	if conf.MockApp {
+		return NewMockApp(app)
+	}
+	if conf.FastCheckTx {
+		return fastCheckTxApplication{Application: app}
+	}
+	return app
 }

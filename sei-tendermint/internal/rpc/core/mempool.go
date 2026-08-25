@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -16,14 +16,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
+// EvmProxy returns the EVM RPC client of the autobahn validator that owns the
 // sender shard, or None if the sender maps to the local validator (handle
 // locally) or autobahn isn't configured.
-func (env *Environment) EvmProxy(sender common.Address) utils.Option[*url.URL] {
+func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
 	if r, ok := env.gigaRouter().Get(); ok {
 		return r.EvmProxy(sender)
 	}
-	return utils.None[*url.URL]()
+	return utils.None[*ethrpc.Client]()
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
@@ -50,6 +50,9 @@ func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if giga, ok := env.gigaRouter().Get(); ok {
 		v, ok := giga.Mempool().Get()
 		if !ok {
@@ -76,6 +79,9 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if giga, ok := env.gigaRouter().Get(); ok {
 		v, ok := giga.Mempool().Get()
 		if !ok {
@@ -113,6 +119,9 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 // BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if timeout := env.Config.TimeoutBroadcastTxCommit; timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)

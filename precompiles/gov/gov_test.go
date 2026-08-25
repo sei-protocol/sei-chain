@@ -2,6 +2,7 @@ package gov_test
 
 import (
 	"embed"
+	"encoding/binary"
 	"encoding/hex"
 	"math/big"
 	"testing"
@@ -327,7 +328,7 @@ func TestGovPrecompile(t *testing.T) {
 	}
 }
 
-func TestVoteAuthorizationFlow(t *testing.T) {
+func TestVoteAndProposalAuthorizationFlow(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	blockTime := time.Unix(1_700_000_000, 0).UTC()
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithBlockTime(blockTime)
@@ -366,7 +367,7 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	ret, err := call(
 		granterEVMAddr,
 		gov.GrantVoteMethod,
-		nil,
+		big.NewInt(0),
 		false,
 		false,
 		granteeEVMAddr,
@@ -384,6 +385,14 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	)
 	require.IsType(t, &authztypes.GenericAuthorization{}, authorization)
 	require.Equal(t, expiration, storedExpiration)
+	submitMsgType := sdk.MsgTypeURL(&govtypes.MsgSubmitProposal{})
+	submitAuthorization, _ := testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		submitMsgType,
+	)
+	require.Nil(t, submitAuthorization)
 	weightedAuthorization, _ := testApp.AuthzKeeper.GetCleanAuthorization(
 		statedb.Ctx(),
 		granteeSeiAddr,
@@ -408,6 +417,81 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, govtypes.OptionYes, vote.Options[0].Option)
 
+	_, err = call(
+		granteeEVMAddr,
+		gov.SubmitWithAuthzMethod,
+		big.NewInt(0),
+		false,
+		false,
+		granterEVMAddr,
+		`{"title":"unauthorized proposal","description":"vote grant is insufficient","type":"Text"}`,
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
+
+	ret, err = call(
+		granterEVMAddr,
+		gov.GrantProposalMethod,
+		nil,
+		false,
+		false,
+		granteeEVMAddr,
+		expiration.Unix(),
+	)
+	require.NoError(t, err)
+	assertSuccess(gov.GrantProposalMethod, ret)
+	submitAuthorization, submitExpiration := testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		submitMsgType,
+	)
+	require.IsType(t, &authztypes.GenericAuthorization{}, submitAuthorization)
+	require.Equal(t, expiration, submitExpiration)
+
+	nativeProposalDeposit := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(statedb.Ctx()), sdk.NewInt(25)))
+	require.NoError(t, k.BankKeeper().MintCoins(statedb.Ctx(), evmtypes.ModuleName, nativeProposalDeposit))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), evmtypes.ModuleName, granterSeiAddr, nativeProposalDeposit))
+	nativeProposalID, err := testApp.GovKeeper.GetProposalID(statedb.Ctx())
+	require.NoError(t, err)
+	nativeProposalContent := govtypes.ContentFromProposalType(
+		"native authorized proposal",
+		"submitted through native MsgExec",
+		govtypes.ProposalTypeText,
+		false,
+	)
+	nativeProposalMsg, err := govtypes.NewMsgSubmitProposal(nativeProposalContent, nativeProposalDeposit, granterSeiAddr)
+	require.NoError(t, err)
+	nativeExec := authztypes.NewMsgExec(granteeSeiAddr, []sdk.Msg{nativeProposalMsg})
+	granterBalanceBefore := k.BankKeeper().GetBalance(statedb.Ctx(), granterSeiAddr, k.GetBaseDenom(statedb.Ctx()))
+	_, err = testApp.AuthzKeeper.Exec(sdk.WrapSDKContext(statedb.Ctx()), &nativeExec)
+	require.NoError(t, err)
+	granterBalanceAfter := k.BankKeeper().GetBalance(statedb.Ctx(), granterSeiAddr, k.GetBaseDenom(statedb.Ctx()))
+	require.True(t, granterBalanceBefore.Amount.Sub(nativeProposalDeposit.AmountOf(k.GetBaseDenom(statedb.Ctx()))).Equal(granterBalanceAfter.Amount))
+	nativeProposal, found := testApp.GovKeeper.GetProposal(statedb.Ctx(), nativeProposalID)
+	require.True(t, found)
+	require.Equal(t, nativeProposalDeposit, nativeProposal.TotalDeposit)
+
+	initialDepositValue := big.NewInt(10_000_000_000_000)
+	initialDeposit := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(statedb.Ctx()), sdk.NewInt(10)))
+	precompileAddr := k.GetSeiAddressOrDefault(statedb.Ctx(), common.HexToAddress(gov.GovAddress))
+	require.NoError(t, k.BankKeeper().MintCoins(statedb.Ctx(), evmtypes.ModuleName, initialDeposit))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), evmtypes.ModuleName, precompileAddr, initialDeposit))
+	ret, err = call(
+		granteeEVMAddr,
+		gov.SubmitWithAuthzMethod,
+		initialDepositValue,
+		false,
+		false,
+		granterEVMAddr,
+		`{"title":"authorized proposal","description":"submitted through authz","type":"Text"}`,
+	)
+	require.NoError(t, err)
+	submitOutputs, err := p.ABI.Methods[gov.SubmitWithAuthzMethod].Outputs.Unpack(ret)
+	require.NoError(t, err)
+	authorizedProposalID := submitOutputs[0].(uint64)
+	authorizedProposal, found := testApp.GovKeeper.GetProposal(statedb.Ctx(), authorizedProposalID)
+	require.True(t, found)
+	require.Equal(t, initialDeposit, authorizedProposal.TotalDeposit)
 	ret, err = call(granterEVMAddr, gov.RevokeVoteMethod, nil, false, false, granteeEVMAddr)
 	require.NoError(t, err)
 	assertSuccess(gov.RevokeVoteMethod, ret)
@@ -418,6 +502,13 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 		voteMsgType,
 	)
 	require.Nil(t, authorization)
+	submitAuthorization, _ = testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		submitMsgType,
+	)
+	require.IsType(t, &authztypes.GenericAuthorization{}, submitAuthorization)
 
 	_, err = call(
 		granteeEVMAddr,
@@ -433,6 +524,27 @@ func TestVoteAuthorizationFlow(t *testing.T) {
 	vote, found = testApp.GovKeeper.GetVote(statedb.Ctx(), proposal.ProposalId, granterSeiAddr)
 	require.True(t, found)
 	require.Equal(t, govtypes.OptionYes, vote.Options[0].Option)
+
+	ret, err = call(granterEVMAddr, gov.RevokeProposalMethod, nil, false, false, granteeEVMAddr)
+	require.NoError(t, err)
+	assertSuccess(gov.RevokeProposalMethod, ret)
+	submitAuthorization, _ = testApp.AuthzKeeper.GetCleanAuthorization(
+		statedb.Ctx(),
+		granteeSeiAddr,
+		granterSeiAddr,
+		submitMsgType,
+	)
+	require.Nil(t, submitAuthorization)
+	_, err = call(
+		granteeEVMAddr,
+		gov.SubmitWithAuthzMethod,
+		big.NewInt(0),
+		false,
+		false,
+		granterEVMAddr,
+		`{"title":"revoked proposal","description":"proposal grant was revoked","type":"Text"}`,
+	)
+	require.ErrorIs(t, err, vm.ErrExecutionReverted)
 
 	_, err = call(
 		granterEVMAddr,
@@ -1103,4 +1215,74 @@ func TestGovQueryPrecompile(t *testing.T) {
 		})
 		require.NotNil(t, err)
 	})
+}
+
+func TestVoteWeightedAliasedOptionsRejectedBeforeUnpack(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	p, err := gov.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	method := p.ABI.Methods[gov.VoteWeightedMethod]
+
+	// Dimensions chosen so calldata stays small (~40KiB) while decoded copy
+	// volume (options*weightBytes) prices above the 12.5M gas cap used in the
+	// original reproduction. If Unpack ran, allocation would be only ~8MiB —
+	// CI-safe — and the error would be the post-decode max-options message
+	// instead.
+	const (
+		options     = uint64(1024)
+		weightBytes = uint64(8192)
+		suppliedGas = uint64(12_500_000)
+	)
+	args := craftAliasedVoteWeightedArgs(options, weightBytes)
+	input := append(append([]byte{}, method.ID...), args...)
+
+	decodeGas, ok := pcommon.DecodeGasCost(method.Inputs, input)
+	require.True(t, ok)
+	require.Greater(t, decodeGas, suppliedGas)
+
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{StateDB: statedb}
+	ret, remaining, runErr := p.RunAndCalculateGas(&evm, evmAddr, evmAddr, input, suppliedGas, big.NewInt(0), nil, false, false)
+	require.Nil(t, ret)
+	require.Equal(t, uint64(0), remaining)
+	require.ErrorIs(t, runErr, vm.ErrExecutionReverted)
+
+	precompileErr := statedb.GetPrecompileError()
+	require.NotNil(t, precompileErr)
+	require.NotContains(t, precompileErr.Error(), "too many vote options",
+		"decode must fail before the post-Unpack max-options check; got %v", precompileErr)
+	// chargeDecodeGas recovers sdk.ErrorOutOfGas as fmt.Errorf("%v", r), which
+	// stringifies to "{<descriptor>}"; the descriptor names the decode charge.
+	require.Contains(t, precompileErr.Error(), "gov precompile calldata decode")
+
+	_, found := testApp.GovKeeper.GetVote(statedb.Ctx(), 1, seiAddr)
+	require.False(t, found)
+}
+
+func craftAliasedVoteWeightedArgs(k, s uint64) []byte {
+	tupleRel := 32 * k
+	arrayPayload := make([]byte, 0, int(32*k+64+s))
+	for range k {
+		arrayPayload = append(arrayPayload, abiWord(tupleRel)...)
+	}
+	arrayPayload = append(arrayPayload, abiWord(s)...)
+	arrayPayload = append(arrayPayload, abiWord(0)...)
+	arrayPayload = append(arrayPayload, make([]byte, s)...)
+
+	data := append(abiWord(1), abiWord(64)...)
+	data = append(data, abiWord(k)...)
+	data = append(data, arrayPayload...)
+	return data
+}
+
+func abiWord(v uint64) []byte {
+	b := make([]byte, 32)
+	binary.BigEndian.PutUint64(b[24:], v)
+	return b
 }

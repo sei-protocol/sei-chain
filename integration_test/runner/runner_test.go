@@ -58,8 +58,8 @@ func TestGovModule(t *testing.T) {
 }
 
 func TestOracleModule(t *testing.T) {
-	runner.RunFile(t, "../oracle_module/verify_penalty_counts.yaml")
-	runner.RunFile(t, "../oracle_module/set_feeder_test.yaml")
+	runner.RunFile(t, "../oracle_module/queries_deprecated.yaml")
+	runner.RunFile(t, "../oracle_module/messages_deprecated.yaml")
 }
 
 func TestDistributionModule(t *testing.T) {

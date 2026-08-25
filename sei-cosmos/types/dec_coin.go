@@ -78,13 +78,9 @@ func (coin DecCoin) IsLT(other DecCoin) bool {
 	return coin.Amount.LT(other.Amount)
 }
 
-// IsEqual returns true if the two sets of Coins have the same value.
+// IsEqual returns true if both decimal coins have the same denomination and amount.
 func (coin DecCoin) IsEqual(other DecCoin) bool {
-	if coin.Denom != other.Denom {
-		panic(fmt.Sprintf("invalid coin denominations; %s, %s", coin.Denom, other.Denom))
-	}
-
-	return coin.Amount.Equal(other.Amount)
+	return coin.Denom == other.Denom && coin.Amount.Equal(other.Amount)
 }
 
 // Add adds amounts of two decimal coins with same denom.
@@ -183,16 +179,18 @@ func sanitizeDecCoins(decCoins []DecCoin) DecCoins {
 	return newDecCoins.Sort()
 }
 
-// NewDecCoinsFromCoins constructs a new coin set with decimal values
-// from regular Coins.
-func NewDecCoinsFromCoins(coins ...Coin) DecCoins {
-	decCoins := make(DecCoins, len(coins))
+// NewDecCoinsFromCoins constructs DecCoins from Coins, or an error if any
+// amount exceeds the decimal conversion range.
+func NewDecCoinsFromCoins(coins ...Coin) (DecCoins, error) {
 	newCoins := NewCoins(coins...)
+	decCoins := make(DecCoins, len(newCoins))
 	for i, coin := range newCoins {
+		if !coin.Amount.CanConvertToDec() {
+			return nil, fmt.Errorf("coin %s amount exceeds decimal conversion range", coin)
+		}
 		decCoins[i] = NewDecCoinFromCoin(coin)
 	}
-
-	return decCoins
+	return decCoins, nil
 }
 
 // String implements the Stringer interface for DecCoins. It returns a

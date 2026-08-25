@@ -17,7 +17,6 @@ var (
 	}
 
 	evmAnteMetrics = struct {
-		pendingNonce  metric.Int64Counter
 		nonceMismatch metric.Int64Counter
 
 		// Gas price histogram
@@ -26,12 +25,6 @@ var (
 		// Association errors
 		associationError metric.Int64Counter
 	}{
-		pendingNonce: must(meter.Int64Counter(
-			"evm_pending_nonce",
-			metric.WithDescription("EVM pending nonce events by type (added, expired, rejected, accepted)"),
-			metric.WithUnit("{count}"),
-		)),
-
 		nonceMismatch: must(meter.Int64Counter(
 			"evm_nonce_mismatch",
 			metric.WithDescription("EVM nonce mismatches by cause (too_high, too_low)"),

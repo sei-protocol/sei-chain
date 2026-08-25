@@ -79,7 +79,10 @@ func (m *FullTimeoutVote) Verify(ep *Epoch) error {
 		return err
 	}
 	c := ep.Committee()
-	if err := m.vote.VerifySig(c); err != nil {
+	if !c.HasReplica(m.vote.Key()) {
+		return fmt.Errorf("%q is not a replica", m.vote.Key())
+	}
+	if err := m.vote.VerifySig(); err != nil {
 		return err
 	}
 	if want, ok := m.vote.Msg().latestPrepareQCView().Get(); ok {
@@ -166,7 +169,10 @@ func (m *TimeoutQC) Verify(ep *Epoch, prev utils.Option[*CommitQC]) error {
 		}
 		weight += c.Weight(v.sig.key)
 		done[v.sig.key] = struct{}{}
-		if err := v.VerifySig(c); err != nil {
+		if !c.HasReplica(v.Key()) {
+			return fmt.Errorf("%q is not a replica", v.Key())
+		}
+		if err := v.VerifySig(); err != nil {
 			return err
 		}
 	}
@@ -215,7 +221,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	for _, l := range p.laneRanges {
 		laneRanges = append(laneRanges, l)
 	}
-	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.App(), p.GlobalRange().First), true
+	return newProposal(m.View().Next(), p.Timestamp(), laneRanges, p.GlobalRange().First), true
 }
 
 // TimeoutVoteConv is the protobuf converter for TimeoutVote.

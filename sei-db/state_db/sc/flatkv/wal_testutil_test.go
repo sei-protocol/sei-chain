@@ -31,7 +31,7 @@ func newCommitStoreWithWAL(ctx context.Context, cfg *config.Config) (*CommitStor
 // restore) has its changelog directory removed out of band while the node is stopped.
 func resetWALForTest(t *testing.T, s *CommitStore) {
 	t.Helper()
-	cfg := stateWALConfig(&s.config)
+	cfg := stateWALConfig(s.config.DataDir)
 	require.NoError(t, s.wal.Close())
 	require.NoError(t, os.RemoveAll(cfg.Path))
 	w, err := statewal.New(cfg)

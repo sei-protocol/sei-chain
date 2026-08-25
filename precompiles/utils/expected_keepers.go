@@ -4,10 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -18,14 +14,11 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	paramsproposal "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	ibctypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
-	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -51,16 +44,11 @@ type Keepers interface {
 	DistributionK() DistributionKeeper
 	DistributionQ() DistributionQuerier
 	EvidenceQ() EvidenceQuerier
-	FeegrantQ() FeegrantQuerier
 	MintQ() MintQuerier
 	ParamsQ() ParamsQuerier
 	SlashingMS() SlashingMsgServer
 	SlashingQ() SlashingQuerier
 	UpgradeQ() UpgradeQuerier
-	TransferK() TransferKeeper
-	ClientK() ClientKeeper
-	ConnectionK() ConnectionKeeper
-	ChannelK() ChannelKeeper
 	TxConfig() client.TxConfig
 	Codec() codec.Codec
 }
@@ -88,16 +76,11 @@ func (ek *EmptyKeepers) DistributionQ() DistributionQuerier {
 	return nil
 }
 func (ek *EmptyKeepers) EvidenceQ() EvidenceQuerier    { return nil }
-func (ek *EmptyKeepers) FeegrantQ() FeegrantQuerier    { return nil }
 func (ek *EmptyKeepers) MintQ() MintQuerier            { return nil }
 func (ek *EmptyKeepers) ParamsQ() ParamsQuerier        { return nil }
 func (ek *EmptyKeepers) SlashingMS() SlashingMsgServer { return nil }
 func (ek *EmptyKeepers) SlashingQ() SlashingQuerier    { return nil }
 func (ek *EmptyKeepers) UpgradeQ() UpgradeQuerier      { return nil }
-func (ek *EmptyKeepers) TransferK() TransferKeeper     { return nil }
-func (ek *EmptyKeepers) ClientK() ClientKeeper         { return nil }
-func (ek *EmptyKeepers) ConnectionK() ConnectionKeeper { return nil }
-func (ek *EmptyKeepers) ChannelK() ChannelKeeper       { return nil }
 func (ek *EmptyKeepers) TxConfig() client.TxConfig     { return nil }
 func (ek *EmptyKeepers) Codec() codec.Codec            { return nil }
 
@@ -232,33 +215,6 @@ type DistributionKeeper interface {
 	DelegationTotalRewards(c context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error)
 }
 
-type TransferKeeper interface {
-	Transfer(goCtx context.Context, msg *ibctypes.MsgTransfer) (*ibctypes.MsgTransferResponse, error)
-	SendTransfer(
-		ctx sdk.Context,
-		sourcePort,
-		sourceChannel string,
-		token sdk.Coin,
-		sender sdk.AccAddress,
-		receiver string,
-		timeoutHeight clienttypes.Height,
-		timeoutTimestamp uint64,
-	) error
-}
-
-type ClientKeeper interface {
-	GetClientState(ctx sdk.Context, clientID string) (exported.ClientState, bool)
-	GetClientConsensusState(ctx sdk.Context, clientID string, height exported.Height) (exported.ConsensusState, bool)
-}
-
-type ConnectionKeeper interface {
-	GetConnection(ctx sdk.Context, connectionID string) (connectiontypes.ConnectionEnd, bool)
-}
-
-type ChannelKeeper interface {
-	GetChannel(ctx sdk.Context, portID, channelID string) (types.Channel, bool)
-}
-
 type BankQuerier interface {
 	SpendableBalances(ctx context.Context, req *banktypes.QuerySpendableBalancesRequest) (*banktypes.QuerySpendableBalancesResponse, error)
 	TotalSupply(ctx context.Context, req *banktypes.QueryTotalSupplyRequest) (*banktypes.QueryTotalSupplyResponse, error)
@@ -305,12 +261,6 @@ type DistributionQuerier interface {
 type EvidenceQuerier interface {
 	Evidence(c context.Context, req *evidencetypes.QueryEvidenceRequest) (*evidencetypes.QueryEvidenceResponse, error)
 	AllEvidence(c context.Context, req *evidencetypes.QueryAllEvidenceRequest) (*evidencetypes.QueryAllEvidenceResponse, error)
-}
-
-type FeegrantQuerier interface {
-	Allowance(c context.Context, req *feegrant.QueryAllowanceRequest) (*feegrant.QueryAllowanceResponse, error)
-	Allowances(c context.Context, req *feegrant.QueryAllowancesRequest) (*feegrant.QueryAllowancesResponse, error)
-	AllowancesByGranter(c context.Context, req *feegrant.QueryAllowancesByGranterRequest) (*feegrant.QueryAllowancesByGranterResponse, error)
 }
 
 type MintQuerier interface {

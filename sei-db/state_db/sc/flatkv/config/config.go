@@ -19,7 +19,7 @@ type Config struct {
 	// Must be set before calling Validate().
 	DataDir string
 
-	// Fsync controls whether PebbleDB writes (data DBs + metadataDB) use fsync.
+	// Fsync controls whether PebbleDB writes to the data DBs use fsync.
 	// WAL always uses NoSync (matching memiavl); crash recovery relies on
 	// WAL catchup, which is idempotent.
 	// Default: false
@@ -39,8 +39,21 @@ type Config struct {
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
+	// Ignored entirely when ExternalPruning is set.
 	// Default: 1
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
+
+	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
+	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL.
+	//
+	// Not read from app.toml. It is set by whatever constructs the collector, since it is only
+	// correct when this store is registered with a running one.
+	//
+	// With it on, snapshots are retained by height rather than by count, so the number kept becomes
+	// RollbackWindow / SnapshotInterval instead of SnapshotKeepRecent + 1.
+	//
+	// Default: false
+	ExternalPruning bool `mapstructure:"-"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
 	// Default: true
@@ -73,12 +86,6 @@ type Config struct {
 
 	// MiscCacheConfig defines the cache configuration for the misc database.
 	MiscCacheConfig dbcache.CacheConfig
-
-	// MetadataDBConfig defines the PebbleDB configuration for the metadata database.
-	MetadataDBConfig pebbledb.PebbleDBConfig
-
-	// MetadataCacheConfig defines the cache configuration for the metadata database.
-	MetadataCacheConfig dbcache.CacheConfig
 
 	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
 	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
@@ -122,8 +129,6 @@ func DefaultConfig() *Config {
 		StorageCacheConfig:        dbcache.DefaultCacheConfig(),
 		MiscDBConfig:              pebbledb.DefaultConfig(),
 		MiscCacheConfig:           dbcache.DefaultCacheConfig(),
-		MetadataDBConfig:          pebbledb.DefaultConfig(),
-		MetadataCacheConfig:       dbcache.DefaultCacheConfig(),
 		ReaderThreadsPerCore:      2.0,
 		ReaderConstantThreadCount: 0,
 		ReaderPoolQueueSize:       1024,
@@ -159,9 +164,6 @@ func (c *Config) Validate() error {
 	if err := c.MiscCacheConfig.Validate(); err != nil {
 		return fmt.Errorf("misc cache config is invalid: %w", err)
 	}
-	if err := c.MetadataCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("metadata cache config is invalid: %w", err)
-	}
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
 	}
@@ -176,9 +178,6 @@ func (c *Config) Validate() error {
 	}
 	if err := c.MiscDBConfig.Validate(); err != nil {
 		return fmt.Errorf("misc db config is invalid: %w", err)
-	}
-	if err := c.MetadataDBConfig.Validate(); err != nil {
-		return fmt.Errorf("metadata db config is invalid: %w", err)
 	}
 
 	if c.ReaderThreadsPerCore <= 0 {

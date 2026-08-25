@@ -11,7 +11,7 @@ changes. These contain domain-specific architecture decisions, conventions, and
 constraints that supplement this top-level guide. Context increases
 progressively the deeper you go. Existing package guides include:
 
-- `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `sei2_*`, `debug_*`) semantics
+- `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
 - `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
@@ -44,11 +44,48 @@ goimports -w <file>...   # groups/orders imports; catches the goimports linter
 the stdlib import group from third-party imports, so a `gofmt`-clean file can
 still fail the `goimports` linter.
 
-Verify the whole tree (each prints nothing when everything is clean):
+Verify the whole tree with the check CI gates on, which prints nothing when
+everything is clean:
 
 ```bash
-gofmt -s -l .
-goimports -l .
+make fmtcheck   # golangci-lint fmt --diff
+```
+
+Prefer it over a bare `goimports -l .`, which also reports generated files that
+the formatters are configured to skip. Note that `golangci-lint run` will **not**
+catch a misformatted test file: it honours `run.tests`, which is false, so its
+formatters never see one. `fmtcheck` is a separate invocation for that reason.
+
+### Godoc
+
+Godocs say **what** a thing is, not why it came to be or how it works inside.
+
+1. **Explain WHAT, not WHY or HOW.** Rationale, trade-offs, and mechanism belong in
+   an inline comment at the line that needs them, or nowhere.
+2. **Never record design history.** No "this was previously X", "used to mean Y",
+   "renamed from Z". The diff and the git log hold that.
+3. **Multi-paragraph godocs are rare.** Most functions do not earn a second
+   paragraph. One or two sentences is the norm.
+4. **Rewrite, don't patch.** When a godoc needs to change, write it again from
+   scratch; incrementally editing one reliably produces a rambling comment.
+5. **Document the subject, not the system.** A godoc is not the place to explain
+   the surrounding architecture. Describe this function, type, or field.
+
+```go
+// ❌ BAD — history, mechanism, and a system tour
+// GetRollbackFloor returns the earliest height a rollback may target. The window is
+// measured against the store's own head rather than a height handed down, because the
+// collector takes a minimum across stores, so a lagging store sets the depth. 0 means
+// nothing is eligible; it is a height rather than a sentinel, since CannotServeRollback
+// used to serve that role and was removed. Answering high is the damaging direction,
+// as nothing above clamps it: the collector derives its cut lines from these answers.
+func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64
+
+// ✅ GOOD — what it returns, and what the caller must know
+// GetRollbackFloor returns the earliest height a rollback may target, measured against
+// this store's own head. It returns 0 when the window is deeper than the store's
+// history, meaning no data here is eligible for pruning.
+func (s *blockDB) GetRollbackFloor(rollbackWindow uint64) uint64
 ```
 
 ## Structural corrections
@@ -93,7 +130,8 @@ Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
 `bodyclose`, and `dogsled`; generated `*.pb.go` files are excluded).
 
 ```bash
-make lint     # golangci-lint run + go fmt ./... + go vet ./... + go mod tidy + go mod verify
+make lint     # golangci-lint run + golangci-lint fmt + go vet ./... + go mod tidy + go mod verify
+make fmtcheck # report what the formatters would rewrite, without rewriting it (CI gates on this)
 make dblint   # same checks scoped to ./sei-db/... (faster when iterating there)
 make build    # build the seid binary into ./build/seid
 make install  # install seid into $GOBIN
@@ -108,7 +146,52 @@ go test ./<pkg>/...     # run a single package
 ```
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
-v2.8.0 and `.github/workflows/go-test.yml` runs `go test -race` on Go 1.25.6.
+v2.8.0 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
+runs `go test -race` on Go 1.25.6.
+
+### Running tests on a RAM disk
+
+If you are running tests that use on-disk resources, consider using a RAM disk to
+speed it up. Tests under sei-db/* are very likely to benefit from this. Other tests
+may or may not benefit depending on disk utilization. Tests that do not use on-disk
+resources are unlikely to experience significant benefit from using a RAM disk.
+
+`scripts/ramtest.sh` runs `go test` with `GOTMPDIR` and `TMPDIR` on a RAM-backed
+filesystem. Arguments that are not its own flags pass through to `go test`, so
+package patterns, `-run`, `-count`, `-parallel` and `-v` work as usual, and relative
+patterns resolve from the directory you run it in. `--help` lists the flags. Works on
+macOS and Linux; on Linux it prefers `/dev/shm`, falls back to a sudo-mounted tmpfs
+where that is too small, and warns and runs unaccelerated when neither is available.
+
+```bash
+scripts/ramtest.sh ./sei-db/...
+scripts/ramtest.sh ./sei-db/state_db/sc/flatkv/... -run TestSnapshot -v
+scripts/ramtest.sh                         # whole repo (./...)
+scripts/ramtest.sh --keep ./sei-db/...     # leave the volume up for the next run
+scripts/ramtest.sh --down                  # release the RAM disk, not needed for clean run
+```
+
+**Memory.** A full `./sei-db/...` run needs ~9 GiB free: ~5.5 GiB of test data plus
+~3 GiB of concurrent test binaries. Run subtrees on a smaller host. `--size N` (GiB)
+overrides the default `clamp(RAM/2, 4, 32)`, but it is a ceiling rather than a
+reservation, so raising it neither costs nor relieves memory. On the Linux `/dev/shm`
+path the request is clamped down to what that tmpfs actually has free, with a warning.
+Size from the peak each run reports.
+
+- Exit 3 means the RAM disk filled, not a test failure. Retry with a larger `--size`.
+- Exit 4 means the volume could not be released and its memory is still reserved. The
+  message names the command that frees it.
+- `peak use: 0` means nothing reached the RAM disk: either the run wrote nothing, or the
+  redirect did not take effect and the run was not accelerated.
+- `--keep` is sticky: a run only tears down a volume it created, so once you keep one
+  you own the teardown. `--down` releases it from any later shell.
+- macOS volumes are case-sensitive (HFSX) unlike the APFS root. A new path-case
+  failure is a real bug, not a script problem.
+- Not CI parity: `-race` is off by default, and `--ci-tags` is needed for the ledger
+  tests. A green run here is not a green CI run.
+- Each worktree gets its own volume, so parallel agents do not collide. Within one
+  worktree only one run at a time: a second is refused, because both would share the
+  volume and wipe each other's scratch directories.
 
 ## Benchmarking
 

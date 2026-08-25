@@ -14,6 +14,7 @@ FilterTimeout = time.Duration(2m0s)
 CheckTxTimeout = time.Duration(5s)
 MaxTxPoolTxs = uint64(1000)
 Slow = bool(false)
+EnableSimulation = bool(true)
 DenyList = <empty-slice>
 MaxLogNoBlock = int64(10000)
 MaxLogBytes = int64(67108864)

@@ -15,10 +15,12 @@ import (
 // # What We Persist
 //
 // All fields are persisted atomically in a single A/B file pair (inner_a.pb/inner_b.pb):
-//   - CommitQC: justified entering the current index
+//   - Index: current view RoadIndex used to validate the WAL against ConsensusSpec
 //   - PrepareQC: needed for timeoutVote on restart
 //   - TimeoutQC: justified entering the current view number
 //   - CommitVote, PrepareVote, TimeoutVote: this node's votes for the current view
+//
+// Runtime CommitQC + next-view epoch live on inner.spec (ConsensusSpec), not here.
 //
 // # Why We Persist
 //
@@ -56,11 +58,12 @@ import (
 //   - Votes (prepareVote, commitVote, timeoutVote): YES — rebroadcast via sendUpdates
 //   - TimeoutQC: YES — rebroadcast via myTimeoutQC watch
 //   - CommitQC: NO — used locally for view justification but not rebroadcast;
-//     CommitQCs are served via StreamCommitQCs from the data layer, not from
-//     the persisted viewSpec. TODO: consider rebroadcasting CommitQC on restart
-//     to help peers sync faster after cluster-wide outages.
+//     the runtime tip comes from ConsensusSpec, while the WAL stores only
+//     Index. CommitQCs are served via StreamCommitQCs from the data
+//     layer. TODO: consider rebroadcasting CommitQC on restart to help peers
+//     sync faster after cluster-wide outages.
 type persistedInner struct {
-	CommitQC  utils.Option[*types.CommitQC]
+	Index     types.RoadIndex
 	PrepareQC utils.Option[*types.PrepareQC]
 	TimeoutQC utils.Option[*types.TimeoutQC]
 
@@ -69,31 +72,27 @@ type persistedInner struct {
 	TimeoutVote utils.Option[*types.FullTimeoutVote]
 }
 
-// validate checks internal consistency and cryptographic signatures of persisted state.
-// Returns error on corrupt state.
-func (p *persistedInner) validate(ep *types.Epoch) error {
-	if cqc, ok := p.CommitQC.Get(); ok {
-		if err := cqc.Verify(ep); err != nil {
-			return fmt.Errorf("corrupt persisted state: CommitQC failed verification: %w", err)
-		}
-	}
-
+// Verify checks internal consistency and cryptographic signatures of persisted state.
+// Returns error on corrupt state. Index is checked against spec by newInner first.
+// PrepareQC and TimeoutQC may be assembled from any committee replicas; CommitVote,
+// PrepareVote, and TimeoutVote must be this node's.
+func (p *persistedInner) Verify(spec types.ConsensusSpec, self types.PublicKey) error {
+	ep := spec.Epoch
 	// TimeoutQC index must equal NextIndexOpt(CommitQC) (i.e., CommitQC.Index+1, or 0 if missing).
 	// Since we persist the entire inner state atomically, a mismatched index is always corrupt.
 	if tqc, ok := p.TimeoutQC.Get(); ok {
 		tqcIndex := tqc.View().Index
-		expectedIndex := types.NextIndexOpt(p.CommitQC)
+		expectedIndex := spec.Index()
 		if tqcIndex != expectedIndex {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC has index %d but expected %d", tqcIndex, expectedIndex)
 		}
-		if err := tqc.Verify(ep, p.CommitQC); err != nil {
+		if err := tqc.Verify(ep, spec.CommitQC); err != nil {
 			return fmt.Errorf("corrupt persisted state: TimeoutQC failed verification: %w", err)
 		}
 	}
 
-	vs := types.ViewSpec{CommitQC: p.CommitQC, TimeoutQC: p.TimeoutQC, Epoch: ep}
+	vs := types.ViewSpec{ConsensusSpec: spec, TimeoutQC: p.TimeoutQC}
 	currentView := vs.View()
-	committee := ep.Committee()
 
 	// checkViewAndSig validates that a persisted field has the current view and a valid signature.
 	// Since inner is persisted atomically, any view mismatch indicates corrupt state.
@@ -116,29 +115,44 @@ func (p *persistedInner) validate(ep *types.Epoch) error {
 		return fmt.Errorf("corrupt persisted state: CommitVote present without PrepareQC")
 	}
 	if v, ok := p.CommitVote.Get(); ok {
-		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), v.VerifySig(committee)); err != nil {
+		if err := checkViewAndSig("CommitVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.PrepareVote.Get(); ok {
-		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), v.VerifySig(committee)); err != nil {
+		if err := checkViewAndSig("PrepareVote", v.Msg().Proposal().View(), verifyLocalSig(self, v)); err != nil {
 			return err
 		}
 	}
 	if v, ok := p.TimeoutVote.Get(); ok {
-		if err := checkViewAndSig("TimeoutVote", v.View(), v.Verify(ep)); err != nil {
+		if err := checkViewAndSig("TimeoutVote", v.View(), verifyLocalTimeoutVote(self, v, ep)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func verifyLocalSig[T types.Msg](self types.PublicKey, v *types.Signed[T]) error {
+	if v.Key() != self {
+		return fmt.Errorf("signed by %q, not this node", v.Key())
+	}
+	return v.VerifySig()
+}
+
+func verifyLocalTimeoutVote(self types.PublicKey, v *types.FullTimeoutVote, ep *types.Epoch) error {
+	if v.Vote().Key() != self {
+		return fmt.Errorf("signed by %q, not this node", v.Vote().Key())
+	}
+	return v.Verify(ep)
+}
+
 // innerProtoConv is a protobuf converter for persistedInner.
 var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	Encode: func(m *persistedInner) *pb.PersistedInner {
 		p := &pb.PersistedInner{}
-		if v, ok := m.CommitQC.Get(); ok {
-			p.CommitQc = types.CommitQCConv.Encode(v)
+		if m.Index != 0 {
+			v := uint64(m.Index)
+			p.Index = &v
 		}
 		if v, ok := m.PrepareQC.Get(); ok {
 			p.PrepareQc = types.PrepareQCConv.Encode(v)
@@ -159,12 +173,8 @@ var innerProtoConv = protoutils.Conv[*persistedInner, *pb.PersistedInner]{
 	},
 	Decode: func(p *pb.PersistedInner) (*persistedInner, error) {
 		m := &persistedInner{}
-		if p.CommitQc != nil {
-			v, err := types.CommitQCConv.Decode(p.CommitQc)
-			if err != nil {
-				return nil, fmt.Errorf("commit_qc: %w", err)
-			}
-			m.CommitQC = utils.Some(v)
+		if p.Index != nil {
+			m.Index = types.RoadIndex(*p.Index)
 		}
 		if p.PrepareQc != nil {
 			v, err := types.PrepareQCConv.Decode(p.PrepareQc)

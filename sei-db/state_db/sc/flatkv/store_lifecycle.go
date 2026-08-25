@@ -13,8 +13,8 @@ import (
 
 // isClosed reports whether the store's DB handles have been released.
 func (s *CommitStore) isClosed() bool {
-	return s.metadataDB == nil && s.accountDB == nil &&
-		s.codeDB == nil && s.storageDB == nil && s.miscDB == nil
+	return s.accountDB == nil && s.codeDB == nil &&
+		s.storageDB == nil && s.miscDB == nil
 }
 
 // closeDBsOnly closes all database handles but retains the file lock, preventing a race window during
@@ -23,13 +23,6 @@ func (s *CommitStore) isClosed() bool {
 // closed only by top-level Close (or replaced in place by Rollback/restore).
 func (s *CommitStore) closeDBsOnly() error {
 	var errs []error
-
-	if s.metadataDB != nil {
-		if err := s.metadataDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("metadataDB close: %w", err))
-		}
-		s.metadataDB = nil
-	}
 
 	if s.storageDB != nil {
 		if err := s.storageDB.Close(); err != nil {

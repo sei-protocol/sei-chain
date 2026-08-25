@@ -10,4 +10,5 @@
 "compaction-interval"
 "concurrency-workers"
 "occ-enabled"
+"freeze-height"
 # keys with a target of their own

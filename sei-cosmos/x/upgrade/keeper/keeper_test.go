@@ -234,6 +234,20 @@ func (s *KeeperTestSuite) TestMigrations() {
 	s.Require().Equal(vmBefore["bank"]+1, vm["bank"])
 }
 
+func (s *KeeperTestSuite) TestDeleteModuleVersion() {
+	initialVM := module.VersionMap{
+		"bank":     1,
+		"feegrant": 1,
+	}
+	s.app.UpgradeKeeper.SetModuleVersionMap(s.ctx, initialVM)
+
+	s.app.UpgradeKeeper.DeleteModuleVersion(s.ctx, "feegrant")
+
+	vm := s.app.UpgradeKeeper.GetModuleVersionMap(s.ctx)
+	s.Require().Equal(uint64(1), vm["bank"])
+	s.Require().NotContains(vm, "feegrant")
+}
+
 func (s *KeeperTestSuite) TestLastCompletedUpgrade() {
 	keeper := s.app.UpgradeKeeper
 	require := s.Require()

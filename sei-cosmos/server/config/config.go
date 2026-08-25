@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
 
@@ -111,6 +113,11 @@ type BaseConfig struct {
 	//
 	// Note: Commitment of state will be attempted on the corresponding block.
 	HaltHeight uint64 `mapstructure:"halt-height"`
+
+	// FreezeHeight contains the first block height a full node must not execute.
+	// Query RPC remains available, while transaction and evidence submission,
+	// mempool gossip, and state sync are disabled from startup.
+	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 	// a node will gracefully halt and shutdown that can be used to assist
@@ -302,6 +309,7 @@ type Config struct {
 	GRPC        GRPCConfig               `mapstructure:"grpc"`
 	Rosetta     RosettaConfig            `mapstructure:"rosetta"`
 	GRPCWeb     GRPCWebConfig            `mapstructure:"grpc-web"`
+	Query       QueryConfig              `mapstructure:"query"`
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
@@ -345,6 +353,7 @@ func DefaultConfig() *Config {
 			PruningKeepRecent:  "0",
 			PruningKeepEvery:   "0",
 			PruningInterval:    "0",
+			FreezeHeight:       0,
 			MinRetainBlocks:    0,
 			IndexEvents:        nil,
 			CompactionInterval: 0,
@@ -391,6 +400,7 @@ func DefaultConfig() *Config {
 			Address:            DefaultGRPCWebAddress,
 			MaxOpenConnections: DefaultGRPCWebMaxOpenConnections,
 		},
+		Query: DefaultQueryConfig(),
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
 			SnapshotKeepRecent: 2,
@@ -420,6 +430,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	globalLabelsRaw, ok := v.Get("telemetry.global-labels").([]interface{})
 	if !ok {
 		return Config{}, fmt.Errorf("failed to parse global-labels config")
+	}
+	freezeHeight, err := cast.ToUint64E(v.Get("freeze-height"))
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid freeze-height: %w", err)
 	}
 
 	globalLabels := make([][]string, 0, len(globalLabelsRaw))
@@ -508,6 +522,13 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		memIAVLConfig.SnapshotPrefetchThreshold = v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold")
 	}
 
+	// Absent key means an app.toml rendered before SS snapshots existed, which
+	// should keep the in-code default (off) rather than rely on viper's zero.
+	ssSnapshotEnable := config.DefaultStateStoreConfig().SnapshotEnable
+	if v.IsSet("state-store.ss-snapshot-enable") {
+		ssSnapshotEnable = v.GetBool("state-store.ss-snapshot-enable")
+	}
+
 	// Apply the in-code default when the key is absent so that nodes upgrading
 	// with an older app.toml (which lacks this key) are still bounded rather
 	// than running with unlimited connections.
@@ -551,7 +572,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
-	return Config{
+	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
 			InterBlockCache:    v.GetBool("inter-block-cache"),
@@ -559,6 +580,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			PruningKeepRecent:  v.GetString("pruning-keep-recent"),
 			PruningInterval:    v.GetString("pruning-interval"),
 			HaltHeight:         v.GetUint64("halt-height"),
+			FreezeHeight:       freezeHeight,
 			HaltTime:           v.GetUint64("halt-time"),
 			IndexEvents:        v.GetStringSlice("index-events"),
 			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),
@@ -636,6 +658,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			EnableReadWriteMetrics: v.GetBool(
 				"state-store.ss-enable-read-write-metrics",
 			),
+			SnapshotEnable:    ssSnapshotEnable,
 			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
 			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
 			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
@@ -644,10 +667,13 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
-	}, nil
+		Query: DefaultQueryConfig(),
+	}
+
+	return cfg, nil
 }
 
-// ValidateBasic returns an error if min-gas-prices field is empty in BaseConfig. Otherwise, it returns nil.
+// ValidateBasic validates the server configuration.
 func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 	if c.MinGasPrices == "" {
 		return sdkerrors.ErrAppConfig.Wrap("set min gas price in app.toml or flag or env variable")
@@ -656,6 +682,17 @@ func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", storetypes.PruningOptionEverything,
 		)
+	}
+	return c.ValidateFreeze()
+}
+
+// ValidateFreeze validates the configuration that controls freeze mode.
+func (c Config) ValidateFreeze() error {
+	if c.FreezeHeight > math.MaxInt64 {
+		return sdkerrors.ErrAppConfig.Wrapf("freeze-height must not exceed %d", int64(math.MaxInt64))
+	}
+	if c.FreezeHeight > 0 && (c.HaltHeight > 0 || c.HaltTime > 0) {
+		return sdkerrors.ErrAppConfig.Wrap("freeze-height cannot be combined with halt-height or halt-time")
 	}
 
 	return nil

@@ -15,10 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// LaneID represents a lane identifier (currently it is the same as NodeID,
-// since the producer uniquely identifies the lane).
-type LaneID = PublicKey
-
 // NodeID represents a unique identifier for a node in the network.
 type NodeID string
 
@@ -117,8 +113,6 @@ type GlobalBlock struct {
 	Timestamp    time.Time
 	GlobalNumber GlobalBlockNumber
 	Payload      *Payload
-	// Highest known finalized state.
-	FinalAppState utils.Option[*AppProposal]
 }
 
 // NewBlock creates a new Block.
@@ -145,12 +139,9 @@ func (b *Block) Header() *BlockHeader { return b.header }
 // Payload .
 func (b *Block) Payload() *Payload { return b.payload }
 
-// Verify validates the Block.
-func (b *Block) Verify(c *Committee) error {
-	if err := b.Header().Verify(c); err != nil {
-		return fmt.Errorf("header.Verify(): %w", err)
-	}
-	if got, want := b.Payload().Hash(), b.Header().PayloadHash(); got != want {
+// Verify checks the block's internal integrity.
+func (b *Block) Verify() error {
+	if got, want := b.payload.Hash(), b.header.payloadHash; got != want {
 		return fmt.Errorf("payload.Hash() = %v, want %v", got, want)
 	}
 	return nil
@@ -223,7 +214,7 @@ func (p *Payload) Hash() PayloadHash {
 var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 	Encode: func(h *BlockHeader) *pb.BlockHeader {
 		return &pb.BlockHeader{
-			Lane:        PublicKeyConv.Encode(h.lane),
+			LaneId:      LaneIDConv.Encode(h.lane),
 			BlockNumber: utils.Alloc(uint64(h.blockNumber)),
 			ParentHash:  h.parentHash[:],
 			PayloadHash: h.payloadHash[:],
@@ -238,7 +229,7 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 		if err != nil {
 			return nil, fmt.Errorf("ParentHash: %w", err)
 		}
-		lane, err := PublicKeyConv.DecodeReq(h.Lane)
+		lane, err := LaneIDConv.DecodeReq(h.LaneId)
 		if err != nil {
 			return nil, fmt.Errorf("lane: %w", err)
 		}
