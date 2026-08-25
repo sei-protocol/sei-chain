@@ -5,11 +5,18 @@ project_name: sei-chain
 before:
   hooks:
     - go mod download
-    # build-static.sh self-verifies (libwasmvm archives present + output is static).
-    - bash scripts/build-static.sh
+    # The release runner is amd64, so building linux/arm64 needs binfmt registered.
+    - docker run --privileged --rm tonistiigi/binfmt --install arm64
+    # build-static.sh self-verifies per architecture (libwasmvm archives present, pinned
+    # libgcc checksums match, output is static, no gcc>=12 b-tree unwinder).
+    - bash scripts/build-static.sh amd64
+    - bash scripts/build-static.sh arm64
     # Boot the binary before packaging: catches crash-at-first-wasm-use defects that
-    # neither a successful link nor `seid version` can (see scripts/boot-smoke.sh).
-    - bash scripts/boot-smoke.sh build/seid 4
+    # neither a successful link nor `seid version` can (see scripts/boot-smoke.sh). Only
+    # the native architecture can be booted here; the arm64 binary is gated by the
+    # Linux ARM64 (static) CI job, which runs the same 8-boot gauntlet on arm64 hardware
+    # against a bit-identical build of the same commit.
+    - bash scripts/boot-smoke.sh build/seid-amd64 4
 
 builds:
   # The static seid is built in Alpine (musl-native) by the `before:` hook above
@@ -29,6 +36,7 @@ builds:
       - linux
     goarch:
       - amd64
+      - arm64
 
 archives:
   - id: seid
@@ -86,7 +94,8 @@ release:
   header: |
     ## Experimental Pre-built Binaries
 
-    Pre-built **statically-linked** `seid` binary attached below for `linux/amd64`.
+    Pre-built **statically-linked** `seid` binaries attached below for `linux/amd64`
+    and `linux/arm64`.
 
     Verify your download:
 

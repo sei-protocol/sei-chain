@@ -24,14 +24,29 @@ BIN=${1:?usage: boot-smoke.sh <path-to-seid> [boots]}
 BOOTS=${2:-8}
 CHAIN_ID=boot-smoke-1
 
-# Linux-only: this gate runs the linux/amd64 binary natively and uses GNU timeout.
-# Skip cleanly on other hosts so local `goreleaser release --snapshot` on macOS still
-# works (build-static.sh cross-builds in Docker there, but the ELF can't run on the
-# host). The real release path and the CI static-build job both run on Linux and always
+# Linux-only: this gate runs the binary natively and uses GNU timeout. Skip cleanly on
+# other hosts so local `goreleaser release --snapshot` on macOS still works
+# (build-static.sh cross-builds in Docker there, but the ELF can't run on the host).
+# The real release path and the CI static-build jobs both run on Linux and always
 # execute the gate.
 if [ "$(uname -s)" != "Linux" ]; then
-  echo "boot-smoke: host is $(uname -s), not Linux; skipping (cannot run the linux/amd64 binary natively here)"
+  echo "boot-smoke: host is $(uname -s), not Linux; skipping (cannot run a linux binary natively here)"
   exit 0
+fi
+
+# Refuse a binary built for another architecture. Without this the run reaches `seid
+# init`, dies with an exec-format error, and reports "did not reach the ABCI handshake",
+# which reads as a crashing binary rather than the wrong file being passed in.
+elf_machine=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
+case "$(uname -m)" in
+  x86_64)         host_machine=3e00 ;;
+  aarch64|arm64)  host_machine=b700 ;;
+  *) echo "boot-smoke: unsupported host architecture $(uname -m)" >&2; exit 1 ;;
+esac
+if [ "$elf_machine" != "$host_machine" ]; then
+  echo "boot-smoke: ERROR: $BIN is not a $(uname -m) binary (ELF e_machine $elf_machine)." >&2
+  echo "            This gate must run on hardware matching the binary under test." >&2
+  exit 1
 fi
 
 for i in $(seq 1 "$BOOTS"); do
