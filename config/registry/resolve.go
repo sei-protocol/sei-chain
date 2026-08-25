@@ -96,8 +96,9 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	// is the first point both sets exist.
 	for key := range undeliverable {
 		if !declared[key] {
-			return out, fmt.Errorf("%q is refused from the environment and no section declares it, so the "+
-				"refusal covers nothing", key)
+			section, _ := RefusedBy(key)
+			return out, fmt.Errorf("%q is refused from the environment by section %q and no section "+
+				"declares it, so the refusal covers nothing", key, section)
 		}
 	}
 

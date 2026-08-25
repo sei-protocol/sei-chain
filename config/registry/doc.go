@@ -105,11 +105,14 @@
 //   - Not a file format. Nothing here reads or writes a configuration file.
 //   - Not a validator. A section may state rules about its own values; this package invents none.
 //   - Not wired. No section is registered by this package and no reader is migrated onto it.
-//   - Not a guard against a key and a table sharing one name. A key at the top of the file that is also
-//     a section's name cannot be written at all, because no file holds both a value for that name and a
-//     table under it, so one of the two settings is unreachable and nothing says which. One section
-//     declares keys at the top of the file today and none of its names is a section's, so the collision
-//     has no instance; a second such section is where it becomes reachable.
+//   - Not a guard against a key and a table sharing one name. A key at the top of the file that is also a
+//     section's name cannot be written at all, because no file holds both a value for that name and a table
+//     under it, so one of the two settings is unreachable. Nothing here refuses that. It is refused a layer
+//     down, by whatever installs a resolution: a source holds one value per path, so the install names both
+//     keys and stops rather than choosing which survives. So the failure is not silent, and it is late,
+//     arriving on a booting node instead of in the registration test of the package that caused it. One
+//     section declares keys at the top of the file today and none of its names is a section's, so the
+//     collision has no instance; a second such section is where it becomes reachable.
 //
 // # Adding a Section
 //
