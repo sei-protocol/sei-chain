@@ -100,3 +100,55 @@ transaction to land for a sender that is already associated (or already voted)
 at the time of broadcast — then the fee path does apply and the transaction is
 rejected. When in doubt, check `IsTxGasless` for the authoritative set rather
 than reasoning from `minimum-gas-prices` alone.
+
+## 4. Genesis rewrites must preserve consensus parameters
+
+Any code that rewrites an existing genesis document must carry every consensus
+parameter deliberately customized earlier in the generation flow unless replacing
+those values is an explicit responsibility of the rewrite. Rebuilding only the
+chain ID, validators, application state, and genesis time silently restores omitted
+consensus parameters to their defaults.
+
+Review the complete genesis-generation flow rather than only the initial write.
+When a later step collects gentxs or normalizes genesis time, tests must read the
+final file after that step and verify that customized consensus parameter values
+remain intact.
+
+## 5. Deprecated configuration keys need an explicit policy
+
+The current Viper unmarshalling path ignores unknown TOML keys, so placeholder
+struct fields are not required merely to let an existing configuration file
+load. A placeholder has value only when a reachable warning, validation, or
+migration path consumes it.
+
+Do not request global unknown-field errors as a local deprecation fix. Changing
+the decoder to reject unknown keys alters compatibility for every configuration
+section and must be an intentional change at the shared decoding choke point,
+with dedicated startup or TOML-decoding tests that record the behavior.
+
+A deprecated field is a real finding when the code or documentation promises a
+warning or migration but no startup path consumes it, or when removing it changes
+documented compatibility without an explicit replacement policy.
+
+## 6. An exported method on an `evmrpc` API struct is a live RPC endpoint — always flag it
+
+`go-ethereum`'s `rpc.Server` auto-registers every exported method on a
+`Service` struct passed to `RegisterName` (`evmrpc/server.go`) as a callable
+JSON-RPC method — there is no separate opt-in step. This applies to
+`InfoAPI`, `FilterAPI`, `DebugAPI`, and any other struct in the `RegisterName`
+list in `server.go`. See `evmrpc/AGENTS.md` ("Exported receivers are RPC
+surface") for the full rule.
+
+Unlike the other entries in this file, **this is not a false-positive
+suppression — it is a directive to actively flag the pattern**: if a diff adds
+or renames a method to be exported (capitalized) on one of these structs, and
+the method is not clearly intended as a new public RPC endpoint (e.g. it is a
+helper, a testing convenience, or an internal computation), call it out as a
+correctness/security finding, even if the diff "looks like" a harmless rename
+or refactor.
+
+Do not require this for methods that are obviously meant to be public RPC
+methods (matching an `eth_`/`debug_`/`sei_` spec method name), and do not flag
+lower-case (unexported) helpers, or methods added via `evmrpc/export_test.go`
+`*ForTest` wrappers (those are `_test.go`-only and excluded from production
+builds).

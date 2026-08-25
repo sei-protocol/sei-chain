@@ -1348,7 +1348,7 @@ func TestImport_NonEvmModulesUnaffected(t *testing.T) {
 
 func TestImport_ReturnsEVMErrorWithoutBlocking(t *testing.T) {
 	expectedErr := errors.New("evm import failed")
-	store := &CompositeStateStore{
+	store := &CompositeStateStore{compositeState: compositeState{
 		cosmosStore: &mockImportStateStore{
 			importFn: func(version int64, ch <-chan types.SnapshotNode) error {
 				for range ch {
@@ -1367,7 +1367,7 @@ func TestImport_ReturnsEVMErrorWithoutBlocking(t *testing.T) {
 		config: config.StateStoreConfig{
 			EVMSplit: true,
 		},
-	}
+	}}
 
 	const nodeCount = 256
 	ch := make(chan types.SnapshotNode, nodeCount)

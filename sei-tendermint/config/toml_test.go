@@ -72,7 +72,6 @@ func checkConfig(t *testing.T, configFile string) {
 		"mock-app = false",
 		"addr",
 		"wal",
-		"propose",
 		"max",
 		"genesis",
 	}

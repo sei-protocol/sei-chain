@@ -2,9 +2,10 @@ package types
 
 import (
 	"bytes"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	"reflect"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 )
 
 func TestDefaultParams(t *testing.T) {

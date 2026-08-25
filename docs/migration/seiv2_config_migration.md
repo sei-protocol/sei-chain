@@ -440,50 +440,6 @@ gossip-tx-key-only = "true"
 peer-gossip-sleep-duration = "100ms"
 peer-query-maj23-sleep-duration = "2s"
 
-### Unsafe Timeout Overrides ###
-
-# These fields provide temporary overrides for the Timeout consensus parameters.
-# Use of these parameters is strongly discouraged. Using these parameters may have serious
-# liveness implications for the validator and for the chain.
-#
-# These fields will be removed from the configuration file in the v0.37 release of Tendermint.
-# For additional information, see ADR-74:
-# https://github.com/tendermint/tendermint/blob/master/docs/architecture/adr-074-timeout-params.md
-
-# This field provides an unsafe override of the Propose timeout consensus parameter.
-# This field configures how long the consensus engine will wait for a proposal block before prevoting nil.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-propose-timeout-override = "2s"
-
-# This field provides an unsafe override of the ProposeDelta timeout consensus parameter.
-# This field configures how much the propose timeout increases with each round.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-propose-timeout-delta-override = "2s"
-
-# This field provides an unsafe override of the Vote timeout consensus parameter.
-# This field configures how long the consensus engine will wait after
-# receiving +2/3 votes in a round.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-vote-timeout-override = "2s"
-
-# This field provides an unsafe override of the VoteDelta timeout consensus parameter.
-# This field configures how much the vote timeout increases with each round.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-vote-timeout-delta-override = "2s"
-
-# This field provides an unsafe override of the Commit timeout consensus parameter.
-# This field configures how long the consensus engine will wait after receiving
-# +2/3 precommits before beginning the next height.
-# If this field is set to a value greater than 0, it will take effect.
-unsafe-commit-timeout-override = "2s"
-
-# This field provides an unsafe override of the BypassCommitTimeout consensus parameter.
-# This field configures if the consensus engine will wait for the full Commit timeout
-# before proceeding to the next height.
-# If this field is set to true, the consensus engine will proceed to the next height
-# as soon as the node has gathered votes from all of the validators on the network.
-# unsafe-bypass-commit-timeout-override = <nil>
-
 #######################################################
 ###   Transaction Indexer Configuration Options     ###
 #######################################################

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -120,6 +121,68 @@ type Checkpointable interface {
 	Checkpoint(destDir string) error
 }
 
+// CheckpointVersionSetter writes the logical latest version into a completed
+// checkpoint without changing the live database.
+//
+// The latest marker has to be stamped because a checkpoint is a copy of a
+// database whose marker may already have moved on. The earliest marker is
+// inherited from the checkpoint; pruning advances it before deleting history, so
+// every checkpoint boundary either sees the old marker with old data or the new
+// marker with data that is at least as deep as advertised.
+type CheckpointVersionSetter interface {
+	SetCheckpointVersion(destDir string, version int64) error
+}
+
+// DrainBarrier is an optional capability for engines that apply changesets from
+// an async queue. It lets a caller place work at an exact point in the write
+// order without waiting for the queue to drain.
+type DrainBarrier interface {
+	ScheduleAtDrain(fn func())
+}
+
+// PendingWriteWaiter is an optional capability for engines that apply changesets
+// from an async queue. It blocks until the queue is empty.
+type PendingWriteWaiter interface {
+	WaitForPendingWrites()
+}
+
+// SnapshotWALPruner is an optional capability for engines that keep a changelog
+// WAL beside snapshotable state. It lets snapshot retention keep the WAL anchored
+// to the oldest retained snapshot instead of to a fixed count of recent entries.
+type SnapshotWALPruner interface {
+	PruneWALBeforeVersion(version int64) error
+}
+
+// SnapshotWALReader is the read side of SnapshotWALPruner. It answers what the
+// changelog still covers through the handle the engine already holds, so a
+// caller planning a replay does not open a second one over a live WAL
+// directory: a second open repairs a corrupt tail rather than reading past it,
+// and it races the pruner truncating the same segments.
+type SnapshotWALReader interface {
+	// WALVersionsAfter reports the oldest version the changelog still holds and
+	// the oldest one above version. Either is 0 when the changelog holds no such
+	// entry.
+	WALVersionsAfter(version int64) (oldest int64, next int64, err error)
+}
+
+// Rollbackable is an optional offline capability for stores that can discard
+// versions above target and reopen at that target. Callers must quiesce the
+// store before invoking it.
+type Rollbackable interface {
+	Rollback(target int64) error
+}
+
+// RollbackValidator is an optional companion to Rollbackable. It checks whether
+// a rollback can be performed without changing store state.
+type RollbackValidator interface {
+	ValidateRollback(target int64) error
+}
+
+// The interfaces above are engine capabilities. Deciding when a checkpoint runs,
+// and what version it is labeled with, is coordination rather than engine
+// behavior and lives in sei-db/management: CheckpointScheduler,
+// ScheduleCheckpoint, SetCheckpointVersion and ErrCheckpointCanceled.
+
 // ---------------------------------------------------------------------------
 // SS DB layer
 // ---------------------------------------------------------------------------
@@ -142,6 +205,28 @@ type StateStore interface {
 	Prune(version int64) error
 	Import(version int64, ch <-chan SnapshotNode) error
 	io.Closer
+}
+
+// ContextIteratorStore is implemented by StateStores whose iterators can observe
+// a deadline while skipping MVCC versions. Historical traces attach the RPC
+// timeout here so a skip loop does not run for minutes after the caller gave up.
+type ContextIteratorStore interface {
+	IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
+	ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
+}
+
+// IterateWithContext prefers ContextIteratorStore when the store implements it.
+func IterateWithContext(store StateStore, ctx context.Context, storeKey string, version int64, start, end []byte, reverse bool) (dbm.Iterator, error) {
+	if c, ok := store.(ContextIteratorStore); ok {
+		if reverse {
+			return c.ReverseIteratorWithContext(ctx, storeKey, version, start, end)
+		}
+		return c.IteratorWithContext(ctx, storeKey, version, start, end)
+	}
+	if reverse {
+		return store.ReverseIterator(storeKey, version, start, end)
+	}
+	return store.Iterator(storeKey, version, start, end)
 }
 
 type SnapshotNode struct {

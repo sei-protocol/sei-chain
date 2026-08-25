@@ -1250,11 +1250,6 @@ func sendRequestGood(t *testing.T, method string, params ...interface{}) map[str
 }
 
 //nolint:deadcode
-func sendSeiRequestGood(t *testing.T, method string, params ...interface{}) map[string]interface{} {
-	return sendSeiRequest(t, TestPort, method, params...)
-}
-
-//nolint:deadcode
 func sendRequestBad(t *testing.T, method string, params ...interface{}) map[string]interface{} {
 	return sendRequest(t, TestBadPort, method, params...)
 }
@@ -1276,10 +1271,6 @@ func sendRequestArchiveWithNamespace(t *testing.T, namespace, method string, par
 
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, "eth", port, method, params...)
-}
-
-func sendSeiRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
-	return sendRequestWithNamespace(t, "sei", port, method, params...)
 }
 
 func sendRequestWithNamespace(t *testing.T, namespace string, port int, method string, params ...interface{}) map[string]interface{} {

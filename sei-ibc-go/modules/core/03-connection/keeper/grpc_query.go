@@ -53,7 +53,7 @@ func (q Keeper) Connections(c context.Context, req *types.QueryConnectionsReques
 	connections := []*types.IdentifiedConnection{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), []byte(host.KeyConnectionPrefix))
 
-	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.Paginate(ctx, store, req.Pagination, func(key, value []byte) error {
 		var result types.ConnectionEnd
 		if err := q.cdc.Unmarshal(value, &result); err != nil {
 			return err

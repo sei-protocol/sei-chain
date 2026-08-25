@@ -41,6 +41,10 @@ occ-enabled = {{ .BaseConfig.OccEnabled }}
 # Note: Commitment of state will be attempted on the corresponding block.
 halt-height = {{ .BaseConfig.HaltHeight }}
 
+# FreezeHeight contains a non-zero block height at which the node stops before
+# executing the block while continuing to serve RPC.
+freeze-height = {{ .BaseConfig.FreezeHeight }}
+
 # HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 # a node will gracefully halt and shutdown that can be used to assist upgrades
 # and testing.
@@ -81,6 +85,44 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 # snapshot-directory sets the directory for where state sync snapshots are persisted.
 # default is empty which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
+
+###############################################################################
+###                         Query Configuration                             ###
+###############################################################################
+
+# Pagination limits on the ABCI and gRPC query path protect the node from expensive
+# store scans by untrusted callers (for example, public RPC clients). Operators tune
+# these values for their deployment, allowlist trusted indexers on Tendermint RPC or
+# Cosmos gRPC, or set disable-limits on nodes not exposed to untrusted callers.
+[query]
+
+# DisableLimits turns off pagination limits for all query origins. Use only on nodes
+# that are not exposed to untrusted callers.
+disable-limits = {{ .Query.DisableLimits }}
+
+# TrustedCIDRs lists caller CIDRs that bypass pagination limits. Matching uses the
+# direct TCP peer (Tendermint RPC RemoteAddr or Cosmos gRPC peer address), not
+# forwarded headers. It applies only to abci_query on the Tendermint RPC listener
+# and to queries on grpc.address; REST/LCD on api.address (including grpc-gateway
+# routes) relays queries in-process without caller origin, so trusted-cidrs has no
+# effect there. Trusted indexers using REST should use gRPC or Tendermint RPC, or
+# set disable-limits on nodes not exposed to untrusted callers.
+# Behind a load balancer or reverse proxy every external client shares the proxy
+# address, so adding the proxy CIDR here bypasses limits for all traffic through
+# that ingress, not just internal indexers.
+trusted-cidrs = [{{ range $i, $cidr := .Query.TrustedCIDRs }}{{if $i}}, {{end}}"{{ $cidr }}"{{ end }}]
+
+# MaxLimit is the maximum page size for untrusted query origins. 0 uses the default.
+max-limit = {{ .Query.MaxLimit }}
+
+# MaxOffset is the maximum offset for untrusted query origins. 0 uses the default.
+max-offset = {{ .Query.MaxOffset }}
+
+# MaxIterations is the maximum store entries a single untrusted query may scan. 0 uses
+# the default. When the budget is exhausted the response is a partial page with next_key;
+# total stays 0 even when the client set count_total, so next_key != nil with total == 0
+# means the total is unknown rather than zero results.
+max-iterations = {{ .Query.MaxIterations }}
 `
 
 // AutoManagedConfigTemplate contains configuration sections that are auto-managed

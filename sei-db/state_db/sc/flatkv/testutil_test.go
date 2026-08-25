@@ -22,6 +22,68 @@ import (
 // Test Helpers
 // =============================================================================
 
+// rewindVersionRecords rewrites every data DB's version record, lowering the
+// store's watermark the way a torn commit does. Pass one dir to skew a single DB.
+func rewindVersionRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
+	t.Helper()
+	for _, ndb := range selectDataDBs(s, dirs) {
+		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version),
+			types.WriteOptions{Sync: true}))
+	}
+}
+
+// stampSeedRecords writes the records SetInitialVersion would leave — a version
+// and the identity root — straight into the named data DBs. Stamping a subset
+// reproduces a seed that crashed partway through its four writes, a state the
+// public API cannot produce because a successful seed also writes a snapshot.
+func stampSeedRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
+	t.Helper()
+	opts := types.WriteOptions{Sync: true}
+	for _, ndb := range selectDataDBs(s, dirs) {
+		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version), opts))
+		require.NoError(t, ndb.db.Set(ktype.MetaLtHashKey, lthash.New().Marshal(), opts))
+	}
+}
+
+// stripMetaRecords deletes the named data DBs' version and root records, leaving
+// them as DBs that never had metadata written. Their data, if any, survives.
+func stripMetaRecords(t *testing.T, s *CommitStore, dirs ...string) {
+	t.Helper()
+	opts := types.WriteOptions{Sync: true}
+	for _, ndb := range selectDataDBs(s, dirs) {
+		require.NoError(t, ndb.db.Delete(ktype.MetaVersionKey, opts))
+		require.NoError(t, ndb.db.Delete(ktype.MetaLtHashKey, opts))
+	}
+}
+
+// writeRawDataKey puts a key outside the _meta/ namespace straight into one data
+// DB, bypassing the commit path so the DB holds data no metadata accounts for.
+func writeRawDataKey(t *testing.T, s *CommitStore, dir string, key, value []byte) {
+	t.Helper()
+	db, err := s.dataDBByDir(dir)
+	require.NoError(t, err)
+	require.NoError(t, db.Set(key, value, types.WriteOptions{Sync: true}))
+}
+
+// selectDataDBs returns the store's data DBs named by dirs, or all of them when
+// dirs is empty.
+func selectDataDBs(s *CommitStore, dirs []string) []namedDB {
+	if len(dirs) == 0 {
+		return s.namedDataDBs()
+	}
+	wanted := make(map[string]struct{}, len(dirs))
+	for _, d := range dirs {
+		wanted[d] = struct{}{}
+	}
+	selected := make([]namedDB, 0, len(dirs))
+	for _, ndb := range s.namedDataDBs() {
+		if _, ok := wanted[ndb.dir]; ok {
+			selected = append(selected, ndb)
+		}
+	}
+	return selected
+}
+
 // evmStorageKey builds a prefix-encoded storage key for the external Get/Has API.
 func evmStorageKey(addr ktype.Address, slot ktype.Slot) []byte {
 	internal := ktype.StorageKey(addr, slot)

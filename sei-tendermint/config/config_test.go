@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	rpctypes "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,8 +35,8 @@ func TestConfigValidateBasic(t *testing.T) {
 	cfg := DefaultConfig()
 	assert.NoError(t, cfg.ValidateBasic())
 
-	// tamper with unsafe-propose-timeout-override
-	cfg.Consensus.UnsafeProposeTimeoutOverride = -10 * time.Second
+	// tamper with create-empty-blocks-interval
+	cfg.Consensus.CreateEmptyBlocksInterval = -10 * time.Second
 	assert.Error(t, cfg.ValidateBasic())
 }
 
@@ -107,6 +107,15 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 	assert.NoError(t, cfg2.ValidateBasic())
 	cfg2.TimeoutWrite = 0 // 0 disables; constraint does not apply
 	assert.NoError(t, cfg2.ValidateBasic())
+
+	cfg3 := TestRPCConfig()
+	cfg3.RateLimitingEnabled = true
+	cfg3.IPRateLimitBurst = rpctypes.RequestBatchSizeLimit - 1
+	assert.Error(t, cfg3.ValidateBasic())
+	cfg3.IPRateLimitBurst = rpctypes.RequestBatchSizeLimit
+	assert.NoError(t, cfg3.ValidateBasic())
+	cfg3.IPRateLimitBurst = 0
+	assert.NoError(t, cfg3.ValidateBasic())
 }
 
 func TestMempoolConfigValidateBasic(t *testing.T) {
@@ -137,21 +146,11 @@ func TestConsensusConfig_ValidateBasic(t *testing.T) {
 		modify    func(*ConsensusConfig)
 		expectErr bool
 	}{
-		"UnsafeProposeTimeoutOverride":               {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutOverride = time.Second }, false},
-		"UnsafeProposeTimeoutOverride negative":      {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutOverride = -1 }, true},
-		"UnsafeProposeTimeoutDeltaOverride":          {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutDeltaOverride = time.Second }, false},
-		"UnsafeProposeTimeoutDeltaOverride negative": {func(c *ConsensusConfig) { c.UnsafeProposeTimeoutDeltaOverride = -1 }, true},
-		"UnsafePrevoteTimeoutOverride":               {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutOverride = time.Second }, false},
-		"UnsafePrevoteTimeoutOverride negative":      {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutOverride = -1 }, true},
-		"UnsafePrevoteTimeoutDeltaOverride":          {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutDeltaOverride = time.Second }, false},
-		"UnsafePrevoteTimeoutDeltaOverride negative": {func(c *ConsensusConfig) { c.UnsafeVoteTimeoutDeltaOverride = -1 }, true},
-		"UnsafeCommitTimeoutOverride":                {func(c *ConsensusConfig) { c.UnsafeCommitTimeoutOverride = time.Second }, false},
-		"UnsafeCommitTimeoutOverride negative":       {func(c *ConsensusConfig) { c.UnsafeCommitTimeoutOverride = -1 }, true},
-		"PeerGossipSleepDuration":                    {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = time.Second }, false},
-		"PeerGossipSleepDuration negative":           {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = -1 }, true},
-		"PeerQueryMaj23SleepDuration":                {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = time.Second }, false},
-		"PeerQueryMaj23SleepDuration negative":       {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
-		"DoubleSignCheckHeight negative":             {func(c *ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
+		"PeerGossipSleepDuration":              {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = time.Second }, false},
+		"PeerGossipSleepDuration negative":     {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = -1 }, true},
+		"PeerQueryMaj23SleepDuration":          {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = time.Second }, false},
+		"PeerQueryMaj23SleepDuration negative": {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
+		"DoubleSignCheckHeight negative":       {func(c *ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
 	}
 	for desc, tc := range testcases {
 		t.Run(desc, func(t *testing.T) {
@@ -169,18 +168,6 @@ func TestConsensusConfig_ValidateBasic(t *testing.T) {
 }
 
 func TestConsensusConfigResolveTimeouts(t *testing.T) {
-	overrides := func(enabled bool, bypass *bool) *ConsensusConfig {
-		cfg := DefaultConsensusConfig()
-		cfg.UnsafeOverridesEnabled = enabled
-		cfg.UnsafeProposeTimeoutOverride = 9 * time.Second
-		cfg.UnsafeProposeTimeoutDeltaOverride = 8 * time.Second
-		cfg.UnsafeVoteTimeoutOverride = 7 * time.Second
-		cfg.UnsafeVoteTimeoutDeltaOverride = 6 * time.Second
-		cfg.UnsafeCommitTimeoutOverride = 5 * time.Second
-		cfg.UnsafeBypassCommitTimeoutOverride = bypass
-		return cfg
-	}
-
 	onchain := func(bypass bool) types.TimeoutParams {
 		return types.TimeoutParams{
 			Propose:             2 * time.Second,
@@ -191,17 +178,6 @@ func TestConsensusConfigResolveTimeouts(t *testing.T) {
 			BypassCommitTimeout: bypass,
 		}
 	}
-	overridden := func(bypass bool) types.TimeoutParams {
-		return types.TimeoutParams{
-			Propose:             9 * time.Second,
-			ProposeDelta:        8 * time.Second,
-			Vote:                7 * time.Second,
-			VoteDelta:           6 * time.Second,
-			Commit:              5 * time.Second,
-			BypassCommitTimeout: bypass,
-		}
-	}
-
 	testCases := []struct {
 		name     string
 		cfg      *ConsensusConfig
@@ -209,12 +185,8 @@ func TestConsensusConfigResolveTimeouts(t *testing.T) {
 		expected types.TimeoutParams
 	}{
 		{"fills defaults", DefaultConsensusConfig(), types.TimeoutParams{}, types.DefaultTimeoutParams()},
-		{"disabled ignores overrides for non-legacy params", overrides(false, utils.Alloc(true)), onchain(false), onchain(false)},
-		{"disabled preserves legacy override behavior", overrides(false, utils.Alloc(true)), badParams, overridden(true)},
-		{"enabled applies overrides", overrides(true, utils.Alloc(false)), onchain(false), overridden(false)},
-		{"nil bypass override keeps resolved false", overrides(true, nil), onchain(false), overridden(false)},
-		{"nil bypass override keeps resolved true", overrides(true, nil), onchain(true), overridden(true)},
-		{"false bypass override clears true", overrides(true, utils.Alloc(false)), onchain(true), overridden(false)},
+		{"keeps chain params", DefaultConsensusConfig(), onchain(false), onchain(false)},
+		{"keeps chain bypass", DefaultConsensusConfig(), onchain(true), onchain(true)},
 	}
 
 	for _, tc := range testCases {
@@ -352,4 +324,20 @@ func TestWalFile_BothExist_LegacyWins(t *testing.T) {
 	expected := filepath.Join(legacyDir, "wal")
 	assert.Equal(t, expected, cfg.WalFile(),
 		"legacy should win when both locations exist")
+}
+
+func TestRPCRateLimitKeysKebabCase(t *testing.T) {
+	const body = `
+[rpc]
+ip-rate-limit-rps = 42.5
+ip-rate-limit-burst = 50
+rate-limiting-enabled = true
+trusted-proxy-cidrs = ["10.0.0.0/8"]
+`
+	conf, err := unmarshalConfigTOML(t, body)
+	require.NoError(t, err)
+	require.Equal(t, 42.5, conf.RPC.IPRateLimitRPS)
+	require.Equal(t, 50, conf.RPC.IPRateLimitBurst)
+	require.True(t, conf.RPC.RateLimitingEnabled)
+	require.Equal(t, []string{"10.0.0.0/8"}, conf.RPC.TrustedProxyCIDRs)
 }

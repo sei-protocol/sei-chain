@@ -13,6 +13,7 @@ var (
 		applyChangesetLatency      metric.Float64Histogram
 		applyChangesetAsyncLatency metric.Float64Histogram
 		pruneLatency               metric.Float64Histogram
+		pruneConsecutiveFailures   metric.Int64Gauge
 		importLatency              metric.Float64Histogram
 		batchWriteLatency          metric.Float64Histogram
 
@@ -57,6 +58,15 @@ var (
 			"pebble_prune_latency",
 			metric.WithDescription("Time taken to prune old versions from PebbleDB"),
 			metric.WithUnit("s"),
+		)),
+		pruneConsecutiveFailures: must(meter.Int64Gauge(
+			"pebble_prune_consecutive_failures",
+			metric.WithDescription(
+				"Prune passes that have failed in a row. Every pass raises the earliest-version marker "+
+					"before it deletes, so a rising value means the served history window is narrowing "+
+					"once per prune interval while nothing leaves disk",
+			),
+			metric.WithUnit("{count}"),
 		)),
 		importLatency: must(meter.Float64Histogram(
 			"pebble_import_latency",

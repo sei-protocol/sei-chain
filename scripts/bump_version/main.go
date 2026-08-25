@@ -62,6 +62,11 @@ type LegacyVersion struct {
 	Folder string
 }
 
+type moduleChange struct {
+	name  string
+	isNew bool
+}
+
 type TemplateData struct {
 	PackageName    string
 	LegacyVersions []LegacyVersion
@@ -156,10 +161,12 @@ func archiveNewVersion(tags []string, newTag, tagFolder string) error {
 	modules := discoverModules()
 
 	// Detect which modules changed using git
-	var changed []string
+	var changed []moduleChange
 	if baseCommit == nil {
 		// First version ever — no previous commit to diff against, archive everything
-		changed = modules
+		for _, mod := range modules {
+			changed = append(changed, moduleChange{name: mod, isNew: true})
+		}
 	} else {
 		fmt.Printf("comparing against %s (added %s)\n", baseCommit.Hash.String()[:12], latestExisting)
 		commonChanged, err := gitPathHasChanges(repo, baseCommit, commonDir)
@@ -168,12 +175,19 @@ func archiveNewVersion(tags []string, newTag, tagFolder string) error {
 		}
 		for _, mod := range modules {
 			moduleDir := filepath.Join(precompilesDir, mod)
+			existedAtBase, err := gitPathExists(baseCommit, moduleDir)
+			if err != nil {
+				return err
+			}
 			modChanged, err := gitPathHasChanges(repo, baseCommit, moduleDir)
 			if err != nil {
 				return err
 			}
 			if commonChanged || modChanged {
-				changed = append(changed, mod)
+				changed = append(changed, moduleChange{
+					name:  mod,
+					isNew: !existedAtBase,
+				})
 			}
 		}
 	}
@@ -183,7 +197,11 @@ func archiveNewVersion(tags []string, newTag, tagFolder string) error {
 		return nil
 	}
 
-	fmt.Printf("changed modules: %s\n", strings.Join(changed, ", "))
+	changedNames := make([]string, len(changed))
+	for i, change := range changed {
+		changedNames[i] = change.name
+	}
+	fmt.Printf("changed modules: %s\n", strings.Join(changedNames, ", "))
 
 	// Archive common whenever any module is archived; changed modules reference
 	// the legacy common package so it must exist at the same legacy folder.
@@ -191,9 +209,9 @@ func archiveNewVersion(tags []string, newTag, tagFolder string) error {
 		return err
 	}
 
-	for _, mod := range changed {
-		moduleDir := filepath.Join(precompilesDir, mod)
-		if err := archiveModule(moduleDir, mod, newTag, tagFolder, legacyCommonPkgPath); err != nil {
+	for _, change := range changed {
+		moduleDir := filepath.Join(precompilesDir, change.name)
+		if err := archiveModule(moduleDir, change.name, newTag, tagFolder, legacyCommonPkgPath, change.isNew); err != nil {
 			return err
 		}
 	}
@@ -249,6 +267,18 @@ func gitFindCommit(repo *git.Repository, version string) (*object.Commit, error)
 	return result, nil
 }
 
+func gitPathExists(commit *object.Commit, dirPath string) (bool, error) {
+	tree, err := commit.Tree()
+	if err != nil {
+		return false, fmt.Errorf("reading tree from base commit: %w", err)
+	}
+
+	if _, err := tree.Tree(dirPath); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
 // gitPathHasChanges compares the HEAD tree against a base commit for a given
 // directory prefix. Returns true if the subtree hash differs, which conservatively
 // includes any change to any tracked file under that path (content, mode, or
@@ -290,11 +320,22 @@ func archiveCommon(tagFolder string) error {
 		return fmt.Errorf("creating %s: %w", targetDir, err)
 	}
 
-	for _, name := range []string{"precompiles.go", "evm_events.go"} {
-		src := filepath.Join(commonDir, name)
-		if _, err := os.Stat(src); os.IsNotExist(err) {
+	entries, err := os.ReadDir(commonDir)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", commonDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
 			continue
 		}
+
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		src := filepath.Join(commonDir, name)
 		dst := filepath.Join(targetDir, name)
 		if err := rewriteGoFile(src, dst, tagFolder, "", ""); err != nil {
 			return fmt.Errorf("archiving %s: %w", src, err)
@@ -305,7 +346,7 @@ func archiveCommon(tagFolder string) error {
 	return nil
 }
 
-func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonPkgPath string) error {
+func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonPkgPath string, isNew bool) error {
 	targetDir := filepath.Join(moduleDir, "legacy", tagFolder)
 	if err := os.MkdirAll(targetDir, 0750); err != nil {
 		return fmt.Errorf("creating %s: %w", targetDir, err)
@@ -346,15 +387,21 @@ func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonPkgPath
 		if vErr := validateVersions(moduleName, existing); vErr != nil {
 			return vErr
 		}
-		if pos, match := semverIndexOf(existing, newTag); pos != -1 {
-			return fmt.Errorf("%s/versions: %s (semver-equal to %s) already exists at line %d", moduleName, newTag, match, pos+1)
+		if !isNew {
+			if pos, match := semverIndexOf(existing, newTag); pos != -1 {
+				return fmt.Errorf("%s/versions: %s (semver-equal to %s) already exists at line %d", moduleName, newTag, match, pos+1)
+			}
 		}
 	case os.IsNotExist(err):
-		// New module — versions file will be created by appendLine below.
 	default:
 		return fmt.Errorf("reading %s: %w", versionsFile, err)
 	}
-	if err := appendLine(versionsFile, newTag); err != nil {
+
+	if isNew {
+		if err := writeLines(versionsFile, []string{newTag}); err != nil {
+			return err
+		}
+	} else if err := appendLine(versionsFile, newTag); err != nil {
 		return err
 	}
 

@@ -184,6 +184,9 @@ type BaseApp struct {
 	concurrencyWorkers int
 	occEnabled         bool
 
+	queryConfig          config.QueryConfig
+	trustedOriginMatcher *trustedCIDRMatcher
+
 	deliverTxHooks []DeliverTxHook
 
 	execProcessProposalMs int64
@@ -319,6 +322,14 @@ func NewBaseApp(
 	if app.concurrencyWorkers == 0 {
 		app.concurrencyWorkers = config.DefaultConcurrencyWorkers
 	}
+
+	queryCfg, err := readQueryConfig(appOpts)
+	if err != nil {
+		panic(err)
+	}
+	warnQueryConfig(queryCfg)
+	app.queryConfig = queryCfg
+	app.trustedOriginMatcher = newTrustedCIDRMatcher(queryCfg.TrustedCIDRs)
 
 	return app
 }
@@ -902,7 +913,8 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	blockGasMeter := ctx.GasMeter()
 	defer func() {
 		if r := recover(); r != nil {
-			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
+			recoveryMW := newContextCancelledRecoveryMiddleware(ctx, app.runTxRecoveryMiddleware)
+			recoveryMW = newOutOfGasRecoveryMiddleware(gasWanted, ctx, recoveryMW)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, runTxRes.result = processRecovery(r, recoveryMW), nil
 		}

@@ -10,19 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDontBindPortNonIBCContract(t *testing.T) {
+func TestNonIBCContractHasNoPort(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
-	example := InstantiateHackatomExampleContract(t, ctx, keepers) // ensure we bound the port
-	_, _, err := keepers.IBCKeeper.PortKeeper.LookupModuleByPort(ctx, keepers.WasmKeeper.GetContractInfo(ctx, example.Contract).IBCPortID)
-	require.Error(t, err)
+	example := InstantiateHackatomExampleContract(t, ctx, keepers)
+	require.Empty(t, keepers.WasmKeeper.GetContractInfo(ctx, example.Contract).IBCPortID)
 }
 
-func TestBindingPortForIBCContractOnInstantiate(t *testing.T) {
+func TestIBCContractPortOnInstantiate(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
-	example := InstantiateIBCReflectContract(t, ctx, keepers) // ensure we bound the port
-	owner, _, err := keepers.IBCKeeper.PortKeeper.LookupModuleByPort(ctx, keepers.WasmKeeper.GetContractInfo(ctx, example.Contract).IBCPortID)
-	require.NoError(t, err)
-	require.Equal(t, "wasm", owner)
+	example := InstantiateIBCReflectContract(t, ctx, keepers)
+	require.Equal(t, PortIDForContract(example.Contract), keepers.WasmKeeper.GetContractInfo(ctx, example.Contract).IBCPortID)
 
 	initMsgBz := IBCReflectInitMsg{
 		ReflectCodeID: example.ReflectCodeID,
@@ -35,9 +32,7 @@ func TestBindingPortForIBCContractOnInstantiate(t *testing.T) {
 	require.NotEqual(t, example.Contract, addr)
 
 	portID2 := PortIDForContract(addr)
-	owner, _, err = keepers.IBCKeeper.PortKeeper.LookupModuleByPort(ctx, portID2)
-	require.NoError(t, err)
-	require.Equal(t, "wasm", owner)
+	require.Equal(t, portID2, keepers.WasmKeeper.GetContractInfo(ctx, addr).IBCPortID)
 }
 
 func TestContractFromPortID(t *testing.T) {
