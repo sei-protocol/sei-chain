@@ -106,6 +106,12 @@ func RegisterSection(name string, prototype any, defaults func(Mode) any) {
 // Two kinds of field earn this. One a reader refuses outright, where writing the key stops the node, so
 // declaring it would put a setting in the space whose only effect is an outage. And one whose absence is
 // itself the setting, where any default would be this package inventing one.
+//
+// A field can also carry "-" as its mapstructure name, and that says something different rather than the
+// same thing in another place. The tag says nothing decodes the field: it is not configuration, and no file
+// reaches it. An exclusion says the opposite about the field and less about this package: the field is
+// configuration, the reader that owns its file decodes it, and this key space does not offer it. Tagging one
+// of these paths would take the setting away from that reader.
 func RegisterSectionExcluding(name string, prototype any, defaults func(Mode) any, excluding ...string) {
 	record(name, name, prototype, defaults, excluding)
 }
