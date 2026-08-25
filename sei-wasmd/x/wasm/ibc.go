@@ -7,10 +7,8 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	porttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
-	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	types "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -34,11 +32,9 @@ func (i IBCHandler) OnChanOpenInit(
 	connectionHops []string,
 	portID string,
 	channelID string,
-	chanCap *capabilitytypes.Capability,
 	counterParty channeltypes.Counterparty,
 	version string,
 ) error {
-	// ensure port, version, capability
 	if err := ValidateChannelParams(channelID); err != nil {
 		return err
 	}
@@ -60,14 +56,7 @@ func (i IBCHandler) OnChanOpenInit(
 		},
 	}
 	_, err = i.keeper.OnOpenChannel(ctx, contractAddr, msg)
-	if err != nil {
-		return err
-	}
-	// Claim channel capability passed back by IBC module
-	if err := i.keeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-		return sdkerrors.Wrap(err, "claim capability")
-	}
-	return nil
+	return err
 }
 
 // OnChanOpenTry implements the IBCModule interface
@@ -76,11 +65,9 @@ func (i IBCHandler) OnChanOpenTry(
 	order channeltypes.Order,
 	connectionHops []string,
 	portID, channelID string,
-	chanCap *capabilitytypes.Capability,
 	counterParty channeltypes.Counterparty,
 	counterpartyVersion string,
 ) (string, error) {
-	// ensure port, version, capability
 	if err := ValidateChannelParams(channelID); err != nil {
 		return "", err
 	}
@@ -110,17 +97,6 @@ func (i IBCHandler) OnChanOpenTry(
 	}
 	if version == "" {
 		version = counterpartyVersion
-	}
-
-	// Module may have already claimed capability in OnChanOpenInit in the case of crossing hellos
-	// (ie chainA and chainB both call ChanOpenInit before one of them calls ChanOpenTry)
-	// If module can already authenticate the capability then module already owns it so we don't need to claim
-	// Otherwise, module does not have channel capability and we must claim it from IBC
-	if !i.keeper.AuthenticateCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)) {
-		// Only claim channel capability passed back by IBC module if we do not already own it
-		if err := i.keeper.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
-			return "", sdkerrors.Wrap(err, "claim capability")
-		}
 	}
 
 	return version, nil

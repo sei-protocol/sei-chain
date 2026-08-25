@@ -8,6 +8,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
+func TestRoadRange_Has(t *testing.T) {
+	r := RoadRange{First: 10, Next: 13}
+	require.False(t, r.Has(9))
+	require.True(t, r.Has(10))
+	require.True(t, r.Has(12))
+	require.False(t, r.Has(13))
+}
+
 func TestEpochIsClosed(t *testing.T) {
 	rng := utils.TestRng()
 	a := GenSecretKey(rng).Public()

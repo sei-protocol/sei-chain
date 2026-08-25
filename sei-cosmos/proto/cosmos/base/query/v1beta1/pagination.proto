@@ -49,7 +49,10 @@ message PageResponse {
   // query the next page most efficiently
   bytes next_key = 1;
 
-  // total is total number of results available if PageRequest.count_total
-  // was set, its value is undefined otherwise
+  // total is the number of matching results when PageRequest.count_total was set
+  // and the scan finished without hitting a pagination limit. When an iteration
+  // budget truncates the scan, total is omitted (0) even with count_total set;
+  // resume with next_key. A non-nil next_key with total 0 and count_total set
+  // means the total is unknown, not zero results.
   uint64 total = 2;
 }

@@ -29,7 +29,8 @@ type Resolved struct {
 	//
 	// Separate from Unknown because the two are different mistakes. An unknown key is one nothing reads.
 	// An ignored one is read, and the operator reached for the one channel that cannot carry it, so the
-	// value they wrote elsewhere is what applies. EnvCannotDeliver says why, per key.
+	// value they wrote elsewhere is what applies. Ignored carries the keys; the reason is the same for all of them, because it is a fact about
+	// the channel rather than about any section.
 	Ignored []string
 	// Unknown are keys a source carried that no section declares, sorted.
 	//
@@ -98,17 +99,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 		return out, err
 	}
 	declared := declaredKeys(registered)
-	undeliverable := EnvCannotDeliver()
-	// A refusal is recorded by a key, and a key that no section declares is one the environment layer
-	// would never have offered anyway, so the refusal protects nothing and reads as though it did. Held
-	// here because a refusal may be recorded before the section that declares its key registers, so this
-	// is the first point both sets exist.
-	for key := range undeliverable {
-		if !declared[key] {
-			return out, fmt.Errorf("%q is refused from the environment and no section declares it, so the "+
-				"refusal covers nothing", key)
-		}
-	}
+	undeliverable := keysNoVariableCanCarry(defaults)
 
 	out.Values = make(map[string]any, len(declared))
 	for key, v := range defaults {
@@ -322,15 +313,22 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 	return nil
 }
 
-// detach returns a field's value with nothing shared with the struct it came from.
+// detach returns a value that shares no storage with the one it was given.
 //
-// A section's default is usually a package-level variable, so a slice or a map field hands out the
-// backing array that variable holds. A caller sorting or de-duplicating a resolved list in place, which is
-// what a caller producing deterministic output does, would rewrite that variable for the whole process:
-// every later resolution, and every reader that copies the same struct. Two of the lists that reach here
-// are deny lists, so the rewrite is silent and it is a security control.
+// A section's default is usually a package-level variable, so handing out a list or a map field hands out
+// the storage behind it. One caller sorting what it was given rewrites the process-wide default and every
+// later resolution carries the sorted version. That happened here, to two deny lists.
 //
-// Lookup already copies a section's keys for this reason. This is the same guarantee for its values.
+// Copied all the way down rather than one level. A list of lists, or a map of lists, shares its inner
+// storage through a copy of the outer, so a caller sorting an inner list reaches the default just as
+// directly. Nothing declared today has that shape, and the copy runs once per boot over a hundred or so
+// keys, so the cost of being thorough here is not measurable and the cost of not being is a defect nobody
+// finds twice.
+//
+// This covers what a section's defaults answer. It is not the guarantee for a value a source supplied: the
+// file source hands out its own copies, recursively, where it reads them, and the flag source carries only
+// text. A source that grew a channel handing out live storage would have to do the same at its own edge,
+// because only the source knows what else holds it.
 func detach(v reflect.Value) any {
 	switch v.Kind() {
 	case reflect.Slice:
@@ -338,7 +336,9 @@ func detach(v reflect.Value) any {
 			return v.Interface()
 		}
 		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
-		reflect.Copy(out, v)
+		for i := 0; i < v.Len(); i++ {
+			out.Index(i).Set(reflect.ValueOf(detach(v.Index(i))))
+		}
 		return out.Interface()
 	case reflect.Map:
 		if v.IsNil() {
@@ -346,9 +346,14 @@ func detach(v reflect.Value) any {
 		}
 		out := reflect.MakeMapWithSize(v.Type(), v.Len())
 		for _, key := range v.MapKeys() {
-			out.SetMapIndex(key, v.MapIndex(key))
+			out.SetMapIndex(key, reflect.ValueOf(detach(v.MapIndex(key))))
 		}
 		return out.Interface()
+	case reflect.Interface:
+		if v.IsNil() {
+			return v.Interface()
+		}
+		return detach(v.Elem())
 	default:
 		return v.Interface()
 	}
@@ -362,6 +367,58 @@ func detach(v reflect.Value) any {
 // declared is passed in rather than read here, so this shares Resolve's snapshot. Reading the registry
 // again would ask for a key the caller's declared set does not hold, and the answer would come back
 // only to be reported as one no section declares.
+// keysNoVariableCanCarry returns the declared keys an environment variable cannot supply, with the reason.
+//
+// One rule rather than a list each section keeps. A variable holds one string per name: that is a value for
+// anything read as a single word or number, and by long convention a list of those written with commas
+// between them. Nothing conventional puts a structure inside one variable, so a key whose value is a list of
+// anything other than single words is not offered this channel.
+//
+// Derived from what the key resolves to rather than declared beside the section that owns it. A section
+// naming its own exceptions is a list somebody keeps in step with the reader, and the first one forgotten is
+// a variable that resolves to a string, lands above the file because the environment outranks it, and
+// reaches a reader that wanted rows. Deriving it cannot be forgotten, and the reason is the same sentence
+// for every key it covers, because it is a fact about the channel and not about the section.
+func keysNoVariableCanCarry(defaults map[string]any) map[string]string {
+	out := map[string]string{}
+	for key, value := range defaults {
+		if value == nil {
+			continue
+		}
+		t := reflect.TypeOf(value)
+		if oneVariableCanCarry(t) {
+			continue
+		}
+		out[key] = fmt.Sprintf("this setting is a %s, and a variable holds one string: a single value, or "+
+			"conventionally a list of single values written with commas between them", t)
+	}
+	return out
+}
+
+// oneVariableCanCarry reports whether a value's shape is one an environment variable can hold.
+//
+// A single word or number, or a list of those. An element type that is itself a list, a map, or unconstrained
+// is not one: a comma-separated string cannot be trusted to become it, and a reader that asks for the exact
+// shape gets a string instead and stops the node.
+func oneVariableCanCarry(t reflect.Type) bool {
+	if isSingleValue(t.Kind()) {
+		return true
+	}
+	return t.Kind() == reflect.Slice && isSingleValue(t.Elem().Kind())
+}
+
+// isSingleValue reports whether a kind is one word or number.
+func isSingleValue(k reflect.Kind) bool {
+	switch k {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
+}
+
 func envValues(declared map[string]bool, undeliverable map[string]string,
 	lookup func(string) (string, bool)) (map[string]any, []string) {
 	if lookup == nil {

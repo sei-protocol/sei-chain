@@ -1,7 +1,6 @@
 package ibc
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -76,27 +75,17 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 // RegisterRESTRoutes does nothing. IBC does not support legacy REST routes.
 func (AppModuleBasic) RegisterRESTRoutes(client.Context, *mux.Router) {}
 
-// RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the ibc module.
-func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	if err := clienttypes.RegisterQueryHandlerClient(context.Background(), mux, clienttypes.NewQueryClient(clientCtx)); err != nil {
-		panic(err)
-	}
-	if err := connectiontypes.RegisterQueryHandlerClient(context.Background(), mux, connectiontypes.NewQueryClient(clientCtx)); err != nil {
-		panic(err)
-	}
-	if err := channeltypes.RegisterQueryHandlerClient(context.Background(), mux, channeltypes.NewQueryClient(clientCtx)); err != nil {
-		panic(err)
-	}
-}
+// RegisterGRPCGatewayRoutes does not register routes for the retired IBC module.
+func (AppModuleBasic) RegisterGRPCGatewayRoutes(client.Context, *runtime.ServeMux) {}
 
 // GetTxCmd returns the root tx command for the ibc module.
 func (AppModuleBasic) GetTxCmd() *cobra.Command {
 	return cli.GetTxCmd()
 }
 
-// GetQueryCmd returns no root query command for the ibc module.
+// GetQueryCmd returns no query command for the retired IBC module.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	return cli.GetQueryCmd()
+	return nil
 }
 
 // RegisterInterfaces registers module concrete types into protobuf Any.
@@ -150,7 +139,6 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	clienttypes.RegisterMsgServer(cfg.MsgServer(), am.keeper)
 	connectiontypes.RegisterMsgServer(cfg.MsgServer(), am.keeper)
 	channeltypes.RegisterMsgServer(cfg.MsgServer(), am.keeper)
-	types.RegisterQueryService(cfg.QueryServer(), am.keeper)
 
 	m := keeper.NewMigrator(*am.keeper)
 	if err := cfg.RegisterMigration(host.ModuleName, 1, m.Migrate1to2); err != nil {

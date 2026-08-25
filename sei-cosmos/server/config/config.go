@@ -114,8 +114,9 @@ type BaseConfig struct {
 	// Note: Commitment of state will be attempted on the corresponding block.
 	HaltHeight uint64 `mapstructure:"halt-height"`
 
-	// FreezeHeight contains a non-zero block height at which the node stops
-	// before executing the block while continuing to serve RPC.
+	// FreezeHeight contains the first block height a full node must not execute.
+	// Query RPC remains available, while transaction and evidence submission,
+	// mempool gossip, and state sync are disabled from startup.
 	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which
@@ -308,6 +309,7 @@ type Config struct {
 	GRPC        GRPCConfig               `mapstructure:"grpc"`
 	Rosetta     RosettaConfig            `mapstructure:"rosetta"`
 	GRPCWeb     GRPCWebConfig            `mapstructure:"grpc-web"`
+	Query       QueryConfig              `mapstructure:"query"`
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
@@ -398,6 +400,7 @@ func DefaultConfig() *Config {
 			Address:            DefaultGRPCWebAddress,
 			MaxOpenConnections: DefaultGRPCWebMaxOpenConnections,
 		},
+		Query: DefaultQueryConfig(),
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
 			SnapshotKeepRecent: 2,
@@ -569,7 +572,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
-	return Config{
+	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
 			InterBlockCache:    v.GetBool("inter-block-cache"),
@@ -664,7 +667,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
-	}, nil
+		Query: DefaultQueryConfig(),
+	}
+
+	return cfg, nil
 }
 
 // ValidateBasic validates the server configuration.

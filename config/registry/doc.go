@@ -85,20 +85,16 @@
 // tag, an unexported field carrying a tag, two fields declaring one path, a struct that declares no
 // key, a struct that contains itself, and two keys that collapse onto one environment variable.
 //
-// A field tagged "-" is the deliberate opposite and is not a defect. That tag excludes a field from
-// configuration, so the field declares no key at all rather than one resolving to a default. The
-// distinction matters because a missing tag and a "-" tag look alike in a diff: one is a key nothing
-// names reaching a field, and the other is a field nothing configures. It is meaningful only on an
-// exported field, since an unexported one carrying any tag is refused before the tag is read.
-//
 // One more becomes possible once a key can sit at the top of a file, and it could not happen while every
 // key carried its section's name: two sections declaring one key, where one default renders over the
 // other and which one depends on the order the sections are walked. The environment check refuses it,
 // because two identical keys answer to one variable.
 //
-// Refusing the environment for a key is itself refused when it carries no reason. An operator told
-// their variable does nothing has to be told why, and a refusal with nothing to print is worse than
-// resolving the variable or leaving it alone.
+// A field tagged "-" is the deliberate opposite and is not a defect. That tag excludes a field from
+// configuration, so the field declares no key at all rather than one resolving to a default. The
+// distinction matters because a missing tag and a "-" tag look alike in a diff: one is a key nothing
+// names reaching a field, and the other is a field nothing configures. It is meaningful only on an
+// exported field, since an unexported one carrying any tag is refused before the tag is read.
 //
 // A key segment is also refused if it is upper-case, or if it carries a dot or a space. That rule
 // holds for the section name and for a field's tag alike, since both become segments of the same
@@ -111,11 +107,14 @@
 //   - Not a file format. Nothing here reads or writes a configuration file.
 //   - Not a validator. A section may state rules about its own values; this package invents none.
 //   - Not wired. No section is registered by this package and no reader is migrated onto it.
-//   - Not a guard against a key and a table sharing one name. A key at the top of the file that is also
-//     a section's name cannot be written at all, because no file holds both a value for that name and a
-//     table under it, so one of the two settings is unreachable and nothing says which. One section
-//     declares keys at the top of the file today and none of its names is a section's, so the collision
-//     has no instance; a second such section is where it becomes reachable.
+//   - Not a guard against a key and a table sharing one name. A key at the top of the file that is also a
+//     section's name cannot be written at all, because no file holds both a value for that name and a table
+//     under it, so one of the two settings is unreachable. Nothing here refuses that. It is refused a layer
+//     down, by whatever installs a resolution: a source holds one value per path, so the install names both
+//     keys and stops rather than choosing which survives. So the failure is not silent, and it is late,
+//     arriving on a booting node instead of in the registration test of the package that caused it. One
+//     section declares keys at the top of the file today and none of its names is a section's, so the
+//     collision has no instance; a second such section is where it becomes reachable.
 //
 // # Adding a Section
 //
