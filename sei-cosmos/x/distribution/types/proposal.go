@@ -47,6 +47,9 @@ func (csp *CommunityPoolSpendProposal) ValidateBasic() error {
 	if !csp.Amount.IsValid() {
 		return ErrInvalidProposalAmount
 	}
+	if _, err := sdk.NewDecCoinsFromCoins(csp.Amount...); err != nil {
+		return ErrInvalidProposalAmount
+	}
 	if csp.Recipient == "" {
 		return ErrEmptyProposalRecipient
 	}
