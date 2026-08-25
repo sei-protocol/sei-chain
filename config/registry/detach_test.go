@@ -75,6 +75,7 @@ func TestAResolvedListIsTheCallersToWriteInto(t *testing.T) {
 // Driven through a second resolution rather than by inspecting the variable, because what matters is not
 // that a copy was taken but that the next caller is unaffected.
 func TestSortingAResolvedNestedListLeavesTheSectionsOwnDefaultAlone(t *testing.T) {
+	registry.Reset()
 	type nested struct {
 		Deny map[string][]string `mapstructure:"deny"`
 	}

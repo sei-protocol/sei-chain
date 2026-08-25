@@ -48,6 +48,12 @@ type Resolved struct {
 // supply. LookupEnv is a function rather than a map because an environment cannot be enumerated for a
 // prefix, since a variable is only findable if you already know its name.
 type Sources struct {
+	// File is one flat map whose keys are whole dotted paths, matched without regard to case.
+	//
+	// Flat rather than nested, because that is the shape the other two sources carry: a flag name and
+	// an environment variable are each one string naming one key. A decoded configuration file is the
+	// wrong shape, since a table there is a nested map and every key an operator wrote sits a level
+	// below where anything matches it. Resolve refuses that shape rather than resolving past it.
 	File      map[string]any
 	LookupEnv func(string) (string, bool)
 	Flags     map[string]any
@@ -90,6 +96,17 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 			mode, Modes())
 	}
 
+	// Refused before anything is resolved, because a registration this package could not use is a
+	// section missing from the key space, and every key it declared then reads as one no section
+	// declares. An operator's written value for such a key is reported as unknown rather than applied,
+	// which is the hole this function promises never to hand out. Two sections colliding is the case
+	// that matters: the loser is dropped whole and which one loses follows package initialisation
+	// order, so the same binary can answer differently for reasons no caller can see.
+	if bad := Defects(); len(bad) > 0 {
+		return out, fmt.Errorf("the registry could not use %d registration(s), so the key space is "+
+			"incomplete: %v", len(bad), bad)
+	}
+
 	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
 	// same registry: asking again leaves a window a concurrent registration fits through, and a section
 	// arriving in that window is declared by one part of the answer and not by another.
@@ -99,6 +116,9 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 		return out, err
 	}
 	declared := declaredKeys(registered)
+	if err := refuseANestedFile(from.File, declared); err != nil {
+		return out, err
+	}
 	undeliverable := keysNoVariableCanCarry(defaults)
 
 	out.Values = make(map[string]any, len(declared))
@@ -456,6 +476,34 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 //
 // A source enumerates lower-cased while a file may not be written that way, and a key that differed
 // only in case would resolve as unknown while the operator's value went nowhere.
+// refuseANestedFile refuses a file source whose tables were left nested.
+//
+// The shape a configuration reader hands back, and it resolves to pure defaults without complaint: every
+// key an operator wrote sits one level below where a dotted path matches it, so nothing is applied, and
+// the table's own name is the one thing reported, as a key no section declares. A caller that then
+// installs what it resolved writes the whole declared set over the file it was trying to read.
+//
+// Detected by a table holding a declared key, which is that mistake and nothing else. A declared key
+// whose own field is a map is left alone, since the value an operator writes for it is a table.
+func refuseANestedFile(values map[string]any, declared map[string]bool) error {
+	for key, v := range values {
+		if _, isTable := v.(map[string]any); !isTable {
+			continue
+		}
+		lower := strings.ToLower(key)
+		if declared[lower] {
+			continue
+		}
+		for d := range declared {
+			if strings.HasPrefix(d, lower+".") {
+				return fmt.Errorf("File[%q] is a table holding %q, so the source is nested where this "+
+					"reads one flat map of whole dotted keys", key, d)
+			}
+		}
+	}
+	return nil
+}
+
 func fileValues(values map[string]any) map[string]any {
 	if values == nil {
 		return nil

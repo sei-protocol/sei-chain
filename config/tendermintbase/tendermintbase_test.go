@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app/seeds"
 	"github.com/sei-protocol/sei-chain/config/registry"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
@@ -107,7 +108,7 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 		proto   any
 		exclude int
 	}{
-		{P2PSectionName, &tmcfg.P2PConfig{}, 2},
+		{P2PSectionName, &tmcfg.P2PConfig{}, 3},
 		{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 		{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings) + 1},
 		{MempoolSectionName, &tmcfg.MempoolConfig{}, 1},
@@ -338,5 +339,54 @@ func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 					"file is read, so what this section states for it is the empty string", s.Name, key)
 			}
 		}
+	}
+}
+
+// TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates names the writer for each key on the list.
+//
+// A declared value is what a generated file carries, and these are the keys where that is not true
+// because the init command sets them after the pipeline forMode mirrors. Held as a list with a test
+// rather than a sentence, so a third key joining the class fails here instead of becoming a declared
+// default nothing questions.
+//
+// Each row asserts both halves: the key is declared, so it is not quietly excluded, and what the
+// generator supplies is something the declaration does not state. A key that stopped diverging fails
+// too, which is what makes this a record of the class rather than a note about two keys.
+func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
+	// The generator's own source for each key, read from it rather than restated, so a change there
+	// moves this. A chain identifier is needed for the peer seeds because that is the input the mode
+	// rules do not carry, and the public networks are the ones an operator runs.
+	supplied := map[string]string{
+		P2PSectionName + ".bootstrap-peers": seeds.BootstrapPeers("pacific-1"),
+	}
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	for _, key := range filledByTheGenerator {
+		want, named := supplied[key]
+		if !named {
+			t.Errorf("%s is on the list and no writer is named for it, so nothing measures that the "+
+				"generator fills it", key)
+			continue
+		}
+		declared, declares := resolved.Values[key]
+		if !declares {
+			t.Errorf("%s is on the list and no section declares it; a key the generated file carries "+
+				"belongs in the key space", key)
+			continue
+		}
+		if want == "" {
+			t.Errorf("%s names a writer that supplies nothing, so the row records no divergence", key)
+			continue
+		}
+		if fmt.Sprint(declared) == want {
+			t.Errorf("%s is declared as %q and the generator supplies the same, so it no longer "+
+				"diverges. Take it off the list, and off forMode's exception", declared, want)
+		}
+	}
+	if len(supplied) != len(filledByTheGenerator) {
+		t.Errorf("%d writers are named and %d keys are listed", len(supplied), len(filledByTheGenerator))
 	}
 }
