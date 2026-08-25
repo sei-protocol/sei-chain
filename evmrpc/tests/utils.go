@@ -162,6 +162,7 @@ func setupTestServer(
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
 		a.GetStateStore(),
+		nil,
 	)
 	if err != nil {
 		panic(err)

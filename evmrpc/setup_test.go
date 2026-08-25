@@ -22,6 +22,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
@@ -42,7 +44,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	"github.com/stretchr/testify/require"
 )
 
 const TestAddr = "127.0.0.1"
@@ -51,7 +52,8 @@ const TestWSPort = 7778
 const TestBadPort = 7779
 const TestStrictPort = 7780
 const TestArchivePort = 7782
-const TestNotifierWSPort = 7784
+const TestNotifierHTTPPort = 7783 // Autobahn eth_newBlockFilter HTTP server
+const TestNotifierWSPort = 7784   // Autobahn eth_subscribe("newHeads") WS server
 
 const GenesisBlockHeight = 0
 const MockHeight8 = 8
@@ -167,6 +169,11 @@ var NewHeadsCalled = make(chan struct{}, 1)
 // TestNotifierWSPort. Tests publish to it via OnBlockCommitted to drive
 // eth_subscribe("newHeads") through the in-process notifier path.
 var NotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
+
+// BlockFilterNotifierForTest backs the Autobahn-style HTTP server started
+// on TestNotifierHTTPPort. Isolated from NotifierForTest so parallel
+// newHeads and newBlockFilter tests do not steal each other's events.
+var BlockFilterNotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
 
 type MockClient struct {
 	client.Client
@@ -682,7 +689,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -694,7 +701,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -718,6 +725,7 @@ func init() {
 		ctxProvider,
 		txConfigProvider,
 		"",
+		nil,
 		nil,
 	)
 	if err != nil {
@@ -743,6 +751,7 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
+		nil,
 	)
 	if err != nil {
 		panic(err)
@@ -761,12 +770,20 @@ func init() {
 	}
 	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
 
-	// Start a second WS server wired to NotifierForTest, exercising the
-	// Autobahn (notifier-fed) eth_subscribe("newHeads") path.
-	notifierConfig := goodConfig
-	notifierConfig.HTTPPort = TestNotifierWSPort - 1
-	notifierConfig.WSPort = TestNotifierWSPort
-	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
+	// Setup: Autobahn HTTP FilterAPI on its own notifier so parallel newHeads tests do not mix hashes.
+	notifierHTTPConfig := goodConfig
+	notifierHTTPConfig.HTTPPort = TestNotifierHTTPPort
+	notifierHTTPServer, err := evmrpc.NewEVMHTTPServer(notifierHTTPConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, BlockFilterNotifierForTest)
+	if err != nil {
+		panic(err)
+	}
+	if err := notifierHTTPServer.Start(); err != nil {
+		panic(err)
+	}
+	// Setup: Autobahn WS newHeads on NotifierForTest.
+	notifierWSConfig := goodConfig
+	notifierWSConfig.WSPort = TestNotifierWSPort
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierWSConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
 	if err != nil {
 		panic(err)
 	}

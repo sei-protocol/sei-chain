@@ -431,12 +431,12 @@ type App struct {
 	legacyEncodingConfig appparams.EncodingConfig
 	evmRPCConfig         evmrpcconfig.Config
 	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
-	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
-	// FinalizeBlocker calls Stash with the (hash, header, response)
-	// tuple, App.Commit calls PublishStashed after a successful
-	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
-	// defend against stale tuples from prior failed commits or
-	// non-stashing return paths (EthReplay/EthBlockTest).
+	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads")
+	// and eth_newBlockFilter: FinalizeBlocker calls Stash with the
+	// (hash, header, response) tuple, App.Commit calls PublishStashed
+	// after a successful BaseApp.Commit, and FinalizeBlocker entry
+	// calls ClearStash to defend against stale tuples from prior failed
+	// commits or non-stashing return paths (EthReplay/EthBlockTest).
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
@@ -2577,8 +2577,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
+	headNotifier, _ := app.blockHeaderNotifier.Get()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2592,7 +2593,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		headNotifier, _ := app.blockHeaderNotifier.Get()
 		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
 		if err != nil {
 			panic(err)

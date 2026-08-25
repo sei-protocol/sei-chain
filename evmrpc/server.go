@@ -43,6 +43,7 @@ func NewEVMHTTPServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	blockHeaderNotifier *BlockHeaderNotifier,
 	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
 
@@ -162,6 +163,7 @@ func NewEVMHTTPServer(
 				cacheCreationMutex,
 				globalLogSlicePool,
 				watermarks,
+				blockHeaderNotifier,
 			),
 		},
 		{

@@ -201,6 +201,7 @@ type filter struct {
 
 	// BlocksSubscription
 	blockCursor string
+	blockHashes []common.Hash
 
 	// LogsSubscription
 	lastToHeight int64
@@ -262,17 +263,18 @@ func (h *logMergeHeap) Pop() interface{} {
 }
 
 type FilterAPI struct {
-	tmClient         client.LocalClient
-	filtersMu        sync.RWMutex
-	filters          map[ethrpc.ID]filter
-	toDelete         chan ethrpc.ID
-	filterConfig     *FilterConfig
-	logFetcher       *LogFetcher
-	connectionType   ConnectionType
-	namespace        string
-	shutdownCtx      context.Context
-	shutdownCancel   context.CancelFunc
-	globalRPSLimiter *rate.Limiter
+	tmClient            client.LocalClient
+	filtersMu           sync.RWMutex
+	filters             map[ethrpc.ID]filter
+	toDelete            chan ethrpc.ID
+	filterConfig        *FilterConfig
+	logFetcher          *LogFetcher
+	connectionType      ConnectionType
+	namespace           string
+	shutdownCtx         context.Context
+	shutdownCancel      context.CancelFunc
+	globalRPSLimiter    *rate.Limiter
+	blockHeaderNotifier *BlockHeaderNotifier
 }
 
 type FilterConfig struct {
@@ -300,6 +302,7 @@ func NewFilterAPI(
 	cacheCreationMutex *sync.Mutex,
 	globalLogSlicePool *LogSlicePool,
 	watermarks *WatermarkManager,
+	blockHeaderNotifier *BlockHeaderNotifier,
 ) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
 		filterConfig.maxBlock = DefaultMaxBlockRange
@@ -327,21 +330,58 @@ func NewFilterAPI(
 	}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
-		namespace:        namespace,
-		tmClient:         tmClient,
-		filtersMu:        sync.RWMutex{},
-		filters:          filters,
-		toDelete:         make(chan ethrpc.ID, 1000),
-		filterConfig:     filterConfig,
-		logFetcher:       logFetcher,
-		connectionType:   connectionType,
-		shutdownCtx:      shutdownCtx,
-		shutdownCancel:   shutdownCancel,
-		globalRPSLimiter: rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		namespace:           namespace,
+		tmClient:            tmClient,
+		filtersMu:           sync.RWMutex{},
+		filters:             filters,
+		toDelete:            make(chan ethrpc.ID, 1000),
+		filterConfig:        filterConfig,
+		logFetcher:          logFetcher,
+		connectionType:      connectionType,
+		shutdownCtx:         shutdownCtx,
+		shutdownCancel:      shutdownCancel,
+		globalRPSLimiter:    rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		blockHeaderNotifier: blockHeaderNotifier,
+	}
+	if blockHeaderNotifier != nil {
+		blockHeaderNotifier.subscribe(api.appendBlockHash)
 	}
 
 	go api.cleanupLoop(filterConfig.timeout)
 	return api
+}
+
+// appendBlockHash records the committed Autobahn block hash on every
+// live BlocksSubscription.
+func (a *FilterAPI) appendBlockHash(evt blockHeaderEvent) {
+	hash := common.BytesToHash(evt.hash)
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+	for id, f := range a.filters {
+		if f.typ != BlocksSubscription {
+			continue
+		}
+		f.blockHashes = append(f.blockHashes, hash)
+		a.filters[id] = f
+	}
+}
+
+// takeBlockHashes returns and clears hashes accumulated for a
+// BlocksSubscription since the last poll.
+func (a *FilterAPI) takeBlockHashes(filterID ethrpc.ID) ([]common.Hash, error) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+	f, exists := a.filters[filterID]
+	if !exists {
+		return nil, errors.New("filter does not exist")
+	}
+	hashes := f.blockHashes
+	f.blockHashes = nil
+	a.filters[filterID] = f
+	if hashes == nil {
+		hashes = []common.Hash{}
+	}
+	return hashes, nil
 }
 
 // Unified cleanup loop that handles both timeout and manual deletion
@@ -503,6 +543,9 @@ func (a *FilterAPI) GetFilterChanges(
 	result := []*ethtypes.Log{}
 	switch filter.typ {
 	case BlocksSubscription:
+		if a.blockHeaderNotifier != nil {
+			return a.takeBlockHashes(filterID)
+		}
 		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
 		if err != nil {
 			return nil, err
