@@ -52,6 +52,10 @@ func New(
 	consensusPolicy tmtypes.ConsensusPolicy,
 	nodeOptions ...Option,
 ) (local.NodeService, error) {
+	opts := resolveOptions(nodeOptions...)
+	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
+		return nil, err
+	}
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -88,9 +92,6 @@ func New(
 			nodeOptions...,
 		)
 	case config.ModeSeed:
-		if resolveOptions(nodeOptions...).freezeHeight > 0 {
-			return nil, fmt.Errorf("freeze height is not supported in seed mode")
-		}
 		return makeSeedNode(
 			conf,
 			config.DefaultDBProvider,
@@ -100,5 +101,17 @@ func New(
 		)
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
+	}
+}
+
+func validateFreezeMode(mode string, freezeHeight uint64) error {
+	if freezeHeight == 0 || mode == config.ModeFull {
+		return nil
+	}
+	switch mode {
+	case config.ModeValidator, config.ModeSeed:
+		return fmt.Errorf("freeze height is not supported in %s mode", mode)
+	default:
+		return nil
 	}
 }
