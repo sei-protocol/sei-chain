@@ -265,6 +265,8 @@ func (c *CryptoSim) setupAccounts() error {
 		int64Commas(int64(requiredNumberOfAccounts)),
 		int64Commas(int64(requiredNumberOfAccounts)-c.dataGenerator.NextAccountID()))
 
+	progress := newSetupProgress("accounts", c.dataGenerator.NextAccountID(), int64(requiredNumberOfAccounts))
+
 	for c.dataGenerator.NextAccountID() < int64(requiredNumberOfAccounts) {
 		if c.ctx.Err() != nil {
 			fmt.Printf("benchmark aborted during account creation\n")
@@ -287,15 +289,13 @@ func (c *CryptoSim) setupAccounts() error {
 		}
 
 		if c.dataGenerator.NextAccountID()%c.config.SetupUpdateIntervalCount == 0 {
-			fmt.Printf("Created %s of %s accounts.      \r",
-				int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
+			fmt.Printf("%s\r", progress.line(c.dataGenerator.NextAccountID()))
 		}
 	}
 	if c.dataGenerator.NextAccountID() >= c.config.SetupUpdateIntervalCount {
 		fmt.Printf("\n")
 	}
-	fmt.Printf("Created %s of %s accounts.      \n",
-		int64Commas(c.dataGenerator.NextAccountID()), int64Commas(int64(requiredNumberOfAccounts)))
+	fmt.Printf("%s\n", progress.line(c.dataGenerator.NextAccountID()))
 
 	err := c.database.FinalizeBlock(
 		c.dataGenerator.NextAccountID(), c.dataGenerator.NextErc20ContractID())
@@ -327,6 +327,9 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)),
 		int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)-c.dataGenerator.NextErc20ContractID()))
 
+	progress := newSetupProgress("simulated ERC20 contracts",
+		c.dataGenerator.NextErc20ContractID(), int64(c.config.MinimumNumberOfErc20Contracts))
+
 	for c.dataGenerator.NextErc20ContractID() < int64(c.config.MinimumNumberOfErc20Contracts) {
 		if c.ctx.Err() != nil {
 			fmt.Printf("benchmark aborted during ERC20 contract creation\n")
@@ -350,9 +353,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		}
 
 		if c.dataGenerator.NextErc20ContractID()%c.config.SetupUpdateIntervalCount == 0 {
-			fmt.Printf("Created %s of %s simulated ERC20 contracts.      \r",
-				int64Commas(c.dataGenerator.NextErc20ContractID()),
-				int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
+			fmt.Printf("%s\r", progress.line(c.dataGenerator.NextErc20ContractID()))
 		}
 	}
 
@@ -360,8 +361,7 @@ func (c *CryptoSim) setupErc20Contracts() error {
 		fmt.Printf("\n")
 	}
 
-	fmt.Printf("Created %s of %s simulated ERC20 contracts.      \n",
-		int64Commas(c.dataGenerator.NextErc20ContractID()), int64Commas(int64(c.config.MinimumNumberOfErc20Contracts)))
+	fmt.Printf("%s\n", progress.line(c.dataGenerator.NextErc20ContractID()))
 
 	err := c.database.FinalizeBlock(
 		c.dataGenerator.NextAccountID(),
