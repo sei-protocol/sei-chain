@@ -27,7 +27,7 @@ func newTestBuilder(t *testing.T, transactionsPerBlock int) *blockBuilder {
 	cfg.GenerateReceipts = false
 	cfg.NumberOfHotAccounts = 16
 	cfg.HotAccountProbability = 1.0
-	cfg.NewAccountProbability = 0
+	cfg.TransactionsPerNewAccount = 0
 	cfg.HotErc20ContractProbability = 1.0
 	cfg.HotErc20ContractSetSize = 4
 

@@ -46,9 +46,15 @@ type CryptoSimConfig struct {
 	// a value between 0.0 and 1.0.
 	HotAccountProbability float64
 
-	// When selecting a non-hot account for a transaction, the benchmark will create a new account with this
-	// probability. Should be a value between 0.0 and 1.0.
-	NewAccountProbability float64
+	// One new account is created every this many account selections. 0 never creates accounts.
+	//
+	// A fixed cadence rather than a probability, so that the set of accounts existing at any point in a
+	// block is arithmetic rather than history. That is what lets a block's transactions be generated in
+	// parallel: a worker can compute the account IDs it will mint without coordinating with any other.
+	//
+	// Two accounts are selected per transaction, so the default of 1111 mints ~18 accounts per
+	// 10,000-transaction block, matching the rate the previous 0.001 probability produced.
+	TransactionsPerNewAccount int
 
 	// Each account contains an integer value used to track a balance, plus a bunch of random
 	// bytes for padding. This is the total size of the account after padding is added.
@@ -135,6 +141,15 @@ type CryptoSimConfig struct {
 
 	// The size of the queue for each transaction executor.
 	ExecutorQueueSize int
+
+	// How many goroutines generate one block's transactions. Values below 2 generate on the calling
+	// goroutine.
+	//
+	// Generating a block is pure computation against no shared state once account creation follows a
+	// fixed cadence, so this splits a block into contiguous runs of transactions and generates them at
+	// once. It exists because generating a block had come to cost nearly as much as consuming one, which
+	// caps throughput no matter how fast the store underneath is.
+	BlockBuildWorkers int
 
 	// The amount of time to run the benchmark for. If 0, the benchmark will run until it is stopped.
 	MaxRuntimeSeconds int
@@ -278,7 +293,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		MinimumNumberOfDormantAccounts:    1_000_000,
 		NewAccountDormancyProbability:     1.0,
 		HotAccountProbability:             0.1,
-		NewAccountProbability:             0.001,
+		TransactionsPerNewAccount:         1111,
 		PaddedAccountSize:                 32,
 		MinimumNumberOfErc20Contracts:     10_000,
 		HotErc20ContractProbability:       0.5,
@@ -298,6 +313,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ThreadsPerCore:                    2.0,
 		ConstantThreadCount:               0,
 		ExecutorQueueSize:                 1024,
+		BlockBuildWorkers:                 8,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
 		PprofAddr:                         ":6060",
@@ -390,8 +406,12 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.HotAccountProbability < 0 || c.HotAccountProbability > 1 {
 		return fmt.Errorf("HotAccountProbability must be in [0, 1] (got %f)", c.HotAccountProbability)
 	}
-	if c.NewAccountProbability < 0 || c.NewAccountProbability > 1 {
-		return fmt.Errorf("NewAccountProbability must be in [0, 1] (got %f)", c.NewAccountProbability)
+	if c.BlockBuildWorkers < 1 {
+		return fmt.Errorf("BlockBuildWorkers must be at least 1 (got %d)", c.BlockBuildWorkers)
+	}
+	if c.TransactionsPerNewAccount < 0 {
+		return fmt.Errorf("TransactionsPerNewAccount must not be negative (got %d)",
+			c.TransactionsPerNewAccount)
 	}
 	if c.HotErc20ContractProbability < 0 || c.HotErc20ContractProbability > 1 {
 		return fmt.Errorf("HotErc20ContractProbability must be in [0, 1] (got %f)", c.HotErc20ContractProbability)

@@ -3,6 +3,10 @@ package cryptosim
 import (
 	"context"
 	"fmt"
+	"sync"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // A builder for blocks of transactions.
@@ -65,6 +69,126 @@ func (b *blockBuilder) mainLoop() {
 	}
 }
 
+// Each transaction selects two accounts and writes four keys. Both are properties of what a transaction
+// is, and both are needed to divide a block into ranges: the first to compute which accounts a range
+// mints, the second to size its write map.
+const selectionsPerTransaction = 2
+const writesPerTransaction = 4
+
+// buildRangeResult is one worker's share of a block: its transactions and receipts in the order it
+// generated them, plus the writes they made.
+type buildRangeResult struct {
+	transactions       []*transaction
+	receipts           []*evmtypes.Receipt
+	writes             map[string]*proto.KVPair
+	lastFeeBalance     []byte
+	accountsMinted     int64
+	coldAccountsMinted int64
+}
+
+// buildBlockRanges divides a block's transactions into contiguous runs, generates each on its own
+// goroutine, and returns the results in block order.
+//
+// Which selections mint an account is a function of the selection count alone, so every range's account
+// IDs are computed before any of them run and no two ranges can mint the same one. Order is preserved by
+// concatenating results in range order rather than by coordinating the workers.
+func (b *blockBuilder) buildBlockRanges(blockNumber int64) []buildRangeResult {
+	workers := b.config.BlockBuildWorkers
+	transactions := b.config.TransactionsPerBlock
+	if workers < 2 || transactions < workers {
+		return []buildRangeResult{
+			b.buildRange(blockNumber, 0, transactions, b.dataGenerator.NextAccountID()),
+		}
+	}
+
+	// The remainder is spread over the leading ranges, one extra each, so no range is more than one
+	// transaction larger than another.
+	base := transactions / workers
+	remainder := transactions % workers
+
+	results := make([]buildRangeResult, workers)
+	firstTransaction := 0
+	firstAccountID := b.dataGenerator.NextAccountID()
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		count := base
+		if i < remainder {
+			count++
+		}
+
+		wg.Add(1)
+		go func(index int, first int, transactionCount int, accountID int64) {
+			defer wg.Done()
+			results[index] = b.buildRange(blockNumber, first, transactionCount, accountID)
+		}(i, firstTransaction, count, firstAccountID)
+
+		firstAccountID += b.dataGenerator.AccountsMintedPerSelections(
+			int64(firstTransaction)*selectionsPerTransaction,
+			int64(count)*selectionsPerTransaction)
+		firstTransaction += count
+	}
+	wg.Wait()
+
+	return results
+}
+
+// buildRange generates one contiguous run of a block's transactions.
+func (b *blockBuilder) buildRange(
+	blockNumber int64,
+	firstTransaction int,
+	transactionCount int,
+	firstAccountID int64,
+) buildRangeResult {
+
+	generator := b.dataGenerator.ForkForSelections(
+		int64(firstTransaction)*selectionsPerTransaction,
+		int64(transactionCount)*selectionsPerTransaction,
+		firstAccountID)
+
+	result := buildRangeResult{
+		transactions: make([]*transaction, 0, transactionCount),
+		writes:       make(map[string]*proto.KVPair, transactionCount*writesPerTransaction),
+	}
+
+	for i := 0; i < transactionCount; i++ {
+		// Re-pointed per transaction rather than left to run on: the randomness a transaction draws has
+		// to depend on which transaction it is, or a block's contents would depend on how many workers
+		// generated it.
+		index := int64(firstTransaction + i)
+		generator.BeginTransaction(blockNumber*int64(b.config.TransactionsPerBlock)+index, index)
+
+		txn, err := BuildTransaction(generator)
+		if err != nil {
+			fmt.Printf("failed to build transaction: %v\n", err)
+			continue
+		}
+		result.transactions = append(result.transactions, txn)
+		recordTransactionWrites(result.writes, txn)
+		result.lastFeeBalance = txn.newFeeBalance
+
+		if b.config.GenerateReceipts {
+			rcpt, err := BuildERC20TransferReceiptFromTxn(
+				generator.Rand(),
+				generator.FeeCollectionAddress(),
+				uint64(blockNumber), //nolint:gosec
+				//nolint:gosec // G115 - a transaction's index within its block fits in uint32
+				uint32(firstTransaction+i),
+				txn,
+			)
+			if err != nil {
+				fmt.Printf("failed to build receipt: %v\n", err)
+				continue
+			}
+			result.receipts = append(result.receipts, rcpt)
+		}
+	}
+
+	result.accountsMinted = generator.AccountsMinted()
+	result.coldAccountsMinted = generator.ColdAccountsMinted()
+	return result
+}
+
 // buildBlock generates a block's transactions and the changeset they produce.
 //
 // The changeset is built here, rather than accumulated by the executors and converted by the main
@@ -75,68 +199,65 @@ func (b *blockBuilder) mainLoop() {
 // consistency is explicitly not what this benchmark measures — it measures the DB underneath, and
 // assumes such a layer exists and is correct.
 //
-// This goroutine runs BlockChannelCapacity blocks ahead of the consumer, so the work is absorbed by
-// slack that already existed. If get_block time stops being near zero, that slack is gone and this
-// has become the bottleneck.
+// The transactions themselves are generated across BlockBuildWorkers goroutines; see buildBlockRanges.
+// Generating a block had come to cost nearly as much as consuming one, which capped throughput
+// regardless of how fast the store underneath was.
 func (b *blockBuilder) buildBlock() *block {
-	blk := NewBlock(b.config, b.metrics, b.nextBlockNumber, b.config.TransactionsPerBlock)
+	blockNumber := b.nextBlockNumber
+	blk := NewBlock(b.config, b.metrics, blockNumber, b.config.TransactionsPerBlock)
 	b.nextBlockNumber++
+
+	results := b.buildBlockRanges(blockNumber)
+
+	// Starts from whatever was accumulated outside the ranges — the setup path fills this before the
+	// builder starts, and its writes belong to the first block.
+	writes := b.database.HarvestWrites()
 
 	// The fee balance of the last transaction to produce one. Every transaction draws a fee balance,
 	// because the draw is part of the sequence this block's randomness is defined by, but they all
 	// write the same key — so only the last one survives, and only the last one is written.
 	var feeBalance []byte
+	var accountsMinted int64
+	var coldAccountsMinted int64
 
-	for i := 0; i < b.config.TransactionsPerBlock; i++ {
-		// BuildTransaction writes account and contract data of its own for newly created accounts, so
-		// the accumulating map is already being filled from this goroutine before writeTransaction adds
-		// the transaction's own writes.
-		txn, err := BuildTransaction(b.dataGenerator)
-		if err != nil {
-			fmt.Printf("failed to build transaction: %v\n", err)
-			continue
+	for _, result := range results {
+		for _, txn := range result.transactions {
+			blk.AddTransaction(txn)
 		}
-		blk.AddTransaction(txn)
-
-		if err := b.writeTransaction(txn); err != nil {
-			fmt.Printf("failed to record transaction writes: %v\n", err)
-			continue
+		for _, rcpt := range result.receipts {
+			blk.AddReceipt(rcpt)
 		}
-		feeBalance = txn.newFeeBalance
-
-		if b.config.GenerateReceipts {
-			receipt, err := BuildERC20TransferReceiptFromTxn(
-				b.dataGenerator.Rand(),
-				b.dataGenerator.FeeCollectionAddress(),
-				uint64(blk.BlockNumber()), //nolint:gosec
-				uint32(i),                 //nolint:gosec
-				txn,
-			)
-			if err != nil {
-				fmt.Printf("failed to build receipt: %v\n", err)
-				continue
-			}
-			blk.AddReceipt(receipt)
+		// Merged in range order, so a key written by more than one range keeps the value the later
+		// transaction gave it — the same answer generating them in sequence would reach.
+		for key, pair := range result.writes {
+			writes[key] = pair
 		}
+		if result.lastFeeBalance != nil {
+			feeBalance = result.lastFeeBalance
+		}
+		accountsMinted += result.accountsMinted
+		coldAccountsMinted += result.coldAccountsMinted
 	}
 
 	// Written once, after the transactions, because every transaction writes the same key: issuing it
 	// per transaction produced one map entry out of TransactionsPerBlock writes and threw the rest away.
 	if feeBalance != nil {
-		if err := b.database.Put(b.dataGenerator.FeeCollectionAddress(), feeBalance); err != nil {
-			fmt.Printf("failed to record fee collection write: %v\n", err)
-		}
+		feeKey := b.dataGenerator.FeeCollectionAddress()
+		writes[string(feeKey)] = &proto.KVPair{Key: feeKey, Value: feeBalance}
 	}
+
+	// The forks minted from ranges of IDs reserved before they ran; this is where those ranges are
+	// accounted for, so the next block's arithmetic starts from the right place.
+	b.dataGenerator.AdoptForkResults(accountsMinted, coldAccountsMinted)
 
 	blk.SetBlockAccountStats(
 		b.dataGenerator.NextAccountID(),
 		b.dataGenerator.NumberOfColdAccounts(),
 		b.dataGenerator.NextErc20ContractID())
 
-	// Hand the accumulated writes to the block and take a fresh map for the next one. After this the
-	// map belongs to the block and must not be touched again from here: publishing the block is what
-	// exposes it to the executors, who read it without locks.
-	blk.SetWrites(b.database.HarvestWrites())
+	// After this the map belongs to the block and must not be touched again from here: publishing the
+	// block is what exposes it to the executors, who read it without locks.
+	blk.SetWrites(writes)
 
 	b.dataGenerator.ReportEndOfBlock()
 
@@ -150,8 +271,8 @@ func (b *blockBuilder) buildBlock() *block {
 // values are pre-generated and independent of everything the transaction reads, so making the
 // executors pay for them bought nothing. Reads still happen on the executors, which is the part the
 // benchmark is measuring.
-func (b *blockBuilder) writeTransaction(txn *transaction) error {
-	writes := [...]struct {
+func recordTransactionWrites(writes map[string]*proto.KVPair, txn *transaction) {
+	pairs := [...]struct {
 		key   []byte
 		value []byte
 	}{
@@ -160,10 +281,7 @@ func (b *blockBuilder) writeTransaction(txn *transaction) error {
 		{txn.srcAccountSlot, txn.newSrcAccountSlot},
 		{txn.dstAccountSlot, txn.newDstAccountSlot},
 	}
-	for _, write := range writes {
-		if err := b.database.Put(write.key, write.value); err != nil {
-			return fmt.Errorf("failed to put %x: %w", write.key, err)
-		}
+	for _, pair := range pairs {
+		writes[string(pair.key)] = &proto.KVPair{Key: pair.key, Value: pair.value}
 	}
-	return nil
 }

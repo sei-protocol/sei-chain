@@ -80,6 +80,28 @@ func (cr *CannedRandom) Clone(randomizeOffset bool) *CannedRandom {
 	}
 }
 
+// CloneAt creates a clone whose read position is derived from key rather than from the source's current
+// position, so the same key always yields the same sequence however much the source has been used. As with
+// Clone, the copy is cheap and is thread safe with respect to the original and to other clones.
+//
+// Use this where a parallel worker's randomness has to be reproducible: keying on what the worker is
+// responsible for makes its sequence a function of the work rather than of the order the workers started.
+func (cr *CannedRandom) CloneAt(key int64) *CannedRandom {
+	return &CannedRandom{
+		buffer: cr.buffer,
+		index:  utils.PositiveHash64(key) % int64(len(cr.buffer)),
+	}
+}
+
+// SeekTo moves the read position to one derived from key, so the sequence that follows is a function of
+// key alone rather than of everything read before it.
+//
+// Use this to make a unit of work's randomness depend on which unit it is: the same key replays the same
+// sequence however the work was divided up, and two keys that differ read from unrelated positions.
+func (cr *CannedRandom) SeekTo(key int64) {
+	cr.index = utils.PositiveHash64(key) % int64(len(cr.buffer))
+}
+
 // Reset the index of the CannedRandom to the beginning of the buffer.
 func (cr *CannedRandom) Reset() {
 	cr.index = 0

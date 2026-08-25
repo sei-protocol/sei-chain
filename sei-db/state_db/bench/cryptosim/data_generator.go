@@ -53,6 +53,20 @@ type DataGenerator struct {
 	// highest account ID that was created before the current block.
 	highestSafeAccountIDInBlock int64
 
+	// How many account selections this generator has served. Which selections create an account is a
+	// function of this count alone, which is what makes a fork's account IDs computable in advance.
+	selectionCount int64
+
+	// The number of accounts a fork is permitted to mint before it would collide with the next fork's
+	// range. Zero on the generator the forks are taken from, which never mints.
+	mintBudget int64
+
+	// The first account ID this generator may mint, so that what it has minted is a subtraction.
+	firstMintableAccountID int64
+
+	// How many of the accounts this generator minted were cold rather than dormant.
+	coldAccountsMinted int64
+
 	// The current number of cold accounts. These are accounts that are not used frequently, but are not
 	// entirely dormant.
 	numberOfColdAccounts int64
@@ -116,6 +130,7 @@ func NewDataGenerator(
 	return &DataGenerator{
 		config:                      config,
 		nextAccountID:               nextAccountID,
+		firstMintableAccountID:      nextAccountID,
 		nextErc20ContractID:         nextErc20ContractID,
 		initialNextBlockNumber:      nextBlockNumber,
 		rand:                        rand,
@@ -133,9 +148,10 @@ func (d *DataGenerator) NextAccountID() int64 {
 	return d.nextAccountID
 }
 
-// NumberOfColdAccounts returns the current count of cold accounts.
+// NumberOfColdAccounts returns the current count of cold accounts, including any this generator has minted
+// itself — which is how the setup path, which mints directly rather than through a fork, still counts.
 func (d *DataGenerator) NumberOfColdAccounts() int64 {
-	return d.numberOfColdAccounts
+	return d.numberOfColdAccounts + d.coldAccountsMinted
 }
 
 // ReportAccountCounts updates the metrics with the current account counts (total, hot, cold).
@@ -173,7 +189,7 @@ func (d *DataGenerator) CreateNewAccount(
 
 	if !write {
 		if isCold {
-			d.numberOfColdAccounts++
+			d.coldAccountsMinted++
 		}
 		return accountID, address, isCold, nil
 	}
@@ -195,7 +211,7 @@ func (d *DataGenerator) CreateNewAccount(
 	}
 
 	if isCold {
-		d.numberOfColdAccounts++
+		d.coldAccountsMinted++
 	}
 
 	return accountID, address, isCold, nil
@@ -234,6 +250,9 @@ func (d *DataGenerator) CreateNewErc20Contract(
 // less or equal to maxAccountID. If a new account is created, it may have an ID greater than maxAccountID.
 func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, err error) {
 
+	creates := d.selectionCreatesAccount()
+	d.selectionCount++
+
 	hot := d.rand.Float64() < d.config.HotAccountProbability
 
 	if hot {
@@ -244,8 +263,7 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		return accountID, keys.BuildEVMKey(accountKeyPrefix, addr), false, nil
 	} else {
 
-		new := d.rand.Float64() < d.config.NewAccountProbability
-		if new {
+		if creates {
 			// create a new account
 			id, address, _, err := d.CreateNewAccount(d.config.PaddedAccountSize, false)
 			if err != nil {
@@ -263,6 +281,102 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		addr := d.rand.Address(accountPrefix, accountID, keys.AddressLen)
 		return accountID, keys.BuildEVMKey(accountKeyPrefix, addr), false, nil
 	}
+}
+
+// selectionCreatesAccount reports whether the selection about to be served mints a new account.
+//
+// A function of the selection count alone, so the accounts any span of selections will mint are known
+// before any of them run. A cadence of zero never mints.
+func (d *DataGenerator) selectionCreatesAccount() bool {
+	cadence := int64(d.config.TransactionsPerNewAccount)
+	if cadence == 0 {
+		return false
+	}
+	if d.mintBudget > 0 && d.accountsMinted() >= d.mintBudget {
+		// The fork has reached the end of the ID range reserved for it. Minting further would collide
+		// with the next fork's range, so it selects an existing account instead.
+		return false
+	}
+	return d.selectionCount%cadence == 0
+}
+
+// accountsMinted reports how many accounts this generator has minted since it was forked.
+func (d *DataGenerator) accountsMinted() int64 {
+	return d.nextAccountID - d.firstMintableAccountID
+}
+
+// AccountsMintedPerSelections returns how many accounts a run of selections mints, given how many
+// selections precede it. Both are needed because a cadence hits on the count itself, so where a run starts
+// decides how many hits it contains.
+func (d *DataGenerator) AccountsMintedPerSelections(precedingSelections int64, selections int64) int64 {
+	cadence := int64(d.config.TransactionsPerNewAccount)
+	if cadence == 0 || selections <= 0 {
+		return 0
+	}
+	hitsThrough := func(count int64) int64 {
+		if count <= 0 {
+			return 0
+		}
+		// Counts multiples of cadence in [0, count), and 0 is a multiple.
+		return (count-1)/cadence + 1
+	}
+	return hitsThrough(precedingSelections+selections) - hitsThrough(precedingSelections)
+}
+
+// ForkForSelections returns a generator that serves a run of selections starting after
+// precedingSelections have been served, minting accounts from firstAccountID onwards.
+//
+// The fork shares the immutable random buffer through a cursor of its own; where that cursor reads is set
+// per transaction by BeginTransaction, so the values a transaction draws follow from its index rather than
+// from which fork served it. Two forks never mint the same ID, because each is given the range the
+// arithmetic assigns it.
+//
+// The account selection window is frozen at the value the parent holds, so every fork of one block draws
+// from the same set of pre-existing accounts — which is what the block-at-a-time visibility rule already
+// guaranteed when selections were served in sequence.
+func (d *DataGenerator) ForkForSelections(
+	precedingSelections int64,
+	selections int64,
+	firstAccountID int64,
+) *DataGenerator {
+
+	fork := *d
+	fork.rand = d.rand.Clone(false)
+	fork.selectionCount = precedingSelections
+	fork.nextAccountID = firstAccountID
+	fork.firstMintableAccountID = firstAccountID
+	fork.mintBudget = d.AccountsMintedPerSelections(precedingSelections, selections)
+	fork.numberOfColdAccounts = d.numberOfColdAccounts
+	fork.highestSafeAccountIDInBlock = d.highestSafeAccountIDInBlock
+	return &fork
+}
+
+// BeginTransaction points the generator at the randomness belonging to one transaction, and at the
+// selection count that transaction sits at.
+//
+// Both are functions of which transaction it is rather than of how many came before on this goroutine,
+// which is what makes a block's contents independent of how it was divided among workers: the same
+// transaction index always draws the same values and mints the same accounts.
+func (d *DataGenerator) BeginTransaction(key int64, transactionIndex int64) {
+	d.rand.SeekTo(key)
+	d.selectionCount = transactionIndex * selectionsPerTransaction
+}
+
+// AdoptForkResults folds what a block's forks minted back into the generator they were taken from, so the
+// next block's arithmetic starts from the right place.
+func (d *DataGenerator) AdoptForkResults(accountsMinted int64, coldAccountsMinted int64) {
+	d.nextAccountID += accountsMinted
+	d.numberOfColdAccounts += coldAccountsMinted
+}
+
+// ColdAccountsMinted reports how many of the accounts this generator minted were cold rather than dormant.
+func (d *DataGenerator) ColdAccountsMinted() int64 {
+	return d.coldAccountsMinted
+}
+
+// AccountsMinted reports how many accounts this generator minted since it was forked.
+func (d *DataGenerator) AccountsMinted() int64 {
+	return d.accountsMinted()
 }
 
 // Selects a random account slot for a transaction.

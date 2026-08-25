@@ -4,7 +4,7 @@
     "LogDir": "logs",
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 100000000,
-    "NewAccountProbability": 0.0,
+    "TransactionsPerNewAccount": 0,
     "TransactionsPerBlock": 4000,
     "FlatKVConfig": {
         "AccountStoreConfig": { "MaxSize": 1073741824 },

@@ -31,7 +31,7 @@
   "MinimumNumberOfDormantAccounts": 1000000,
   "MinimumNumberOfErc20Contracts": 10000,
   "NewAccountDormancyProbability": 1.0,
-  "NewAccountProbability": 0.001,
+  "TransactionsPerNewAccount": 1111,
   "NumberOfHotAccounts": 100,
   "PaddedAccountSize": 32,
   "Seed": 1337,
