@@ -3,15 +3,14 @@ package commitment
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 
 	"cosmossdk.io/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 	seidbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -25,13 +24,15 @@ var (
 
 // Store Implements types.KVStore and CommitKVStore.
 type Store struct {
-	tree      sctypes.CommitKVStore
-	changeSet seidbproto.ChangeSet
+	tree           sctypes.CommitKVStore
+	changeSet      seidbproto.ChangeSet
+	subspaceLimits query.Limits
 }
 
-func NewStore(tree sctypes.CommitKVStore) *Store {
+func NewStore(tree sctypes.CommitKVStore, subspaceLimits query.Limits) *Store {
 	return &Store{
-		tree: tree,
+		tree:           tree,
+		subspaceLimits: subspaceLimits,
 	}
 }
 
@@ -133,7 +134,7 @@ func (st *Store) HasPendingChanges() bool {
 	return len(st.changeSet.Pairs) > 0
 }
 
-func (st *Store) Query(_ context.Context, req abci.RequestQuery) (res abci.ResponseQuery) {
+func (st *Store) Query(ctx context.Context, req abci.RequestQuery) (res abci.ResponseQuery) {
 	if req.Height > 0 && req.Height != st.tree.Version() {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, "invalid height"))
 	}
@@ -152,24 +153,14 @@ func (st *Store) Query(_ context.Context, req abci.RequestQuery) (res abci.Respo
 		op := types.NewIavlCommitmentOp(res.Key, commitmentProof)
 		res.ProofOps = &crypto.ProofOps{Ops: []crypto.ProofOp{op.ProofOp()}}
 	case "/subspace":
-		pairs := kv.Pairs{
-			Pairs: make([]kv.Pair, 0),
+		if len(req.Data) == 0 {
+			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "subspace prefix must not be empty"))
 		}
-
-		subspace := req.Data
-		res.Key = subspace
-
-		iterator := types.KVStorePrefixIterator(st, subspace)
-		for ; iterator.Valid(); iterator.Next() {
-			pairs.Pairs = append(pairs.Pairs, kv.Pair{Key: iterator.Key(), Value: iterator.Value()})
-		}
-		_ = iterator.Close()
-
-		bz, err := pairs.Marshal()
+		res.Key = req.Data
+		bz, err := query.ScanSubspace(ctx, st, req.Data, st.subspaceLimits)
 		if err != nil {
-			panic(fmt.Errorf("failed to marshal KV pairs: %w", err))
+			return sdkerrors.QueryResult(err)
 		}
-
 		res.Value = bz
 	default:
 		return sdkerrors.QueryResult(errors.Wrapf(sdkerrors.ErrUnknownRequest, "unexpected query path: %v", req.Path))

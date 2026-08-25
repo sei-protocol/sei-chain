@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/transient"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -76,6 +77,9 @@ type Store struct {
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
+	subspaceQuerySem chan struct{}
+	subspaceLimits   query.Limits
+
 	snapshotSCStoreWarnOnce sync.Once
 
 	// Hash logger state (per-block hash logging; a debugging/forensics tool). See hashlog.go.
@@ -117,6 +121,11 @@ func NewStore(
 		maxInFlight = 1
 	}
 
+	subspaceMaxInFlight := scConfig.SubspaceQueryMaxInFlight
+	if subspaceMaxInFlight <= 0 {
+		subspaceMaxInFlight = config.DefaultSCSubspaceQueryMaxInFlight
+	}
+
 	burst := scConfig.HistoricalProofBurst
 	if burst <= 0 {
 		burst = 1
@@ -139,13 +148,18 @@ func NewStore(
 		}
 	}
 	store := &Store{
-		scStore:            scStore,
-		storesParams:       make(map[types.StoreKey]storeParams),
-		storeKeys:          make(map[string]types.StoreKey),
-		ckvStores:          make(map[types.StoreKey]types.CommitKVStore),
-		gigaKeys:           gigaKeys,
-		histProofSem:       make(chan struct{}, maxInFlight),
-		histProofLimiter:   limiter,
+		scStore:          scStore,
+		storesParams:     make(map[types.StoreKey]storeParams),
+		storeKeys:        make(map[string]types.StoreKey),
+		ckvStores:        make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:         gigaKeys,
+		histProofSem:     make(chan struct{}, maxInFlight),
+		histProofLimiter: limiter,
+		subspaceQuerySem: make(chan struct{}, subspaceMaxInFlight),
+		subspaceLimits: query.Limits{
+			MaxPairs: scConfig.SubspaceMaxPairs,
+			MaxBytes: scConfig.SubspaceMaxBytes,
+		},
 		hashLoggerConfig:   scConfig.HashLogger,
 		hashLoggerDisabled: !scConfig.HashLogger.Enable,
 		scDir:              scDir,
@@ -388,7 +402,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 			if store.GetStoreType() != types.StoreTypeIAVL {
 				stores[k] = store
 			} else {
-				stores[k] = state.NewStore(rs.ssStore, k, version)
+				stores[k] = state.NewStore(rs.ssStore, k, version, rs.subspaceLimits)
 			}
 		}
 	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
@@ -431,7 +445,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
 			tree := scStore.GetChildStoreByName(k.Name())
-			stores[k] = commitment.NewStore(tree)
+			stores[k] = commitment.NewStore(tree, rs.subspaceLimits)
 		}
 	}
 	rs.mtx.RUnlock()
@@ -478,7 +492,7 @@ func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.Cac
 		if tree == nil {
 			return nil, fmt.Errorf("snapshot missing child store %q", k.Name())
 		}
-		stores[k] = commitment.NewStore(tree)
+		stores[k] = commitment.NewStore(tree, rs.subspaceLimits)
 	}
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
 }
@@ -698,7 +712,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 		if tree == nil {
 			return nil, fmt.Errorf("new store is not added in upgrades: %s", key.Name())
 		}
-		return types.CommitKVStore(commitment.NewStore(tree)), nil
+		return types.CommitKVStore(commitment.NewStore(tree, rs.subspaceLimits)), nil
 	case types.StoreTypeDB:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeTransient:
@@ -774,7 +788,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	if !ok || mode != sctypes.MemiavlOnly {
 		return nil
 	}
-	// Effective mode is memiavl_only. Only an auto store may be advanced to
+	// effective mode is memiavl_only. Only an auto store may be advanced to
 	// migrate_evm at runtime; a node pinned to fixed memiavl_only must not.
 	configured, hasConfigured := rs.ConfiguredWriteMode()
 	if !hasConfigured {
@@ -947,8 +961,17 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		if err := rs.validateSSReadVersion(version); err != nil {
 			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()))
 		}
-		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
-		return store.Query(ctx, req)
+		if req.Path == "/subspace" {
+			if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
+				storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+					attribute.String("reason", "semaphore"),
+				))
+				return sdkerrors.QueryResult(err)
+			}
+			defer rs.releaseSubspaceQueryPermit()
+		}
+		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version, rs.subspaceLimits))
+		return rs.finishSubspaceQuery(ctx, req, store.Query(ctx, req))
 	}
 
 	var (
@@ -957,7 +980,7 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	)
 	if latest {
 		// latest never needs historical LoadVersion clone
-		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName)))
+		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.subspaceLimits))
 		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	} else {
@@ -997,12 +1020,12 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		}
 		defer func() { _ = scStore.Close() }()
 
-		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
+		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.subspaceLimits))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 
-	res := store.Query(ctx, req)
+	res := rs.finishSubspaceQuery(ctx, req, store.Query(ctx, req))
 
 	// If underlying query failed (e.g. invalid height/path) or doesn' need proof, return as-is.
 	if res.Code != 0 || !needProof {
@@ -1021,6 +1044,31 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		return emptyProofError
 	}
 
+	return res
+}
+
+func (rs *Store) tryAcquireSubspaceQueryPermit() error {
+	select {
+	case rs.subspaceQuerySem <- struct{}{}:
+		return nil
+	default:
+		return errors.Wrap(sdkerrors.ErrConflict, "subspace query busy")
+	}
+}
+
+func (rs *Store) releaseSubspaceQueryPermit() {
+	select {
+	case <-rs.subspaceQuerySem:
+	default:
+	}
+}
+
+func (rs *Store) finishSubspaceQuery(ctx context.Context, req abci.RequestQuery, res abci.ResponseQuery) abci.ResponseQuery {
+	if req.Path == "/subspace" && res.Code != 0 && query.IsCapExceededResponse(res) {
+		storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+			attribute.String("reason", "cap_exceeded"),
+		))
+	}
 	return res
 }
 
