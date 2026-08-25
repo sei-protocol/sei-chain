@@ -53,13 +53,7 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 
 // declaredSections are the sections this package registers, so a test walks the set rather than a list that
 // has to be extended alongside it.
-func declaredSections() []string {
-	return []string{
-		P2PSectionName, RPCSectionName, ConsensusSectionName, MempoolSectionName,
-		StateSyncSectionName, TxIndexSectionName, InstrumentationSectionName,
-		PrivValidatorSectionName, SelfRemediationSectionName,
-	}
-}
+func declaredSections() []string { return SectionsRegisteredHere() }
 
 // ours reports whether a key belongs to a section this package registers.
 func ours(key string) bool {

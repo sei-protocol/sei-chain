@@ -84,26 +84,49 @@ var removedSettings = []string{
 // The keys derive from the struct's mapstructure tags, which is what the node's reader decodes through, so
 // a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
-	registry.RegisterSectionExcluding(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
+	declareSection(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
 		filledFromTheCommandLine, "max-outbound-connections")
-	registry.RegisterSectionExcluding(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
+	declareSection(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
 		filledFromTheCommandLine)
-	registry.RegisterSectionExcluding(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
+	declareSection(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
 		append([]string{filledFromTheCommandLine}, removedSettings...)...)
-	registry.RegisterSectionExcluding(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
+	declareSection(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
 		filledFromTheCommandLine)
-	registry.RegisterSectionExcluding(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults,
+	declareSection(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults,
 		"rpc-servers")
-	registry.RegisterSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
-	registry.RegisterSection(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
+	declareSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
+	declareSection(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
 		instrumentationDefaults)
-	registry.RegisterSectionExcluding(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{},
+	declareSection(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{},
 		privValidatorDefaults, filledFromTheCommandLine)
-	registry.RegisterSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
+	declareSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
 		selfRemediationDefaults)
-	registry.RegisterRootKeysExcluding(RootSectionName, &nodeRootSchema{}, rootDefaults,
+	declareRootKeys(RootSectionName, &nodeRootSchema{}, rootDefaults,
 		notWritableInThisFile...)
 }
+
+// registeredHere are the sections this package put in the registry, recorded as each one is registered.
+//
+// A test needs to know which sections are this package's, and a list written beside the registrations is a
+// second statement of the same fact: a section registered and left off the list is one nothing here checks,
+// which is the case the list exists to prevent. Recorded by the registration itself instead, so the two
+// cannot disagree.
+var registeredHere []string
+
+// declareSection registers a section and records that it belongs to this package.
+func declareSection(name string, prototype any, defaults func(registry.Mode) any, excluding ...string) {
+	registry.RegisterSectionExcluding(name, prototype, defaults, excluding...)
+	registeredHere = append(registeredHere, name)
+}
+
+// declareRootKeys registers a section whose keys sit at the root of the file, and records it the same way.
+func declareRootKeys(name string, prototype any, defaults func(registry.Mode) any, excluding ...string) {
+	registry.RegisterRootKeysExcluding(name, prototype, defaults, excluding...)
+	registeredHere = append(registeredHere, name)
+}
+
+// SectionsRegisteredHere returns the sections this package registered, for the tests that hold the set.
+func SectionsRegisteredHere() []string { return append([]string(nil), registeredHere...) }
 
 // forMode is the configuration the seid init command writes for a kind of node.
 //
