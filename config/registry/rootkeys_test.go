@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -103,7 +104,6 @@ func TestAKeyTheEnvironmentCannotDeliverIsLeftToTheOtherSources(t *testing.T) {
 			Plain string `mapstructure:"plain"`
 		}{Rows: []any{}, Plain: "from the default"}
 	})
-	registry.RefuseFromEnvironment("probe", "probe.rows", "its reader takes the exact type rather than casting")
 	for _, d := range registry.Defects() {
 		t.Fatalf("the registration was refused: %v", d.Err)
 	}
@@ -135,28 +135,6 @@ func TestAKeyTheEnvironmentCannotDeliverIsLeftToTheOtherSources(t *testing.T) {
 	if got := strings.Join(resolved.Overrides, ","); got != "probe.plain" {
 		t.Errorf("overrides are %q, want only probe.plain. A key nothing supplied is not one an operator "+
 			"has taken responsibility for", got)
-	}
-}
-
-// TestRefusingAChannelWithoutAReasonIsItselfRefused keeps the exemption from being unexplainable.
-//
-// A key left out of the environment layer is one whose variable does nothing, and an operator told that
-// has to be told why. A refusal with no reason gives a diagnostic nothing to print.
-func TestRefusingAChannelWithoutAReasonIsItselfRefused(t *testing.T) {
-	registry.Reset()
-	registry.RefuseFromEnvironment("probe", "probe.rows", "")
-	if len(registry.Defects()) != 1 {
-		t.Fatalf("recorded %d defects, want one naming the key with no reason", len(registry.Defects()))
-	}
-	if _, refused := registry.EnvCannotDeliver()["probe.rows"]; refused {
-		t.Error("the key was refused from the environment anyway. Its variable would then be ignored " +
-			"with nothing able to say why, which is worse than either resolving it or not")
-	}
-
-	registry.Reset()
-	registry.RefuseFromEnvironment("probe", "probe.rows", "its reader takes the exact type")
-	if _, refused := registry.EnvCannotDeliver()["probe.rows"]; !refused {
-		t.Error("a refusal carrying a reason was not recorded")
 	}
 }
 
@@ -195,31 +173,6 @@ func TestAModeThisBinaryDoesNotDeclareIsRefused(t *testing.T) {
 	}
 }
 
-// TestARefusalNamingAKeyNothingDeclaresIsRefused keeps a refusal from covering nothing.
-//
-// A refusal is recorded by a key, so a slip in the spelling names a key no section declares. The
-// environment layer would never have offered that key, so the refusal protects nothing while reading as
-// though it did, and the key it was meant to cover resolves from the environment as before.
-//
-// Answered when something resolves rather than when the refusal is recorded, because a refusal may be
-// recorded before the section declaring its key registers. Resolving is the first point both sets exist.
-func TestARefusalNamingAKeyNothingDeclaresIsRefused(t *testing.T) {
-	registry.Reset()
-	registry.RegisterSection("probe", &struct {
-		Rows []any `mapstructure:"rows"`
-	}{}, func(registry.Mode) any {
-		return struct {
-			Rows []any `mapstructure:"rows"`
-		}{Rows: []any{}}
-	})
-	registry.RefuseFromEnvironment("probe", "probe.rowz", "a slip in the spelling")
-
-	if _, err := registry.Resolve(registry.ModeFull, registry.Sources{}); err == nil {
-		t.Error("a refusal naming a key nothing declares was accepted, so it covers nothing and the key " +
-			"it was written for still resolves from the environment")
-	}
-}
-
 // TestAVariableSetForARefusedKeyIsReported is what makes the required reason worth requiring.
 //
 // The channel is skipped and the value discarded, which is the point. But an operator who set the variable
@@ -236,7 +189,6 @@ func TestAVariableSetForARefusedKeyIsReported(t *testing.T) {
 			Plain string `mapstructure:"plain"`
 		}{Rows: []any{}, Plain: "from the default"}
 	})
-	registry.RefuseFromEnvironment("probe", "probe.rows", "its reader takes the exact type")
 	for _, d := range registry.Defects() {
 		t.Fatalf("the probe was refused: %v", d.Err)
 	}
@@ -271,5 +223,69 @@ func TestAVariableSetForARefusedKeyIsReported(t *testing.T) {
 	}
 	if len(quiet.Ignored) != 0 {
 		t.Errorf("a refused key nobody set is reported as ignored: %v", quiet.Ignored)
+	}
+}
+
+// TestTheEnvironmentCarriesAListOfWordsAndNotAListOfLists is what makes the rule right rather than broad.
+//
+// A variable holds one string. That is a value for anything read as a single word or number, and by long
+// convention a list of those written with commas between them. Nothing conventional puts a structure inside
+// one variable.
+//
+// So the line is not "lists cannot come from the environment". A list of words can, and taking that channel
+// away from one would be removing something operators use. A list whose elements are themselves lists, or
+// are unconstrained, cannot: a comma-separated string does not become one, and a reader that asks for the
+// exact shape gets a string and stops the node.
+func TestTheEnvironmentCarriesAListOfWordsAndNotAListOfLists(t *testing.T) {
+	type shapes struct {
+		Words []string `mapstructure:"words"`
+		Rows  []any    `mapstructure:"rows"`
+		One   string   `mapstructure:"one"`
+	}
+	registry.Reset()
+	registry.RegisterSection("shapes", &shapes{}, func(registry.Mode) any {
+		return shapes{Words: []string{"a"}, Rows: []any{}, One: "from the default"}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("the registration was refused: %v", d.Err)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		LookupEnv: func(name string) (string, bool) {
+			switch name {
+			case "SEID_SHAPES_WORDS":
+				return "x,y", true
+			case "SEID_SHAPES_ROWS":
+				return "chain_id=pacific-1", true
+			case "SEID_SHAPES_ONE":
+				return "from the environment", true
+			}
+			return "", false
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := resolved.Values["shapes.one"]; got != "from the environment" {
+		t.Errorf("shapes.one is %#v; a single value is what a variable carries", got)
+	}
+	if got := resolved.Values["shapes.words"]; got != "x,y" {
+		t.Errorf("shapes.words is %#v, want the variable's value. A list of words is what a variable "+
+			"conventionally carries, and refusing it would take away a channel operators use", got)
+	}
+	if got := resolved.Values["shapes.rows"]; !reflect.DeepEqual(got, []any{}) {
+		t.Errorf("shapes.rows is %#v, want the declared default it was left to. A variable holds one "+
+			"string and this setting is a list of unconstrained elements, so the string would reach a "+
+			"reader that asked for rows", got)
+	}
+	if !slices.Contains(resolved.Ignored, "shapes.rows") {
+		t.Errorf("Ignored is %v and does not name shapes.rows. A variable was set for it and did "+
+			"nothing, and an operator has to be told that", resolved.Ignored)
+	}
+	for _, key := range []string{"shapes.one", "shapes.words"} {
+		if slices.Contains(resolved.Ignored, key) {
+			t.Errorf("%s is reported as ignored and its variable answered", key)
+		}
 	}
 }

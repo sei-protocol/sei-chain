@@ -1,8 +1,9 @@
 package types_test
 
 import (
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"testing"
+
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	"github.com/stretchr/testify/require"
 

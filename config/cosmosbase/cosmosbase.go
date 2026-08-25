@@ -40,11 +40,6 @@ func init() {
 	registry.RegisterSection(GRPCSectionName, &srvconfig.GRPCConfig{}, grpcDefaults)
 	registry.RegisterSection(TelemetrySectionName, &telemetrySchema{}, telemetryDefaults)
 	registry.RegisterSection(StateSyncSectionName, &srvconfig.StateSyncConfig{}, stateSyncDefaults)
-
-	registry.RefuseFromEnvironment(TelemetrySectionName, globalLabelsKey,
-		"the metric label set is a list of name and value rows, and its reader takes that exact shape "+
-			"rather than casting what it finds, so no single environment string can supply it. Write it "+
-			"in the configuration file instead")
 }
 
 // forMode is the server configuration the seid init command writes for a node of this kind.

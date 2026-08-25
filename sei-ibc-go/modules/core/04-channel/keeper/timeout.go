@@ -6,11 +6,9 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 
 	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
@@ -34,9 +32,6 @@ func (k Keeper) TimeoutPacket(
 			"port ID (%s) channel ID (%s)", packet.GetSourcePort(), packet.GetSourceChannel(),
 		)
 	}
-
-	// NOTE: TimeoutPacket is called by the AnteHandler which acts upon the packet.Route(),
-	// so the capability authentication can be omitted here
 
 	if packet.GetDestPort() != channel.Counterparty.PortId {
 		return sdkerrors.Wrapf(
@@ -135,20 +130,11 @@ func (k Keeper) TimeoutPacket(
 // CONTRACT: this function must be called in the IBC handler
 func (k Keeper) TimeoutExecuted(
 	ctx sdk.Context,
-	chanCap *capabilitytypes.Capability,
 	packet exported.PacketI,
 ) error {
 	channel, found := k.GetChannel(ctx, packet.GetSourcePort(), packet.GetSourceChannel())
 	if !found {
 		return sdkerrors.Wrapf(types.ErrChannelNotFound, "port ID (%s) channel ID (%s)", packet.GetSourcePort(), packet.GetSourceChannel())
-	}
-
-	capName := host.ChannelCapabilityPath(packet.GetSourcePort(), packet.GetSourceChannel())
-	if !k.scopedKeeper.AuthenticateCapability(ctx, chanCap, capName) {
-		return sdkerrors.Wrapf(
-			types.ErrChannelCapabilityNotFound,
-			"caller does not own capability for channel with capability name %s", capName,
-		)
 	}
 
 	k.deletePacketCommitment(ctx, packet.GetSourcePort(), packet.GetSourceChannel(), packet.GetSequence())
@@ -182,7 +168,6 @@ func (k Keeper) TimeoutExecuted(
 // never be received (even if the timeoutHeight has not yet been reached).
 func (k Keeper) TimeoutOnClose(
 	ctx sdk.Context,
-	chanCap *capabilitytypes.Capability,
 	packet exported.PacketI,
 	proof,
 	proofClosed []byte,
@@ -192,14 +177,6 @@ func (k Keeper) TimeoutOnClose(
 	channel, found := k.GetChannel(ctx, packet.GetSourcePort(), packet.GetSourceChannel())
 	if !found {
 		return sdkerrors.Wrapf(types.ErrChannelNotFound, "port ID (%s) channel ID (%s)", packet.GetSourcePort(), packet.GetSourceChannel())
-	}
-
-	capName := host.ChannelCapabilityPath(packet.GetSourcePort(), packet.GetSourceChannel())
-	if !k.scopedKeeper.AuthenticateCapability(ctx, chanCap, capName) {
-		return sdkerrors.Wrapf(
-			types.ErrInvalidChannelCapability,
-			"channel capability failed authentication with capability name %s", capName,
-		)
 	}
 
 	if packet.GetDestPort() != channel.Counterparty.PortId {

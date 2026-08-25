@@ -1,11 +1,10 @@
 package query
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	db "github.com/tendermint/tm-db"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -50,99 +49,29 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 // Paginate does pagination of all the results in the PrefixStore based on the
 // provided PageRequest. onResult should be used to do actual unmarshaling.
 func Paginate(
+	ctx sdk.Context,
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte) error,
 ) (*PageResponse, error) {
-
-	// if the PageRequest is nil, use default PageRequest
-	if pageRequest == nil {
-		pageRequest = &PageRequest{}
+	scanLimit := scanLimitParamsFromContext(ctx)
+	req, err := preparePageRequest(pageRequest, scanLimit)
+	if err != nil {
+		return nil, err
 	}
 
-	offset := pageRequest.Offset
-	key := pageRequest.Key
-	limit := pageRequest.Limit
-	countTotal := pageRequest.CountTotal
-	reverse := pageRequest.Reverse
+	budget := newIterationBudget(scanLimit)
 
-	if offset > 0 && key != nil {
-		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
-	}
-
-	// Note: unlike upstream cosmos-sdk, limit == 0 must NOT implicitly enable
-	// countTotal. EVM precompiles (e.g. precompiles/staking) call query
-	// handlers during transaction execution with Limit: 0; an implicit
-	// full-store count would change their gas consumption and therefore
-	// break AppHash and LastResultsHash across versions.
-	if limit == 0 {
-		limit = DefaultLimit
-	}
-
-	if len(key) != 0 {
-		iterator := getIterator(prefixStore, key, reverse)
-		defer func() { _ = iterator.Close() }()
-
-		var count uint64
-		var nextKey []byte
-
-		for ; iterator.Valid(); iterator.Next() {
-			if count == limit {
-				nextKey = iterator.Key()
-				break
+	if req.useKey {
+		return runKeyPath(prefixStore, req, budget, func(key, value []byte) (bool, error) {
+			if err := onResult(key, value); err != nil {
+				return false, err
 			}
-			if iterator.Error() != nil {
-				return nil, iterator.Error()
-			}
-			err := onResult(iterator.Key(), iterator.Value())
-			if err != nil {
-				return nil, err
-			}
-			count++
-		}
-
-		return &PageResponse{
-			NextKey: nextKey,
-		}, nil
+			return true, nil
+		})
 	}
 
-	iterator := getIterator(prefixStore, nil, reverse)
-	defer func() { _ = iterator.Close() }()
-
-	end := paginationEnd(offset, limit)
-
-	var count uint64
-	var nextKey []byte
-
-	for ; iterator.Valid(); iterator.Next() {
-		count++
-
-		if count <= offset {
-			continue
-		}
-		if count <= end {
-			err := onResult(iterator.Key(), iterator.Value())
-			if err != nil {
-				return nil, err
-			}
-		} else if count == end+1 {
-			nextKey = iterator.Key()
-
-			if !countTotal {
-				break
-			}
-		}
-		if iterator.Error() != nil {
-			return nil, iterator.Error()
-		}
-	}
-
-	res := &PageResponse{NextKey: nextKey}
-	if countTotal {
-		res.Total = count
-	}
-
-	return res, nil
+	return runOffsetPathUnfiltered(prefixStore, req, budget, onResult)
 }
 
 // paginationEnd returns the index one past the last entry of the requested
@@ -153,20 +82,4 @@ func paginationEnd(offset, limit uint64) uint64 {
 		return math.MaxUint64
 	}
 	return offset + limit
-}
-
-func getIterator(prefixStore types.KVStore, start []byte, reverse bool) db.Iterator {
-	if reverse {
-		var end []byte
-		if start != nil {
-			itr := prefixStore.Iterator(start, nil)
-			defer func() { _ = itr.Close() }()
-			if itr.Valid() {
-				itr.Next()
-				end = itr.Key()
-			}
-		}
-		return prefixStore.ReverseIterator(nil, end)
-	}
-	return prefixStore.Iterator(start, nil)
 }

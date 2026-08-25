@@ -1,6 +1,7 @@
 package distribution_test
 
 import (
+	"math/big"
 	"testing"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -42,7 +43,9 @@ func TestProposalHandlerPassed(t *testing.T) {
 	require.True(t, app.BankKeeper.GetAllBalances(ctx, account.GetAddress()).IsZero())
 
 	feePool := app.DistrKeeper.GetFeePool(ctx)
-	feePool.CommunityPool = sdk.NewDecCoinsFromCoins(amount...)
+	poolCoins, err := sdk.NewDecCoinsFromCoins(amount...)
+	require.NoError(t, err)
+	feePool.CommunityPool = poolCoins
 	app.DistrKeeper.SetFeePool(ctx, feePool)
 
 	tp := testProposal(recipient, amount)
@@ -69,4 +72,24 @@ func TestProposalHandlerFailed(t *testing.T) {
 
 	balances := app.BankKeeper.GetAllBalances(ctx, recipient)
 	require.True(t, balances.IsZero())
+}
+
+func TestProposalHandlerRejectsOutOfRangeAmount(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	recipient := delAddr1
+	account := app.AccountKeeper.NewAccountWithAddress(ctx, recipient)
+	app.AccountKeeper.SetAccount(ctx, account)
+
+	maxAmt := sdk.NewIntFromBigInt(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)))
+	huge := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, maxAmt))
+	tp := testProposal(recipient, huge)
+	require.Error(t, tp.ValidateBasic(), "ValidateBasic must reject unconvertible spend amounts")
+
+	hdlr := distribution.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)
+	require.NotPanics(t, func() {
+		require.Error(t, hdlr(ctx, tp))
+	})
+	require.True(t, app.BankKeeper.GetAllBalances(ctx, recipient).IsZero())
 }

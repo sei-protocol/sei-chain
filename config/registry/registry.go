@@ -100,8 +100,8 @@ func RegisterSection(name string, prototype any, defaults func(Mode) any) {
 // RegisterSectionExcluding records a section, leaving out paths the struct carries that are not settings.
 //
 // Each excluding path is relative to the section, so "max-outbound-connections" rather than the dotted key
-// it becomes. A path matching nothing the struct declares is refused, because an exclusion covering
-// nothing reads as though it covered something.
+// it becomes. A path matching nothing the struct declares is refused, because an exclusion covering nothing
+// reads as though it covered something.
 //
 // Two kinds of field earn this. One a reader refuses outright, where writing the key stops the node, so
 // declaring it would put a setting in the space whose only effect is an outage. And one whose absence is
@@ -308,7 +308,10 @@ func deriveKeys(name, prefix string, prototype any) ([]string, error) {
 	}
 
 	var keys []string
-	if err := walk(t, prefix, &keys, map[reflect.Type]bool{}); err != nil {
+	// The label is the section name, and the prefix is what builds a key. They differ for a section whose
+	// keys sit at the root, where the prefix is empty: a message built from that reads ".HaltHeight has no
+	// mapstructure tag", which names no section at all.
+	if err := walk(t, label(name, prefix), prefix, &keys, map[reflect.Type]bool{}); err != nil {
 		return nil, err
 	}
 	if len(keys) == 0 {
@@ -332,10 +335,10 @@ func deriveKeys(name, prefix string, prototype any) ([]string, error) {
 // open carries the struct types on the current path, so a self-referential one is refused rather than
 // recursed into. A stack overflow cannot be recovered into a Defect, so this is the one refusal that
 // has to happen before the recursion rather than after it.
-func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]bool) error {
+func walk(t reflect.Type, label, prefix string, keys *[]string, open map[reflect.Type]bool) error {
 	if open[t] {
 		return fmt.Errorf("%s is %s, which contains itself; a key space derived from it has no end",
-			prefix, t)
+			label, t)
 	}
 	open[t] = true
 	defer delete(open, t)
@@ -349,12 +352,12 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 			// this way with no other sign.
 			if _, tagged := f.Tag.Lookup("mapstructure"); tagged {
 				return fmt.Errorf("%s.%s is unexported and carries a mapstructure tag; nothing can write "+
-					"to it, so the tag names a key that reaches no field", prefix, f.Name)
+					"to it, so the tag names a key that reaches no field", label, f.Name)
 			}
 			continue
 		}
 
-		tag, squash, skip, err := tagOf(f, prefix)
+		tag, squash, skip, err := tagOf(f, label)
 		if err != nil {
 			return err
 		}
@@ -371,9 +374,9 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 		// a shared base without adding a segment.
 		if squash {
 			if ft.Kind() != reflect.Struct {
-				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, ft.Kind())
+				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", label, f.Name, ft.Kind())
 			}
-			if err := walkSubtree(ft, prefix, join(prefix, f.Name), keys, open); err != nil {
+			if err := walkSubtree(ft, label, prefix, join(label, f.Name), keys, open); err != nil {
 				return err
 			}
 			continue
@@ -381,7 +384,7 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 
 		path := join(prefix, tag)
 		if ft.Kind() == reflect.Struct && !isLeaf(ft) {
-			if err := walkSubtree(ft, path, join(prefix, f.Name), keys, open); err != nil {
+			if err := walkSubtree(ft, join(label, tag), path, join(label, f.Name), keys, open); err != nil {
 				return err
 			}
 			continue
@@ -389,6 +392,17 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 		*keys = append(*keys, path)
 	}
 	return nil
+}
+
+// label is the name a diagnostic carries for a section.
+//
+// The section's own name, because a prefix is empty for a section whose keys sit at the root of the file and
+// a message built from that names nothing.
+func label(name, prefix string) string {
+	if prefix == "" {
+		return name
+	}
+	return prefix
 }
 
 // join appends a key segment to a prefix, and returns the segment alone when there is no prefix.
@@ -404,9 +418,9 @@ func join(prefix, segment string) string {
 // A struct configuration cannot reach is a setting an operator writes into nothing. A defined type
 // over a leaf, an empty struct, and a struct whose every field is unexported all arrive here having
 // contributed nothing, and both walks agree about it, so no later check can see the loss.
-func walkSubtree(t reflect.Type, path, field string, keys *[]string, open map[reflect.Type]bool) error {
+func walkSubtree(t reflect.Type, label, path, field string, keys *[]string, open map[reflect.Type]bool) error {
 	before := len(*keys)
-	if err := walk(t, path, keys, open); err != nil {
+	if err := walk(t, label, path, keys, open); err != nil {
 		return err
 	}
 	if len(*keys) == before {
@@ -416,12 +430,12 @@ func walkSubtree(t reflect.Type, path, field string, keys *[]string, open map[re
 }
 
 // tagOf returns a field's mapstructure name, or reports that the field cannot be addressed.
-func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool, err error) {
+func tagOf(f reflect.StructField, label string) (name string, squash, skip bool, err error) {
 	tag, ok := f.Tag.Lookup("mapstructure")
 	if !ok {
 		return "", false, false, fmt.Errorf("%s.%s has no mapstructure tag; a key derived from a field "+
 			"name is a key no operator writes, which is how ninety-two legacy keys became "+
-			"unreachable through their tags", prefix, f.Name)
+			"unreachable through their tags", label, f.Name)
 	}
 
 	name, squash, remain := parseTag(tag)
@@ -431,7 +445,7 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool
 	if squash {
 		if name != "" {
 			return "", false, false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
-				prefix, f.Name, name)
+				label, f.Name, name)
 		}
 		return "", true, false, nil
 	}
@@ -439,17 +453,17 @@ func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool
 		return "", false, true, nil
 	}
 	if name == "" {
-		return "", false, false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
+		return "", false, false, fmt.Errorf("%s.%s has an empty mapstructure name", label, f.Name)
 	}
 	if bad, found := unaddressableChar(name); found {
 		return "", false, false, fmt.Errorf("%s.%s names %q, which carries %q. A dot makes the field claim a "+
 			"subtree the struct does not have, and neither a dot nor a space survives a round trip "+
-			"through a configuration source", prefix, f.Name, name, bad)
+			"through a configuration source", label, f.Name, name, bad)
 	}
 	if neverMatchesAWrittenKey(name) {
 		return "", false, false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
 			"source enumerates lower-cased, so this key would never match a written one",
-			prefix, f.Name, name)
+			label, f.Name, name)
 	}
 	return name, false, false, nil
 }
@@ -526,7 +540,6 @@ func Reset() {
 	defer mu.Unlock()
 	sections = map[string]Section{}
 	defects = nil
-	envCannotDeliver = map[string]string{}
 }
 
 // envPrefix is the environment namespace for every derived key.

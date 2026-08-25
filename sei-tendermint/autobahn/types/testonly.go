@@ -22,7 +22,7 @@ func BuildCommitQC(
 	prev utils.Option[*CommitQC],
 	laneQCs map[LaneID]*LaneQC,
 ) *CommitQC {
-	vs := ViewSpec{CommitQC: prev, Epoch: epoch}
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: prev, Epoch: epoch}}
 	if len(laneQCs) == 0 {
 		laneQCs = oneBlockLaneQCMap(vs, keys)
 	}
@@ -146,7 +146,7 @@ func SignedForTesting[T Msg](msg T, sig *Signature) *Signed[T] {
 
 // NewBlockForTesting builds a Block with an injected payload hash instead of computing
 // payload.Hash(). FOR TESTS/BENCHMARKS ONLY: the header's payloadHash need not match the
-// payload, so Block.Verify will fail. This skips a full marshal + SHA-256 of the payload.
+// payload, so LaneProposal.Verify will fail. This skips a full marshal + SHA-256 of the payload.
 func NewBlockForTesting(
 	lane LaneID,
 	blockNumber BlockNumber,
@@ -308,7 +308,7 @@ func GenEpochWithCommittee(rng utils.Rng, committee *Committee) *Epoch {
 
 // CommitQCAt creates a CommitQC at ep.RoadRange().First, signed by all keys.
 func CommitQCAt(ep *Epoch, keys []SecretKey) *CommitQC {
-	vote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}))
+	vote := NewCommitVote(ProposalAt(ep, View{EpochIndex: ep.EpochIndex(), Index: ep.RoadRange().First}, ep.FirstBlock()))
 	votes := make([]*Signed[*CommitVote], len(keys))
 	for i, k := range keys {
 		votes[i] = Sign(k, vote)
@@ -326,15 +326,15 @@ func GenProposalAt(rng utils.Rng, view View) *Proposal {
 	return newProposal(view, utils.GenTimestamp(rng), utils.GenSlice(rng, GenLaneRange), GlobalBlockNumber(rng.Uint64()))
 }
 
-// ProposalAt returns a minimal non-empty Proposal at view, consistent with ep.
-// Includes a single 1-block lane range so Proposal.Verify accepts it (empty
-// tipcuts are forbidden). For tests that care about signature weight or epoch
-// binding rather than real lane/app data.
-func ProposalAt(ep *Epoch, view View) *Proposal {
+// ProposalAt returns a minimal non-empty Proposal at view, consistent with ep,
+// starting at globalFirst. Includes a single 1-block lane range so
+// Proposal.Verify accepts it (empty tipcuts are forbidden). For tests that care
+// about signature weight or epoch binding rather than real lane/app data.
+func ProposalAt(ep *Epoch, view View, globalFirst GlobalBlockNumber) *Proposal {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
 	header := NewBlock(lane, 0, BlockHeaderHash{}, &Payload{}).Header()
-	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, ep.FirstBlock())
+	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, globalFirst)
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,
