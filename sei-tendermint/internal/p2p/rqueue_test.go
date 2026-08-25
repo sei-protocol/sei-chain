@@ -2,10 +2,11 @@ package p2p
 
 import (
 	"context"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"slices"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestQueuePruning(t *testing.T) {

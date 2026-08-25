@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -119,12 +120,13 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.NoError(t, err)
 	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime)
 	require.NoError(t, err)
-	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*atypes.CommitQC]())
+	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
 	gr := qc.QC().GlobalRange()
 	require.Greater(t, gr.Len(), 2)
 	last := gr.First + atypes.GlobalBlockNumber(gr.Len()/2)
 
-	db := memblock.NewBlockDB()
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
 	require.NoError(t, db.WriteQC(qc))
 	for i, n := 0, gr.First; n < gr.Next; i, n = i+1, n+1 {
 		require.NoError(t, db.WriteBlock(n, blocks[i]))

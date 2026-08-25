@@ -17,10 +17,10 @@ type Address [AddressLen]byte
 // and code hashes. Like Address, it can be freely converted to/from common.Hash or evmc.Hash.
 type Hash [HashLen]byte
 
-// Store is the top-level API used by the Giga EVM executor for
+// StateDB is the top-level API used by the Giga EVM executor for
 // read and write. Writes commit into both SC and SS; reads can be served for
 // the current (in-progress) block or for a past, already-committed block.
-type Store interface {
+type StateDB interface {
 
 	// CommitStateChanges writes the given changesets into both SC and SS.
 	// Call after executing each block. Hash computation and disk I/O may

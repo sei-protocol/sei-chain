@@ -10,17 +10,22 @@ import (
 func (k Keeper) DistributeFromFeePool(ctx sdk.Context, amount sdk.Coins, receiveAddr sdk.AccAddress) error {
 	feePool := k.GetFeePool(ctx)
 
+	decAmount, err := sdk.NewDecCoinsFromCoins(amount...)
+	if err != nil {
+		return err
+	}
+
 	// NOTE the community pool isn't a module account, however its coins
 	// are held in the distribution module account. Thus the community pool
 	// must be reduced separately from the SendCoinsFromModuleToAccount call
-	newPool, negative := feePool.CommunityPool.SafeSub(sdk.NewDecCoinsFromCoins(amount...))
+	newPool, negative := feePool.CommunityPool.SafeSub(decAmount)
 	if negative {
 		return types.ErrBadDistribution
 	}
 
 	feePool.CommunityPool = newPool
 
-	err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, receiveAddr, amount)
+	err = k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, receiveAddr, amount)
 	if err != nil {
 		return err
 	}

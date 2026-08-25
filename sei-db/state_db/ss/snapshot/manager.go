@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/management"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -42,7 +42,7 @@ type Config struct {
 	Backend         string
 	KeepRecent      int
 	ExternalPruning bool
-	Scheduler       management.CheckpointScheduler
+	Scheduler       controller.CheckpointScheduler
 	// Floor names a height this member's retention must keep. Leave it nil when the member is the only
 	// one that has to hold the height a restore starts from.
 	Floor *Floor
@@ -115,7 +115,7 @@ type Manager struct {
 	backend         string
 	keepRecent      int
 	externalPruning bool
-	scheduler       management.CheckpointScheduler
+	scheduler       controller.CheckpointScheduler
 	floor           *Floor
 	snapshotSizes   map[int64]int64
 

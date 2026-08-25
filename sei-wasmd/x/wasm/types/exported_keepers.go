@@ -2,7 +2,6 @@ package types
 
 import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 )
 
@@ -90,9 +89,4 @@ type IBCContractKeeper interface {
 		contractAddr sdk.AccAddress,
 		msg wasmvmtypes.IBCPacketTimeoutMsg,
 	) error
-	// ClaimCapability allows the transfer module to claim a capability
-	// that IBC module passes to it
-	ClaimCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) error
-	// AuthenticateCapability wraps the scopedKeeper's AuthenticateCapability function
-	AuthenticateCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) bool
 }

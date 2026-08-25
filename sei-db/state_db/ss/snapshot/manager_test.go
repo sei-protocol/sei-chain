@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/management"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +23,7 @@ func (*controlledScheduler) SupportsCheckpoint() bool {
 func (s *controlledScheduler) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
 	s.pending <- func() {
 		if !shouldRun() {
-			done(management.ErrCheckpointCanceled)
+			done(controller.ErrCheckpointCanceled)
 			return
 		}
 		if s.fail {

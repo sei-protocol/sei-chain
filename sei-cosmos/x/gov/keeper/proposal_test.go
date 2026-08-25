@@ -3,11 +3,12 @@ package keeper_test
 import (
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
+	"github.com/stretchr/testify/require"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"

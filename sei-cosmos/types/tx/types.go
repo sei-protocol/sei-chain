@@ -112,6 +112,14 @@ func (t *Tx) ValidateBasic() error {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "fee grants are not enabled")
 	}
 
+	// SignerInfos and Signatures are 1:1 (see SetSignatures).
+	if len(authInfo.SignerInfos) != len(sigs) {
+		return sdkerrors.Wrapf(
+			sdkerrors.ErrUnauthorized,
+			"wrong number of SignerInfos; expected %d, got %d", len(sigs), len(authInfo.SignerInfos),
+		)
+	}
+
 	return nil
 }
 

@@ -7,8 +7,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/management"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
@@ -103,15 +103,15 @@ func (s *CosmosStateStore) Close() error {
 }
 
 func (s *CosmosStateStore) SupportsCheckpoint() bool {
-	return management.SupportsCheckpoint(s.db)
+	return controller.SupportsCheckpoint(s.db)
 }
 
 func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
-	management.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
+	controller.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
 }
 
 func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) error {
-	return management.SetCheckpointVersion(s.db, destDir, version)
+	return controller.SetCheckpointVersion(s.db, destDir, version)
 }
 
 func (s *CosmosStateStore) StartSnapshots(

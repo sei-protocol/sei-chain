@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
+	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
@@ -81,15 +82,26 @@ func TestLightInvarianceDeclaresAndResolves(t *testing.T) {
 
 // TestGenesisDeclaresAndResolves holds the genesis schema against the record and the reader's defaults.
 //
-// The record names one of the two keys as a row and the other beside it, because that one is read as a type
-// assertion rather than a guarded cast and a row would predict the wrong resolution. Both are this
-// package's, so both are declared.
+// Three keys, and the record is what says so rather than a list written again here. One is a row. The other
+// two have targets of their own: one is read as a type assertion rather than a guarded cast, so a row would
+// predict the wrong resolution, and one is read by the upstream server into its own configuration and not by
+// this package at all.
+//
+// All three are declared, because a section name is the whole of what a registration owns and a dotted one
+// is refused, so a key under genesis is this registration's or nobody's.
 func TestGenesisDeclaresAndResolves(t *testing.T) {
-	requireDeclares(t, GenesisSectionName, manifestKeys(genesisKeys, flagGenesisImportFile))
+	want := manifestKeys(genesisKeys)
+	for _, key := range genesisKeysWithTargetsOfTheirOwn {
+		want = append(want, string(key))
+	}
+	sort.Strings(want)
+	requireDeclares(t, GenesisSectionName, want)
+
 	for _, mode := range registry.Modes() {
 		requireResolves(t, mode, GenesisSectionName, map[string]any{
-			flagGenesisStreamImport: DefaultGenesisConfig.StreamGenesisImport,
-			flagGenesisImportFile:   DefaultGenesisConfig.GenesisStreamFile,
+			flagGenesisStreamImport:       DefaultGenesisConfig.StreamGenesisImport,
+			flagGenesisImportFile:         DefaultGenesisConfig.GenesisStreamFile,
+			"genesis.genesis-stream-file": srvconfig.DefaultConfig().Genesis.GenesisStreamFile,
 		})
 	}
 }
@@ -229,45 +241,86 @@ func TestTheSectionsThisPackageRegistersAreUsable(t *testing.T) {
 	}
 }
 
-// TestTheArchiveRetentionDepartsFromWhatTheCommandWrites measures the one deliberate departure.
+// TestTheseDeparturesFromWhatTheCommandWritesAreTheRecordedOnes measures every one of them.
 //
 // A declared value is what the seid init command writes for a kind of node. This section departs from that
-// in exactly one place: the retention an archive node keeps. The mode rules set it to keep everything, and
-// the command does not write that, because the type it renders declares a state store field of its own and
-// fills it from the mode-blind default, so the rule is applied and then thrown away.
+// wherever the mode rules moved a value, and for one cause: the type the command renders declares a state
+// store field of its own and fills it from the mode-blind default, so every rule this section applies is
+// applied and then thrown away.
 //
 // PLT-955 records the defect and the decision to correct it in the versioned declaration rather than at the
-// point that loses it. So the departure is intended, and it is held here for two reasons. It fails if the
-// command starts writing the rule, which is the day this departure should be deleted. And it fails if this
-// section stops departing, which would put a retention on the one kind of node whose purpose is keeping
-// what it would prune.
-func TestTheArchiveRetentionDepartsFromWhatTheCommandWrites(t *testing.T) {
-	live := config.DefaultStateStoreConfig()
+// point that loses it. So the departures are intended, and the set is held rather than described. A row that
+// stops departing fails, which is the day that row should be deleted. A row that starts departing fails too,
+// so a rule added to this section has to account for what the command does with it.
+//
+// What this cannot see is the command. This package cannot import the one that renders the file, because
+// that direction is the cycle, so the mode-blind side here is read from the same default the command reads
+// rather than from the command's output. A change that made the command keep the rules would leave this
+// green, and the test under cmd/seid/cmd is the half that fails then.
+func TestTheseDeparturesFromWhatTheCommandWritesAreTheRecordedOnes(t *testing.T) {
+	// The mode-blind values the command's own field carries, which is what reaches a generated file.
+	blind := config.DefaultStateStoreConfig()
 
-	// What the command renders for an archive node: the mode rules are applied to the server
-	// configuration, and then the type it renders fills its own state store field from the mode-blind
-	// default, which is what reaches the file.
-	written := live.KeepRecent
-	if written == 0 {
-		t.Fatalf("the mode-blind default retention is already zero, so this departure measures nothing " +
-			"and the comparison below holds for any declaration")
+	// Every departure, by key and mode, with what each side says.
+	recorded := map[string]map[registry.Mode][2]any{
+		FlagSSKeepRecent: {
+			registry.ModeArchive: {0, blind.KeepRecent},
+		},
+		FlagSSEnable: {
+			registry.ModeValidator: {false, blind.Enable},
+			registry.ModeSeed:      {false, blind.Enable},
+		},
 	}
 
-	resolved, err := registry.Resolve(registry.ModeArchive, registry.Sources{})
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	declared := resolved.Values[FlagSSKeepRecent]
+	measured := map[string]map[registry.Mode]bool{}
+	for _, mode := range registry.Modes() {
+		resolved, err := registry.Resolve(mode, registry.Sources{})
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", mode, err)
+		}
+		for _, key := range []string{FlagSSKeepRecent, FlagSSEnable} {
+			declared := resolved.Values[key]
+			written := blindValueFor(key, blind)
+			if declared == written {
+				if _, listed := recorded[key][mode]; listed {
+					t.Errorf("%s for %s no longer departs, both sides being %v. Take the row off, so "+
+						"the record stays the set of values this section states differently from the "+
+						"file the command writes", key, mode, declared)
+				}
+				continue
+			}
+			if measured[key] == nil {
+				measured[key] = map[registry.Mode]bool{}
+			}
+			measured[key][mode] = true
 
-	if declared == written {
-		t.Errorf("%s resolves to %v for an archive node, which is what the command writes. Either the "+
-			"command now carries the mode rule, in which case this departure and its note should go, or "+
-			"this section stopped departing and an archive node is declared to prune the history it "+
-			"exists to keep", FlagSSKeepRecent, declared)
+			want, listed := recorded[key][mode]
+			switch {
+			case !listed:
+				t.Errorf("%s for %s is declared as %v and the command writes %v, and nothing records "+
+					"that", key, mode, declared, written)
+			case declared != want[0] || written != want[1]:
+				t.Errorf("%s for %s is recorded as declaring %v against a written %v, and declares %v "+
+					"against %v", key, mode, want[0], want[1], declared, written)
+			}
+		}
 	}
-	if declared != 0 {
-		t.Errorf("%s resolves to %v for an archive node, want zero. The mode rule keeps every version, "+
-			"and departing from the command is only defensible while this states that rule",
-			FlagSSKeepRecent, declared)
+
+	for key, modes := range recorded {
+		if len(measured[key]) != len(modes) {
+			t.Errorf("%s is recorded as departing for %d modes and departs for %d", key,
+				len(modes), len(measured[key]))
+		}
 	}
+}
+
+// blindValueFor returns the value the command's own state store field carries for a key.
+func blindValueFor(key string, blind config.StateStoreConfig) any {
+	switch key {
+	case FlagSSKeepRecent:
+		return blind.KeepRecent
+	case FlagSSEnable:
+		return blind.Enable
+	}
+	return nil
 }

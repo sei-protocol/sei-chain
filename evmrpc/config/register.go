@@ -31,6 +31,20 @@ func init() {
 // than this. The simulation call limit has no portable answer, because zero there is not a request to
 // measure but the absence of a limit, and the limit is the only bound on how many simulations a node runs
 // at once. Both describe the host that resolved them, so neither travels.
+//
+// The two interface toggles differ from what this package's own reader falls back to, and the difference is
+// worth naming because it looks like a behaviour change and is not one. The reader's default has both open
+// for every kind of node, and it keeps that when the key is absent from a file. The values here follow the
+// rule the provisioning command applies instead, so they close both for a node that serves no queries.
+//
+// Nothing flips as a result. A resolution records which keys a source supplied, and only those are ever
+// delivered, so a node whose file omits these keys has nothing written for them and the reader's own
+// fallback still answers. A value from here reaches a node when somebody wrote it and at no other time.
+//
+// What would change that is a writer that renders every declared key into a file. Then these two are
+// supplied, the node closes them, and an operator can at least read why in the file they were handed. That
+// is the case to remember when such a writer is built, which is why it is written here rather than left to
+// be discovered there.
 func defaults(mode registry.Mode) any {
 	cfg := DefaultConfig
 	serves := registry.IsFullnodeMode(mode)

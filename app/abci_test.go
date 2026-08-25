@@ -7,10 +7,27 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/migration"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIBCMessageRouterReturnsDeprecatedError(t *testing.T) {
+	testApp := Setup(t, false, false, false)
+	msg := &channeltypes.MsgChannelCloseInit{
+		PortId:    "transfer",
+		ChannelId: "channel-0",
+		Signer:    sdk.AccAddress("test-address-0000000").String(),
+	}
+	handler := testApp.MsgServiceRouter().Handler(msg)
+	require.NotNil(t, handler)
+
+	_, err := handler(testApp.NewContext(false, tmproto.Header{}), msg)
+	require.ErrorIs(t, err, ibccoretypes.ErrIBCDeprecated)
+}
 
 // TestMigrationSubspaceRegistered verifies the generic "migration" params
 // subspace is wired with its key table so governance can edit
@@ -122,4 +139,37 @@ func TestMigrationBatchSizeTakesEffectNextBlock(t *testing.T) {
 
 	got, _ = a.rootStore.GetMigrationBatchSize()
 	require.Equal(t, 640, got, "migration rate must take effect on the block after the param is committed")
+}
+
+func TestIBCStoreQueriesAreUnavailable(t *testing.T) {
+	testApp := Setup(t, false, false, false)
+
+	for _, path := range []string{
+		"/store/ibc/key",
+		"/store/ibc/subspace",
+		"/store/transfer/key",
+		"/store/transfer/subspace",
+		"/store/capability/key",
+		"/store/capability/subspace",
+	} {
+		t.Run(path, func(t *testing.T) {
+			response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: path})
+			require.NoError(t, err)
+			require.Equal(t, ibccoretypes.ErrIBCDeprecated.Codespace(), response.Codespace)
+			require.Equal(t, ibccoretypes.ErrIBCDeprecated.ABCICode(), response.Code)
+		})
+	}
+
+	for _, path := range []string{
+		"/store/bank/key",
+		"/store/ibc-transfer/key",
+		"/custom/ibc/query",
+		"/store/ibc/unknown",
+	} {
+		require.False(t, isRetiredIBCStoreQuery(path))
+	}
+
+	response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: "/store/bank/key"})
+	require.NoError(t, err)
+	require.False(t, response.IsErr())
 }
