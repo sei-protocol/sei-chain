@@ -15,7 +15,7 @@ func TestConsensusClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 7)
-	committee := registry.LatestEpoch().Committee()
+	committee := registry.MustEpoch(0).Committee()
 	env := newTestEnv(registry)
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode

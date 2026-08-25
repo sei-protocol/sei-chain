@@ -21,3 +21,12 @@ func GenRegistry(rng utils.Rng, size int) (*Registry, []types.SecretKey) {
 	registry := utils.OrPanic1(NewRegistry(committee, firstBlock, time.Now()))
 	return registry, sks
 }
+
+// MustEpoch returns the registered epoch at i. Panics if it is missing.
+func (r *Registry) MustEpoch(i types.EpochIndex) *types.Epoch {
+	ep, err := r.EpochByIndex(i)
+	if err != nil {
+		panic(err)
+	}
+	return ep
+}

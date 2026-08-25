@@ -37,6 +37,15 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			m.rejectAdmission(r.Context(), w, ip, rejectReasonOversize, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
+		if errors.Is(err, errBudgetExhausted) {
+			// Server-side capacity event; outer limiter already owns the response.
+			return
+		}
+		if errors.Is(err, errSlowBody) {
+			// Client-caused stall: still charge the per-IP bucket.
+			m.gate.ChargeAdmissionRejection(r.Context(), ip)
+			return
+		}
 		m.rejectAdmission(r.Context(), w, ip, rejectReasonReadError, http.StatusBadRequest, "bad request")
 		return
 	}

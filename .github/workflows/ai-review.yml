@@ -6,8 +6,6 @@ on:
     types: [ created ]
   pull_request_review_comment:
     types: [ created ]
-  pull_request_review:
-    types: [ submitted ]
 jobs:
   ai-review:
     if: github.event_name != 'issue_comment' || github.event.issue.pull_request != null

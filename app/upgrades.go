@@ -99,6 +99,7 @@ func (app *App) RegisterUpgradeHandlers() {
 				}
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, capabilityModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
 				return newVM, nil
 			}
 
