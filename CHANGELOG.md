@@ -27,8 +27,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+
 ## v6.6
 sei-chain
+* [#4006](https://github.com/sei-protocol/sei-chain/pull/4006) Backport `release/v6.6`: Disable transaction and evidence submission and mempool gossip in freeze mode
 * [#3957](https://github.com/sei-protocol/sei-chain/pull/3957) Backport `release/v6.6`: Add context cancellation to SS DB layer
 * [#3954](https://github.com/sei-protocol/sei-chain/pull/3954) Backport `release/v6.6`: feat(seeds): ship Sei Labs seeds as the default bootstrap-peers
 * [#3951](https://github.com/sei-protocol/sei-chain/pull/3951) Backport `release/v6.6`: Tolerate failed Codex review executions

@@ -92,18 +92,19 @@ type nodeImpl struct {
 	nodeKey          types.NodeKey // our node privkey
 
 	// services
-	eventSinks     []indexer.EventSink
-	initialState   sm.State
-	stateStore     sm.Store
-	blockStore     *store.BlockStore // store the blockchain to disk
-	mempool        utils.Option[*mempool.TxMempool]
-	evPool         utils.Option[*evidence.Pool]
-	indexerService *indexer.Service
-	services       []service.Service
-	rpcListeners   []net.Listener // rpc servers
-	shutdownOps    closer
-	rpcEnv         *rpccore.Environment
-	prometheusSrv  utils.Option[*http.Server]
+	eventSinks        []indexer.EventSink
+	initialState      sm.State
+	stateStore        sm.Store
+	blockStore        *store.BlockStore // store the blockchain to disk
+	mempool           utils.Option[*mempool.TxMempool]
+	mempoolP2PEnabled bool
+	evPool            utils.Option[*evidence.Pool]
+	indexerService    *indexer.Service
+	services          []service.Service
+	rpcListeners      []net.Listener // rpc servers
+	shutdownOps       closer
+	rpcEnv            *rpccore.Environment
+	prometheusSrv     utils.Option[*http.Server]
 }
 
 // makeNode returns a new, ready to go, Tendermint Node.
@@ -233,6 +234,8 @@ func makeNode(
 			EventBus:   eventBus,
 			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
+
+			ReadOnly: opts.freezeHeight > 0,
 		},
 	}
 
@@ -283,12 +286,15 @@ func makeNode(
 		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
 		node.rpcEnv.Mempool = utils.Some(mp)
-		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
-		if err != nil {
-			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+		if opts.freezeHeight == 0 {
+			mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
+			if err != nil {
+				return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+			}
+			mpReactor.MarkReadyToStart()
+			node.services = append(node.services, mpReactor)
+			node.mempoolP2PEnabled = true
 		}
-		mpReactor.MarkReadyToStart()
-		node.services = append(node.services, mpReactor)
 
 		// make block executor for consensus and blockchain reactors to execute blocks
 		blockExec := sm.NewBlockExecutor(
@@ -505,7 +511,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 
 	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
 	// TODO: Use a persistent peer database.
-	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus)
+	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus, n.mempoolP2PEnabled)
 	if err != nil {
 		return err
 	}
