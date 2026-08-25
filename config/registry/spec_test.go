@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1033,33 +1034,43 @@ func requireEnvCollisionRefused(t *testing.T, spelling string) {
 // every other caller's declared set.
 func TestAReadKeySliceCannotReachTheRegistry(t *testing.T) {
 	registry.Reset()
-	registry.RegisterSection("s", &struct {
-		B string `mapstructure:"b"`
-		A string `mapstructure:"a"`
-	}{}, func(registry.Mode) any {
-		return struct {
-			B string `mapstructure:"b"`
-			A string `mapstructure:"a"`
-		}{}
-	})
+	type shape struct {
+		B    string `mapstructure:"b"`
+		A    string `mapstructure:"a"`
+		Gone string `mapstructure:"gone"`
+	}
+	registry.RegisterSectionExcluding("s", &shape{},
+		func(registry.Mode) any { return shape{} }, "gone")
 	requireNoDefects(t)
 
-	want := []string{"s.a", "s.b"}
+	// Both slices, through both accessors. The exclusion list is read on every Resolve, so a caller
+	// that reached it would not corrupt one key: it would drop a path from one walk and not the other,
+	// and every later resolution would fail for every mode.
 	for _, read := range []struct {
-		name string
-		keys func() []string
+		name  string
+		want  []string
+		slice func() []string
 	}{
-		{"Lookup", func() []string { s, _ := registry.Lookup("s"); return s.Keys }},
-		{"Sections", func() []string { return registry.Sections()[0].Keys }},
+		{"Lookup.Keys", []string{"s.a", "s.b"},
+			func() []string { s, _ := registry.Lookup("s"); return s.Keys }},
+		{"Lookup.Excluded", []string{"s.gone"},
+			func() []string { s, _ := registry.Lookup("s"); return s.Excluded }},
+		{"Sections.Keys", []string{"s.a", "s.b"},
+			func() []string { return registry.Sections()[0].Keys }},
+		{"Sections.Excluded", []string{"s.gone"},
+			func() []string { return registry.Sections()[0].Excluded }},
 	} {
 		t.Run(read.name, func(t *testing.T) {
-			got := read.keys()
+			// Written by index rather than appended, because every section registered today has a
+			// capacity equal to its length, so an append reallocates and would pass while the
+			// registry's own storage was still reachable.
+			got := read.slice()
 			for i := range got {
 				got[i] = "clobbered"
 			}
-			if after := read.keys(); !reflect.DeepEqual(after, want) {
-				t.Errorf("writing into the slice %s returned left the registry declaring %v, want %v",
-					read.name, after, want)
+			if after := read.slice(); !reflect.DeepEqual(after, read.want) {
+				t.Errorf("writing into the slice %s returned left the registry holding %v, want %v",
+					read.name, after, read.want)
 			}
 		})
 	}
@@ -1414,6 +1425,7 @@ func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
 // nothing answers, or answering a key it never declared, and the registry refuses both. So it has to reach
 // both, and the only way to see that is through a resolution.
 func TestAnExclusionDropsAPathFromBothWalks(t *testing.T) {
+	registry.Reset()
 	type leftOut struct {
 		Kept    string `mapstructure:"kept"`
 		Dropped string `mapstructure:"dropped"`
@@ -1447,6 +1459,7 @@ func TestAnExclusionDropsAPathFromBothWalks(t *testing.T) {
 // The field an exclusion names can be renamed or removed. Left alone, the exclusion then excludes nothing
 // while still saying in the source that this section deliberately leaves a setting out.
 func TestAnExclusionCoveringNothingIsRefused(t *testing.T) {
+	registry.Reset()
 	type present struct {
 		Kept string `mapstructure:"kept"`
 	}
@@ -1473,6 +1486,7 @@ func TestAnExclusionCoveringNothingIsRefused(t *testing.T) {
 // A remaining field is where the decode puts what it matched no field for, so what lands in it is what an
 // operator misspelled. No exclusion can reach it, because an exclusion names a key and this field has none.
 func TestAFieldCollectingUnmatchedKeysDeclaresNone(t *testing.T) {
+	registry.Reset()
 	type collector struct {
 		Kept  string         `mapstructure:"kept"`
 		Other map[string]any `mapstructure:",remain"`
@@ -1487,5 +1501,45 @@ func TestAFieldCollectingUnmatchedKeysDeclaresNone(t *testing.T) {
 	}
 	if want := []string{"remaining_field.kept"}; !reflect.DeepEqual(registered.Keys, want) {
 		t.Errorf("declares %v, want %v; the collector itself is not a setting", registered.Keys, want)
+	}
+}
+
+// TestANestedFileSourceIsRefusedRatherThanResolvedPast measures what a wrong shape used to cost.
+//
+// File is one flat map of whole dotted keys. Handed a decoded configuration file instead, every key an
+// operator wrote sits a level below where anything matches it, so the resolution carried pure defaults
+// and reported the table's name as the one key nothing declares. A caller installing that result writes
+// the binary's own defaults over the file it was reading, which is how an empty value reaches a setting
+// something outside the binary had patched.
+//
+// So the shape is refused. Asserted through what an operator loses rather than through the error, because
+// an error nobody returns and a value nobody applies look the same from the outside.
+func TestANestedFileSourceIsRefusedRatherThanResolvedPast(t *testing.T) {
+	registry.Reset()
+	type peers struct {
+		Persistent string `mapstructure:"persistent-peers"`
+	}
+	registry.RegisterSection("net", &peers{},
+		func(registry.Mode) any { return peers{Persistent: ""} })
+	requireNoDefects(t)
+
+	const written = "node-id@10.0.0.1:26656"
+	nested := map[string]any{"net": map[string]any{"persistent-peers": written}}
+	if _, err := registry.Resolve(registry.ModeValidator, registry.Sources{File: nested}); err == nil {
+		t.Fatal("a nested file source resolved, so a caller installing the result would have written " +
+			"the declared empty value over the peer list the file carried")
+	}
+
+	// The flat shape of the same file still resolves, so the refusal is of the shape and not of the key.
+	flat := map[string]any{"net.persistent-peers": written}
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{File: flat})
+	if err != nil {
+		t.Fatalf("the flat shape was refused: %v", err)
+	}
+	if got := resolved.Values["net.persistent-peers"]; got != written {
+		t.Errorf("net.persistent-peers resolved to %v, want the written %q", got, written)
+	}
+	if !slices.Contains(resolved.Overrides, "net.persistent-peers") {
+		t.Errorf("Overrides is %v, so an install would skip the one key the file wrote", resolved.Overrides)
 	}
 }

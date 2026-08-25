@@ -1,9 +1,18 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
+
+	// Linked so the checks below see the whole key space rather than the part this binary already
+	// reached. A section registers during its own package's initialisation, and these two register the
+	// node's and the application's configuration files; nothing else imports either yet, so without
+	// these the cross-section refusals are evaluated over a set neither file is in. A test import
+	// rather than a production one, because nothing consumes these sections yet.
+	_ "github.com/sei-protocol/sei-chain/config/cosmosbase"
+	_ "github.com/sei-protocol/sei-chain/config/tendermintbase"
 )
 
 // TestEverySectionThisBinaryDeclaresIsUsable is the check no single section can make.
@@ -16,7 +25,8 @@ import (
 //
 // This package links every section a node's configuration reaches, so asking here is asking about the set
 // a node actually gets. Nothing is enumerated, so a section added later is covered without this file
-// changing.
+// changing, provided its package is linked: a registrar nothing imports registers in no binary, and the
+// blank imports above are what keep that claim true.
 func TestEverySectionThisBinaryDeclaresIsUsable(t *testing.T) {
 	for _, defect := range registry.Defects() {
 		t.Errorf("%s was refused, so none of its keys is declared: %v", defect.Section, defect.Err)
@@ -45,6 +55,45 @@ func TestEveryDeclaredKeyResolvesForEveryMode(t *testing.T) {
 				if _, ok := resolved.Values[key]; !ok {
 					t.Errorf("mode %q: %s declares %s and it did not resolve", mode, section.Name, key)
 				}
+			}
+		}
+	}
+}
+
+// TestNoRootKeyCollidesWithAnotherSectionsName covers the collision the registry does not refuse.
+//
+// A key at the top of a file that is also a section's name cannot be written: no file holds both a value
+// for that name and a table under it, so one of the two settings is unreachable and nothing says which.
+//
+// Asked here because it is a property of the whole key space and of no single section. Two packages
+// declare keys at a root, one per configuration file, and a check inside either sees only its own.
+//
+// The two files are the reason a match is reported rather than failed outright: the key space spans them
+// both, and a root key in one file against a table name in the other is two settings an operator can
+// write, in two places, with no collision at all. So this names the pair and which file each came from,
+// and the judgement is a human's.
+func TestNoRootKeyCollidesWithAnotherSectionsName(t *testing.T) {
+	tables := map[string]bool{}
+	var roots []registry.Section
+	for _, s := range registry.Sections() {
+		if s.Prefix != "" {
+			tables[s.Prefix] = true
+			continue
+		}
+		roots = append(roots, s)
+	}
+	if len(roots) == 0 {
+		t.Fatal("no section declares keys at the root of a file, so this check holds for an empty set")
+	}
+	for _, root := range roots {
+		for _, key := range root.Keys {
+			if strings.Contains(key, ".") {
+				continue
+			}
+			if tables[key] {
+				t.Errorf("%s declares %q at the root of its file and a section takes that same name for "+
+					"a table. Within one file only one of the two is writable; across the two files "+
+					"both are, and which this is has to be decided rather than assumed", root.Name, key)
 			}
 		}
 	}

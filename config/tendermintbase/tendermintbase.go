@@ -33,6 +33,15 @@ const (
 // other.
 var notWritableInThisFile = []string{"home", "mode"}
 
+// removedFromTheNode are the root paths this section does not declare because nothing reads them.
+//
+// The node marks each field deprecated and nothing in the tree reads any of them: out-of-process ABCI
+// was removed, and so was peer filtering through it. The generated file writes twelve root keys and none
+// of these three. Two of them state an affirmative value in the node's own defaults, an address and a
+// transport name, so declaring them put settings for a transport the binary no longer has into the key
+// space a writer would render from.
+var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers"}
+
 // nodeRootSchema declares the keys that sit at the root of the node's configuration file.
 //
 // The node's own top-level type carries these and the nine tables both, so declaring against it directly
@@ -51,6 +60,11 @@ type nodeRootSchema struct {
 // Every one is a setting the node removed, and the struct marks each field deprecated. The fields are kept
 // so a decode can tell that an operator set one, and declaring any of them would offer a key that changes
 // nothing about how the node runs.
+//
+// The node marks them two ways. Most carry the prefix on the field name; the leader election one carries
+// the standard comment instead, which is why it went on being declared as a settable key. Its declared
+// value was the affirmative one, so an operator reading a generated file would find the behaviour named
+// and switchable and neither is true.
 //
 // The reader has a check that names the removed settings an operator wrote, and it reaches eight of these
 // fifteen. Six are durations or booleans, where a written zero and an unwritten field are the same value,
@@ -72,7 +86,28 @@ var removedSettings = []string{
 	"timeout-precommit-delta",
 	"timeout-commit",
 	"skip-timeout-commit",
+	"stateless-leader-election",
 }
+
+// neverReachTheMempool are the mempool paths this section does not declare.
+//
+// The conversion into the running mempool carries thirteen of this struct's fields and none of these
+// three, so no value an operator writes for them arrives anywhere. That is a stronger reason than the
+// marking on the fields: it names the function that would have to change for the key to matter, where
+// two of the three are also marked dead at the destination and the third carries only a note about an
+// upstream issue. Declaring any of them would offer a key that changes nothing about how the node runs.
+var neverReachTheMempool = []string{
+	"max-batch-bytes",
+	"pending-ttl-duration",
+	"pending-ttl-num-blocks",
+}
+
+// fixedForEveryNode is the metric prefix this section does not declare.
+//
+// The node marks the field deprecated and states that its metrics always use one fixed prefix, so the
+// value is not the node's to vary and not an operator's to set. Its declared value was that fixed prefix,
+// which reads as a setting whose default happens to be this, and the generated file does not write it.
+const fixedForEveryNode = "namespace"
 
 // Registration puts these sections in the configuration registry.
 //
@@ -85,24 +120,23 @@ var removedSettings = []string{
 // a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
 	declareSection(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
-		filledFromTheCommandLine, "max-outbound-connections")
+		filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing)
 	declareSection(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
 		filledFromTheCommandLine)
 	declareSection(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
 		append([]string{filledFromTheCommandLine}, removedSettings...)...)
 	declareSection(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
-		filledFromTheCommandLine)
-	declareSection(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults,
-		"rpc-servers")
+		append([]string{filledFromTheCommandLine}, neverReachTheMempool...)...)
+	declareSection(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults)
 	declareSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
 	declareSection(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
-		instrumentationDefaults)
+		instrumentationDefaults, fixedForEveryNode)
 	declareSection(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{},
 		privValidatorDefaults, filledFromTheCommandLine)
 	declareSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
 		selfRemediationDefaults)
 	declareRootKeys(RootSectionName, &nodeRootSchema{}, rootDefaults,
-		notWritableInThisFile...)
+		append(append([]string{}, notWritableInThisFile...), removedFromTheNode...)...)
 }
 
 // registeredHere are the sections this package put in the registry, recorded as each one is registered.
@@ -131,11 +165,16 @@ func SectionsRegisteredHere() []string { return append([]string(nil), registered
 // forMode is the configuration the seid init command writes for a kind of node.
 //
 // Pinned to that command's own pipeline rather than restated here: the defaults the node's package
-// declares, then the mode rules the binary applies to them. A declared value is therefore what a
-// generated file carries, and a change to either half moves this with it.
+// declares, then the mode rules the binary applies to them. So a declared value is what a generated file
+// carries for every key but the ones in filledByTheGenerator, and a change to either half moves this
+// with it. That command goes on to set those from inputs no mode carries, which is why they are named
+// rather than described.
 //
 // The mode is written onto the configuration before the rules run, because the rules read it from there
-// rather than taking it as an argument.
+// rather than taking it as an argument. The command reaches the same rules by a different route for an
+// archive node, writing the full-node mode before it runs them, and the two agree only because the rules
+// answer alike for both. A rule that stopped answering alike would leave this the more specific of the
+// two answers, so the test holding what varies by node kind is what keeps them together.
 func forMode(mode registry.Mode) *tmcfg.Config {
 	out := tmcfg.DefaultConfig()
 	out.Mode = string(mode)
@@ -152,11 +191,31 @@ func forMode(mode registry.Mode) *tmcfg.Config {
 // signing key does not start.
 const filledFromTheCommandLine = "home"
 
-// The other path the peer-to-peer section does not declare.
+// derivedFromTheConnectionLimit is the ceiling this section leaves out because unset is the setting.
 //
-// The outbound connection ceiling is a pointer the defaults leave unset, and unset is what selects the
-// behaviour: the node derives a ceiling from the total connection limit instead. Declaring it would need a
-// default, and any number written here would be this package inventing one that no generated file carries.
+// The field is a pointer the defaults leave unset, and unset is what selects the behaviour: the node
+// derives a ceiling from the total connection limit instead. Declaring it would need a default, and any
+// number written here would be this package inventing one that no generated file carries.
+const derivedFromTheConnectionLimit = "max-outbound-connections"
+
+// readByNothing is the dial hook this section leaves out because no code reads it.
+//
+// The field is declared beside the peer-to-peer settings and its own comment calls it a testing parameter,
+// but nothing in the tree reads it and the generated file does not write it. Declaring it would offer a
+// key that changes nothing about how the node runs.
+const readByNothing = "test-dial-fail"
+
+// filledByTheGenerator are keys the init command sets after the pipeline forMode mirrors, from an input a
+// mode does not carry.
+//
+// Declared rather than excluded, because the generated file writes each one into every node's
+// configuration, and a key this space refuses is a key an operator's own file reports as unknown. What
+// they cost is the invariant on forMode: for these, a declared value is not what a generated file
+// carries. The peer seeds come from the chain identifier and the node name is a required argument to the
+// command, both runtime inputs and neither a node kind, so no answer keyed on mode can be right. The node
+// name is the sharper of the two: its declared value is the hostname of whatever machine is asking, so
+// this key resolves differently on every host. A writer takes both from the generator instead.
+var filledByTheGenerator = []string{P2PSectionName + ".bootstrap-peers", "moniker"}
 
 // p2pDefaults is what a generated file carries for the peer-to-peer section.
 //
