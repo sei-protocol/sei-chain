@@ -59,3 +59,10 @@ func TestVoteKeys(t *testing.T) {
 	require.Equal(t, int(proposalID), 2)
 	require.Equal(t, addr, voterAddr)
 }
+
+func TestTallyKeys(t *testing.T) {
+	require.Equal(t, append(TallyProgressKeyPrefix, GetProposalIDBytes(2)...), TallyProgressKey(2))
+	require.NotEqual(t, TallyVotesKey(2, true), TallyVotesKey(2, false))
+	require.NotEqual(t, TallyVoteKey(2, true, addr), TallyVoteKey(2, false, addr))
+	require.NotEqual(t, TallyCleanupKey(2, true), TallyCleanupKey(2, false))
+}

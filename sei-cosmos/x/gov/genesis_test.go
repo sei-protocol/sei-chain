@@ -2,6 +2,7 @@ package gov_test
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"testing"
 
@@ -167,4 +168,33 @@ func TestEqualProposals(t *testing.T) {
 	// State should be identical now..
 	require.Equal(t, state1, state2)
 	require.True(t, state1.Equal(state2))
+}
+
+func TestExportGenesisIncludesVotesFromUnfinishedTally(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	app.GovKeeper.ActivateVotingPeriod(ctx, proposal)
+	proposal, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+
+	for i := 0; i < 3; i++ {
+		addr := make(sdk.AccAddress, 20)
+		binary.BigEndian.PutUint64(addr[12:], uint64(i+1))
+		require.NoError(t, app.GovKeeper.AddVote(
+			ctx,
+			proposal.ProposalId,
+			addr,
+			types.NewNonSplitVoteOption(types.OptionYes),
+		))
+	}
+
+	complete, processed, _, _, _ := app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.False(t, complete)
+	require.Equal(t, 1, processed)
+
+	genesis := gov.ExportGenesis(ctx, app.GovKeeper)
+	require.Len(t, genesis.Votes, 3)
 }

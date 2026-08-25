@@ -13,7 +13,10 @@ import (
 
 var logger = seilog.NewLogger("cosmos", "x", "gov")
 
-// EndBlocker called every block, process inflation, update validator set.
+// MaxVotesProcessedPerBlock is the governance vote-record budget shared by tallying and cleanup.
+const MaxVotesProcessedPerBlock = 1000
+
+// EndBlocker expires governance proposals and advances bounded vote tally work.
 func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	endBlockerStart := time.Now()
 	defer func() {
@@ -50,11 +53,17 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 		return false
 	})
 
+	remainingVotes := MaxVotesProcessedPerBlock
+
 	// fetch active proposals whose voting periods have ended (are passed the block time)
 	keeper.IterateActiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
 		var tagValue, logMsg string
 
-		passes, burnDeposits, tallyResults := keeper.Tally(ctx, proposal)
+		complete, processed, passes, burnDeposits, tallyResults := keeper.TallyIncremental(ctx, proposal, remainingVotes)
+		remainingVotes -= processed
+		if !complete {
+			return true
+		}
 
 		// If an expedited proposal fails, we do not want to update
 		// the deposit at this point since the proposal is converted to regular.
@@ -141,6 +150,8 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 				sdk.NewAttribute(types.AttributeKeyProposalResult, tagValue),
 			),
 		)
-		return false
+		return remainingVotes == 0
 	})
+
+	keeper.CleanupTallyVotes(ctx, remainingVotes)
 }
