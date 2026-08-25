@@ -4,8 +4,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	ibcexported "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
-
-	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 type MockChannelKeeper struct {
@@ -68,17 +66,4 @@ func MockChannelKeeperIterator(s []channeltypes.IdentifiedChannel) func(ctx sdk.
 			}
 		}
 	}
-}
-
-var _ types.ICS20TransferPortSource = &MockIBCTransferKeeper{}
-
-type MockIBCTransferKeeper struct {
-	GetPortFn func(ctx sdk.Context) string
-}
-
-func (m MockIBCTransferKeeper) GetPort(ctx sdk.Context) string {
-	if m.GetPortFn == nil {
-		panic("not expected to be called")
-	}
-	return m.GetPortFn(ctx)
 }

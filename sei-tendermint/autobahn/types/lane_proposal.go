@@ -22,9 +22,9 @@ func NewLaneProposal(block *Block) *LaneProposal {
 // Block .
 func (m *LaneProposal) Block() *Block { return m.block }
 
-// Verify verifies that the LaneProposal is consistent with the Committee.
-func (m *LaneProposal) Verify(c *Committee) error {
-	return m.block.Verify(c)
+// Verify checks the proposal's internal integrity.
+func (m *LaneProposal) Verify() error {
+	return m.block.Verify()
 }
 
 // LaneProposalConv is a protobuf converter for LaneProposal.

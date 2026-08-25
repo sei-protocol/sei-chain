@@ -83,7 +83,7 @@ func TestVoteTimeoutPrepareQC_OnlyCurrentView(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBg(func() error { return utils.IgnoreCancel(s.Run(ctx)) })
 
-		pqc := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), types.View{Index: 0, Number: 0}))
+		pqc := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), types.View{Index: 0, Number: 0}))
 		if err := s.pushPrepareQC(ctx, pqc); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -113,7 +113,7 @@ func TestVoteTimeoutPrepareQC_InheritedFromTimeoutQC(t *testing.T) {
 
 		// View (0, 0): push PrepareQC for proposal P.
 		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -170,7 +170,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 
 		// View (0, 0): PrepareQC for P.
 		view0 := types.View{Index: 0, Number: 0}
-		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
+		pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view0))
 		if err := s.pushPrepareQC(ctx, pqc0); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc0): %w", err)
 		}
@@ -183,7 +183,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewHigherThanInherited(t *testing.T) {
 
 		// Reproposal at (0, 1) succeeds — new PrepareQC at view (0, 1).
 		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view1))
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC(pqc1): %w", err)
 		}
@@ -227,7 +227,7 @@ func TestVoteTimeoutPrepareQC_CurrentViewPresentInheritedNone(t *testing.T) {
 
 		// Fresh PrepareQC at (0, 1).
 		view1 := types.View{Index: 0, Number: 1}
-		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view1))
+		pqc1 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view1))
 		if err := s.pushPrepareQC(ctx, pqc1); err != nil {
 			return fmt.Errorf("pushPrepareQC: %w", err)
 		}
@@ -269,7 +269,7 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	makeDataState := func() *data.State { return newTestDataState(registry) }
 
 	view0 := types.View{Index: 0, Number: 0}
-	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.LatestEpoch(), view0))
+	pqc0 := makePrepareQC(keys, types.GenProposalForEpoch(rng, registry.MustEpoch(0), view0))
 
 	// Session 1: push PrepareQC + TimeoutQC, let runOutputs persist.
 	// Hoisted so session 1's WALs can be released after its goroutines have stopped: they hold an
