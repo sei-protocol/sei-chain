@@ -37,11 +37,41 @@ type BackfillDelegationByValIndexResult struct {
 	Elapsed          time.Duration
 }
 
+// BackfillDelegationByValIndexProgress is a progress snapshot during backfill.
+type BackfillDelegationByValIndexProgress struct {
+	TotalDelegations int
+	IndexWritten     int
+	AlreadyIndexed   int
+	Elapsed          time.Duration
+}
+
+// BackfillProgress reports incremental backfill progress. Nil disables callbacks.
+type BackfillProgress func(BackfillDelegationByValIndexProgress)
+
+const (
+	backfillProgressDelegationInterval = 100_000
+	backfillProgressMinInterval        = 10 * time.Second
+)
+
 // BackfillDelegationByValIndex writes validator-indexed delegation keys for existing
 // delegations. When dryRun is true, delegations are counted but no store writes occur.
-func (k Keeper) BackfillDelegationByValIndex(ctx sdk.Context, dryRun bool) BackfillDelegationByValIndexResult {
+func (k Keeper) BackfillDelegationByValIndex(ctx sdk.Context, dryRun bool, progress BackfillProgress) BackfillDelegationByValIndexResult {
 	start := time.Now()
 	result := BackfillDelegationByValIndexResult{DryRun: dryRun}
+	lastProgressReport := start
+
+	reportProgress := func() {
+		if progress == nil {
+			return
+		}
+		progress(BackfillDelegationByValIndexProgress{
+			TotalDelegations: result.TotalDelegations,
+			IndexWritten:     result.IndexWritten,
+			AlreadyIndexed:   result.AlreadyIndexed,
+			Elapsed:          time.Since(start),
+		})
+		lastProgressReport = time.Now()
+	}
 
 	store := ctx.KVStore(k.storeKey)
 	iterator := sdk.KVStorePrefixIterator(store, types.DelegationKey)
@@ -56,13 +86,22 @@ func (k Keeper) BackfillDelegationByValIndex(ctx sdk.Context, dryRun bool) Backf
 		indexKey := types.GetDelegationByValIndexKey(delegatorAddress, valAddr)
 		if store.Has(indexKey) {
 			result.AlreadyIndexed++
-			continue
+		} else {
+			if !dryRun {
+				store.Set(indexKey, []byte{})
+			}
+			result.IndexWritten++
 		}
 
-		if !dryRun {
-			store.Set(indexKey, []byte{})
+		if progress == nil {
+			continue
 		}
-		result.IndexWritten++
+		now := time.Now()
+		if result.TotalDelegations == 1 ||
+			result.TotalDelegations%backfillProgressDelegationInterval == 0 ||
+			now.Sub(lastProgressReport) >= backfillProgressMinInterval {
+			reportProgress()
+		}
 	}
 
 	result.Elapsed = time.Since(start)

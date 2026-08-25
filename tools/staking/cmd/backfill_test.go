@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -93,6 +94,7 @@ func backfillCmdWithHome(t *testing.T, home string, args ...string) *cobra.Comma
 	cmd := BackfillDelegationIndexCmd()
 	serverCtx := server.NewDefaultContext()
 	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, serverCtx))
+	cmd.SetIn(strings.NewReader("y\n"))
 	serverCtx.Viper.Set(flags.FlagHome, home)
 	serverCtx.Viper.Set("chain-id", "sei-test")
 	serverCtx.Viper.SetConfigFile(filepath.Join(home, "config", "app.toml"))
@@ -137,12 +139,14 @@ func TestBackfillDelegationIndexDryRun(t *testing.T) {
 	seedCommittedSeiDBApp(t, home)
 
 	cmd := backfillCmdWithHome(t, home)
-	stdout, _ := captureCommandOutput(t, func() {
+	stdout, stderr := captureCommandOutput(t, func() {
 		require.NoError(t, cmd.Execute())
 	})
 
 	require.Contains(t, stdout, "dry_run=true")
 	require.NotContains(t, stdout, "committed_version=")
+	require.Contains(t, stderr, "benchmarking and analysis only")
+	require.Contains(t, stderr, "--home /path/to/copy")
 }
 
 func TestBackfillDelegationIndexWrite(t *testing.T) {
@@ -158,6 +162,7 @@ func TestBackfillDelegationIndexWrite(t *testing.T) {
 
 	require.Contains(t, stdout, "dry_run=false")
 	require.Contains(t, stdout, "committed_version=")
+	require.Contains(t, stderr, "benchmarking and analysis only")
 	require.Contains(t, stderr, "WARNING:")
 	require.Greater(t, version, int64(0))
 }
@@ -171,4 +176,29 @@ func TestBackfillDelegationIndexWriteRejectsHeight(t *testing.T) {
 	err := cmd.Execute()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "--write cannot be used with --height")
+}
+
+func TestBackfillDelegationIndexAbortsWithoutConfirmation(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "config"), 0o755))
+	writeTestAppToml(t, filepath.Join(home, "config", "app.toml"))
+	seedCommittedSeiDBApp(t, home)
+
+	cmd := BackfillDelegationIndexCmd()
+	serverCtx := server.NewDefaultContext()
+	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, serverCtx))
+	cmd.SetIn(strings.NewReader("n\n"))
+	serverCtx.Viper.Set(flags.FlagHome, home)
+	serverCtx.Viper.Set("chain-id", "sei-test")
+	serverCtx.Viper.SetConfigFile(filepath.Join(home, "config", "app.toml"))
+	require.NoError(t, serverCtx.Viper.ReadInConfig())
+
+	stdout, stderr := captureCommandOutput(t, func() {
+		err := cmd.Execute()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "aborted")
+	})
+
+	require.Empty(t, stdout)
+	require.Contains(t, stderr, "benchmarking and analysis only")
 }

@@ -82,7 +82,7 @@ func TestBackfillDelegationByValIndex(t *testing.T) {
 		)
 	}
 
-	dryRunResult := app.StakingKeeper.BackfillDelegationByValIndex(ctx, true)
+	dryRunResult := app.StakingKeeper.BackfillDelegationByValIndex(ctx, true, nil)
 	require.Equal(t, 3, dryRunResult.TotalDelegations)
 	require.Equal(t, 3, dryRunResult.IndexWritten)
 	require.Equal(t, 0, dryRunResult.AlreadyIndexed)
@@ -93,7 +93,7 @@ func TestBackfillDelegationByValIndex(t *testing.T) {
 		require.False(t, store.Has(types.GetDelegationByValIndexKey(delegatorAddress, valAddr)))
 	}
 
-	writeResult := app.StakingKeeper.BackfillDelegationByValIndex(ctx, false)
+	writeResult := app.StakingKeeper.BackfillDelegationByValIndex(ctx, false, nil)
 	require.Equal(t, 3, writeResult.TotalDelegations)
 	require.Equal(t, 3, writeResult.IndexWritten)
 	require.Equal(t, 0, writeResult.AlreadyIndexed)
@@ -104,7 +104,7 @@ func TestBackfillDelegationByValIndex(t *testing.T) {
 		require.True(t, store.Has(types.GetDelegationByValIndexKey(delegatorAddress, valAddr)))
 	}
 
-	repeatResult := app.StakingKeeper.BackfillDelegationByValIndex(ctx, false)
+	repeatResult := app.StakingKeeper.BackfillDelegationByValIndex(ctx, false, nil)
 	require.Equal(t, 3, repeatResult.TotalDelegations)
 	require.Equal(t, 0, repeatResult.IndexWritten)
 	require.Equal(t, 3, repeatResult.AlreadyIndexed)
