@@ -9,7 +9,6 @@ import (
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	wasm "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -17,12 +16,10 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
-// HandlerOptions extend the SDK's AnteHandler options by requiring the IBC
-// channel keeper.
+// HandlerOptions extends the SDK's AnteHandler options with application keepers and configuration.
 type HandlerOptions struct {
 	ante.HandlerOptions
 
-	IBCKeeper         *ibckeeper.Keeper
 	WasmConfig        *wasmtypes.WasmConfig
 	WasmKeeper        *wasm.Keeper
 	EVMKeeper         *evmkeeper.Keeper
@@ -88,7 +85,7 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		evmante.NewEVMAddressDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
 		antedecorators.NewAuthzNestedMessageDecorator(),
-		ibcante.NewAnteDecorator(options.IBCKeeper),
+		ibcante.NewAnteDecorator(),
 	}
 
 	anteHandler := sdk.ChainAnteDecorators(anteDecorators...)

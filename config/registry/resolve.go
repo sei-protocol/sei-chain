@@ -251,9 +251,14 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 			}
 			continue
 		}
-		tag, squash, err := tagOf(f, prefix)
+		tag, squash, skip, err := tagOf(f, prefix)
 		if err != nil {
 			return err
+		}
+		if skip {
+			// Skipped on the type side too, so the declared keys and the rendered defaults describe the
+			// same set of fields and matchesDeclaration has nothing to disagree about.
+			continue
 		}
 
 		fv := v.Field(i)

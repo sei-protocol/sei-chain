@@ -883,7 +883,6 @@ func New(
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
 		AccountKeeper: app.AccountKeeper,
 		BankKeeper:    app.BankKeeper,
-		IBCKeeper:     app.IBCKeeper,
 		EvmKeeper:     &app.EvmKeeper,
 		ParamsKeeper:  app.ParamsKeeper,
 		UpgradeKeeper: &app.UpgradeKeeper,
@@ -975,7 +974,6 @@ func New(
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:         app.IBCKeeper,
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
 			WasmKeeper:        &app.WasmKeeper,

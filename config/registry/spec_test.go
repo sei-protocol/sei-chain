@@ -29,8 +29,9 @@ import (
 // authoring check, and it reads its order from Source's declaration rather than from its caller's
 // argument order, so no caller can reorder its way to a different answer.
 
-// gigaSection mirrors what the giga executor's own package would register. The struct under test
-// is the real one, so the key comparison below measures the live reader rather than a copy of it.
+// gigaSection re-registers the giga executor's section with a default that varies by mode, so the
+// mode property below has something to measure. The struct is the real one, so the key comparison
+// measures the live reader rather than a copy of it.
 const gigaSection = "giga_executor"
 
 func registerGiga(t *testing.T) {
@@ -758,9 +759,6 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	type emptyName struct {
 		N string `mapstructure:""`
 	}
-	type dashName struct {
-		N string `mapstructure:"-"`
-	}
 	type upperName struct {
 		N string `mapstructure:"N"`
 	}
@@ -812,7 +810,6 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	}{
 		{"a squashed field that also names a segment", "s", &squashNamed{}, anyDefault, "one or the other"},
 		{"an empty mapstructure name", "s", &emptyName{}, anyDefault, "empty mapstructure name"},
-		{"a dash mapstructure name", "s", &dashName{}, anyDefault, "empty mapstructure name"},
 		{"an upper-case key", "s", &upperName{}, anyDefault, "not lower case"},
 		{"a squashed scalar", "s", &squashScalar{}, anyDefault, "not a struct"},
 		{"a struct declaring nothing", "s", &noKeys{}, anyDefault, "declares no keys"},
@@ -1351,5 +1348,61 @@ func TestARefusalInsideASquashedBaseIsReported(t *testing.T) {
 	// The prefix is the section, not a subtree, because squash adds no segment.
 	if msg := defects[0].Err.Error(); !strings.Contains(msg, "sq.Untagged") {
 		t.Errorf("the refusal reads %q; a squashed field's path is the section's own", msg)
+	}
+}
+
+// TestAFieldExcludedFromConfigDeclaresNoKey covers the tag that means "not from configuration".
+//
+// mapstructure reads "-" as skip this field, and a configuration struct uses it for a field something else
+// in the program assigns.
+//
+// Such a field declares no key. Declaring one that resolved to a default would put a key in the space that
+// reaches no field: an operator could write it and the assignment would discard whatever they wrote.
+//
+// An untagged field stays a defect. The two look alike in a diff and mean opposite things: one is a field
+// the author excluded from configuration, the other is a field configuration cannot reach because nothing
+// names it.
+func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
+	type excluded struct {
+		Kept     string `mapstructure:"kept"`
+		Assigned int    `mapstructure:"-"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("probe", &excluded{}, func(registry.Mode) any {
+		return &excluded{Kept: "x", Assigned: 42}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("a field excluded from configuration was reported as a defect: %v", d.Err)
+	}
+
+	if got, want := registry.Keys(), []string{"probe.kept"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("declared keys are %v, want %v. A key for an excluded field is one an operator can write "+
+			"that whatever assigns the field then discards", got, want)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("resolving a section with an excluded field: %v", err)
+	}
+	if _, present := resolved.Values["probe.assigned"]; present {
+		t.Error("the excluded field resolved to a value, so an operator could write a key that reaches no " +
+			"field")
+	}
+
+	// An untagged field means the opposite and stays a defect.
+	type untagged struct {
+		Kept      string `mapstructure:"kept"`
+		Forgotten int
+	}
+	registry.Reset()
+	registry.RegisterSection("probe", &untagged{}, func(registry.Mode) any { return &untagged{} })
+	defects := registry.Defects()
+	if len(defects) == 0 {
+		t.Fatal("a field with no tag at all registered cleanly, so a key nothing names reaches no field")
+	}
+	// Named, so this cannot pass on a refusal raised for some other reason.
+	if got := defects[0].Err.Error(); !strings.Contains(got, "Forgotten") {
+		t.Errorf("the refusal reads %q and does not name the untagged field", got)
 	}
 }

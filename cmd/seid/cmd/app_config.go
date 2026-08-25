@@ -7,6 +7,7 @@ import (
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -44,7 +45,7 @@ func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Con
 		StateStore:   seidbconfig.DefaultStateStoreConfig(),
 		ReceiptStore: seidbconfig.DefaultReceiptStoreConfig(),
 		WASM: WASMConfig{
-			QueryGasLimit: 300000,
+			QueryGasLimit: wasm.GeneratedQueryGasLimit,
 			LruSize:       1,
 		},
 		EVM:             evmConfig,

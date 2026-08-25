@@ -90,9 +90,11 @@
 // other and which one depends on the order the sections are walked. The environment check refuses it,
 // because two identical keys answer to one variable.
 //
-// Refusing the environment for a key is itself refused when it carries no reason. An operator told
-// their variable does nothing has to be told why, and a refusal with nothing to print is worse than
-// resolving the variable or leaving it alone.
+// A field tagged "-" is the deliberate opposite and is not a defect. That tag excludes a field from
+// configuration, so the field declares no key at all rather than one resolving to a default. The
+// distinction matters because a missing tag and a "-" tag look alike in a diff: one is a key nothing
+// names reaching a field, and the other is a field nothing configures. It is meaningful only on an
+// exported field, since an unexported one carrying any tag is refused before the tag is read.
 //
 // A key segment is also refused if it is upper-case, or if it carries a dot or a space. That rule
 // holds for the section name and for a field's tag alike, since both become segments of the same
