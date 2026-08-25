@@ -8,7 +8,7 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
+	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -33,7 +33,6 @@ type SDKMessageHandler struct {
 
 func NewDefaultMessageHandler(
 	router MessageRouter,
-	channelKeeper types.ChannelKeeper,
 	bankKeeper types.Burner,
 	unpacker codectypes.AnyUnpacker,
 	customEncoders ...*MessageEncoders,
@@ -44,7 +43,7 @@ func NewDefaultMessageHandler(
 	}
 	return NewMessageHandlerChain(
 		NewSDKMessageHandler(router, encoders),
-		NewIBCRawPacketHandler(channelKeeper),
+		NewIBCRawPacketHandler(),
 		NewBurnCoinMessageHandler(bankKeeper),
 	)
 }
@@ -137,50 +136,19 @@ func (m MessageHandlerChain) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAd
 	return nil, nil, sdkerrors.Wrap(types.ErrUnknownMsg, "no handler found")
 }
 
-// IBCRawPacketHandler handels IBC.SendPacket messages which are published to an IBC channel.
-type IBCRawPacketHandler struct {
-	channelKeeper types.ChannelKeeper
+// IBCRawPacketHandler handles retired IBC.SendPacket messages.
+type IBCRawPacketHandler struct{}
+
+func NewIBCRawPacketHandler() IBCRawPacketHandler {
+	return IBCRawPacketHandler{}
 }
 
-func NewIBCRawPacketHandler(chk types.ChannelKeeper) IBCRawPacketHandler {
-	return IBCRawPacketHandler{channelKeeper: chk}
-}
-
-// DispatchMsg publishes a raw IBC packet onto the channel.
-func (h IBCRawPacketHandler) DispatchMsg(ctx sdk.Context, _ sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+// DispatchMsg rejects raw IBC packets with the module retirement error.
+func (h IBCRawPacketHandler) DispatchMsg(_ sdk.Context, _ sdk.AccAddress, _ string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	if msg.IBC == nil || msg.IBC.SendPacket == nil {
 		return nil, nil, types.ErrUnknownMsg
 	}
-	if contractIBCPortID == "" {
-		return nil, nil, sdkerrors.Wrapf(types.ErrUnsupportedForContract, "ibc not supported")
-	}
-	contractIBCChannelID := msg.IBC.SendPacket.ChannelID
-	if contractIBCChannelID == "" {
-		return nil, nil, sdkerrors.Wrapf(types.ErrEmpty, "ibc channel")
-	}
-
-	sequence, found := h.channelKeeper.GetNextSequenceSend(ctx, contractIBCPortID, contractIBCChannelID)
-	if !found {
-		return nil, nil, sdkerrors.Wrapf(channeltypes.ErrSequenceSendNotFound,
-			"source port: %s, source channel: %s", contractIBCPortID, contractIBCChannelID,
-		)
-	}
-
-	channelInfo, ok := h.channelKeeper.GetChannel(ctx, contractIBCPortID, contractIBCChannelID)
-	if !ok {
-		return nil, nil, sdkerrors.Wrap(channeltypes.ErrInvalidChannel, "not found")
-	}
-	packet := channeltypes.NewPacket(
-		msg.IBC.SendPacket.Data,
-		sequence,
-		contractIBCPortID,
-		contractIBCChannelID,
-		channelInfo.Counterparty.PortId,
-		channelInfo.Counterparty.ChannelId,
-		ConvertWasmIBCTimeoutHeightToCosmosHeight(msg.IBC.SendPacket.Timeout.Block),
-		msg.IBC.SendPacket.Timeout.Timestamp,
-	)
-	return nil, nil, h.channelKeeper.SendPacket(ctx, packet)
+	return nil, nil, ibccoretypes.ErrIBCDeprecated
 }
 
 var _ Messenger = MessageHandlerFunc(nil)

@@ -116,7 +116,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
-	ibcporttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
@@ -391,7 +390,7 @@ type App struct {
 	GovKeeper      govkeeper.Keeper
 	UpgradeKeeper  upgradekeeper.Keeper
 	ParamsKeeper   paramskeeper.Keeper
-	IBCKeeper      *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
+	IBCKeeper      *ibckeeper.Keeper
 	EvidenceKeeper evidencekeeper.Keeper
 	WasmKeeper     wasm.Keeper
 	OracleKeeper   oraclekeeper.Keeper
@@ -657,7 +656,6 @@ func New(
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
 			app.MsgServiceRouter(),
-			app.IBCKeeper.ChannelKeeper,
 			app.BankKeeper,
 			appCodec,
 			&app.EvmKeeper,
@@ -831,12 +829,6 @@ func New(
 	)
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
-
-	// Create the static IBC router, then set and seal it.
-	ibcRouter := ibcporttypes.NewRouter()
-	ibcRouter.AddRoute(wasm.ModuleName, wasm.NewIBCHandler(app.WasmKeeper, app.IBCKeeper.ChannelKeeper))
-	// this line is used by starport scaffolding # ibc/app/router
-	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
 		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())

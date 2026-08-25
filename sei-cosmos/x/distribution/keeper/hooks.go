@@ -63,7 +63,11 @@ func (h Hooks) AfterValidatorRemoved(ctx sdk.Context, _ sdk.ConsAddress, valAddr
 				}
 			} else {
 				feePool := h.k.GetFeePool(ctx)
-				feePool.CommunityPool = feePool.CommunityPool.Add(sdk.NewDecCoinsFromCoins(coins...)...)
+				decCoins, err := sdk.NewDecCoinsFromCoins(coins...)
+				if err != nil {
+					panic(err)
+				}
+				feePool.CommunityPool = feePool.CommunityPool.Add(decCoins...)
 				h.k.SetFeePool(ctx, feePool)
 			}
 		}

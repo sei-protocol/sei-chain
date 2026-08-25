@@ -8,9 +8,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	ibcexported "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
+	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/assert"
@@ -221,80 +219,36 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 }
 
 func TestIBCRawPacketHandler(t *testing.T) {
-	ibcPort := "contractsIBCPort"
-	var ctx sdk.Context
-
-	var capturedPacket ibcexported.PacketI
-
-	chanKeeper := &wasmtesting.MockChannelKeeper{
-		GetNextSequenceSendFn: func(ctx sdk.Context, portID, channelID string) (uint64, bool) {
-			return 1, true
-		},
-		GetChannelFn: func(ctx sdk.Context, srcPort, srcChan string) (channeltypes.Channel, bool) {
-			return channeltypes.Channel{
-				Counterparty: channeltypes.NewCounterparty(
-					"other-port",
-					"other-channel-1",
-				),
-			}, true
-		},
-		SendPacketFn: func(ctx sdk.Context, packet ibcexported.PacketI) error {
-			capturedPacket = packet
-			return nil
-		},
-	}
-
 	specs := map[string]struct {
-		srcMsg        wasmvmtypes.SendPacketMsg
-		chanKeeper    types.ChannelKeeper
-		expPacketSent channeltypes.Packet
-		expErr        *sdkerrors.Error
+		portID    string
+		channelID string
 	}{
-		"all good": {
-			srcMsg: wasmvmtypes.SendPacketMsg{
-				ChannelID: "channel-1",
-				Data:      []byte("myData"),
-				Timeout:   wasmvmtypes.IBCTimeout{Block: &wasmvmtypes.IBCTimeoutBlock{Revision: 1, Height: 2}},
-			},
-			chanKeeper: chanKeeper,
-			expPacketSent: channeltypes.Packet{
-				Sequence:           1,
-				SourcePort:         ibcPort,
-				SourceChannel:      "channel-1",
-				DestinationPort:    "other-port",
-				DestinationChannel: "other-channel-1",
-				Data:               []byte("myData"),
-				TimeoutHeight:      clienttypes.Height{RevisionNumber: 1, RevisionHeight: 2},
-			},
+		"valid packet": {
+			portID:    "contractsIBCPort",
+			channelID: "channel-1",
 		},
-		"sequence not found returns error": {
-			srcMsg: wasmvmtypes.SendPacketMsg{
-				ChannelID: "channel-1",
-				Data:      []byte("myData"),
-				Timeout:   wasmvmtypes.IBCTimeout{Block: &wasmvmtypes.IBCTimeoutBlock{Revision: 1, Height: 2}},
-			},
-			chanKeeper: &wasmtesting.MockChannelKeeper{
-				GetNextSequenceSendFn: func(ctx sdk.Context, portID, channelID string) (uint64, bool) {
-					return 0, false
-				},
-			},
-			expErr: channeltypes.ErrSequenceSendNotFound,
+		"empty contract port": {
+			channelID: "channel-1",
+		},
+		"empty channel": {
+			portID: "contractsIBCPort",
 		},
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			capturedPacket = nil
-			// when
-			h := NewIBCRawPacketHandler(spec.chanKeeper)
-			data, evts, gotErr := h.DispatchMsg(ctx, RandomAccountAddress(t), ibcPort, wasmvmtypes.CosmosMsg{IBC: &wasmvmtypes.IBCMsg{SendPacket: &spec.srcMsg}}, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
-			// then
-			require.True(t, spec.expErr.Is(gotErr), "exp %v but got %#+v", spec.expErr, gotErr)
-			if spec.expErr != nil {
-				return
-			}
-			assert.Nil(t, data)
+			h := NewIBCRawPacketHandler()
+			msg := wasmvmtypes.CosmosMsg{IBC: &wasmvmtypes.IBCMsg{SendPacket: &wasmvmtypes.SendPacketMsg{
+				ChannelID: spec.channelID,
+				Data:      []byte("myData"),
+				Timeout:   wasmvmtypes.IBCTimeout{Block: &wasmvmtypes.IBCTimeoutBlock{Revision: 1, Height: 2}},
+			}}}
+
+			evts, data, gotErr := h.DispatchMsg(sdk.Context{}, RandomAccountAddress(t), spec.portID, msg, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
+
+			require.ErrorIs(t, gotErr, ibccoretypes.ErrIBCDeprecated)
+			require.EqualError(t, gotErr, "ibc module is deprecated")
 			assert.Nil(t, evts)
-			assert.Equal(t, spec.expPacketSent, capturedPacket)
+			assert.Nil(t, data)
 		})
 	}
 }
