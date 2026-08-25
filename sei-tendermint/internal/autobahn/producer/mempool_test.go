@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -576,13 +577,16 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		}
 
 		epLeave, err := registry.ActivateEpoch(
+			0,
 			map[types.PublicKey]uint64{b.Public(): 1},
-			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+			time.Time{}, registry.FirstBlock(),
 		)
 		if err != nil {
 			return err
 		}
-		availState.ApplyEpoch(epLeave)
+		if err := avail.TestDriveAdvance(ctx, availState, keys, epLeave.EpochIndex()); err != nil {
+			return err
+		}
 		if err := availState.WaitUntilClosed(ctx, lane0); err != nil {
 			return err
 		}
@@ -602,13 +606,16 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 		}
 
 		epJoin, err := registry.ActivateEpoch(
+			epLeave.EpochIndex(),
 			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
-			types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+			time.Time{}, registry.FirstBlock(),
 		)
 		if err != nil {
 			return err
 		}
-		availState.ApplyEpoch(epJoin)
+		if err := avail.TestDriveAdvance(ctx, availState, keys, epJoin.EpochIndex()); err != nil {
+			return err
+		}
 		got, err := availState.WaitForNextLane(ctx, a.Public(), utils.Some(lane0))
 		if err != nil {
 			return err
@@ -645,11 +652,17 @@ func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	epLeave, err := registry.ActivateEpoch(
+		0,
 		map[types.PublicKey]uint64{b.Public(): 1},
-		types.OpenRoadRange(), time.Time{}, registry.FirstBlock(),
+		time.Time{}, registry.FirstBlock(),
 	)
 	require.NoError(t, err)
-	availState.ApplyEpoch(epLeave)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnBgNamed("avail", func() error {
+			return utils.IgnoreCancel(availState.Run(ctx))
+		})
+		return avail.TestDriveAdvance(ctx, availState, keys, epLeave.EpochIndex())
+	}))
 	env.state.clearMempool()
 
 	select {
