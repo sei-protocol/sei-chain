@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -316,4 +318,63 @@ func TestANegativeNumberWhereTheSettingCannotHoldOneIsRefused(t *testing.T) {
 	if got := ctx.Config.P2P.SendRate; got == 1234567 {
 		t.Error("the value beside the refused one was applied, so the section was published in part")
 	}
+}
+
+// TestNoDeliveryCarriesADeclaredDefault is the one rule both deliveries depend on, named.
+//
+// A resolution answers for every declared key, and a declared value is what a provisioning command writes
+// for a kind of node rather than what any particular node runs. Delivering one would replace a setting an
+// operator never mentioned, on every boot, for every key their file omits. Both deliveries avoid that by
+// narrowing to the keys a source supplied, and each does it in its own function.
+//
+// That makes it a rule three call sites remember rather than one a single function enforces, which is the
+// shape this repository's own guidance says to guard. Until the narrowing has one home, this is the guard:
+// it boots with a file that supplies one key and asserts that nothing else moved anywhere, across both
+// deliveries and every mode.
+func TestNoDeliveryCarriesADeclaredDefault(t *testing.T) {
+	for _, mode := range registry.Modes() {
+		t.Run(string(mode), func(t *testing.T) {
+			configtest.Isolate(t)
+
+			// What the node holds before any file supplies anything.
+			bare := bootWithNodeFile(t, "schema_version = 1\nnode_mode = \""+string(mode)+"\"\n", nil)
+			keys := everyDeclaredKey()
+			before := configmanager.DescribeForTest(bare.Config, keys)
+			beforeSource := map[string]string{}
+			for _, key := range keys {
+				beforeSource[key] = fmt.Sprint(bare.Viper.Get(key))
+			}
+
+			// The same node, with a file supplying exactly one key.
+			after := bootWithNodeFile(t, "schema_version = 1\nnode_mode = \""+string(mode)+"\"\n"+
+				"\n[mempool]\nsize = 4321\n", nil)
+			if got := after.Config.Mempool.Size; got != 4321 {
+				t.Fatalf("the one supplied key arrived as %d, so nothing was delivered and this test "+
+					"would pass for a delivery that does nothing", got)
+			}
+
+			afterDescribed := configmanager.DescribeForTest(after.Config, keys)
+			for _, key := range keys {
+				if key == "mempool.size" {
+					continue
+				}
+				if afterDescribed[key] != before[key] {
+					t.Errorf("%s reads %q after a file that supplies only mempool.size, and %q before. A "+
+						"declared default was delivered over a setting nobody wrote",
+						key, afterDescribed[key], before[key])
+				}
+				if got := fmt.Sprint(after.Viper.Get(key)); got != beforeSource[key] {
+					t.Errorf("%s reads %q in the source and %q before it. A declared default was "+
+						"installed for a key nobody wrote", key, got, beforeSource[key])
+				}
+			}
+		})
+	}
+}
+
+// everyDeclaredKey returns every key any registered section declares, sorted.
+func everyDeclaredKey() []string {
+	keys := registry.Keys()
+	sort.Strings(keys)
+	return keys
 }
