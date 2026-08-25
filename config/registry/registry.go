@@ -108,10 +108,15 @@ func RegisterSection(name string, prototype any, defaults func(Mode) any) {
 // itself the setting, where any default would be this package inventing one.
 //
 // A field can also carry "-" as its mapstructure name, and that says something different rather than the
-// same thing in another place. The tag says nothing decodes the field: it is not configuration, and no file
-// reaches it. An exclusion says the opposite about the field and less about this package: the field is
-// configuration, the reader that owns its file decodes it, and this key space does not offer it. Tagging one
-// of these paths would take the setting away from that reader.
+// same thing in another place. The tag says the field is not configuration and no reader offers it. An
+// exclusion says the opposite about the field and less about this package: the field is configuration, the
+// reader that owns its file decodes it, and this key space does not offer it. Tagging one of these paths
+// would take the setting away from that reader.
+//
+// The tag is a statement of intent and not a barrier. The decoder in use honours "-" when it renders a
+// struct into a map and not when it decodes a map into a struct, where it takes the name literally, so a
+// key spelled "-" reaches every field in the struct tagged that way at once. Nothing offers such a key and
+// no operator writes one, which is why this is stated rather than guarded.
 func RegisterSectionExcluding(name string, prototype any, defaults func(Mode) any, excluding ...string) {
 	record(name, name, prototype, defaults, excluding)
 }
@@ -140,6 +145,13 @@ func record(name, prefix string, prototype any, defaults func(Mode) any, excludi
 	var excluded []string
 	if err == nil {
 		keys, excluded, err = withoutExcluded(prefix, keys, excluding)
+	}
+	// Refused after the exclusions are known, because deriveKeys can only see a struct that declares
+	// nothing and this catches the section whose every declared path was then excluded. Such a section
+	// answers no key while still taking its name, so the real registration under that name is later
+	// refused as a duplicate, and its defaults are still rendered on every resolution.
+	if err == nil && len(keys) == 0 {
+		err = fmt.Errorf("every path it declares is excluded (%v), so the section declares nothing", excluded)
 	}
 
 	mu.Lock()
@@ -179,6 +191,9 @@ func withoutExcluded(prefix string, derived, excluding []string) (keys, excluded
 		key := rel
 		if prefix != "" {
 			key = prefix + "." + rel
+		}
+		if drop[key] {
+			return nil, nil, fmt.Errorf("%s is excluded twice, and the second one covers nothing", key)
 		}
 		drop[key] = true
 	}
@@ -237,14 +252,24 @@ func envNamesAreDistinct(adding []string) error {
 	return nil
 }
 
+// detached returns a copy of the section that shares no storage with the registry's own.
+//
+// Every path out of the mutex goes through this, so a slice field added to Section later is copied
+// without anyone having to remember to copy it at each accessor. A caller that sorts or writes into
+// what it was handed reaches its own storage, and both walks keep reading what registration decided.
+func (s Section) detached() Section {
+	s.Keys = append([]string(nil), s.Keys...)
+	s.Excluded = append([]string(nil), s.Excluded...)
+	return s
+}
+
 // Sections returns every registered section, sorted by name.
 func Sections() []Section {
 	mu.RLock()
 	defer mu.RUnlock()
 	out := make([]Section, 0, len(sections))
 	for _, s := range sections {
-		s.Keys = append([]string(nil), s.Keys...)
-		out = append(out, s)
+		out = append(out, s.detached())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -255,10 +280,7 @@ func Lookup(name string) (Section, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
 	s, ok := sections[name]
-	// Copied, so a caller sorting or writing into Keys cannot reach the registry's own storage from
-	// outside the mutex. Defects copies for the same reason.
-	s.Keys = append([]string(nil), s.Keys...)
-	return s, ok
+	return s.detached(), ok
 }
 
 // Defects returns every registration this package could not use.
