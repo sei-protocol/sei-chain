@@ -119,6 +119,7 @@ import (
 	ibcporttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -469,6 +470,30 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+}
+
+var retiredIBCStoreNames = map[string]struct{}{
+	ibchost.StoreKey:     {},
+	transferModuleName:   {},
+	capabilityModuleName: {},
+}
+
+// Query handles ABCI queries without exposing retired IBC stores.
+func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
+	if isRetiredIBCStoreQuery(req.Path) {
+		response := sdkerrors.QueryResult(ibccoretypes.ErrIBCDeprecated)
+		return &response, nil
+	}
+	return app.BaseApp.Query(ctx, req)
+}
+
+func isRetiredIBCStoreQuery(requestPath string) bool {
+	path := strings.Split(strings.TrimPrefix(requestPath, "/"), "/")
+	if len(path) != 3 || path[0] != "store" || (path[2] != "key" && path[2] != "subspace") {
+		return false
+	}
+	_, retired := retiredIBCStoreNames[path[1]]
+	return retired
 }
 
 type AppOption func(*App)

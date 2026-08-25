@@ -44,6 +44,10 @@ type GRPCQueryRouter interface {
 var _ wasmvmtypes.Querier = QueryHandler{}
 
 func (q QueryHandler) Query(request wasmvmtypes.QueryRequest, gasLimit uint64) ([]byte, error) {
+	if request.IBC != nil && q.Ctx.IsABCIQuery() {
+		return nil, wasmvmtypes.UnsupportedRequest{Kind: "IBC"}
+	}
+
 	// set a limit for a subCtx
 	sdkGas := q.gasRegister.FromWasmVMGas(gasLimit)
 	// discard all changes/ events in subCtx by not committing the cached context
