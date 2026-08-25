@@ -496,8 +496,8 @@ func refuseANestedFile(values map[string]any, declared map[string]bool) error {
 		}
 		for d := range declared {
 			if strings.HasPrefix(d, lower+".") {
-				return fmt.Errorf("File[%q] is a table holding %q, so the source is nested where this "+
-					"reads one flat map of whole dotted keys", key, d)
+				return fmt.Errorf("the file source holds a table at %q carrying %q, so it is nested "+
+					"where this reads one flat map of whole dotted keys", key, d)
 			}
 		}
 	}
