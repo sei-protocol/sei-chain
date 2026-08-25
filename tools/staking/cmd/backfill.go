@@ -53,7 +53,11 @@ func runBackfillDelegationIndex(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	defer seiApp.Close()
+	defer func() {
+		if err := seiApp.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error closing sei app: %v", err)
+		}
+	}()
 
 	blockHeight := seiApp.LastBlockHeight()
 	if blockHeight == 0 {
