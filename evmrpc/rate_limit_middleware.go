@@ -43,7 +43,7 @@ func (m *rateLimitMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 		if errors.Is(err, errSlowBody) {
 			// Client-caused stall: still charge the per-IP bucket.
-			m.gate.chargeAdmissionRejection(r.Context(), ip)
+			m.gate.ChargeAdmissionRejection(r.Context(), ip)
 			return
 		}
 		m.rejectAdmission(r.Context(), w, ip, rejectReasonReadError, http.StatusBadRequest, "bad request")
