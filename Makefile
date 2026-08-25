@@ -175,9 +175,9 @@ go.sum: go.mod
 lint:
 	$(GOLANGCI_LINT) run
 	$(GOLANGCI_LINT) fmt
-	go vet ./...
 	go mod tidy
 	go mod verify
+	go generate ./...
 
 # Report any file gofmt or goimports would rewrite, without rewriting it. This is the
 # form CI gates on; `make lint` runs the same check in write mode.

@@ -37,3 +37,22 @@ jobs:
       # run.tests and so covers them. Keep the version in step with the Makefile.
       - name: gofmt/goimports (including tests)
         run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 fmt --diff
+      - name: Check module tidiness
+        run: |
+          had_sum=$( [ -f go.sum ] && echo true || echo false )
+          go mod tidy
+          git diff --exit-code go.mod
+          if [ -f go.sum ]; then
+            if [ "$had_sum" = true ]; then
+              git diff --exit-code go.sum
+            else
+              echo "error: go.sum was created by 'go mod tidy' but is not checked in"
+              exit 1
+            fi
+          fi
+      - name: Verify module checksums
+        run: go mod verify
+      - name: Check generated files
+        run: |
+          go generate -x ./...
+          git diff --exit-code

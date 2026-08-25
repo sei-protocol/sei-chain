@@ -130,7 +130,7 @@ Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
 `bodyclose`, and `dogsled`; generated `*.pb.go` files are excluded).
 
 ```bash
-make lint     # golangci-lint run + golangci-lint fmt + go vet ./... + go mod tidy + go mod verify
+make lint     # golangci-lint run + golangci-lint fmt + go mod tidy + go mod verify + go generate ./...
 make fmtcheck # report what the formatters would rewrite, without rewriting it (CI gates on this)
 make dblint   # same checks scoped to ./sei-db/... (faster when iterating there)
 make build    # build the seid binary into ./build/seid
