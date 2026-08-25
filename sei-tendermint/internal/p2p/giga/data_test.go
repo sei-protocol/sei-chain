@@ -63,7 +63,7 @@ type testEnv struct {
 }
 
 func newTestEnv(registry *epoch.Registry) *testEnv {
-	return &testEnv{registry, registry.LatestEpoch().Committee(), map[types.PublicKey]*testNode{}}
+	return &testEnv{registry, registry.MustEpoch(0).Committee(), map[types.PublicKey]*testNode{}}
 }
 
 // Call AddNode BEFORE Run.
@@ -114,7 +114,7 @@ func TestDataClientServer(t *testing.T) {
 		prev := utils.None[*types.CommitQC]()
 		for i := range 3 {
 			t.Logf("iteration %v", i)
-			qc, blocks := data.TestCommitQC(rng, server.data.Registry().LatestEpoch(), keys, prev)
+			qc, blocks := data.TestCommitQC(rng, server.data.Registry().MustEpoch(0), keys, prev)
 			if err := server.data.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("serverState.PushQC(): %w", err)
 			}

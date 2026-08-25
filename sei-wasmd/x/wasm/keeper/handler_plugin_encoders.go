@@ -11,9 +11,7 @@ import (
 	distributiontypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	ibcclienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -40,12 +38,12 @@ type MessageEncoders struct {
 	Gov          func(sender sdk.AccAddress, msg *wasmvmtypes.GovMsg) ([]sdk.Msg, error)
 }
 
-func DefaultEncoders(unpacker codectypes.AnyUnpacker, portSource types.ICS20TransferPortSource) MessageEncoders {
+func DefaultEncoders(unpacker codectypes.AnyUnpacker) MessageEncoders {
 	return MessageEncoders{
 		Bank:         EncodeBankMsg,
 		Custom:       NoCustomMsg,
 		Distribution: EncodeDistributionMsg,
-		IBC:          EncodeIBCMsg(portSource),
+		IBC:          EncodeIBCMsg,
 		Staking:      EncodeStakingMsg,
 		Stargate:     EncodeStargateMsg(unpacker),
 		Wasm:         EncodeWasmMsg,
@@ -263,33 +261,16 @@ func EncodeWasmMsg(sender sdk.AccAddress, msg *wasmvmtypes.WasmMsg) ([]sdk.Msg, 
 	}
 }
 
-func EncodeIBCMsg(portSource types.ICS20TransferPortSource) func(ctx sdk.Context, sender sdk.AccAddress, contractIBCPortID string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
-	return func(ctx sdk.Context, sender sdk.AccAddress, contractIBCPortID string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
-		switch {
-		case msg.CloseChannel != nil:
-			return []sdk.Msg{&channeltypes.MsgChannelCloseInit{
-				PortId:    PortIDForContract(sender),
-				ChannelId: msg.CloseChannel.ChannelID,
-				Signer:    sender.String(),
-			}}, nil
-		case msg.Transfer != nil:
-			amount, err := ConvertWasmCoinToSdkCoin(msg.Transfer.Amount)
-			if err != nil {
-				return nil, sdkerrors.Wrap(err, "amount")
-			}
-			msg := &ibctransfertypes.MsgTransfer{
-				SourcePort:       portSource.GetPort(ctx),
-				SourceChannel:    msg.Transfer.ChannelID,
-				Token:            amount,
-				Sender:           sender.String(),
-				Receiver:         msg.Transfer.ToAddress,
-				TimeoutHeight:    ConvertWasmIBCTimeoutHeightToCosmosHeight(msg.Transfer.Timeout.Block),
-				TimeoutTimestamp: msg.Transfer.Timeout.Timestamp,
-			}
-			return []sdk.Msg{msg}, nil
-		default:
-			return nil, sdkerrors.Wrap(types.ErrUnknownMsg, "Unknown variant of IBC")
-		}
+func EncodeIBCMsg(_ sdk.Context, _ sdk.AccAddress, _ string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
+	switch {
+	case msg.SendPacket != nil:
+		return nil, sdkerrors.Wrap(types.ErrUnknownMsg, "ibc send packet")
+	case msg.Transfer != nil:
+		return nil, sdkerrors.Wrap(types.ErrUnsupportedForContract, "ibc transfer")
+	case msg.CloseChannel != nil:
+		return nil, sdkerrors.Wrap(types.ErrUnsupportedForContract, "ibc close channel")
+	default:
+		return nil, sdkerrors.Wrap(types.ErrUnknownMsg, "Unknown variant of IBC")
 	}
 }
 

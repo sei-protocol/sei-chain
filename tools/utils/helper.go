@@ -14,7 +14,7 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
+	seidbkeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -33,7 +33,7 @@ var ModuleKeys = sdk.NewKVStoreKeys(
 	authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantStoreKeyName,
-	evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilityStoreKeyName, oracletypes.StoreKey,
+	evidencetypes.StoreKey, seidbkeys.IBCTransferStoreKey, capabilityStoreKeyName, oracletypes.StoreKey,
 	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
 

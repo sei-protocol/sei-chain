@@ -96,8 +96,3 @@ type ParamsKeeper interface {
 type UpgradeKeeper interface {
 	GetDoneHeight(ctx sdk.Context, upgrade string) int64
 }
-
-// ICS20TransferPortSource is a subset of the ibc transfer keeper.
-type ICS20TransferPortSource interface {
-	GetPort(ctx sdk.Context) string
-}
