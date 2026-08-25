@@ -18,13 +18,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 )
 
-var _ types.QueryServer = (*Keeper)(nil)
-
 // Keeper defines each ICS keeper for IBC
 type Keeper struct {
-	// implements gRPC QueryServer interface
-	types.QueryServer
-
 	cdc codec.BinaryCodec
 
 	ClientKeeper     clientkeeper.Keeper
