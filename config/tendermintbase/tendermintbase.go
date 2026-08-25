@@ -20,6 +20,11 @@ const (
 // so a decode can tell that an operator set one, and declaring any of them would offer a key that changes
 // nothing about how the node runs.
 //
+// The node marks them two ways. Most carry the prefix on the field name; the leader election one carries
+// the standard comment instead, which is why it went on being declared as a settable key. Its declared
+// value was the affirmative one, so an operator reading a generated file would find the behaviour named
+// and switchable and neither is true.
+//
 // The reader has a check that names the removed settings an operator wrote, and it reaches eight of these
 // fifteen. Six are durations or booleans, where a written zero and an unwritten field are the same value,
 // so no check can tell them apart. One more the check simply omits. Nothing calls the check in any case, so
@@ -40,6 +45,20 @@ var removedSettings = []string{
 	"timeout-precommit-delta",
 	"timeout-commit",
 	"skip-timeout-commit",
+	"stateless-leader-election",
+}
+
+// neverReachTheMempool are the mempool paths this section does not declare.
+//
+// The conversion into the running mempool carries thirteen of this struct's fields and none of these
+// three, so no value an operator writes for them arrives anywhere. That is a stronger reason than the
+// marking on the fields: it names the function that would have to change for the key to matter, where
+// two of the three are also marked dead at the destination and the third carries only a note about an
+// upstream issue. Declaring any of them would offer a key that changes nothing about how the node runs.
+var neverReachTheMempool = []string{
+	"max-batch-bytes",
+	"pending-ttl-duration",
+	"pending-ttl-num-blocks",
 }
 
 // Registration puts these sections in the configuration registry.
@@ -59,7 +78,7 @@ func init() {
 	registry.RegisterSectionExcluding(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
 		append([]string{filledFromTheCommandLine}, removedSettings...)...)
 	registry.RegisterSectionExcluding(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
-		filledFromTheCommandLine)
+		append([]string{filledFromTheCommandLine}, neverReachTheMempool...)...)
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.

@@ -2,11 +2,16 @@ package tendermintbase
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/app/seeds"
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -98,21 +103,56 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 	}
 }
 
+// declaredAgainst pairs each section with the struct it declares against and how many of that struct's
+// paths it leaves out.
+//
+// One table, read by the count check and by the deprecation check alike, so a section added here is
+// covered by both without either being extended on its own. A section absent from it is a section whose
+// keys nothing measures.
+var declaredAgainst = []struct {
+	section string
+	proto   any
+	exclude int
+}{
+	{P2PSectionName, &tmcfg.P2PConfig{}, 3},
+	{RPCSectionName, &tmcfg.RPCConfig{}, 1},
+	{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings) + 1},
+	{MempoolSectionName, &tmcfg.MempoolConfig{}, len(neverReachTheMempool) + 1},
+}
+
+// TestNoDeclaredKeyNamesADeprecatedField holds every section against its struct's own marking.
+//
+// A field the node marks deprecated is one a written value cannot change, so declaring it offers a key
+// that reads as a setting and is not one. The consensus section had this check from the start against a
+// hand-kept list; this is the same rule for every section, which is what catches the next one rather than
+// the one already found.
+//
+// Read from the source, because the node marks a field two ways and a tag walk sees only the prefix on
+// the field name. The standard comment above a field is how most of them are marked.
+func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
+	for _, tc := range declaredAgainst {
+		registered, ok := registry.Lookup(tc.section)
+		if !ok {
+			t.Errorf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			continue
+		}
+		marked := deprecatedPaths(t, reflect.TypeOf(tc.proto).Elem())
+		for _, key := range registered.Keys {
+			rel := strings.TrimPrefix(key, tc.section+".")
+			if marked[rel] {
+				t.Errorf("%s names a field the node marks deprecated, so it offers a setting a written "+
+					"value cannot change", key)
+			}
+		}
+	}
+}
+
 // TestTheDeclaredKeysAreTheOnesTheReaderDecodes holds the declaration to the struct the node decodes into.
 //
 // Derived from that struct's own tags, so this asserts the count rather than the spelling: a renamed tag
 // moves the reader and the declaration together, and there is no third statement to drift from.
 func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
-	for _, tc := range []struct {
-		section string
-		proto   any
-		exclude int
-	}{
-		{P2PSectionName, &tmcfg.P2PConfig{}, 3},
-		{RPCSectionName, &tmcfg.RPCConfig{}, 1},
-		{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings) + 1},
-		{MempoolSectionName, &tmcfg.MempoolConfig{}, 1},
-	} {
+	for _, tc := range declaredAgainst {
 		registered, ok := registry.Lookup(tc.section)
 		if !ok {
 			t.Errorf("%s is not registered; Defects: %v", tc.section, registry.Defects())
@@ -192,9 +232,9 @@ func hasOpt(opts []string, want string) bool {
 
 // warningCannotName are the removed settings the reader's own deprecation check does not report.
 //
-// Six are durations or booleans, where a written zero and an unwritten field hold the same value, so the
-// check has nothing to test. The seventh is a pointer the check could name and does not. Recorded so that
-// making the check complete fails here rather than leaving a sentence quietly stale.
+// Seven are durations or booleans, where a written zero and an unwritten field hold the same value, so
+// the check has nothing to test. The eighth is a pointer the check could name and does not. Recorded so
+// that making the check complete fails here rather than leaving a sentence quietly stale.
 var warningCannotName = map[string]bool{
 	"unsafe-overrides-enabled":              true,
 	"unsafe-propose-timeout-override":       true,
@@ -203,6 +243,7 @@ var warningCannotName = map[string]bool{
 	"unsafe-vote-timeout-delta-override":    true,
 	"unsafe-commit-timeout-override":        true,
 	"unsafe-bypass-commit-timeout-override": true,
+	"stateless-leader-election":             true,
 }
 
 // TestTheExcludedConsensusPathsAreTheRemovedOnes ties the exclusion list to the struct's own marking.
@@ -219,7 +260,7 @@ func TestTheExcludedConsensusPathsAreTheRemovedOnes(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s is not registered; Defects: %v", ConsensusSectionName, registry.Defects())
 	}
-	marked := deprecatedPaths(reflect.TypeOf(tmcfg.ConsensusConfig{}))
+	marked := deprecatedPaths(t, reflect.TypeOf(tmcfg.ConsensusConfig{}))
 
 	excluded := map[string]bool{}
 	for _, key := range registered.Excluded {
@@ -272,18 +313,103 @@ func TestTheDeprecationWarningReachesTheRecordedSubset(t *testing.T) {
 }
 
 // deprecatedPaths returns the mapstructure names of the fields a struct marks deprecated.
-func deprecatedPaths(t reflect.Type) map[string]bool {
-	out := map[string]bool{}
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if !strings.HasPrefix(f.Name, "Deprecated") {
-			continue
-		}
-		if tag, ok := f.Tag.Lookup("mapstructure"); ok {
-			out[strings.Split(tag, ",")[0]] = true
+func deprecatedPaths(t *testing.T, typ reflect.Type) map[string]bool {
+	t.Helper()
+	marked, ok := deprecatedFields(t)[typ.Name()]
+	if !ok {
+		t.Fatalf("%s was not found in the node's configuration source, so nothing measures which of "+
+			"its fields are deprecated", typ.Name())
+	}
+	return marked
+}
+
+// deprecatedFields reports, per struct name, the mapstructure key of every field the node marks
+// deprecated.
+//
+// Read from the source rather than through reflection, because the node marks a field two ways and
+// reflection can only see one of them. Fifteen consensus fields carry a Deprecated prefix on the name,
+// which a tag walk finds. Seven more across three other structs are marked the standard way, by a
+// comment above the field, which no tag carries. A predicate that saw only the names reported those
+// seven as live settings, so each was declared as a key an operator could set and none of them does
+// anything.
+//
+// Parsed once and cached, because every section that asks pays for the whole package otherwise.
+func deprecatedFields(t *testing.T) map[string]map[string]bool {
+	t.Helper()
+	deprecatedOnce.Do(func() {
+		deprecatedByStruct, deprecatedErr = parseDeprecatedFields(nodeConfigSourceDir)
+	})
+	if deprecatedErr != nil {
+		t.Fatalf("read the node's configuration source: %v", deprecatedErr)
+	}
+	return deprecatedByStruct
+}
+
+// nodeConfigSourceDir is the package whose structs these sections declare against.
+//
+// A relative path because it is the same module, so it is checked out beside this one and moving either
+// is a change to both.
+const nodeConfigSourceDir = "../../sei-tendermint/config"
+
+var (
+	deprecatedOnce     sync.Once
+	deprecatedByStruct map[string]map[string]bool
+	deprecatedErr      error
+)
+
+// parseDeprecatedFields walks a package's source for struct fields marked deprecated.
+//
+// A field counts as marked if its name carries the prefix the consensus settings use, or if the comment
+// above it is the standard deprecation note. Only a field with a mapstructure tag is reported, since a
+// field with no tag declares no key for a section to exclude.
+func parseDeprecatedFields(dir string) (map[string]map[string]bool, error) {
+	parsed, err := parser.ParseDir(token.NewFileSet(), dir, nil, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]bool{}
+	for _, pkg := range parsed {
+		ast.Inspect(pkg, func(n ast.Node) bool {
+			spec, ok := n.(*ast.TypeSpec)
+			if !ok {
+				return true
+			}
+			structType, ok := spec.Type.(*ast.StructType)
+			if !ok {
+				return true
+			}
+			marked := map[string]bool{}
+			for _, field := range structType.Fields.List {
+				if len(field.Names) != 1 || field.Tag == nil {
+					continue
+				}
+				name := field.Names[0].Name
+				if !strings.HasPrefix(name, "Deprecated") && !isDeprecationNote(field.Doc) {
+					continue
+				}
+				tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
+				if key, ok := tag.Lookup("mapstructure"); ok {
+					marked[strings.Split(key, ",")[0]] = true
+				}
+			}
+			out[spec.Name.Name] = marked
+			return true
+		})
+	}
+	return out, nil
+}
+
+// isDeprecationNote reports whether a field's comment is the standard deprecation note.
+func isDeprecationNote(doc *ast.CommentGroup) bool {
+	if doc == nil {
+		return false
+	}
+	for _, line := range doc.List {
+		if strings.Contains(line.Text, "Deprecated:") {
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 // writtenThenChecked writes one consensus path into a configuration and returns what the reader's
@@ -296,30 +422,73 @@ func writtenThenChecked(t *testing.T, rel string) error {
 	conf := tmcfg.DefaultConfig()
 	v := viper.New()
 	v.SetConfigType("toml")
-	body := "[consensus]\n" + rel + " = " + probeValueFor(rel) + "\n"
+	body := "[consensus]\n" + rel + " = " + probeValueFor(t, reflect.TypeOf(tmcfg.ConsensusConfig{}), rel) + "\n"
 	if err := v.ReadConfig(strings.NewReader(body)); err != nil {
 		t.Fatalf("compose a file setting %s: %v", rel, err)
 	}
+	// Fatal rather than skipped. The probe value comes from the field's own type, so a refusal here means
+	// the derivation is wrong, and a skip inside this loop ends every remaining row while reporting a
+	// pass.
 	if err := v.Unmarshal(conf); err != nil {
-		t.Skipf("%s does not decode from the probe value: %v", rel, err)
+		t.Fatalf("%s does not decode from a value derived from its own field: %v", rel, err)
 	}
 	return conf.DeprecatedFieldWarning()
 }
 
+// probeValueFor renders a value the field behind a key accepts, taken from that field's own type.
+//
+// Derived rather than matched on the name, because a name says nothing about a shape. The double-sign
+// height is an integer whose name begins like the boolean overrides do, and it decoded only because the
+// decoder accepts a boolean where an integer belongs. A shape the decoder refuses used to end the loop
+// through a skip, so every row after it went unmeasured and the run still read as a pass.
+//
 // probeValueFor returns a written value of the right shape for a consensus path.
 //
 // Three shapes appear: a duration written as a string, a boolean, and a whole number.
-func probeValueFor(rel string) string {
-	switch {
-	case strings.HasPrefix(rel, "skip-") || strings.HasPrefix(rel, "unsafe-") ||
-		strings.HasPrefix(rel, "double-sign-") || strings.HasSuffix(rel, "-enabled"):
-		return "true"
-	case strings.Contains(rel, "timeout") || strings.Contains(rel, "-delta") ||
-		strings.Contains(rel, "interval") || strings.Contains(rel, "period"):
-		return "\"1s\""
-	default:
-		return "1"
+func probeValueFor(t *testing.T, typ reflect.Type, rel string) string {
+	t.Helper()
+	field, ok := fieldTagged(typ, rel)
+	if !ok {
+		t.Fatalf("%s names no field of %s, so no value can be derived for it", rel, typ.Name())
 	}
+	ft := field.Type
+	for ft.Kind() == reflect.Pointer {
+		ft = ft.Elem()
+	}
+	if ft == reflect.TypeOf(time.Duration(0)) {
+		return "\"1s\""
+	}
+	switch ft.Kind() {
+	case reflect.Interface:
+		// The removed settings are each a pointer to an empty interface, which is how the reader tells a
+		// written value from an absent one. Any shape decodes, so the value only has to be present.
+		return "\"1s\""
+	case reflect.Bool:
+		return "true"
+	case reflect.String:
+		return "\"probe\""
+	case reflect.Float32, reflect.Float64:
+		return "1.0"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "1"
+	case reflect.Slice:
+		return "[]"
+	default:
+		t.Fatalf("%s is a %s and no probe value is derived for that shape", rel, ft.Kind())
+		return ""
+	}
+}
+
+// fieldTagged returns the field of a struct whose mapstructure tag names a key.
+func fieldTagged(typ reflect.Type, rel string) (reflect.StructField, bool) {
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		if tag, ok := f.Tag.Lookup("mapstructure"); ok && strings.Split(tag, ",")[0] == rel {
+			return f, true
+		}
+	}
+	return reflect.StructField{}, false
 }
 
 // TestNoSectionDeclaresTheRootDirectory covers a field five of these sections carry.
