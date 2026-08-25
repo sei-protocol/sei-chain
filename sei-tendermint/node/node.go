@@ -133,18 +133,19 @@ type nodeImpl struct {
 	nodeKey                 types.NodeKey // our node privkey
 
 	// services
-	eventSinks     []indexer.EventSink
-	initialState   sm.State
-	stateStore     sm.Store
-	blockStore     *store.BlockStore // store the blockchain to disk
-	mempool        utils.Option[*mempool.TxMempool]
-	evPool         utils.Option[*evidence.Pool]
-	indexerService *indexer.Service
-	services       []service.Service
-	rpcListeners   []net.Listener // rpc servers
-	shutdownOps    closer
-	rpcEnv         *rpccore.Environment
-	prometheusSrv  utils.Option[*http.Server]
+	eventSinks        []indexer.EventSink
+	initialState      sm.State
+	stateStore        sm.Store
+	blockStore        *store.BlockStore // store the blockchain to disk
+	mempool           utils.Option[*mempool.TxMempool]
+	mempoolP2PEnabled bool
+	evPool            utils.Option[*evidence.Pool]
+	indexerService    *indexer.Service
+	services          []service.Service
+	rpcListeners      []net.Listener // rpc servers
+	shutdownOps       closer
+	rpcEnv            *rpccore.Environment
+	prometheusSrv     utils.Option[*http.Server]
 }
 
 // makeNode returns a new, ready to go, Tendermint Node.
@@ -342,6 +343,7 @@ func makeNode(
 			}
 			mpReactor.MarkReadyToStart()
 			node.services = append(node.services, mpReactor)
+			node.mempoolP2PEnabled = true
 		}
 
 		// make block executor for consensus and blockchain reactors to execute blocks
@@ -566,7 +568,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 
 	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
 	// TODO: Use a persistent peer database.
-	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus, n.freezeHeight == 0)
+	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus, n.mempoolP2PEnabled)
 	if err != nil {
 		return err
 	}

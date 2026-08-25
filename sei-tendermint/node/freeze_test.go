@@ -48,11 +48,34 @@ func TestWithFreezeHeight(t *testing.T) {
 	}
 }
 
+func TestValidateFreezeMode(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		mode         string
+		freezeHeight uint64
+		wantErr      bool
+	}{
+		{name: "disabled validator", mode: config.ModeValidator},
+		{name: "full node", mode: config.ModeFull, freezeHeight: 10},
+		{name: "validator", mode: config.ModeValidator, freezeHeight: 10, wantErr: true},
+		{name: "seed", mode: config.ModeSeed, freezeHeight: 10, wantErr: true},
+		{name: "unknown mode handled by node mode validation", mode: "unknown", freezeHeight: 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateFreezeMode(tc.mode, tc.freezeHeight)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateFreezeMode() error = %v, wantErr %t", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestFreezeModeDisablesMempoolTraffic(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "freeze_mempool_test")
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Mode = config.ModeFull
 	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
 	nodeService, err := newLocalNodeService(t.Context(), cfg, WithFreezeHeight(2))
 	if err != nil {

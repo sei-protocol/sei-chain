@@ -41,8 +41,9 @@ occ-enabled = {{ .BaseConfig.OccEnabled }}
 # Note: Commitment of state will be attempted on the corresponding block.
 halt-height = {{ .BaseConfig.HaltHeight }}
 
-# FreezeHeight contains a non-zero block height at which the node stops before
-# executing the block while continuing to serve RPC.
+# FreezeHeight contains the first block height a full node must not execute.
+# Query RPC remains available, while transaction submission and mempool gossip
+# are disabled from startup.
 freeze-height = {{ .BaseConfig.FreezeHeight }}
 
 # HaltTime contains a non-zero minimum block time (in Unix seconds) at which
