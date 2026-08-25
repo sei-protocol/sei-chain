@@ -64,6 +64,10 @@ func (s *CommitStore) Close() error {
 		s.ltHashPool.Close()
 		s.ltHashPool = nil
 	}
+	if s.sortPool != nil {
+		s.sortPool.Close()
+		s.sortPool = nil
+	}
 	// Calculator is bound to ltHashPool; drop it so a post-Close use cannot
 	// submit to a closed pool. resetPools recreates both together.
 	s.ltCalc = nil

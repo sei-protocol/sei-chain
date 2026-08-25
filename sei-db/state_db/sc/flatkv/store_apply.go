@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -470,6 +471,173 @@ func classifyAndPrefix(
 	}
 
 	return result, nil
+}
+
+// classifyUnit names a contiguous run of one changeset's pairs: which changeset, where the run starts,
+// and how long it is.
+//
+// A unit never spans two changesets, so the worker handling it knows up front whether it is on the EVM
+// path or the module-prefix path and never re-checks per pair.
+type classifyUnit struct {
+	changeSet int
+	firstPair int
+	pairCount int
+}
+
+// planClassifyUnits divides a block's pairs into contiguous runs of at most targetSize pairs each.
+//
+// Units are emitted in block order, so concatenating their results in unit order reproduces the order the
+// pairs arrived in — which is what lets the per-kind maps downstream resolve a repeated key to its last
+// write.
+func planClassifyUnits(changeSets []*proto.NamedChangeSet, targetSize int) []classifyUnit {
+	var units []classifyUnit
+	for i, cs := range changeSets {
+		if cs == nil || len(cs.Changeset.Pairs) == 0 {
+			continue
+		}
+		remaining := len(cs.Changeset.Pairs)
+		for first := 0; remaining > 0; {
+			count := min(remaining, targetSize)
+			units = append(units, classifyUnit{changeSet: i, firstPair: first, pairCount: count})
+			first += count
+			remaining -= count
+		}
+	}
+	return units
+}
+
+// classifyAndPrefixParallel is classifyAndPrefix with the block's pairs classified concurrently.
+//
+// The work is bound by memory latency rather than computation: each pair is its own heap object, so
+// reaching its key stalls on a load that the prefetcher cannot predict. Splitting the block lets several
+// of those loads be outstanding at once, which is where the time comes back — no individual step is made
+// cheaper.
+//
+// Falls back to the serial path when there is too little work to be worth distributing.
+func classifyAndPrefixParallel(
+	changeSets []*proto.NamedChangeSet,
+	sizeHints [keys.EVMKeyKindCount]int,
+	pool threading.Pool,
+	targetSize int,
+) (classifiedChanges, error) {
+
+	units := planClassifyUnits(changeSets, targetSize)
+	if pool == nil || len(units) < 2 {
+		return classifyAndPrefix(changeSets, sizeHints)
+	}
+
+	// Each unit fills its own buckets, so each is sized for its share of the block rather than all of it.
+	// A unit that receives an uneven share of some kind grows that bucket, which is what growth is for.
+	var unitHints [keys.EVMKeyKindCount]int
+	for kind, hint := range sizeHints {
+		unitHints[kind] = hint / len(units)
+	}
+
+	parts := make([]classifiedChanges, len(units))
+	errs := make([]error, len(units))
+
+	// The caller runs the last unit rather than waiting on all of them, so its core is not idle for the
+	// duration.
+	var wg sync.WaitGroup
+	for i := 0; i < len(units)-1; i++ {
+		wg.Add(1)
+		pool.Submit(func() {
+			defer wg.Done()
+			parts[i], errs[i] = classifyUnitPairs(changeSets, units[i], unitHints)
+		})
+	}
+	last := len(units) - 1
+	parts[last], errs[last] = classifyUnitPairs(changeSets, units[last], unitHints)
+	wg.Wait()
+
+	// Reported in unit order so the same malformed block always names the same pair.
+	for _, err := range errs {
+		if err != nil {
+			return classifiedChanges{}, err
+		}
+	}
+
+	return mergeClassified(parts), nil
+}
+
+// classifyUnitPairs classifies one contiguous run of a changeset's pairs.
+func classifyUnitPairs(
+	changeSets []*proto.NamedChangeSet,
+	unit classifyUnit,
+	sizeHints [keys.EVMKeyKindCount]int,
+) (classifiedChanges, error) {
+
+	var result classifiedChanges
+	for kind, hint := range sizeHints {
+		if hint > 0 {
+			result[kind] = make([]classifiedChange, 0, 2*hint)
+		}
+	}
+
+	var scratchArray [ktype.MaxEVMPhysicalKeyLen]byte
+	scratch := scratchArray[:0]
+
+	// One arena per unit, for the same reason the serial path has one per block: the interned keys alias
+	// its chunks, and the Go collector keeps a chunk alive through them.
+	var arena keyArena
+
+	cs := changeSets[unit.changeSet]
+	pairs := cs.Changeset.Pairs[unit.firstPair : unit.firstPair+unit.pairCount]
+
+	if cs.Name == keys.EVMStoreKey {
+		for _, pair := range pairs {
+			kind, keyBytes := keys.ParseEVMKey(pair.Key)
+			if kind == keys.EVMKeyEmpty {
+				return classifiedChanges{}, fmt.Errorf("flatkv: empty key in changeset")
+			}
+
+			if kind == keys.EVMKeyMisc {
+				scratch = ktype.AppendModulePhysicalKey(scratch[:0], keys.EVMStoreKey, pair.Key)
+			} else {
+				scratch = ktype.AppendEVMPhysicalKey(scratch[:0], kind, keyBytes)
+			}
+			result[kind] = append(result[kind], newClassifiedChange(arena.intern(scratch), pair))
+		}
+		return result, nil
+	}
+
+	// See classifyAndPrefix for why an empty module name is rejected rather than folded into "/"+key.
+	if cs.Name == "" {
+		return classifiedChanges{}, fmt.Errorf("flatkv: empty module name in changeset")
+	}
+	miscBucket := &result[keys.EVMKeyMisc]
+	for _, pair := range pairs {
+		scratch = ktype.AppendModulePhysicalKey(scratch[:0], cs.Name, pair.Key)
+		*miscBucket = append(*miscBucket, newClassifiedChange(arena.intern(scratch), pair))
+	}
+	return result, nil
+}
+
+// mergeClassified concatenates each unit's buckets in unit order, which restores block order.
+//
+// Every destination is allocated at its exact final length, since by now the counts are known rather than
+// estimated. The copy is what keeps the buckets a plain slice per kind, so nothing downstream has to know
+// the block was classified in pieces.
+func mergeClassified(parts []classifiedChanges) classifiedChanges {
+	var totals [keys.EVMKeyKindCount]int
+	for _, part := range parts {
+		for kind, bucket := range part {
+			totals[kind] += len(bucket)
+		}
+	}
+
+	var result classifiedChanges
+	for kind, total := range totals {
+		if total > 0 {
+			result[kind] = make([]classifiedChange, 0, total)
+		}
+	}
+	for _, part := range parts {
+		for kind, bucket := range part {
+			result[kind] = append(result[kind], bucket...)
+		}
+	}
+	return result
 }
 
 // newClassifiedChange pairs a physical key with a changeset pair's new value, recording a deleted

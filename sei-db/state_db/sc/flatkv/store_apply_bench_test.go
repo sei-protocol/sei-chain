@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"sort"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -52,6 +54,47 @@ func benchPairs(n int) []*proto.KVPair {
 		&proto.KVPair{Key: []byte{0x1b}, Value: benchSlot(1)},
 		&proto.KVPair{Key: []byte{0x1c}, Value: benchSlot(2)},
 	)
+	sort.Slice(pairs, func(i, j int) bool {
+		return bytes.Compare(pairs[i].Key, pairs[j].Key) < 0
+	})
+	return pairs
+}
+
+// benchScatterFiller keeps the padding between scattered pairs reachable, so the collector cannot
+// compact them back together.
+var benchScatterFiller [][]byte
+
+// benchScatteredPairs builds the same pairs as benchPairs, but spread across a large heap instead of
+// packed into one contiguous run.
+//
+// This is what makes the benchmark resemble the node. On a running node a block's pairs are allocated
+// among everything else on a heap of tens of gigabytes, so reaching one costs a page walk on top of a
+// cache miss — the profile attributes ~414ns per pair to the load that first touches a key. benchPairs
+// allocates every pair in one tight loop, so the whole block sits in cache and the same work measures
+// ~18ns per pair. A benchmark in that regime cannot say anything about a change aimed at stall time.
+//
+// The padding is what does the scattering: at 32 KiB between pairs each one lands on its own page.
+func benchScatteredPairs(n int) []*proto.KVPair {
+	const paddingBytes = 32 << 10
+
+	benchScatterFiller = make([][]byte, 0, n)
+	pairs := make([]*proto.KVPair, 0, n)
+	for i := 0; i < n; i++ {
+		if i%3 == 0 {
+			pairs = append(pairs, &proto.KVPair{
+				Key:   keys.BuildEVMKey(keys.EVMKeyNonce, benchAddr(i)),
+				Value: binary.BigEndian.AppendUint64(nil, uint64(i)),
+			})
+		} else {
+			slotKey := append(benchAddr(i), benchSlot(i)...)
+			pairs = append(pairs, &proto.KVPair{
+				Key:   keys.BuildEVMKey(keys.EVMKeyStorage, slotKey),
+				Value: benchSlot(i),
+			})
+		}
+		benchScatterFiller = append(benchScatterFiller, make([]byte, paddingBytes))
+	}
+
 	sort.Slice(pairs, func(i, j int) bool {
 		return bytes.Compare(pairs[i].Key, pairs[j].Key) < 0
 	})
@@ -332,7 +375,9 @@ func BenchmarkClassifyAndPrefix(b *testing.B) {
 		{"fat_changeset", fatChangeSets},
 		{"single_pair_changesets", singlePairChangeSets},
 	}
-	for _, size := range []int{1000, 3000, 5000} {
+	// 20000 is the shape a 10k-transaction block produces: two account writes and two storage slots per
+	// transaction, deduplicated.
+	for _, size := range []int{5000, 20000} {
 		for _, shape := range shapes {
 			changeSets := shape.build(benchPairs(size))
 			b.Run(fmt.Sprintf("%s/pairs=%d", shape.name, size), func(b *testing.B) {
@@ -348,5 +393,69 @@ func BenchmarkClassifyAndPrefix(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+// BenchmarkClassifyAndPrefixParallel measures the same work split across a pool, against the serial
+// figures above.
+//
+// Note this cannot reproduce the production cost of the phase. Every pair here is allocated in one tight
+// loop, so the whole block fits in cache; on the node the pairs are scattered across a heap of tens of
+// gigabytes and reaching one costs a TLB miss. So treat the speedup here as a floor, and the absolute
+// numbers as measuring overhead — whether planning, per-unit arenas and the merge cost more than the
+// parallelism returns.
+func BenchmarkClassifyAndPrefixParallel(b *testing.B) {
+	pool := threading.NewElasticPool("bench-classify", runtime.NumCPU())
+	defer pool.Close()
+
+	for _, size := range []int{5000, 20000} {
+		changeSets := fatChangeSets(benchPairs(size))
+		for _, targetSize := range []int{256, 512, 1024, 2500} {
+			name := fmt.Sprintf("fat_changeset/pairs=%d/unit=%d", size, targetSize)
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+				var sizeHints [keys.EVMKeyKindCount]int
+				for b.Loop() {
+					classified, err := classifyAndPrefixParallel(changeSets, sizeHints, pool, targetSize)
+					if err != nil {
+						b.Fatal(err)
+					}
+					sizeHints = classified.bucketSizes()
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkClassifyScattered is the comparison that decides whether classification is worth
+// parallelizing: the same work, over pairs spread across a large heap rather than packed into cache.
+//
+// unit=0 names the serial implementation, so the serial and parallel figures come from one run over one
+// input rather than from two benchmarks whose inputs differ.
+func BenchmarkClassifyScattered(b *testing.B) {
+	pool := threading.NewElasticPool("bench-classify-scattered", runtime.NumCPU())
+	defer pool.Close()
+
+	changeSets := fatChangeSets(benchScatteredPairs(20000))
+
+	for _, targetSize := range []int{0, 512, 1024, 2500, 5000} {
+		name := fmt.Sprintf("pairs=20000/unit=%d", targetSize)
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			var sizeHints [keys.EVMKeyKindCount]int
+			for b.Loop() {
+				var classified classifiedChanges
+				var err error
+				if targetSize == 0 {
+					classified, err = classifyAndPrefix(changeSets, sizeHints)
+				} else {
+					classified, err = classifyAndPrefixParallel(changeSets, sizeHints, pool, targetSize)
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+				sizeHints = classified.bucketSizes()
+			}
+		})
 	}
 }
