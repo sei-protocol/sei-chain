@@ -237,7 +237,7 @@ func OpenReplayWrapper(ctx context.Context, backend wrappers.DBType, dbDir strin
 	case wrappers.MemIAVL:
 		cfg := wrappers.DefaultBenchMemIAVLConfig()
 		cfg.AsyncCommitBuffer = 0
-		dbConfig = &cfg
+		dbConfig = cfg
 	}
 	return wrappers.NewDBImpl(ctx, backend, dbDir, dbConfig)
 }

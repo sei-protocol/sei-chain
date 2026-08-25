@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
 const (
@@ -204,6 +205,9 @@ type CryptoSimConfig struct {
 	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
 	FlatKVConfig *flatkvConfig.Config
 
+	// Configures the memIAVL database. Ignored if Backend is not "MemIAVL".
+	MemIAVLConfig *memiavl.Config
+
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
 
@@ -327,6 +331,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		DeleteDataDirOnShutdown:           false,
 		DeleteLogDirOnShutdown:            false,
 		FlatKVConfig:                      flatkvConfig.DefaultConfig(),
+		MemIAVLConfig:                     wrappers.DefaultBenchMemIAVLConfig(),
 		BlockChannelCapacity:              8,
 		HashAsynchrony:                    32,
 		GenerateReceipts:                  false,

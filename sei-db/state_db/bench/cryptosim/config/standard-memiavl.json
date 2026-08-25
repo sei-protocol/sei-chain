@@ -1,0 +1,11 @@
+{
+    "Comment": "The standard-perf workload run against memIAVL. Account counts match standard-perf.json so the two are comparable; only the backend differs. TransactionsPerBlock is pinned rather than inherited because the default has moved four times on this branch, and memIAVL hashes once per block on the critical path, so an implicit block size silently changes the result. 2000 is the mainnet consensus limit. Snapshots are off by default for the MemIAVL backend, so there is no MemIAVLConfig block here; add one only to turn them back on.",
+    "Backend": "MemIAVL",
+    "DataDir": "data",
+    "LogDir": "logs",
+    "MinimumNumberOfColdAccounts": 1000000,
+    "MinimumNumberOfDormantAccounts": 100000000,
+    "TransactionsPerBlock": 2000,
+    "MutexProfileFraction": 100,
+    "BlockProfileRate": 10000
+}

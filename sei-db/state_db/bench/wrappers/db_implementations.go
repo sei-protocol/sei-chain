@@ -3,6 +3,7 @@ package wrappers
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -39,21 +40,34 @@ func DefaultBenchStateStoreConfig() *config.StateStoreConfig {
 	return &cfg
 }
 
+// benchSnapshotsDisabled is the SnapshotInterval that leaves memIAVL snapshotting off for a
+// benchmark run.
+//
+// It is a height rather than a flag because memiavl has no off switch: Options.FillDefaults
+// heals a SnapshotInterval of 0 back to DefaultSnapshotInterval, so switching snapshots off
+// means naming an interval no run reaches. Do not "simplify" this to 0 — that silently
+// re-enables snapshots every 10,000 blocks.
+const benchSnapshotsDisabled = math.MaxUint32
+
 // DefaultBenchMemIAVLConfig returns the memiavl config the benchmarks open
 // with by default. Note AsyncCommitBuffer=10: Commit() returns once the WAL
-// write is enqueued, not once it is durable.
-func DefaultBenchMemIAVLConfig() memiavl.Config {
+// write is enqueued, not once it is durable. Snapshots are off.
+//
+// A snapshot is a full-tree rewrite, so its cost scales with state size — hours at the state
+// sizes these benchmarks target — and it buys a benchmark nothing, since the run is measuring
+// the write path rather than surviving a restart. Two things it does buy are given up with it:
+// mmap-backed nodes, so the whole tree stays on the Go heap, and WAL truncation, which is
+// bounded by the earliest snapshot and therefore never happens.
+func DefaultBenchMemIAVLConfig() *memiavl.Config {
 	cfg := memiavl.DefaultConfig()
 	cfg.AsyncCommitBuffer = 10
-	cfg.SnapshotInterval = 1000
-	cfg.SnapshotMinTimeInterval = 60
-	return cfg
+	cfg.SnapshotInterval = benchSnapshotsDisabled
+	return &cfg
 }
 
 func newMemIAVLCommitStore(dbDir string, cfg *memiavl.Config) (DBWrapper, error) {
 	if cfg == nil {
-		defaultCfg := DefaultBenchMemIAVLConfig()
-		cfg = &defaultCfg
+		cfg = DefaultBenchMemIAVLConfig()
 	}
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
 	cs := memiavl.NewCommitStore(dbDir, *cfg)
