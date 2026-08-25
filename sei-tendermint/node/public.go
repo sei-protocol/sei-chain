@@ -52,19 +52,11 @@ func New(
 	consensusPolicy tmtypes.ConsensusPolicy,
 	nodeOptions ...Option,
 ) (local.NodeService, error) {
-<<<<<<< HEAD
-	proxyApp := proxy.New(app, nodeMetrics.proxy)
-=======
-	if err := validateNodeSetupConfig(conf); err != nil {
-		return nil, err
-	}
 	opts := resolveOptions(nodeOptions...)
 	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
 		return nil, err
 	}
-	app = prepareApplication(conf, app)
-	proxyApp := proxy.New(app)
->>>>>>> 50e1129 (Disable mempool traffic in freeze mode (#3990))
+	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
@@ -111,8 +103,6 @@ func New(
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
 	}
 }
-<<<<<<< HEAD
-=======
 
 func validateFreezeMode(mode string, freezeHeight uint64) error {
 	if freezeHeight == 0 || mode == config.ModeFull {
@@ -125,21 +115,3 @@ func validateFreezeMode(mode string, freezeHeight uint64) error {
 		return nil
 	}
 }
-
-func validateNodeSetupConfig(conf *config.Config) error {
-	if conf.MockApp && conf.AutobahnConfigFile == "" {
-		return fmt.Errorf("mock-app requires autobahn-config-file")
-	}
-	return nil
-}
-
-func prepareApplication(conf *config.Config, app abci.Application) abci.Application {
-	if conf.MockApp {
-		return NewMockApp(app)
-	}
-	if conf.FastCheckTx {
-		return fastCheckTxApplication{Application: app}
-	}
-	return app
-}
->>>>>>> 50e1129 (Disable mempool traffic in freeze mode (#3990))

@@ -27,27 +27,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
-<<<<<<< HEAD
-=======
 
-## Unreleased
-
-### Improvements
-* [#3818](https://github.com/sei-protocol/sei-chain/pull/3818) feat(evmrpc): extend HTTP admission control (`max_request_body_bytes`, `max_concurrent_request_bytes`, `ws_admission_timeout`) to the WebSocket plane (:8546). WS oversize frames close with WebSocket close code 1009; budget-wait timeouts return JSON-RPC error `-32005` before the connection closes. `evmrpc_requests_rejected_total` gains a `protocol` label (`http` / `ws`).
-* [#3984](https://github.com/sei-protocol/sei-chain/pull/3984) feat(query): origin-aware pagination limits for ABCI queries. Untrusted callers on the ABCI/gRPC query path get configurable `max-limit`, `max-offset`, and flat `max-iterations` (defaults: 1000 / 10000 / 11000); requests above the caps are rejected upfront, and an exhausted iteration budget returns a partial page with `next_key` instead of failing. Trusted origins (new `[query] trusted-cidrs`) and the `[query] disable-limits` kill switch bypass the caps; the consensus/EVM precompile path is unaffected.
-* [#3990](https://github.com/sei-protocol/sei-chain/pull/3990) Freeze mode is limited to full nodes and disables transaction and evidence submission, mempool gossip, and state sync from startup while preserving query RPC and mempool-backed reads. Frozen and Autobahn nodes no longer advertise the unused mempool P2P channel.
-
-### Upgrade guide
-* **IBC transfer removal.** Removes ICS-20 execution, module APIs, CLI commands, CosmWasm transfer messages, transfer codecs, and transfer keeper integration, including the IBC EVM precompile's keeper injection. The transfer store and module account remain materialized for state compatibility. Transfer queries, historical transfer transaction decoding, and pre-v6.7 IBC precompile tracing must be served by v6.6 freeze nodes; v6.7 nodes do not provide them.
-* **Capability removal.** Removes the capability module and its IBC, transfer, and CosmWasm integrations. The capability store remains mounted for historical state access in freeze mode.
-* [#3958](https://github.com/sei-protocol/sei-chain/pull/3958) **Feegrant removal.** Removes feegrant execution, module APIs, and the unreleased feegrant EVM precompile. The feegrant store remains mounted for historical state access. Transactions with a fee granter different from the payer are rejected.
-* **WebSocket frame size default drops from 10 MiB to 5 MiB.** Before this release, :8546 used a hardcoded 10 MiB frame cap. Both HTTP and WebSocket now share `[evm].max_request_body_bytes`, whose default is 5 MiB (`5242880`). WS clients that send frames in the 5-10 MiB range (large `eth_sendRawTransaction` batches, wide filter payloads, etc.) will be disconnected after upgrade unless the limit is raised. **Operators who relied on the old 10 MiB WS cap should set `max_request_body_bytes = 10485760` in `app.toml` before upgrading.** This also raises the HTTP body limit to 10 MiB. The exported `DefaultWebsocketMaxMessageSize` constant was removed; use the config knob instead.
-* [#3984](https://github.com/sei-protocol/sei-chain/pull/3984) **ABCI/gRPC pagination is now capped by default.** Untrusted callers requesting `limit` above 1000, `offset` above 10000, or a scan that exceeds 11000 total iterations now get `InvalidArgument` (over-cap) or a partial page with `next_key` (budget exhausted) instead of the previously unbounded scan. Clients that page with large limits/offsets, or trusted internal indexers, should either follow `next_key` for resumption or be added to the new `[query] trusted-cidrs` allowlist (or set `[query] disable-limits = true`) before upgrading.
-* [#3927](https://github.com/sei-protocol/sei-chain/pull/3927) **Legacy Sei JSON-RPC and CLI removal.** Removes `sei_associate`, `sei_getBlockByHash`, `sei_getBlockByHashExcludeTraceFail`, `sei_getBlockTransactionCountByHash`, `sei_getBlockTransactionCountByNumber`, `sei_getEvmTx`, `sei_getFilterChanges`, `sei_getFilterLogs`, `sei_getLogs`, `sei_getTransactionByBlockHashAndIndex`, `sei_getTransactionByBlockNumberAndIndex`, `sei_getTransactionByHash`, `sei_getTransactionCount`, `sei_getTransactionErrorByHash`, `sei_getTransactionReceiptExcludeTraceFail`, `sei_getVMError`, `sei_newBlockFilter`, `sei_newFilter`, `sei_sign`, and `sei_uninstallFilter`. Use standard `eth_*` methods for EVM-originated data and `seid tx evm native-associate <custom-message> -y` for address association. There is no block- or filter-level replacement for discovering Cosmos-originated synthetic logs; clients that know the synthetic transaction hash can enable `sei_getTransactionReceipt`.
-
->>>>>>> 50e1129 (Disable mempool traffic in freeze mode (#3990))
 ## v6.6
 sei-chain
+* [#4006](https://github.com/sei-protocol/sei-chain/pull/4006) Backport `release/v6.6`: Disable transaction and evidence submission and mempool gossip in freeze mode
 * [#3957](https://github.com/sei-protocol/sei-chain/pull/3957) Backport `release/v6.6`: Add context cancellation to SS DB layer
 * [#3954](https://github.com/sei-protocol/sei-chain/pull/3954) Backport `release/v6.6`: feat(seeds): ship Sei Labs seeds as the default bootstrap-peers
 * [#3951](https://github.com/sei-protocol/sei-chain/pull/3951) Backport `release/v6.6`: Tolerate failed Codex review executions
