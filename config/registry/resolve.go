@@ -273,15 +273,22 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 	return nil
 }
 
-// detach returns a field's value with nothing shared with the struct it came from.
+// detach returns a value that shares no storage with the one it was given.
 //
-// A section's default is usually a package-level variable, so a slice or a map field hands out the
-// backing array that variable holds. A caller sorting or de-duplicating a resolved list in place, which is
-// what a caller producing deterministic output does, would rewrite that variable for the whole process:
-// every later resolution, and every reader that copies the same struct. Two of the lists that reach here
-// are deny lists, so the rewrite is silent and it is a security control.
+// A section's default is usually a package-level variable, so handing out a list or a map field hands out
+// the storage behind it. One caller sorting what it was given rewrites the process-wide default and every
+// later resolution carries the sorted version. That happened here, to two deny lists.
 //
-// Lookup already copies a section's keys for this reason. This is the same guarantee for its values.
+// Copied all the way down rather than one level. A list of lists, or a map of lists, shares its inner
+// storage through a copy of the outer, so a caller sorting an inner list reaches the default just as
+// directly. Nothing declared today has that shape, and the copy runs once per boot over a hundred or so
+// keys, so the cost of being thorough here is not measurable and the cost of not being is a defect nobody
+// finds twice.
+//
+// This covers what a section's defaults answer. It is not the guarantee for a value a source supplied: the
+// file source hands out its own copies, recursively, where it reads them, and the flag source carries only
+// text. A source that grew a channel handing out live storage would have to do the same at its own edge,
+// because only the source knows what else holds it.
 func detach(v reflect.Value) any {
 	switch v.Kind() {
 	case reflect.Slice:
@@ -289,7 +296,9 @@ func detach(v reflect.Value) any {
 			return v.Interface()
 		}
 		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
-		reflect.Copy(out, v)
+		for i := 0; i < v.Len(); i++ {
+			out.Index(i).Set(reflect.ValueOf(detach(v.Index(i))))
+		}
 		return out.Interface()
 	case reflect.Map:
 		if v.IsNil() {
@@ -297,9 +306,14 @@ func detach(v reflect.Value) any {
 		}
 		out := reflect.MakeMapWithSize(v.Type(), v.Len())
 		for _, key := range v.MapKeys() {
-			out.SetMapIndex(key, v.MapIndex(key))
+			out.SetMapIndex(key, reflect.ValueOf(detach(v.MapIndex(key))))
 		}
 		return out.Interface()
+	case reflect.Interface:
+		if v.IsNil() {
+			return v.Interface()
+		}
+		return detach(v.Elem())
 	default:
 		return v.Interface()
 	}
