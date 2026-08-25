@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 )
@@ -23,10 +22,6 @@ type TestSupport struct {
 
 func NewTestSupport(t testing.TB, app *WasmApp) *TestSupport {
 	return &TestSupport{t: t, app: app}
-}
-
-func (s TestSupport) IBCKeeper() *ibckeeper.Keeper {
-	return s.app.ibcKeeper
 }
 
 func (s TestSupport) WasmKeeper() wasm.Keeper {

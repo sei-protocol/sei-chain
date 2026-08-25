@@ -8,7 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
-	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	wasm "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -85,7 +84,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteHandler, e
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
 		evmante.NewEVMAddressDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
 		antedecorators.NewAuthzNestedMessageDecorator(),
-		ibcante.NewAnteDecorator(),
 	}
 
 	anteHandler := sdk.ChainAnteDecorators(anteDecorators...)
