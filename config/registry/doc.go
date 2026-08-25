@@ -58,9 +58,16 @@
 // no exported value repeats it.
 //
 // Alongside the values it reports which keys something other than the defaults supplied, and which
-// keys a source carried that no section declares. The first is what a diff renders, since a written
+// keys the file carried that no section declares. The first is what a diff renders, since a written
 // value and a default are otherwise indistinguishable once merged. The second is why a typo in an
 // operator's file is visible rather than silently dropped.
+//
+// The file and not every source, because an undeclared name means something different in each. A file
+// exists to carry declared keys, so one that is not is a typo. The environment layer looks up only
+// names a section declares, so it cannot produce one. The command line is a namespace this package does
+// not own: most of the flags a node starts with were never configuration keys, and a misspelled one is
+// refused by the command before any of this runs, so reporting those would bury the file's one typo
+// under forty names working exactly as intended.
 //
 // One channel has a per-key hole. A reader that takes its value's exact type cannot be handed the one
 // string an environment carries, so a section may refuse that channel for such a key, and the file's

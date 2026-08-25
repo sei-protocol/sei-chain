@@ -1489,3 +1489,100 @@ func TestAFieldCollectingUnmatchedKeysDeclaresNone(t *testing.T) {
 		t.Errorf("declares %v, want %v; the collector itself is not a setting", registered.Keys, want)
 	}
 }
+
+// TestOnlyTheFileReportsAKeyNoSectionDeclares holds the one distinction between the three layers.
+//
+// An undeclared name means something different in each. In a file it is a typo, and reporting it is the
+// only way an operator learns their setting does nothing. On the command line it is the ordinary case:
+// most of the flags a node starts with are not configuration keys, so reporting them would produce a
+// warning naming forty flags that work on every boot, with the file's one real typo somewhere inside it.
+func TestOnlyTheFileReportsAKeyNoSectionDeclares(t *testing.T) {
+	type layers struct {
+		Kept string `mapstructure:"kept"`
+	}
+	registry.RegisterSection("layers_undeclared_names", &layers{}, func(registry.Mode) any {
+		return layers{Kept: "declared"}
+	})
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{
+		File: map[string]any{
+			"layers_undeclared_names.kept": "from-file",
+			"layers_undeclared_names.typo": "x",
+		},
+		Flags: map[string]any{"home": "/tmp", "log_level": "info"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	for _, key := range resolved.Unknown {
+		if key == "home" || key == "log_level" {
+			t.Errorf("%q is reported as a key no section declares, and it is a flag name. Every boot "+
+				"carries flags that were never configuration keys, so this fires always and the file's "+
+				"one real typo is somewhere inside a list of forty", key)
+		}
+	}
+	if !contains(resolved.Unknown, "layers_undeclared_names.typo") {
+		t.Errorf("Unknown is %v and does not name the file's misspelled key. An operator learns their "+
+			"setting does nothing only from this", resolved.Unknown)
+	}
+	if got := resolved.Values["layers_undeclared_names.kept"]; got != "from-file" {
+		t.Errorf("layers_undeclared_names.kept is %#v, want the file's value; not reporting a layer's "+
+			"undeclared names must not stop its declared ones applying", got)
+	}
+}
+
+// contains reports whether a sorted key list holds a key.
+func contains(keys []string, want string) bool {
+	for _, key := range keys {
+		if key == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestADeclaredInterfaceFieldIsRefusedAndAnExcludedOneIsNot holds the one property a rehearsed decode
+// rests on.
+//
+// What a decoder writes into an interface depends on what the field already holds, so two structs of the
+// same type can accept and refuse the same written value. A caller that decodes into a copy first to learn
+// whether the real decode will succeed gets an answer about the copy, and the two differ exactly where
+// their existing values do.
+//
+// Both directions matter. A section that declares such a field is refused, because nothing downstream can
+// reason about it. A section that excludes it registers, because a path nobody can write has no decode to
+// reason about, and the fields that carry this shape in practice are settings a reader has removed.
+func TestADeclaredInterfaceFieldIsRefusedAndAnExcludedOneIsNot(t *testing.T) {
+	type holdsAny struct {
+		Kept    string `mapstructure:"kept"`
+		Removed *any   `mapstructure:"removed"`
+	}
+
+	registry.RegisterSection("interface_declared", &holdsAny{}, func(registry.Mode) any {
+		return holdsAny{Kept: "a"}
+	})
+	if _, ok := registry.Lookup("interface_declared"); ok {
+		t.Error("a section declaring a field that holds an interface registered")
+	}
+	var named bool
+	for _, d := range registry.Defects() {
+		if d.Section == "interface_declared" && strings.Contains(d.Err.Error(), "holding an interface") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("no defect says the field holds an interface; Defects: %v", registry.Defects())
+	}
+
+	registry.RegisterSectionExcluding("interface_excluded", &holdsAny{}, func(registry.Mode) any {
+		return holdsAny{Kept: "a"}
+	}, "removed")
+	registered, ok := registry.Lookup("interface_excluded")
+	if !ok {
+		t.Fatalf("excluding the field did not make the section usable; Defects: %v", registry.Defects())
+	}
+	if want := []string{"interface_excluded.kept"}; !reflect.DeepEqual(registered.Keys, want) {
+		t.Errorf("declares %v, want %v", registered.Keys, want)
+	}
+}

@@ -133,11 +133,11 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 		proto   any
 		exclude int
 	}{
-		{P2PSectionName, &tmcfg.P2PConfig{}, 2},
+		{P2PSectionName, &tmcfg.P2PConfig{}, 5},
 		{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 		{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings) + 1},
 		{MempoolSectionName, &tmcfg.MempoolConfig{}, 1},
-		{StateSyncSectionName, &tmcfg.StateSyncConfig{}, 1},
+		{StateSyncSectionName, &tmcfg.StateSyncConfig{}, 3},
 		{TxIndexSectionName, &tmcfg.TxIndexConfig{}, 0},
 		{InstrumentationSectionName, &tmcfg.InstrumentationConfig{}, 0},
 		{PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, 1},
@@ -362,8 +362,8 @@ func TestTheStateSyncExclusionIsThePathWithNoDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s is not registered; Defects: %v", StateSyncSectionName, registry.Defects())
 	}
-	if want := []string{StateSyncSectionName + ".rpc-servers"}; !reflect.DeepEqual(registered.Excluded, want) {
-		t.Fatalf("excluded is %v, want %v", registered.Excluded, want)
+	if !slices.Contains(registered.Excluded, StateSyncSectionName+".rpc-servers") {
+		t.Fatalf("excluded is %v and does not name the snapshot servers", registered.Excluded)
 	}
 	if got := tmcfg.DefaultStateSyncConfig().RPCServers; len(got) != 0 {
 		t.Errorf("the node now defaults the snapshot servers to %v, so it states a value and the key "+
@@ -471,8 +471,10 @@ func TestTheRootPathsLeftOutAreTheOnesTheFileAlreadyStates(t *testing.T) {
 				"for something already settled", key, why)
 		}
 	}
-	if len(registered.Excluded) != 2 {
-		t.Errorf("the root section excludes %v and two paths were expected", registered.Excluded)
+	for _, key := range []string{"abci", "mock-app", "moniker"} {
+		if declared[key] {
+			t.Errorf("%q is declared at the root and it is left out for a reason of its own", key)
+		}
 	}
 }
 
@@ -517,6 +519,75 @@ func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 			if key == "home" || strings.HasSuffix(key, ".home") {
 				t.Errorf("%s declares %q, and the node fills that field from the command line after the "+
 					"file is read, so what this section states for it is the empty string", s.Name, key)
+			}
+		}
+	}
+}
+
+// TestEverySectionThisPackageRegistersIsDeliveredByADecode is the partition, held from this side.
+//
+// A section reaches its reader one of two ways and the registry cannot tell which, so it is declared. A
+// section that declares nothing is treated as read by a lookup, which is right for almost every section
+// elsewhere and silently wrong for every one of these: its keys would resolve, install into the source a
+// node reads, and change nothing the node runs. That is the exact failure this key space exists to remove.
+//
+// So the set is held both ways. Every section this package registers has to be declared decoded, and no
+// section it does not register may be, because a section marked decoded whose values nothing decodes is
+// undelivered in the other direction.
+func TestEverySectionThisPackageRegistersIsDeliveredByADecode(t *testing.T) {
+	mine := map[string]bool{}
+	for _, name := range declaredSectionNames() {
+		mine[name] = true
+		if !registry.DecodedNotLookedUp(name) {
+			t.Errorf("%s is registered here and is not declared as delivered by a decode, so its keys "+
+				"would be installed into a source nothing reads them from", name)
+		}
+	}
+	for name, why := range registry.DecodedSections() {
+		if !mine[name] {
+			continue
+		}
+		if why == "" {
+			t.Errorf("%s is declared decoded with no reason naming what decodes it", name)
+		}
+	}
+	if wrong := registry.UndeliveredSections(mine); len(wrong) > 0 {
+		t.Errorf("these sections disagree with what this package expects of them: %v. A section is "+
+			"either read by a lookup or read by a decode, and one delivered the other way changes "+
+			"nothing a node runs", wrong)
+	}
+}
+
+// TestThePathsWrittenFromOutsideTheBinaryAreNotDeclared covers the exclusions with no local cause.
+//
+// Nothing in this repository fills these in, which is why declaring them looks harmless from here. A
+// cluster controller resolves a peer set from live discovery and patches the addresses into the node's own
+// file; a node computes a trust height and hash from the chain tip each time it starts; a moniker is
+// stamped per instance. A declared value would be decoded over whichever of those already ran, and the
+// only record of the change would be in memory.
+func TestThePathsWrittenFromOutsideTheBinaryAreNotDeclared(t *testing.T) {
+	for section, paths := range writtenBySomethingOutsideTheBinary {
+		registered, ok := registry.Lookup(section)
+		if !ok {
+			t.Errorf("%s is not registered; Defects: %v", section, registry.Defects())
+			continue
+		}
+		declared := map[string]bool{}
+		for _, key := range registered.Keys {
+			declared[key] = true
+		}
+		for _, rel := range paths {
+			key := rel
+			if registered.Prefix != "" {
+				key = registered.Prefix + "." + rel
+			}
+			if declared[key] {
+				t.Errorf("%s is declared, and something outside this binary writes it into the node's "+
+					"own file at boot. A value from here would be applied over that, in memory only", key)
+			}
+			if !slices.Contains(registered.Excluded, key) {
+				t.Errorf("%s is neither declared nor excluded, so the exclusion naming it covers nothing "+
+					"and the registration should have been refused", key)
 			}
 		}
 	}
