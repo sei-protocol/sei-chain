@@ -25,9 +25,6 @@ var logger = seilog.NewLogger("ibc-go", "modules", "core", "04-channel", "keeper
 
 // Keeper defines the IBC channel keeper
 type Keeper struct {
-	// implements gRPC QueryServer interface
-	types.QueryServer
-
 	storeKey         sdk.StoreKey
 	cdc              codec.BinaryCodec
 	paramSpace       paramtypes.Subspace
