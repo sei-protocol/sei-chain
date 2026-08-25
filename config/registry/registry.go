@@ -238,9 +238,12 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 			continue
 		}
 
-		tag, squash, err := tagOf(f, prefix)
+		tag, squash, skip, err := tagOf(f, prefix)
 		if err != nil {
 			return err
+		}
+		if skip {
+			continue
 		}
 
 		ft := f.Type
@@ -289,42 +292,68 @@ func walkSubtree(t reflect.Type, path, field string, keys *[]string, open map[re
 }
 
 // tagOf returns a field's mapstructure name, or reports that the field cannot be addressed.
-func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err error) {
+func tagOf(f reflect.StructField, prefix string) (name string, squash, skip bool, err error) {
 	tag, ok := f.Tag.Lookup("mapstructure")
 	if !ok {
-		return "", false, fmt.Errorf("%s.%s has no mapstructure tag; a key derived from a field "+
+		return "", false, false, fmt.Errorf("%s.%s has no mapstructure tag; a key derived from a field "+
 			"name is a key no operator writes, which is how ninety-two legacy keys became "+
 			"unreachable through their tags", prefix, f.Name)
 	}
 
+	name, squash = parseTag(tag)
+	if squash {
+		if name != "" {
+			return "", false, false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
+				prefix, f.Name, name)
+		}
+		return "", true, false, nil
+	}
+	if assignedOutsideConfiguration(name) {
+		return "", false, true, nil
+	}
+	if name == "" {
+		return "", false, false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
+	}
+	if bad, found := unaddressableChar(name); found {
+		return "", false, false, fmt.Errorf("%s.%s names %q, which carries %q. A dot makes the field claim a "+
+			"subtree the struct does not have, and neither a dot nor a space survives a round trip "+
+			"through a configuration source", prefix, f.Name, name, bad)
+	}
+	if neverMatchesAWrittenKey(name) {
+		return "", false, false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
+			"source enumerates lower-cased, so this key would never match a written one",
+			prefix, f.Name, name)
+	}
+	return name, false, false, nil
+}
+
+// parseTag splits a mapstructure tag into the name it gives a field and whether it squashes.
+func parseTag(tag string) (name string, squash bool) {
 	parts := strings.Split(tag, ",")
-	name = parts[0]
 	for _, opt := range parts[1:] {
 		if opt == "squash" {
 			squash = true
 		}
 	}
-	if squash {
-		if name != "" {
-			return "", false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
-				prefix, f.Name, name)
-		}
-		return "", true, nil
-	}
-	if name == "" || name == "-" {
-		return "", false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
-	}
-	if bad, found := unaddressableChar(name); found {
-		return "", false, fmt.Errorf("%s.%s names %q, which carries %q. A dot makes the field claim a "+
-			"subtree the struct does not have, and neither a dot nor a space survives a round trip "+
-			"through a configuration source", prefix, f.Name, name, bad)
-	}
-	if name != strings.ToLower(name) {
-		return "", false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
-			"source enumerates lower-cased, so this key would never match a written one",
-			prefix, f.Name, name)
-	}
-	return name, false, nil
+	return parts[0], squash
+}
+
+// assignedOutsideConfiguration reports whether a tag excludes its field from configuration.
+//
+// Something else in the program assigns such a field, so no reader resolves a key for it, and declaring
+// one would put a key in the space that reaches no field. An untagged field is refused for the same
+// reason read from the other end: it would declare a key derived from a field name, which is a key no
+// operator writes. The two look alike in a diff and mean opposite things.
+func assignedOutsideConfiguration(name string) bool {
+	return name == "-"
+}
+
+// neverMatchesAWrittenKey reports whether a key segment is spelled so that no written value can reach it.
+//
+// A configuration source enumerates its keys lower-cased, so a segment carrying an upper-case letter is
+// one an operator can write and nothing answers.
+func neverMatchesAWrittenKey(name string) bool {
+	return name != strings.ToLower(name)
 }
 
 // unaddressableChar returns the first character in a key segment that no configuration source can

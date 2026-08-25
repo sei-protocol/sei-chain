@@ -71,6 +71,12 @@
 // tag, an unexported field carrying a tag, two fields declaring one path, a struct that declares no
 // key, a struct that contains itself, and two keys that collapse onto one environment variable.
 //
+// A field tagged "-" is the deliberate opposite and is not a defect. That tag excludes a field from
+// configuration, so the field declares no key at all rather than one resolving to a default. The
+// distinction matters because a missing tag and a "-" tag look alike in a diff: one is a key nothing
+// names reaching a field, and the other is a field nothing configures. It is meaningful only on an
+// exported field, since an unexported one carrying any tag is refused before the tag is read.
+//
 // A key segment is also refused if it is upper-case, or if it carries a dot or a space. That rule
 // holds for the section name and for a field's tag alike, since both become segments of the same
 // dotted key and answer to the same sources.
