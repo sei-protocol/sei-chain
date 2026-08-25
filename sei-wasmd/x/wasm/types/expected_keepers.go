@@ -69,7 +69,3 @@ type StakingKeeper interface {
 type ParamsKeeper interface {
 	GetCosmosGasParams(ctx sdk.Context) paramstypes.CosmosGasParams
 }
-
-type UpgradeKeeper interface {
-	GetDoneHeight(ctx sdk.Context, upgrade string) int64
-}

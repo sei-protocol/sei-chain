@@ -44,7 +44,6 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
@@ -326,7 +325,6 @@ func createTestInput(
 		bankKeeper,
 		stakingKeeper,
 		distKeeper,
-		upgradekeeper.Keeper{},
 		msgRouter,
 		querier,
 		tempDir,

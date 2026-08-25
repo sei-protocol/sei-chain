@@ -408,7 +408,6 @@ func NewWasmApp(
 		app.bankKeeper,
 		app.stakingKeeper,
 		app.distrKeeper,
-		app.upgradeKeeper,
 		app.MsgServiceRouter(),
 		app.GRPCQueryRouter(),
 		wasmDir,
