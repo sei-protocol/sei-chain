@@ -105,6 +105,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/retiredibc"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -466,30 +467,12 @@ type App struct {
 	GigaOCCEnabled bool
 }
 
-var retiredIBCStoreNames = map[string]struct{}{
-	storekeys.IBCStoreKey: {},
-	transferModuleName:    {},
-	capabilityModuleName:  {},
-}
-
-var errIBCDeprecated = sdkerrors.New("ibc", 103, "ibc module is deprecated")
-
 // Query handles ABCI queries without exposing retired IBC stores.
 func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
-	if isRetiredIBCStoreQuery(req.Path) {
-		response := sdkerrors.QueryResult(errIBCDeprecated)
-		return &response, nil
+	if response := retiredibc.QueryResponse(req.Path); response != nil {
+		return response, nil
 	}
 	return app.BaseApp.Query(ctx, req)
-}
-
-func isRetiredIBCStoreQuery(requestPath string) bool {
-	path := strings.Split(strings.TrimPrefix(requestPath, "/"), "/")
-	if len(path) != 3 || path[0] != "store" || (path[2] != "key" && path[2] != "subspace") {
-		return false
-	}
-	_, retired := retiredIBCStoreNames[path[1]]
-	return retired
 }
 
 type AppOption func(*App)

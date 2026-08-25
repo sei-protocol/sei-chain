@@ -157,15 +157,6 @@ func TestIBCStoreQueriesAreUnavailable(t *testing.T) {
 		})
 	}
 
-	for _, path := range []string{
-		"/store/bank/key",
-		"/store/ibc-transfer/key",
-		"/custom/ibc/query",
-		"/store/ibc/unknown",
-	} {
-		require.False(t, isRetiredIBCStoreQuery(path))
-	}
-
 	response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: "/store/bank/key"})
 	require.NoError(t, err)
 	require.False(t, response.IsErr())

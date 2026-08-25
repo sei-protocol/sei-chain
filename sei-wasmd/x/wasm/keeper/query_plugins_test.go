@@ -14,16 +14,50 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-func TestIBCQueriesAreUnavailable(t *testing.T) {
-	for _, isABCIQuery := range []bool{false, true} {
-		t.Run(map[bool]string{false: "contract", true: "ABCI"}[isABCIQuery], func(t *testing.T) {
-			handler := QueryHandler{Ctx: sdk.Context{}.WithIsABCIQuery(isABCIQuery)}
-			_, err := handler.Query(wasmvmtypes.QueryRequest{
-				IBC: &wasmvmtypes.IBCQuery{PortID: &wasmvmtypes.PortIDQuery{}},
-			}, 0)
+func TestContractIBCQueryPortID(t *testing.T) {
+	caller := RandomAccountAddress(t)
+	wasm := mockWasmQueryKeeper{
+		GetContractInfoFn: func(ctx sdk.Context, contractAddress sdk.AccAddress) *types.ContractInfo {
+			require.Equal(t, caller, contractAddress)
+			return &types.ContractInfo{IBCPortID: "wasm.contract-port"}
+		},
+	}
+	ctx := sdk.Context{}.
+		WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)).
+		WithMultiStore(store.NewCommitMultiStore(dbm.NewMemDB()))
+	handler := NewQueryHandler(ctx, QueryPlugins{IBC: IBCQuerier(wasm)}, caller, NewDefaultWasmGasRegister())
+
+	result, err := handler.Query(wasmvmtypes.QueryRequest{
+		IBC: &wasmvmtypes.IBCQuery{PortID: &wasmvmtypes.PortIDQuery{}},
+	}, 1)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"port_id":"wasm.contract-port"}`, string(result))
+}
+
+func TestStateBackedIBCQueriesAreUnavailable(t *testing.T) {
+	for name, query := range map[string]*wasmvmtypes.IBCQuery{
+		"list channels": {ListChannels: &wasmvmtypes.ListChannelsQuery{}},
+		"channel":       {Channel: &wasmvmtypes.ChannelQuery{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			handler := QueryHandler{}
+
+			_, err := handler.Query(wasmvmtypes.QueryRequest{IBC: query}, 0)
+
 			require.EqualError(t, err, "unsupported request: IBC")
 		})
 	}
+}
+
+func TestABCIIBCQueriesAreUnavailable(t *testing.T) {
+	handler := QueryHandler{Ctx: sdk.Context{}.WithIsABCIQuery(true)}
+
+	_, err := handler.Query(wasmvmtypes.QueryRequest{
+		IBC: &wasmvmtypes.IBCQuery{PortID: &wasmvmtypes.PortIDQuery{}},
+	}, 0)
+
+	require.EqualError(t, err, "unsupported request: IBC")
 }
 
 func TestBankQuerierBalance(t *testing.T) {

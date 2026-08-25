@@ -109,6 +109,7 @@ func CosmosCheckTxAnte(
 	}
 	ctx = DecoratePriority(ctx, priority)
 
+	// IBC message types are no longer registered, so no retired IBC messages can reach CheckTx.
 	return ctx, nil
 }
 
