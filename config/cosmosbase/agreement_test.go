@@ -12,7 +12,7 @@ import (
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 )
 
-// whatANodeRunsToday is what each diverging key resolves to for a configuration carrying no keys.
+// legacyConfigManagerDefaults is what each diverging key resolves to under the manager this replaces.
 //
 // A declared value is what seid init writes for a kind of node. That is not what a node with nothing
 // written resolves, and these are the keys where the two differ. Most are reads that take no account of
@@ -20,7 +20,7 @@ import (
 //
 // Held as text because the two sides carry different Go types for the same key often enough that comparing
 // values would be comparing shapes. What matters here is which keys disagree and what a node gets instead.
-var whatANodeRunsToday = map[string]string{
+var legacyConfigManagerDefaults = map[string]string{
 	"api.address":                         "",
 	"api.max-open-connections":            "0",
 	"api.rpc-max-body-bytes":              "0",
@@ -35,8 +35,8 @@ var whatANodeRunsToday = map[string]string{
 	"telemetry.prometheus-retention-time": "0",
 }
 
-// whyItMatters says what a node gets today, for the keys where that is worth stating.
-var whyItMatters = map[string]string{
+// reasoning says what a node gets under that manager, for the keys where it is worth stating.
+var reasoning = map[string]string{
 	"pruning": "a command flag of this name carries the standard schedule below the file, so a node with " +
 		"nothing written prunes on that schedule where a generated file would have said keep everything",
 	"grpc.enable": "a command flag of this name defaults the interface on, so a validator with nothing " +
@@ -151,7 +151,7 @@ func TestTheDivergencesFromTheReaderAreTheRecordedOnes(t *testing.T) {
 			continue
 		}
 		if fmt.Sprint(declared) == got {
-			if _, listed := whatANodeRunsToday[key]; listed {
+			if _, listed := legacyConfigManagerDefaults[key]; listed {
 				t.Errorf("%s no longer diverges, both sides being %v. Take it off the record, so the "+
 					"record stays the set of keys a generated file states differently from a node that "+
 					"never wrote them", key, declared)
@@ -159,20 +159,20 @@ func TestTheDivergencesFromTheReaderAreTheRecordedOnes(t *testing.T) {
 			continue
 		}
 		measured = append(measured, key)
-		want, listed := whatANodeRunsToday[key]
+		want, listed := legacyConfigManagerDefaults[key]
 		switch {
 		case !listed:
 			t.Errorf("%s is declared as %v and a node with nothing written resolves %q, and nothing "+
-				"records that. %s", key, declared, got, whyItMatters[key])
+				"records that. %s", key, declared, got, reasoning[key])
 		case want != got:
 			t.Errorf("%s is recorded as resolving %q and resolves %q", key, want, got)
 		}
 	}
 
 	sort.Strings(measured)
-	if len(measured) != len(whatANodeRunsToday) {
+	if len(measured) != len(legacyConfigManagerDefaults) {
 		t.Errorf("measured %d divergences and %d are recorded: %v",
-			len(measured), len(whatANodeRunsToday), measured)
+			len(measured), len(legacyConfigManagerDefaults), measured)
 	}
 }
 
