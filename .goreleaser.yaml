@@ -6,7 +6,9 @@ before:
   hooks:
     - go mod download
     # The release runner is amd64, so building linux/arm64 needs binfmt registered.
-    - docker run --privileged --rm tonistiigi/binfmt --install arm64
+    # Pinned by digest: this runs privileged on the release runner, which holds the
+    # credentials that publish the binaries.
+    - docker run --privileged --rm tonistiigi/binfmt:qemu-v8.1.5@sha256:2d2918e86e5327d0661f7083d67a95280b0f7be8f77ed79a8418f81d7d90ce6f --install arm64
     # build-static.sh self-verifies per architecture (libwasmvm archives present, pinned
     # libgcc checksums match, output is static, no gcc>=12 b-tree unwinder).
     - bash scripts/build-static.sh amd64

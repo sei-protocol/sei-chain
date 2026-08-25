@@ -67,6 +67,14 @@ docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src golang:1.25.6-al
   # Reading nm through a pipe into grep reports the grep status, so a broken nm would
   # otherwise read as "no b-tree symbols found" and pass.
   nm '"$OUT"' > /tmp/seid.syms
+  # Positive control. The b-tree check below is absence-only, so an empty or truncated
+  # symbol table would satisfy it vacuously. __register_frame is the entry point wasmer
+  # calls and every libgcc provides it, pinned or not, so its absence means the symbol
+  # table is unusable rather than the pin being wrong.
+  if ! grep -q __register_frame /tmp/seid.syms; then
+    echo "build-static: ERROR: no unwinder symbols in '"$OUT"'; the b-tree assertion would pass vacuously" >&2
+    exit 1
+  fi
   if grep -q version_lock_lock_exclusive /tmp/seid.syms; then
     echo "build-static: ERROR: binary contains the gcc>=12 unwind b-tree (libgcc pin not applied)" >&2
     exit 1
