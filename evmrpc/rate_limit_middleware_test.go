@@ -516,7 +516,7 @@ func TestComposedStack_BudgetMidreadDoesNotChargeInnocentIP(t *testing.T) {
 	admitted := make(chan struct{}, 1)
 
 	reg := mustRateLimitRegistry(t, 0.001, 1) // burst=1: any charge exhausts the bucket
-	gate := NewRateLimitGate(reg, maxBody, true, "evm")
+	gate := newTestRateLimitGate(t, reg, maxBody)
 	inner := blockUntilRelease(release, func() { admitted <- struct{}{} })
 	stack := newRequestSizeLimiter(newRateLimitMiddleware(inner, gate), maxBody, budget, 0)
 
