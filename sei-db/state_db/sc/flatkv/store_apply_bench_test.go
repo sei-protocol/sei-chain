@@ -416,7 +416,8 @@ func BenchmarkClassifyAndPrefixParallel(b *testing.B) {
 				b.ReportAllocs()
 				var sizeHints [keys.EVMKeyKindCount]int
 				for b.Loop() {
-					classified, err := classifyAndPrefixParallel(changeSets, sizeHints, pool, targetSize)
+					classified, err := classifyAndPrefixParallel(
+						changeSets, sizeHints, pool, targetSize)
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -449,7 +450,8 @@ func BenchmarkClassifyScattered(b *testing.B) {
 				if targetSize == 0 {
 					classified, err = classifyAndPrefix(changeSets, sizeHints)
 				} else {
-					classified, err = classifyAndPrefixParallel(changeSets, sizeHints, pool, targetSize)
+					classified, err = classifyAndPrefixParallel(
+						changeSets, sizeHints, pool, targetSize)
 				}
 				if err != nil {
 					b.Fatal(err)
