@@ -52,7 +52,6 @@ mkdir -p $WASMD_DATA && cd $WASMD_DATA && cd ../
 echo "Generating rly configurations..."
 rly config init
 rly config add-chains configs/wasmd/chains
-rly config add-paths configs/wasmd/paths
 
 SEED0=$(jq -r '.mnemonic' $WASMD_DATA/ibc-0/key_seed.json)
 SEED1=$(jq -r '.mnemonic' $WASMD_DATA/ibc-1/key_seed.json)

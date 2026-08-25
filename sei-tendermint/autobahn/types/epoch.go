@@ -9,18 +9,24 @@ import (
 // EpochIndex is the epoch number.
 type EpochIndex uint64
 
-// RoadRange is an inclusive range of RoadIndex values [First, Last].
+// RoadRange is a half-open road range [First, Next).
 type RoadRange struct {
 	First RoadIndex
 	Next  RoadIndex
 }
 
+// EpochRange is a half-open epoch-index range [First, Next).
+type EpochRange struct {
+	First EpochIndex
+	Next  EpochIndex
+}
+
 // OpenRoadRange returns a RoadRange covering all road indices from 0.
-// Use in tests and genesis epochs where no upper bound is known yet.
 func OpenRoadRange() RoadRange { return RoadRange{First: 0, Next: utils.Max[RoadIndex]()} }
 
-// Has reports whether idx falls within this range.
 func (r RoadRange) Has(idx RoadIndex) bool { return r.First <= idx && idx < r.Next }
+
+func (r EpochRange) Has(idx EpochIndex) bool { return r.First <= idx && idx < r.Next }
 
 // Epoch holds the complete context for a single epoch.
 // Retrieved from the local Registry; never transmitted on the wire.

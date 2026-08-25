@@ -53,8 +53,7 @@ as how contracts can properly identify their counterparty.
 ## Workflow
 
 Establishing *Clients* and *Connections* is out of the scope of this
-module and must be created by the same means as for `ibc-transfer`
-(via the [go cli](https://github.com/cosmos/relayer) or better [ts-relayer](https://github.com/confio/ts-relayer)).
+module and must be created through an IBC relayer.
 `x/wasm` will bind a unique *Port* for each "IBC Enabled" contract.
 
 For mocks, all the Packet Handling and Channel Lifecycle Hooks are routed 

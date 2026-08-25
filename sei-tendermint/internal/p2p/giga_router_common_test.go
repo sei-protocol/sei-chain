@@ -120,7 +120,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.NoError(t, err)
 	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime)
 	require.NoError(t, err)
-	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*atypes.CommitQC]())
+	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
 	gr := qc.QC().GlobalRange()
 	require.Greater(t, gr.Len(), 2)
 	last := gr.First + atypes.GlobalBlockNumber(gr.Len()/2)
