@@ -19,6 +19,10 @@ before:
     # Linux ARM64 (static) CI job, which runs the same 8-boot gauntlet on arm64 hardware
     # against a bit-identical build of the same commit.
     - bash scripts/boot-smoke.sh build/seid-amd64 4
+    # The arm64 binary boots here under emulation, so the artefact that ships is the one
+    # booted. Emulated timing is not trusted to surface the gcc>=12 unwind b-tree, which
+    # is why the Linux ARM64 (static) job still runs the full gauntlet on real hardware.
+    - bash scripts/boot-smoke.sh build/seid-arm64 4
 
 builds:
   # The static seid is built in Alpine (musl-native) by the `before:` hook above

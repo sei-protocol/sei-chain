@@ -93,3 +93,12 @@ case "$ARCH:$info" in
   amd64:*x86-64*|arm64:*aarch64*) ;;
   *) echo "build-static: ERROR: $OUT is not a linux/$ARCH binary" >&2; exit 1 ;;
 esac
+
+# Record the digest so a CI build and a later release build of the same commit can be
+# compared. `apk add build-base` resolves against a live branch index, so the toolchain
+# can move underneath a pinned image digest and silently change the output.
+if command -v sha256sum >/dev/null 2>&1; then
+  echo "build-static: sha256 $(sha256sum "$OUT" | cut -d" " -f1) $OUT"
+else
+  echo "build-static: sha256 $(shasum -a 256 "$OUT" | cut -d" " -f1) $OUT"
+fi

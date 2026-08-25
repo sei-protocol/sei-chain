@@ -34,18 +34,15 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 0
 fi
 
-# Refuse a binary built for another architecture. Without this the run reaches `seid
-# init`, dies with an exec-format error, and reports "did not reach the ABCI handshake",
-# which reads as a crashing binary rather than the wrong file being passed in.
-elf_machine=$(od -An -tx1 -j18 -N2 "$BIN" | tr -d ' \n')
-case "$(uname -m)" in
-  x86_64)         host_machine=3e00 ;;
-  aarch64|arm64)  host_machine=b700 ;;
-  *) echo "boot-smoke: unsupported host architecture $(uname -m)" >&2; exit 1 ;;
-esac
-if [ "$elf_machine" != "$host_machine" ]; then
-  echo "boot-smoke: ERROR: $BIN is not a $(uname -m) binary (ELF e_machine $elf_machine)." >&2
-  echo "            This gate must run on hardware matching the binary under test." >&2
+# Refuse a binary this host cannot execute. Natively that means a matching
+# architecture; with binfmt registered a foreign one runs too, which is how the release
+# hook boots the arm64 binary on an amd64 runner. Probing execution covers both, and
+# without it the run reaches `seid init`, dies with an exec-format error, and reports
+# "did not reach the ABCI handshake", which reads as a crashing binary rather than a
+# binary this machine was never able to run.
+if ! "$BIN" version >/dev/null 2>&1; then
+  echo "boot-smoke: ERROR: cannot execute $BIN on $(uname -m)." >&2
+  echo "            For a foreign architecture, register binfmt before running this." >&2
   exit 1
 fi
 
