@@ -164,6 +164,18 @@ type Config struct {
 	// worker count: submitting happens on the commit path, and throttling commits is
 	// MaxUnflushedVersions' job alone.
 	SortThreadsPerCore float64
+
+	// ClassifyUnitSize is how many of a block's changeset pairs one worker classifies. 0 classifies the
+	// whole block on the calling thread.
+	//
+	// Classifying a pair means reading its key to decide which database it belongs to, and each pair is
+	// its own heap object, so reaching one stalls on a load the prefetcher cannot predict. Splitting the
+	// block lets several of those stalls overlap. Nothing is made cheaper; the waiting is what overlaps.
+	//
+	// Smaller units mean more overlap but more per-unit setup, and each unit allocates its own key arena
+	// and its own set of per-database buckets. Measured on cache-resident input the gain plateaus around
+	// 1024.
+	ClassifyUnitSize int
 }
 
 // MetaKeyPrefix is the key namespace FlatKV reserves for per-database metadata, and which each
@@ -205,6 +217,7 @@ func DefaultConfig() *Config {
 		MiscConstantThreadCount:   0,
 		LtHashThreadsPerCore:      1.0,
 		SortThreadsPerCore:        0.25,
+		ClassifyUnitSize:          1024,
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB
@@ -276,6 +289,9 @@ func (c *Config) Validate() error {
 	}
 	if c.SortThreadsPerCore < 0 {
 		return fmt.Errorf("sort threads per core must not be negative")
+	}
+	if c.ClassifyUnitSize < 0 {
+		return fmt.Errorf("classify unit size must not be negative")
 	}
 
 	return nil

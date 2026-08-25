@@ -50,5 +50,6 @@ func DefaultTestConfig(t testing.TB) *Config {
 		MiscPoolThreadsPerCore: 4.0,
 		LtHashThreadsPerCore:   1.0,
 		SortThreadsPerCore:     0.25,
+		ClassifyUnitSize:       1024,
 	}
 }

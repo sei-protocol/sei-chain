@@ -67,7 +67,8 @@ func (s *CommitStore) applyChangeSets(
 	// stamped at, so same-height repeats are accepted and no other height can reach here.
 
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
-	changesByType, err := classifyAndPrefix(changeSets, s.classifyBucketSizes)
+	changesByType, err := classifyAndPrefixParallel(
+		changeSets, s.classifyBucketSizes, s.miscPool, s.config.ClassifyUnitSize)
 	if err != nil {
 		return fmt.Errorf("classify changesets: %w", err)
 	}
@@ -521,8 +522,14 @@ func classifyAndPrefixParallel(
 	targetSize int,
 ) (classifiedChanges, error) {
 
+	// Checked before planning: a target of zero would ask for units of no pairs, which never consume the
+	// block.
+	if pool == nil || targetSize < 1 {
+		return classifyAndPrefix(changeSets, sizeHints)
+	}
+
 	units := planClassifyUnits(changeSets, targetSize)
-	if pool == nil || len(units) < 2 {
+	if len(units) < 2 {
 		return classifyAndPrefix(changeSets, sizeHints)
 	}
 
