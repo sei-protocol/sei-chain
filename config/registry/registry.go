@@ -418,8 +418,6 @@ func Reset() {
 	defer mu.Unlock()
 	sections = map[string]Section{}
 	defects = nil
-	envCannotDeliver = map[string]string{}
-	refusedBy = map[string]string{}
 }
 
 // envPrefix is the environment namespace for every derived key.

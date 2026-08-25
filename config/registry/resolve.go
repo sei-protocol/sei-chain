@@ -20,7 +20,8 @@ type Resolved struct {
 	//
 	// Separate from Unknown because the two are different mistakes. An unknown key is one nothing reads.
 	// An ignored one is read, and the operator reached for the one channel that cannot carry it, so the
-	// value they wrote elsewhere is what applies. EnvCannotDeliver says why, per key.
+	// value they wrote elsewhere is what applies. Ignored carries the keys; the reason is the same for all of them, because it is a fact about
+	// the channel rather than about any section.
 	Ignored []string
 	// Unknown are keys a source carried that no section declares, sorted.
 	//
@@ -89,18 +90,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 		return out, err
 	}
 	declared := declaredKeys(registered)
-	undeliverable := EnvCannotDeliver()
-	// A refusal is recorded by a key, and a key that no section declares is one the environment layer
-	// would never have offered anyway, so the refusal protects nothing and reads as though it did. Held
-	// here because a refusal may be recorded before the section that declares its key registers, so this
-	// is the first point both sets exist.
-	for key := range undeliverable {
-		if !declared[key] {
-			section, _ := RefusedBy(key)
-			return out, fmt.Errorf("%q is refused from the environment by section %q and no section "+
-				"declares it, so the refusal covers nothing", key, section)
-		}
-	}
+	undeliverable := keysNoVariableCanCarry(defaults)
 
 	out.Values = make(map[string]any, len(declared))
 	for key, v := range defaults {
@@ -312,6 +302,58 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 // declared is passed in rather than read here, so this shares Resolve's snapshot. Reading the registry
 // again would ask for a key the caller's declared set does not hold, and the answer would come back
 // only to be reported as one no section declares.
+// keysNoVariableCanCarry returns the declared keys an environment variable cannot supply, with the reason.
+//
+// One rule rather than a list each section keeps. A variable holds one string per name: that is a value for
+// anything read as a single word or number, and by long convention a list of those written with commas
+// between them. Nothing conventional puts a structure inside one variable, so a key whose value is a list of
+// anything other than single words is not offered this channel.
+//
+// Derived from what the key resolves to rather than declared beside the section that owns it. A section
+// naming its own exceptions is a list somebody keeps in step with the reader, and the first one forgotten is
+// a variable that resolves to a string, lands above the file because the environment outranks it, and
+// reaches a reader that wanted rows. Deriving it cannot be forgotten, and the reason is the same sentence
+// for every key it covers, because it is a fact about the channel and not about the section.
+func keysNoVariableCanCarry(defaults map[string]any) map[string]string {
+	out := map[string]string{}
+	for key, value := range defaults {
+		if value == nil {
+			continue
+		}
+		t := reflect.TypeOf(value)
+		if oneVariableCanCarry(t) {
+			continue
+		}
+		out[key] = fmt.Sprintf("this setting is a %s, and a variable holds one string: a single value, or "+
+			"conventionally a list of single values written with commas between them", t)
+	}
+	return out
+}
+
+// oneVariableCanCarry reports whether a value's shape is one an environment variable can hold.
+//
+// A single word or number, or a list of those. An element type that is itself a list, a map, or unconstrained
+// is not one: a comma-separated string cannot be trusted to become it, and a reader that asks for the exact
+// shape gets a string instead and stops the node.
+func oneVariableCanCarry(t reflect.Type) bool {
+	if isSingleValue(t.Kind()) {
+		return true
+	}
+	return t.Kind() == reflect.Slice && isSingleValue(t.Elem().Kind())
+}
+
+// isSingleValue reports whether a kind is one word or number.
+func isSingleValue(k reflect.Kind) bool {
+	switch k {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
+}
+
 func envValues(declared map[string]bool, undeliverable map[string]string,
 	lookup func(string) (string, bool)) (map[string]any, []string) {
 	if lookup == nil {
