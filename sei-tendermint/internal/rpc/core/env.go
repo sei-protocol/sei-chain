@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -48,7 +49,12 @@ const (
 	genesisChunkSize = 16 * 1024 * 1024 // 16
 )
 
-var logger = seilog.NewLogger("tendermint", "internal", "rpc", "core")
+var (
+	logger = seilog.NewLogger("tendermint", "internal", "rpc", "core")
+
+	// ErrReadOnly indicates that an RPC operation would mutate a read-only node.
+	ErrReadOnly = errors.New("RPC writes are disabled in freeze mode")
+)
 
 //----------------------------------------------
 // These interfaces are used by RPC and must be thread safe
@@ -93,8 +99,8 @@ type Environment struct {
 
 	Config config.RPCConfig
 
-	// TxBroadcastDisabled rejects transaction submission while preserving mempool reads.
-	TxBroadcastDisabled bool
+	// ReadOnly rejects RPC writes while preserving query and mempool reads.
+	ReadOnly bool
 
 	// cache of chunked genesis data.
 	genChunks []string
@@ -231,6 +237,13 @@ func (env *Environment) requireMempool() (*mempool.TxMempool, error) {
 		return mp, nil
 	}
 	return nil, fmt.Errorf("mempool is not available")
+}
+
+func (env *Environment) requireWritable() error {
+	if env.ReadOnly {
+		return ErrReadOnly
+	}
+	return nil
 }
 
 func (env *Environment) requireEventLog() (*eventlog.Log, error) {

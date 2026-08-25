@@ -104,8 +104,8 @@ the halt-height or if the current block time is greater than or equal to the hal
 node will attempt to gracefully shutdown and the block will not be committed. In addition, the node
 will not be able to commit subsequent blocks.
 The '--freeze-height' flag puts a full node in read-only freeze mode. Query RPC remains available,
-but transaction submission, mempool gossip, and state sync are disabled from startup. Block sync
-and consensus stop before executing the configured height.
+but transaction and evidence submission, mempool gossip, and state sync are disabled from startup.
+Block sync and consensus stop before executing the configured height.
 For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
 which accepts a path for the resulting pprof file.
 The node may be started in a 'query only' mode where only the gRPC and JSON HTTP

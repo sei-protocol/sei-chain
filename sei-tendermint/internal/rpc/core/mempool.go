@@ -50,7 +50,7 @@ func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	if err := env.requireTxBroadcast(); err != nil {
+	if err := env.requireWritable(); err != nil {
 		return nil, err
 	}
 	if giga, ok := env.gigaRouter().Get(); ok {
@@ -79,7 +79,7 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	if err := env.requireTxBroadcast(); err != nil {
+	if err := env.requireWritable(); err != nil {
 		return nil, err
 	}
 	if giga, ok := env.gigaRouter().Get(); ok {
@@ -119,7 +119,7 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 // BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
-	if err := env.requireTxBroadcast(); err != nil {
+	if err := env.requireWritable(); err != nil {
 		return nil, err
 	}
 	if timeout := env.Config.TimeoutBroadcastTxCommit; timeout > 0 {
@@ -209,13 +209,6 @@ func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *c
 			}, nil
 		}
 	}
-}
-
-func (env *Environment) requireTxBroadcast() error {
-	if env.TxBroadcastDisabled {
-		return errors.New("transaction broadcast is disabled in freeze mode")
-	}
-	return nil
 }
 
 // UnconfirmedTxs gets unconfirmed transactions from the mempool in order of priority

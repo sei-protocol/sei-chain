@@ -115,8 +115,8 @@ type BaseConfig struct {
 	HaltHeight uint64 `mapstructure:"halt-height"`
 
 	// FreezeHeight contains the first block height a full node must not execute.
-	// Query RPC remains available, while transaction submission and mempool gossip
-	// are disabled from startup.
+	// Query RPC remains available, while transaction and evidence submission,
+	// mempool gossip, and state sync are disabled from startup.
 	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which

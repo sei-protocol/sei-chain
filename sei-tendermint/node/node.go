@@ -275,7 +275,7 @@ func makeNode(
 			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
 
-			TxBroadcastDisabled: opts.freezeHeight > 0,
+			ReadOnly: opts.freezeHeight > 0,
 		},
 	}
 

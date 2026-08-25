@@ -1,6 +1,7 @@
 package node
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
+	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -89,8 +91,8 @@ func TestFreezeModeDisablesMempoolTraffic(t *testing.T) {
 	if !node.rpcEnv.Mempool.IsPresent() {
 		t.Fatal("RPC mempool reads are unavailable in freeze mode")
 	}
-	if !node.rpcEnv.TxBroadcastDisabled {
-		t.Fatal("RPC transaction broadcast is enabled in freeze mode")
+	if !node.rpcEnv.ReadOnly {
+		t.Fatal("RPC writes are enabled in freeze mode")
 	}
 	txRequest := &coretypes.RequestBroadcastTx{Tx: types.Tx{1}}
 	for name, broadcast := range map[string]func() error{
@@ -111,9 +113,12 @@ func TestFreezeModeDisablesMempoolTraffic(t *testing.T) {
 			return err
 		},
 	} {
-		if err := broadcast(); err == nil {
-			t.Fatalf("%s RPC transaction broadcast succeeded in freeze mode", name)
+		if err := broadcast(); !errors.Is(err, rpccore.ErrReadOnly) {
+			t.Fatalf("%s RPC transaction broadcast error = %v, want ErrReadOnly", name, err)
 		}
+	}
+	if _, err := node.rpcEnv.BroadcastEvidence(t.Context(), &coretypes.RequestBroadcastEvidence{}); !errors.Is(err, rpccore.ErrReadOnly) {
+		t.Fatalf("RPC evidence broadcast error = %v, want ErrReadOnly", err)
 	}
 	if pending, err := node.rpcEnv.UnconfirmedTxs(t.Context(), &coretypes.RequestUnconfirmedTxs{}); err != nil {
 		t.Fatalf("reading unconfirmed transactions: %v", err)
