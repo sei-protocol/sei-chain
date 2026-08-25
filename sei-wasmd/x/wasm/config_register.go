@@ -12,15 +12,10 @@ const SectionName = "wasm"
 
 // GeneratedQueryGasLimit is the smart-query gas limit a generated app.toml carries.
 //
-// The template interpolates this field rather than repeating the number, so the value an operator is handed
-// and the value this section declares are one statement. They were two: the template wrote the number as a
-// literal, so editing this constant moved the declaration and the rendered struct while a generated file
-// kept the old value, and the test that pins the file against its own expected number stayed green. It
-// fails now.
-//
-// A tenth of what this module's own default holds, and it is the value every node provisioned by the
-// binary runs. Declared here, beside the section, and read by the command that renders the file, so the
-// number that reaches an operator and the number this section states are one statement.
+// A tenth of what this module's own default holds, and the value every node the binary provisions runs. The
+// template interpolates this constant rather than repeating the number, so the value that reaches an
+// operator and the value this section declares are one statement, and editing it fails the test that reads
+// a generated file.
 const GeneratedQueryGasLimit uint64 = 300_000
 
 // wasmSchema names the keys this module's reader resolves.
@@ -59,15 +54,14 @@ func init() {
 // default is still what a node whose file has no wasm section resolves, which is a different question and
 // recorded as one.
 //
-// So this one key answers a different question from the two beside it, and a reader has to know which. The
-// other two state what a node with nothing written runs, because they come from the module's own defaults.
-// This one states what a generated file carries, and a node with no wasm section runs the module's larger
-// limit instead.
+// So this key answers a different question from the two beside it. Those two come from the module's own
+// defaults and state what a node with nothing written runs. This one states what a generated file carries,
+// and a node with no wasm section runs the module's larger limit.
 //
-// That matters to anything reading a resolution as a description of a running node. A report of one node's
-// effective settings would name a bound ten times tighter than an un-sectioned node applies. It does not
-// matter to anything reading a resolution as what to write, which is what the install does and what a
-// renderer would do, and where writing the larger number is the outcome to avoid.
+// The difference reaches a caller reading a resolution as a description of a node: a report of one node's
+// effective settings names a bound ten times tighter than an un-sectioned node applies. It does not reach a
+// caller reading a resolution as what to write, which is what an install does and what a renderer would do,
+// and where the larger number is the one to avoid writing.
 func sectionDefaults(registry.Mode) any {
 	live := types.DefaultWasmConfig()
 	schema := wasmSchema{
