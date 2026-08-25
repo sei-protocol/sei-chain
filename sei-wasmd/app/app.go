@@ -66,7 +66,6 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
 	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
-	porttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
 	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -222,7 +221,7 @@ type WasmApp struct {
 	upgradeKeeper  upgradekeeper.Keeper
 	paramsKeeper   paramskeeper.Keeper
 	evidenceKeeper evidencekeeper.Keeper
-	ibcKeeper      *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
+	ibcKeeper      *ibckeeper.Keeper
 	authzKeeper    authzkeeper.Keeper
 	wasmKeeper     wasm.Keeper
 
@@ -403,15 +402,10 @@ func NewWasmApp(
 		wasmOpts...,
 	)
 
-	// Create static IBC router, add app routes, then set and seal it
-	ibcRouter := porttypes.NewRouter()
-
 	// The gov proposal types can be individually enabled
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.wasmKeeper, enabledProposals))
 	}
-	ibcRouter.AddRoute(wasm.ModuleName, wasm.NewIBCHandler(app.wasmKeeper, app.ibcKeeper.ChannelKeeper))
-	app.ibcKeeper.SetRouter(ibcRouter)
 
 	app.govKeeper = govkeeper.NewKeeper(
 		appCodec,
