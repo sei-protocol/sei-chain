@@ -137,7 +137,17 @@ For pseudocode purposes, here are the two function we will use to read or write 
 
 - `ProposalProcessingQueue`: A queue `queue[proposalID]` containing all the
   `ProposalIDs` of proposals that reached `MinDeposit`. During each `EndBlock`,
-  all the proposals that have reached the end of their voting period are processed.
+  proposals that have reached the end of their voting period are advanced within
+  the block's vote-processing budget.
+
+## Incremental tally state
+
+An expired proposal retains a tally accumulator, a cursor, and a snapshot of the
+bonded validators and tally parameters until all of its vote records have been
+processed. Processed votes move to a round-specific archive so an application-state
+export can reconstruct every vote while a tally is unfinished. New votes are rejected
+after the accumulator is created. Completed tally archives are removed incrementally
+under the same per-block vote-record budget.
   To process a finished proposal, the application tallies the votes, computes the
   votes of each validator and checks if every validator in the validator set has
   voted. If the proposal is accepted, deposits are refunded. Finally, the proposal

@@ -37,6 +37,12 @@ const (
 // - 0x10<proposalID_Bytes><depositorAddrLen (1 Byte)><depositorAddr_Bytes>: Deposit
 //
 // - 0x20<proposalID_Bytes><voterAddrLen (1 Byte)><voterAddr_Bytes>: Voter
+//
+// - 0x30<proposalID_Bytes>: Tally progress
+//
+// - 0x31<proposalID_Bytes><tallyRound_Byte><voterAddrLen (1 Byte)><voterAddr_Bytes>: Archived voter
+//
+// - 0x32<proposalID_Bytes><tallyRound_Byte>: Tally archive cleanup cursor
 var (
 	ProposalsKeyPrefix          = []byte{0x00}
 	ActiveProposalQueuePrefix   = []byte{0x01}
@@ -46,6 +52,10 @@ var (
 	DepositsKeyPrefix = []byte{0x10}
 
 	VotesKeyPrefix = []byte{0x20}
+
+	TallyProgressKeyPrefix = []byte{0x30}
+	TallyVotesKeyPrefix    = []byte{0x31}
+	TallyCleanupKeyPrefix  = []byte{0x32}
 )
 
 var lenTime = len(sdk.FormatTimeBytes(time.Now()))
@@ -105,6 +115,33 @@ func VotesKey(proposalID uint64) []byte {
 // VoteKey key of a specific vote from the store
 func VoteKey(proposalID uint64, voterAddr sdk.AccAddress) []byte {
 	return append(VotesKey(proposalID), address.MustLengthPrefix(voterAddr.Bytes())...)
+}
+
+// TallyProgressKey returns the key for a proposal's incremental tally state.
+func TallyProgressKey(proposalID uint64) []byte {
+	return append(TallyProgressKeyPrefix, GetProposalIDBytes(proposalID)...)
+}
+
+// TallyVotesKey returns the prefix for votes archived during a proposal tally round.
+func TallyVotesKey(proposalID uint64, expedited bool) []byte {
+	return append(append(TallyVotesKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited))
+}
+
+// TallyVoteKey returns the key for a vote archived during a proposal tally.
+func TallyVoteKey(proposalID uint64, expedited bool, voterAddr sdk.AccAddress) []byte {
+	return append(TallyVotesKey(proposalID, expedited), address.MustLengthPrefix(voterAddr.Bytes())...)
+}
+
+// TallyCleanupKey returns the key for a proposal tally round's archived-vote cleanup cursor.
+func TallyCleanupKey(proposalID uint64, expedited bool) []byte {
+	return append(append(TallyCleanupKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited))
+}
+
+func tallyRound(expedited bool) byte {
+	if expedited {
+		return 0
+	}
+	return 1
 }
 
 // Split keys function; used for iterators

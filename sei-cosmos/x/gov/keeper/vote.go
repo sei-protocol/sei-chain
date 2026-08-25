@@ -17,6 +17,9 @@ func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.A
 	if proposal.Status != types.StatusVotingPeriod {
 		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
+	if keeper.IsTallying(ctx, proposalID) {
+		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+	}
 
 	for _, option := range options {
 		if !types.ValidWeightedVoteOption(option) {
@@ -59,6 +62,21 @@ func (keeper Keeper) GetVotes(ctx sdk.Context, proposalID uint64) (votes types.V
 		return false
 	})
 	return
+}
+
+// GetArchivedTallyVotes returns votes already processed by an unfinished proposal tally.
+func (keeper Keeper) GetArchivedTallyVotes(ctx sdk.Context, proposalID uint64, expedited bool) (votes types.Votes) {
+	store := ctx.KVStore(keeper.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.TallyVotesKey(proposalID, expedited))
+	defer func() { _ = iterator.Close() }()
+
+	for ; iterator.Valid(); iterator.Next() {
+		var vote types.Vote
+		keeper.cdc.MustUnmarshal(iterator.Value(), &vote)
+		populateLegacyOption(&vote)
+		votes = append(votes, vote)
+	}
+	return votes
 }
 
 // GetVote gets the vote from an address on a specific proposal
@@ -121,12 +139,6 @@ func (keeper Keeper) IterateVotes(ctx sdk.Context, proposalID uint64, cb func(vo
 			break
 		}
 	}
-}
-
-// deleteVote deletes a vote from a given proposalID and voter from the store
-func (keeper Keeper) deleteVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress) {
-	store := ctx.KVStore(keeper.storeKey)
-	store.Delete(types.VoteKey(proposalID, voterAddr))
 }
 
 // populateLegacyOption adds graceful fallback of deprecated `Option` field, in case

@@ -499,3 +499,86 @@ func TestTallyValidatorMultipleDelegations(t *testing.T) {
 
 	require.True(t, tallyResults.Equals(expectedTallyResult))
 }
+
+func TestTallyIncrementalPersistsProgressAndCleansArchivedVotes(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	addrs, _ := createValidators(t, ctx, app, []int64{5, 5, 5})
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, proposal)
+
+	for _, addr := range addrs[:3] {
+		require.NoError(t, app.GovKeeper.AddVote(
+			ctx,
+			proposal.ProposalId,
+			addr,
+			types.NewNonSplitVoteOption(types.OptionYes),
+		))
+	}
+
+	complete, processed, _, _, _ := app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.False(t, complete)
+	require.Equal(t, 1, processed)
+	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
+	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), 2)
+
+	err = app.GovKeeper.AddVote(ctx, proposal.ProposalId, addrs[3], types.NewNonSplitVoteOption(types.OptionNo))
+	require.ErrorIs(t, err, types.ErrInactiveProposal)
+
+	complete, processed, _, _, _ = app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.False(t, complete)
+	require.Equal(t, 1, processed)
+
+	complete, processed, passes, burnDeposits, tallyResult := app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.True(t, complete)
+	require.Equal(t, 1, processed)
+	require.True(t, passes)
+	require.False(t, burnDeposits)
+	require.False(t, tallyResult.Equals(types.EmptyTallyResult()))
+	require.False(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.Empty(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 3)
+
+	require.Equal(t, 2, app.GovKeeper.CleanupTallyVotes(ctx, 2))
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
+	require.Equal(t, 1, app.GovKeeper.CleanupTallyVotes(ctx, 2))
+	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
+}
+
+func TestTallyArchivesExpeditedAndRegularRoundsSeparately(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrs, _ := createValidators(t, ctx, app, []int64{5, 5, 5})
+
+	proposal, err := app.GovKeeper.SubmitProposalWithExpedite(ctx, TestExpeditedProposal, true)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, proposal)
+	require.NoError(t, app.GovKeeper.AddVote(
+		ctx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+
+	complete, _, _, _, _ := app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.True(t, complete)
+
+	proposal.IsExpedited = false
+	app.GovKeeper.SetProposal(ctx, proposal)
+	require.NoError(t, app.GovKeeper.AddVote(
+		ctx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionNo),
+	))
+	complete, _, _, _, _ = app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.True(t, complete)
+
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, true), 1)
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
+}

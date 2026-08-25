@@ -1,125 +1,358 @@
 package keeper
 
 import (
+	"encoding/json"
+	"fmt"
+	"math"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
-// TODO: Break into several smaller functions for clarity
+const cleanupCursorUnset byte = 0
 
-// Tally iterates over the votes and updates the tally of a proposal based on the voting power of the
-// voters
+type tallyProgress struct {
+	Cursor            []byte             `json:"cursor,omitempty"`
+	Results           tallyOptionResults `json:"results"`
+	TotalVotingPower  sdk.Dec            `json:"total_voting_power"`
+	TotalBondedTokens sdk.Int            `json:"total_bonded_tokens"`
+	TallyParams       types.TallyParams  `json:"tally_params"`
+	Validators        []tallyValidator   `json:"validators"`
+	Expedited         bool               `json:"expedited"`
+}
+
+type tallyOptionResults struct {
+	Yes        sdk.Dec `json:"yes"`
+	Abstain    sdk.Dec `json:"abstain"`
+	No         sdk.Dec `json:"no"`
+	NoWithVeto sdk.Dec `json:"no_with_veto"`
+}
+
+type tallyValidator struct {
+	Address             string                    `json:"address"`
+	BondedTokens        sdk.Int                   `json:"bonded_tokens"`
+	DelegatorShares     sdk.Dec                   `json:"delegator_shares"`
+	DelegatorDeductions sdk.Dec                   `json:"delegator_deductions"`
+	Vote                types.WeightedVoteOptions `json:"vote"`
+}
+
+// Tally processes every vote for a proposal and returns its result.
 func (keeper Keeper) Tally(ctx sdk.Context, proposal types.Proposal) (passes bool, burnDeposits bool, tallyResults types.TallyResult) {
-	results := make(map[types.VoteOption]sdk.Dec)
-	results[types.OptionYes] = sdk.ZeroDec()
-	results[types.OptionAbstain] = sdk.ZeroDec()
-	results[types.OptionNo] = sdk.ZeroDec()
-	results[types.OptionNoWithVeto] = sdk.ZeroDec()
+	complete, _, passes, burnDeposits, tallyResults := keeper.TallyIncremental(ctx, proposal, math.MaxInt)
+	if !complete {
+		panic(fmt.Sprintf("tally for proposal %d did not complete", proposal.ProposalId))
+	}
 
-	totalVotingPower := sdk.ZeroDec()
-	currValidators := make(map[string]types.ValidatorGovInfo)
+	keeper.cleanupProposalTallyVotes(ctx, proposal.ProposalId, proposal.IsExpedited, math.MaxInt, nil)
+	return passes, burnDeposits, tallyResults
+}
 
-	// fetch all the bonded validators, insert them into currValidators
-	keeper.sk.IterateBondedValidatorsByPower(ctx, func(index int64, validator stakingtypes.ValidatorI) (stop bool) {
-		currValidators[validator.GetOperator().String()] = types.NewValidatorGovInfo(
-			validator.GetOperator(),
-			validator.GetBondedTokens(),
-			validator.GetDelegatorShares(),
-			sdk.ZeroDec(),
-			types.WeightedVoteOptions{},
+// TallyIncremental processes at most maxVotes vote records and persists an unfinished tally.
+func (keeper Keeper) TallyIncremental(
+	ctx sdk.Context,
+	proposal types.Proposal,
+	maxVotes int,
+) (complete bool, processed int, passes bool, burnDeposits bool, tallyResults types.TallyResult) {
+	if maxVotes < 0 {
+		panic("maximum votes to tally cannot be negative")
+	}
+
+	progress, found := keeper.getTallyProgress(ctx, proposal.ProposalId)
+	if !found {
+		progress = keeper.initializeTally(ctx, proposal)
+	} else if progress.Expedited != proposal.IsExpedited {
+		panic(fmt.Sprintf("tally round for proposal %d changed", proposal.ProposalId))
+	}
+
+	complete, processed = keeper.processTallyVotes(ctx, proposal.ProposalId, &progress, maxVotes)
+	if !complete {
+		keeper.setTallyProgress(ctx, proposal.ProposalId, progress)
+		return false, processed, false, false, types.EmptyTallyResult()
+	}
+
+	passes, burnDeposits, tallyResults = keeper.finishTally(progress)
+	keeper.deleteTallyProgress(ctx, proposal.ProposalId)
+	keeper.markTallyVotesForCleanup(ctx, proposal.ProposalId, progress.Expedited)
+	return true, processed, passes, burnDeposits, tallyResults
+}
+
+// IsTallying reports whether a proposal has an unfinished incremental tally.
+func (keeper Keeper) IsTallying(ctx sdk.Context, proposalID uint64) bool {
+	store := ctx.KVStore(keeper.storeKey)
+	return store.Has(types.TallyProgressKey(proposalID))
+}
+
+// CleanupTallyVotes deletes at most maxVotes vote records archived by completed tallies.
+func (keeper Keeper) CleanupTallyVotes(ctx sdk.Context, maxVotes int) (deleted int) {
+	if maxVotes <= 0 {
+		return 0
+	}
+
+	store := ctx.KVStore(keeper.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.TallyCleanupKeyPrefix)
+	defer func() { _ = iterator.Close() }()
+
+	for ; iterator.Valid() && deleted < maxVotes; iterator.Next() {
+		proposalID, expedited := splitTallyCleanupKey(iterator.Key())
+		cursor := decodeCleanupCursor(iterator.Value())
+		count, complete, nextCursor := keeper.cleanupProposalTallyVotes(
+			ctx,
+			proposalID,
+			expedited,
+			maxVotes-deleted,
+			cursor,
 		)
+		deleted += count
 
+		cleanupKey := types.TallyCleanupKey(proposalID, expedited)
+		if complete {
+			store.Delete(cleanupKey)
+		} else {
+			store.Set(cleanupKey, nextCursor)
+		}
+	}
+
+	return deleted
+}
+
+func (keeper Keeper) initializeTally(ctx sdk.Context, proposal types.Proposal) tallyProgress {
+	progress := tallyProgress{
+		Results: tallyOptionResults{
+			Yes:        sdk.ZeroDec(),
+			Abstain:    sdk.ZeroDec(),
+			No:         sdk.ZeroDec(),
+			NoWithVeto: sdk.ZeroDec(),
+		},
+		TotalVotingPower:  sdk.ZeroDec(),
+		TotalBondedTokens: keeper.sk.TotalBondedTokens(ctx),
+		TallyParams:       keeper.GetTallyParams(ctx),
+		Expedited:         proposal.IsExpedited,
+	}
+
+	keeper.sk.IterateBondedValidatorsByPower(ctx, func(_ int64, validator stakingtypes.ValidatorI) bool {
+		progress.Validators = append(progress.Validators, tallyValidator{
+			Address:             validator.GetOperator().String(),
+			BondedTokens:        validator.GetBondedTokens(),
+			DelegatorShares:     validator.GetDelegatorShares(),
+			DelegatorDeductions: sdk.ZeroDec(),
+		})
 		return false
 	})
 
-	keeper.IterateVotes(ctx, proposal.ProposalId, func(vote types.Vote) bool {
-		// if validator, just record it in the map
-		voter := sdk.MustAccAddressFromBech32(vote.Voter)
+	return progress
+}
 
-		valAddrStr := sdk.ValAddress(voter.Bytes()).String()
-		if val, ok := currValidators[valAddrStr]; ok {
-			val.Vote = vote.Options
-			currValidators[valAddrStr] = val
+func (keeper Keeper) processTallyVotes(
+	ctx sdk.Context,
+	proposalID uint64,
+	progress *tallyProgress,
+	maxVotes int,
+) (complete bool, processed int) {
+	validators := make(map[string]*tallyValidator, len(progress.Validators))
+	for i := range progress.Validators {
+		validator := &progress.Validators[i]
+		validators[validator.Address] = validator
+	}
+
+	store := ctx.KVStore(keeper.storeKey)
+	votesPrefix := types.VotesKey(proposalID)
+	start := votesPrefix
+	if len(progress.Cursor) != 0 {
+		start = sdk.PrefixEndBytes(progress.Cursor)
+	}
+	iterator := store.Iterator(start, sdk.PrefixEndBytes(votesPrefix))
+	defer func() { _ = iterator.Close() }()
+
+	for ; iterator.Valid() && processed < maxVotes; iterator.Next() {
+		key := append([]byte(nil), iterator.Key()...)
+		value := append([]byte(nil), iterator.Value()...)
+
+		var vote types.Vote
+		keeper.cdc.MustUnmarshal(value, &vote)
+		populateLegacyOption(&vote)
+		keeper.addVoteToTally(ctx, progress, validators, vote)
+
+		voter := sdk.MustAccAddressFromBech32(vote.Voter)
+		store.Set(types.TallyVoteKey(proposalID, progress.Expedited, voter), value)
+		store.Delete(key)
+		progress.Cursor = key
+		processed++
+	}
+
+	return !iterator.Valid(), processed
+}
+
+func (keeper Keeper) addVoteToTally(
+	ctx sdk.Context,
+	progress *tallyProgress,
+	validators map[string]*tallyValidator,
+	vote types.Vote,
+) {
+	voter := sdk.MustAccAddressFromBech32(vote.Voter)
+	if validator, ok := validators[sdk.ValAddress(voter.Bytes()).String()]; ok {
+		validator.Vote = vote.Options
+	}
+
+	keeper.sk.IterateDelegations(ctx, voter, func(_ int64, delegation stakingtypes.DelegationI) bool {
+		validator, ok := validators[delegation.GetValidatorAddr().String()]
+		if !ok {
+			return false
 		}
 
-		// iterate over all delegations from voter, deduct from any delegated-to validators
-		keeper.sk.IterateDelegations(ctx, voter, func(index int64, delegation stakingtypes.DelegationI) (stop bool) {
-			valAddrStr := delegation.GetValidatorAddr().String()
-
-			if val, ok := currValidators[valAddrStr]; ok {
-				// There is no need to handle the special case that validator address equal to voter address.
-				// Because voter's voting power will tally again even if there will deduct voter's voting power from validator.
-				val.DelegatorDeductions = val.DelegatorDeductions.Add(delegation.GetShares())
-				currValidators[valAddrStr] = val
-
-				// delegation shares * bonded / total shares
-				votingPower := delegation.GetShares().MulInt(val.BondedTokens).Quo(val.DelegatorShares)
-
-				for _, option := range vote.Options {
-					subPower := votingPower.Mul(option.Weight)
-					results[option.Option] = results[option.Option].Add(subPower)
-				}
-				totalVotingPower = totalVotingPower.Add(votingPower)
-			}
-
-			return false
-		})
-
-		keeper.deleteVote(ctx, vote.ProposalId, voter)
+		validator.DelegatorDeductions = validator.DelegatorDeductions.Add(delegation.GetShares())
+		votingPower := delegation.GetShares().MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
+		progress.Results.add(vote.Options, votingPower)
+		progress.TotalVotingPower = progress.TotalVotingPower.Add(votingPower)
 		return false
 	})
+}
 
-	// iterate over the validators again to tally their voting power
-	for _, val := range currValidators {
-		if len(val.Vote) == 0 {
+func (keeper Keeper) finishTally(progress tallyProgress) (passes bool, burnDeposits bool, tallyResults types.TallyResult) {
+	for _, validator := range progress.Validators {
+		if len(validator.Vote) == 0 {
 			continue
 		}
 
-		sharesAfterDeductions := val.DelegatorShares.Sub(val.DelegatorDeductions)
-		votingPower := sharesAfterDeductions.MulInt(val.BondedTokens).Quo(val.DelegatorShares)
-
-		for _, option := range val.Vote {
-			subPower := votingPower.Mul(option.Weight)
-			results[option.Option] = results[option.Option].Add(subPower)
-		}
-		totalVotingPower = totalVotingPower.Add(votingPower)
+		sharesAfterDeductions := validator.DelegatorShares.Sub(validator.DelegatorDeductions)
+		votingPower := sharesAfterDeductions.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
+		progress.Results.add(validator.Vote, votingPower)
+		progress.TotalVotingPower = progress.TotalVotingPower.Add(votingPower)
 	}
 
-	tallyParams := keeper.GetTallyParams(ctx)
-	tallyResults = types.NewTallyResultFromMap(results)
-
-	// TODO: Upgrade the spec to cover all of these cases & remove pseudocode.
-	// If there is no staked coins, the proposal fails
-	if keeper.sk.TotalBondedTokens(ctx).IsZero() {
+	tallyResults = progress.Results.tallyResult()
+	if progress.TotalBondedTokens.IsZero() {
 		return false, false, tallyResults
 	}
 
-	// If there is not enough quorum of votes, the proposal fails
-	percentVoting := totalVotingPower.Quo(keeper.sk.TotalBondedTokens(ctx).ToDec())
-	// Get the quorum threshold based on if the proposal is expedited or not
-	quorumThreshold := tallyParams.GetQuorum(proposal.IsExpedited)
-	if percentVoting.LT(quorumThreshold) {
+	percentVoting := progress.TotalVotingPower.Quo(progress.TotalBondedTokens.ToDec())
+	if percentVoting.LT(progress.TallyParams.GetQuorum(progress.Expedited)) {
 		return false, true, tallyResults
 	}
 
-	// If no one votes (everyone abstains), proposal fails
-	if totalVotingPower.Sub(results[types.OptionAbstain]).Equal(sdk.ZeroDec()) {
+	if progress.TotalVotingPower.Sub(progress.Results.Abstain).IsZero() {
 		return false, false, tallyResults
 	}
 
-	// If more than 1/3 of voters veto, proposal fails
-	if results[types.OptionNoWithVeto].Quo(totalVotingPower).GT(tallyParams.VetoThreshold) {
+	if progress.Results.NoWithVeto.Quo(progress.TotalVotingPower).GT(progress.TallyParams.VetoThreshold) {
 		return false, true, tallyResults
 	}
 
-	// If more than threshold of non-abstaining voters vote Yes, proposal passes
-	// default value for regular proposals is 1/2. For expedited 2/3
-	voteYesThreshold := tallyParams.GetThreshold(proposal.IsExpedited)
-	if results[types.OptionYes].Quo(totalVotingPower.Sub(results[types.OptionAbstain])).GT(voteYesThreshold) {
+	nonAbstainingPower := progress.TotalVotingPower.Sub(progress.Results.Abstain)
+	if progress.Results.Yes.Quo(nonAbstainingPower).GT(progress.TallyParams.GetThreshold(progress.Expedited)) {
 		return true, false, tallyResults
 	}
 
-	// Otherwise proposal fails
 	return false, false, tallyResults
+}
+
+func (results *tallyOptionResults) add(options types.WeightedVoteOptions, votingPower sdk.Dec) {
+	for _, option := range options {
+		subPower := votingPower.Mul(option.Weight)
+		switch option.Option {
+		case types.OptionYes:
+			results.Yes = results.Yes.Add(subPower)
+		case types.OptionAbstain:
+			results.Abstain = results.Abstain.Add(subPower)
+		case types.OptionNo:
+			results.No = results.No.Add(subPower)
+		case types.OptionNoWithVeto:
+			results.NoWithVeto = results.NoWithVeto.Add(subPower)
+		default:
+			panic(fmt.Sprintf("unsupported vote option %s", option.Option))
+		}
+	}
+}
+
+func (results tallyOptionResults) tallyResult() types.TallyResult {
+	return types.NewTallyResult(
+		results.Yes.TruncateInt(),
+		results.Abstain.TruncateInt(),
+		results.No.TruncateInt(),
+		results.NoWithVeto.TruncateInt(),
+	)
+}
+
+func (keeper Keeper) getTallyProgress(ctx sdk.Context, proposalID uint64) (progress tallyProgress, found bool) {
+	store := ctx.KVStore(keeper.storeKey)
+	bz := store.Get(types.TallyProgressKey(proposalID))
+	if bz == nil {
+		return tallyProgress{}, false
+	}
+	if err := json.Unmarshal(bz, &progress); err != nil {
+		panic(fmt.Errorf("unmarshal tally progress for proposal %d: %w", proposalID, err))
+	}
+	return progress, true
+}
+
+func (keeper Keeper) setTallyProgress(ctx sdk.Context, proposalID uint64, progress tallyProgress) {
+	bz, err := json.Marshal(progress)
+	if err != nil {
+		panic(fmt.Errorf("marshal tally progress for proposal %d: %w", proposalID, err))
+	}
+	ctx.KVStore(keeper.storeKey).Set(types.TallyProgressKey(proposalID), bz)
+}
+
+func (keeper Keeper) deleteTallyProgress(ctx sdk.Context, proposalID uint64) {
+	ctx.KVStore(keeper.storeKey).Delete(types.TallyProgressKey(proposalID))
+}
+
+func (keeper Keeper) markTallyVotesForCleanup(ctx sdk.Context, proposalID uint64, expedited bool) {
+	store := ctx.KVStore(keeper.storeKey)
+	iterator := sdk.KVStorePrefixIterator(store, types.TallyVotesKey(proposalID, expedited))
+	defer func() { _ = iterator.Close() }()
+	if iterator.Valid() {
+		store.Set(types.TallyCleanupKey(proposalID, expedited), []byte{cleanupCursorUnset})
+	}
+}
+
+func (keeper Keeper) cleanupProposalTallyVotes(
+	ctx sdk.Context,
+	proposalID uint64,
+	expedited bool,
+	maxVotes int,
+	after []byte,
+) (deleted int, complete bool, cursor []byte) {
+	store := ctx.KVStore(keeper.storeKey)
+	votesPrefix := types.TallyVotesKey(proposalID, expedited)
+	start := votesPrefix
+	if len(after) != 0 {
+		start = sdk.PrefixEndBytes(after)
+	}
+	iterator := store.Iterator(start, sdk.PrefixEndBytes(votesPrefix))
+	defer func() { _ = iterator.Close() }()
+
+	for ; iterator.Valid() && deleted < maxVotes; iterator.Next() {
+		cursor = append(cursor[:0], iterator.Key()...)
+		store.Delete(iterator.Key())
+		deleted++
+	}
+
+	complete = !iterator.Valid()
+	if complete {
+		store.Delete(types.TallyCleanupKey(proposalID, expedited))
+	}
+	return deleted, complete, cursor
+}
+
+func decodeCleanupCursor(value []byte) []byte {
+	if len(value) == 1 && value[0] == cleanupCursorUnset {
+		return nil
+	}
+	return append([]byte(nil), value...)
+}
+
+func splitTallyCleanupKey(key []byte) (proposalID uint64, expedited bool) {
+	if len(key) != 10 {
+		panic(fmt.Sprintf("invalid tally cleanup key length %d", len(key)))
+	}
+	proposalID = types.GetProposalIDFromBytes(key[1:9])
+	switch key[9] {
+	case 0:
+		return proposalID, true
+	case 1:
+		return proposalID, false
+	default:
+		panic(fmt.Sprintf("invalid tally round %d", key[9]))
+	}
 }

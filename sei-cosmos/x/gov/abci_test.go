@@ -2,6 +2,7 @@ package gov_test
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 	"time"
 
@@ -604,6 +605,55 @@ func TestEndBlockerProposalHandlerFailed(t *testing.T) {
 
 	// validate that the proposal fails/has been rejected
 	gov.EndBlocker(ctx, app.GovKeeper)
+}
+
+func TestEndBlockerBoundsVoteTallyAndCleanupWork(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	app.GovKeeper.ActivateVotingPeriod(ctx, proposal)
+	proposal, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+
+	for i := 0; i < gov.MaxVotesProcessedPerBlock+1; i++ {
+		addr := make(sdk.AccAddress, 20)
+		binary.BigEndian.PutUint64(addr[12:], uint64(i+1))
+		require.NoError(t, app.GovKeeper.AddVote(
+			ctx,
+			proposal.ProposalId,
+			addr,
+			types.NewNonSplitVoteOption(types.OptionYes),
+		))
+	}
+
+	ctx = ctx.WithBlockTime(proposal.VotingEndTime)
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusVotingPeriod, proposal.Status)
+	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), 1)
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), gov.MaxVotesProcessedPerBlock)
+
+	newVoter := make(sdk.AccAddress, 20)
+	binary.BigEndian.PutUint64(newVoter[12:], uint64(gov.MaxVotesProcessedPerBlock+2))
+	err = app.GovKeeper.AddVote(ctx, proposal.ProposalId, newVoter, types.NewNonSplitVoteOption(types.OptionNo))
+	require.ErrorIs(t, err, types.ErrInactiveProposal)
+
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusRejected, proposal.Status)
+	require.False(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.Empty(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 2)
+
+	gov.EndBlocker(ctx, app.GovKeeper)
+	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
 }
 
 // With expedited proposal's minimum deposit set higher than the default deposit, we must

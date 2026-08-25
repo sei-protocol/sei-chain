@@ -67,6 +67,10 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 		deposits := k.GetDeposits(ctx, proposal.ProposalId)
 		proposalsDeposits = append(proposalsDeposits, deposits...)
 
+		if k.IsTallying(ctx, proposal.ProposalId) {
+			archivedVotes := k.GetArchivedTallyVotes(ctx, proposal.ProposalId, proposal.IsExpedited)
+			proposalsVotes = append(proposalsVotes, archivedVotes...)
+		}
 		votes := k.GetVotes(ctx, proposal.ProposalId)
 		proposalsVotes = append(proposalsVotes, votes...)
 	}
