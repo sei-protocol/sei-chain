@@ -27,9 +27,6 @@ var ErrOutboundDisabled = sdkerrors.Register("ibc-connection", 102, "ibc outboun
 
 // Keeper defines the IBC connection keeper
 type Keeper struct {
-	// implements gRPC QueryServer interface
-	types.QueryServer
-
 	storeKey     sdk.StoreKey
 	paramSpace   paramtypes.Subspace
 	cdc          codec.BinaryCodec
