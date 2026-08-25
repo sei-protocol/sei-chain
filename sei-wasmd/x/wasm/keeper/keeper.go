@@ -105,7 +105,6 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	stakingKeeper types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
-	channelKeeper types.ChannelKeeper,
 	upgradeKeeper types.UpgradeKeeper,
 	router MessageRouter,
 	queryRouter GRPCQueryRouter,
@@ -158,7 +157,7 @@ func NewKeeper(
 		maxQueryStackSize: types.DefaultMaxQueryStackSize,
 		maxCallDepth:      types.DefaultMaxCallDepth,
 	}
-	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, channelKeeper, queryRouter, keeper)
+	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, queryRouter, keeper)
 	for _, o := range opts {
 		o.apply(keeper)
 	}

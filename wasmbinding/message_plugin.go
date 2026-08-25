@@ -45,7 +45,6 @@ func CustomMessageHandler(
 		})
 	return wasmkeeper.NewMessageHandlerChain(
 		wasmkeeper.NewSDKMessageHandler(&CustomRouter{MessageRouter: router, evmKeeper: evmKeeper}, encoders),
-		wasmkeeper.NewIBCRawPacketHandler(),
 		wasmkeeper.NewBurnCoinMessageHandler(bankKeeper),
 	)
 }

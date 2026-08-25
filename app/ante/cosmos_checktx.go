@@ -25,7 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
-	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -110,7 +109,7 @@ func CosmosCheckTxAnte(
 	}
 	ctx = DecoratePriority(ctx, priority)
 
-	return ctx, ibcante.RejectMessages(tx)
+	return ctx, nil
 }
 
 func HandleOutofGas(recoveredErr any, gasLimit uint64, gasConsumed uint64) error {
