@@ -18,6 +18,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
+func TestIBCQueriesAreUnavailableFromABCI(t *testing.T) {
+	handler := QueryHandler{Ctx: sdk.Context{}.WithIsABCIQuery(true)}
+	_, err := handler.Query(wasmvmtypes.QueryRequest{
+		IBC: &wasmvmtypes.IBCQuery{PortID: &wasmvmtypes.PortIDQuery{}},
+	}, 0)
+	require.EqualError(t, err, "unsupported request: IBC")
+}
+
 func TestIBCQuerier(t *testing.T) {
 	myExampleChannels := []channeltypes.IdentifiedChannel{
 		// this is returned
