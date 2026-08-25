@@ -10,6 +10,15 @@ import (
 // Resolved is every declared key's value, plus what a caller has to be told about how it got there.
 type Resolved struct {
 	// Values carries one value per declared key.
+	//
+	// A key's Go type depends on which source answered it, and a caller that type-asserts has to expect
+	// all three. A default arrives as the field's own type, so a duration is a duration and a list is a
+	// list. A file arrives as whatever the file format decodes to, so the same duration is text and the
+	// same list is a list of untyped elements. An environment variable arrives as one string, always. This
+	// resolves values and does not convert them, so the reader that owns a key remains the thing that
+	// turns any of the three into what that key means.
+	//
+	// A value is the caller's to write into. Nothing here shares storage with a section's own default.
 	Values map[string]any
 	// Overrides are the declared keys something other than this node's defaults supplied, sorted.
 	//
@@ -264,9 +273,55 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 			}
 			continue
 		}
-		out[path] = fv.Interface()
+		out[path] = detach(fv)
 	}
 	return nil
+}
+
+// detach returns a value that shares no storage with the one it was given.
+//
+// A section's default is usually a package-level variable, so handing out a list or a map field hands out
+// the storage behind it. One caller sorting what it was given rewrites the process-wide default and every
+// later resolution carries the sorted version. That happened here, to two deny lists.
+//
+// Copied all the way down rather than one level. A list of lists, or a map of lists, shares its inner
+// storage through a copy of the outer, so a caller sorting an inner list reaches the default just as
+// directly. Nothing declared today has that shape, and the copy runs once per boot over a hundred or so
+// keys, so the cost of being thorough here is not measurable and the cost of not being is a defect nobody
+// finds twice.
+//
+// This covers what a section's defaults answer. It is not the guarantee for a value a source supplied: the
+// file source hands out its own copies, recursively, where it reads them, and the flag source carries only
+// text. A source that grew a channel handing out live storage would have to do the same at its own edge,
+// because only the source knows what else holds it.
+func detach(v reflect.Value) any {
+	switch v.Kind() {
+	case reflect.Slice:
+		if v.IsNil() {
+			return v.Interface()
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := 0; i < v.Len(); i++ {
+			out.Index(i).Set(reflect.ValueOf(detach(v.Index(i))))
+		}
+		return out.Interface()
+	case reflect.Map:
+		if v.IsNil() {
+			return v.Interface()
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		for _, key := range v.MapKeys() {
+			out.SetMapIndex(key, reflect.ValueOf(detach(v.MapIndex(key))))
+		}
+		return out.Interface()
+	case reflect.Interface:
+		if v.IsNil() {
+			return v.Interface()
+		}
+		return detach(v.Elem())
+	default:
+		return v.Interface()
+	}
 }
 
 // envValues reads the keys an environment supplies, from the caller's declared set.
