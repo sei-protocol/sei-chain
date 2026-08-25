@@ -3,9 +3,8 @@
 These scripts helps to test go-relayer with two local wasmd chains. \
 Make sure you run below scripts under `wasmd/contrib/relayer-tests` directory.
 
-- `./init_two_chainz_relayer.sh` will spin two chains and runs
-- `./one_chain.sh` will spin a single chain. This script used by the one above
-- `./test_ibc_transfer.sh` will setup a path between chains and send tokens between chains.
+- `./init_two_chainz_relayer.sh` spins up two chains and initializes relayer clients.
+- `./one_chain.sh` spins up one chain and is used by the script above.
 
 ## Thank you
 The setup scripts here are taken from [cosmos/relayer](https://github.com/cosmos/relayer)

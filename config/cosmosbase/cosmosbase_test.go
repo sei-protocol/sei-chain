@@ -150,15 +150,6 @@ func TestTheUpstreamDefaultCarriesNoLabels(t *testing.T) {
 // variable installs a value the reader refuses, and it refuses in the first statement of the whole server
 // configuration. The node stops. Leaving the channel out means the file's value applies and the node runs.
 func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
-	reason, refused := registry.EnvCannotDeliver()[globalLabelsKey]
-	if !refused {
-		t.Fatalf("%s is not refused from the environment, so a variable naming it resolves to a string "+
-			"and installing that stops the node", globalLabelsKey)
-	}
-	if reason == "" {
-		t.Error("the refusal carries no reason, so an operator whose variable is ignored cannot be told why")
-	}
-
 	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{
 		LookupEnv: func(name string) (string, bool) {
 			if name == registry.EnvName(globalLabelsKey) {
@@ -169,6 +160,16 @@ func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
+	}
+	var reported bool
+	for _, key := range resolved.Ignored {
+		if key == globalLabelsKey {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Errorf("a variable was set for %s and nothing reports that it did nothing. An operator whose "+
+			"variable is ignored has to be told", globalLabelsKey)
 	}
 	if got := resolved.Values[globalLabelsKey]; !reflect.DeepEqual(got, []any{}) {
 		t.Errorf("%s resolved to %#v (%T), want the declared default it was left to",

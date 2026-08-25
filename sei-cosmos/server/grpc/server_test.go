@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
 

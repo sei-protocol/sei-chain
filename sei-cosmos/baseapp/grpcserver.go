@@ -59,7 +59,7 @@ func (app *BaseApp) RegisterGRPCServer(server gogogrpc.Server) {
 
 		// Direct Cosmos gRPC queries may use client-facing pagination semantics.
 		// Other CreateQueryContext consumers remain v6.6-compatible by default.
-		sdkCtx = sdkCtx.WithIsABCIQuery(true)
+		sdkCtx = app.enrichABCIQueryContext(grpcCtx, sdkCtx)
 		grpcCtx = context.WithValue(grpcCtx, sdk.SdkContextKey, sdkCtx)
 
 		md = metadata.Pairs(grpctypes.GRPCBlockHeightHeader, strconv.FormatInt(height, 10))
