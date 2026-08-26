@@ -41,10 +41,12 @@ type Resolved struct {
 	// into a node that will not start, which is the fleet-wide incident the recording exists to avoid.
 	//
 	// What to do about one is the caller's, the same division Unknown draws: a path that writes a
-	// configuration file should refuse, because it would render a file missing whole sections, while a
-	// booting node should say so loudly and run. A section named here is absent from Values, so an
-	// operator's written value for one of its keys arrives in Unknown instead of being applied, and
-	// reporting both is what makes that legible.
+	// configuration file has cause to refuse, because it would render a file missing whole sections,
+	// while a booting node has cause to say so and run. Neither is stated as a rule here because no
+	// caller consumes this yet: the one path that installs a resolution neither refuses on it nor
+	// carries it into what it reports, so a resolution over a diminished key space installs quietly
+	// today. A section named here is absent from Values, so an operator's written value for one of its
+	// keys arrives in Unknown rather than being applied.
 	Refused []Defect
 	// Unknown are keys a source carried that no section declares, sorted.
 	//
@@ -487,8 +489,10 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 // the table's own name is the one thing reported, as a key no section declares. A caller that then
 // installs what it resolved writes the whole declared set over the file it was trying to read.
 //
-// Detected by a table holding a declared key, which is that mistake and nothing else. A declared key
-// whose own field is a map is left alone, since the value an operator writes for it is a table.
+// Detected by a table sitting where a declared key's first segment does, which is that mistake and
+// nothing else. Nothing looks inside the table, because the shape is wrong whether or not the keys
+// beneath it are ones this space knows: an empty table and a table of typos are both nested. A declared
+// key whose own field is a map is left alone, since the value an operator writes for it is a table.
 func refuseANestedFile(values map[string]any, declared map[string]bool) error {
 	for key, v := range values {
 		if _, isTable := v.(map[string]any); !isTable {
@@ -500,8 +504,8 @@ func refuseANestedFile(values map[string]any, declared map[string]bool) error {
 		}
 		for d := range declared {
 			if strings.HasPrefix(d, lower+".") {
-				return fmt.Errorf("the file source holds a table at %q carrying %q, so it is nested "+
-					"where this reads one flat map of whole dotted keys", key, d)
+				return fmt.Errorf("the file source holds a table at %q, where this reads one flat map "+
+					"of whole dotted keys such as %q", key, d)
 			}
 		}
 	}
