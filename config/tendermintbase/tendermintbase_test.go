@@ -163,7 +163,7 @@ func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 		derivedFromTheConnectionLimit: "unset is the setting, and a default here would be invented",
 		readByNothing:                 "nothing reads it and no generated file carries it",
 		unreadAndUnmarked:             "no code reads it, and its field carries no deprecation note",
-		"mode":                        "the file states it at the top under its own name",
+		statedAtTheTopOfTheFile:       "the file states it at the top under its own name",
 	}
 
 	for _, name := range declaredSections() {
@@ -864,8 +864,8 @@ func TestEachRootExclusionStillHasItsReason(t *testing.T) {
 
 	// Settled elsewhere in the file, so neither is offered here.
 	for key, why := range map[string]string{
-		"home": "the file's own location, which the command line carries",
-		"mode": "the kind of node, which the file states at the top under its own name",
+		"home":                  "the file's own location, which the command line carries",
+		statedAtTheTopOfTheFile: "the kind of node, which the file states at the top under its own name",
 	} {
 		if declared[key] {
 			t.Errorf("%q is declared at the root and it is %s, so an operator can write a second value "+

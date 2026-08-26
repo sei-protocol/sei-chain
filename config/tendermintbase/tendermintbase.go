@@ -34,7 +34,13 @@ const (
 // A generated file does state the node kind, so a reader handed a decoded file finds no section declaring
 // it and reports it beside an operator's typos. Exempting that one key belongs to the reader: the kind of
 // node is what a resolution is asked about, so a declared answer for it would be the question.
-var notWritableInThisFile = []string{"home", "mode"}
+var notWritableInThisFile = []string{filledFromTheCommandLine, statedAtTheTopOfTheFile}
+
+// statedAtTheTopOfTheFile is the path the root section leaves out because the file already states it.
+//
+// A generated file names the node kind at the top under its own name, so a second spelling would let the
+// two disagree, with a resolution answering for one and the node reading the other.
+const statedAtTheTopOfTheFile = "mode"
 
 // removedFromTheNode are the root paths this section does not declare because nothing reads them. The
 // node marks each field deprecated, out-of-process ABCI having been removed along with peer filtering
