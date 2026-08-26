@@ -166,13 +166,14 @@ func (s *CheckpointScheduler) run() {
 }
 
 // scheduleNextCheckpoint runs one cycle: it hands the next boundary to every store, or does nothing
-// when a store is still writing the last checkpoint, has not reached its scheduled version, or the
-// last one finished too recently.
+// when a store is still writing the last checkpoint, has not committed past its scheduled version, or
+// the last one finished too recently.
 func (s *CheckpointScheduler) scheduleNextCheckpoint() {
 	if s.CheckpointInProgress() {
 		return
 	}
-	if s.scheduledVersion != 0 && !s.allReached(s.scheduledVersion) {
+	// Stores bump LatestVersion on commit before the checkpoint write, so wait for the next version.
+	if s.scheduledVersion != 0 && !s.allStoresCommitted(s.scheduledVersion+1) {
 		return
 	}
 	s.noteCheckpointFinished()
@@ -189,8 +190,8 @@ func (s *CheckpointScheduler) scheduleNextCheckpoint() {
 		"targetVersion", targetVersion, "stores", strings.Join(slices.Sorted(maps.Keys(s.stores)), ","))
 }
 
-// allReached reports whether every store has committed at least version.
-func (s *CheckpointScheduler) allReached(version int64) bool {
+// allStoresCommitted reports whether every store has committed at least version.
+func (s *CheckpointScheduler) allStoresCommitted(version int64) bool {
 	for _, store := range s.stores {
 		if store.LatestVersion() < version {
 			return false

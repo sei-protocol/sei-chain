@@ -166,8 +166,8 @@ func TestTargetIsOfferedAWholeIntervalAhead(t *testing.T) {
 	require.Equal(t, []int64{1000}, store.offeredTargets(), "offered at version 1, 999 blocks early")
 }
 
-// One target is outstanding at a time, so a store that has not reached its target holds the next
-// boundary back rather than collecting targets it would service late.
+// One target is outstanding at a time, so a store that has not committed past its target holds the
+// next boundary back rather than collecting targets it would service late.
 func TestNoNewTargetWhileOneIsOutstanding(t *testing.T) {
 	prompt, lagging := newFakeStore(0), newFakeStore(0)
 	scheduler := newScheduler(t, 10, map[string]*fakeStore{"prompt": prompt, "lagging": lagging})
@@ -181,19 +181,36 @@ func TestNoNewTargetWhileOneIsOutstanding(t *testing.T) {
 	scheduler.scheduleNextCheckpoint()
 	require.Equal(t, []int64{10}, prompt.offeredTargets())
 
-	lagging.commitTo(10)
+	lagging.commitTo(11)
 	scheduler.scheduleNextCheckpoint()
 	require.Equal(t, []int64{10, 40}, prompt.offeredTargets())
 	require.Equal(t, []int64{10, 40}, lagging.offeredTargets())
 }
 
-// A store still writing its snapshot holds the next boundary even after it has reached the height.
-func TestNoNewTargetWhileAStoreIsWriting(t *testing.T) {
+// Stores bump LatestVersion on commit and only then start the checkpoint write. A poll in that gap
+// sees the scheduled version reached and CheckpointInProgress still false; that is not completion.
+func TestNoNewTargetWhileLatestVersionIsStillTheScheduledVersion(t *testing.T) {
 	store := newFakeStore(0)
 	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": store})
 
 	scheduler.scheduleNextCheckpoint()
 	store.commitTo(10)
+	scheduler.scheduleNextCheckpoint()
+	require.Equal(t, []int64{10}, store.offeredTargets(),
+		"LatestVersion at the scheduled height is the commit, not a finished checkpoint")
+
+	store.commitTo(11)
+	scheduler.scheduleNextCheckpoint()
+	require.Equal(t, []int64{10, 20}, store.offeredTargets())
+}
+
+// A store still writing its snapshot holds the next boundary even after it has committed past the height.
+func TestNoNewTargetWhileAStoreIsWriting(t *testing.T) {
+	store := newFakeStore(0)
+	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": store})
+
+	scheduler.scheduleNextCheckpoint()
+	store.commitTo(15)
 	store.setRunning(true)
 	scheduler.scheduleNextCheckpoint()
 	require.Equal(t, []int64{10}, store.offeredTargets())
@@ -264,7 +281,7 @@ func TestTheMinTimeGateReleasesOnceItElapses(t *testing.T) {
 	scheduler := pacedScheduler(t, map[string]*fakeStore{"only": store})
 
 	scheduler.scheduleNextCheckpoint()
-	store.commitTo(10)
+	store.commitTo(11)
 	scheduler.scheduleNextCheckpoint()
 	require.Equal(t, []int64{10}, store.offeredTargets())
 
@@ -284,7 +301,7 @@ func TestTheMinTimeGateIsTimedFromCompletion(t *testing.T) {
 	scheduler.scheduleNextCheckpoint()
 	require.True(t, scheduler.lastCheckpointAt.IsZero(), "dispatching a target does not start the gate")
 
-	store.commitTo(10)
+	store.commitTo(11)
 	scheduler.scheduleNextCheckpoint()
 	require.False(t, scheduler.lastCheckpointAt.IsZero(), "the finished checkpoint starts the gate")
 }
@@ -294,7 +311,7 @@ func TestAZeroMinTimeLeavesTheBlockIntervalAsTheOnlyPacing(t *testing.T) {
 	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": store})
 
 	scheduler.scheduleNextCheckpoint()
-	store.commitTo(10)
+	store.commitTo(11)
 	scheduler.scheduleNextCheckpoint()
 
 	require.Equal(t, []int64{10, 20}, store.offeredTargets())

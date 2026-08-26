@@ -14,7 +14,9 @@ type CheckpointableStore interface {
 
 	// LatestVersion returns the newest version this store has committed, 0 when it has committed
 	// nothing. The scheduler picks a target above every store's answer, so a store that reports a
-	// version it has not durably reached is asking to be handed a target it will never see.
+	// version it has not durably reached is asking to be handed a target it will never see. A
+	// scheduled checkpoint is not treated as finished until every store reports a version strictly
+	// above it: stores bump this on commit and only then start the checkpoint write.
 	LatestVersion() int64
 
 	// CheckpointInProgress reports whether a checkpoint this store is writing has yet to finish.
