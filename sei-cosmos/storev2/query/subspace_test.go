@@ -54,6 +54,37 @@ func TestScanSubspace_NarrowPrefixSucceeds(t *testing.T) {
 	require.Len(t, pairs.Pairs, 2)
 }
 
+// panicOnCancelledCtxStore implements ContextIterator the way state.Store does:
+// iterator construction on an already-cancelled context is fatal.
+type panicOnCancelledCtxStore struct {
+	*mem.Store
+}
+
+func (s *panicOnCancelledCtxStore) IteratorWithContext(ctx context.Context, start, end []byte) storetypes.Iterator {
+	if err := ctx.Err(); err != nil {
+		panic(err)
+	}
+	return s.Store.Iterator(start, end)
+}
+
+func (s *panicOnCancelledCtxStore) ReverseIteratorWithContext(ctx context.Context, start, end []byte) storetypes.Iterator {
+	if err := ctx.Err(); err != nil {
+		panic(err)
+	}
+	return s.Store.ReverseIterator(start, end)
+}
+
+func TestScanSubspace_ContextCancelBeforeIteratorOpen(t *testing.T) {
+	store := &panicOnCancelledCtxStore{Store: seedStore(t, 1, 1)}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := ScanSubspace(ctx, store, []byte("p"), Limits{MaxPairs: 1000, MaxBytes: DefaultMaxSubspaceBytes})
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestScanSubspace_ContextCancelStopsAllocation(t *testing.T) {
 	store := seedStore(t, 100, 64)
 

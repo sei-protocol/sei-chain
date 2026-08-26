@@ -39,6 +39,9 @@ func ScanSubspace(ctx context.Context, st storetypes.KVStore, prefix []byte, lim
 	if len(prefix) == 0 {
 		return nil, errors.Wrap(sdkerrors.ErrInvalidRequest, "subspace prefix must not be empty")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	limits = limits.effective()
 
