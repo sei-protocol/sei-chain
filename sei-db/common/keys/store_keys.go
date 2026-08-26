@@ -5,7 +5,7 @@ import "fmt"
 // Cosmos-SDK module store keys mounted on the memiavl backend in default
 // production deployments. Defined as raw string literals (rather than
 // re-exporting from x/* packages) to keep this package free of the heavy
-// cosmos-sdk / ibc-go / wasmd / go-ethereum dependency closure.
+// application-module dependency closure.
 //
 // These string values are immutable on-disk format markers; changing any
 // of them would break existing state.
@@ -19,12 +19,12 @@ const (
 	SlashingStoreKey     = "slashing"     // sei-cosmos/x/slashing/types.StoreKey
 	GovStoreKey          = "gov"          // sei-cosmos/x/gov/types.StoreKey
 	ParamsStoreKey       = "params"       // sei-cosmos/x/params/types.StoreKey
-	IBCStoreKey          = "ibc"          // sei-ibc-go/modules/core/24-host.StoreKey
+	IBCStoreKey          = "ibc"          // retained for historical state access
 	UpgradeStoreKey      = "upgrade"      // sei-cosmos/x/upgrade/types.StoreKey
 	FeegrantStoreKey     = "feegrant"     // retained for historical state access
 	EvidenceStoreKey     = "evidence"     // sei-cosmos/x/evidence/types.StoreKey
-	IBCTransferStoreKey  = "transfer"     // sei-ibc-go/modules/apps/transfer/types.StoreKey
-	CapabilityStoreKey   = "capability"   // sei-cosmos/x/capability/types.StoreKey
+	IBCTransferStoreKey  = "transfer"     // retained for historical state access
+	CapabilityStoreKey   = "capability"   // retained for historical state access
 	OracleStoreKey       = "oracle"       // x/oracle/types.StoreKey
 	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey

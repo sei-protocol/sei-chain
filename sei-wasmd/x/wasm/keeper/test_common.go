@@ -23,9 +23,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distributionkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -47,11 +44,6 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
-	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
-	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
@@ -63,14 +55,12 @@ import (
 
 	wasmappparams "github.com/sei-protocol/sei-chain/sei-wasmd/app/params"
 
-	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
 var ModuleBasics = module.NewBasicManager(
 	auth.AppModuleBasic{},
 	bank.AppModuleBasic{},
-	capability.AppModuleBasic{},
 	staking.AppModuleBasic{},
 	mint.AppModuleBasic{},
 	distribution.AppModuleBasic{},
@@ -169,7 +159,6 @@ type TestKeepers struct {
 	GovKeeper      govkeeper.Keeper
 	ContractKeeper types.ContractOpsKeeper
 	WasmKeeper     *Keeper
-	IBCKeeper      *ibckeeper.Keeper
 	Router         *baseapp.Router
 	EncodingConfig wasmappparams.EncodingConfig
 	Faucet         *TestFaucet
@@ -201,9 +190,8 @@ func createTestInput(
 	keys := sdk.NewKVStoreKeys(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distributiontypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey,
-		capabilitytypes.StoreKey, authzkeeper.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey,
+		evidencetypes.StoreKey, authzkeeper.StoreKey,
 		types.StoreKey,
 	)
 	ms := store.NewCommitMultiStore(db)
@@ -213,11 +201,6 @@ func createTestInput(
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
 	for _, v := range tkeys {
 		ms.MountStoreWithDB(v, sdk.StoreTypeTransient, db)
-	}
-
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
-	for _, v := range memKeys {
-		ms.MountStoreWithDB(v, sdk.StoreTypeMemory, db)
 	}
 
 	require.NoError(t, ms.LoadLatestVersion())
@@ -244,9 +227,6 @@ func createTestInput(
 		minttypes.ModuleName,
 		distributiontypes.ModuleName,
 		slashingtypes.ModuleName,
-		ibctransfertypes.ModuleName,
-		capabilitytypes.ModuleName,
-		ibchost.ModuleName,
 		govtypes.ModuleName,
 		types.ModuleName,
 	} {
@@ -264,7 +244,6 @@ func createTestInput(
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
 		types.ModuleName:               {authtypes.Burner},
 	}
 	accountKeeper := authkeeper.NewAccountKeeper(
@@ -313,14 +292,6 @@ func createTestInput(
 	// set genesis items required for distribution
 	distKeeper.SetFeePool(ctx, distributiontypes.InitialFeePool())
 
-	upgradeKeeper := upgradekeeper.NewKeeper(
-		map[int64]bool{},
-		keys[upgradetypes.StoreKey],
-		appCodec,
-		tempDir,
-		nil,
-	)
-
 	faucet := NewTestFaucet(t, ctx, bankKeeper, minttypes.ModuleName, sdk.NewCoin("stake", sdk.NewInt(100_000_000_000)))
 
 	// set some funds ot pay out validatores, based on code from:
@@ -328,23 +299,6 @@ func createTestInput(
 	distrAcc := distKeeper.GetDistributionAccount(ctx)
 	faucet.Fund(ctx, distrAcc.GetAddress(), sdk.NewCoin("stake", sdk.NewInt(2000000)))
 	accountKeeper.SetModuleAccount(ctx, distrAcc)
-
-	capabilityKeeper := capabilitykeeper.NewKeeper(
-		appCodec,
-		keys[capabilitytypes.StoreKey],
-		memKeys[capabilitytypes.MemStoreKey],
-	)
-	scopedIBCKeeper := capabilityKeeper.ScopeToModule(ibchost.ModuleName)
-	scopedWasmKeeper := capabilityKeeper.ScopeToModule(types.ModuleName)
-
-	ibcKeeper := ibckeeper.NewKeeper(
-		appCodec,
-		keys[ibchost.StoreKey],
-		subspace(ibchost.ModuleName),
-		stakingKeeper,
-		upgradeKeeper,
-		scopedIBCKeeper,
-	)
 
 	router := baseapp.NewRouter()
 	bh := bank.NewHandler(bankKeeper)
@@ -371,11 +325,6 @@ func createTestInput(
 		bankKeeper,
 		stakingKeeper,
 		distKeeper,
-		ibcKeeper.ChannelKeeper,
-		&ibcKeeper.PortKeeper,
-		scopedWasmKeeper,
-		upgradekeeper.Keeper{},
-		wasmtesting.MockIBCTransferKeeper{},
 		msgRouter,
 		querier,
 		tempDir,
@@ -427,7 +376,6 @@ func createTestInput(
 		WasmKeeper:     &keeper,
 		BankKeeper:     bankKeeper,
 		GovKeeper:      govKeeper,
-		IBCKeeper:      ibcKeeper,
 		Router:         router,
 		EncodingConfig: encodingConfig,
 		Faucet:         faucet,

@@ -101,7 +101,7 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(method)),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
 		),
 	)
 	return false
@@ -121,7 +121,7 @@ func (r *Registry) AllowN(ctx context.Context, ip, plane, method string, n int) 
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(method)),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
 		),
 	)
 	return false

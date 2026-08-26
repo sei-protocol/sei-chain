@@ -50,6 +50,9 @@ func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if giga, ok := env.gigaRouter().Get(); ok {
 		v, ok := giga.Mempool().Get()
 		if !ok {
@@ -76,6 +79,9 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if giga, ok := env.gigaRouter().Get(); ok {
 		v, ok := giga.Mempool().Get()
 		if !ok {
@@ -113,6 +119,9 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 // BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
+	if err := env.requireWritable(); err != nil {
+		return nil, err
+	}
 	if timeout := env.Config.TimeoutBroadcastTxCommit; timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)

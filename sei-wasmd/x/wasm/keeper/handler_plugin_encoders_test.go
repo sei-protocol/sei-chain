@@ -6,9 +6,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
-	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
-	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
 	"github.com/stretchr/testify/assert"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -18,7 +15,6 @@ import (
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper/wasmtesting"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
@@ -62,11 +58,11 @@ func TestEncoding(t *testing.T) {
 		sender             sdk.AccAddress
 		srcMsg             wasmvmtypes.CosmosMsg
 		srcContractIBCPort string
-		transferPortSource types.ICS20TransferPortSource
 		// set if valid
 		output []sdk.Msg
 		// set if invalid
 		isError bool
+		errorIs error
 	}{
 		"simple send": {
 			sender: addr1,
@@ -380,7 +376,7 @@ func TestEncoding(t *testing.T) {
 			},
 			isError: true,
 		},
-		"IBC transfer with block timeout": {
+		"IBC transfer is unsupported": {
 			sender:             addr1,
 			srcContractIBCPort: "myIBCPort",
 			srcMsg: wasmvmtypes.CosmosMsg{
@@ -398,91 +394,10 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			transferPortSource: wasmtesting.MockIBCTransferKeeper{GetPortFn: func(ctx sdk.Context) string {
-				return "myTransferPort"
-			}},
-			output: []sdk.Msg{
-				&ibctransfertypes.MsgTransfer{
-					SourcePort:    "myTransferPort",
-					SourceChannel: "myChanID",
-					Token: sdk.Coin{
-						Denom:  "ALX",
-						Amount: sdk.NewInt(1),
-					},
-					Sender:        addr1.String(),
-					Receiver:      addr2.String(),
-					TimeoutHeight: clienttypes.Height{RevisionNumber: 1, RevisionHeight: 2},
-				},
-			},
+			isError: true,
+			errorIs: types.ErrUnsupportedForContract,
 		},
-		"IBC transfer with time timeout": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
-			srcMsg: wasmvmtypes.CosmosMsg{
-				IBC: &wasmvmtypes.IBCMsg{
-					Transfer: &wasmvmtypes.TransferMsg{
-						ChannelID: "myChanID",
-						ToAddress: addr2.String(),
-						Amount: wasmvmtypes.Coin{
-							Denom:  "ALX",
-							Amount: "1",
-						},
-						Timeout: wasmvmtypes.IBCTimeout{Timestamp: 100},
-					},
-				},
-			},
-			transferPortSource: wasmtesting.MockIBCTransferKeeper{GetPortFn: func(ctx sdk.Context) string {
-				return "transfer"
-			}},
-			output: []sdk.Msg{
-				&ibctransfertypes.MsgTransfer{
-					SourcePort:    "transfer",
-					SourceChannel: "myChanID",
-					Token: sdk.Coin{
-						Denom:  "ALX",
-						Amount: sdk.NewInt(1),
-					},
-					Sender:           addr1.String(),
-					Receiver:         addr2.String(),
-					TimeoutTimestamp: 100,
-				},
-			},
-		},
-		"IBC transfer with time and height timeout": {
-			sender:             addr1,
-			srcContractIBCPort: "myIBCPort",
-			srcMsg: wasmvmtypes.CosmosMsg{
-				IBC: &wasmvmtypes.IBCMsg{
-					Transfer: &wasmvmtypes.TransferMsg{
-						ChannelID: "myChanID",
-						ToAddress: addr2.String(),
-						Amount: wasmvmtypes.Coin{
-							Denom:  "ALX",
-							Amount: "1",
-						},
-						Timeout: wasmvmtypes.IBCTimeout{Timestamp: 100, Block: &wasmvmtypes.IBCTimeoutBlock{Height: 1, Revision: 2}},
-					},
-				},
-			},
-			transferPortSource: wasmtesting.MockIBCTransferKeeper{GetPortFn: func(ctx sdk.Context) string {
-				return "transfer"
-			}},
-			output: []sdk.Msg{
-				&ibctransfertypes.MsgTransfer{
-					SourcePort:    "transfer",
-					SourceChannel: "myChanID",
-					Token: sdk.Coin{
-						Denom:  "ALX",
-						Amount: sdk.NewInt(1),
-					},
-					Sender:           addr1.String(),
-					Receiver:         addr2.String(),
-					TimeoutTimestamp: 100,
-					TimeoutHeight:    clienttypes.NewHeight(2, 1),
-				},
-			},
-		},
-		"IBC close channel": {
+		"IBC close channel is unsupported": {
 			sender:             addr1,
 			srcContractIBCPort: "myIBCPort",
 			srcMsg: wasmvmtypes.CosmosMsg{
@@ -492,13 +407,25 @@ func TestEncoding(t *testing.T) {
 					},
 				},
 			},
-			output: []sdk.Msg{
-				&channeltypes.MsgChannelCloseInit{
-					PortId:    "wasm." + addr1.String(),
-					ChannelId: "channel-1",
-					Signer:    addr1.String(),
+			isError: true,
+			errorIs: types.ErrUnsupportedForContract,
+		},
+		"IBC send packet is unsupported": {
+			sender:             addr1,
+			srcContractIBCPort: "myIBCPort",
+			srcMsg: wasmvmtypes.CosmosMsg{
+				IBC: &wasmvmtypes.IBCMsg{
+					SendPacket: &wasmvmtypes.SendPacketMsg{
+						ChannelID: "channel-1",
+						Data:      []byte("myData"),
+						Timeout: wasmvmtypes.IBCTimeout{
+							Block: &wasmvmtypes.IBCTimeoutBlock{Revision: 1, Height: 2},
+						},
+					},
 				},
 			},
+			isError: true,
+			errorIs: types.ErrUnsupportedForContract,
 		},
 		"Gov vote: yes": {
 			sender:             addr1,
@@ -569,10 +496,13 @@ func TestEncoding(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			var ctx sdk.Context
-			encoder := DefaultEncoders(encodingConfig.Marshaler, tc.transferPortSource)
+			encoder := DefaultEncoders(encodingConfig.Marshaler)
 			res, err := encoder.Encode(ctx, tc.sender, tc.srcContractIBCPort, tc.srcMsg, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 			if tc.isError {
 				require.Error(t, err)
+				if tc.errorIs != nil {
+					require.ErrorIs(t, err, tc.errorIs)
+				}
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tc.output, res)
