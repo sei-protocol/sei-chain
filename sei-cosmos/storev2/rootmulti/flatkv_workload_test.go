@@ -57,8 +57,9 @@ func TestFlatKVFullScanLtHashVerification(t *testing.T) {
 
 	require.NoError(t, flatkv.VerifyLtHash(ro), "full-scan LtHash verification failed")
 
-	require.Equal(t, expectedLatticeHash, ro.CommittedRootHash(),
-		"flatkv CommittedRootHash should match evm_lattice in CommitInfo")
+	roHash, _ := ro.RootHash()
+	require.Equal(t, expectedLatticeHash, roHash,
+		"flatkv RootHash should match evm_lattice in CommitInfo")
 }
 
 // ---------------------------------------------------------------------------

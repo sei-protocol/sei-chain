@@ -8,10 +8,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-var _ Iterator = (*snapshotIterator)(nil)
-
-// errIteratorClosed is returned by Next when invoked on an already-closed iterator.
-var errIteratorClosed = errors.New("iterator is closed")
+var _ dbm.Iterator = (*snapshotIterator)(nil)
 
 // kvPair is a single in-memory override at a snapshot version. A nil value
 // signals a tombstone: it suppresses any DB-side value at the same key.
@@ -20,10 +17,14 @@ type kvPair struct {
 	value []byte
 }
 
-// snapshotIterator is a forward-only iterator that merges a pre-sorted slice
+// snapshotIterator is a forward-only cursor that merges a pre-sorted slice
 // of in-memory overrides with an underlying DB iterator. Keys are returned in
 // ascending lexicographic order; when both sides hold the same key, the override
 // wins (and nil-valued overrides suppress the DB entry entirely).
+//
+// It is positioned on its first pair at construction, so Valid may be consulted
+// immediately; Next moves to the following pair and does nothing once the cursor
+// has gone invalid.
 //
 // Ownership & lifetime:
 //   - The iterator takes ownership of dbIter. dbIter is closed automatically
@@ -38,24 +39,23 @@ type kvPair struct {
 //     releasing a snapshot reservation) should wrap this iterator.
 //
 // Returned slices:
-//   - Key and value slices returned by Next are owned by the caller and remain
-//     valid until Close. Override-sourced bytes alias the supplied overrides
-//     slice; DB-sourced bytes are cloned out of the underlying iterator's
-//     zero-copy buffers so they remain stable as the dbIter advances.
+//   - Slices returned by Key and Value remain valid until Close and must not be
+//     mutated. Override-sourced bytes alias the supplied overrides slice;
+//     DB-sourced bytes are cloned out of the underlying iterator's zero-copy
+//     buffers so they remain stable as the dbIter advances.
 //
 // Filtering:
-//   - The engine's reserved metadata hash key (hashKey) is excluded from
-//     iteration output: the DB-side value under that key is the most recently
-//     flushed hash, generally stale relative to this snapshot. Consumers obtain
-//     the snapshot's hash via Snapshot.AwaitHash, which is guaranteed to match
-//     the iterated data.
+//   - Keys under the engine's reserved metadata prefix (reservedPrefix) are
+//     excluded from iteration output: the DB-side values there belong to the
+//     most recently flushed version and are generally stale relative to this
+//     snapshot. They are engine bookkeeping, not user data.
 //
 // Concurrency:
 //   - Not thread-safe. A single iterator must not be shared across goroutines;
 //     create one iterator per consumer.
 type snapshotIterator struct {
-	// overrides are sorted ascending by key. The caller is responsible for sorting;
-	// the iterator does not re-validate ordering.
+	// overrides are sorted in iteration order by key (see reverse). The caller is
+	// responsible for sorting; the iterator does not re-validate ordering.
 	overrides   []kvPair
 	overrideIdx int
 
@@ -64,10 +64,27 @@ type snapshotIterator struct {
 	// pre-positioned).
 	dbIter dbm.Iterator
 
-	// hashKey is the engine's reserved metadata hash key (see
-	// SnapshotEngineConfig.HashKey); entries with this key are excluded from
+	// reservedPrefix is the engine's reserved metadata key prefix (see
+	// SnapshotEngineConfig.ReservedPrefix); entries under it are excluded from
 	// iteration output.
-	hashKey []byte
+	reservedPrefix []byte
+
+	// reverse reports whether iteration walks keys in descending order. It must match the direction
+	// the overrides were sorted in and the direction dbIter was opened with; the merge picks whichever
+	// tip comes first in that order.
+	reverse bool
+
+	// start is the inclusive lower bound this iterator was opened with, reported verbatim by Domain.
+	start []byte
+
+	// end is the exclusive upper bound this iterator was opened with, reported verbatim by Domain.
+	end []byte
+
+	// key is the key the cursor currently sits on, nil once the merge has run out or errored.
+	key []byte
+
+	// value is the value the cursor currently sits on, nil once the merge has run out or errored.
+	value []byte
 
 	// nextDBPair caches the dbIter's current tip, cloned out of dbIter's
 	// zero-copy buffers. Populated by the constructor and refreshed by
@@ -92,41 +109,86 @@ type snapshotIterator struct {
 // newSnapshotIterator constructs a snapshotIterator over pre-materialized inputs.
 //
 // Caller obligations:
-//   - overrides must be sorted ascending by key. Override entries with value == nil
-//     are tombstones that suppress same-key DB entries.
+//   - overrides must be sorted in iteration order by key — ascending, or descending
+//     when reverse is set. Override entries with value == nil are tombstones that
+//     suppress same-key DB entries.
 //   - dbIter must be a fresh DB iterator, already positioned at its first key
 //     (tm-db iterators are created pre-positioned). The new iterator takes
 //     ownership and will Close it.
-//   - hashKey is the engine's reserved metadata hash key, which is excluded
-//     from iteration output (see the Filtering section of the type doc).
+//   - reservedPrefix is the engine's reserved metadata key prefix, whose keys are
+//     excluded from iteration output (see the Filtering section of the type doc).
+//   - reverse must match both the order overrides are sorted in and the direction
+//     dbIter was opened with. Mismatching them yields a silently wrong merge.
+//   - start and end are reported by Domain. They must match the bounds dbIter was
+//     opened with and the range the overrides were filtered to; this iterator does
+//     no bounds filtering of its own.
+//
+// The returned iterator is already positioned on its first pair. A failure while
+// positioning it is returned here rather than surfaced through Error, and closes
+// dbIter on the way out.
 func newSnapshotIterator(
 	overrides []kvPair,
 	dbIter dbm.Iterator,
-	hashKey []byte,
+	reservedPrefix []byte,
+	reverse bool,
+	start []byte,
+	end []byte,
 ) (*snapshotIterator, error) {
 	it := &snapshotIterator{
-		overrides: overrides,
-		dbIter:    dbIter,
-		hashKey:   hashKey,
+		overrides:      overrides,
+		dbIter:         dbIter,
+		reservedPrefix: reservedPrefix,
+		reverse:        reverse,
+		start:          start,
+		end:            end,
 	}
 	if err := it.refreshDBPair(); err != nil {
+		it.err = err
+	} else {
+		it.advance()
+	}
+	if it.err != nil {
 		// We took ownership of dbIter; close it before returning the error
 		// since the caller has no handle to clean it up.
 		if closeErr := it.closeDBIter(); closeErr != nil {
-			return nil, errors.Join(err, closeErr)
+			return nil, errors.Join(it.err, closeErr)
 		}
-		return nil, err
+		return nil, it.err
 	}
 	return it, nil
 }
 
-func (it *snapshotIterator) Next() (bool, []byte, []byte, error) {
-	if it.closed {
-		return false, nil, nil, errIteratorClosed
+func (it *snapshotIterator) Domain() ([]byte, []byte) {
+	return it.start, it.end
+}
+
+func (it *snapshotIterator) Valid() bool {
+	return !it.closed && it.err == nil && it.key != nil
+}
+
+func (it *snapshotIterator) Next() {
+	if !it.Valid() {
+		return
 	}
-	if it.err != nil {
-		return false, nil, nil, it.err
-	}
+	it.advance()
+}
+
+func (it *snapshotIterator) Key() []byte {
+	return it.key
+}
+
+func (it *snapshotIterator) Value() []byte {
+	return it.value
+}
+
+func (it *snapshotIterator) Error() error {
+	return it.err
+}
+
+// advance moves the cursor onto the next merged pair, or off the end. On the way off the end, and on
+// any failure, key and value go nil so Valid reports false.
+func (it *snapshotIterator) advance() {
+	it.key, it.value = nil, nil
 
 	for {
 		var overrideTip *kvPair
@@ -142,15 +204,14 @@ func (it *snapshotIterator) Next() (bool, []byte, []byte, error) {
 			// net for some modes of failure.
 			if err := it.closeDBIter(); err != nil {
 				it.err = err
-				return false, nil, nil, err
 			}
-			return false, nil, nil, nil
+			return
 		}
 
 		// Pick the smaller tip; on ties, the override wins and we advance both
 		// sides. Tombstones (nil-valued overrides) suppress emission and loop.
 		var pick *kvPair
-		switch cmp := compareTips(overrideTip, dbTip); {
+		switch cmp := compareTips(overrideTip, dbTip, it.reverse); {
 		case cmp < 0:
 			// A new value is present in the overrides but not present in the database.
 			pick = overrideTip
@@ -160,7 +221,7 @@ func (it *snapshotIterator) Next() (bool, []byte, []byte, error) {
 			pick = dbTip
 			if err := it.advanceDBIterator(); err != nil {
 				it.err = err
-				return false, nil, nil, err
+				return
 			}
 		default:
 			// A value is present in both the overrides and the database.
@@ -169,7 +230,7 @@ func (it *snapshotIterator) Next() (bool, []byte, []byte, error) {
 			it.advanceOverrideIndex()
 			if err := it.advanceDBIterator(); err != nil {
 				it.err = err
-				return false, nil, nil, err
+				return
 			}
 		}
 
@@ -177,11 +238,12 @@ func (it *snapshotIterator) Next() (bool, []byte, []byte, error) {
 			// We've encountered a tombstone for a deleted value. Skip it and continue the loop.
 			continue
 		}
-		if bytes.Equal(pick.key, it.hashKey) {
-			// The engine's reserved metadata hash key is not part of the snapshot's user data.
+		if bytes.HasPrefix(pick.key, it.reservedPrefix) {
+			// The engine's reserved metadata keyspace is not part of the snapshot's user data.
 			continue
 		}
-		return true, pick.key, pick.value, nil
+		it.key, it.value = pick.key, pick.value
+		return
 	}
 }
 
@@ -232,7 +294,7 @@ func (it *snapshotIterator) Close() error {
 }
 
 // closeDBIter closes dbIter exactly once across all callers (the constructor
-// error path, Next-on-exhaustion, and Close). Subsequent calls return nil.
+// error path, the merge running off the end, and Close). Subsequent calls return nil.
 func (it *snapshotIterator) closeDBIter() error {
 	if it.dbIterClosed {
 		return nil
@@ -244,15 +306,24 @@ func (it *snapshotIterator) closeDBIter() error {
 	return nil
 }
 
-// Return -1 if overrideTip sorts before dbTip, 0 if they share a key, 1 if overrideTip sorts after dbTip.
-// A nil tip is treated as exhausted and sorts after every real key.
-func compareTips(overrideTip *kvPair, dbTip *kvPair) int {
+// Return -1 if overrideTip comes first in iteration order, 0 if the two tips share a key, 1 if dbTip
+// comes first. "First" follows the iteration direction: the smaller key ascending, the larger key
+// descending.
+//
+// A nil tip is exhausted and always sorts last, in both directions. That is why the exhaustion cases
+// are decided before the key comparison and are not affected by reverse — inverting them would let an
+// exhausted side win the merge and end iteration while the other side still has data.
+func compareTips(overrideTip *kvPair, dbTip *kvPair, reverse bool) int {
 	switch {
 	case dbTip == nil:
 		return -1
 	case overrideTip == nil:
 		return 1
 	default:
-		return bytes.Compare(overrideTip.key, dbTip.key)
+		cmp := bytes.Compare(overrideTip.key, dbTip.key)
+		if reverse {
+			return -cmp
+		}
+		return cmp
 	}
 }

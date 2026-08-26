@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -99,7 +100,7 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 			ver := model.Commit()
 			// Hash immediately while holding the reservation: this lets the background flusher race
 			// ahead of Release, exercising the flush-then-read (merge in-memory + DB) path.
-			require.NoError(t, snap.SetHash(testHash))
+			require.NoError(t, snap.Finalize(hashWrites(testHash)))
 			opens = append(opens, openSnap{snap: snap, ver: ver})
 		}
 
@@ -143,7 +144,7 @@ func checkSnapshot(t *testing.T, snap Snapshot, model *modelEngine, ver uint64, 
 // checkLiveIteration compares the engine's mutable-version iterator against the oracle. The iterator
 // must be closed before the caller writes again, since the engine refuses writes while one is open.
 func checkLiveIteration(t *testing.T, label string, engine SnapshotEngine, model *modelEngine) {
-	it, err := engine.Iterator()
+	it, err := engine.Iterator(nil)
 	require.NoError(t, err, "%s Iterator", label)
 	compareIterator(t, label, it, model.IterateLive())
 }
@@ -175,7 +176,7 @@ func compareBatchGet(t *testing.T, label string, batchGet func([][]byte) (map[st
 	}
 }
 
-func compareIterator(t *testing.T, label string, it Iterator, expected []kvPair) {
+func compareIterator(t *testing.T, label string, it dbm.Iterator, expected []kvPair) {
 	got := collectIterator(t, it) // closes it, which is what releases the engine's write block
 	require.Equal(t, len(expected), len(got), "%s iterator length", label)
 	for i := range expected {
