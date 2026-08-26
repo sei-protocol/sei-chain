@@ -11,7 +11,6 @@ import (
 	distributiontypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	ibcclienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -24,14 +23,12 @@ type (
 	StakingEncoder      func(sender sdk.AccAddress, msg *wasmvmtypes.StakingMsg) ([]sdk.Msg, error)
 	StargateEncoder     func(sender sdk.AccAddress, msg *wasmvmtypes.StargateMsg) ([]sdk.Msg, error)
 	WasmEncoder         func(sender sdk.AccAddress, msg *wasmvmtypes.WasmMsg) ([]sdk.Msg, error)
-	IBCEncoder          func(ctx sdk.Context, sender sdk.AccAddress, contractIBCPortID string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error)
 )
 
 type MessageEncoders struct {
 	Bank         func(sender sdk.AccAddress, msg *wasmvmtypes.BankMsg) ([]sdk.Msg, error)
 	Custom       func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) ([]sdk.Msg, error)
 	Distribution func(sender sdk.AccAddress, msg *wasmvmtypes.DistributionMsg) ([]sdk.Msg, error)
-	IBC          func(ctx sdk.Context, sender sdk.AccAddress, contractIBCPortID string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error)
 	Staking      func(sender sdk.AccAddress, msg *wasmvmtypes.StakingMsg) ([]sdk.Msg, error)
 	Stargate     func(sender sdk.AccAddress, msg *wasmvmtypes.StargateMsg) ([]sdk.Msg, error)
 	Wasm         func(sender sdk.AccAddress, msg *wasmvmtypes.WasmMsg) ([]sdk.Msg, error)
@@ -43,7 +40,6 @@ func DefaultEncoders(unpacker codectypes.AnyUnpacker) MessageEncoders {
 		Bank:         EncodeBankMsg,
 		Custom:       NoCustomMsg,
 		Distribution: EncodeDistributionMsg,
-		IBC:          EncodeIBCMsg,
 		Staking:      EncodeStakingMsg,
 		Stargate:     EncodeStargateMsg(unpacker),
 		Wasm:         EncodeWasmMsg,
@@ -63,9 +59,6 @@ func (e MessageEncoders) Merge(o *MessageEncoders) MessageEncoders {
 	}
 	if o.Distribution != nil {
 		e.Distribution = o.Distribution
-	}
-	if o.IBC != nil {
-		e.IBC = o.IBC
 	}
 	if o.Staking != nil {
 		e.Staking = o.Staking
@@ -91,7 +84,7 @@ func (e MessageEncoders) Encode(ctx sdk.Context, contractAddr sdk.AccAddress, co
 	case msg.Distribution != nil:
 		return e.Distribution(contractAddr, msg.Distribution)
 	case msg.IBC != nil:
-		return e.IBC(ctx, contractAddr, contractIBCPortID, msg.IBC)
+		return EncodeIBCMsg(ctx, contractAddr, contractIBCPortID, msg.IBC)
 	case msg.Staking != nil:
 		return e.Staking(contractAddr, msg.Staking)
 	case msg.Stargate != nil:
@@ -264,7 +257,7 @@ func EncodeWasmMsg(sender sdk.AccAddress, msg *wasmvmtypes.WasmMsg) ([]sdk.Msg, 
 func EncodeIBCMsg(_ sdk.Context, _ sdk.AccAddress, _ string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error) {
 	switch {
 	case msg.SendPacket != nil:
-		return nil, sdkerrors.Wrap(types.ErrUnknownMsg, "ibc send packet")
+		return nil, sdkerrors.Wrap(types.ErrUnsupportedForContract, "ibc send packet")
 	case msg.Transfer != nil:
 		return nil, sdkerrors.Wrap(types.ErrUnsupportedForContract, "ibc transfer")
 	case msg.CloseChannel != nil:
@@ -292,14 +285,6 @@ func EncodeGovMsg(sender sdk.AccAddress, msg *wasmvmtypes.GovMsg) ([]sdk.Msg, er
 		Option:     option,
 	}
 	return []sdk.Msg{vote}, nil
-}
-
-// ConvertWasmIBCTimeoutHeightToCosmosHeight converts a wasmvm type ibc timeout height to ibc module type height
-func ConvertWasmIBCTimeoutHeightToCosmosHeight(ibcTimeoutBlock *wasmvmtypes.IBCTimeoutBlock) ibcclienttypes.Height {
-	if ibcTimeoutBlock == nil {
-		return ibcclienttypes.NewHeight(0, 0)
-	}
-	return ibcclienttypes.NewHeight(ibcTimeoutBlock.Revision, ibcTimeoutBlock.Height)
 }
 
 // ConvertWasmCoinsToSdkCoins converts the wasm vm type coins to sdk type coins

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/require"
@@ -26,8 +25,8 @@ func TestCustomMessageHandlerRejectsIBCRawPacket(t *testing.T) {
 		wasmtypes.CodeInfo{},
 	)
 
-	require.ErrorIs(t, err, ibccoretypes.ErrIBCDeprecated)
-	require.EqualError(t, err, "ibc module is deprecated")
+	require.ErrorIs(t, err, wasmtypes.ErrUnsupportedForContract)
+	require.EqualError(t, err, "ibc send packet: unsupported for this contract")
 	require.Nil(t, events)
 	require.Nil(t, data)
 }
