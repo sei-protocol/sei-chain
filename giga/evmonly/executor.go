@@ -26,7 +26,7 @@ type Executor struct {
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
 	storeMu          sync.Mutex
-	store            gigastore.Store
+	store            gigastore.StateDB
 	changeSetEncoder NamedChangeSetEncoder
 	closed           atomic.Bool
 }
@@ -42,7 +42,7 @@ func WithResultSink(sink ResultSink) Option {
 // WithStore selects the giga store implementation used for all state reads and
 // commits. The encoder owns the implementation-specific conversion from the
 // executor's EVM-native StateChangeSet to the store's protobuf changesets.
-func WithStore(store gigastore.Store, encoder NamedChangeSetEncoder) Option {
+func WithStore(store gigastore.StateDB, encoder NamedChangeSetEncoder) Option {
 	return func(e *Executor) {
 		e.store = store
 		e.changeSetEncoder = encoder

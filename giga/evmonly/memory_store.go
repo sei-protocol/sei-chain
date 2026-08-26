@@ -29,9 +29,9 @@ const (
 	memoryStoreStorageKeyLen = memoryStoreAccountKeyLen + common.HashLength
 )
 
-var _ gigastore.Store = (*MemoryStore)(nil)
+var _ gigastore.StateDB = (*MemoryStore)(nil)
 
-// MemoryStore adapts an immutable StateReader to the giga Store interface. It
+// MemoryStore adapts an immutable StateReader to the giga StateDB interface. It
 // is intended for tests and load generation, not production persistence.
 // Commits are retained as versioned in-memory overlays so open and historical
 // snapshots remain stable without cloning the complete base state per block.
@@ -64,7 +64,7 @@ type memoryStoreStorageKey struct {
 	slot    common.Hash
 }
 
-// NewMemoryStore constructs a giga Store backed by source plus in-memory
+// NewMemoryStore constructs a giga StateDB backed by source plus in-memory
 // committed overlays. Source must remain immutable for the lifetime of the
 // store, and its methods must be safe for concurrent calls.
 func NewMemoryStore(source StateReader) *MemoryStore {
@@ -345,7 +345,7 @@ func (s *MemoryStore) touchStorageAccountLocked(height int64, address common.Add
 	}
 }
 
-func (s *MemoryStore) OpenSnapshot() gigastore.StateSnapshot {
+func (s *MemoryStore) OpenView() gigastore.StateView {
 	s.mu.RLock()
 	height := int64(0)
 	if s.hasCurrentHeight {
@@ -355,7 +355,7 @@ func (s *MemoryStore) OpenSnapshot() gigastore.StateSnapshot {
 	return &memoryStoreSnapshot{store: s, height: height}
 }
 
-func (s *MemoryStore) OpenSnapshotAt(blockNum int64) (gigastore.StateSnapshot, bool) {
+func (s *MemoryStore) OpenViewAt(blockNum int64) (gigastore.StateView, bool) {
 	s.mu.RLock()
 	_, ok := s.committedHeights[blockNum]
 	s.mu.RUnlock()
@@ -371,7 +371,7 @@ type memoryStoreSnapshot struct {
 	closed atomic.Bool
 }
 
-var _ gigastore.StateSnapshot = (*memoryStoreSnapshot)(nil)
+var _ gigastore.StateView = (*memoryStoreSnapshot)(nil)
 
 func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
 	s.requireOpen()
@@ -476,9 +476,9 @@ func (s *memoryStoreSnapshot) GetBlockHeight() int64 {
 	return s.height
 }
 
-func (s *memoryStoreSnapshot) Get(key []byte) ([]byte, bool) {
+func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 	s.requireOpen()
-	if len(key) == 0 {
+	if module != MemoryStoreChangeSetName || len(key) == 0 {
 		return nil, false
 	}
 

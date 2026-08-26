@@ -11,7 +11,7 @@ func (*readOnlyTestStore) CommitStateChanges(int64, []*proto.NamedChangeSet) err
 }
 
 // withTestState keeps executor unit tests focused on execution behavior while
-// production code exposes only giga Store configuration.
+// production code exposes only giga StateDB configuration.
 func withTestState(state StateReader) Option {
 	store := &readOnlyTestStore{MemoryStore: NewMemoryStore(state)}
 	return WithStore(store, store.EncodeChangeSet)

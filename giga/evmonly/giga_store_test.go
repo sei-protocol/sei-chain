@@ -15,7 +15,7 @@ import (
 )
 
 type recordingGigaStore struct {
-	snapshot    gigastore.StateSnapshot
+	snapshot    gigastore.StateView
 	openCount   int
 	commitErr   error
 	commitBlock []int64
@@ -28,12 +28,12 @@ func (s *recordingGigaStore) CommitStateChanges(blockNum int64, changeset []*pro
 	return s.commitErr
 }
 
-func (s *recordingGigaStore) OpenSnapshot() gigastore.StateSnapshot {
+func (s *recordingGigaStore) OpenView() gigastore.StateView {
 	s.openCount++
 	return s.snapshot
 }
 
-func (s *recordingGigaStore) OpenSnapshotAt(int64) (gigastore.StateSnapshot, bool) {
+func (s *recordingGigaStore) OpenViewAt(int64) (gigastore.StateView, bool) {
 	return nil, false
 }
 
@@ -104,7 +104,7 @@ func (s *memoryGigaSnapshot) GetBlockHeight() int64 {
 	return s.height
 }
 
-func (s *memoryGigaSnapshot) Get([]byte) ([]byte, bool) {
+func (s *memoryGigaSnapshot) Get(string, []byte) ([]byte, bool) {
 	return nil, false
 }
 

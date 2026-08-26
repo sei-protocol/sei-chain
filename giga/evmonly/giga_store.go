@@ -37,6 +37,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if req.Context.Number > maxGigaStoreBlockNumber {
 		return nil, fmt.Errorf("giga store block number %d exceeds int64", req.Context.Number)
 	}
+	blockNumber := int64(req.Context.Number) //nolint:gosec // G115: bounded by maxGigaStoreBlockNumber above.
 
 	// Store-backed execution is serialized so two blocks cannot share a stale
 	// snapshot or overlap CommitStateChanges. Callers still submit block heights
@@ -47,7 +48,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot := e.store.OpenSnapshot()
+	snapshot := e.store.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
@@ -74,7 +75,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := e.store.CommitStateChanges(int64(req.Context.Number), changesets); err != nil {
+	if err := e.store.CommitStateChanges(blockNumber, changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
@@ -82,7 +83,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 }
 
 type gigaSnapshotStateReader struct {
-	snapshot gigastore.EVMStateSnapshot
+	snapshot gigastore.EVMStateView
 }
 
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {

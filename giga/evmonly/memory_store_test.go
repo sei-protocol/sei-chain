@@ -56,10 +56,10 @@ func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
 
 	store := NewMemoryStore(NewMemoryState())
 	require.NoError(t, store.CommitStateChanges(1, changesets))
-	snapshot := store.OpenSnapshot()
+	snapshot := store.OpenView()
 	defer snapshot.Close()
 	for _, pair := range pairs {
-		value, ok := snapshot.Get(pair.Key)
+		value, ok := snapshot.Get(MemoryStoreChangeSetName, pair.Key)
 		require.True(t, ok)
 		if pair.Key[0] == memoryStoreStorageClearKey {
 			require.Empty(t, value)
@@ -80,7 +80,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	base.SetState(address, baseSlot, common.HexToHash("0xaa"))
 	store := NewMemoryStore(base)
 
-	initial := store.OpenSnapshot()
+	initial := store.OpenView()
 	changesets, err := store.EncodeChangeSet(StateChangeSet{
 		Balances: []BalanceChange{{Address: address, Balance: big.NewInt(20)}},
 		Nonces:   []NonceChange{{Address: address, Nonce: 2}},
@@ -97,10 +97,10 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.CommitStateChanges(7, changesets))
 
-	current := store.OpenSnapshot()
-	historical, ok := store.OpenSnapshotAt(7)
+	current := store.OpenView()
+	historical, ok := store.OpenViewAt(7)
 	require.True(t, ok)
-	_, ok = store.OpenSnapshotAt(6)
+	_, ok = store.OpenViewAt(6)
 	require.False(t, ok)
 
 	require.Equal(t, int64(0), initial.GetBlockHeight())
@@ -108,7 +108,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.Equal(t, uint64(1), initial.GetNonce(gigastore.Address(address)))
 	require.Equal(t, common.HexToHash("0xaa"), common.Hash(initial.GetStorage(gigastore.Address(address), gigastore.Hash(baseSlot))))
 
-	for _, snapshot := range []gigastore.StateSnapshot{current, historical} {
+	for _, snapshot := range []gigastore.StateView{current, historical} {
 		require.Equal(t, int64(7), snapshot.GetBlockHeight())
 		require.Equal(t, big.NewInt(20), gigaHashToBig(snapshot.GetBalance(gigastore.Address(address))))
 		require.Equal(t, uint64(2), snapshot.GetNonce(gigastore.Address(address)))
@@ -127,7 +127,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, store.CommitStateChanges(8, deleteChanges))
-	afterDelete := store.OpenSnapshot()
+	afterDelete := store.OpenView()
 	require.Empty(t, afterDelete.GetCode(gigastore.Address(address)))
 	require.Equal(t, gigastore.Hash{}, afterDelete.GetStorage(gigastore.Address(address), gigastore.Hash(newSlot)))
 	require.Equal(t, []byte{0x60, 0x01}, historical.GetCode(gigastore.Address(address)))
@@ -167,7 +167,7 @@ func TestMemoryStoreTracksZeroValueAndStorageOnlyAccounts(t *testing.T) {
 	zeroValueAddress := testAddress(0xd2)
 	storageOnlyAddress := testAddress(0xd3)
 	store := NewMemoryStore(NewMemoryState())
-	before := store.OpenSnapshot()
+	before := store.OpenView()
 
 	changesets, err := store.EncodeChangeSet(StateChangeSet{
 		Balances: []BalanceChange{{Address: zeroValueAddress, Balance: new(big.Int)}},
@@ -179,7 +179,7 @@ func TestMemoryStoreTracksZeroValueAndStorageOnlyAccounts(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, store.CommitStateChanges(5, changesets))
-	after := store.OpenSnapshot()
+	after := store.OpenView()
 	defer before.Close()
 	defer after.Close()
 
@@ -212,7 +212,7 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 		result.Release()
 	}
 
-	snapshot := store.OpenSnapshot()
+	snapshot := store.OpenView()
 	defer snapshot.Close()
 	require.Equal(t, int64(2), snapshot.GetBlockHeight())
 	require.Equal(t, uint64(2), snapshot.GetNonce(gigastore.Address(sender)))
