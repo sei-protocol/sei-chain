@@ -247,7 +247,7 @@ func driveMigrationWorkload(
 
 	for i := 0; i < phase1Blocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(phase1Blocks), cs.Version())
@@ -277,7 +277,7 @@ func driveMigrationWorkload(
 
 	for i := 0; i < phase2Blocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.Close())
@@ -320,7 +320,7 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 			{Key: key2, Value: evmStorageTestValue(0x22)},
 		}}},
 	}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, cs.Close())
 
@@ -387,9 +387,12 @@ func isZeroTestValue(v []byte) bool {
 
 func pruneZeroStorageViaRoutedGet(t *testing.T, cs *CompositeCommitStore, limit int) (int, int) {
 	t.Helper()
+	// Collect first, close, then write, which is the shape x/evm's real prune takes by accident of
+	// layering: its deletes land in the cachekv buffer and only reach FlatKV at end of block, after the
+	// iterator is gone. Holding the iterator across the writes would also be legal — it is a fixed view
+	// that later writes cannot disturb — but then this would no longer mirror the path it stands in for.
 	iter, err := cs.Iterator(keys.EVMStoreKey, keys.StateKeyPrefix(), []byte{0x04}, true)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, iter.Close()) }()
 
 	var deletes []*proto.KVPair
 	processed := 0
@@ -406,6 +409,7 @@ func pruneZeroStorageViaRoutedGet(t *testing.T, cs *CompositeCommitStore, limit 
 		}
 	}
 	require.NoError(t, iter.Error())
+	require.NoError(t, iter.Close())
 
 	if len(deletes) > 0 {
 		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{{
@@ -459,7 +463,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 			{Key: zeroKeyAfterBoundary, Value: zeroStorageTestValue()},
 		}},
 	}}))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, cs.Close())
 
@@ -468,7 +472,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	processed, deleted := pruneZeroStorageViaRoutedGet(t, cs, 10)
 	require.Equal(t, 3, processed)
 	require.Equal(t, 2, deleted)
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 
 	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
@@ -499,7 +503,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
 
 	preFlipVersion := cs.Version()
-	preFlipHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+	preFlipHash := append([]byte(nil), flatKVRootHash(cs)...)
 	require.NoError(t, cs.Close())
 
 	finalCfg := evmMigratedConfig()
@@ -512,7 +516,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	defer func() { _ = cs.Close() }()
 
 	require.Equal(t, preFlipVersion, cs.Version())
-	require.Equal(t, preFlipHash, cs.flatKV.CommittedRootHash())
+	require.Equal(t, preFlipHash, flatKVRootHash(cs))
 	for _, key := range [][]byte{zeroKeyBeforeBoundary, zeroKeyAfterBoundary} {
 		value, found, err := cs.Get(keys.EVMStoreKey, key)
 		require.NoError(t, err)
@@ -540,7 +544,7 @@ func runUntilMigrationComplete(
 	t.Helper()
 	for i := 0; i < maxBlocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 		done, err := migration.IsAtVersion(flatKVReaderFor(cs), uint64(migration.Version1_MigrateEVM))
 		require.NoError(t, err)
@@ -705,7 +709,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		require.NoError(t, err)
 		for i := 0; i < phase1Blocks; i++ {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-			_, err := cs.Commit()
+			_, err := cs.Commit(cs.Version() + 1)
 			require.NoError(t, err)
 		}
 		require.NoError(t, cs.Close())
@@ -714,7 +718,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 
 		runBlock := func() {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
-			_, err := cs.Commit()
+			_, err := cs.Commit(cs.Version() + 1)
 			require.NoError(t, err)
 		}
 
@@ -742,7 +746,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		}
 
 		finalVersion = cs.Version()
-		flatkvHash = append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+		flatkvHash = append([]byte(nil), flatKVRootHash(cs)...)
 		oracle = workload.snapshotOracle()
 		require.NoError(t, cs.Close())
 		return
@@ -794,7 +798,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 		require.NoError(t, err)
 		for i := 0; i < phase1Blocks; i++ {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-			_, err := cs.Commit()
+			_, err := cs.Commit(cs.Version() + 1)
 			require.NoError(t, err)
 		}
 		require.NoError(t, cs.Close())
@@ -805,9 +809,9 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 		perBlockHashes = make([][]byte, 0, phase2Blocks)
 		for i := 0; i < phase2Blocks; i++ {
 			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
-			_, err := cs.Commit()
+			_, err := cs.Commit(cs.Version() + 1)
 			require.NoError(t, err)
-			perBlockHashes = append(perBlockHashes, append([]byte(nil), cs.flatKV.CommittedRootHash()...))
+			perBlockHashes = append(perBlockHashes, append([]byte(nil), flatKVRootHash(cs)...))
 		}
 		finalVersion = cs.Version()
 		return
@@ -849,7 +853,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 
 	preFlipVersion := cs.Version()
 	preFlipOracle := workload.snapshotOracle()
-	preFlipFlatkvHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+	preFlipFlatkvHash := append([]byte(nil), flatKVRootHash(cs)...)
 	require.NoError(t, cs.Close())
 
 	// --- Mode flip: reopen as EVMMigrated. ---
@@ -864,7 +868,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 
 	require.Equal(t, preFlipVersion, cs.Version(),
 		"EVMMigrated reopen must report the same version as the completed MigrateEVM run")
-	require.Equal(t, preFlipFlatkvHash, cs.flatKV.CommittedRootHash(),
+	require.Equal(t, preFlipFlatkvHash, flatKVRootHash(cs),
 		"flatkv committed root hash must be invariant across the MigrateEVM -> EVMMigrated mode flip")
 	requireOracleMatches(t, cs, preFlipOracle)
 
@@ -875,7 +879,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	// (memiavl) that no read path can heal.
 	postFlipBlock := workload.generateBlock(5, 3, 1, 2, 1)
 	require.NoError(t, cs.ApplyChangeSets(postFlipBlock))
-	_, err = cs.Commit()
+	_, err = cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
@@ -888,28 +892,6 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	t.Cleanup(func() { _ = iter.Close() })
 	require.False(t, iter.Valid(),
 		"post-flip memiavl evm tree must remain empty (EVM writes route to flatkv)")
-}
-
-// cloneCommitInfo deep-copies a *proto.CommitInfo so a captured snapshot
-// survives later commits / reopens that mutate the live store.
-func cloneCommitInfo(ci *proto.CommitInfo) *proto.CommitInfo {
-	if ci == nil {
-		return nil
-	}
-	out := &proto.CommitInfo{
-		Version:    ci.Version,
-		StoreInfos: make([]proto.StoreInfo, len(ci.StoreInfos)),
-	}
-	for i, si := range ci.StoreInfos {
-		out.StoreInfos[i] = proto.StoreInfo{
-			Name: si.Name,
-			CommitId: proto.CommitID{
-				Version: si.CommitId.Version,
-				Hash:    append([]byte(nil), si.CommitId.Hash...),
-			},
-		}
-	}
-	return out
 }
 
 // requireCommitInfoEqual asserts two commit infos carry the same version
@@ -991,7 +973,7 @@ func TestComposite_MigrateEVM_RollbackAcrossActivationBoundary(t *testing.T) {
 	cs := openCompositeForRollback(t, dir, types.MemiavlOnly, batch, rollbackSnapSettings{})
 	for i := 0; i < phase1Blocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(30, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	// Capture the canonical pre-activation commit info. It must not carry
@@ -1009,7 +991,7 @@ func TestComposite_MigrateEVM_RollbackAcrossActivationBoundary(t *testing.T) {
 	const phase2Blocks = 10
 	for i := 0; i < phase2Blocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(8, 4, 1, 2, 1)))
-		v, err := cs.Commit()
+		v, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 		canonical[v] = cloneCommitInfo(cs.LastCommitInfo())
 	}
@@ -1114,7 +1096,7 @@ func TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo(t *testing.T) 
 			cs := openCompositeForRollback(t, dir, types.MemiavlOnly, batch, tc.snap)
 			for i := 0; i < phase1Blocks; i++ {
 				require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(30, 0, 0, 5, 0)))
-				_, err := cs.Commit()
+				_, err := cs.Commit(cs.Version() + 1)
 				require.NoError(t, err)
 			}
 			require.NoError(t, cs.Close())
@@ -1128,7 +1110,7 @@ func TestComposite_MigrateEVM_RollbackRestoresCanonicalCommitInfo(t *testing.T) 
 			canonical := map[int64]*proto.CommitInfo{}
 			for i := 0; i < phase2Blocks; i++ {
 				require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(8, 4, 1, 2, 1)))
-				v, err := cs.Commit()
+				v, err := cs.Commit(cs.Version() + 1)
 				require.NoError(t, err)
 				canonical[v] = cloneCommitInfo(cs.LastCommitInfo())
 			}
@@ -1187,7 +1169,7 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	// later spans several blocks), then walk the ladder to migrate_bank.
 	for i := 0; i < 12; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(6, 0, 0, 40, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
@@ -1205,7 +1187,7 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	// One migrate_bank block that does not complete the migration: memiavl
 	// is still part of the AppHash here. Capture it as the rollback target.
 	require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 0, 2)))
-	_, err := cs.Commit()
+	_, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err)
 	target := cs.Version()
 	canonicalTarget := cloneCommitInfo(cs.LastCommitInfo())

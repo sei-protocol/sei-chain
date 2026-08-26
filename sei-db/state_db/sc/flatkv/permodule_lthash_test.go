@@ -64,17 +64,19 @@ func fullScanModuleLtHash(t *testing.T, db types.KeyValueDB) map[string]*lthash.
 // sum to the per-DB root.
 func verifyModuleLtHash(t *testing.T, s *CommitStore) {
 	t.Helper()
-	for _, ndb := range s.namedDataDBs() {
-		scanned := fullScanModuleLtHash(t, ndb.db)
-		working := s.perDBModuleWorkingLtHash[ndb.dir]
+	requireFlushedToDisk(t, s)
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
+		scanned := fullScanModuleLtHash(t, db)
+		working := s.perDBModuleWorkingLtHash[dir]
 
 		// Every scanned module must have a matching working hash.
 		for module, scanHash := range scanned {
 			wh := working[module]
-			require.NotNil(t, wh, "missing working per-module hash for %s/%s", ndb.dir, module)
+			require.NotNil(t, wh, "missing working per-module hash for %s/%s", dir, module)
 			require.True(t, wh.Equal(scanHash),
 				"per-module LtHash mismatch for %s/%s:\n  working:  %x\n  fullscan: %x",
-				ndb.dir, module, wh.Checksum(), scanHash.Checksum())
+				dir, module, wh.Checksum(), scanHash.Checksum())
 		}
 
 		// The sum of the (non-zero) working per-module hashes must equal the
@@ -83,9 +85,9 @@ func verifyModuleLtHash(t *testing.T, s *CommitStore) {
 		for _, wh := range working {
 			sum.MixIn(wh)
 		}
-		require.True(t, s.perDBWorkingLtHash[ndb.dir].Equal(sum),
+		require.True(t, s.perDBWorkingLtHash[dir].Equal(sum),
 			"sum of per-module hashes should equal per-DB root for %s:\n  root: %x\n  sum:  %x",
-			ndb.dir, s.perDBWorkingLtHash[ndb.dir].Checksum(), sum.Checksum())
+			dir, s.perDBWorkingLtHash[dir].Checksum(), sum.Checksum())
 	}
 }
 
@@ -196,10 +198,10 @@ func TestPerModuleLtHashPersistenceAfterReopen(t *testing.T) {
 
 	// LocalMeta persisted the same set on disk.
 	dbInstances := map[string]types.KeyValueDB{
-		accountDBDir: s2.accountDB,
-		codeDBDir:    s2.codeDB,
-		storageDBDir: s2.storageDB,
-		miscDBDir:    s2.miscDB,
+		accountDBDir: s2.rawDBFor(accountDBDir),
+		codeDBDir:    s2.rawDBFor(codeDBDir),
+		storageDBDir: s2.rawDBFor(storageDBDir),
+		miscDBDir:    s2.rawDBFor(miscDBDir),
 	}
 	for dir, db := range dbInstances {
 		meta, err := loadLocalMeta(db)

@@ -214,8 +214,17 @@ func (t *MultiTree) SnapshotVersion() int64 {
 	return t.metadata.CommitInfo.Version
 }
 
+// LastCommitInfo returns a copy of the commit info for the last saved version.
+//
+// The copy is what makes the result safe to hold: SaveVersion and Catchup write lastCommitInfo and its
+// StoreInfos in place, so a pointer to it would change under a reader mid-iteration.
 func (t *MultiTree) LastCommitInfo() *proto.CommitInfo {
-	return &t.lastCommitInfo
+	storeInfos := make([]proto.StoreInfo, len(t.lastCommitInfo.StoreInfos))
+	copy(storeInfos, t.lastCommitInfo.StoreInfos)
+	return &proto.CommitInfo{
+		Version:    t.lastCommitInfo.Version,
+		StoreInfos: storeInfos,
+	}
 }
 
 //lint:ignore U1000 lifecycle method retained for completeness

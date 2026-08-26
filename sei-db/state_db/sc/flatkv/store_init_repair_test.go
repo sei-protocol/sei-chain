@@ -45,7 +45,7 @@ func reopenStore(t *testing.T, s *CommitStore, cfg *config.Config) *CommitStore 
 // requireAllDataDBsAt asserts every data DB records version.
 func requireAllDataDBsAt(t *testing.T, s *CommitStore, version int64, because ...string) {
 	t.Helper()
-	for _, ndb := range s.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, version, meta.CommittedVersion, "%s version record %s", ndb.dir, strings.Join(because, " "))
@@ -411,7 +411,7 @@ func TestDataDBAheadOfWALTouchedByReplayIsRebuilt(t *testing.T) {
 
 	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{1})}))
 	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{2})}))
-	wantRoot := bytes.Clone(s.CommittedRootHash())
+	wantRoot := bytes.Clone(rootHash(s))
 
 	// Block 3 writes a different key, so replaying block 2 cannot overwrite it.
 	require.NoError(t, s.CommitBlock(3, []*proto.NamedChangeSet{bankPair([]byte("b"), []byte{3})}))
@@ -436,7 +436,7 @@ func TestDataDBAheadOfWALTouchedByReplayIsRebuilt(t *testing.T) {
 	require.NoError(t, reopened.LoadLatest(), "the unreachable block is discarded, not carried forward")
 	require.Equal(t, int64(2), reopened.Version())
 	requireAllDataDBsAt(t, reopened, 2)
-	require.Equal(t, wantRoot, reopened.CommittedRootHash(),
+	require.Equal(t, wantRoot, rootHash(reopened),
 		"the root must be the one that belongs to the height the store reports")
 
 	_, found := reopened.Get(keys.BankStoreKey, []byte("b"))

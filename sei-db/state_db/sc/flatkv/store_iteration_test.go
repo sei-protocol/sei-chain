@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"sort"
-	"sync"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -212,14 +211,15 @@ func TestEvmIteratorDomain(t *testing.T) {
 	})
 }
 
-// TestEvmIteratorSnapshotConcurrentWithWrites exercises the RWMutex (M2):
-// iterators are stable snapshots that can be built and drained concurrently
-// with ApplyChangeSets/Commit, and a snapshot opened before writes is unaffected
-// by later commits. Run with -race to detect unsynchronized access to the
-// pending-writes maps.
-func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
+// An iterator is a point-in-time view: writes proceed while it is held, and it keeps returning the
+// rows that were committed when it was created. A fresh iterator then sees the newer rows.
+//
+// The wider property — every lane, every shape, across flush and retirement, and across a commit on
+// another goroutine — is covered in store_iteration_stability_test.go. This is the narrow
+// interleaving on a single thread.
+func TestEvmIteratorIsUnaffectedByLaterWrites(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	base := addrN(0x01)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
@@ -229,50 +229,50 @@ func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
 	)}))
 	commitAndCheck(t, s)
 
-	// Expected committed-only state, captured before any concurrent writes.
-	wantIter, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+	// Two iterators at the same instant: one drained now to capture it, one held across the write.
+	// A dbm.Iterator is single-pass, so the same one cannot be read before and after.
+	iter, committed := iteratorTwin(t, func() (dbm.Iterator, error) {
+		return s.Iterator(keys.EVMStoreKey, nil, nil, true)
+	})
+
+	// Writing while it is open is accepted, and invisible to it.
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
+		noncePair(addrN(0x02), 1),
+	)}), "the store must remain writable while an iterator is held")
+	commitAndCheck(t, s)
+
+	require.Equal(t, committed, collectIterEntries(t, iter),
+		"the iterator must still serve the instant it was created")
+	require.NoError(t, iter.Close())
+
+	after, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
 	require.NoError(t, err)
-	want := collectIterEntries(t, wantIter)
-	require.NoError(t, wantIter.Close())
+	grown := collectIterEntries(t, after)
+	require.NoError(t, after.Close())
+	require.Greater(t, len(grown), len(committed), "the newly committed row must be visible")
+}
 
-	// A snapshot opened before the writer starts must keep returning `want`
-	// regardless of the commits that follow.
-	snap, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
-	require.NoError(t, err)
+// Iterators built and drained one after another between blocks each see their block's state, which is
+// the pattern the execution thread actually uses.
+func TestEvmIteratorSeesEachCommittedBlock(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 50; i++ {
-			a := addrN(byte(0x20 + i))
-			if applyErr := s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
-				noncePair(a, uint64(i+1)),
-			)}); applyErr != nil {
-				t.Errorf("ApplyChangeSets: %v", applyErr)
-				return
-			}
-			if _, commitErr := s.Commit(s.Version() + 1); commitErr != nil {
-				t.Errorf("Commit: %v", commitErr)
-				return
-			}
-		}
-	}()
+	var lastCount int
+	for i := 0; i < 5; i++ {
+		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS(
+			noncePair(addrN(byte(0x20+i)), uint64(i+1)),
+		)}))
+		commitAndCheck(t, s)
 
-	// Concurrently build and drain fresh iterators (RLock) while the writer
-	// holds the write lock, to stress the lock under -race.
-	for i := 0; i < 50; i++ {
-		it, iterErr := s.Iterator(keys.EVMStoreKey, nil, nil, true)
-		require.NoError(t, iterErr)
-		_ = collectIterEntries(t, it)
+		it, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+		require.NoError(t, err)
+		entries := collectIterEntries(t, it)
 		require.NoError(t, it.Close())
+
+		require.Greater(t, len(entries), lastCount, "block %d's row must be visible", i+1)
+		lastCount = len(entries)
 	}
-
-	wg.Wait()
-
-	got := collectIterEntries(t, snap)
-	require.NoError(t, snap.Close())
-	require.Equal(t, want, got, "pre-write snapshot must be unaffected by concurrent commits")
 }
 
 // TestEvmLaneBounds exercises every branch of evmLaneBounds in
@@ -1006,7 +1006,8 @@ func collectIterEntries(t *testing.T, iter dbm.Iterator) []evmIteratorEntry {
 
 func sumFlatKVTableIters(s *CommitStore) (int64, error) {
 	var sum int64
-	for _, db := range s.dataDBs() {
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
 		n, err := pebbledb.TableIters(db)
 		if err != nil {
 			return 0, err

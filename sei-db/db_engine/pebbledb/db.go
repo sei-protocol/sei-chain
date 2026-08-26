@@ -14,9 +14,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -97,29 +95,6 @@ func Open(
 		metricsCancel:    cancel,
 		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
 	}, nil
-}
-
-// OpenWithCache opens a Pebble-backed DB and wraps it with a read-through cache.
-// When cacheConfig.MaxSize is 0 a no-op (passthrough) cache is used.
-func OpenWithCache(
-	ctx context.Context,
-	config *PebbleDBConfig,
-	cacheConfig *dbcache.CacheConfig,
-	readPool threading.Pool,
-	miscPool threading.Pool,
-) (types.KeyValueDB, error) {
-	db, err := Open(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
-
-	cache, err := dbcache.BuildCache(ctx, cacheConfig, readPool, miscPool)
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to create cache: %w", err)
-	}
-
-	return dbcache.NewCachedKeyValueDB(db, cache), nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
