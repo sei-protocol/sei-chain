@@ -760,3 +760,40 @@ func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
 		t.Errorf("%d writers are named and %d keys are listed", len(supplied), len(filledByTheGenerator))
 	}
 }
+
+// TestTheExcludedMempoolPathsReachNothing holds the reason those three are left out.
+//
+// Each is excluded because the conversion into the running mempool does not carry it, which is a claim
+// about a function rather than about a marking, so no check on how a field is documented can reach it.
+// One of the three is not marked deprecated at all and never will be caught that way.
+//
+// Measured by setting each to a value nothing would choose and converting: a field the conversion started
+// carrying would change the result, and the exclusion would have become a key an operator writes whose
+// value stops arriving, with nothing failing. Compared against a conversion of the defaults rather than
+// against a written-out expectation, so a field added to the conversion moves both sides and only these
+// three decide the outcome.
+func TestTheExcludedMempoolPathsReachNothing(t *testing.T) {
+	for _, rel := range neverReachTheMempool {
+		t.Run(rel, func(t *testing.T) {
+			untouched := tmcfg.DefaultMempoolConfig().ToMempoolConfig()
+
+			written := tmcfg.DefaultMempoolConfig()
+			field, ok := fieldTagged(reflect.TypeOf(tmcfg.MempoolConfig{}), rel)
+			if !ok {
+				t.Fatalf("%s names no field of the mempool configuration", rel)
+			}
+			set := reflect.ValueOf(written).Elem().FieldByName(field.Name)
+			switch set.Kind() {
+			case reflect.Int, reflect.Int64:
+				set.SetInt(set.Int() + 9999)
+			default:
+				t.Fatalf("%s is a %s and this does not know how to write one", rel, set.Kind())
+			}
+
+			if got := written.ToMempoolConfig(); !reflect.DeepEqual(got, untouched) {
+				t.Errorf("writing %s changed what the running mempool receives, so the conversion now "+
+					"carries it and the key belongs declared rather than excluded", rel)
+			}
+		})
+	}
+}
