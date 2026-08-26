@@ -185,7 +185,7 @@ func writeLocalMetaToBatch(
 }
 
 // encodeLocalMeta encodes one data database's LocalMeta as reserved-prefix key-value pairs, for a
-// caller to hand to Snapshot.Finalize so they land in the same atomic batch as that version's diff.
+// caller to hand to View.Finalize so they land in the same atomic batch as that version's diff.
 //
 // The pairs are the committed version, the per-DB root LtHash, and a hash plus a stats entry per
 // module. It rejects a nil ltHash.
@@ -374,7 +374,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 
 	s.committedVersion = seededVersion
 
-	// The seal only stages the records; the engines flush asynchronously. Wait for them so the seed is
+	// The seal only stages the records; the view managers flush asynchronously. Wait for them so the seed is
 	// durable across a restart, as this method promises. For a non-genesis seed the snapshot below supplies
 	// the same barrier, but it does not run at genesis.
 	if err := s.flushLatestVersion(); err != nil {

@@ -185,7 +185,7 @@ type KVImporter struct {
 }
 
 // NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
-// are passed in rather than fetched off store, because an import writes beneath the snapshot engines and so
+// are passed in rather than fetched off store, because an import writes beneath the view managers and so
 // must be handed the databases explicitly by whoever opened them.
 func NewKVImporter(store *CommitStore, version int64, dbs rawDBs) types.Importer {
 	imp := &KVImporter{

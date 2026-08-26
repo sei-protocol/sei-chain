@@ -647,7 +647,7 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 // RawGlobalIterator
 // =============================================================================
 
-// A closed store has no engines to merge, and a merge of nothing is a valid empty iterator — so
+// A closed store has no view managers to merge, and a merge of nothing is a valid empty iterator — so
 // without a refusal the caller reads "this store holds no rows" instead of "this store is closed".
 func TestRawGlobalIterator_RefusesClosedStore(t *testing.T) {
 	s := setupTestStore(t)
@@ -954,11 +954,11 @@ func TestReadOnlyViewDoesNotLeakWhenTempDirFails(t *testing.T) {
 		"a failed read-only view must not leak its worker pools")
 }
 
-// A read-only view shares its engine names with the store it was cloned from, so engine metrics must be off
+// A read-only view shares its view-manager names with the store it was cloned from, so their metrics must be off
 // in the view or both would publish the same series.
-func TestReadOnlyViewDisablesEngineMetrics(t *testing.T) {
+func TestReadOnlyViewDisablesViewManagerMetrics(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
-	// DefaultTestConfig disables engine metrics, which would make this test pass without the view
+	// DefaultTestConfig disables view-manager metrics, which would make this test pass without the view
 	// disabling anything. Turn them on so the view is the only thing that can turn them back off.
 	cfg.AccountStoreConfig.MetricsEnabled = true
 	cfg.CodeStoreConfig.MetricsEnabled = true
