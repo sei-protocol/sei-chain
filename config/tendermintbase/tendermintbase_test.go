@@ -109,7 +109,7 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 		proto   any
 		exclude int
 	}{
-		{P2PSectionName, &tmcfg.P2PConfig{}, 3},
+		{P2PSectionName, &tmcfg.P2PConfig{}, 3 + len(patchedByTheNodeController)},
 		{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 	} {
 		registered, ok := registry.Lookup(tc.section)
@@ -140,10 +140,19 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s is not registered; Defects: %v", P2PSectionName, registry.Defects())
 	}
-	for _, rel := range []string{filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing} {
+	for _, rel := range append([]string{filledFromTheCommandLine, derivedFromTheConnectionLimit,
+		readByNothing}, patchedByTheNodeController...) {
 		if !slices.Contains(registered.Excluded, P2PSectionName+"."+rel) {
 			t.Errorf("excluded is %v and does not name %s", registered.Excluded, rel)
 		}
+	}
+
+	// The root directory: excluded because the command line carries it after the file is read, so the
+	// file never states it. Measured, because a doc claiming each reason is checked and then checking
+	// two of three is how the last one of these went stale.
+	if generatedFileCarries(t, filledFromTheCommandLine) {
+		t.Errorf("%s is excluded because no file states it and a generated file now does, so an "+
+			"operator writes it and it belongs declared", filledFromTheCommandLine)
 	}
 
 	// The outbound ceiling: a pointer the node's defaults leave unset, where unset is the setting,
@@ -157,6 +166,16 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	// half is the measurable one, and it is the half that would expire first: the node wiring the field
 	// up would start writing it, and the key would then be one an operator's file holds and this space
 	// refuses. Without this the exclusion is the only one of the three whose reason nothing holds.
+	// The two the controller patches: their reason is that something outside this binary writes them
+	// after the file is written, which no test here can see. What is measured instead is that a
+	// generated file does carry them, since a key the file did not write would need a different reason.
+	for _, rel := range patchedByTheNodeController {
+		if !generatedFileCarries(t, rel) {
+			t.Errorf("%s is excluded as a path something outside the binary writes and a generated file "+
+				"no longer carries it, so the reason for leaving it out has changed", rel)
+		}
+	}
+
 	if generatedFileCarries(t, readByNothing) {
 		t.Errorf("%s is excluded and a generated file now carries it, so it is a setting an operator "+
 			"writes and belongs declared", readByNothing)
@@ -229,7 +248,7 @@ func hasOpt(opts []string, want string) bool {
 	return false
 }
 
-// TestNoSectionDeclaresTheRootDirectory covers a field five of these sections carry.
+// TestNoSectionDeclaresTheRootDirectory covers a field six of these sections carry.
 //
 // Each holds a root directory tagged the same as the key at the top of the file, and the node fills every
 // one from the command line after the file is read. So each states the empty string, and a delivery that

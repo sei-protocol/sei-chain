@@ -23,7 +23,8 @@ const (
 // a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
 	registry.RegisterSectionExcluding(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
-		filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing)
+		append([]string{filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing},
+			patchedByTheNodeController...)...)
 	registry.RegisterSectionExcluding(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
 		filledFromTheCommandLine)
 }
@@ -48,10 +49,12 @@ func forMode(mode registry.Mode) *tmcfg.Config {
 	return out
 }
 
-// filledFromTheCommandLine is the path five of these sections carry and none declares.
+// filledFromTheCommandLine is the path six of these sections carry and none declares.
 //
 // Each holds a root directory field tagged the same as the one at the top of the file, and the node fills
-// every one of them from the command line after the file is read. So the file never carries the value, and
+// every one of them from the command line after the file is read. Five leave it out under this name and
+// the section at the top of the file leaves it out under its own, which is why the count here is not the
+// number of times this constant appears. So the file never carries the value, and
 // what these sections state for it is the empty string. Declaring it would hand a delivery an empty root to
 // write over a running node's, and a node that cannot find its data directory, its genesis file or its
 // signing key does not start.
@@ -70,6 +73,15 @@ const derivedFromTheConnectionLimit = "max-outbound-connections"
 // but nothing in the tree reads it and the generated file does not write it. Declaring it would offer a
 // key that changes nothing about how the node runs.
 const readByNothing = "test-dial-fail"
+
+// patchedByTheNodeController are the peer paths this section does not declare.
+//
+// Both name an address the node advertises or dials, and on a cluster the controller resolves them from
+// live discovery and patches them into the node's file after the file is written. The rule keeping them
+// out is not that this binary fills them, which is what the root directory does, but that something this
+// file cannot see does. A declared value would be decoded over whichever patch already ran, and an empty
+// one leaves a node with no advertised address and no peers to dial.
+var patchedByTheNodeController = []string{"external-address", "persistent-peers"}
 
 // filledByTheGenerator are keys the init command sets after the pipeline forMode mirrors, from an input a
 // mode does not carry.
