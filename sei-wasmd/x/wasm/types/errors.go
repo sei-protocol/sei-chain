@@ -52,9 +52,6 @@ var (
 	// ErrDuplicate error for content that exists
 	ErrDuplicate = sdkErrors.Register(DefaultCodespace, 15, "duplicate")
 
-	// ErrMaxIBCChannels error for maximum number of ibc channels reached
-	ErrMaxIBCChannels = sdkErrors.Register(DefaultCodespace, 16, "max transfer channels")
-
 	// ErrUnsupportedForContract error when a feature is used that is not supported for/ by this contract
 	ErrUnsupportedForContract = sdkErrors.Register(DefaultCodespace, 17, "unsupported for this contract")
 
