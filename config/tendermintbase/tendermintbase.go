@@ -66,11 +66,12 @@ type nodeRootSchema struct {
 // value was the affirmative one, so an operator reading a generated file would find the behaviour named
 // and switchable and neither is true.
 //
-// The reader has a check that names the removed settings an operator wrote, and it reaches only some of
-// them: a written zero and an unwritten field hold the same value for a duration or a boolean, so there
-// is nothing for it to test. Which ones it cannot reach is recorded beside the check that measures it,
-// rather than counted twice here. Nothing calls the check in any case, so leaving these out of the file
-// is what an operator actually gets.
+// The reader has a check that names the removed settings an operator wrote, and it reaches half of them.
+// The ones it misses are held on a value rather than a pointer, so a written zero cannot be told from an
+// unwritten field; a written value that is not the zero can be, which is why the gap is one somebody
+// could close rather than one the shape forbids. Which ones those are is recorded beside the check that
+// measures it, rather than counted twice here. Nothing calls the check in any case, so leaving these out
+// of the file is what an operator actually gets.
 var removedSettings = []string{
 	"unsafe-overrides-enabled",
 	"unsafe-propose-timeout-override",
@@ -92,15 +93,19 @@ var removedSettings = []string{
 
 // neverReachTheMempool are the mempool paths this section does not declare.
 //
-// The conversion into the running mempool carries fifteen of this struct's fields and none of these
-// three, so no value an operator writes for them arrives anywhere. That is a stronger reason than the
-// marking on the fields: it names the function that would have to change for the key to matter, where
-// two of the three are also marked dead at the destination and the third carries only a note about an
+// No code reads them. That is the criterion, and it is a stronger one than the marking on the fields,
+// where two of the three are marked dead at their destination and the third carries only a note about an
 // upstream issue. Declaring any of them would offer a key that changes nothing about how the node runs.
 //
-// Two of the fifteen are a live pair named almost the same as two of these three, which is why the
-// reason is measured rather than counted by hand: a transaction lifetime does reach the mempool, and the
-// pending lifetime beside it does not.
+// Two paths carry a written mempool value into the running node and both are checked. The conversion into
+// the mempool's own configuration is one; the transaction reactor is the other, and it reads several
+// settings straight off this struct without going through that conversion. Naming only the conversion
+// would have made the rule narrower than the list: three settings it does not carry are declared, and
+// correctly, because the reactor reads them.
+//
+// The pair named almost the same as two of these is live and does reach the mempool. That near-collision
+// is why this is measured rather than reasoned about: a transaction lifetime is a setting and the pending
+// lifetime beside it is not.
 var neverReachTheMempool = []string{
 	"max-batch-bytes",
 	"pending-ttl-duration",
