@@ -162,9 +162,7 @@ message Proposal {
     (gogoproto.stdtime) = true
   ];
   bytes signature = 7;
-  repeated TxKey tx_keys = 8 [
-    (wireguard.max_count) = 2000 // set in autobahn types.MaxTxsPerBlock
-  ];
+  repeated TxKey tx_keys = 8 [(wireguard.max_count) = 2000 /* set in autobahn types.MaxTxsPerBlock */];
   EvidenceList evidence = 9;
   Commit last_commit = 10;
   Header header = 11 [(gogoproto.nullable) = false];
