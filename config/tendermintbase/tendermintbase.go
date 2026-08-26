@@ -91,19 +91,14 @@ var neverReachTheMempool = []string{
 	"pending-ttl-num-blocks",
 }
 
-// unreadAndUnmarked is the one of those three whose field carries no deprecation note.
-//
-// Named because it is the only exclusion in this package that no marking accounts for: the other two of
-// its own list are marked dead at their destination, and every other excluded path is either marked or
-// carries a constant stating why. Its field notes an upstream issue instead, so a check on markings can
-// never reach it and the reason has to live here.
+// unreadAndUnmarked is the one member of neverReachTheMempool whose field carries no deprecation note; the
+// field points at an upstream issue instead. No check on markings reaches it, so the name states the
+// reason for leaving it out.
 const unreadAndUnmarked = "max-batch-bytes"
 
-// fixedForEveryNode is the metric prefix this section does not declare.
-//
-// The node marks the field deprecated and states that its metrics always use one fixed prefix, so the
-// value is not the node's to vary and not an operator's to set. Its declared value was that fixed prefix,
-// which reads as a setting whose default happens to be this, and the generated file does not write it.
+// fixedForEveryNode is the metric prefix this section does not declare. The node marks the field
+// deprecated and states that its metrics always use one fixed prefix, so the value is not an operator's
+// to set.
 const fixedForEveryNode = "namespace"
 
 // Registration puts these sections in the configuration registry.
@@ -176,7 +171,7 @@ func forMode(mode registry.Mode) *tmcfg.Config {
 	return out
 }
 
-// filledFromTheCommandLine is the path six of these sections carry and none declares.
+// filledFromTheCommandLine is the root directory path these sections carry and none declares.
 //
 // Each holds a root directory field tagged the same as the one at the top of the file, and the node fills
 // every one of them from the command line after the file is read. Five leave it out under this name and

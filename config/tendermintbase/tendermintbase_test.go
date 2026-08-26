@@ -59,8 +59,8 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 	},
 }
 
-// declaredSections are the sections this package registers, so a test walks the set rather than a list that
-// has to be extended alongside it.
+// declaredSections are the sections this package registered, recorded as each registration ran, so a walk
+// over them cannot drift from what the registry holds.
 func declaredSections() []string { return append([]string(nil), registeredHere...) }
 
 // declaredHere returns the keys every section this package registers declares, read out of the registry
@@ -714,10 +714,6 @@ func fieldTagged(typ reflect.Type, rel string) (reflect.StructField, bool) {
 // TestTheStateSyncKeysAreDeclaredAsASet holds the section to the set an operator fills together: turning
 // state sync on means writing every one of them, so a key this space refuses is one an operator writes
 // and is told nothing reads.
-//
-// None of the four an operator supplies states a value, since none is one the binary can know, and a
-// generated file writes all but the scratch directory. The template names that one among the keys it
-// omits deliberately while still parsing it if set.
 func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 	registered, ok := registry.Lookup(StateSyncSectionName)
 	if !ok {
@@ -731,43 +727,40 @@ func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 	for _, key := range registered.Keys {
 		declared[key] = true
 	}
-	for _, rel := range []string{"rpc-servers", "trust-height", "trust-hash", "temp-dir", "use-p2p"} {
-		if !declared[StateSyncSectionName+"."+rel] {
-			t.Errorf("%s.%s is one of the keys an operator fills to turn state sync on and the section "+
-				"does not declare it", StateSyncSectionName, rel)
-		}
-	}
 
-	// Each of the four the operator supplies states nothing, which is what makes the set coherent: none
-	// of these is a value the binary can know. Asserted per key rather than for the servers alone,
-	// because a default arriving for any of them would leave this section declaring a value it invented
-	// while the sentence above still called them the operator's own.
+	// The keys turning state sync on means writing. Each is spelled once, so the three checks below
+	// cannot drift onto different keys.
 	live := tmcfg.DefaultStateSyncConfig()
-	for name, stated := range map[string]bool{
-		"rpc-servers":  len(live.RPCServers) != 0,
-		"trust-height": live.TrustHeight != 0,
-		"trust-hash":   live.TrustHash != "",
-		"temp-dir":     live.TempDir != "",
+	for _, key := range []struct {
+		rel string
+		// shipsAValue reads the node's defaults for a key whose value is the operator's own. A default
+		// arriving for one of those would leave this section declaring a value it invented.
+		shipsAValue func() bool
+		// written is whether a generated file carries the key. The scratch directory is the one of these
+		// it leaves out, and the template names it among the keys it omits on purpose while still
+		// parsing them if set.
+		written bool
+	}{
+		{rel: "enable", written: true},
+		{rel: "use-p2p", written: true},
+		{rel: "rpc-servers", shipsAValue: func() bool { return len(live.RPCServers) != 0 }, written: true},
+		{rel: "trust-height", shipsAValue: func() bool { return live.TrustHeight != 0 }, written: true},
+		{rel: "trust-hash", shipsAValue: func() bool { return live.TrustHash != "" }, written: true},
+		{rel: "temp-dir", shipsAValue: func() bool { return live.TempDir != "" }},
 	} {
-		if stated {
+		if !declared[StateSyncSectionName+"."+key.rel] {
+			t.Errorf("%s.%s is one of the keys an operator fills to turn state sync on and the section "+
+				"does not declare it", StateSyncSectionName, key.rel)
+		}
+		if key.shipsAValue != nil && key.shipsAValue() {
 			t.Errorf("the node now ships a value for %s.%s, so it is no longer a setting only an "+
 				"operator can supply and the reasoning for declaring the set has changed",
-				StateSyncSectionName, name)
+				StateSyncSectionName, key.rel)
 		}
-	}
-
-	// Four of the five reach a generated file. The scratch directory does not, and the template names it
-	// among the keys it leaves out on purpose while still parsing them if set, which is the whole of the
-	// evidence that these are written by hand. Measured, because that split is what the paragraph above
-	// rests on.
-	for rel, written := range map[string]bool{
-		"enable": true, "use-p2p": true, "rpc-servers": true, "trust-height": true, "trust-hash": true,
-		"temp-dir": false,
-	} {
-		if got := generatedFileCarries(t, StateSyncSectionName, rel); got != written {
+		if got := generatedFileCarries(t, StateSyncSectionName, key.rel); got != key.written {
 			t.Errorf("a generated file carries %s.%s = %v and %v was expected, so the split between "+
 				"what the template writes and what an operator adds has moved",
-				StateSyncSectionName, rel, got, written)
+				StateSyncSectionName, key.rel, got, key.written)
 		}
 	}
 }
@@ -775,8 +768,8 @@ func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 // TestEverySectionThisPackageRegistersIsUsable is the check no single section here can make.
 //
 // A registration the registry cannot use is recorded rather than panicked, so a section that failed to
-// register is absent rather than loud, and two of the refusals depend on what else has registered. Nothing
-// is enumerated beyond the section names this package owns, so adding one is covered by adding it there.
+// register is absent rather than loud, and some refusals depend on what else has registered. The walk
+// covers the sections declaredAgainst lists, and the defect sweep covers every registration.
 func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
 	for _, name := range declaredSections() {
 		registered, ok := registry.Lookup(name)
@@ -797,9 +790,11 @@ func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
 //
 // The root section declares against a schema rather than the node's top-level type, because that type
 // carries the nine tables as well and declaring against it would declare their keys twice. The schema
-// squashes the same base group, so fourteen spellings still derive from the node's own tags, and it
-// restates two fields by hand. Nine of those spellings become keys, the rest being left out. This holds those two to the type they came from: name, tag and type each, and the count of
-// non-table fields, so a third one appearing there fails here rather than going undeclared.
+// squashes the same base group, so the spellings still derive from the node's own tags, and it restates
+// two fields by hand.
+//
+// This holds those two to the type they came from, by name, tag and type, and counts the non-table fields
+// so a third one appearing there fails here rather than going undeclared.
 func TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries(t *testing.T) {
 	live := reflect.TypeOf(tmcfg.Config{})
 	schema := reflect.TypeOf(nodeRootSchema{})
@@ -901,8 +896,8 @@ func TestEachRootExclusionStillHasItsReason(t *testing.T) {
 // wrote a declared value would blank the root a running node found its data, its genesis file and its
 // signing key under.
 //
-// Checked across every registered section rather than the five, so a section added later that carries the
-// same field fails here instead of shipping the same hole.
+// Checked across every registered section rather than a list of the ones that carry it today, so a
+// section added later with the same field fails here instead of shipping the same hole.
 func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 	for _, s := range registry.Sections() {
 		for _, key := range s.Keys {
