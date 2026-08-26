@@ -85,10 +85,18 @@ var removedSettings = []string{
 // is why this is measured rather than reasoned about: a transaction lifetime is a setting and the pending
 // lifetime beside it is not.
 var neverReachTheMempool = []string{
-	"max-batch-bytes",
+	unreadAndUnmarked,
 	"pending-ttl-duration",
 	"pending-ttl-num-blocks",
 }
+
+// unreadAndUnmarked is the one of those three whose field carries no deprecation note.
+//
+// Named because it is the only exclusion in this package that no marking accounts for: the other two of
+// its own list are marked dead at their destination, and every other excluded path is either marked or
+// carries a constant stating why. Its field notes an upstream issue instead, so a check on markings can
+// never reach it and the reason has to live here.
+const unreadAndUnmarked = "max-batch-bytes"
 
 // fixedForEveryNode is the metric prefix this section does not declare.
 //
