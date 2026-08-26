@@ -3,30 +3,26 @@ package app
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/migration"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
-func TestIBCMessageRouterReturnsDeprecatedError(t *testing.T) {
+func TestIBCModuleIsNotWired(t *testing.T) {
 	testApp := Setup(t, false, false, false)
-	msg := &channeltypes.MsgChannelCloseInit{
-		PortId:    "transfer",
-		ChannelId: "channel-0",
-		Signer:    sdk.AccAddress("test-address-0000000").String(),
+	_, basicWired := ModuleBasics["ibc"]
+	_, moduleWired := testApp.mm.Modules["ibc"]
+	require.False(t, basicWired)
+	require.False(t, moduleWired)
+	require.NotContains(t, testApp.mm.OrderInitGenesis, "ibc")
+	for _, typeURL := range testApp.interfaceRegistry.ListImplementations("cosmos.base.v1beta1.Msg") {
+		require.Falsef(t, strings.HasPrefix(typeURL, "/ibc."), "IBC message type remains registered: %s", typeURL)
 	}
-	handler := testApp.MsgServiceRouter().Handler(msg)
-	require.NotNil(t, handler)
-
-	_, err := handler(testApp.NewContext(false, tmproto.Header{}), msg)
-	require.ErrorIs(t, err, ibccoretypes.ErrIBCDeprecated)
 }
 
 // TestMigrationSubspaceRegistered verifies the generic "migration" params
@@ -155,18 +151,10 @@ func TestIBCStoreQueriesAreUnavailable(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: path})
 			require.NoError(t, err)
-			require.Equal(t, ibccoretypes.ErrIBCDeprecated.Codespace(), response.Codespace)
-			require.Equal(t, ibccoretypes.ErrIBCDeprecated.ABCICode(), response.Code)
+			require.Equal(t, "ibc", response.Codespace)
+			require.Equal(t, uint32(103), response.Code)
+			require.Equal(t, "ibc module is deprecated", response.Log)
 		})
-	}
-
-	for _, path := range []string{
-		"/store/bank/key",
-		"/store/ibc-transfer/key",
-		"/custom/ibc/query",
-		"/store/ibc/unknown",
-	} {
-		require.False(t, isRetiredIBCStoreQuery(path))
 	}
 
 	response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: "/store/bank/key"})

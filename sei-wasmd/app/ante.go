@@ -4,7 +4,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
-	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
 
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -54,7 +53,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SigGasConsumer),
 		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
-		ibcante.NewAnteDecorator(),
 	}
 
 	anteHandler := sdk.ChainAnteDecorators(anteDecorators...)

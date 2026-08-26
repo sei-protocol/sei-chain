@@ -22,7 +22,6 @@ import (
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -669,7 +668,7 @@ func setupKeeper(t *testing.T) (*Keeper, sdk.Context, []sdk.StoreKey) {
 	wasmConfig := wasmTypes.DefaultWasmConfig()
 	pk := paramskeeper.NewKeeper(encodingConfig.Marshaler, encodingConfig.Amino, keyParams, tkeyParams)
 
-	srcKeeper := NewKeeper(encodingConfig.Marshaler, keyWasm, paramskeeper.Keeper{}, pk.Subspace(wasmTypes.ModuleName), authkeeper.AccountKeeper{}, nil, stakingkeeper.Keeper{}, distributionkeeper.Keeper{}, nil, upgradekeeper.Keeper{}, nil, nil, tempDir, wasmConfig, SupportedFeatures)
+	srcKeeper := NewKeeper(encodingConfig.Marshaler, keyWasm, paramskeeper.Keeper{}, pk.Subspace(wasmTypes.ModuleName), authkeeper.AccountKeeper{}, nil, stakingkeeper.Keeper{}, distributionkeeper.Keeper{}, nil, nil, tempDir, wasmConfig, SupportedFeatures)
 	return &srcKeeper, ctx, []sdk.StoreKey{keyWasm, keyParams}
 }
 
