@@ -86,7 +86,7 @@ const (
 	VoteChannel        = p2p.ChannelID(0x22)
 	VoteSetBitsChannel = p2p.ChannelID(0x23)
 
-	maxMsgSize = 4194304 // 4MB; NOTE: keep larger than types.PartSet sizes.
+	maxMsgSize = types.MaxConsensusMsgBytes
 )
 
 // Reactor defines a reactor for the consensus service.

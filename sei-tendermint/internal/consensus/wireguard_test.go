@@ -6,7 +6,6 @@ import (
 	gogoproto "github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -15,7 +14,7 @@ import (
 
 const (
 	maxCommitSignatures = types.MaxVotesCount
-	maxProposalTxKeys   = int(atypes.MaxTxsPerBlock)
+	maxProposalTxKeys   = types.MaxTxKeysPerProposal
 )
 
 func marshal(t *testing.T, m gogoproto.Message) []byte {
