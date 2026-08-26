@@ -34,7 +34,7 @@ const (
 // The reader has a check that names the removed settings an operator wrote, and it reaches half of them.
 // Most of the rest are held on a value rather than a pointer, so a written zero cannot be told from an
 // unwritten field, though a written value that is not the zero can be. One is a pointer the check could
-// name as cheaply as the seven pointers it already names, and simply does not. Which ones those are, and
+// name as cheaply as the eight pointers it already names, and simply does not. Which ones those are, and
 // which of the two reasons each has, is recorded beside the check that measures it rather than counted
 // twice here. Nothing calls the check in any case, so leaving these out of the file is what an operator
 // actually gets.
@@ -62,6 +62,17 @@ var removedSettings = []string{
 // No code reads them. That is the criterion, and it is a stronger one than the marking on the fields,
 // where two of the three are marked dead at their destination and the third carries only a note about an
 // upstream issue. Declaring any of them would offer a key that changes nothing about how the node runs.
+//
+// A generated file writes all three, which is the one place this section departs from the other two that
+// leave paths out. The peer section's dial hook and the sixteen removed consensus settings are each
+// unread and unwritten, so for them the two facts agree and either would serve as the rule. Here they
+// disagree, and the criterion is the reader: a key nothing reads is not a setting, whoever writes it into
+// a file. What that costs is an operator who has one of these lines being told it reaches nothing, which
+// is the true answer and the reason it is worth saying rather than resolving in silence.
+//
+// It is also why the peer seeds go the other way despite the same shape. That key is read, so refusing it
+// would take a live setting out of the space; these are not, so declaring them would put three dead ones
+// in.
 //
 // Two paths carry a written mempool value into the running node. The conversion into the mempool's own
 // configuration is one, and a test drives it. The transaction reactor is the other, reading several
