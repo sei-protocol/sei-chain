@@ -3,6 +3,7 @@
 # Input parameters
 NODE_ID=${ID:-0}
 NUM_ACCOUNTS=${NUM_ACCOUNTS:-5}
+VALIDATOR=${VALIDATOR:-true}
 echo "Configure and initialize environment"
 
 cp build/seid "$GOBIN"/
@@ -17,7 +18,8 @@ mkdir -p "$NODE_DIR"
 seid version # Uncomment the below line if there are any dependency issues
 # ldd build/seid
 
-# Initialize validator node
+# Initialize the node home. The topology selects validator or full-node mode
+# after all nodes have contributed their shared genesis inputs.
 MONIKER="sei-node-$NODE_ID"
 
 seid init "$MONIKER" --chain-id sei >/dev/null 2>&1
@@ -54,9 +56,12 @@ echo "$GENESIS_ACCOUNT_ADDRESS" >> build/generated/genesis_accounts.txt
 # Add funds to genesis account
 seid add-genesis-account "$GENESIS_ACCOUNT_ADDRESS" 10000000usei,10000000uusdc,10000000uatom
 
-# Create gentx
-printf "12345678\n" | seid gentx "$ACCOUNT_NAME" 10000000usei --chain-id sei
-cp ~/.sei/config/gentx/* build/generated/gentx/
+# Only validator nodes contribute a gentx to the genesis validator set. Full
+# nodes still receive funded accounts and persistent-peer configuration.
+if [ "$VALIDATOR" = "true" ]; then
+  printf "12345678\n" | seid gentx "$ACCOUNT_NAME" 10000000usei --chain-id sei
+  cp ~/.sei/config/gentx/* build/generated/gentx/
+fi
 
 # Creating some testing accounts
 echo "Creating $NUM_ACCOUNTS accounts"
