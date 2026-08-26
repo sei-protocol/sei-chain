@@ -66,10 +66,11 @@ type nodeRootSchema struct {
 // value was the affirmative one, so an operator reading a generated file would find the behaviour named
 // and switchable and neither is true.
 //
-// The reader has a check that names the removed settings an operator wrote, and it reaches eight of these
-// fifteen. Six are durations or booleans, where a written zero and an unwritten field are the same value,
-// so no check can tell them apart. One more the check simply omits. Nothing calls the check in any case, so
-// leaving these out of the file is what an operator actually gets.
+// The reader has a check that names the removed settings an operator wrote, and it reaches only some of
+// them: a written zero and an unwritten field hold the same value for a duration or a boolean, so there
+// is nothing for it to test. Which ones it cannot reach is recorded beside the check that measures it,
+// rather than counted twice here. Nothing calls the check in any case, so leaving these out of the file
+// is what an operator actually gets.
 var removedSettings = []string{
 	"unsafe-overrides-enabled",
 	"unsafe-propose-timeout-override",
