@@ -541,7 +541,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "snapshot_engine_size_entries",
+              "expr": "view_manager_size_entries",
               "legendFormat": "{{cache}}",
               "range": true,
               "refId": "A"
@@ -636,7 +636,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "snapshot_engine_size_bytes",
+              "expr": "view_manager_size_bytes",
               "legendFormat": "{{cache}}",
               "range": true,
               "refId": "A"
@@ -731,7 +731,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "sum by (cache) (rate(snapshot_engine_hits_total[$__rate_interval]))",
+              "expr": "sum by (cache) (rate(view_manager_hits_total[$__rate_interval]))",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"
@@ -826,7 +826,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "sum by (cache) (rate(snapshot_engine_misses_total[$__rate_interval]))",
+              "expr": "sum by (cache) (rate(view_manager_misses_total[$__rate_interval]))",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"
@@ -923,7 +923,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "sum by (cache) (rate(snapshot_engine_hits_total[$__rate_interval]))\n/\nclamp_min(\n  sum by (cache) (rate(snapshot_engine_hits_total[$__rate_interval]))\n  +\n  sum by (cache) (rate(snapshot_engine_misses_total[$__rate_interval])),\n  1e-10\n)\n* 100",
+              "expr": "sum by (cache) (rate(view_manager_hits_total[$__rate_interval]))\n/\nclamp_min(\n  sum by (cache) (rate(view_manager_hits_total[$__rate_interval]))\n  +\n  sum by (cache) (rate(view_manager_misses_total[$__rate_interval])),\n  1e-10\n)\n* 100",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"
@@ -1018,7 +1018,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "sum by (cache) (rate(snapshot_engine_miss_latency_seconds_sum[$__rate_interval]))\n/\nclamp_min(sum by (cache) (rate(snapshot_engine_miss_latency_seconds_count[$__rate_interval])), 1e-10)",
+              "expr": "sum by (cache) (rate(view_manager_miss_latency_seconds_sum[$__rate_interval]))\n/\nclamp_min(sum by (cache) (rate(view_manager_miss_latency_seconds_count[$__rate_interval])), 1e-10)",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"
@@ -1113,7 +1113,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "histogram_quantile(0.5, sum by (cache, le) (rate(snapshot_engine_miss_latency_seconds_bucket[$__rate_interval])))",
+              "expr": "histogram_quantile(0.5, sum by (cache, le) (rate(view_manager_miss_latency_seconds_bucket[$__rate_interval])))",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"
@@ -1208,7 +1208,7 @@
           "targets": [
             {
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum by (cache, le) (rate(snapshot_engine_miss_latency_seconds_bucket[$__rate_interval])))",
+              "expr": "histogram_quantile(0.99, sum by (cache, le) (rate(view_manager_miss_latency_seconds_bucket[$__rate_interval])))",
               "legendFormat": "__auto",
               "range": true,
               "refId": "A"

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -235,7 +235,7 @@ func (s *CommitStore) writeToStores(
 // value reporting IsDelete becomes a deletion; every other value is stored as its serialized form.
 //
 // values is keyed by physical key.
-func serializeAndPut[T vtype.VType](store snapshot.SnapshotEngine, values map[string]T) error {
+func serializeAndPut[T vtype.VType](store view.ViewManager, values map[string]T) error {
 	if len(values) == 0 {
 		return nil
 	}

@@ -19,8 +19,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -92,7 +92,7 @@ type CommitStore struct {
 	// order. That is what lets a block be folded in from its own changed values rather than by re-hashing
 	// all of state, and it is the property that will eventually allow hashing to move off the execution
 	// thread — a Merkle root could not be deferred that way. The seal is what supplies those changed
-	// values, as the diff of the block's snapshot against the previous one, which is why there is no hash
+	// values, as the diff of the block's view against the previous one, which is why there is no hash
 	// before it.
 	workingLtHash *lthash.LtHash
 
@@ -125,24 +125,24 @@ type CommitStore struct {
 	// until then — the bootstrap and import paths deliberately write raw pebble before they exist.
 
 	// Mediates the account database.
-	accountStore snapshot.SnapshotEngine
+	accountStore view.ViewManager
 
 	// Mediates the code database.
-	codeStore snapshot.SnapshotEngine
+	codeStore view.ViewManager
 
 	// Mediates the storage database.
-	storageStore snapshot.SnapshotEngine
+	storageStore view.ViewManager
 
 	// Mediates the misc database.
-	miscStore snapshot.SnapshotEngine
+	miscStore view.ViewManager
 
 	// All four stores, for the paths that treat them uniformly.
-	stores []snapshot.SnapshotEngine
+	stores []view.ViewManager
 
-	// The snapshots produced by the most recent commit, one per store and keyed by its name, each still
+	// The views produced by the most recent commit, one per store and keyed by its name, each still
 	// holding the reservation Commit handed out. flushLatestVersion waits on them, and holding them
 	// keeps any later block out of pebble until the next commit hands them back.
-	lastSealed map[string]snapshot.Snapshot
+	lastSealed map[string]view.View
 
 	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
 	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
@@ -450,8 +450,8 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	ro.config.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
 	ro.config.MiscDBConfig.DataDir = filepath.Join(workDir, miscDBDir)
 
-	// Engine metrics are labelled by engine name, which the view shares with this store, so leaving them
-	// enabled would publish two conflicting values for every series.
+	// View manager metrics are labelled by manager name, which the read-only clone shares with this store,
+	// so leaving them enabled would publish two conflicting values for every series.
 	ro.config.AccountStoreConfig.MetricsEnabled = false
 	ro.config.CodeStoreConfig.MetricsEnabled = false
 	ro.config.StorageStoreConfig.MetricsEnabled = false
@@ -808,7 +808,7 @@ func (s *CommitStore) loadLocalMeta(dbs rawDBs) error {
 	return nil
 }
 
-// openStores wraps the four already-open PebbleDBs in snapshot engines. It is the last step of opening a
+// openStores wraps the four already-open PebbleDBs in view managers. It is the last step of opening a
 // store: each database is handed to the store that wraps it, which owns it from then on, and every later
 // access goes through that store. Reaching a database directly after this point is possible only through
 // rawDBFor, whose doc gives the rules for it.
@@ -832,10 +832,10 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// readPool and miscPool must stay distinct pools: misc tasks block on read results, so sharing one
 	// bounded pool can deadlock. Nothing may sit between a store and its database that schedules its
 	// own reads onto either pool, for the same reason.
-	open := func(cfg *snapshot.SnapshotEngineConfig, db seidbtypes.KeyValueDB) (snapshot.SnapshotEngine, error) {
-		store, storeErr := snapshot.NewSnapshotEngine(cfg, db, s.readPool, s.miscPool)
+	open := func(cfg *view.ViewManagerConfig, db seidbtypes.KeyValueDB) (view.ViewManager, error) {
+		store, storeErr := view.NewViewManager(cfg, db, s.readPool, s.miscPool)
 		if storeErr != nil {
-			return nil, fmt.Errorf("failed to create %s snapshot store: %w", cfg.Name, storeErr)
+			return nil, fmt.Errorf("failed to create %s view manager: %w", cfg.Name, storeErr)
 		}
 		return store, nil
 	}
@@ -857,7 +857,7 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 		return err
 	}
 
-	s.stores = []snapshot.SnapshotEngine{
+	s.stores = []view.ViewManager{
 		s.accountStore, s.codeStore, s.storageStore, s.miscStore,
 	}
 
@@ -872,13 +872,13 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	return nil
 }
 
-// engineFor returns the snapshot engine mediating the named database, or nil before the engines exist.
+// viewManagerFor returns the view manager mediating the named database, or nil before the managers exist.
 //
-// It answers with the engine, not the database beneath it, so that every access through it is an access the
-// engine has sanctioned. The one operation that genuinely needs the database — taking a Pebble checkpoint,
-// which addresses it as a file rather than as a key-value store — reaches past the engine at its own call
+// It answers with the manager, not the database beneath it, so that every access through it is an access the
+// manager has sanctioned. The one operation that genuinely needs the database — taking a Pebble checkpoint,
+// which addresses it as a file rather than as a key-value store — reaches past the manager at its own call
 // site, where the reason is written down.
-func (s *CommitStore) engineFor(name string) snapshot.SnapshotEngine {
+func (s *CommitStore) viewManagerFor(name string) view.ViewManager {
 	switch name {
 	case accountDBDir:
 		return s.accountStore
@@ -892,19 +892,19 @@ func (s *CommitStore) engineFor(name string) snapshot.SnapshotEngine {
 	return nil
 }
 
-// rawDBFor returns the raw database behind the named engine, bypassing every guarantee that engine
+// rawDBFor returns the raw database behind the named view manager, bypassing every guarantee that manager
 // provides. Apply intense scrutiny at every call site.
 //
 // Reading data through it is a bug: it sees only what the flusher has written, missing both staged and
 // finalized-but-unflushed rows, silently. Use Get/BatchGet/Iterator instead.
 //
-// Returns nil before the engines exist; callers in that window hold the handles directly.
+// Returns nil before the managers exist; callers in that window hold the handles directly.
 func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
-	engine := s.engineFor(name)
-	if engine == nil {
+	manager := s.viewManagerFor(name)
+	if manager == nil {
 		return nil
 	}
-	return engine.EscapeHatchUnderlyingDB()
+	return manager.EscapeHatchUnderlyingDB()
 }
 
 // closeStores tears down whichever stores exist and clears them, so a store that is being reopened
@@ -915,9 +915,9 @@ func (s *CommitStore) closeStores() error {
 
 	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
-	// awaiting a flush on snapshots whose store is already gone.
+	// awaiting a flush on views whose store is already gone.
 	if err := s.releaseLastSealed(); err != nil {
-		errs = append(errs, fmt.Errorf("release sealed snapshots: %w", err))
+		errs = append(errs, fmt.Errorf("release sealed views: %w", err))
 	}
 
 	for _, store := range s.stores {
@@ -1095,10 +1095,10 @@ func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	return NewKVImporter(s, version, s.importDBs()), nil
 }
 
-// importDBs collects the raw databases an import writes into, taken from the snapshot engines that
+// importDBs collects the raw databases an import writes into, taken from the view managers that
 // currently own them.
 //
-// An import writes beneath the engines, so it needs the databases themselves. Gathering them in one place
+// An import writes beneath the managers, so it needs the databases themselves. Gathering them in one place
 // keeps that need visible as a single act rather than as a handle fetched per key.
 func (s *CommitStore) importDBs() rawDBs {
 	return rawDBs{
