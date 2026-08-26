@@ -53,12 +53,8 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 	},
 }
 
-// declaredHere are the keys the sections this package registers declare.
-//
-// Read out of the registry rather than matched against the section names as prefixes, because the claim
-// this feeds is that a section's values are the same for every node kind, and a section left out of the
-// walk makes that claim about nothing. The prefix form covered two sections and the two arriving here
-// state the claim, so it covered neither.
+// declaredHere returns the keys the sections in declaredAgainst declare, read out of the registry rather
+// than matched by prefix, so every listed section contributes.
 func declaredHere(t *testing.T) []string {
 	t.Helper()
 	var out []string
@@ -124,14 +120,9 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 // declaredAgainst pairs each section with the struct it declares against and how many of that struct's
 // paths it leaves out.
 //
-// One table, read by every walk in this file, so a section added here joins the count check, the marking
-// checks and the walk over what varies by node kind together rather than needing a list extended
-// alongside each of them.
+// Every walk in this file reads it, so a section added here joins all of them.
 //
-// What is not checked yet is this list against the registrations themselves. A section that registers and
-// is left out of the table is unmeasured and nothing fails, which removing a row and watching the suite
-// pass confirms. Closing it needs the registrations to record the set they made, and that arrives with
-// the section whose keys sit at the root of the file.
+// A section that registers and is not listed here is measured by nothing.
 var declaredAgainst = []struct {
 	section string
 	proto   any
@@ -143,15 +134,8 @@ var declaredAgainst = []struct {
 	{MempoolSectionName, &tmcfg.MempoolConfig{}, len(neverReachTheMempool) + 1},
 }
 
-// TestNoDeclaredKeyNamesADeprecatedField holds every section against its struct's own marking.
-//
-// A field the node marks deprecated is one a written value cannot change, so declaring it offers a key
-// that reads as a setting and is not one. The consensus section had this check from the start against a
-// hand-kept list; this is the same rule for every section, which is what catches the next one rather than
-// the one already found.
-//
-// Read from the source, because the node marks a field two ways and a tag walk sees only the prefix on
-// the field name. The standard comment above a field is how most of them are marked.
+// TestNoDeclaredKeyNamesADeprecatedField holds every section against its struct's own marking. A declared
+// key whose field the node marks deprecated reads as a setting that a written value cannot change.
 func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
 	for _, tc := range declaredAgainst {
 		registered, ok := registry.Lookup(tc.section)
@@ -200,8 +184,7 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 // than against the list. An exclusion whose reason has gone is a setting an operator can use that the
 // key space refuses, and it fails silently: the key simply is not there.
 //
-// No count here. Two rounds of review found this doc naming a number the list beneath it had outgrown,
-// so the list is the only statement of how many there are.
+// No count here: the list beneath is the only statement of how many there are.
 func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	registered, ok := registry.Lookup(P2PSectionName)
 	if !ok {
@@ -214,8 +197,7 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	}
 
 	// The root directory: excluded because the command line carries it after the file is read, so the
-	// file never states it. Measured, because a doc claiming each reason is checked and then checking
-	// two of three is how the last one of these went stale.
+	// file never states it.
 	if generatedFileCarries(t, filledFromTheCommandLine) {
 		t.Errorf("%s is excluded because no file states it and a generated file now does, so an "+
 			"operator writes it and it belongs declared", filledFromTheCommandLine)
@@ -318,15 +300,10 @@ func hasOpt(opts []string, want string) bool {
 	return false
 }
 
-// warningCannotName are the removed settings the reader's own deprecation check does not report.
-//
-// Seven are held on a value, so a written value equal to the field's own default cannot be told from an
-// unwritten field. Six of those default to the zero and the seventh defaults to true, which is why the
-// undetectable write differs per key rather than being the zero everywhere. The eighth is a pointer, where
-// any written value is distinguishable.
-//
-// Every one of the eight has a write the check could detect and does not. Recorded so that making the
-// check complete fails here rather than leaving a sentence stale.
+// warningCannotName are the removed settings the reader's own deprecation check does not report. Most are
+// held on a value, where a written value equal to the field's own default is indistinguishable from an
+// unwritten one, so the check has nothing to test for that write. The bypass override is a pointer the
+// check could name and does not.
 var warningCannotName = map[string]bool{
 	"unsafe-overrides-enabled":              true,
 	"unsafe-propose-timeout-override":       true,
@@ -338,15 +315,11 @@ var warningCannotName = map[string]bool{
 	"stateless-leader-election":             true,
 }
 
-// TestTheExcludedConsensusPathsAreTheRemovedOnes ties the exclusion list to the struct's own marking.
+// TestTheExcludedConsensusPathsAreTheRemovedOnes ties the exclusion list to the struct's own marking: an
+// excluded path names a field the struct marks deprecated, and no declared path does.
 //
-// Each excluded path has to name a field the struct itself marks as deprecated, and no declared path may.
-// The struct is the authority rather than the deprecation warning, because that warning is incomplete: it
-// names eight of these sixteen.
-//
-// Nothing in the binary calls the warning either, so an operator who still has one of these in their file
-// gets no error and no warning and the value is quietly ignored. That is what the exclusion is carrying. It
-// keeps the key out of the new format rather than relying on a diagnostic that never runs.
+// The marking is the authority rather than the node's deprecation warning, which is incomplete and which
+// nothing in the binary calls.
 func TestTheExcludedConsensusPathsAreTheRemovedOnes(t *testing.T) {
 	registered, ok := registry.Lookup(ConsensusSectionName)
 	if !ok {
@@ -386,11 +359,9 @@ func TestTheExcludedConsensusPathsAreTheRemovedOnes(t *testing.T) {
 	}
 }
 
-// TestTheDeprecationWarningReachesTheRecordedSubset measures the gap in the reader's own check.
-//
-// Eight of the sixteen removed settings make the warning name them and eight cannot, so an operator who
-// wrote one of those eight would get nothing back even from a caller that ran the check. Held so that
-// making the check complete shows up as a failure rather than as a sentence going quietly stale.
+// TestTheDeprecationWarningReachesTheRecordedSubset measures which removed settings the node's own
+// deprecation warning names, against warningCannotName. A setting the warning starts naming fails here,
+// and so does one it stops naming.
 func TestTheDeprecationWarningReachesTheRecordedSubset(t *testing.T) {
 	for _, rel := range removedSettings {
 		err := writtenThenChecked(t, rel)
@@ -404,7 +375,8 @@ func TestTheDeprecationWarningReachesTheRecordedSubset(t *testing.T) {
 	}
 }
 
-// deprecatedPaths returns the mapstructure names of the fields a struct marks deprecated.
+// deprecatedPaths returns the mapstructure names of the fields a struct marks deprecated. The map belongs
+// to the caller, which may strike rows off it.
 func deprecatedPaths(t *testing.T, typ reflect.Type) map[string]bool {
 	t.Helper()
 	marked, ok := deprecatedFields(t)[typ.Name()]
@@ -412,9 +384,7 @@ func deprecatedPaths(t *testing.T, typ reflect.Type) map[string]bool {
 		t.Fatalf("%s was not found in the node's configuration source, so nothing measures which of "+
 			"its fields are deprecated", typ.Name())
 	}
-	// Copied, because the source is parsed once for the whole package and one caller strikes rows off
-	// what it is handed as it checks them. Sharing the map left a later caller reading an emptied set,
-	// so the deprecation checks passed or failed on the order they ran in.
+	// Copied, because the parse is cached for the whole package.
 	out := make(map[string]bool, len(marked))
 	for key := range marked {
 		out[key] = true
@@ -423,16 +393,8 @@ func deprecatedPaths(t *testing.T, typ reflect.Type) map[string]bool {
 }
 
 // deprecatedFields reports, per struct name, the mapstructure key of every field the node marks
-// deprecated.
-//
-// Read from the source rather than through reflection, because the node marks a field two ways and
-// reflection can only see one of them. Fifteen consensus fields carry a Deprecated prefix on the name,
-// which a tag walk finds. Seven more across four structs are marked the standard way, by a comment
-// above the field, which no tag carries. A predicate that saw only the names reported those
-// seven as live settings, so each was declared as a key an operator could set and none of them does
-// anything.
-//
-// Parsed once and cached, because every section that asks pays for the whole package otherwise.
+// deprecated, by a name prefix or by the comment above the field. Parsed once and shared, so a caller
+// that strikes rows off the result copies it first.
 func deprecatedFields(t *testing.T) map[string]map[string]bool {
 	t.Helper()
 	deprecatedOnce.Do(func() {
@@ -444,10 +406,7 @@ func deprecatedFields(t *testing.T) map[string]map[string]bool {
 	return deprecatedByStruct
 }
 
-// nodeConfigSourceDir is the package whose structs these sections declare against.
-//
-// A relative path because it is the same module, so it is checked out beside this one and moving either
-// is a change to both.
+// nodeConfigSourceDir is the package whose structs these sections declare against, relative to this one.
 const nodeConfigSourceDir = "../../sei-tendermint/config"
 
 var (
@@ -456,19 +415,10 @@ var (
 	deprecatedErr      error
 )
 
-// parseDeprecatedFields walks a package's source for struct fields marked deprecated.
-//
-// A field counts as marked if its name carries the prefix the consensus settings use, or if the comment
-// above it opens the standard deprecation note. Only a field with a mapstructure tag is reported, since a
-// field with no tag declares no key for a section to exclude.
-//
-// Three rules keep the answer the same on every run. Only the directory's own package is read, because a
-// test package sits in the same directory and a struct there may share a name with a real one. Only a
-// declaration at the top level of a file is read, because a struct declared inside a function may share a
-// name too. And a name arriving twice is an error rather than an overwrite, because the two would
-// otherwise race and whichever landed last would decide what the section is allowed to declare. Without
-// these the same input gave four different answers across forty calls, and the failure was a check that
-// passed while reading an empty set.
+// parseDeprecatedFields returns, per struct name, the mapstructure key of every field a package's source
+// marks deprecated, by the Deprecated name prefix or by the standard deprecation note. It reads only
+// top-level struct declarations in the package's own files, and reports only a field carrying a
+// mapstructure tag.
 func parseDeprecatedFields(dir string) (map[string]map[string]bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -478,6 +428,7 @@ func parseDeprecatedFields(dir string) (map[string]map[string]bool, error) {
 	out := map[string]map[string]bool{}
 	for _, entry := range entries {
 		name := entry.Name()
+		// A test file in this directory may declare a struct sharing a name with a real one.
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
@@ -485,9 +436,7 @@ func parseDeprecatedFields(dir string) (map[string]map[string]bool, error) {
 		if err != nil {
 			return nil, err
 		}
-		if strings.HasSuffix(file.Name.Name, "_test") {
-			continue
-		}
+		// Only a top-level declaration is read, so a struct declared inside a function cannot answer.
 		for _, decl := range file.Decls {
 			generic, ok := decl.(*ast.GenDecl)
 			if !ok || generic.Tok != token.TYPE {
@@ -532,11 +481,9 @@ func markedFields(structType *ast.StructType) map[string]bool {
 	return marked
 }
 
-// isDeprecationNote reports whether a field's comment opens the standard deprecation note.
-//
-// The note has to begin a line, which is the convention Go states and tools rely on. Matched anywhere in
-// the comment, a field whose documentation merely points at another field's deprecation came back marked,
-// and the cheapest way to silence that failure is to stop declaring a live key.
+// isDeprecationNote reports whether a field's comment opens the standard deprecation note. The note has
+// to begin a line: a comment that mentions another field's deprecation is not itself a marking, and
+// over-marking takes a live key out of the section.
 func isDeprecationNote(doc *ast.CommentGroup) bool {
 	if doc == nil {
 		return false
@@ -549,11 +496,9 @@ func isDeprecationNote(doc *ast.CommentGroup) bool {
 	return false
 }
 
-// writtenThenChecked writes one consensus path into a configuration and returns what the reader's
-// deprecation warning says about it.
-//
-// Written and decoded rather than assigned, because a removed setting is detected by its field being
-// non-nil after a decode, and assigning it directly would skip the step under test.
+// writtenThenChecked writes one consensus path into a configuration file, decodes it, and returns what
+// the node's deprecation warning says. The decode is the step under test: a removed setting is detected
+// by its field being non-nil afterwards.
 func writtenThenChecked(t *testing.T, rel string) error {
 	t.Helper()
 	conf := tmcfg.DefaultConfig()
@@ -563,21 +508,16 @@ func writtenThenChecked(t *testing.T, rel string) error {
 	if err := v.ReadConfig(strings.NewReader(body)); err != nil {
 		t.Fatalf("compose a file setting %s: %v", rel, err)
 	}
-	// Fatal rather than skipped. The probe value comes from the field's own type, so a refusal here means
-	// the derivation is wrong, and a skip inside this loop ends every remaining row while reporting a
-	// pass.
+	// Fatal rather than skipped: the probe value comes from the field's own type, so a refusal means the
+	// derivation is wrong, and a skip here would end the loop while reporting a pass.
 	if err := v.Unmarshal(conf); err != nil {
 		t.Fatalf("%s does not decode from a value derived from its own field: %v", rel, err)
 	}
 	return conf.DeprecatedFieldWarning()
 }
 
-// probeValueFor renders a value the field behind a key accepts, taken from that field's own type.
-//
-// Derived rather than matched on the name, because a name says nothing about a shape. The double-sign
-// height is an integer whose name begins like the boolean overrides do, and it decoded only because the
-// decoder accepts a boolean where an integer belongs. A shape the decoder refuses used to end the loop
-// through a skip, so every row after it went unmeasured and the run still read as a pass.
+// probeValueFor renders a value the field behind a key accepts, derived from that field's own type. A
+// shape it has no derivation for is fatal rather than skipped.
 func probeValueFor(t *testing.T, typ reflect.Type, rel string) string {
 	t.Helper()
 	field, ok := fieldTagged(typ, rel)
@@ -593,8 +533,8 @@ func probeValueFor(t *testing.T, typ reflect.Type, rel string) string {
 	}
 	switch ft.Kind() {
 	case reflect.Interface:
-		// The removed settings are each a pointer to an empty interface, which is how the reader tells a
-		// written value from an absent one. Any shape decodes, so the value only has to be present.
+		// A removed setting held as a pointer to an empty interface is how the reader tells a written
+		// value from an absent one. Any shape decodes, so the value only has to be present.
 		return "\"1s\""
 	case reflect.Bool:
 		return "true"
@@ -698,21 +638,9 @@ func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
 
 // TestTheExcludedMempoolPathsReachNothing holds the reason those three are left out.
 //
-// Each is excluded because no code reads it, which is a claim about the whole binary rather than about a
-// marking, so no check on how a field is documented can reach it. One of the three is not marked
-// deprecated at all and never will be caught that way.
-//
-// What this drives is one of the two paths a written value takes: the conversion into the mempool's own
-// configuration. The other is the transaction reactor, which reads several settings straight off this
-// struct, and it cannot be reached from here because it is an internal package. So a value routed into
-// the channel the reactor sizes would leave the conversion untouched and this test passing, which is the
-// gap to know about: the criterion is that no code reads these, and this holds the larger half of it.
-//
-// Measured by setting each to a value nothing would choose and converting: a field the conversion started
-// carrying would change the result, and the exclusion would have become a key an operator writes whose
-// value stops arriving, with nothing failing. Compared against a conversion of the defaults rather than
-// against a written-out expectation, so a field added to the conversion moves both sides and only these
-// three decide the outcome.
+// It covers one of the two paths a written value takes, the conversion into the mempool's own
+// configuration. The transaction reactor reads several of these settings straight off this struct and
+// sits behind an internal package, so nothing here reaches it.
 func TestTheExcludedMempoolPathsReachNothing(t *testing.T) {
 	for _, rel := range neverReachTheMempool {
 		t.Run(rel, func(t *testing.T) {
@@ -731,11 +659,12 @@ func TestTheExcludedMempoolPathsReachNothing(t *testing.T) {
 				t.Fatalf("%s is a %s and this does not know how to write one", rel, set.Kind())
 			}
 
+			// Compared against a conversion of the defaults, so a field added to the conversion moves
+			// both sides and only the excluded path decides the outcome.
 			if got := written.ToMempoolConfig(); !reflect.DeepEqual(got, untouched) {
 				t.Errorf("writing %s changed what the running mempool receives, so the conversion now "+
 					"carries it and the key belongs declared rather than excluded", rel)
 			}
-
 		})
 	}
 }
