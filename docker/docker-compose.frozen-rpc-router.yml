@@ -1,0 +1,61 @@
+# Docker Compose override for the frozen RPC router integration topology.
+# Nodes 1 and 2 are non-validating archival nodes, so freezing them does not
+# remove voting power from the two-validator live chain (nodes 0 and 3).
+
+services:
+  node0:
+    environment:
+      - GIGA_EXECUTOR=false
+      - GIGA_OCC=false
+
+  node1:
+    environment:
+      - VALIDATOR=false
+      - FREEZE_HEIGHT=10
+      - GIGA_EXECUTOR=false
+      - GIGA_OCC=false
+
+  node2:
+    environment:
+      - VALIDATOR=false
+      - FREEZE_HEIGHT=20
+      - GIGA_EXECUTOR=false
+      - GIGA_OCC=false
+
+  node3:
+    environment:
+      - GIGA_EXECUTOR=false
+      - GIGA_OCC=false
+
+  frozen-rpc-router:
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
+    container_name: sei-frozen-rpc-router
+    image: "sei-chain/localnode"
+    user: "${USERID}:${GROUPID}"
+    depends_on:
+      - node0
+      - node1
+      - node2
+    environment:
+      - SKIP_BUILD
+    entrypoint:
+      - /bin/bash
+      - -c
+    command:
+      - |
+        if [ -z "$$SKIP_BUILD" ]; then
+          until [ -f build/generated/build.complete ]; do sleep 1; done
+        fi
+        until [ -x build/frozen-rpc-router ]; do sleep 1; done
+        exec build/frozen-rpc-router \
+          --listen-address 0.0.0.0:8545 \
+          --live-node http://node0:8545 \
+          --frozen-node 10=http://node1:8545 \
+          --frozen-node 20=http://node2:8545
+    ports:
+      - "8553:8545"
+    volumes:
+      - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.14

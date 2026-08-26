@@ -238,6 +238,13 @@
     ]
   },
   {
+    "name": "Frozen RPC Router",
+    "cluster": "frozen-rpc-router",
+    "scripts": [
+      "go test -tags frozen_rpc_integration -v -count=1 -timeout 5m ./integration_test/frozen_rpc_router/..."
+    ]
+  },
+  {
     "name": "EVM RPC Parity (geth reference)",
     "env": "GIGA_STORAGE=true",
     "scripts": [
