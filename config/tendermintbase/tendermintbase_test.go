@@ -142,7 +142,7 @@ var declaredAgainst = []struct {
 	proto   any
 	exclude int
 }{
-	{P2PSectionName, &tmcfg.P2PConfig{}, 3},
+	{P2PSectionName, &tmcfg.P2PConfig{}, 3 + len(patchedByTheNodeController)},
 	{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 	{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings) + 1},
 	{MempoolSectionName, &tmcfg.MempoolConfig{}, len(neverReachTheMempool) + 1},
@@ -214,10 +214,19 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s is not registered; Defects: %v", P2PSectionName, registry.Defects())
 	}
-	for _, rel := range []string{filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing} {
+	for _, rel := range append([]string{filledFromTheCommandLine, derivedFromTheConnectionLimit,
+		readByNothing}, patchedByTheNodeController...) {
 		if !slices.Contains(registered.Excluded, P2PSectionName+"."+rel) {
 			t.Errorf("excluded is %v and does not name %s", registered.Excluded, rel)
 		}
+	}
+
+	// The root directory: excluded because the command line carries it after the file is read, so the
+	// file never states it. Measured, because a doc claiming each reason is checked and then checking
+	// two of three is how the last one of these went stale.
+	if generatedFileCarries(t, filledFromTheCommandLine) {
+		t.Errorf("%s is excluded because no file states it and a generated file now does, so an "+
+			"operator writes it and it belongs declared", filledFromTheCommandLine)
 	}
 
 	// The outbound ceiling: a pointer the node's defaults leave unset, where unset is the setting,
@@ -231,6 +240,16 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	// half is the measurable one, and it is the half that would expire first: the node wiring the field
 	// up would start writing it, and the key would then be one an operator's file holds and this space
 	// refuses. Without this the exclusion is the only one of the three whose reason nothing holds.
+	// The two the controller patches: their reason is that something outside this binary writes them
+	// after the file is written, which no test here can see. What is measured instead is that a
+	// generated file does carry them, since a key the file did not write would need a different reason.
+	for _, rel := range patchedByTheNodeController {
+		if !generatedFileCarries(t, rel) {
+			t.Errorf("%s is excluded as a path something outside the binary writes and a generated file "+
+				"no longer carries it, so the reason for leaving it out has changed", rel)
+		}
+	}
+
 	if generatedFileCarries(t, readByNothing) {
 		t.Errorf("%s is excluded and a generated file now carries it, so it is a setting an operator "+
 			"writes and belongs declared", readByNothing)
@@ -323,7 +342,7 @@ var warningCannotName = map[string]bool{
 //
 // Each excluded path has to name a field the struct itself marks as deprecated, and no declared path may.
 // The struct is the authority rather than the deprecation warning, because that warning is incomplete: it
-// names eight of these fifteen.
+// names eight of these sixteen.
 //
 // Nothing in the binary calls the warning either, so an operator who still has one of these in their file
 // gets no error and no warning and the value is quietly ignored. That is what the exclusion is carrying. It
@@ -369,7 +388,7 @@ func TestTheExcludedConsensusPathsAreTheRemovedOnes(t *testing.T) {
 
 // TestTheDeprecationWarningReachesTheRecordedSubset measures the gap in the reader's own check.
 //
-// Eight of the fifteen removed settings make the warning name them and seven cannot, so an operator who
+// Eight of the sixteen removed settings make the warning name them and eight cannot, so an operator who
 // wrote one of those seven would get nothing back even from a caller that ran the check. Held so that
 // making the check complete shows up as a failure rather than as a sentence going quietly stale.
 func TestTheDeprecationWarningReachesTheRecordedSubset(t *testing.T) {
@@ -408,8 +427,8 @@ func deprecatedPaths(t *testing.T, typ reflect.Type) map[string]bool {
 //
 // Read from the source rather than through reflection, because the node marks a field two ways and
 // reflection can only see one of them. Fifteen consensus fields carry a Deprecated prefix on the name,
-// which a tag walk finds. Seven more across three other structs are marked the standard way, by a
-// comment above the field, which no tag carries. A predicate that saw only the names reported those
+// which a tag walk finds. Seven more across four structs are marked the standard way, by a comment
+// above the field, which no tag carries. A predicate that saw only the names reported those
 // seven as live settings, so each was declared as a key an operator could set and none of them does
 // anything.
 //
@@ -440,52 +459,90 @@ var (
 // parseDeprecatedFields walks a package's source for struct fields marked deprecated.
 //
 // A field counts as marked if its name carries the prefix the consensus settings use, or if the comment
-// above it is the standard deprecation note. Only a field with a mapstructure tag is reported, since a
+// above it opens the standard deprecation note. Only a field with a mapstructure tag is reported, since a
 // field with no tag declares no key for a section to exclude.
+//
+// Three rules keep the answer the same on every run. Only the directory's own package is read, because a
+// test package sits in the same directory and a struct there may share a name with a real one. Only a
+// declaration at the top level of a file is read, because a struct declared inside a function may share a
+// name too. And a name arriving twice is an error rather than an overwrite, because the two would
+// otherwise race and whichever landed last would decide what the section is allowed to declare. Without
+// these the same input gave four different answers across forty calls, and the failure was a check that
+// passed while reading an empty set.
 func parseDeprecatedFields(dir string) (map[string]map[string]bool, error) {
-	parsed, err := parser.ParseDir(token.NewFileSet(), dir, nil, parser.ParseComments)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
+	fset := token.NewFileSet()
 	out := map[string]map[string]bool{}
-	for _, pkg := range parsed {
-		ast.Inspect(pkg, func(n ast.Node) bool {
-			spec, ok := n.(*ast.TypeSpec)
-			if !ok {
-				return true
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.ParseComments)
+		if err != nil {
+			return nil, err
+		}
+		if strings.HasSuffix(file.Name.Name, "_test") {
+			continue
+		}
+		for _, decl := range file.Decls {
+			generic, ok := decl.(*ast.GenDecl)
+			if !ok || generic.Tok != token.TYPE {
+				continue
 			}
-			structType, ok := spec.Type.(*ast.StructType)
-			if !ok {
-				return true
-			}
-			marked := map[string]bool{}
-			for _, field := range structType.Fields.List {
-				if len(field.Names) != 1 || field.Tag == nil {
+			for _, spec := range generic.Specs {
+				typed, ok := spec.(*ast.TypeSpec)
+				if !ok {
 					continue
 				}
-				name := field.Names[0].Name
-				if !strings.HasPrefix(name, "Deprecated") && !isDeprecationNote(field.Doc) {
+				structType, ok := typed.Type.(*ast.StructType)
+				if !ok {
 					continue
 				}
-				tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
-				if key, ok := tag.Lookup("mapstructure"); ok {
-					marked[strings.Split(key, ",")[0]] = true
+				if _, seen := out[typed.Name.Name]; seen {
+					return nil, fmt.Errorf("%s declares a struct named %s that another file in %s also "+
+						"declares, so which one answers depends on the order they are read",
+						name, typed.Name.Name, dir)
 				}
+				out[typed.Name.Name] = markedFields(structType)
 			}
-			out[spec.Name.Name] = marked
-			return true
-		})
+		}
 	}
 	return out, nil
 }
 
-// isDeprecationNote reports whether a field's comment is the standard deprecation note.
+// markedFields returns the mapstructure keys of the fields a struct marks deprecated.
+func markedFields(structType *ast.StructType) map[string]bool {
+	marked := map[string]bool{}
+	for _, field := range structType.Fields.List {
+		if len(field.Names) != 1 || field.Tag == nil {
+			continue
+		}
+		if !strings.HasPrefix(field.Names[0].Name, "Deprecated") && !isDeprecationNote(field.Doc) {
+			continue
+		}
+		tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
+		if key, ok := tag.Lookup("mapstructure"); ok {
+			marked[strings.Split(key, ",")[0]] = true
+		}
+	}
+	return marked
+}
+
+// isDeprecationNote reports whether a field's comment opens the standard deprecation note.
+//
+// The note has to begin a line, which is the convention Go states and tools rely on. Matched anywhere in
+// the comment, a field whose documentation merely points at another field's deprecation came back marked,
+// and the cheapest way to silence that failure is to stop declaring a live key.
 func isDeprecationNote(doc *ast.CommentGroup) bool {
 	if doc == nil {
 		return false
 	}
 	for _, line := range doc.List {
-		if strings.Contains(line.Text, "Deprecated:") {
+		if strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(line.Text, "//")), "Deprecated:") {
 			return true
 		}
 	}
@@ -521,10 +578,6 @@ func writtenThenChecked(t *testing.T, rel string) error {
 // height is an integer whose name begins like the boolean overrides do, and it decoded only because the
 // decoder accepts a boolean where an integer belongs. A shape the decoder refuses used to end the loop
 // through a skip, so every row after it went unmeasured and the run still read as a pass.
-//
-// probeValueFor returns a written value of the right shape for a consensus path.
-//
-// Three shapes appear: a duration written as a string, a boolean, and a whole number.
 func probeValueFor(t *testing.T, typ reflect.Type, rel string) string {
 	t.Helper()
 	field, ok := fieldTagged(typ, rel)
@@ -576,8 +629,11 @@ func fieldTagged(typ reflect.Type, rel string) (reflect.StructField, bool) {
 // Turning state sync on means writing every one of these, so a key this space refuses is one an operator
 // writes and is told nothing reads. The snapshot servers were left out on the reasoning that a key with
 // no default cannot be declared, and three siblings in the same section disprove it: the trust height,
-// the trust hash and the scratch directory each state a zero value and are declared. The generated file
-// writes all five.
+// the trust hash and the scratch directory each state a zero value and are declared.
+//
+// The generated file writes four of the five. It leaves the scratch directory out and says so in words,
+// naming it among the keys it omits on purpose while still parsing them if set, which is the whole of the
+// evidence that an operator writes these by hand.
 //
 // Their declared values are asserted to be the empty ones, because that is what makes the set coherent:
 // none of these is a value the binary can know, and the section states so rather than inventing one.
@@ -627,7 +683,7 @@ func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
 	}
 }
 
-// TestNoSectionDeclaresTheRootDirectory covers a field five of these sections carry.
+// TestNoSectionDeclaresTheRootDirectory covers a field six of these sections carry.
 //
 // Each holds a root directory tagged the same as the key at the top of the file, and the node fills every
 // one from the command line after the file is read. So each states the empty string, and a delivery that

@@ -32,6 +32,20 @@ type Resolved struct {
 	// value they wrote elsewhere is what applies. Ignored carries the keys; the reason is the same for all of them, because it is a fact about
 	// the channel rather than about any section.
 	Ignored []string
+	// Refused are the registrations this package could not use, so the key space is missing every key
+	// each of them declared.
+	//
+	// Reported rather than an error, for the reason Defect is recorded rather than panicked: every one
+	// of these comes from a call in this binary's own source, so a defect is a mistake a compiler could
+	// have caught and never something an operator wrote. Refusing to resolve would turn that mistake
+	// into a node that will not start, which is the fleet-wide incident the recording exists to avoid.
+	//
+	// What to do about one is the caller's, the same division Unknown draws: a path that writes a
+	// configuration file should refuse, because it would render a file missing whole sections, while a
+	// booting node should say so loudly and run. A section named here is absent from Values, so an
+	// operator's written value for one of its keys arrives in Unknown instead of being applied, and
+	// reporting both is what makes that legible.
+	Refused []Defect
 	// Unknown are keys a source carried that no section declares, sorted.
 	//
 	// Reported rather than an error, because what to do about one is the caller's decision: a
@@ -103,16 +117,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	// separately would be answering about a different one than the key space it guards.
 	registered, refused := snapshot()
 
-	// Refused before anything is resolved, because a registration this package could not use is a
-	// section missing from the key space, and every key it declared then reads as one no section
-	// declares. An operator's written value for such a key is reported as unknown rather than applied,
-	// which is the hole this function promises never to hand out. Two sections colliding is the case
-	// that matters: the loser is dropped whole and which one loses follows package initialisation
-	// order, so the same binary can answer differently for reasons no caller can see.
-	if len(refused) > 0 {
-		return out, fmt.Errorf("the registry could not use %d registration(s), so the key space is "+
-			"incomplete: %v", len(refused), refused)
-	}
+	out.Refused = refused
 
 	defaults, err := defaultValues(mode, registered)
 	if err != nil {

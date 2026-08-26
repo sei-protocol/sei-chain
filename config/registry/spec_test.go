@@ -1043,36 +1043,50 @@ func TestAReadKeySliceCannotReachTheRegistry(t *testing.T) {
 		func(registry.Mode) any { return shape{} }, "gone")
 	requireNoDefects(t)
 
-	// Both slices, through both accessors. The exclusion list is read on every Resolve, so a caller
-	// that reached it would not corrupt one key: it would drop a path from one walk and not the other,
-	// and every later resolution would fail for every mode.
-	for _, read := range []struct {
-		name  string
-		want  []string
-		slice func() []string
-	}{
-		{"Lookup.Keys", []string{"s.a", "s.b"},
-			func() []string { s, _ := registry.Lookup("s"); return s.Keys }},
-		{"Lookup.Excluded", []string{"s.gone"},
-			func() []string { s, _ := registry.Lookup("s"); return s.Excluded }},
-		{"Sections.Keys", []string{"s.a", "s.b"},
-			func() []string { return registry.Sections()[0].Keys }},
-		{"Sections.Excluded", []string{"s.gone"},
-			func() []string { return registry.Sections()[0].Excluded }},
-	} {
-		t.Run(read.name, func(t *testing.T) {
-			// Written by index rather than appended, because every section registered today has a
-			// capacity equal to its length, so an append reallocates and would pass while the
-			// registry's own storage was still reachable.
-			got := read.slice()
-			for i := range got {
-				got[i] = "clobbered"
-			}
-			if after := read.slice(); !reflect.DeepEqual(after, read.want) {
-				t.Errorf("writing into the slice %s returned left the registry holding %v, want %v",
-					read.name, after, read.want)
-			}
-		})
+	// Every slice field Section carries, through both accessors, found by walking the type rather than
+	// named here. A field added later is covered without this test changing, which is what the copy's
+	// own doc claims and could not deliver while the fields were listed by hand.
+	//
+	// The exclusion list is the one that shows why this matters beyond one wrong key: it is read on
+	// every resolution, so a caller reaching it drops a path from one walk and not the other, and the
+	// section then declares a key nothing answers.
+	reads := map[string]func() registry.Section{
+		"Lookup":   func() registry.Section { got, _ := registry.Lookup("s"); return got },
+		"Sections": func() registry.Section { return registry.Sections()[0] },
+	}
+	typ := reflect.TypeOf(registry.Section{})
+	covered := 0
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if field.Type.Kind() != reflect.Slice || !field.IsExported() {
+			continue
+		}
+		covered++
+		for name, read := range reads {
+			t.Run(name+"."+field.Name, func(t *testing.T) {
+				// Copied element by element, not taken as a slice value. A slice read out of the
+				// section shares its backing array, so a write that reached the registry would move
+				// this too and the comparison would hold while the storage was clobbered.
+				live := reflect.ValueOf(read()).FieldByName(field.Name)
+				want := reflect.MakeSlice(live.Type(), live.Len(), live.Len())
+				reflect.Copy(want, live)
+				// Written by index rather than appended, because every section registered today has a
+				// capacity equal to its length, so an append reallocates and would pass while the
+				// registry's own storage was still reachable.
+				got := reflect.ValueOf(read()).FieldByName(field.Name)
+				for j := range got.Len() {
+					got.Index(j).Set(reflect.Zero(got.Type().Elem()))
+				}
+				after := reflect.ValueOf(read()).FieldByName(field.Name)
+				if !reflect.DeepEqual(after.Interface(), want.Interface()) {
+					t.Errorf("writing into %s left the registry holding %v, want %v",
+						field.Name, after.Interface(), want.Interface())
+				}
+			})
+		}
+	}
+	if covered == 0 {
+		t.Fatal("Section carries no exported slice field, so this covers nothing")
 	}
 }
 
