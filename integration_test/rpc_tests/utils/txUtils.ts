@@ -44,7 +44,7 @@ export const CORE_BLOCK_FIELDS = [
     'uncles',
 ] as const;
 
-export const SEI_ONLY_BLOCK_FIELDS = ['totalDifficulty'] as const;
+export const SEI_ONLY_BLOCK_FIELDS = ['timestampMs', 'totalDifficulty'] as const;
 export const GETH_ONLY_BLOCK_FIELDS = [
     'blobGasUsed',
     'excessBlobGas',
@@ -167,6 +167,8 @@ export interface RpcBlock {
     gasLimit: string;
     gasUsed: string;
     timestamp: string;
+    /** Sei-only; geth blocks parsed into this shape do not carry it. */
+    timestampMs?: string;
     baseFeePerGas: string;
     uncles: string[];
     transactions: (string | RpcTx)[];
@@ -725,6 +727,20 @@ export function assertCanonicalHeader(block: RpcBlock, opts: { hasTxs: boolean }
         expect(block.receiptsRoot, 'non-empty block has a real receiptsRoot').to.not.equal(ZERO_HASH);
         expect(BigInt(block.gasUsed) > 0n, 'non-empty block burned gas').to.equal(true);
     }
+}
+
+/**
+ * Assert the Sei-only `timestampMs`. Sei commits blocks faster than once a second, so
+ * `timestamp` — whole seconds, as every Ethereum client reads it — cannot separate
+ * consecutive blocks. geth has no counterpart, so there is nothing to cross-check against;
+ * the invariant is that the two fields describe the same instant.
+ */
+export function assertSeiTimestampMs(block: RpcBlock): void {
+    expect(block, 'header is missing timestampMs').to.have.property('timestampMs');
+    expect(block.timestampMs, 'timestampMs is a canonical quantity').to.match(HEX_QUANTITY);
+    expect(BigInt(block.timestampMs!) / 1000n, 'timestampMs agrees with timestamp').to.equal(
+        BigInt(block.timestamp),
+    );
 }
 
 // Fields present on every transaction object regardless of type (legacy type-0 has

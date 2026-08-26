@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -25,7 +26,7 @@ func TestSubscribeNewHeads(t *testing.T) {
 	expectedKeys := []string{
 		"parentHash", "sha3Uncles", "miner", "stateRoot", "transactionsRoot",
 		"receiptsRoot", "logsBloom", "difficulty", "number", "gasLimit",
-		"gasUsed", "timestamp", "extraData", "mixHash", "nonce",
+		"gasUsed", "timestamp", "timestampMs", "extraData", "mixHash", "nonce",
 		"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas",
 		"parentBeaconBlockRoot", "hash",
 	}
@@ -76,6 +77,13 @@ func TestSubscribeNewHeads(t *testing.T) {
 					}
 				}
 			}
+			// This path's header time is time.Now(), so only the relationship
+			// between the two timestamp fields is assertable here.
+			secs, err := hexutil.DecodeUint64(resultMap["timestamp"].(string))
+			require.NoError(t, err)
+			millis, err := hexutil.DecodeUint64(resultMap["timestampMs"].(string))
+			require.NoError(t, err)
+			require.Equal(t, secs, millis/1000, "timestampMs and timestamp describe the same instant")
 			// Event validated successfully, no need to wait further
 			return
 		case <-timer.C:
@@ -97,12 +105,13 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 	hash := common.HexToHash("0x4242424242424242424242424242424242424242424242424242424242424242").Bytes()
 	appHash := common.HexToHash("0x3131313131313131313131313131313131313131313131313131313131313131").Bytes()
 	proposer := common.HexToAddress("0x9999999999999999999999999999999999999999").Bytes()
-	ts := time.Unix(1_700_000_500, 0).UTC()
+	// Fractional second on purpose; see TestEncodeCommittedBlock.
+	ts := time.Unix(1_700_000_500, 250_000_000).UTC()
 
 	expectedKeys := []string{
 		"parentHash", "sha3Uncles", "miner", "stateRoot", "transactionsRoot",
 		"receiptsRoot", "logsBloom", "difficulty", "number", "gasLimit",
-		"gasUsed", "timestamp", "extraData", "mixHash", "nonce",
+		"gasUsed", "timestamp", "timestampMs", "extraData", "mixHash", "nonce",
 		"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas",
 		"parentBeaconBlockRoot", "hash",
 	}
@@ -149,6 +158,7 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 			require.Equal(t, common.BytesToAddress(proposer).Hex(), resultMap["miner"])
 			require.Equal(t, common.BytesToHash(appHash).Hex(), resultMap["stateRoot"])
 			require.Equal(t, fmt.Sprintf("0x%x", ts.Unix()), resultMap["timestamp"])
+			require.Equal(t, fmt.Sprintf("0x%x", ts.UnixMilli()), resultMap["timestampMs"])
 			require.Equal(t, fmt.Sprintf("0x%x", 21000+50000), resultMap["gasUsed"])
 			// gasLimit comes from the SDK ConsensusParams that the test
 			// runtime sets; just assert it's a non-zero hex string.

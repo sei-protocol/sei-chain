@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/bitutil"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -48,6 +49,26 @@ func TestGetBlockByNumber(t *testing.T) {
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
+		},
+	)
+}
+
+// Covers the Sei-only timestampMs over the real JSON-RPC transport, including the
+// synthetic genesis block, which is encoded by a different function than the rest.
+func TestGetBlockTimestampMs(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
+			block := res["result"].(map[string]interface{})
+			blockTime := mockBlockHeader(2).Time
+			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.Unix())), block["timestamp"])
+			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.UnixMilli())), block["timestampMs"])
+
+			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", false)
+			genesis := res["result"].(map[string]interface{})
+			require.Equal(t, "0x0", genesis["timestamp"])
+			require.Equal(t, "0x0", genesis["timestampMs"])
 		},
 	)
 }

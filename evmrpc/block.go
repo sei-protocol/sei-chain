@@ -56,6 +56,7 @@ func encodeGenesisBlock() map[string]any {
 		"gasLimit":         hexutil.Uint64(0),
 		"gasUsed":          hexutil.Uint64(0),
 		"timestamp":        hexutil.Uint64(0),
+		"timestampMs":      hexutil.Uint64(0), // Sei-only, see EncodeTmBlock
 		"transactionsRoot": common.Hash{},
 		"receiptsRoot":     common.Hash{},
 		"size":             hexutil.Uint64(0),
@@ -419,6 +420,10 @@ func EncodeTmBlock(
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 		gasLimit = cp.Block.MaxGas
 	}
+	// "timestamp" stays in whole seconds because every Ethereum client reads it
+	// that way, and Sei block intervals are shorter than a second, so it repeats
+	// across consecutive blocks. "timestampMs" is the Sei-only companion exposing
+	// the sub-second precision the Tendermint header already carries.
 	result := map[string]any{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
@@ -429,11 +434,12 @@ func EncodeTmBlock(
 		"logsBloom":        ethtypes.BytesToBloom(blockBloom),
 		"stateRoot":        appHash,
 		"miner":            miner,
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)),           // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},                         // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),                //nolint:gosec
-		"gasUsed":          hexutil.Uint64(blockGasUsed),            //nolint:gosec
-		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()), //nolint:gosec
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)),                // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},                              // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(gasLimit),                     //nolint:gosec
+		"gasUsed":          hexutil.Uint64(blockGasUsed),                 //nolint:gosec
+		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),      //nolint:gosec
+		"timestampMs":      hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot": txHash,
 		"receiptsRoot":     resultHash,
 		"size":             hexutil.Uint64(block.Block.Size()), //nolint:gosec

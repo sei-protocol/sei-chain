@@ -107,16 +107,18 @@ func TestEthSubscribeNewHeads(t *testing.T) {
 			note.Params.Subscription, ack.Result)
 	}
 	header := note.Params.Result
-	for _, key := range []string{"hash", "number", "timestamp", "stateRoot", "miner"} {
+	// An all-zero value for one of these would indicate the producer hook didn't
+	// fire and we're seeing a default-constructed header.
+	mustBeNonZero := map[string]bool{
+		"hash": true, "number": true, "timestamp": true, "timestampMs": true,
+	}
+	for _, key := range []string{"hash", "number", "timestamp", "timestampMs", "stateRoot", "miner"} {
 		v, ok := header[key]
 		if !ok {
 			t.Fatalf("head notification missing key %q (got %+v)", key, header)
 		}
-		// All-zero values for hash, number, or timestamp would indicate
-		// the producer hook didn't fire and we're seeing a default-
-		// constructed header.
 		if s, _ := v.(string); s == "" || s == "0x" || s == "0x0" {
-			if key == "hash" || key == "number" || key == "timestamp" {
+			if mustBeNonZero[key] {
 				t.Fatalf("head notification %q has zero-ish value %q", key, s)
 			}
 		}

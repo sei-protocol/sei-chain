@@ -456,11 +456,12 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 		"receiptsRoot":          common.Hash{}, // see function doc
 		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
 		"stateRoot":             appHash,
-		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()), //nolint:gosec
-		"transactionsRoot":      common.Hash{},                          // see function doc
-		"mixHash":               common.Hash{},                          // inapplicable to Sei
-		"excessBlobGas":         hexutil.Uint64(0),                      // inapplicable to Sei
-		"parentBeaconBlockRoot": common.Hash{},                          // inapplicable to Sei
+		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()),      //nolint:gosec
+		"timestampMs":           hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
+		"transactionsRoot":      common.Hash{},                               // see function doc
+		"mixHash":               common.Hash{},                               // inapplicable to Sei
+		"excessBlobGas":         hexutil.Uint64(0),                           // inapplicable to Sei
+		"parentBeaconBlockRoot": common.Hash{},                               // inapplicable to Sei
 		"hash":                  blockHash,
 		"baseFeePerGas":         (*hexutil.Big)(baseFee),
 		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
@@ -497,7 +498,8 @@ func encodeTmHeader(
 		"receiptsRoot":          resultHash,
 		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
 		"stateRoot":             appHash,
-		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()), //nolint:gosec
+		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),      //nolint:gosec
+		"timestampMs":           hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      txHash,
 		"mixHash":               common.Hash{},     // inapplicable to Sei
 		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei
