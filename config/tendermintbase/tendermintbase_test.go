@@ -370,15 +370,20 @@ func generatedFileCarries(t *testing.T, table, rel string) bool {
 	if err != nil {
 		t.Fatalf("read the rendered file: %v", err)
 	}
-	// Scoped to the table asked about. A key name is not unique in this file: the listen address appears
-	// under three tables and the connection ceiling under two, so an unscoped match answers for whichever
-	// table writes the name first, and the wrong answer here is a pass.
-	inTable := table == ""
+	// Scoped to the table asked about, because a key name is not unique in this file: the listen address
+	// appears under three tables and the connection ceiling under two, so an unscoped match answers for
+	// whichever writes the name first.
+	//
+	// A table the file does not contain is fatal rather than absent. Answering false for it would let a
+	// caller asserting a key is unwritten pass while measuring nothing, which is the shape the scoping is
+	// here to remove.
+	inTable, sawTable := table == "", table == ""
 	found := false
 	for _, line := range strings.Split(string(body), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inTable = trimmed == "["+table+"]"
+			sawTable = sawTable || inTable
 			continue
 		}
 		if !inTable {
@@ -387,6 +392,9 @@ func generatedFileCarries(t *testing.T, table, rel string) bool {
 		if name, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(name) == rel {
 			found = true
 		}
+	}
+	if !sawTable {
+		t.Fatalf("the rendered file has no [%s] table, so nothing measures what it writes there", table)
 	}
 	return found
 }
