@@ -73,10 +73,10 @@ func declaredSections() []string { return append([]string(nil), registeredHere..
 func declaredHere(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, tc := range declaredAgainst {
-		registered, ok := registry.Lookup(tc.section)
+	for _, name := range declaredSections() {
+		registered, ok := registry.Lookup(name)
 		if !ok {
-			t.Fatalf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			t.Fatalf("%s is not registered; Defects: %v", name, registry.Defects())
 		}
 		out = append(out, registered.Keys...)
 	}
@@ -178,7 +178,7 @@ func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 		filledFromTheCommandLine:      "the command line carries it after the file is read",
 		derivedFromTheConnectionLimit: "unset is the setting, and a default here would be invented",
 		readByNothing:                 "nothing reads it and no generated file carries it",
-		"max-batch-bytes":             "no code reads it, and its field carries no deprecation note",
+		unreadAndUnmarked:             "no code reads it, and its field carries no deprecation note",
 		"mode":                        "the file states it at the top under its own name",
 	}
 
@@ -345,7 +345,7 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	// The root directory: excluded because the command line carries it after the file is read, so the
 	// file never states it. Measured, because a doc claiming each reason is checked and then checking
 	// two of three is how the last one of these went stale.
-	if generatedFileCarries(t, filledFromTheCommandLine) {
+	if generatedFileCarries(t, P2PSectionName, filledFromTheCommandLine) {
 		t.Errorf("%s is excluded because no file states it and a generated file now does, so an "+
 			"operator writes it and it belongs declared", filledFromTheCommandLine)
 	}
@@ -375,7 +375,7 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	// half is the measurable one, and it is the half that would expire first, since the node wiring the
 	// field up would start writing it and the key would then be one an operator's file holds and this
 	// space refuses.
-	if generatedFileCarries(t, readByNothing) {
+	if generatedFileCarries(t, P2PSectionName, readByNothing) {
 		t.Errorf("%s is excluded and a generated file now carries it, so it is a setting an operator "+
 			"writes and belongs declared", readByNothing)
 	}
@@ -384,8 +384,9 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 // generatedFileCarries reports whether the file the node writes for itself holds a key.
 //
 // Rendered through the node's own writer rather than matched against the template's source, so what is
-// measured is what an operator's file actually contains.
-func generatedFileCarries(t *testing.T, rel string) bool {
+// measured is what an operator's file actually contains. An empty table name asks about the keys above
+// the first table, which is where the node's own root settings are written.
+func generatedFileCarries(t *testing.T, table, rel string) bool {
 	t.Helper()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
@@ -398,12 +399,25 @@ func generatedFileCarries(t *testing.T, rel string) bool {
 	if err != nil {
 		t.Fatalf("read the rendered file: %v", err)
 	}
+	// Scoped to the table asked about. A key name is not unique in this file: the listen address appears
+	// under three tables and the connection ceiling under two, so an unscoped match answers for whichever
+	// table writes the name first, and the wrong answer here is a pass.
+	inTable := table == ""
+	found := false
 	for _, line := range strings.Split(string(body), "\n") {
-		if name, _, found := strings.Cut(line, "="); found && strings.TrimSpace(name) == rel {
-			return true
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == "["+table+"]"
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		if name, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(name) == rel {
+			found = true
 		}
 	}
-	return false
+	return found
 }
 
 // taggedFields counts the fields of a struct that carry a mapstructure name, following the same rules the
@@ -808,7 +822,7 @@ func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 		"enable": true, "use-p2p": true, "rpc-servers": true, "trust-height": true, "trust-hash": true,
 		"temp-dir": false,
 	} {
-		if got := generatedFileCarries(t, rel); got != written {
+		if got := generatedFileCarries(t, StateSyncSectionName, rel); got != written {
 			t.Errorf("a generated file carries %s.%s = %v and %v was expected, so the split between "+
 				"what the template writes and what an operator adds has moved",
 				StateSyncSectionName, rel, got, written)
@@ -924,7 +938,9 @@ func TestEachRootExclusionStillHasItsReason(t *testing.T) {
 		if declared[rel] {
 			t.Errorf("%q is declared at the root and names a setting the node removed", rel)
 		}
-		if generatedFileCarries(t, rel) {
+		// The empty table name asks about the region above the first table, which is where a generated
+		// file writes the node's own root settings.
+		if generatedFileCarries(t, "", rel) {
 			t.Errorf("%q is left out because a generated file does not carry it and one now does, so it "+
 				"is a setting an operator writes and belongs declared", rel)
 		}
