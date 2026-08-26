@@ -145,7 +145,7 @@ var declaredAgainst = []struct {
 	{TxIndexSectionName, &tmcfg.TxIndexConfig{}, 0},
 	{InstrumentationSectionName, &tmcfg.InstrumentationConfig{}, 1},
 	{PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, 1},
-	{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 0},
+	{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 1},
 	{RootSectionName, &nodeRootSchema{}, len(notWritableInThisFile) + len(removedFromTheNode)},
 }
 
@@ -162,6 +162,7 @@ func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 		readByNothing:                 "nothing reads it and no generated file carries it",
 		unreadAndUnmarked:             "no code reads it, and its field carries no deprecation note",
 		statedAtTheTopOfTheFile:       "the file states it at the top under its own name",
+		reachesNoReactor:              "no reactor reads it, and its field carries no deprecation note",
 	}
 
 	for _, name := range declaredSections() {

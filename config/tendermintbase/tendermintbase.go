@@ -96,6 +96,14 @@ var neverReachTheMempool = []string{
 // reason for leaving it out.
 const unreadAndUnmarked = "max-batch-bytes"
 
+// reachesNoReactor is the self remediation path this section does not declare.
+//
+// The other four settings in that group reach a reactor, three to the block sync one and one to the state
+// sync one. This one reaches neither: the node checks its bound when validating and nothing else reads it,
+// so a written value changes nothing about when the node restarts. Its field carries no deprecation note
+// either, so no check on markings accounts for it.
+const reachesNoReactor = "p2p-no-peers-available-window-seconds"
+
 // fixedForEveryNode is the metric prefix this section does not declare. The node marks the field
 // deprecated and states that its metrics always use one fixed prefix, so the value is not an operator's
 // to set.
@@ -126,7 +134,7 @@ func init() {
 	declareSection(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{},
 		privValidatorDefaults, filledFromTheCommandLine)
 	declareSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
-		selfRemediationDefaults)
+		selfRemediationDefaults, reachesNoReactor)
 	declareRootKeys(RootSectionName, &nodeRootSchema{}, rootDefaults,
 		append(append([]string{}, notWritableInThisFile...), removedFromTheNode...)...)
 }
@@ -171,13 +179,11 @@ func forMode(mode registry.Mode) *tmcfg.Config {
 	return out
 }
 
-// filledFromTheCommandLine is the root directory path these sections carry and none declares.
+// filledFromTheCommandLine is the root directory path several of these sections carry and none declares.
 //
-// Each holds a root directory field tagged the same as the one at the top of the file, and the node fills
-// every one of them from the command line after the file is read. Five leave it out under this name and
-// the section at the top of the file leaves it out under its own, which is why the count here is not the
-// number of times this constant appears. So the file never carries the value, and
-// what these sections state for it is the empty string. Declaring it would hand a delivery an empty root to
+// Each holds a field tagged the same as the one at the top of the file, and the node fills every one of
+// them from the command line after the file is read, so the file never carries the value and what these
+// sections would state for it is the empty string. Declaring it would hand a delivery an empty root to
 // write over a running node's, and a node that cannot find its data directory, its genesis file or its
 // signing key does not start.
 const filledFromTheCommandLine = "home"
