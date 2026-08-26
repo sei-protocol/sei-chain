@@ -684,8 +684,8 @@ func fieldTagged(typ reflect.Type, rel string) (reflect.StructField, bool) {
 // naming it among the keys it omits on purpose while still parsing them if set, which is the whole of the
 // evidence that an operator writes these by hand.
 //
-// Their declared values are asserted to be the empty ones, because that is what makes the set coherent:
-// none of these is a value the binary can know, and the section states so rather than inventing one.
+// Both halves of that reasoning are measured below rather than stated: that each key the operator
+// supplies states nothing, and that the template writes four of the five.
 func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 	registered, ok := registry.Lookup(StateSyncSectionName)
 	if !ok {
@@ -705,9 +705,38 @@ func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 				"does not declare it", StateSyncSectionName, rel)
 		}
 	}
-	if got := tmcfg.DefaultStateSyncConfig().RPCServers; len(got) != 0 {
-		t.Errorf("the node now ships snapshot servers %v, so the declared empty list is no longer what "+
-			"a generated file carries", got)
+
+	// Each of the four the operator supplies states nothing, which is what makes the set coherent: none
+	// of these is a value the binary can know. Asserted per key rather than for the servers alone,
+	// because a default arriving for any of them would leave this section declaring a value it invented
+	// while the sentence above still called them the operator's own.
+	live := tmcfg.DefaultStateSyncConfig()
+	for name, stated := range map[string]bool{
+		"rpc-servers":  len(live.RPCServers) != 0,
+		"trust-height": live.TrustHeight != 0,
+		"trust-hash":   live.TrustHash != "",
+		"temp-dir":     live.TempDir != "",
+	} {
+		if stated {
+			t.Errorf("the node now ships a value for %s.%s, so it is no longer a setting only an "+
+				"operator can supply and the reasoning for declaring the set has changed",
+				StateSyncSectionName, name)
+		}
+	}
+
+	// Four of the five reach a generated file. The scratch directory does not, and the template names it
+	// among the keys it leaves out on purpose while still parsing them if set, which is the whole of the
+	// evidence that these are written by hand. Measured, because that split is what the paragraph above
+	// rests on.
+	for rel, written := range map[string]bool{
+		"enable": true, "use-p2p": true, "rpc-servers": true, "trust-height": true, "trust-hash": true,
+		"temp-dir": false,
+	} {
+		if got := generatedFileCarries(t, rel); got != written {
+			t.Errorf("a generated file carries %s.%s = %v and %v was expected, so the split between "+
+				"what the template writes and what an operator adds has moved",
+				StateSyncSectionName, rel, got, written)
+		}
 	}
 }
 
@@ -907,5 +936,42 @@ func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
 	}
 	if len(wrongBecause) != len(filledByTheGenerator) {
 		t.Errorf("%d reasons are stated and %d keys are listed", len(wrongBecause), len(filledByTheGenerator))
+	}
+}
+
+// TestTheExcludedMempoolPathsReachNothing holds the reason those three are left out.
+//
+// Each is excluded because the conversion into the running mempool does not carry it, which is a claim
+// about a function rather than about a marking, so no check on how a field is documented can reach it.
+// One of the three is not marked deprecated at all and never will be caught that way.
+//
+// Measured by setting each to a value nothing would choose and converting: a field the conversion started
+// carrying would change the result, and the exclusion would have become a key an operator writes whose
+// value stops arriving, with nothing failing. Compared against a conversion of the defaults rather than
+// against a written-out expectation, so a field added to the conversion moves both sides and only these
+// three decide the outcome.
+func TestTheExcludedMempoolPathsReachNothing(t *testing.T) {
+	for _, rel := range neverReachTheMempool {
+		t.Run(rel, func(t *testing.T) {
+			untouched := tmcfg.DefaultMempoolConfig().ToMempoolConfig()
+
+			written := tmcfg.DefaultMempoolConfig()
+			field, ok := fieldTagged(reflect.TypeOf(tmcfg.MempoolConfig{}), rel)
+			if !ok {
+				t.Fatalf("%s names no field of the mempool configuration", rel)
+			}
+			set := reflect.ValueOf(written).Elem().FieldByName(field.Name)
+			switch set.Kind() {
+			case reflect.Int, reflect.Int64:
+				set.SetInt(set.Int() + 9999)
+			default:
+				t.Fatalf("%s is a %s and this does not know how to write one", rel, set.Kind())
+			}
+
+			if got := written.ToMempoolConfig(); !reflect.DeepEqual(got, untouched) {
+				t.Errorf("writing %s changed what the running mempool receives, so the conversion now "+
+					"carries it and the key belongs declared rather than excluded", rel)
+			}
+		})
 	}
 }
