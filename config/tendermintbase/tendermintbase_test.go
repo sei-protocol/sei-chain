@@ -641,8 +641,8 @@ func fieldTagged(typ reflect.Type, rel string) (reflect.StructField, bool) {
 // naming it among the keys it omits on purpose while still parsing them if set, which is the whole of the
 // evidence that an operator writes these by hand.
 //
-// Their declared values are asserted to be the empty ones, because that is what makes the set coherent:
-// none of these is a value the binary can know, and the section states so rather than inventing one.
+// Both halves of that reasoning are measured below rather than stated: that each key the operator
+// supplies states nothing, and that the template writes four of the five.
 func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 	registered, ok := registry.Lookup(StateSyncSectionName)
 	if !ok {
@@ -662,9 +662,38 @@ func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 				"does not declare it", StateSyncSectionName, rel)
 		}
 	}
-	if got := tmcfg.DefaultStateSyncConfig().RPCServers; len(got) != 0 {
-		t.Errorf("the node now ships snapshot servers %v, so the declared empty list is no longer what "+
-			"a generated file carries", got)
+
+	// Each of the four the operator supplies states nothing, which is what makes the set coherent: none
+	// of these is a value the binary can know. Asserted per key rather than for the servers alone,
+	// because a default arriving for any of them would leave this section declaring a value it invented
+	// while the sentence above still called them the operator's own.
+	live := tmcfg.DefaultStateSyncConfig()
+	for name, stated := range map[string]bool{
+		"rpc-servers":  len(live.RPCServers) != 0,
+		"trust-height": live.TrustHeight != 0,
+		"trust-hash":   live.TrustHash != "",
+		"temp-dir":     live.TempDir != "",
+	} {
+		if stated {
+			t.Errorf("the node now ships a value for %s.%s, so it is no longer a setting only an "+
+				"operator can supply and the reasoning for declaring the set has changed",
+				StateSyncSectionName, name)
+		}
+	}
+
+	// Four of the five reach a generated file. The scratch directory does not, and the template names it
+	// among the keys it leaves out on purpose while still parsing them if set, which is the whole of the
+	// evidence that these are written by hand. Measured, because that split is what the paragraph above
+	// rests on.
+	for rel, written := range map[string]bool{
+		"enable": true, "use-p2p": true, "rpc-servers": true, "trust-height": true, "trust-hash": true,
+		"temp-dir": false,
+	} {
+		if got := generatedFileCarries(t, rel); got != written {
+			t.Errorf("a generated file carries %s.%s = %v and %v was expected, so the split between "+
+				"what the template writes and what an operator adds has moved",
+				StateSyncSectionName, rel, got, written)
+		}
 	}
 }
 
