@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"fmt"
@@ -14,8 +14,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// This file pins one property: an iterator serves the engine's state as of the instant it was
-// created, for as long as it is held, no matter what the engine does afterwards.
+// This file pins one property: an iterator serves the manager's state as of the instant it was
+// created, for as long as it is held, no matter what the manager does afterwards.
 //
 // That property is what makes it safe to hand an iterator to a consumer running on another thread —
 // a query handler, or a state-sync export — while block commits continue.
@@ -45,37 +45,37 @@ func reversed(pairs []kvPair) []kvPair {
 	return out
 }
 
-// sealFlushRetire seals the engine's current version, waits for it to reach the backing store, then
+// sealFlushRetire seals the manager's current version, waits for it to reach the backing store, then
 // waits for it to be dropped from memory. On return the data that was staged in the shards lives
 // only in the backing store and the read cache.
 //
-// Finalize and the flush wait both happen before Release: the engine may flush a still-reserved
+// Finalize and the flush wait both happen before Release: the manager may flush a still-reserved
 // version, but it stops tracking one that has been released and retired, and AwaitFlush needs it
 // tracked.
-func sealFlushRetire(t *testing.T, engine SnapshotEngine) {
+func sealFlushRetire(t *testing.T, manager ViewManager) {
 	t.Helper()
-	snap, err := engine.Commit()
+	view, err := manager.Commit()
 	require.NoError(t, err)
-	version := snap.(*snapshotImpl).version
-	require.NoError(t, snap.Finalize(nil))
-	awaitFlushed(t, snap, 2*time.Second)
-	require.NoError(t, snap.Release())
-	awaitRetired(t, engine, version)
+	version := view.(*viewImpl).version
+	require.NoError(t, view.Finalize(nil))
+	awaitFlushed(t, view, 2*time.Second)
+	require.NoError(t, view.Release())
+	awaitRetired(t, manager, version)
 }
 
 // Every write path must be accepted while an iterator is open, and none of them may be visible
 // through it.
 func TestWritesProceedWhileIteratorIsOpen(t *testing.T) {
-	engine, _ := newTestEngine(t, map[string][]byte{"a": []byte("1"), "b": []byte("2")}, 4, 1<<20)
-	require.NoError(t, engine.Set([]byte("c"), []byte("3")))
+	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1"), "b": []byte("2")}, 4, 1<<20)
+	require.NoError(t, manager.Set([]byte("c"), []byte("3")))
 
-	it, err := engine.Iterator(nil)
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	require.NoError(t, engine.Set([]byte("d"), []byte("4")), "adding a key")
-	require.NoError(t, engine.Set([]byte("a"), []byte("clobbered")), "overwriting a key")
-	require.NoError(t, engine.Delete([]byte("b")), "deleting a key")
-	require.NoError(t, engine.BatchSet([]*proto.KVPair{
+	require.NoError(t, manager.Set([]byte("d"), []byte("4")), "adding a key")
+	require.NoError(t, manager.Set([]byte("a"), []byte("clobbered")), "overwriting a key")
+	require.NoError(t, manager.Delete([]byte("b")), "deleting a key")
+	require.NoError(t, manager.BatchSet([]*proto.KVPair{
 		{Key: []byte("e"), Value: []byte("5")},
 		{Key: []byte("c"), Delete: true},
 	}), "a batch mixing a write and a delete")
@@ -86,17 +86,17 @@ func TestWritesProceedWhileIteratorIsOpen(t *testing.T) {
 
 // Sealing the version an iterator copied from must be accepted and must not disturb it.
 func TestIteratorSurvivesCommit(t *testing.T) {
-	engine, _ := newTestEngine(t, map[string][]byte{"a": []byte("1")}, 4, 1<<20)
-	require.NoError(t, engine.Set([]byte("b"), []byte("2")))
+	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1")}, 4, 1<<20)
+	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
 
-	it, err := engine.Iterator(nil)
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	snap, err := engine.Commit()
+	view, err := manager.Commit()
 	require.NoError(t, err, "Commit must be accepted while an iterator is open")
-	finalizeAndRelease(t, snap)
+	finalizeAndRelease(t, view)
 
-	require.NoError(t, engine.Set([]byte("c"), []byte("3")))
+	require.NoError(t, manager.Set([]byte("c"), []byte("3")))
 
 	require.Equal(t, sortedPairs(map[string]string{"a": "1", "b": "2"}), collectIterator(t, it))
 }
@@ -107,24 +107,24 @@ func TestIteratorSurvivesCommit(t *testing.T) {
 // would show.
 func TestIteratorSurvivesFlushAndRetirement(t *testing.T) {
 	db := newTestDB(map[string][]byte{"disk": []byte("d")})
-	engine := newTestEngineWithDB(t, db, 4, 1<<20)
+	manager := newTestManagerWithDB(t, db, 4, 1<<20)
 
 	want := map[string]string{"disk": "d"}
 	for i := 0; i < 20; i++ {
 		key, value := fmt.Sprintf("mem-%02d", i), fmt.Sprintf("v%02d", i)
-		require.NoError(t, engine.Set([]byte(key), []byte(value)))
+		require.NoError(t, manager.Set([]byte(key), []byte(value)))
 		want[key] = value
 	}
 
-	it, err := engine.Iterator(nil)
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	sealFlushRetire(t, engine)
+	sealFlushRetire(t, manager)
 
 	// Leave the shards holding entirely different data than when the iterator was made.
-	require.NoError(t, engine.Set([]byte("mem-00"), []byte("clobbered")))
-	require.NoError(t, engine.Delete([]byte("mem-01")))
-	require.NoError(t, engine.Set([]byte("mem-99"), []byte("new")))
+	require.NoError(t, manager.Set([]byte("mem-00"), []byte("clobbered")))
+	require.NoError(t, manager.Delete([]byte("mem-01")))
+	require.NoError(t, manager.Set([]byte("mem-99"), []byte("new")))
 
 	require.Equal(t, sortedPairs(want), collectIterator(t, it))
 }
@@ -151,17 +151,17 @@ func TestBoundedAndReverseIteratorsSurviveWrites(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Half on disk, half staged, so both sides of the merge are exercised under bounds.
-			engine, _ := newTestEngine(t, map[string][]byte{"a": []byte("1"), "c": []byte("3")}, 4, 1<<20)
+			manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1"), "c": []byte("3")}, 4, 1<<20)
 			for _, k := range []string{"b", "d", "e"} {
-				require.NoError(t, engine.Set([]byte(k), []byte(all[k])))
+				require.NoError(t, manager.Set([]byte(k), []byte(all[k])))
 			}
 
-			it, err := engine.Iterator(tc.opts)
+			it, err := manager.Iterator(tc.opts)
 			require.NoError(t, err)
 
-			sealFlushRetire(t, engine)
-			require.NoError(t, engine.Set([]byte("c"), []byte("clobbered")))
-			require.NoError(t, engine.Delete([]byte("d")))
+			sealFlushRetire(t, manager)
+			require.NoError(t, manager.Set([]byte("c"), []byte("clobbered")))
+			require.NoError(t, manager.Delete([]byte("d")))
 
 			require.Equal(t, tc.want, collectIterator(t, it))
 		})
@@ -172,16 +172,16 @@ func TestBoundedAndReverseIteratorsSurviveWrites(t *testing.T) {
 // must stay visible. Both directions matter: the first is a tombstone captured in the iterator's
 // copy, the second is a tombstone it must never see.
 func TestIteratorTombstonesAreFixedAtCreation(t *testing.T) {
-	engine, _ := newTestEngine(t, map[string][]byte{
+	manager, _ := newTestManager(t, map[string][]byte{
 		"deleted-before": []byte("v"), "deleted-after": []byte("v"), "kept": []byte("v"),
 	}, 4, 1<<20)
-	require.NoError(t, engine.Delete([]byte("deleted-before")))
+	require.NoError(t, manager.Delete([]byte("deleted-before")))
 
-	it, err := engine.Iterator(nil)
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	require.NoError(t, engine.Delete([]byte("deleted-after")))
-	sealFlushRetire(t, engine)
+	require.NoError(t, manager.Delete([]byte("deleted-after")))
+	sealFlushRetire(t, manager)
 
 	require.Equal(t, sortedPairs(map[string]string{"deleted-after": "v", "kept": "v"}),
 		collectIterator(t, it))
@@ -190,19 +190,19 @@ func TestIteratorTombstonesAreFixedAtCreation(t *testing.T) {
 // Iterators created at different points must each keep their own instant, so one holder cannot see
 // another's view.
 func TestIteratorsHoldIndependentInstants(t *testing.T) {
-	engine, _ := newTestEngine(t, map[string][]byte{"base": []byte("0")}, 4, 1<<20)
+	manager, _ := newTestManager(t, map[string][]byte{"base": []byte("0")}, 4, 1<<20)
 
-	require.NoError(t, engine.Set([]byte("k"), []byte("first")))
-	first, err := engine.Iterator(nil)
+	require.NoError(t, manager.Set([]byte("k"), []byte("first")))
+	first, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	commitFinalizeRelease(t, engine)
-	require.NoError(t, engine.Set([]byte("k"), []byte("second")))
-	second, err := engine.Iterator(nil)
+	commitFinalizeRelease(t, manager)
+	require.NoError(t, manager.Set([]byte("k"), []byte("second")))
+	second, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	commitFinalizeRelease(t, engine)
-	require.NoError(t, engine.Set([]byte("k"), []byte("third")))
+	commitFinalizeRelease(t, manager)
+	require.NoError(t, manager.Set([]byte("k"), []byte("third")))
 
 	require.Equal(t, sortedPairs(map[string]string{"base": "0", "k": "first"}), collectIterator(t, first))
 	require.Equal(t, sortedPairs(map[string]string{"base": "0", "k": "second"}), collectIterator(t, second))
@@ -212,15 +212,15 @@ func TestIteratorsHoldIndependentInstants(t *testing.T) {
 // whole life, including after the staged value has been flushed over the disk one and retired.
 func TestIteratorKeepsOverrideWinnerAcrossFlush(t *testing.T) {
 	db := newTestDB(map[string][]byte{"shared": []byte("disk"), "disk-only": []byte("d")})
-	engine := newTestEngineWithDB(t, db, 4, 1<<20)
-	require.NoError(t, engine.Set([]byte("shared"), []byte("staged")))
-	require.NoError(t, engine.Set([]byte("mem-only"), []byte("m")))
+	manager := newTestManagerWithDB(t, db, 4, 1<<20)
+	require.NoError(t, manager.Set([]byte("shared"), []byte("staged")))
+	require.NoError(t, manager.Set([]byte("mem-only"), []byte("m")))
 
-	it, err := engine.Iterator(nil)
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	sealFlushRetire(t, engine)
-	require.NoError(t, engine.Set([]byte("shared"), []byte("clobbered")))
+	sealFlushRetire(t, manager)
+	require.NoError(t, manager.Set([]byte("shared"), []byte("clobbered")))
 
 	require.Equal(t, sortedPairs(map[string]string{
 		"shared": "staged", "disk-only": "d", "mem-only": "m",
@@ -230,15 +230,15 @@ func TestIteratorKeepsOverrideWinnerAcrossFlush(t *testing.T) {
 // Under the race detector: writers commit in a loop while an iterator is walked to exhaustion. The
 // iterator's contents are fixed at creation, which is what gives this test an oracle.
 func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
-	engine, _ := newTestEngine(t, map[string][]byte{"a": []byte("1")}, 8, 1<<20)
+	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1")}, 8, 1<<20)
 	want := map[string]string{"a": "1"}
 	for i := 0; i < 200; i++ {
 		key, value := fmt.Sprintf("k-%03d", i), fmt.Sprintf("v-%03d", i)
-		require.NoError(t, engine.Set([]byte(key), []byte(value)))
+		require.NoError(t, manager.Set([]byte(key), []byte(value)))
 		want[key] = value
 	}
 
-	it, err := engine.Iterator(nil)
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
 	stop := make(chan struct{})
@@ -263,24 +263,24 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 			default:
 			}
 			// Clobber keys the iterator is holding, and add new ones, then seal it all.
-			if err := engine.Set([]byte(fmt.Sprintf("k-%03d", round%200)), []byte("clobbered")); err != nil {
+			if err := manager.Set([]byte(fmt.Sprintf("k-%03d", round%200)), []byte("clobbered")); err != nil {
 				writerErr = err
 				return
 			}
-			if err := engine.Set([]byte(fmt.Sprintf("new-%03d", round)), []byte("v")); err != nil {
+			if err := manager.Set([]byte(fmt.Sprintf("new-%03d", round)), []byte("v")); err != nil {
 				writerErr = err
 				return
 			}
-			snap, err := engine.Commit()
+			view, err := manager.Commit()
 			if err != nil {
 				writerErr = err
 				return
 			}
-			if err := snap.Finalize(nil); err != nil {
+			if err := view.Finalize(nil); err != nil {
 				writerErr = err
 				return
 			}
-			if err := snap.Release(); err != nil {
+			if err := view.Release(); err != nil {
 				writerErr = err
 				return
 			}
@@ -307,16 +307,16 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 	require.Equal(t, sortedPairs(want), got)
 }
 
-// Creating an iterator concurrently with a write is NOT safe: the engine copies each shard's staged
+// Creating an iterator concurrently with a write is NOT safe: the manager copies each shard's staged
 // values under that shard's own lock, so a batch spanning two shards can be half-visible to a
 // reader being built. flatKV meets this obligation by holding its own lock across creation.
 //
 // This asserts the positive — a creation serialized against writes always yields one coherent
 // instant. The negative is not asserted because provoking the mixed view deterministically would
-// need a hook in the engine's creation path, which is not worth carrying for a documented caller
+// need a hook in the manager's creation path, which is not worth carrying for a documented caller
 // obligation.
 func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
-	engine, _ := newTestEngine(t, nil, 8, 1<<20)
+	manager, _ := newTestManager(t, nil, 8, 1<<20)
 
 	// Keys chosen to span shards; the batch is atomic from the writer's point of view, so a reader
 	// must see all of it or none of it.
@@ -325,7 +325,7 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 	after := make(map[string]string, 32)
 	for i := 0; i < 32; i++ {
 		key := fmt.Sprintf("spread-%02d", i)
-		require.NoError(t, engine.Set([]byte(key), []byte("before")))
+		require.NoError(t, manager.Set([]byte(key), []byte("before")))
 		batch = append(batch, &proto.KVPair{Key: []byte(key), Value: []byte("after")})
 		before[key] = "before"
 		after[key] = "after"
@@ -334,7 +334,7 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 	var lock sync.Mutex
 	for round := 0; round < 50; round++ {
 		lock.Lock()
-		it, err := engine.Iterator(nil)
+		it, err := manager.Iterator(nil)
 		lock.Unlock()
 		require.NoError(t, err)
 
@@ -345,7 +345,7 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 			defer writer.Done()
 			lock.Lock()
 			defer lock.Unlock()
-			batchErr = engine.BatchSet(batch)
+			batchErr = manager.BatchSet(batch)
 		}()
 
 		got := collectIterator(t, it)
@@ -362,7 +362,7 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 			require.Equal(t, sortedPairs(before), got, "round %d saw a torn view", round)
 		}
 
-		require.NoError(t, engine.BatchSet(revert(batch)))
+		require.NoError(t, manager.BatchSet(revert(batch)))
 	}
 }
 
@@ -375,15 +375,15 @@ func revert(batch []*proto.KVPair) []*proto.KVPair {
 	return out
 }
 
-// Iterators are undefined behaviour once the engine has closed, and the engine makes a best-effort
+// Iterators are undefined behaviour once the manager has closed, and the manager makes a best-effort
 // attempt to say so rather than letting the holder walk into a closed database.
 func TestCloseReportsOpenIterators(t *testing.T) {
-	engine, _ := newTestEngine(t, map[string][]byte{"k": []byte("v")}, 4, 1<<20)
+	manager, _ := newTestManager(t, map[string][]byte{"k": []byte("v")}, 4, 1<<20)
 
-	it, err := engine.Iterator(nil)
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = it.Close() })
 
-	require.ErrorContains(t, engine.Close(), "iterator",
+	require.ErrorContains(t, manager.Close(), "iterator",
 		"closing with an iterator open must name the leak rather than closing silently")
 }

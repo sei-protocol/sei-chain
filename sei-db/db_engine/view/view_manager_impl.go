@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"bytes"
@@ -15,22 +15,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-var _ SnapshotEngine = (*snapshotEngine)(nil)
+var _ ViewManager = (*viewManager)(nil)
 
-// The standard implementation of SnapshotEngine.
-type snapshotEngine struct {
-	// Engine-private context. Blocked waits throughout the engine select on it; it is cancelled
-	// (always under versionLock — see closeInternal) when the engine shuts down, via Close or a
+// The standard implementation of ViewManager.
+type viewManager struct {
+	// Manager-private context. Blocked waits throughout the manager select on it; it is cancelled
+	// (always under versionLock — see closeInternal) when the manager shuts down, via Close or a
 	// fatal lifecycle error.
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	config SnapshotEngineConfig
+	config ViewManagerConfig
 
 	// A utility for assigning keys to shard indices.
 	shardManager *shardManager
 
-	// The shards in the engine.
+	// The shards in the manager.
 	shards []*shard
 
 	// A pool for asynchronous reads.
@@ -45,42 +45,42 @@ type snapshotEngine struct {
 	// Protects modification to version state.
 	versionLock *sync.Mutex
 
-	// The current version number. All modifications to the engine will happen at this version number.
+	// The current version number. All modifications to the manager will happen at this version number.
 	//
 	// Written only while holding versionLock (by Commit()). Read without the lock by the
-	// Get/BatchGet paths; this is sound only because the engine contract forbids calling
+	// Get/BatchGet paths; this is sound only because the manager contract forbids calling
 	// Commit() concurrently with operations on the current version, so no lockless read can
 	// race the write.
 	currentVersion uint64
 
-	// The version of the oldest snapshot we are currently tracking.
+	// The version of the oldest view we are currently tracking.
 	//
 	// Protected by versionLock.
 	oldestVersion uint64
 
-	// Reference counts for all snapshots we are currently tracking. The current (mutable) version
+	// Reference counts for all views we are currently tracking. The current (mutable) version
 	// does not have a reference count and so it does not appear in this map.
 	//
 	// Protected by versionLock.
-	versionMap map[uint64]*snapshotReferenceCounter
+	versionMap map[uint64]*viewReferenceCounter
 
-	// The number of snapshots that are eligible to be flushed to disk, but which have not yet been
-	// flushed. Versions blocked behind a still-referenced snapshot are not counted until that
-	// snapshot is released (see scanForFlushEligibilityLocked), so this measures work the
+	// The number of views that are eligible to be flushed to disk, but which have not yet been
+	// flushed. Versions blocked behind a still-referenced view are not counted until that
+	// view is released (see scanForFlushEligibilityLocked), so this measures work the
 	// underlying DB can actually perform — Commit backpressure driven by it reflects DB lag, not
 	// release lag.
 	//
 	// Protected by versionLock.
 	unflushedCount uint64
 
-	// The highest snapshot version that either has been flushed or can be flushed. There may be older snapshot
-	// versions that have not yet been flushed, but it is guaranteed that any snapshot version older than this value
+	// The highest view version that either has been flushed or can be flushed. There may be older view
+	// versions that have not yet been flushed, but it is guaranteed that any view version older than this value
 	// is likewise eligible to be flushed or has already been flushed.
 	//
 	// Protected by versionLock.
 	highestFlushEligibleVersion uint64
 
-	// The highest snapshot version that is eligible for retirement.
+	// The highest view version that is eligible for retirement.
 	//
 	// Protected by versionLock.
 	highestRetirementEligibleVersion uint64
@@ -100,12 +100,12 @@ type snapshotEngine struct {
 	// the lifecycle runner has fully stopped before performing its final flush.
 	lifecycleExited chan struct{}
 
-	// Metrics for recording snapshot engine statistics.
-	metrics *SnapshotEngineMetrics
+	// Metrics for recording view manager statistics.
+	metrics *ViewManagerMetrics
 
-	// The error that bricked the engine, latched by the lifecycle runner when lifecycle work
-	// (e.g. a flush) fails. Once set it is never cleared: the lifecycle exits, the engine context
-	// is cancelled, and methods that observe the shutdown report this error. Nil if the engine
+	// The error that bricked the manager, latched by the lifecycle runner when lifecycle work
+	// (e.g. a flush) fails. Once set it is never cleared: the lifecycle exits, the manager context
+	// is cancelled, and methods that observe the shutdown report this error. Nil if the manager
 	// has not failed.
 	//
 	// Protected by versionLock.
@@ -117,41 +117,41 @@ type snapshotEngine struct {
 	closeErr  error
 }
 
-// Tracks the reference count for a particular snapshot.
-type snapshotReferenceCounter struct {
-	// The version/block height of the snapshot.
+// Tracks the reference count for a particular view.
+type viewReferenceCounter struct {
+	// The version/block height of the view.
 	version uint64
 
-	// The number of reservations currently held for this snapshot. When this count reaches 0,
-	// the snapshot is eligible for retirement.
+	// The number of reservations currently held for this view. When this count reaches 0,
+	// the view is eligible for retirement.
 	referenceCount uint64
 
-	// True once FinalizeSnapshot has run for this snapshot. Flushing is gated on it. By contract the
+	// True once FinalizeView has run for this view. Flushing is gated on it. By contract the
 	// finalizing consumer holds a reservation until it has finalized, so this is guaranteed to be
 	// true before referenceCount reaches 0. Enforced in DecrementReferenceCount.
 	finalized bool
 
-	// The metadata pairs supplied to FinalizeSnapshot, written to disk in the same atomic batch as
-	// this snapshot's diff. May be empty: a consumer with nothing to record still finalizes.
+	// The metadata pairs supplied to FinalizeView, written to disk in the same atomic batch as
+	// this view's diff. May be empty: a consumer with nothing to record still finalizes.
 	finalWrites []*proto.KVPair
 
-	// True if the snapshot has been flushed, otherwise false.
+	// True if the view has been flushed, otherwise false.
 	flushedToDisk bool
 
-	// Closed by flushSnapshots when this snapshot's data has been persisted to disk. Pairs with
+	// Closed by flushViews when this view's data has been persisted to disk. Pairs with
 	// flushedToDisk. Used as a synchronization handle for AwaitFlush waiters; a closed channel is
 	// immediately selectable, so the "already flushed at call time" case requires no special path.
 	flushCompleted chan struct{}
 }
 
-// Creates a new SnapshotEngine.
+// Creates a new ViewManager.
 //
-// The engine takes ownership of db and closes it in Close. Nothing else may read or write that database
-// afterwards: doing so bypasses the engine's staging and cache and sees or corrupts a version nobody
-// asked for. The pools, by contrast, are shared and remain the caller's to close — after the engine,
-// since the engine's goroutines submit to them.
-func NewSnapshotEngine(
-	config *SnapshotEngineConfig,
+// The manager takes ownership of db and closes it in Close. Nothing else may read or write that database
+// afterwards: doing so bypasses the manager's staging and cache and sees or corrupts a version nobody
+// asked for. The pools, by contrast, are shared and remain the caller's to close — after the manager,
+// since the manager's goroutines submit to them.
+func NewViewManager(
+	config *ViewManagerConfig,
 	// The underlying key-value database.
 	db types.KeyValueDB,
 	// A work pool for reading from the DB.
@@ -161,9 +161,9 @@ func NewSnapshotEngine(
 	// readPool results, so sharing one fixed-size pool can deadlock under load. Pass distinct
 	// pools, or an elastic pool.
 	miscPool threading.Pool,
-) (SnapshotEngine, error) {
+) (ViewManager, error) {
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid snapshot engine config: %w", err)
+		return nil, fmt.Errorf("invalid view manager config: %w", err)
 	}
 
 	shardManager, err := newShardManager(config.ShardCount)
@@ -172,14 +172,14 @@ func NewSnapshotEngine(
 	}
 	sizePerShard := config.MaxSize / config.ShardCount
 
-	// Everything owned by the engine (shards, the metrics scrape loop, blocked waits) lives on
-	// this engine-private context, cancelled only when the engine shuts down.
+	// Everything owned by the manager (shards, the metrics scrape loop, blocked waits) lives on
+	// this manager-private context, cancelled only when the manager shuts down.
 	childCtx, cancel := context.WithCancel(context.Background())
 
 	versionLock := &sync.Mutex{}
 	lifecycleBackpressureCond := sync.NewCond(versionLock)
 
-	c := &snapshotEngine{
+	c := &viewManager{
 		ctx:          childCtx,
 		cancel:       cancel,
 		config:       *config,
@@ -187,7 +187,7 @@ func NewSnapshotEngine(
 		readPool:     readPool,
 		miscPool:     miscPool,
 		db:           db,
-		versionMap:   make(map[uint64]*snapshotReferenceCounter),
+		versionMap:   make(map[uint64]*viewReferenceCounter),
 		// Versions start at 1 (not 0) so a version-1 lookup never underflows.
 		currentVersion:            1,
 		oldestVersion:             1,
@@ -198,9 +198,9 @@ func NewSnapshotEngine(
 		lifecycleExited:           make(chan struct{}),
 	}
 
-	// Shards are created after the engine struct so they can report the engine's shutdown error
-	// (the latched fatal error, or ErrEngineClosed) when a blocked read is released by context
-	// cancellation — see the Close contract on SnapshotEngine.
+	// Shards are created after the manager struct so they can report the manager's shutdown error
+	// (the latched fatal error, or ErrViewManagerClosed) when a blocked read is released by context
+	// cancellation — see the Close contract on ViewManager.
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
 		shards[i], err = NewShard(
@@ -213,7 +213,7 @@ func NewSnapshotEngine(
 	c.shards = shards
 
 	if config.MetricsEnabled {
-		metrics := newSnapshotEngineMetrics(
+		metrics := newViewManagerMetrics(
 			childCtx, config.Name, config.MetricsScrapeInterval(), c.getCacheSizeInfo)
 		for _, s := range c.shards {
 			s.metrics = metrics
@@ -227,7 +227,7 @@ func NewSnapshotEngine(
 	return c, nil
 }
 
-func (c *snapshotEngine) getCacheSizeInfo() (bytes uint64, entries uint64) {
+func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	for _, s := range c.shards {
 		b, e := s.getSizeInfo()
 		bytes += b
@@ -236,7 +236,7 @@ func (c *snapshotEngine) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	return bytes, entries
 }
 
-func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
+func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
 	// Sort entries by shard index so each shard is locked only once.
 	shardMap := make(map[uint64][]*proto.KVPair)
 	for i := range updates {
@@ -244,9 +244,9 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 		shardMap[idx] = append(shardMap[idx], updates[i])
 	}
 
-	// Fan out to shards. A shard refusing the write — it is out of service, so the engine is closed or
+	// Fan out to shards. A shard refusing the write — it is out of service, so the manager is closed or
 	// bricked — fails the whole call; the shards that accepted it have already applied their entries, so
-	// the batch is not atomic across shards in that case. That is acceptable because the engine contract
+	// the batch is not atomic across shards in that case. That is acceptable because the manager contract
 	// makes any error fatal.
 	var wg sync.WaitGroup
 	shardIndices := make([]uint64, 0, len(shardMap))
@@ -271,12 +271,12 @@ func (c *snapshotEngine) BatchSet(updates []*proto.KVPair) error {
 	return nil
 }
 
-func (c *snapshotEngine) BatchGet(keys [][]byte) (map[string][]byte, error) {
+func (c *viewManager) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	return c.BatchGetAtVersion(keys, c.currentVersion)
 }
 
-// Similar semantics to BatchGet, but reads from the given version of the engine.
-func (c *snapshotEngine) BatchGetAtVersion(keys [][]byte, version uint64) (map[string][]byte, error) {
+// Similar semantics to BatchGet, but reads from the given version of the manager.
+func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[string][]byte, error) {
 	// Partition the keys by shard so each shard is queried once.
 	work := make(map[uint64][][]byte)
 	for _, key := range keys {
@@ -315,7 +315,7 @@ func (c *snapshotEngine) BatchGetAtVersion(keys [][]byte, version uint64) (map[s
 	return merged, nil
 }
 
-func (c *snapshotEngine) Delete(key []byte) error {
+func (c *viewManager) Delete(key []byte) error {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 	if err := shard.Delete(key); err != nil {
@@ -324,11 +324,11 @@ func (c *snapshotEngine) Delete(key []byte) error {
 	return nil
 }
 
-func (c *snapshotEngine) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+func (c *viewManager) Get(key []byte, updateLru bool) ([]byte, bool, error) {
 	return c.GetAtVersion(key, c.currentVersion, updateLru)
 }
 
-func (c *snapshotEngine) GetAtVersion(key []byte, version uint64, updateLru bool) ([]byte, bool, error) {
+func (c *viewManager) GetAtVersion(key []byte, version uint64, updateLru bool) ([]byte, bool, error) {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 
@@ -342,7 +342,7 @@ func (c *snapshotEngine) GetAtVersion(key []byte, version uint64, updateLru bool
 	return value, ok, nil
 }
 
-func (c *snapshotEngine) Set(key []byte, value []byte) error {
+func (c *viewManager) Set(key []byte, value []byte) error {
 	shardIndex := c.shardManager.Shard(key)
 	shard := c.shards[shardIndex]
 	if err := shard.Set(key, value); err != nil {
@@ -351,21 +351,21 @@ func (c *snapshotEngine) Set(key []byte, value []byte) error {
 	return nil
 }
 
-func (c *snapshotEngine) Commit() (Snapshot, error) {
-	c.metrics.setSnapshotPhase("acquire_version_lock")
+func (c *viewManager) Commit() (View, error) {
+	c.metrics.setViewPhase("acquire_version_lock")
 	// Reset the phase on every exit so error returns don't leave the timer stuck on a phase.
-	defer c.metrics.setSnapshotPhase("")
+	defer c.metrics.setViewPhase("")
 
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
-	// A bricked engine does no more work. Free to check here: versionLock, which guards fatalErr,
+	// A bricked manager does no more work. Free to check here: versionLock, which guards fatalErr,
 	// is already held.
 	if c.fatalErr != nil {
-		return nil, fmt.Errorf("cannot create snapshot: %w", c.shutdownErrorLocked())
+		return nil, fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
 	}
 
-	// Every shard must still be in service. A shard taken out of service (the engine was closed or
+	// Every shard must still be in service. A shard taken out of service (the manager was closed or
 	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
 	// would discard it silently.
 	for i, s := range c.shards {
@@ -373,18 +373,18 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 		err := s.cache.outOfServiceLocked()
 		s.lock.Unlock()
 		if err != nil {
-			return nil, fmt.Errorf("cannot create snapshot, shard %d: %w", i, err)
+			return nil, fmt.Errorf("cannot create view, shard %d: %w", i, err)
 		}
 	}
 
-	c.metrics.setSnapshotPhase("lifecycle_backpressure")
+	c.metrics.setViewPhase("lifecycle_backpressure")
 
 	err := c.lifecycleBackpressureLocked()
 	if err != nil {
-		return nil, fmt.Errorf("cannot create snapshot: %w", err)
+		return nil, fmt.Errorf("cannot create view: %w", err)
 	}
 
-	currentVersionRefCounter := &snapshotReferenceCounter{
+	currentVersionRefCounter := &viewReferenceCounter{
 		version:        c.currentVersion,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
@@ -392,35 +392,35 @@ func (c *snapshotEngine) Commit() (Snapshot, error) {
 
 	c.versionMap[c.currentVersion] = currentVersionRefCounter
 
-	snapshot := &snapshotImpl{
-		version:      c.currentVersion,
-		parentEngine: c,
+	view := &viewImpl{
+		version:       c.currentVersion,
+		parentManager: c,
 	}
 
 	c.currentVersion++
 
-	c.metrics.setSnapshotPhase("shards_snapshot")
+	c.metrics.setViewPhase("shards_view")
 
 	for _, shard := range c.shards {
 		shardVersion := shard.Commit()
 		if shardVersion != c.currentVersion {
-			// Should be impossible. The engine is now inconsistent (some shards committed, some
+			// Should be impossible. The manager is now inconsistent (some shards committed, some
 			// not), so brick it: the failure must be latched and every subsequent call must fail,
-			// rather than leaving the engine callable after a fatal error.
-			err := fmt.Errorf("shard (%d) has a different version than the engine (%d)",
+			// rather than leaving the manager callable after a fatal error.
+			err := fmt.Errorf("shard (%d) has a different version than the manager (%d)",
 				shardVersion, c.currentVersion)
 			c.brickLocked(err)
 			return nil, err
 		}
 	}
 
-	return snapshot, nil
+	return view, nil
 }
 
 // This method blocks if the lifecycle runner is not keeping up. It is assumed that the caller already holds the
 // versionLock. When this method returns, it will still hold the versionLock, but it may release and then
 // re-acquire versionLock internally as it awaits for the lifecycle runner to catch up.
-func (c *snapshotEngine) lifecycleBackpressureLocked() error {
+func (c *viewManager) lifecycleBackpressureLocked() error {
 	for c.unflushedCount > c.config.MaxUnflushedVersions {
 		if c.ctx.Err() != nil {
 			return c.shutdownErrorLocked()
@@ -436,26 +436,26 @@ func (c *snapshotEngine) lifecycleBackpressureLocked() error {
 	return nil
 }
 
-// shutdownErrorLocked builds the error reported by methods that observe engine shutdown: the
-// latched fatal error when the lifecycle runner failed, otherwise ErrEngineClosed.
+// shutdownErrorLocked builds the error reported by methods that observe manager shutdown: the
+// latched fatal error when the lifecycle runner failed, otherwise ErrViewManagerClosed.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *snapshotEngine) shutdownErrorLocked() error {
+func (c *viewManager) shutdownErrorLocked() error {
 	if c.fatalErr != nil {
-		return fmt.Errorf("snapshot engine failed: %w", c.fatalErr)
+		return fmt.Errorf("view manager failed: %w", c.fatalErr)
 	}
-	return ErrEngineClosed
+	return ErrViewManagerClosed
 }
 
 // shutdownError is the unlocked variant of shutdownErrorLocked. The caller must NOT hold versionLock.
-func (c *snapshotEngine) shutdownError() error {
+func (c *viewManager) shutdownError() error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 	return c.shutdownErrorLocked()
 }
 
 // Increment the reference count for the given version.
-func (c *snapshotEngine) IncrementReferenceCount(version uint64) error {
+func (c *viewManager) IncrementReferenceCount(version uint64) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -481,7 +481,7 @@ func (c *snapshotEngine) IncrementReferenceCount(version uint64) error {
 }
 
 // Decrement the reference count for the given version.
-func (c *snapshotEngine) DecrementReferenceCount(version uint64) error {
+func (c *viewManager) DecrementReferenceCount(version uint64) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -504,14 +504,14 @@ func (c *snapshotEngine) DecrementReferenceCount(version uint64) error {
 
 	if counter.referenceCount == 1 && !counter.finalized {
 		// Releasing the last reservation without finalizing is fatal (see the finalization-duty
-		// contract on Snapshot). This snapshot can now never make progress:
+		// contract on View). This view can now never make progress:
 		// determineVersionsToFlushLocked skips unfinalized versions, retirement requires a flush, and
 		// finalization will never arrive because the caller has spent its Release. Every later version
 		// stalls behind it with its in-memory data accumulating. Note the reference count is not what
 		// traps it — decrementing would not help.
 		//
 		// The sibling errors in this method deliberately do not brick: those reject a bogus version
-		// and leave engine state untouched, so that caller can retry with the right one.
+		// and leave manager state untouched, so that caller can retry with the right one.
 		err := fmt.Errorf("version (%d) was fully released without first being finalized", version)
 		c.brickLocked(err)
 		return err
@@ -527,7 +527,7 @@ func (c *snapshotEngine) DecrementReferenceCount(version uint64) error {
 // Scans for new flush eligible versions. Returns true if there is a new flush eligible version discovered.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *snapshotEngine) scanForFlushEligibilityLocked() bool {
+func (c *viewManager) scanForFlushEligibilityLocked() bool {
 	oldHighestFlushEligibleVersion := c.highestFlushEligibleVersion
 
 	if counter, ok := c.versionMap[oldHighestFlushEligibleVersion]; ok && counter.referenceCount > 0 {
@@ -547,20 +547,20 @@ func (c *snapshotEngine) scanForFlushEligibilityLocked() bool {
 		counter := c.versionMap[version]
 
 		if !counter.finalized {
-			// We can only flush finalized snapshots. If we hit an unfinalized one, no more flushing is
+			// We can only flush finalized views. If we hit an unfinalized one, no more flushing is
 			// possible.
 			break
 		}
 
 		if !counter.flushedToDisk {
-			// This snapshot is flush eligible.
+			// This view is flush eligible.
 			c.unflushedCount++
 			c.highestFlushEligibleVersion = version
 		}
 
 		if counter.referenceCount > 0 {
-			// The first snapshot that is not fully released is flush eligible, but all following
-			// snapshots are not.
+			// The first view that is not fully released is flush eligible, but all following
+			// views are not.
 			break
 		}
 	}
@@ -571,7 +571,7 @@ func (c *snapshotEngine) scanForFlushEligibilityLocked() bool {
 // Scans for new retirement eligible versions. Returns true if there is a new retirement eligible version discovered.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *snapshotEngine) scanForRetirementEligibilityLocked() bool {
+func (c *viewManager) scanForRetirementEligibilityLocked() bool {
 	oldHighestRetirementEligibleVersion := c.highestRetirementEligibleVersion
 
 	// Clip the start to oldestVersion: prior retirements may have advanced oldestVersion past the
@@ -584,7 +584,7 @@ func (c *snapshotEngine) scanForRetirementEligibilityLocked() bool {
 	for version := start; version < c.currentVersion; version++ {
 		counter := c.versionMap[version]
 		if counter.referenceCount != 0 || !counter.flushedToDisk {
-			// We can only retire snapshots that are fully released and flushed to disk.
+			// We can only retire views that are fully released and flushed to disk.
 			break
 		}
 		c.highestRetirementEligibleVersion = version
@@ -593,10 +593,10 @@ func (c *snapshotEngine) scanForRetirementEligibilityLocked() bool {
 	return c.highestRetirementEligibleVersion > oldHighestRetirementEligibleVersion
 }
 
-// Determine if we need to wake up the lifecycle runner to do work (either flushing or retiring snapshots).
+// Determine if we need to wake up the lifecycle runner to do work (either flushing or retiring views).
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *snapshotEngine) maybeWakeLifecycleLocked() {
+func (c *viewManager) maybeWakeLifecycleLocked() {
 	newFlushEligible := c.scanForFlushEligibilityLocked()
 	newRetirementEligible := c.scanForRetirementEligibilityLocked()
 	if newFlushEligible || newRetirementEligible {
@@ -608,9 +608,9 @@ func (c *snapshotEngine) maybeWakeLifecycleLocked() {
 	}
 }
 
-// FinalizeSnapshot attaches metadata writes to the snapshot at the given version and makes it
+// FinalizeView attaches metadata writes to the view at the given version and makes it
 // eligible to be flushed. An empty write set is legal.
-func (c *snapshotEngine) FinalizeSnapshot(version uint64, writes []*proto.KVPair) error {
+func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
@@ -632,7 +632,7 @@ func (c *snapshotEngine) FinalizeSnapshot(version uint64, writes []*proto.KVPair
 }
 
 // Get the diff at a given version.
-func (c *snapshotEngine) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
+func (c *viewManager) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
 	diff := make(map[string][]byte)
 
 	for _, shard := range c.shards {
@@ -653,10 +653,10 @@ func (c *snapshotEngine) GetDiffAtVersion(version uint64) (map[string][]byte, er
 	return diff, nil
 }
 
-func (c *snapshotEngine) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
+func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// Overrides first, DB iterator second, and the order is load-bearing: a concurrent flush+retire
 	// that moved data out of versionedData and into the DB between the two steps would drop those
-	// keys entirely if the DB snapshot were taken first. In this order the same race can only yield a
+	// keys entirely if the DB view were taken first. In this order the same race can only yield a
 	// key twice, which the merge resolves in favor of the override.
 	overrides, err := c.materializeCurrentOverrides(opts)
 	if err != nil {
@@ -673,10 +673,10 @@ func (c *snapshotEngine) Iterator(opts *types.IterOptions) (dbm.Iterator, error)
 	if opts != nil {
 		lowerBound, upperBound, reverse = opts.LowerBound, opts.UpperBound, opts.Reverse
 	}
-	iter, err := newSnapshotIterator(
+	iter, err := newViewIterator(
 		overrides, dbIter, []byte(c.config.ReservedPrefix), reverse, lowerBound, upperBound)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create snapshot iterator: %w", err)
+		return nil, fmt.Errorf("failed to create view iterator: %w", err)
 	}
 
 	// Register the iterator only now that construction has fully succeeded, so a failed construction
@@ -684,22 +684,22 @@ func (c *snapshotEngine) Iterator(opts *types.IterOptions) (dbm.Iterator, error)
 	for _, s := range c.shards {
 		s.iteratorOpened()
 	}
-	return &trackedIterator{Iterator: iter, engine: c}, nil
+	return &trackedIterator{Iterator: iter, manager: c}, nil
 }
 
 // trackedIterator deregisters itself from every shard when closed, so Close can report the iterators
 // still outstanding. Close is idempotent, and deregisters exactly once however often it is called.
 type trackedIterator struct {
 	dbm.Iterator
-	engine    *snapshotEngine
+	manager   *viewManager
 	closeOnce sync.Once
 }
 
 func (w *trackedIterator) Close() error {
 	var err error
 	w.closeOnce.Do(func() {
-		errs := make([]error, 0, len(w.engine.shards)+1)
-		for _, s := range w.engine.shards {
+		errs := make([]error, 0, len(w.manager.shards)+1)
+		for _, s := range w.manager.shards {
 			errs = append(errs, s.iteratorClosed())
 		}
 		errs = append(errs, w.Iterator.Close())
@@ -712,8 +712,8 @@ func (w *trackedIterator) Close() error {
 // shard and returns them sorted ascending by key. Each shard is responsible for its own locking;
 // here we just stitch the results together, and the sort runs without any shard lock held.
 // The overrides are sorted into iteration order — ascending, or descending when reverse is set — so
-// the merge in snapshotIterator can walk them and the DB iterator in lockstep.
-func (c *snapshotEngine) materializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
+// the merge in viewIterator can walk them and the DB iterator in lockstep.
+func (c *viewManager) materializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
 	var lowerBound, upperBound []byte
 	reverse := false
 	if opts != nil {
@@ -738,11 +738,11 @@ func (c *snapshotEngine) materializeCurrentOverrides(opts *types.IterOptions) ([
 	return all, nil
 }
 
-// Retire old versions: flush their data to the underlying DB, then free the in-memory snapshots.
+// Retire old versions: flush their data to the underlying DB, then free the in-memory views.
 // The runner sleeps until signaled via lifecycleWake (see wakeLifecycle / scanRetirementEligibility),
 // then processes all available work before sleeping again. It exits only via its lifecycleExit
 // inbox (sent by Close) or by bricking on a fatal error.
-func (c *snapshotEngine) lifecycleRunner() {
+func (c *viewManager) lifecycleRunner() {
 	defer close(c.lifecycleExited)
 
 	for {
@@ -750,7 +750,7 @@ func (c *snapshotEngine) lifecycleRunner() {
 		case <-c.lifecycleExit:
 			return
 		case <-c.ctx.Done():
-			// The engine was bricked from outside the runner (see Commit): the version state is
+			// The manager was bricked from outside the runner (see Commit): the version state is
 			// no longer trustworthy, so stop doing lifecycle work. Close cancels the context only
 			// after this goroutine has exited, so this case never fires on a clean shutdown.
 			return
@@ -759,7 +759,7 @@ func (c *snapshotEngine) lifecycleRunner() {
 
 		err := c.doLifecycleWork()
 		if err != nil {
-			// Brick the engine and exit. The caller is expected to halt the node on the
+			// Brick the manager and exit. The caller is expected to halt the node on the
 			// first error it sees.
 			c.brick(err)
 			return
@@ -767,39 +767,39 @@ func (c *snapshotEngine) lifecycleRunner() {
 	}
 }
 
-// brick latches the fatal error and releases everyone blocked on the engine, so callers observe
+// brick latches the fatal error and releases everyone blocked on the manager, so callers observe
 // the failure immediately rather than waiting for Close.
-func (c *snapshotEngine) brick(err error) {
+func (c *viewManager) brick(err error) {
 	c.versionLock.Lock()
 	c.brickLocked(err)
 	c.versionLock.Unlock()
 }
 
-// reportReadFailure handles a failed DB read by bricking the engine.
+// reportReadFailure handles a failed DB read by bricking the manager.
 //
-// Halting is the caller's responsibility, not ours (see the SnapshotEngine doc). This exists so that
+// Halting is the caller's responsibility, not ours (see the ViewManager doc). This exists so that
 // a caller which ignores the failure gets nowhere, not to police it: reads racing this call may still
 // succeed, and no promise is made about when they stop.
 //
 // Must be called without the shard lock held: it acquires versionLock, and the established order is
 // versionLock before any shard lock.
-func (c *snapshotEngine) reportReadFailure(err error) {
+func (c *viewManager) reportReadFailure(err error) {
 	c.brick(fmt.Errorf("failed to read from the underlying database: %w", err))
 }
 
-// brickLocked latches the fatal error, cancels the engine context, wakes backpressure waiters, and
+// brickLocked latches the fatal error, cancels the manager context, wakes backpressure waiters, and
 // takes every shard out of service, so callers observe the failure immediately rather than waiting
 // for Close.
 //
 // The Locked postfix indicates that the caller must hold the versionLock.
-func (c *snapshotEngine) brickLocked(err error) {
+func (c *viewManager) brickLocked(err error) {
 	if c.fatalErr == nil {
 		c.fatalErr = err
 	}
 	c.cancel()
 	c.lifecycleBackpressureCond.Broadcast()
 
-	// Stop serving reads, on every shard rather than only one that may have failed: the engine has
+	// Stop serving reads, on every shard rather than only one that may have failed: the manager has
 	// failed, so no shard can vouch for its data. Cancelling the context alone would not do it —
 	// only reads that block observe the context.
 	//
@@ -811,8 +811,8 @@ func (c *snapshotEngine) brickLocked(err error) {
 	}
 }
 
-// Flushes and retires snapshots. Continues running until there is no more work, then returns.
-func (c *snapshotEngine) doLifecycleWork() error {
+// Flushes and retires views. Continues running until there is no more work, then returns.
+func (c *viewManager) doLifecycleWork() error {
 	hasWork := true
 
 	for hasWork {
@@ -833,14 +833,14 @@ func (c *snapshotEngine) doLifecycleWork() error {
 
 		c.versionLock.Unlock()
 
-		err = c.flushSnapshots(firstFlushVersion, lastFlushVersion, versionWrites)
+		err = c.flushViews(firstFlushVersion, lastFlushVersion, versionWrites)
 		if err != nil {
-			return fmt.Errorf("unable to flush snapshots: %w", err)
+			return fmt.Errorf("unable to flush views: %w", err)
 		}
 
-		err = c.retireSnapshots(firstRetireVersion, lastRetireVersion)
+		err = c.retireViews(firstRetireVersion, lastRetireVersion)
 		if err != nil {
-			return fmt.Errorf("unable to retire snapshots: %w", err)
+			return fmt.Errorf("unable to retire views: %w", err)
 		}
 	}
 
@@ -848,7 +848,7 @@ func (c *snapshotEngine) doLifecycleWork() error {
 }
 
 // Determine which versions need to be flushed to disk.
-func (c *snapshotEngine) determineVersionsToFlushLocked() (
+func (c *viewManager) determineVersionsToFlushLocked() (
 	// The first version to be flushed, inclusive.
 	firstVersion uint64,
 	// The last version to be flushed, exclusive.
@@ -877,17 +877,17 @@ func (c *snapshotEngine) determineVersionsToFlushLocked() (
 		counter := c.versionMap[targetVersion]
 
 		if !counter.finalized {
-			// Unfinalized snapshots are not flush eligible.
+			// Unfinalized views are not flush eligible.
 			break
 		}
 
-		// Mark the current snapshot as flush eligible.
+		// Mark the current view as flush eligible.
 		versionWrites[targetVersion] = counter.finalWrites
 		lastVersion++
 
 		if counter.referenceCount > 0 {
-			// We've encountered a snapshot that is not retirement eligible. Although this snapshot
-			// can be safely flushed, all later snapshots must wait on this non-retired snapshot.
+			// We've encountered a view that is not retirement eligible. Although this view
+			// can be safely flushed, all later views must wait on this non-retired view.
 			break
 		}
 	}
@@ -896,7 +896,7 @@ func (c *snapshotEngine) determineVersionsToFlushLocked() (
 }
 
 // Determine which versions need to be retired.
-func (c *snapshotEngine) determineVersionsToRetireLocked() (
+func (c *viewManager) determineVersionsToRetireLocked() (
 	// The first version to be retired, inclusive.
 	firstVersion uint64,
 	// The last version to be retired, exclusive.
@@ -914,16 +914,16 @@ func (c *snapshotEngine) determineVersionsToRetireLocked() (
 			break
 		}
 
-		// Include this snapshot in the set to be retired
+		// Include this view in the set to be retired
 		lastVersion++
 	}
 
 	return firstVersion, lastVersion
 }
 
-// flushSnapshots collects diffs for [firstVersion, lastVersion) from all shards,
+// flushViews collects diffs for [firstVersion, lastVersion) from all shards,
 // writes them to the underlying DB in batches, then drops the versions from the shards.
-func (c *snapshotEngine) flushSnapshots(
+func (c *viewManager) flushViews(
 	// The first version to flush (inclusive).
 	firstVersion uint64,
 	// The last version to flush (exclusive).
@@ -1043,7 +1043,7 @@ func (c *snapshotEngine) flushSnapshots(
 // currently believed to be unflushed, which means the flush and eligibility scans have disagreed
 // about the flush set: an unsigned underflow here would wedge every future Commit in backpressure
 // with no error, so the disagreement is reported instead.
-func (c *snapshotEngine) recordFlushedVersions(versionCount uint64) error {
+func (c *viewManager) recordFlushedVersions(versionCount uint64) error {
 	c.versionLock.Lock()
 	if versionCount > c.unflushedCount {
 		c.versionLock.Unlock()
@@ -1057,8 +1057,8 @@ func (c *snapshotEngine) recordFlushedVersions(versionCount uint64) error {
 	return nil
 }
 
-// Retire all eligible snapshots.
-func (c *snapshotEngine) retireSnapshots(
+// Retire all eligible views.
+func (c *viewManager) retireViews(
 	// The first version to retire (inclusive).
 	firstVersion uint64,
 	// The last version to retire (exclusive).
@@ -1085,7 +1085,7 @@ func (c *snapshotEngine) retireSnapshots(
 		counter := c.versionMap[targetVersion]
 		if counter.referenceCount > 0 || !counter.flushedToDisk {
 			// Sanity check, should be impossible
-			return fmt.Errorf("expected snapshot to be released and flushed, refcount = %d, flushed = %t",
+			return fmt.Errorf("expected view to be released and flushed, refcount = %d, flushed = %t",
 				counter.referenceCount, counter.flushedToDisk)
 		}
 		delete(c.versionMap, targetVersion)
@@ -1095,7 +1095,7 @@ func (c *snapshotEngine) retireSnapshots(
 	return nil
 }
 
-// EscapeHatchUnderlyingDB returns the raw backing database, bypassing every guarantee this engine
+// EscapeHatchUnderlyingDB returns the raw backing database, bypassing every guarantee this manager
 // provides.
 //
 // The name is deliberately obstructive. Reading through it sees only what the flusher has written, so it
@@ -1107,31 +1107,31 @@ func (c *snapshotEngine) retireSnapshots(
 // key-value store, which in practice means taking a checkpoint. Every other use is a bug. If a caller
 // wants to read data, it wants Get, BatchGet or Iterator; if it wants to write data, it wants Set,
 // BatchSet or Finalize.
-func (c *snapshotEngine) EscapeHatchUnderlyingDB() types.KeyValueDB {
+func (c *viewManager) EscapeHatchUnderlyingDB() types.KeyValueDB {
 	return c.db
 }
 
-func (c *snapshotEngine) Name() string {
+func (c *viewManager) Name() string {
 	return c.config.Name
 }
 
 // Close is idempotent: teardown runs exactly once and subsequent calls return the same result.
-func (c *snapshotEngine) Close() error {
+func (c *viewManager) Close() error {
 	c.closeOnce.Do(func() {
 		c.closeErr = c.closeInternal()
 	})
 	return c.closeErr
 }
 
-func (c *snapshotEngine) closeInternal() error {
+func (c *viewManager) closeInternal() error {
 	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
-	// buffered, so it does not block when the runner has already exited (engine failure), and
+	// buffered, so it does not block when the runner has already exited (manager failure), and
 	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
 	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
 
-	// Release everyone blocked on the engine's future: AwaitFlush, backpressured
-	// Snapshot callers, and reads still awaiting results. The cancel happens under versionLock
+	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
+	// View callers, and reads still awaiting results. The cancel happens under versionLock
 	// because backpressure waiters re-check the context under that lock before parking on the
 	// cond; a lockless cancel could slip between a waiter's check and its Wait, losing the
 	// wakeup.
@@ -1140,9 +1140,9 @@ func (c *snapshotEngine) closeInternal() error {
 
 	// Stop serving reads and accepting writes, the same as a brick does: the runner is gone, so any
 	// write accepted from here on could never be flushed. First failure wins inside the shard, so a
-	// brick that already ran keeps reporting its own cause rather than ErrEngineClosed.
+	// brick that already ran keeps reporting its own cause rather than ErrViewManagerClosed.
 	for _, s := range c.shards {
-		s.takeOutOfService(ErrEngineClosed)
+		s.takeOutOfService(ErrViewManagerClosed)
 	}
 	c.versionLock.Unlock()
 	c.lifecycleBackpressureCond.Broadcast()
@@ -1151,17 +1151,17 @@ func (c *snapshotEngine) closeInternal() error {
 	c.metrics.awaitStopped()
 
 	// Name any iterator still open, before the database it reads goes away. Best-effort: the report
-	// does not block, and the count may be stale. See the Close contract on SnapshotEngine.
+	// does not block, and the count may be stale. See the Close contract on ViewManager.
 	leakedErr := c.assertNoLeakedIterators()
 
-	// The engine owns the database, so it closes it. This happens after the lifecycle runner has
+	// The manager owns the database, so it closes it. This happens after the lifecycle runner has
 	// reported offline, so no flush can still be in flight against it.
 	dbErr := c.db.Close()
 
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 	if c.fatalErr != nil {
-		return errors.Join(fmt.Errorf("snapshot engine failed: %w", c.fatalErr), leakedErr)
+		return errors.Join(fmt.Errorf("view manager failed: %w", c.fatalErr), leakedErr)
 	}
 	if dbErr != nil {
 		return errors.Join(fmt.Errorf("close underlying database: %w", dbErr), leakedErr)
@@ -1173,9 +1173,9 @@ func (c *snapshotEngine) closeInternal() error {
 // naming the count when any are still open. Returns an error rather than panicking: the caller folds
 // it into whatever else Close reports.
 //
-// Every iterator registers with every shard, so any one shard's count is the engine's count; shard 0
-// is read under its own lock. The engine always has at least one shard (the config requires it).
-func (c *snapshotEngine) assertNoLeakedIterators() error {
+// Every iterator registers with every shard, so any one shard's count is the manager's count; shard 0
+// is read under its own lock. The manager always has at least one shard (the config requires it).
+func (c *viewManager) assertNoLeakedIterators() error {
 	s := c.shards[0]
 	s.lock.Lock()
 	open := s.openIterators
@@ -1184,6 +1184,6 @@ func (c *snapshotEngine) assertNoLeakedIterators() error {
 	if open == 0 {
 		return nil
 	}
-	return fmt.Errorf("engine %q closed with %d iterator(s) still open; reading them is undefined "+
+	return fmt.Errorf("manager %q closed with %d iterator(s) still open; reading them is undefined "+
 		"behaviour, and this is a leak in the caller", c.config.Name, open)
 }

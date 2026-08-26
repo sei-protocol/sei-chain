@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -158,7 +158,7 @@ func (s *CommitStore) Has(moduleName string, key []byte) bool {
 // both yield the zero value, which every FlatKV read path already treats the same way as a value whose
 // IsDelete reports true.
 func getAndParse[T vtype.VType](
-	store snapshot.SnapshotEngine,
+	store view.ViewManager,
 	physKey []byte,
 	parse func([]byte) (T, error),
 ) (T, error) {
