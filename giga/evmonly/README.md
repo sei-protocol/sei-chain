@@ -15,9 +15,10 @@ The target execution model is based on the `sei-v3` executor:
 
 The current implementation executes raw RLP transactions with go-ethereum
 against an EVM-native state backend, then returns a changeset plus Ethereum
-receipts. Custom precompiles are still placeholders. The open work is to port
-them behind an EVM-native context that is visible to the executor's conflict
-tracking without reintroducing Cosmos keeper dependencies.
+receipts. The staking custom precompile is the first SDK-free implementation;
+other custom precompiles are still placeholders. The open work is to port them
+behind an EVM-native context that is visible to the executor's conflict tracking
+without reintroducing Cosmos keeper dependencies.
 
 ## Current implementation
 
@@ -34,6 +35,7 @@ The `evmonly` package currently provides:
   contract address, and effective gas price
 - a map-backed `MemoryState` for tests and early integration
 - fail-closed custom precompile placeholders
+- an SDK-free staking custom precompile
 - a standalone load harness at `giga/evmonly/cmd/evmonly-loadtest` that feeds
   generated transfer blocks into the executor with mock state and receipt sinks
 
@@ -145,7 +147,7 @@ pool capacity, current availability, and overflow allocation count.
 
 ## Open precompile work
 
-Native custom precompiles still need a separate design. If they introduce state
+Most native custom precompiles still need a separate design. If they introduce state
 outside balance, nonce, code, and storage, that state must either become part of
 the EVM-native changeset or be represented through an explicit extension that is
 visible to the OCC conflict tracker.
@@ -155,9 +157,10 @@ state as contract storage owned by that precompile address. With no range reads
 and no side state, precompile reads and writes can then flow through ordinary
 `(address, slot)` storage tracking.
 
-Until that design is implemented, the `evmonly` executor accepts a custom
-precompile registry only as a fail-closed placeholder. Calls to registered
-custom precompile addresses return `ErrCustomPrecompilesOpen`.
+The staking precompile under `giga/evmonly/precompiles/staking` follows this
+shape with a byte-key store backed by storage slots owned by the staking
+precompile address. Registry entries without an implementation still fail
+closed with `ErrCustomPrecompilesOpen`.
 
 ## Block-STM execution
 
@@ -228,3 +231,10 @@ resolved by per-transaction reruns instead.
 - Block-level blob gas accounting and `MaxBlobGasPerBlock` enforcement are not
   wired yet; this needs explicit consensus integration before blob transactions
   can be enabled. Blob transactions are rejected fail-closed until then.
+- The staking precompile models bonding, delegation, redelegation, unbonding,
+  and validator-set updates in usei, but does not model staking rewards,
+  slashing, or jailing. Delegation shares track tokens 1:1 (no slash-driven
+  share/token divergence), and reward-withdrawal events are emitted with a zero
+  amount. Validator historical info is recorded in the end-block hook (Cosmos
+  tracks it in begin-block), so info for the current height is only queryable
+  after that block's end-block runs.

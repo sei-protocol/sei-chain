@@ -7,6 +7,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
 // BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
@@ -71,11 +73,12 @@ type BlockContext struct {
 
 // BlockResult is the executor output consumed by the new runtime boundary.
 type BlockResult struct {
-	ChangeSet StateChangeSet
-	Txs       []TxResult
-	Receipts  ethtypes.Receipts
-	GasUsed   uint64
-	OCCStats  OCCStats
+	ChangeSet        StateChangeSet
+	ValidatorUpdates []ValidatorUpdate
+	Txs              []TxResult
+	Receipts         ethtypes.Receipts
+	GasUsed          uint64
+	OCCStats         OCCStats
 
 	releaseMu sync.Mutex
 	lease     *blockResultLease
@@ -99,6 +102,8 @@ func (r *BlockResult) Release() {
 	r.releaseMu.Unlock()
 	lease.release()
 }
+
+type ValidatorUpdate = precompiles.ValidatorUpdate
 
 // OCCStats reports optimistic concurrency control behavior for a block.
 type OCCStats struct {
