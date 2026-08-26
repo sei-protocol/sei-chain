@@ -114,11 +114,11 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 
 	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
 	// same registry: asking again leaves a window a concurrent registration fits through, and a section
-	// arriving in that window is declared by one part of the answer and not by another. The refusals
-	// below read from this snapshot for the same reason, since a guard that consulted the registry
-	// separately would be answering about a different one than the key space it guards.
+	// arriving in that window is declared by one part of the answer and not by another. The refusals come
+	// from the same read, because they are what says which keys the key space is missing, and a list of
+	// missing keys taken separately from the space it describes can name a section the space has or omit
+	// one it lacks.
 	registered, refused := snapshot()
-
 	out.Refused = refused
 
 	defaults, err := defaultValues(mode, registered)
