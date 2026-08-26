@@ -53,6 +53,27 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 	},
 }
 
+// declaredHere are the keys the sections this package registers declare.
+//
+// Read out of the registry rather than matched against the section names as prefixes, because the claim
+// this feeds is that a section's values are the same for every node kind, and a section left out of the
+// walk makes that claim about nothing. The prefix form covered two sections and the two arriving here
+// state the claim, so it covered neither.
+func declaredHere(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	for _, name := range []string{
+		P2PSectionName, RPCSectionName, ConsensusSectionName, MempoolSectionName,
+	} {
+		registered, ok := registry.Lookup(name)
+		if !ok {
+			t.Fatalf("%s is not registered; Defects: %v", name, registry.Defects())
+		}
+		out = append(out, registered.Keys...)
+	}
+	return out
+}
+
 // TestWhatVariesByNodeKindIsTheRecordedSet measures the mode rules through the declared values.
 //
 // A key that starts varying fails and so does one that stops, which means changing a rule has to account
@@ -69,10 +90,7 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 	}
 
 	var measured []string
-	for key := range byMode[registry.ModeValidator] {
-		if !strings.HasPrefix(key, P2PSectionName+".") && !strings.HasPrefix(key, RPCSectionName+".") {
-			continue
-		}
+	for _, key := range declaredHere(t) {
 		seen := map[string]bool{}
 		for _, mode := range registry.Modes() {
 			seen[fmt.Sprint(byMode[mode][key])] = true
@@ -673,9 +691,15 @@ func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
 
 // TestTheExcludedMempoolPathsReachNothing holds the reason those three are left out.
 //
-// Each is excluded because the conversion into the running mempool does not carry it, which is a claim
-// about a function rather than about a marking, so no check on how a field is documented can reach it.
-// One of the three is not marked deprecated at all and never will be caught that way.
+// Each is excluded because no code reads it, which is a claim about the whole binary rather than about a
+// marking, so no check on how a field is documented can reach it. One of the three is not marked
+// deprecated at all and never will be caught that way.
+//
+// What this drives is one of the two paths a written value takes: the conversion into the mempool's own
+// configuration. The other is the transaction reactor, which reads several settings straight off this
+// struct, and it cannot be reached from here because it is an internal package. So a value routed into
+// the channel the reactor sizes would leave the conversion untouched and this test passing, which is the
+// gap to know about: the criterion is that no code reads these, and this holds the larger half of it.
 //
 // Measured by setting each to a value nothing would choose and converting: a field the conversion started
 // carrying would change the result, and the exclusion would have become a key an operator writes whose
@@ -704,6 +728,7 @@ func TestTheExcludedMempoolPathsReachNothing(t *testing.T) {
 				t.Errorf("writing %s changed what the running mempool receives, so the conversion now "+
 					"carries it and the key belongs declared rather than excluded", rel)
 			}
+
 		})
 	}
 }
