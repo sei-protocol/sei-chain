@@ -5,13 +5,14 @@
  * non-empty fixture is a staking.grantStakingAuthorization (three
  * StakeAuthorization grants: delegate / redelegate / undelegate). Empty-pair
  * checks use a separate associated pair that never grants. Parity oracle is
- * LCD GET /cosmos/authz/v1beta1/grants?granter=&grantee=.
+ * the authz module's own Grants query for the same granter/grantee pair.
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, waitUntil } from '../utils/chainUtils';
 import { EvmAccount, associateViaTx } from '../utils/evmUtils';
-import { bondedValidators, cosmosRest } from '../utils/cosmosUtils';
+import { bondedValidators } from '../utils/cosmosUtils';
+import { authzGrants } from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -24,20 +25,10 @@ import { readRuntimeState, claimPool, RuntimeState } from '../utils/testUtils';
 const emptyPage = new Uint8Array();
 const MAX_TOKENS = 1_000_000n;
 
-interface LcdGrant {
-    authorization?: { '@type'?: string };
-    expiration?: string;
-}
-
-interface LcdGrants {
-    grants?: LcdGrant[] | null;
-}
-
 const authorizationJson = (authorization: string): string => ethers.toUtf8String(authorization);
 
-const lcdExpirationUnix = (expiration: string): bigint => {
-    const trimmed = expiration.replace(/\.\d+(Z|[+-]\d{2}:\d{2})$/, '$1');
-    return BigInt(Math.floor(Date.parse(trimmed) / 1000));
+const expirationUnix = (expiration: Date | undefined): bigint => {
+    return BigInt(Math.floor((expiration?.getTime() ?? 0) / 1000));
 };
 
 describe('authz precompile (0x100E)', function () {
@@ -167,24 +158,22 @@ describe('authz precompile (0x100E)', function () {
         });
     });
 
-    describe('LCD parity / unassociated granter-grantee / STATICCALL', () => {
-        it('LCD /cosmos/authz/v1beta1/grants matches grants() count and expiration', async () => {
-            const path =
-                `/cosmos/authz/v1beta1/grants?granter=${encodeURIComponent(granter.seiAddress())}` +
-                `&grantee=${encodeURIComponent(grantee.seiAddress())}`;
-            const [viaPrecompile, lcd] = await Promise.all([
+    describe('module parity / unassociated granter-grantee / STATICCALL', () => {
+        it('the authz module matches grants() count and expiration', async () => {
+            const [viaPrecompile, moduleGrants] = await Promise.all([
                 authz.grants(granter.address, grantee.address, '', emptyPage),
-                cosmosRest<LcdGrants>(path),
+                authzGrants(granter.seiAddress(), grantee.seiAddress()),
             ]);
-            const lcdGrants = lcd.grants ?? [];
-            expect(lcdGrants.length, 'LCD grant count').to.equal(viaPrecompile.grants.length);
-            expect(lcdGrants.length).to.be.greaterThan(0);
+            expect(moduleGrants.length, 'authz module grant count').to.equal(
+                viaPrecompile.grants.length,
+            );
+            expect(moduleGrants.length).to.be.greaterThan(0);
 
             const precompileTypes = [...viaPrecompile.grants]
                 .map((g: { authorization: string }) => JSON.parse(authorizationJson(g.authorization))['@type'])
                 .sort();
-            const lcdTypes = lcdGrants.map(g => g.authorization?.['@type']).sort();
-            expect(precompileTypes).to.deep.equal(lcdTypes);
+            const moduleTypes = moduleGrants.map(g => g.authorization?.type_url).sort();
+            expect(precompileTypes).to.deep.equal(moduleTypes);
 
             // The two lists are not guaranteed to be in the same order, and all
             // three grants in this fixture share one expiration, so an
@@ -193,10 +182,8 @@ describe('authz precompile (0x100E)', function () {
             const precompileExpirations = [...viaPrecompile.grants]
                 .map((g: { expiration: bigint }) => g.expiration)
                 .sort();
-            const lcdExpirations = lcdGrants
-                .map(g => lcdExpirationUnix(g.expiration ?? ''))
-                .sort();
-            expect(precompileExpirations).to.deep.equal(lcdExpirations);
+            const moduleExpirations = moduleGrants.map(g => expirationUnix(g.expiration)).sort();
+            expect(precompileExpirations).to.deep.equal(moduleExpirations);
         });
 
         it('grants reverts for an unassociated granter or grantee', async () => {

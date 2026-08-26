@@ -14,7 +14,13 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, waitUntil } from '../utils/chainUtils';
 import { EvmAccount, associateViaTx } from '../utils/evmUtils';
-import { bondedValidators, cosmosQuery, cosmosRest, bankBalance } from '../utils/cosmosUtils';
+import { bondedValidators, cosmosQuery, bankBalance } from '../utils/cosmosUtils';
+import {
+    decString,
+    delegatorWithdrawAddress,
+    distributionParams,
+    validatorSlashes,
+} from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -212,22 +218,20 @@ describe('distribution precompile (0x1007)', function () {
     });
 
     describe('query methods', () => {
-        it('params matches LCD /cosmos/distribution/v1beta1/params', async () => {
-            const [viaPrecompile, lcd] = await Promise.all([
+        it('params matches the distribution module', async () => {
+            const [viaPrecompile, params] = await Promise.all([
                 distribution.params(),
-                cosmosRest<{
-                    params: {
-                        community_tax: string;
-                        base_proposer_reward: string;
-                        bonus_proposer_reward: string;
-                        withdraw_addr_enabled: boolean;
-                    };
-                }>('/cosmos/distribution/v1beta1/params'),
+                distributionParams(),
             ]);
-            expect(viaPrecompile.communityTax).to.equal(lcd.params.community_tax);
-            expect(viaPrecompile.baseProposerReward).to.equal(lcd.params.base_proposer_reward);
-            expect(viaPrecompile.bonusProposerReward).to.equal(lcd.params.bonus_proposer_reward);
-            expect(viaPrecompile.withdrawAddrEnabled).to.equal(lcd.params.withdraw_addr_enabled);
+            expect(params, 'the distribution module must report params').to.not.equal(undefined);
+            expect(viaPrecompile.communityTax).to.equal(decString(params!.community_tax));
+            expect(viaPrecompile.baseProposerReward).to.equal(
+                decString(params!.base_proposer_reward),
+            );
+            expect(viaPrecompile.bonusProposerReward).to.equal(
+                decString(params!.bonus_proposer_reward),
+            );
+            expect(viaPrecompile.withdrawAddrEnabled).to.equal(params!.withdraw_addr_enabled);
         });
 
         it('delegatorValidators includes the fixture validator', async () => {
@@ -235,15 +239,12 @@ describe('distribution precompile (0x1007)', function () {
             expect(validators).to.include(validator);
         });
 
-        it('delegatorWithdrawAddress matches LCD rather than assuming the default', async () => {
-            const sei = delegator.seiAddress();
-            const [viaPrecompile, lcd] = await Promise.all([
+        it('delegatorWithdrawAddress matches the module rather than assuming the default', async () => {
+            const [viaPrecompile, withdrawAddress] = await Promise.all([
                 distribution.delegatorWithdrawAddress(delegator.address) as Promise<string>,
-                cosmosRest<{ withdraw_address: string }>(
-                    `/cosmos/distribution/v1beta1/delegators/${sei}/withdraw_address`,
-                ),
+                delegatorWithdrawAddress(delegator.seiAddress()),
             ]);
-            expect(viaPrecompile).to.equal(lcd.withdraw_address);
+            expect(viaPrecompile).to.equal(withdrawAddress);
         });
 
         it('delegationRewards, validatorOutstandingRewards and validatorCommission are non-empty', async () => {
@@ -263,22 +264,22 @@ describe('distribution precompile (0x1007)', function () {
 
         it('validatorSlashes matches the distribution module over the same height range', async () => {
             const endingHeight = 1_000_000_000;
-            const [result, lcd] = await Promise.all([
+            const [result, moduleSlashes] = await Promise.all([
                 distribution.validatorSlashes(validator, 1, endingHeight, new Uint8Array()),
-                cosmosRest<{ slashes?: Array<{ validator_period: string; fraction: string }> }>(
-                    `/cosmos/distribution/v1beta1/validators/${validator}/slashes` +
-                        `?starting_height=1&ending_height=${endingHeight}`,
-                ),
+                validatorSlashes(validator, 1, endingHeight),
             ]);
             const slashes = (result.slashes ?? result[0]) as Array<{
                 validatorPeriod: bigint;
                 fraction: string;
             }>;
-            const lcdSlashes = lcd.slashes ?? [];
-            expect(slashes.length, 'validatorSlashes count vs LCD').to.equal(lcdSlashes.length);
-            for (let i = 0; i < lcdSlashes.length; i++) {
-                expect(slashes[i].validatorPeriod).to.equal(BigInt(lcdSlashes[i].validator_period));
-                expect(slashes[i].fraction).to.equal(lcdSlashes[i].fraction);
+            expect(slashes.length, 'validatorSlashes count vs the module').to.equal(
+                moduleSlashes.length,
+            );
+            for (let i = 0; i < moduleSlashes.length; i++) {
+                expect(slashes[i].validatorPeriod).to.equal(
+                    BigInt(moduleSlashes[i].validator_period),
+                );
+                expect(slashes[i].fraction).to.equal(decString(moduleSlashes[i].fraction));
             }
         });
 

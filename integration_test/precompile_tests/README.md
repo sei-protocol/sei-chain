@@ -181,7 +181,6 @@ accounts.
 | --- | --- |
 | `SEI_EVM_RPC` | `http://localhost:8545` |
 | `SEI_COSMOS_RPC` | `http://localhost:26657` |
-| `SEI_REST` | `http://localhost:1317` |
 | `SEI_ADMIN_MNEMONIC` | unset (a random admin is minted and funded via the docker devnet) |
 | `PRECOMPILE_TESTS_RUNTIME_STATE` | `runtime/runtime.json` |
 | `PRECOMPILE_POLLING_INTERVAL_MS` | `100` (Sei blocks are ~400ms; ethers default 4s is too slow) |

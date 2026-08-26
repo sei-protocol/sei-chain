@@ -16,8 +16,8 @@ import {
     bankSupplyOf,
     generateSeiAddress,
     createTokenfactoryDenom,
-    cosmosRest,
 } from '../utils/cosmosUtils';
+import { bankParams } from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -198,18 +198,13 @@ describe('bank precompile (0x1001)', function () {
         });
 
         it('params().defaultSendEnabled matches the bank module', async () => {
-            const [bankParams, lcd] = await Promise.all([
-                bank.params(),
-                cosmosRest<{ params?: { default_send_enabled?: boolean } }>(
-                    '/cosmos/bank/v1beta1/params',
-                ),
-            ]);
-            // The LCD marshals with OrigName and EmitDefaults, so the flag is
-            // present and snake_case even when false.
-            const lcdFlag = lcd.params?.default_send_enabled;
-            expect(bankParams.defaultSendEnabled, 'precompile vs LCD').to.equal(lcdFlag);
+            const [viaPrecompile, params] = await Promise.all([bank.params(), bankParams()]);
+            expect(
+                viaPrecompile.defaultSendEnabled,
+                'precompile vs the bank module',
+            ).to.equal(params?.default_send_enabled ?? false);
             // Sends are on for this devnet; the sendNative test above depends on it.
-            expect(bankParams.defaultSendEnabled).to.equal(true);
+            expect(viaPrecompile.defaultSendEnabled).to.equal(true);
         });
 
         it('denomMetadata returns tokenfactory metadata for a created denom', async () => {

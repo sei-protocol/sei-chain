@@ -1,7 +1,7 @@
 /**
  * slashing precompile (0x…1014) — end-to-end semantics against a live Sei chain.
  *
- * Query methods are checked against the slashing module's LCD. Write methods
+ * Query methods are checked against the slashing module itself. Write methods
  * that would jail a validator are out of scope: grant/revoke of unjail
  * authorization are exercised from a pool account, and unjail is only asserted
  * to revert when the caller is not a jailed validator.
@@ -10,7 +10,7 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, rawSei } from '../utils/chainUtils';
 import { EvmAccount, associateViaTx } from '../utils/evmUtils';
-import { cosmosRest } from '../utils/cosmosUtils';
+import { decString, slashingParams } from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -22,25 +22,6 @@ import {
 import { readRuntimeState, claimPool, RuntimeState } from '../utils/testUtils';
 
 const EMPTY_PAGE = new Uint8Array();
-
-interface LcdSlashingParams {
-    params: {
-        signed_blocks_window: string;
-        min_signed_per_window: string;
-        downtime_jail_duration: string;
-        slash_fraction_double_sign: string;
-        slash_fraction_downtime: string;
-    };
-}
-
-/** protojson duration (`"600s"`) to whole seconds, matching the precompile's `.Seconds()`. */
-function protoDurationSeconds(raw: string): bigint {
-    const m = /^(-?[0-9]+(?:\.[0-9]+)?)s$/.exec(raw);
-    if (!m) {
-        throw new Error(`unexpected protojson duration: ${raw}`);
-    }
-    return BigInt(Math.trunc(Number(m[1])));
-}
 
 function asSigningInfo(info: ethers.Result) {
     return {
@@ -75,19 +56,24 @@ describe('slashing precompile (0x1014)', function () {
     });
 
     describe('happy path & state parity', () => {
-        it('params() matches LCD /cosmos/slashing/v1beta1/params', async () => {
-            const [viaPrecompile, lcd] = await Promise.all([
+        it('params() matches the slashing module', async () => {
+            const [viaPrecompile, p] = await Promise.all([
                 slashing.params() as Promise<ethers.Result>,
-                cosmosRest<LcdSlashingParams>('/cosmos/slashing/v1beta1/params'),
+                slashingParams(),
             ]);
-            const p = lcd.params;
-            expect(viaPrecompile.signedBlocksWindow).to.equal(BigInt(p.signed_blocks_window));
-            expect(viaPrecompile.minSignedPerWindow).to.equal(p.min_signed_per_window);
+            expect(p, 'the slashing module must report params').to.not.equal(undefined);
+            expect(viaPrecompile.signedBlocksWindow).to.equal(BigInt(p!.signed_blocks_window));
+            expect(viaPrecompile.minSignedPerWindow).to.equal(decString(p!.min_signed_per_window));
+            // The precompile reports the jail duration as whole seconds (`.Seconds()`).
             expect(viaPrecompile.downtimeJailDuration).to.equal(
-                protoDurationSeconds(p.downtime_jail_duration),
+                BigInt(p!.downtime_jail_duration?.seconds ?? 0),
             );
-            expect(viaPrecompile.slashFractionDoubleSign).to.equal(p.slash_fraction_double_sign);
-            expect(viaPrecompile.slashFractionDowntime).to.equal(p.slash_fraction_downtime);
+            expect(viaPrecompile.slashFractionDoubleSign).to.equal(
+                decString(p!.slash_fraction_double_sign),
+            );
+            expect(viaPrecompile.slashFractionDowntime).to.equal(
+                decString(p!.slash_fraction_downtime),
+            );
         });
 
         it('signingInfos(empty) is non-empty and signingInfo(that cons address) matches', async () => {

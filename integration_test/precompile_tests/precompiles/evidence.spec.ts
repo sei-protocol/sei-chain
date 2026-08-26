@@ -19,7 +19,7 @@ import {
     expectExecutionReverted,
 } from '../utils/precompileUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { cosmosRest } from '../utils/cosmosUtils';
+import { allEvidence } from '../utils/moduleQueries';
 
 const EMPTY_PAGE = new Uint8Array();
 /** Nonzero 32-byte hash that will not exist on a clean chain. */
@@ -49,12 +49,12 @@ describe('evidence precompile (0x100F)', function () {
         // slashed validator into a spurious failure, so the module's own list is
         // the oracle and the count has to agree either way.
         it('allEvidence matches the evidence module', async () => {
-            const [resp, lcd] = await Promise.all([
+            const [resp, stored] = await Promise.all([
                 evidence.allEvidence(EMPTY_PAGE),
-                cosmosRest<{ evidence?: unknown[] | null }>('/cosmos/evidence/v1beta1/evidence'),
+                allEvidence(),
             ]);
-            expect(resp.evidenceList.length, 'allEvidence count vs LCD').to.equal(
-                (lcd.evidence ?? []).length,
+            expect(resp.evidenceList.length, 'allEvidence count vs the module').to.equal(
+                stored.length,
             );
             for (const row of resp.evidenceList) {
                 // Each entry is the JSON encoding of the stored evidence.

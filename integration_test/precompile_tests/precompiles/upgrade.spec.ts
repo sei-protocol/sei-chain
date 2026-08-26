@@ -4,13 +4,13 @@
  * All four methods are views. A local cluster has no scheduled upgrade and no
  * applied plan, so currentPlan is the zero plan, appliedPlan of an unknown
  * name is 0, and upgradedConsensusState is empty bytes. moduleVersions reads
- * the app's real module consensus versions. currentPlan is checked against
- * LCD /cosmos/upgrade/v1beta1/current_plan.
+ * the app's real module consensus versions. currentPlan is checked against the
+ * upgrade module's own CurrentPlan query.
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, rawSei } from '../utils/chainUtils';
-import { cosmosRest } from '../utils/cosmosUtils';
+import { upgradeCurrentPlan } from '../utils/moduleQueries';
 import { EvmAccount } from '../utils/evmUtils';
 import {
     PRECOMPILE_ADDRESSES,
@@ -20,16 +20,6 @@ import {
     expectExecutionReverted,
 } from '../utils/precompileUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-
-interface LcdPlan {
-    name?: string;
-    height?: string;
-    info?: string;
-}
-
-interface LcdCurrentPlan {
-    plan?: LcdPlan | null;
-}
 
 describe('upgrade precompile (0x1015)', function () {
     this.timeout(120 * 1000);
@@ -50,20 +40,19 @@ describe('upgrade precompile (0x1015)', function () {
     });
 
     describe('happy path & state parity', () => {
-        it('currentPlan is the zero plan when none is scheduled (LCD parity)', async () => {
-            const [plan, lcd] = await Promise.all([
+        it('currentPlan is the zero plan when none is scheduled (module parity)', async () => {
+            const [plan, scheduled] = await Promise.all([
                 upgrade.currentPlan(),
-                cosmosRest<LcdCurrentPlan>('/cosmos/upgrade/v1beta1/current_plan'),
+                upgradeCurrentPlan(),
             ]);
-            const lcdPlan = lcd.plan;
-            if (lcdPlan == null || lcdPlan.name == null || lcdPlan.name === '') {
+            if (scheduled == null || scheduled.name === '') {
                 expect(plan.name).to.equal('');
                 expect(plan.height).to.equal(0n);
                 expect(plan.info).to.equal('');
             } else {
-                expect(plan.name).to.equal(lcdPlan.name);
-                expect(plan.height).to.equal(BigInt(lcdPlan.height ?? 0));
-                expect(plan.info).to.equal(lcdPlan.info ?? '');
+                expect(plan.name).to.equal(scheduled.name);
+                expect(plan.height).to.equal(BigInt(scheduled.height));
+                expect(plan.info).to.equal(scheduled.info);
             }
         });
 

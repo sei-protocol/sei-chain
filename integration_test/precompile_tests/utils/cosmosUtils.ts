@@ -42,7 +42,20 @@ export type CosmosQueryClient = QueryClient &
     GovExtension &
     DistributionExtension;
 
+let tendermintPromise: Promise<Tendermint34Client> | undefined;
 let clientPromise: Promise<CosmosQueryClient> | undefined;
+
+/**
+ * The suite's shared Tendermint RPC connection (`SEI_COSMOS_RPC`). Every
+ * Cosmos-side read goes through it, including the raw `abci_query` calls in
+ * moduleQueries.
+ */
+export async function tendermintClient(): Promise<Tendermint34Client> {
+    if (!tendermintPromise) {
+        tendermintPromise = Tendermint34Client.connect(Endpoints.sei.cosmosRpc);
+    }
+    return tendermintPromise;
+}
 
 /**
  * The suite's Cosmos-side parity oracle: one shared query client over the
@@ -52,7 +65,7 @@ let clientPromise: Promise<CosmosQueryClient> | undefined;
 export async function cosmosQuery(): Promise<CosmosQueryClient> {
     if (!clientPromise) {
         clientPromise = (async () => {
-            const tm = await Tendermint34Client.connect(Endpoints.sei.cosmosRpc);
+            const tm = await tendermintClient();
             return QueryClient.withExtensions(
                 tm,
                 setupBankExtension,
@@ -63,21 +76,6 @@ export async function cosmosQuery(): Promise<CosmosQueryClient> {
         })();
     }
     return clientPromise;
-}
-
-/**
- * GET `path` from the chain's LCD (`SEI_REST`, default http://localhost:1317)
- * and return the parsed JSON. Used for modules cosmjs does not wrap (mint,
- * params, upgrade, evidence, slashing, authz, auth). `path` must start with `/`.
- */
-export async function cosmosRest<T = unknown>(path: string): Promise<T> {
-    const base = Endpoints.sei.rest.replace(/\/$/, '');
-    const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-        throw new Error(`cosmosRest GET ${url} -> HTTP ${res.status}: ${await res.text()}`);
-    }
-    return (await res.json()) as T;
 }
 
 const bankClient = cosmosQuery;

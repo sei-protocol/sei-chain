@@ -17,7 +17,8 @@ import { generateKeyPairSync } from 'node:crypto';
 import { fromBech32, toBech32 } from '@cosmjs/encoding';
 import { seiRpc, waitUntil } from '../utils/chainUtils';
 import { EvmAccount, associateViaTx } from '../utils/evmUtils';
-import { bondedValidators, cosmosQuery, cosmosRest, bankBalance } from '../utils/cosmosUtils';
+import { bondedValidators, cosmosQuery, bankBalance } from '../utils/cosmosUtils';
+import { stakingHistoricalInfo } from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -740,17 +741,14 @@ describe('staking precompile (0x1005)', function () {
 
         // The staking module only keeps historical info for the last
         // `historical_entries` heights, so whether a given height answers is a
-        // property of the chain, not of the precompile. The LCD is therefore the
-        // oracle: the precompile must agree with it about the SAME height, both
-        // on the answer and on the absence of one.
+        // property of the chain, not of the precompile. The module is therefore
+        // the oracle: the precompile must agree with it about the SAME height,
+        // both on the answer and on the absence of one.
         it('historicalInfo agrees with the staking module about a recent height', async () => {
-            const height = BigInt(Math.max((await provider.getBlockNumber()) - 2, 1));
-            const lcd = await cosmosRest<{
-                hist?: { valset?: Array<{ operator_address: string }> } | null;
-                code?: number;
-            }>(`/cosmos/staking/v1beta1/historical_info/${height}`).catch(() => undefined);
+            const height = Math.max((await provider.getBlockNumber()) - 2, 1);
+            const hist = await stakingHistoricalInfo(height);
 
-            if (lcd?.hist == null) {
+            if (hist == null) {
                 // Not retained (historical_entries=0, or the height aged out):
                 // the precompile must refuse it rather than invent an answer. The
                 // reason surfaced is the staking querier's, not the executor's own
@@ -768,12 +766,14 @@ describe('staking precompile (0x1005)', function () {
             }
 
             const info = await staking.historicalInfo(height);
-            expect(info.height, 'historicalInfo echoes the requested height').to.equal(height);
+            expect(info.height, 'historicalInfo echoes the requested height').to.equal(
+                BigInt(height),
+            );
             const ops = [...(info.validators as ethers.Result)].map(
                 (v: { operatorAddress: string }) => v.operatorAddress,
             );
             expect(ops.slice().sort(), 'historical valset matches the staking module').to.deep.equal(
-                (lcd.hist.valset ?? []).map(v => v.operator_address).sort(),
+                hist.valset.map(v => v.operator_address).sort(),
             );
         });
     });

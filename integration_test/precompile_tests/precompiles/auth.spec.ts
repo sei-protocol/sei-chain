@@ -1,9 +1,9 @@
 /**
  * auth precompile (0x…100D) — account queries against a live Sei chain.
  *
- * All four methods are views. The parity oracle is the auth module's LCD
- * (`/cosmos/auth/v1beta1/...`); the Go executor has no delegatecall guard
- * (unlike staking/gov), so CALL, STATICCALL and DELEGATECALL all succeed.
+ * All four methods are views. The parity oracle is the auth module's own Query
+ * service; the Go executor has no delegatecall guard (unlike staking/gov), so
+ * CALL, STATICCALL and DELEGATECALL all succeed.
  *
  * `nextAccountNumber` queries a keeper method that increments the persisted
  * counter, which the executor neutralises by branching a CacheContext. That
@@ -15,7 +15,13 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, rawSei } from '../utils/chainUtils';
 import { EvmAccount } from '../utils/evmUtils';
-import { cosmosRest } from '../utils/cosmosUtils';
+import {
+    authAccount,
+    authAccounts,
+    authNextAccountNumber,
+    authParams,
+    baseAccount,
+} from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -28,44 +34,6 @@ import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 const empty = new Uint8Array();
 
 const uint64 = (v: string | number | bigint | undefined): bigint => BigInt(v ?? 0);
-
-/**
- * A row from /cosmos/auth/v1beta1/accounts, which is a protojson `Any`: a plain
- * account carries its fields at the top level, while module and vesting
- * accounts nest a base account one or two levels down.
- */
-interface LcdAccount {
-    address?: string;
-    account_number?: string;
-    sequence?: string;
-    base_account?: LcdAccount;
-    base_vesting_account?: LcdAccount;
-}
-
-/**
- * The account fields for an LCD row, unwrapping the nested base account that
- * module and vesting accounts wrap theirs in. The precompile reads through
- * AccountI, so it reports these for every account type and the comparison has
- * to reach them too.
- */
-function lcdBaseAccount(row: LcdAccount): LcdAccount {
-    let current = row;
-    while (current.address === undefined) {
-        const next = current.base_account ?? current.base_vesting_account;
-        if (next === undefined) return current;
-        current = next;
-    }
-    return current;
-}
-
-interface LcdAuthParams {
-    max_memo_characters: string;
-    tx_sig_limit: string;
-    tx_size_cost_per_byte: string;
-    sig_verify_cost_ed25519: string;
-    sig_verify_cost_secp256k1: string;
-    disable_seqno_check?: boolean;
-}
 
 describe('auth precompile (0x100D)', function () {
     this.timeout(120 * 1000);
@@ -86,13 +54,14 @@ describe('auth precompile (0x100D)', function () {
     });
 
     describe('happy path & state parity', () => {
-        it('account(admin) matches LCD address, account_number and sequence', async () => {
+        it('account(admin) matches the module address, account_number and sequence', async () => {
             const sei = admin.seiAddress();
-            const [via, lcd] = await Promise.all([
+            const [via, stored] = await Promise.all([
                 auth.account(admin.address),
-                cosmosRest<{ account: LcdAccount }>(`/cosmos/auth/v1beta1/accounts/${sei}`),
+                authAccount(sei),
             ]);
-            const expected = lcdBaseAccount(lcd.account);
+            expect(stored, 'the auth module must know the admin account').to.not.equal(undefined);
+            const expected = baseAccount(stored!);
             expect(via.accountAddress).to.equal(sei);
             expect(via.accountAddress).to.equal(expected.address);
             expect(via.accountNumber).to.equal(uint64(expected.account_number));
@@ -100,42 +69,34 @@ describe('auth precompile (0x100D)', function () {
         });
 
         it('accounts(empty) returns the same first page as the auth module', async () => {
-            const [page, lcd] = await Promise.all([
-                auth.accounts(empty),
-                cosmosRest<{ accounts: LcdAccount[] }>('/cosmos/auth/v1beta1/accounts'),
-            ]);
+            const [page, stored] = await Promise.all([auth.accounts(empty), authAccounts()]);
             expect(page.accounts.length, 'first page of auth accounts').to.be.greaterThan(0);
             // Both read the first page with the module's default page size, so the
             // rows must line up in order, not merely in count.
             expect(
                 [...page.accounts].map((a: { accountAddress: string }) => a.accountAddress),
-                'accounts() first page vs LCD',
-            ).to.deep.equal(lcd.accounts.map(a => lcdBaseAccount(a).address));
+                'accounts() first page vs the auth module',
+            ).to.deep.equal(stored.map(a => baseAccount(a).address));
         });
 
-        it('params() matches LCD /cosmos/auth/v1beta1/params', async () => {
-            const [via, lcd] = await Promise.all([
-                auth.params(),
-                cosmosRest<{ params: LcdAuthParams }>('/cosmos/auth/v1beta1/params'),
-            ]);
-            const p = lcd.params;
-            expect(via.maxMemoCharacters).to.equal(uint64(p.max_memo_characters));
-            expect(via.txSigLimit).to.equal(uint64(p.tx_sig_limit));
-            expect(via.txSizeCostPerByte).to.equal(uint64(p.tx_size_cost_per_byte));
-            expect(via.sigVerifyCostEd25519).to.equal(uint64(p.sig_verify_cost_ed25519));
-            expect(via.sigVerifyCostSecp256k1).to.equal(uint64(p.sig_verify_cost_secp256k1));
-            expect(via.disableSeqnoCheck).to.equal(Boolean(p.disable_seqno_check));
+        it('params() matches the auth module', async () => {
+            const [via, p] = await Promise.all([auth.params(), authParams()]);
+            expect(p, 'the auth module must report params').to.not.equal(undefined);
+            expect(via.maxMemoCharacters).to.equal(uint64(p!.max_memo_characters));
+            expect(via.txSigLimit).to.equal(uint64(p!.tx_sig_limit));
+            expect(via.txSizeCostPerByte).to.equal(uint64(p!.tx_size_cost_per_byte));
+            expect(via.sigVerifyCostEd25519).to.equal(uint64(p!.sig_verify_cost_ed25519));
+            expect(via.sigVerifyCostSecp256k1).to.equal(uint64(p!.sig_verify_cost_secp256k1));
+            expect(via.disableSeqnoCheck).to.equal(Boolean(p!.disable_seqno_check));
         });
 
         it('nextAccountNumber() matches the auth module and is past the admin account', async () => {
-            const [count, lcd, account] = await Promise.all([
+            const [count, next, account] = await Promise.all([
                 auth.nextAccountNumber() as Promise<bigint>,
-                // QueryNextAccountNumberResponse names the field `count`, not
-                // `next_account_number`.
-                cosmosRest<{ count: string }>('/cosmos/auth/v1beta1/nextaccountnumber'),
+                authNextAccountNumber(),
                 auth.account(admin.address),
             ]);
-            expect(count, 'nextAccountNumber vs LCD').to.equal(uint64(lcd.count));
+            expect(count, 'nextAccountNumber vs the auth module').to.equal(uint64(next));
             expect(count > account.accountNumber, 'next number is past every issued number').to.equal(
                 true,
             );
