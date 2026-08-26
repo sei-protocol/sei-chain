@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -153,18 +153,18 @@ func (s *CommitStore) clearPendingBlock() {
 func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (retErr error) {
 	s.phaseTimer.SetPhase("commit_seal_stores")
 
-	snapshots := make(map[string]snapshot.Snapshot, len(s.stores))
+	views := make(map[string]view.View, len(s.stores))
 	defer func() {
 		if retErr != nil {
 			// An error in this function is non-recoverable. Outer scope is responsible for teardown.
 			// The reservations this block took, and the previous block's still in lastSealed, are not
-			// handed back here: they go away when the engines close. A store kept alive past this error
-			// never flushes again, since an unreleased snapshot stalls every later one.
+			// handed back here: they go away when the view managers close. A store kept alive past this
+			// error never flushes again, since an unreleased view stalls every later one.
 			return
 		}
-		// The new snapshots are recorded even when the hand-back fails, so teardown can give them back.
+		// The new views are recorded even when the hand-back fails, so teardown can give them back.
 		err := s.releaseLastSealed()
-		s.lastSealed = snapshots
+		s.lastSealed = views
 		if err != nil {
 			retErr = fmt.Errorf("release previous block's reservations: %w", err)
 		}
@@ -172,23 +172,23 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 
 	for _, store := range s.stores {
 		start := time.Now()
-		snap, err := store.Commit()
+		sealed, err := store.Commit()
 		otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
 			metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
 		if err != nil {
 			return fmt.Errorf("%s seal: %w", store.Name(), err)
 		}
-		snapshots[snap.Name()] = snap
+		views[sealed.Name()] = sealed
 	}
 
-	if err := s.hashSealedBlock(snapshots); err != nil {
+	if err := s.hashSealedBlock(views); err != nil {
 		return fmt.Errorf("hash sealed block: %w", err)
 	}
 
 	s.phaseTimer.SetPhase("commit_finalize_stores")
-	for _, snap := range snapshots {
-		if err := s.finalizeStore(snap, version, alreadyHave); err != nil {
-			return fmt.Errorf("finalize %s: %w", snap.Name(), err)
+	for _, sealed := range views {
+		if err := s.finalizeStore(sealed, version, alreadyHave); err != nil {
+			return fmt.Errorf("finalize %s: %w", sealed.Name(), err)
 		}
 	}
 
@@ -210,9 +210,9 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 
 // hashSealedBlock folds the block that was just sealed into the store's hashes.
 //
-// The new values are each data store's snapshot diff. The old values are those same keys read back
-// from the previous block's snapshot, which lastSealed still holds when this runs.
-func (s *CommitStore) hashSealedBlock(sealed map[string]snapshot.Snapshot) error {
+// The new values are each data store's view diff. The old values are those same keys read back
+// from the previous block's view, which lastSealed still holds when this runs.
+func (s *CommitStore) hashSealedBlock(sealed map[string]view.View) error {
 	s.phaseTimer.SetPhase("commit_compute_lt_hash")
 
 	changed, err := s.changedValuesByStore(sealed)
@@ -238,12 +238,12 @@ func (s *CommitStore) hashSealedBlock(sealed map[string]snapshot.Snapshot) error
 // changedValuesByStore returns every key the block changed, with its new value and the value it held
 // before, one set per data store.
 //
-// The stores are read concurrently on the misc pool; each one is an independent snapshot diff followed
-// by a batch read of the previous snapshot.
+// The stores are read concurrently on the misc pool; each one is an independent view diff followed
+// by a batch read of the previous view.
 //
 // The store-wide root is rebuilt from scratch on every seal — HashCalculator.Compute sums the four
 // per-database roots and never mixes in the previous store-wide value.
-func (s *CommitStore) changedValuesByStore(sealed map[string]snapshot.Snapshot) ([]lthash.DBPairs, error) {
+func (s *CommitStore) changedValuesByStore(sealed map[string]view.View) ([]lthash.DBPairs, error) {
 	changed := make([][]lthash.KVPairWithLastValue, len(dataDBDirs))
 	errs := make([]error, len(dataDBDirs))
 
@@ -253,7 +253,7 @@ func (s *CommitStore) changedValuesByStore(sealed map[string]snapshot.Snapshot) 
 		wg.Add(1)
 		s.miscPool.Submit(func() {
 			defer wg.Done()
-			// A store committing its first block has no previous snapshot, so every key in that block
+			// A store committing its first block has no previous view, so every key in that block
 			// is new. A missing entry yields nil, which changedValues reads as "no old values".
 			changed[idx], errs[idx] = changedValues(sealed[name], s.lastSealed[name])
 			if errs[idx] != nil {
@@ -277,11 +277,11 @@ func (s *CommitStore) changedValuesByStore(sealed map[string]snapshot.Snapshot) 
 }
 
 // changedValues returns one data store's changed keys, each with its new value and the value it held
-// before, from the store's sealed diff and the snapshot preceding it.
+// before, from the store's sealed diff and the view preceding it.
 //
 // A nil value in the diff is a deletion. Keys under the reserved metadata prefix are dropped: they are
 // the store's bookkeeping, and folding them in would make the hash depend on its own recorded value.
-func changedValues(sealed snapshot.Snapshot, previous snapshot.Snapshot) ([]lthash.KVPairWithLastValue, error) {
+func changedValues(sealed view.View, previous view.View) ([]lthash.KVPairWithLastValue, error) {
 	diff, err := sealed.GetDiff()
 	if err != nil {
 		return nil, fmt.Errorf("read diff: %w", err)
@@ -328,9 +328,9 @@ func changedValues(sealed snapshot.Snapshot, previous snapshot.Snapshot) ([]ltha
 // store's flushes indefinitely. The failures are joined and returned.
 func (s *CommitStore) releaseLastSealed() error {
 	var errs []error
-	for name, snap := range s.lastSealed {
-		if err := snap.Release(); err != nil {
-			errs = append(errs, fmt.Errorf("release sealed snapshot for %s: %w", name, err))
+	for name, sealed := range s.lastSealed {
+		if err := sealed.Release(); err != nil {
+			errs = append(errs, fmt.Errorf("release sealed view for %s: %w", name, err))
 		}
 	}
 	s.lastSealed = nil
@@ -346,8 +346,8 @@ func (s *CommitStore) releaseLastSealed() error {
 // stay there until the reservation is handed back — which is what anyone reading the databases directly,
 // rather than through the stores, depends on.
 func (s *CommitStore) flushLatestVersion() error {
-	for _, snap := range s.lastSealed {
-		if err := snap.AwaitFlush(s.ctx); err != nil {
+	for _, sealed := range s.lastSealed {
+		if err := sealed.AwaitFlush(s.ctx); err != nil {
 			return fmt.Errorf("await flush: %w", err)
 		}
 	}
@@ -360,22 +360,22 @@ func (s *CommitStore) flushLatestVersion() error {
 // describes the later height it holds; writing this block's height alongside that hash would persist a
 // pair that describes no single moment. Finalizing with an empty write set still makes the sealed
 // version flushable, which is the only thing finalization is required to do.
-func (s *CommitStore) finalizeStore(snap snapshot.Snapshot, version int64, alreadyHave map[string]int64) error {
-	if alreadyHave[snap.Name()] >= version {
-		return snap.Finalize(nil)
+func (s *CommitStore) finalizeStore(sealed view.View, version int64, alreadyHave map[string]int64) error {
+	if alreadyHave[sealed.Name()] >= version {
+		return sealed.Finalize(nil)
 	}
 
 	writes, err := encodeLocalMeta(
 		version,
-		s.perDBWorkingLtHash[snap.Name()],
-		s.perDBModuleWorkingLtHash[snap.Name()],
-		s.perDBModuleWorkingStats[snap.Name()],
+		s.perDBWorkingLtHash[sealed.Name()],
+		s.perDBModuleWorkingLtHash[sealed.Name()],
+		s.perDBModuleWorkingStats[sealed.Name()],
 	)
 	if err != nil {
-		return fmt.Errorf("encode %s local meta at version %d: %w", snap.Name(), version, err)
+		return fmt.Errorf("encode %s local meta at version %d: %w", sealed.Name(), version, err)
 	}
-	if err := snap.Finalize(writes); err != nil {
-		return fmt.Errorf("finalize snapshot at version %d: %w", version, err)
+	if err := sealed.Finalize(writes); err != nil {
+		return fmt.Errorf("finalize view at version %d: %w", version, err)
 	}
 	return nil
 }
@@ -428,55 +428,55 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 // sealSeededVersion seals a data-free version on every store, recording seededVersion as the height each
 // one has reached.
 //
-// It is how SetInitialVersion persists a seed. Every write goes through the engine that owns its database,
-// as a block's finalization writes do, so seeding needs no access to the databases themselves.
+// It is how SetInitialVersion persists a seed. Every write goes through the view manager that owns its
+// database, as a block's finalization writes do, so seeding needs no access to the databases themselves.
 //
-// The reservation hand-back matters as much as the writes: a snapshot must be released before the next one
+// The reservation hand-back matters as much as the writes: a view must be released before the next one
 // can flush, so a seal that kept the baseline's reservation would stall every flush after it, and the
-// snapshot SetInitialVersion takes next would wait forever.
+// checkpoint SetInitialVersion takes next would wait forever.
 func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
-	snapshots := make(map[string]snapshot.Snapshot, len(s.stores))
+	views := make(map[string]view.View, len(s.stores))
 
 	for _, store := range s.stores {
-		snap, err := store.Commit()
+		sealed, err := store.Commit()
 		if err != nil {
 			return fmt.Errorf("%s seal seeded version: %w", store.Name(), err)
 		}
-		snapshots[snap.Name()] = snap
+		views[sealed.Name()] = sealed
 
-		if err := s.finalizeStore(snap, seededVersion, nil); err != nil {
+		if err := s.finalizeStore(sealed, seededVersion, nil); err != nil {
 			return fmt.Errorf("%s finalize seeded version: %w", store.Name(), err)
 		}
 	}
 
-	// The new snapshots are recorded even when the hand-back fails, so teardown can give them back.
+	// The new views are recorded even when the hand-back fails, so teardown can give them back.
 	err := s.releaseLastSealed()
-	s.lastSealed = snapshots
+	s.lastSealed = views
 	if err != nil {
 		return fmt.Errorf("release baseline reservations: %w", err)
 	}
 	return nil
 }
 
-// sealBaseline seals an empty version on every store. Called at startup so that we always have a snapshot
+// sealBaseline seals an empty version on every store. Called at startup so that we always have a view
 // of the "previous" block (simplifies logic significantly).
 func (s *CommitStore) sealBaseline() error {
-	snapshots := make(map[string]snapshot.Snapshot, len(s.stores))
+	views := make(map[string]view.View, len(s.stores))
 
 	for _, store := range s.stores {
-		snap, err := store.Commit()
+		sealed, err := store.Commit()
 		if err != nil {
 			return fmt.Errorf("%s seal baseline: %w", store.Name(), err)
 		}
-		snapshots[snap.Name()] = snap
-		if err := snap.Finalize(nil); err != nil {
+		views[sealed.Name()] = sealed
+		if err := sealed.Finalize(nil); err != nil {
 			return fmt.Errorf("%s finalize baseline: %w", store.Name(), err)
 		}
 	}
 
-	// The new snapshots are recorded even when the hand-back fails, so teardown can give them back.
+	// The new views are recorded even when the hand-back fails, so teardown can give them back.
 	err := s.releaseLastSealed()
-	s.lastSealed = snapshots
+	s.lastSealed = views
 	if err != nil {
 		return fmt.Errorf("release previous block's reservations: %w", err)
 	}

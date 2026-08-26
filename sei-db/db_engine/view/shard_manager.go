@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"errors"

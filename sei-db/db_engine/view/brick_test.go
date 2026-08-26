@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"context"
@@ -10,47 +10,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A flush failure must brick the engine cleanly: no panic, blocking methods unblock, and methods
+// A flush failure must brick the manager cleanly: no panic, blocking methods unblock, and methods
 // that observe the shutdown report an error wrapping the underlying cause.
 
-func TestFlushFailureBricksEngineCleanly(t *testing.T) {
+func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 	db := newTestDB(nil)
 	db.commitErr = errors.New("disk full")
-	engine := newTestEngineWithDB(t, db, 1, 4096)
-	e := engine.(*snapshotEngine)
+	manager := newTestManagerWithDB(t, db, 1, 4096)
+	e := manager.(*viewManager)
 
-	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
-	snap1, err := engine.Commit()
+	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	view1, err := manager.Commit()
 	require.NoError(t, err)
 
-	// A second snapshot that is never finalized, so it can never flush; its AwaitFlush waiter must be
+	// A second view that is never finalized, so it can never flush; its AwaitFlush waiter must be
 	// released by the brick rather than hang.
-	snap2, err := engine.Commit()
+	view2, err := manager.Commit()
 	require.NoError(t, err)
 	stalledFlushErr := make(chan error, 1)
 	go func() {
-		stalledFlushErr <- snap2.AwaitFlush(context.Background())
+		stalledFlushErr <- view2.AwaitFlush(context.Background())
 	}()
 
-	// Make snap1 flush-eligible; the flush attempt fails and bricks the engine.
-	require.NoError(t, snap1.Finalize(hashWrites(testHash)))
-	require.NoError(t, snap1.Release())
+	// Make view1 flush-eligible; the flush attempt fails and bricks the manager.
+	require.NoError(t, view1.Finalize(hashWrites(testHash)))
+	require.NoError(t, view1.Release())
 
 	select {
 	case <-e.ctx.Done():
 	case <-time.After(2 * time.Second):
-		t.Fatal("engine context was not cancelled after the flush failure")
+		t.Fatal("manager context was not cancelled after the flush failure")
 	}
 
-	_, err = engine.Commit()
-	require.ErrorContains(t, err, "disk full", "Snapshot must report the underlying flush error")
+	_, err = manager.Commit()
+	require.ErrorContains(t, err, "disk full", "View must report the underlying flush error")
 
-	err = snap1.AwaitFlush(context.Background())
+	err = view1.AwaitFlush(context.Background())
 	require.ErrorContains(t, err, "disk full", "AwaitFlush must report the underlying flush error")
 
 	select {
 	case flushErr := <-stalledFlushErr:
-		require.Error(t, flushErr, "an unfinalized snapshot's AwaitFlush must fail once the engine is down")
+		require.Error(t, flushErr, "an unfinalized view's AwaitFlush must fail once the manager is down")
 	case <-time.After(2 * time.Second):
 		t.Fatal("AwaitFlush waiter did not unblock after the brick")
 	}
@@ -59,20 +59,20 @@ func TestFlushFailureBricksEngineCleanly(t *testing.T) {
 func TestCloseAfterBrickReportsFatalError(t *testing.T) {
 	db := newTestDB(nil)
 	db.commitErr = errors.New("disk full")
-	engine := newTestEngineWithDB(t, db, 1, 4096)
-	e := engine.(*snapshotEngine)
+	manager := newTestManagerWithDB(t, db, 1, 4096)
+	e := manager.(*viewManager)
 
-	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
-	commitFinalizeRelease(t, engine)
+	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	commitFinalizeRelease(t, manager)
 
 	select {
 	case <-e.ctx.Done():
 	case <-time.After(2 * time.Second):
-		t.Fatal("engine context was not cancelled after the flush failure")
+		t.Fatal("manager context was not cancelled after the flush failure")
 	}
 
 	closeErr := make(chan error, 1)
-	go func() { closeErr <- engine.Close() }()
+	go func() { closeErr <- manager.Close() }()
 	select {
 	case err := <-closeErr:
 		require.ErrorContains(t, err, "disk full", "Close must surface the latched fatal error")
@@ -87,22 +87,22 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 
 	cfg := newTestConfig(1, 4096)
 	cfg.MaxUnflushedVersions = 1
-	engine := newTestEngineWithConfig(t, cfg, db)
+	manager := newTestManagerWithConfig(t, cfg, db)
 
-	// First snapshot starts a flush that stalls in Commit; the second accumulates past the cap.
-	commitFinalizeRelease(t, engine)
-	commitFinalizeRelease(t, engine)
+	// First view starts a flush that stalls in Commit; the second accumulates past the cap.
+	commitFinalizeRelease(t, manager)
+	commitFinalizeRelease(t, manager)
 
 	blockedErr := make(chan error, 1)
 	go func() {
-		_, err := engine.Commit()
+		_, err := manager.Commit()
 		blockedErr <- err
 	}()
 
 	select {
 	case <-blockedErr:
 		close(db.commitBlock)
-		t.Fatal("Snapshot should have blocked on backpressure")
+		t.Fatal("View should have blocked on backpressure")
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -120,72 +120,72 @@ func TestBackpressureWaiterUnblocksOnBrick(t *testing.T) {
 	}
 }
 
-// Releasing the final reservation without finalizing is a contract violation the engine cannot
-// recover from: the snapshot can never be flushed (flush skips unfinalized versions) and so never
+// Releasing the final reservation without finalizing is a contract violation the manager cannot
+// recover from: the view can never be flushed (flush skips unfinalized versions) and so never
 // retired, and the caller has spent its Release, so every later version would stall behind it forever
 // with its in-memory data accumulating. It must brick rather than return an error and wedge quietly.
 func TestFinalReleaseWithoutFinalizeBricks(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
-	e := engine.(*snapshotEngine)
+	manager := newTestManagerWithDB(t, db, 1, 1<<20)
+	e := manager.(*viewManager)
 
 	// Warm the cache, so the refused read below cannot be explained by a DB read.
-	v, found, err := engine.Get([]byte("k"), true)
+	v, found, err := manager.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte("v"), v)
 
-	snap, err := engine.Commit()
+	view, err := manager.Commit()
 	require.NoError(t, err)
 
 	// Release the reservation Commit handed us, without ever finalizing.
-	require.ErrorContains(t, snap.Release(), "without first being finalized")
+	require.ErrorContains(t, view.Release(), "without first being finalized")
 
 	// This brick is synchronous (DecrementReferenceCount already holds versionLock), so unlike a
 	// read failure there is nothing to wait for.
-	require.Error(t, e.ctx.Err(), "the unfinalized release must cancel the engine context")
+	require.Error(t, e.ctx.Err(), "the unfinalized release must cancel the manager context")
 
-	_, err = engine.Commit()
+	_, err = manager.Commit()
 	require.ErrorContains(t, err, "without first being finalized", "Commit must report the latched cause")
 
-	_, _, err = engine.Get([]byte("k"), true)
-	require.ErrorContains(t, err, "without first being finalized", "reads must stop once the engine bricks")
+	_, _, err = manager.Get([]byte("k"), true)
+	require.ErrorContains(t, err, "without first being finalized", "reads must stop once the manager bricks")
 
-	_, err = engine.BatchGet([][]byte{[]byte("k")})
+	_, err = manager.BatchGet([][]byte{[]byte("k")})
 	require.ErrorContains(t, err, "without first being finalized", "batch reads must stop too")
 
-	require.ErrorContains(t, engine.Close(), "without first being finalized")
+	require.ErrorContains(t, manager.Close(), "without first being finalized")
 }
 
-// The counterpart to the above: a reference-count call naming a bogus version leaves engine state
-// untouched, so it must report a plain error and leave the engine usable — that caller can retry
+// The counterpart to the above: a reference-count call naming a bogus version leaves manager state
+// untouched, so it must report a plain error and leave the manager usable — that caller can retry
 // with the right version.
 func TestBadVersionReferenceCountErrorsDoNotBrick(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
-	e := engine.(*snapshotEngine)
+	manager := newTestManagerWithDB(t, db, 1, 1<<20)
+	e := manager.(*viewManager)
 
 	require.Error(t, e.IncrementReferenceCount(9999))
 	require.Error(t, e.DecrementReferenceCount(9999))
-	require.NoError(t, e.ctx.Err(), "a bogus version must not brick the engine")
+	require.NoError(t, e.ctx.Err(), "a bogus version must not brick the manager")
 
-	// Still fully usable: reads serve, and a snapshot completes its whole lifecycle.
-	v, found, err := engine.Get([]byte("k"), true)
+	// Still fully usable: reads serve, and a view completes its whole lifecycle.
+	v, found, err := manager.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte("v"), v)
-	commitFinalizeRelease(t, engine)
+	commitFinalizeRelease(t, manager)
 }
 
-// Close must tear down everything the engine owns, even when the caller's context stays live:
+// Close must tear down everything the manager owns, even when the caller's context stays live:
 // shard contexts (which gate in-flight read waits) and the metrics scrape loop.
 
 func TestCloseCancelsShardContexts(t *testing.T) {
 	db := newTestDB(nil)
-	engine := newTestEngineWithDB(t, db, 2, 4096)
-	e := engine.(*snapshotEngine)
+	manager := newTestManagerWithDB(t, db, 2, 4096)
+	e := manager.(*viewManager)
 
-	require.NoError(t, engine.Close())
+	require.NoError(t, manager.Close())
 	for i, s := range e.shards {
 		require.Error(t, s.cache.ctx.Err(), "shard %d context must be cancelled by Close", i)
 	}
@@ -194,7 +194,7 @@ func TestCloseCancelsShardContexts(t *testing.T) {
 func TestMetricsCollectLoopStopsOnCtxCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var scrapes atomic.Int64
-	newSnapshotEngineMetrics(ctx, "test-scrape", time.Millisecond,
+	newViewManagerMetrics(ctx, "test-scrape", time.Millisecond,
 		func() (uint64, uint64) {
 			scrapes.Add(1)
 			return 0, 0

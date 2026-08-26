@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// Shutdown contract under test: when Close returns, no engine-owned goroutine will touch the
+// Shutdown contract under test: when Close returns, no manager-owned goroutine will touch the
 // injected DB or pools again; no caller is left deadlocked in a method; blocked callers may resolve
 // with either a real value or an error. Close does not flush and does not touch the injected DB or
 // pools.
@@ -22,21 +22,21 @@ import (
 // inside a batch commit.
 func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	db := newTestDB(nil)
-	engine := newTestEngineWithDB(t, db, 1, 4096)
+	manager := newTestManagerWithDB(t, db, 1, 4096)
 
-	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
-	snap, err := engine.Commit()
+	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	view, err := manager.Commit()
 	require.NoError(t, err)
 
 	db.commitBlock = make(chan struct{})
-	require.NoError(t, snap.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Finalize(hashWrites(testHash)))
 
 	// Wait until the flusher is stalled inside Commit.
 	require.Eventually(t, func() bool { return db.commitEntered.Load() > 0 },
 		2*time.Second, time.Millisecond, "flusher never reached Commit")
 
 	closeDone := make(chan error, 1)
-	go func() { closeDone <- engine.Close() }()
+	go func() { closeDone <- manager.Close() }()
 
 	select {
 	case <-closeDone:
@@ -54,16 +54,16 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	}
 }
 
-// Close must release AwaitFlush waiters with errors wrapping ErrEngineClosed, both for a snapshot
+// Close must release AwaitFlush waiters with errors wrapping ErrViewManagerClosed, both for a view
 // that can never flush on its own account and for one stuck behind it.
 func TestCloseUnblocksFlushWaiters(t *testing.T) {
-	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
+	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
 
 	// v1 is never finalized, so it can never flush; the flush frontier stops there, which strands v2
 	// as well even though v2 is finalized.
-	unfinalized, err := engine.Commit()
+	unfinalized, err := manager.Commit()
 	require.NoError(t, err)
-	finalized, err := engine.Commit()
+	finalized, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, finalized.Finalize(hashWrites(testHash)))
 
@@ -76,7 +76,7 @@ func TestCloseUnblocksFlushWaiters(t *testing.T) {
 		strandedErr <- finalized.AwaitFlush(context.Background())
 	}()
 
-	// Let the waiters park; neither may return while the engine is healthy.
+	// Let the waiters park; neither may return while the manager is healthy.
 	select {
 	case err := <-unfinalizedErr:
 		t.Fatalf("unfinalized AwaitFlush returned before Close: %v", err)
@@ -85,12 +85,12 @@ func TestCloseUnblocksFlushWaiters(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 
-	require.NoError(t, engine.Close())
+	require.NoError(t, manager.Close())
 
 	for name, ch := range map[string]chan error{"unfinalized": unfinalizedErr, "stranded": strandedErr} {
 		select {
 		case err := <-ch:
-			require.ErrorIs(t, err, ErrEngineClosed, "%s AwaitFlush must report ErrEngineClosed", name)
+			require.ErrorIs(t, err, ErrViewManagerClosed, "%s AwaitFlush must report ErrViewManagerClosed", name)
 		case <-time.After(2 * time.Second):
 			t.Fatalf("%s AwaitFlush waiter did not unblock after Close", name)
 		}
@@ -98,7 +98,7 @@ func TestCloseUnblocksFlushWaiters(t *testing.T) {
 }
 
 // A Commit() call blocked on lifecycle backpressure must not outlive Close. Depending on how
-// the drain races the cancellation it may resolve with a snapshot or with an error; either is
+// the drain races the cancellation it may resolve with a view or with an error; either is
 // acceptable — it just must not deadlock.
 func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 	db := newTestDB(nil)
@@ -106,27 +106,27 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 
 	cfg := newTestConfig(1, 4096)
 	cfg.MaxUnflushedVersions = 1
-	engine := newTestEngineWithConfig(t, cfg, db)
+	manager := newTestManagerWithConfig(t, cfg, db)
 
-	// The first snapshot's flush stalls in Commit; the second accumulates past the cap, so the
+	// The first view's flush stalls in Commit; the second accumulates past the cap, so the
 	// next Commit() blocks on backpressure.
-	commitFinalizeRelease(t, engine)
-	commitFinalizeRelease(t, engine)
+	commitFinalizeRelease(t, manager)
+	commitFinalizeRelease(t, manager)
 
 	blockedDone := make(chan error, 1)
 	go func() {
-		_, err := engine.Commit()
+		_, err := manager.Commit()
 		blockedDone <- err
 	}()
 	select {
 	case err := <-blockedDone:
 		close(db.commitBlock)
-		t.Fatalf("Snapshot returned before Close: %v", err)
+		t.Fatalf("View returned before Close: %v", err)
 	case <-time.After(20 * time.Millisecond):
 	}
 
 	closeDone := make(chan error, 1)
-	go func() { closeDone <- engine.Close() }()
+	go func() { closeDone <- manager.Close() }()
 
 	// Close waits for the stalled runner; release it so teardown can complete.
 	close(db.commitBlock)
@@ -135,7 +135,7 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 	case <-blockedDone:
 		// Value or error — both fine; the waiter just must not be deadlocked.
 	case <-time.After(2 * time.Second):
-		t.Fatal("backpressured Snapshot did not unblock after Close")
+		t.Fatal("backpressured View did not unblock after Close")
 	}
 	select {
 	case err := <-closeDone:
@@ -146,10 +146,10 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 }
 
 // A read whose DB fetch is still in flight when Close is called must resolve (value or error)
-// rather than deadlock. The engine must not wait for caller-owned pool tasks.
+// rather than deadlock. The manager must not wait for caller-owned pool tasks.
 func TestBlockedReadResolvesDuringClose(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
-	engine := newTestEngineWithDB(t, db, 1, 4096)
+	manager := newTestManagerWithDB(t, db, 1, 4096)
 
 	// Baseline past the construction-time initial-hash read, then gate all further DB reads.
 	base := db.getCalls.Load()
@@ -162,19 +162,19 @@ func TestBlockedReadResolvesDuringClose(t *testing.T) {
 
 	getDone := make(chan error, 1)
 	go func() {
-		_, _, err := engine.Get([]byte("k"), true)
+		_, _, err := manager.Get([]byte("k"), true)
 		getDone <- err
 	}()
 	require.Eventually(t, func() bool { return db.getCalls.Load() > base },
 		2*time.Second, time.Millisecond, "read task never reached the DB")
 
-	require.NoError(t, engine.Close())
+	require.NoError(t, manager.Close())
 
 	select {
 	case err := <-getDone:
 		// The gate is still held, so the read cannot have produced a value: Close must have
-		// released the waiter with an error wrapping ErrEngineClosed, per the Close contract.
-		require.ErrorIs(t, err, ErrEngineClosed)
+		// released the waiter with an error wrapping ErrViewManagerClosed, per the Close contract.
+		require.ErrorIs(t, err, ErrViewManagerClosed)
 	case <-time.After(2 * time.Second):
 		t.Fatal("blocked Get did not resolve after Close")
 	}
@@ -182,54 +182,54 @@ func TestBlockedReadResolvesDuringClose(t *testing.T) {
 	releaseGate()
 }
 
-// Methods called after a clean Close must report ErrEngineClosed.
-func TestMethodsAfterCloseReportEngineClosed(t *testing.T) {
-	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
-	snap, err := engine.Commit()
+// Methods called after a clean Close must report ErrViewManagerClosed.
+func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
+	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
+	view, err := manager.Commit()
 	require.NoError(t, err)
-	require.NoError(t, engine.Close())
+	require.NoError(t, manager.Close())
 
-	_, err = engine.Commit()
-	require.ErrorIs(t, err, ErrEngineClosed)
+	_, err = manager.Commit()
+	require.ErrorIs(t, err, ErrViewManagerClosed)
 
-	err = snap.AwaitFlush(context.Background())
-	require.ErrorIs(t, err, ErrEngineClosed)
+	err = view.AwaitFlush(context.Background())
+	require.ErrorIs(t, err, ErrViewManagerClosed)
 
 	// Writes must be refused rather than accepted into data that no lifecycle runner remains to
-	// flush, and reads must not keep serving from a closed engine.
-	require.ErrorIs(t, engine.Set([]byte("k"), []byte("v")), ErrEngineClosed)
-	require.ErrorIs(t, engine.Delete([]byte("k")), ErrEngineClosed)
-	require.ErrorIs(t, engine.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}), ErrEngineClosed)
+	// flush, and reads must not keep serving from a closed manager.
+	require.ErrorIs(t, manager.Set([]byte("k"), []byte("v")), ErrViewManagerClosed)
+	require.ErrorIs(t, manager.Delete([]byte("k")), ErrViewManagerClosed)
+	require.ErrorIs(t, manager.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}), ErrViewManagerClosed)
 
-	_, _, err = engine.Get([]byte("k"), true)
-	require.ErrorIs(t, err, ErrEngineClosed)
+	_, _, err = manager.Get([]byte("k"), true)
+	require.ErrorIs(t, err, ErrViewManagerClosed)
 
-	_, err = engine.BatchGet([][]byte{[]byte("k")})
-	require.ErrorIs(t, err, ErrEngineClosed)
+	_, err = manager.BatchGet([][]byte{[]byte("k")})
+	require.ErrorIs(t, err, ErrViewManagerClosed)
 }
 
-// Every goroutine the engine owns (lifecycle runner, metrics scrape loop) must be gone once
+// Every goroutine the manager owns (lifecycle runner, metrics scrape loop) must be gone once
 // Close returns: repeated create/use/close cycles may not grow the process goroutine count.
-func TestCloseLeavesNoEngineGoroutines(t *testing.T) {
+func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 	cycle := func() {
 		cfg := newTestConfig(2, 4096)
 		cfg.MetricsEnabled = true
 		cfg.MetricsScrapeIntervalSeconds = 0.001
 		db := newTestDB(map[string][]byte{"seeded": []byte("v")})
 		pool := threading.NewAdHocPool()
-		engine, err := NewSnapshotEngine(cfg, db, pool, pool)
+		manager, err := NewViewManager(cfg, db, pool, pool)
 		require.NoError(t, err)
 
-		require.NoError(t, engine.Set([]byte("k"), []byte("v")))
-		_, _, err = engine.Get([]byte("seeded"), true) // read-through miss
+		require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+		_, _, err = manager.Get([]byte("seeded"), true) // read-through miss
 		require.NoError(t, err)
-		_, err = engine.BatchGet([][]byte{[]byte("seeded"), []byte("k")})
+		_, err = manager.BatchGet([][]byte{[]byte("seeded"), []byte("k")})
 		require.NoError(t, err)
-		snap, err := engine.Commit()
+		view, err := manager.Commit()
 		require.NoError(t, err)
-		finalizeAndRelease(t, snap)
+		finalizeAndRelease(t, view)
 
-		require.NoError(t, engine.Close())
+		require.NoError(t, manager.Close())
 		pool.Close()
 	}
 
@@ -243,5 +243,5 @@ func TestCloseLeavesNoEngineGoroutines(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return runtime.NumGoroutine() <= baseline+2 },
 		2*time.Second, 10*time.Millisecond,
-		"engine goroutines leaked across create/use/close cycles")
+		"manager goroutines leaked across create/use/close cycles")
 }

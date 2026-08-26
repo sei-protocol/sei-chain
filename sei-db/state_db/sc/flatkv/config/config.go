@@ -5,7 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 const (
@@ -19,7 +19,7 @@ type Config struct {
 	// Must be set before calling Validate().
 	DataDir string
 
-	// Fsync controls whether every snapshot engine's flush is fsync'd. It overwrites each store
+	// Fsync controls whether every view manager's flush is fsync'd. It overwrites each store
 	// config's FlushSync, so the four databases are always synced alike. The state WAL is
 	// unaffected and always writes NoSync.
 	// Default: false
@@ -66,30 +66,30 @@ type Config struct {
 	// AccountDBConfig defines the PebbleDB configuration for the account database.
 	AccountDBConfig pebbledb.PebbleDBConfig
 
-	// AccountStoreConfig defines the snapshot engine configuration for the account database. The store
+	// AccountStoreConfig defines the view manager configuration for the account database. The store
 	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
-	AccountStoreConfig snapshot.SnapshotEngineConfig
+	AccountStoreConfig view.ViewManagerConfig
 
 	// CodeDBConfig defines the PebbleDB configuration for the code database.
 	CodeDBConfig pebbledb.PebbleDBConfig
 
-	// CodeStoreConfig defines the snapshot engine configuration for the code database. The store
+	// CodeStoreConfig defines the view manager configuration for the code database. The store
 	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
-	CodeStoreConfig snapshot.SnapshotEngineConfig
+	CodeStoreConfig view.ViewManagerConfig
 
 	// StorageDBConfig defines the PebbleDB configuration for the storage database.
 	StorageDBConfig pebbledb.PebbleDBConfig
 
-	// StorageStoreConfig defines the snapshot engine configuration for the storage database. The store
+	// StorageStoreConfig defines the view manager configuration for the storage database. The store
 	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
-	StorageStoreConfig snapshot.SnapshotEngineConfig
+	StorageStoreConfig view.ViewManagerConfig
 
 	// MiscDBConfig defines the PebbleDB configuration for the misc database.
 	MiscDBConfig pebbledb.PebbleDBConfig
 
-	// MiscStoreConfig defines the snapshot engine configuration for the misc database. The store
+	// MiscStoreConfig defines the view manager configuration for the misc database. The store
 	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
-	MiscStoreConfig snapshot.SnapshotEngineConfig
+	MiscStoreConfig view.ViewManagerConfig
 
 	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
 	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
@@ -118,14 +118,14 @@ type Config struct {
 }
 
 // MetaKeyPrefix is the key namespace FlatKV reserves for per-database metadata, and which each
-// snapshot engine owns: Finalize writes land under it and iteration filters it out. It matches
+// view manager owns: Finalize writes land under it and iteration filters it out. It matches
 // ktype.MetaKeyPrefixBytes, restated here because ktype imports this package's siblings.
 const MetaKeyPrefix = "_meta/"
 
-// defaultStoreConfig returns the snapshot engine defaults for one database, named for the database's
+// defaultStoreConfig returns the view manager defaults for one database, named for the database's
 // directory so metrics and per-database hash bookkeeping can tell the stores apart.
-func defaultStoreConfig(name string) snapshot.SnapshotEngineConfig {
-	return *snapshot.DefaultSnapshotEngineConfig(name, MetaKeyPrefix)
+func defaultStoreConfig(name string) view.ViewManagerConfig {
+	return *view.DefaultViewManagerConfig(name, MetaKeyPrefix)
 }
 
 // DefaultConfig returns Config with safe default values.
