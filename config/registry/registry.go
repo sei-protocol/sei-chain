@@ -279,9 +279,10 @@ func Lookup(name string) (Section, bool) {
 
 // snapshot returns every registered section and every refused registration, read together.
 //
-// One acquisition for both, because a caller that asked for them separately would be describing two
-// registries: a registration arriving between the two reads is refused in one answer and absent from
-// the other, which is the state a guard on the defects exists to refuse and would then miss.
+// One acquisition for both, because the two are halves of one answer: the sections are the key space and
+// the refusals say which keys are missing from it. Read separately, a registration arriving between them
+// is refused in one half and absent from the other, so the answer describes two registries and the report
+// of what is missing does not match what is actually missing.
 func snapshot() ([]Section, []Defect) {
 	mu.RLock()
 	defer mu.RUnlock()
