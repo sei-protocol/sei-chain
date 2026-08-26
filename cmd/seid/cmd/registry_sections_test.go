@@ -70,10 +70,16 @@ func TestEveryDeclaredKeyResolvesForEveryMode(t *testing.T) {
 // Asked here because it is a property of the whole key space and of no single section. Two packages
 // declare keys at a root, one per configuration file, and a check inside either sees only its own.
 //
-// The two files are the reason a match is reported rather than failed outright: the key space spans them
-// both, and a root key in one file against a table name in the other is two settings an operator can
-// write, in two places, with no collision at all. So this names the pair and which file each came from,
-// and the judgement is a human's.
+// Any match fails, including one that spans the two files and is therefore harmless on its own. A root
+// key in one file against a table name in the other is two settings an operator can write, in two places,
+// so nothing is unreachable; the reason it still fails is that telling the two cases apart would need a
+// section to state which file it belongs to, and it does not. Rather than add that, the rule here is the
+// stronger one: a name is a table's or a root key's, once, across the whole key space.
+//
+// The rule costs nothing while nothing matches, and this test passing is that statement rather than a
+// count written beside it. Reusing a name deliberately means changing this test and saying why, which is
+// the point: the alternative is a rule nothing states, and a collision inside one file reaching an
+// operator as a setting that silently cannot be written.
 func TestNoRootKeyCollidesWithAnotherSectionsName(t *testing.T) {
 	tables := map[string]bool{}
 	var roots []registry.Section
@@ -102,9 +108,10 @@ func TestNoRootKeyCollidesWithAnotherSectionsName(t *testing.T) {
 				continue
 			}
 			if tables[key] {
-				t.Errorf("%s declares %q at the root of its file and a section takes that same name for "+
-					"a table. Within one file only one of the two is writable; across the two files "+
-					"both are, and which this is has to be decided rather than assumed", root.Name, key)
+				t.Errorf("%s declares %q at the root of a file and a section takes that same name for a "+
+					"table. If both are in one file only one of the two can be written; if they are in "+
+					"different ones both can, and nothing here can tell which, so a reused name is "+
+					"refused either way", root.Name, key)
 			}
 		}
 	}
