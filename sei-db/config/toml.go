@@ -22,13 +22,13 @@ sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
 # Historical proof query burst size
 sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
-# Max concurrent unproven /subspace queries (SS fast path)
+# Max concurrent unproven /subspace queries (SS fast path; <=0 resolves to default 2)
 sc-subspace-query-max-inflight = {{ .StateCommit.SubspaceQueryMaxInFlight }}
 
-# Max pairs a /subspace scan may return
+# Max pairs a /subspace scan may return (<=0 resolves to default 1000; no unlimited setting)
 sc-subspace-max-pairs = {{ .StateCommit.SubspaceMaxPairs }}
 
-# Max key+value bytes a /subspace scan may accumulate (4 MiB default)
+# Max key+value bytes a /subspace scan may accumulate (<=0 resolves to default 4 MiB; no unlimited setting)
 sc-subspace-max-bytes = {{ .StateCommit.SubspaceMaxBytes }}
 
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up

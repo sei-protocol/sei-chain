@@ -109,9 +109,6 @@ func (st *Store) Query(ctx context.Context, req abci.RequestQuery) (res abci.Res
 		res.Key = req.Data // data holds the key bytes
 		res.Value = st.Get(res.Key)
 	case "/subspace":
-		if len(req.Data) == 0 {
-			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "subspace prefix must not be empty"))
-		}
 		res.Key = req.Data
 		bz, err := query.ScanSubspace(ctx, st, req.Data, st.subspaceLimits)
 		if err != nil {

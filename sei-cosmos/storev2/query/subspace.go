@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"cosmossdk.io/errors"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
@@ -34,6 +36,10 @@ func (l Limits) effective() Limits {
 // ScanSubspace walks prefix in st and returns marshaled kv.Pairs.
 // It stops with ErrSubspaceCapExceeded when either limit would be exceeded.
 func ScanSubspace(ctx context.Context, st storetypes.KVStore, prefix []byte, limits Limits) ([]byte, error) {
+	if len(prefix) == 0 {
+		return nil, errors.Wrap(sdkerrors.ErrInvalidRequest, "subspace prefix must not be empty")
+	}
+
 	limits = limits.effective()
 
 	pairs := kv.Pairs{
@@ -41,7 +47,7 @@ func ScanSubspace(ctx context.Context, st storetypes.KVStore, prefix []byte, lim
 	}
 	totalBytes := 0
 
-	iterator := storetypes.KVStorePrefixIterator(st, prefix)
+	iterator := storetypes.IteratorOn(st, ctx, prefix, storetypes.PrefixEndBytes(prefix), true)
 	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {

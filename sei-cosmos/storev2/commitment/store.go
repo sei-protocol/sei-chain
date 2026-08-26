@@ -153,9 +153,6 @@ func (st *Store) Query(ctx context.Context, req abci.RequestQuery) (res abci.Res
 		op := types.NewIavlCommitmentOp(res.Key, commitmentProof)
 		res.ProofOps = &crypto.ProofOps{Ops: []crypto.ProofOp{op.ProofOp()}}
 	case "/subspace":
-		if len(req.Data) == 0 {
-			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "subspace prefix must not be empty"))
-		}
 		res.Key = req.Data
 		bz, err := query.ScanSubspace(ctx, st, req.Data, st.subspaceLimits)
 		if err != nil {
