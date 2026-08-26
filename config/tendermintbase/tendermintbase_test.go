@@ -61,7 +61,7 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 
 // declaredSections are the sections this package registers, so a test walks the set rather than a list that
 // has to be extended alongside it.
-func declaredSections() []string { return SectionsRegisteredHere() }
+func declaredSections() []string { return append([]string(nil), registeredHere...) }
 
 // declaredHere are the keys the sections this package registers declare.
 //
@@ -860,17 +860,15 @@ func TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries(t *testing.T) {
 	}
 }
 
-// TestTheRootPathsLeftOutAreTheOnesTheFileAlreadyStates names why two root paths are not declared.
+// TestEachRootExclusionStillHasItsReason holds every path the root section leaves out to the fact that
+// justified leaving it out.
 //
-// The home directory is where this file is found, so a value inside it would be the file naming its own
-// location, and the command line already carries it. The node mode is the fact the file states at the top
-// under its own name, and a second spelling would let the two disagree: the resolution answers for one and
-// the node reads the other.
-//
-// Written out here rather than read from the list the registration uses. Comparing that list against itself
-// agrees however it changes, so a path dropped from it would leave this passing while the key became
-// declared.
-func TestTheRootPathsLeftOutAreTheOnesTheFileAlreadyStates(t *testing.T) {
+// Two reasons, not one, which is why the name no longer claims a single one. The file settles two of
+// these elsewhere: its own location comes from the command line, and the kind of node is stated at the
+// top under its own name, so declaring either would let an operator write a second value for something
+// already decided. The other three name settings the node removed, and their reason is that a generated
+// file does not carry them, which is measured here rather than asserted in prose.
+func TestEachRootExclusionStillHasItsReason(t *testing.T) {
 	registered, ok := registry.Lookup(RootSectionName)
 	if !ok {
 		t.Fatalf("%s is not registered; Defects: %v", RootSectionName, registry.Defects())
@@ -879,21 +877,34 @@ func TestTheRootPathsLeftOutAreTheOnesTheFileAlreadyStates(t *testing.T) {
 	for _, key := range registered.Keys {
 		declared[key] = true
 	}
+
+	// Settled elsewhere in the file, so neither is offered here.
 	for key, why := range map[string]string{
-		"home":         "the file's own location, which the command line carries",
-		"mode":         "the fact the file states at the top under its own name",
-		"proxy-app":    "the address of an out-of-process application the node no longer runs",
-		"abci":         "the transport to that application",
-		"filter-peers": "peer filtering through that application",
+		"home": "the file's own location, which the command line carries",
+		"mode": "the kind of node, which the file states at the top under its own name",
 	} {
 		if declared[key] {
-			t.Errorf("%q is declared at the root and it is %s, so the key space offers a setting that "+
-				"is either already settled or reaches nothing", key, why)
+			t.Errorf("%q is declared at the root and it is %s, so an operator can write a second value "+
+				"for something already decided", key, why)
 		}
 	}
+
+	// Removed from the node, so a generated file carries none of them. That is the half a test can hold,
+	// and the half that expires first: templating one back in makes it a key an operator writes whose
+	// value this space refuses.
+	for _, rel := range removedFromTheNode {
+		if declared[rel] {
+			t.Errorf("%q is declared at the root and names a setting the node removed", rel)
+		}
+		if generatedFileCarries(t, rel) {
+			t.Errorf("%q is left out because a generated file does not carry it and one now does, so it "+
+				"is a setting an operator writes and belongs declared", rel)
+		}
+	}
+
 	if want := len(notWritableInThisFile) + len(removedFromTheNode); len(registered.Excluded) != want {
-		t.Errorf("the root section excludes %v and %d paths were expected, being the two the file settles "+
-			"elsewhere and the three the node removed", registered.Excluded, want)
+		t.Errorf("the root section excludes %v and %d paths were expected, being the ones the file "+
+			"settles elsewhere and the ones the node removed", registered.Excluded, want)
 	}
 }
 

@@ -33,6 +33,14 @@ const (
 // other.
 var notWritableInThisFile = []string{"home", "mode"}
 
+// The node kind is the one of those two a reader has to account for.
+//
+// A generated file states it at the top, so a caller that hands a decoded file to the resolver finds no
+// section declaring it and files it beside an operator's typos. Declaring it is not the answer: the kind
+// of node is what the resolution is asked about, so a declared answer for it would be the question. The
+// reader is where this is settled, by exempting this one key from what it reports as unknown, and saying
+// so here is what stops that being rediscovered.
+
 // removedFromTheNode are the root paths this section does not declare because nothing reads them.
 //
 // The node marks each field deprecated and nothing in the tree reads any of them: out-of-process ABCI
@@ -168,9 +176,6 @@ func declareRootKeys(name string, prototype any, defaults func(registry.Mode) an
 	registry.RegisterRootKeysExcluding(name, prototype, defaults, excluding...)
 	registeredHere = append(registeredHere, name)
 }
-
-// SectionsRegisteredHere returns the sections this package registered, for the tests that hold the set.
-func SectionsRegisteredHere() []string { return append([]string(nil), registeredHere...) }
 
 // forMode is the configuration the seid init command writes for a kind of node.
 //
