@@ -17,6 +17,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
@@ -279,7 +280,7 @@ func buildValidatorGigaConfig(
 // A warning is logged if mode and committee membership disagree so an
 // operator misconfiguration is visible at startup.
 //
-// The returned BlockDB is owned by the caller (nodeImpl): open happens here
+// The returned BlockStore is owned by the caller (nodeImpl): open happens here
 // before the transport starts, so inbound giga connections see a fully
 // replayed data.State. Close after giga.Run returns (or immediately if this
 // function / subsequent construction fails).
@@ -289,7 +290,7 @@ func buildGigaRouter(
 	validatorKey utils.Option[atypes.SecretKey],
 	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
-) (p2p.GigaRouter, atypes.BlockDB, error) {
+) (p2p.GigaRouter, atypes.BlockStore, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
 	if err != nil {
 		return nil, nil, err
@@ -325,21 +326,21 @@ func buildGigaRouter(
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
-		blockDB, err := openBlockDB(&valCfg.GigaRouterCommonConfig, fc.BlockDB)
+		blockStore, err := openBlockStore(&valCfg.GigaRouterCommonConfig, fc.BlockDB)
 		if err != nil {
 			return nil, nil, err
 		}
-		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockDB)
+		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
-			_ = blockDB.Close()
+			_ = blockStore.Close()
 			return nil, nil, err
 		}
 		giga, err := p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey), dataState)
 		if err != nil {
-			_ = blockDB.Close()
+			_ = blockStore.Close()
 			return nil, nil, err
 		}
-		return giga, blockDB, nil
+		return giga, blockStore, nil
 	}
 	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
 	if err != nil {
@@ -352,28 +353,28 @@ func buildGigaRouter(
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
-	blockDB, err := openBlockDB(fnCfg, fc.BlockDB)
+	blockStore, err := openBlockStore(fnCfg, fc.BlockDB)
 	if err != nil {
 		return nil, nil, err
 	}
-	dataState, err := p2p.BuildDataState(fnCfg, blockDB)
+	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
-		_ = blockDB.Close()
+		_ = blockStore.Close()
 		return nil, nil, err
 	}
 	giga, err := p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey), dataState)
 	if err != nil {
-		_ = blockDB.Close()
+		_ = blockStore.Close()
 		return nil, nil, err
 	}
-	return giga, blockDB, nil
+	return giga, blockStore, nil
 }
 
 // preparePersistentStateDir resolves a relative PersistentStateDir against
 // the node's --home dir (mirrors config.go's rootify) and creates it if absent.
 // Some("") is treated as None (in-memory / disabled): JSON unmarshals a literal
 // empty string as present, which would otherwise Join to rootDir and silently
-// enable durable BlockDB + HashVault.
+// enable durable BlockStore + HashVault.
 func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
 	dir, ok := c.PersistentStateDir.Get()
 	if !ok || dir == "" {
@@ -390,22 +391,32 @@ func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) er
 	return nil
 }
 
-// openBlockDB opens littblock when PersistentStateDir is set, memblock otherwise.
+// openBlockStore opens littblock when PersistentStateDir is set, memblock otherwise.
 // preparePersistentStateDir must have run first so dir is rootified and created.
-func openBlockDB(c *p2p.GigaRouterCommonConfig, blockDBCfg config.AutobahnBlockDBConfig) (atypes.BlockDB, error) {
+func openBlockStore(c *p2p.GigaRouterCommonConfig, blockDBCfg config.AutobahnBlockDBConfig) (atypes.BlockStore, error) {
 	dir, ok := c.PersistentStateDir.Get()
 	if !ok {
-		return memblock.NewBlockDB(), nil
+		store, err := blockstore.New(memblock.NewBlockDB())
+		if err != nil {
+			return nil, fmt.Errorf("open BlockStore: %w", err)
+		}
+		return store, nil
 	}
 	littCfg, err := blockDBCfg.LittBlockConfig(filepath.Join(dir, "blockdb"))
 	if err != nil {
 		return nil, fmt.Errorf("block_db: %w", err)
 	}
-	blockDB, err := littblock.NewBlockDB(&littCfg)
+	db, err := littblock.NewBlockDB(&littCfg)
 	if err != nil {
 		return nil, fmt.Errorf("open BlockDB: %w", err)
 	}
-	return blockDB, nil
+	blockStore, err := blockstore.New(db)
+	if err != nil {
+		// The store takes ownership of db only once it is built, so a failure here leaves db ours.
+		_ = db.Close()
+		return nil, fmt.Errorf("open BlockStore: %w", err)
+	}
+	return blockStore, nil
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,
@@ -524,10 +535,10 @@ func createRouter(
 	app utils.Option[*proxy.Proxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
-) (*p2p.Router, closer, utils.Option[atypes.BlockDB], error) {
+) (*p2p.Router, closer, utils.Option[atypes.BlockStore], error) {
 	closer := func() error { return nil }
-	noneDB := utils.None[atypes.BlockDB]()
-	gigaBlockDB := noneDB
+	noneDB := utils.None[atypes.BlockStore]()
+	gigaBlockStore := noneDB
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, closer, noneDB, err
@@ -585,17 +596,17 @@ func createRouter(
 		if !ok {
 			return nil, closer, noneDB, fmt.Errorf("autobahn requires app")
 		}
-		giga, blockDB, err := buildGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
+		giga, blockStore, err := buildGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
 		if err != nil {
 			return nil, closer, noneDB, err
 		}
 		options.Giga = utils.Some(giga)
-		gigaBlockDB = utils.Some(blockDB)
+		gigaBlockStore = utils.Some(blockStore)
 	}
 
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
 	if err != nil {
-		if db, ok := gigaBlockDB.Get(); ok {
+		if db, ok := gigaBlockStore.Get(); ok {
 			_ = db.Close()
 		}
 		return nil, closer, noneDB, fmt.Errorf("unable to initialize peer store: %w", err)
@@ -608,12 +619,12 @@ func createRouter(
 		options,
 	)
 	if err != nil {
-		if db, ok := gigaBlockDB.Get(); ok {
+		if db, ok := gigaBlockStore.Get(); ok {
 			_ = db.Close()
 		}
 		return nil, closer, noneDB, fmt.Errorf("p2p.NewRouter(): %w", err)
 	}
-	return router, closer, gigaBlockDB, nil
+	return router, closer, gigaBlockStore, nil
 }
 
 func makeNodeInfo(
@@ -622,6 +633,7 @@ func makeNodeInfo(
 	eventSinks []indexer.EventSink,
 	genDoc *types.GenesisDoc,
 	versionInfo version.Consensus,
+	mempoolP2PEnabled bool,
 ) (types.NodeInfo, error) {
 
 	txIndexerStatus := "off"
@@ -630,29 +642,35 @@ func makeNodeInfo(
 		txIndexerStatus = "on"
 	}
 
+	channels := []byte{
+		byte(blocksync.BlockSyncChannel),
+		byte(consensus.StateChannel),
+		byte(consensus.DataChannel),
+		byte(consensus.VoteChannel),
+		byte(consensus.VoteSetBitsChannel),
+	}
+	if mempoolP2PEnabled {
+		channels = append(channels, byte(mempoolreactor.MempoolChannel))
+	}
+	channels = append(channels,
+		byte(evidence.EvidenceChannel),
+		byte(statesync.SnapshotChannel),
+		byte(statesync.ChunkChannel),
+		byte(statesync.LightBlockChannel),
+		byte(statesync.ParamsChannel),
+	)
+
 	nodeInfo := types.NodeInfo{
 		ProtocolVersion: types.ProtocolVersion{
 			P2P:   version.P2PProtocol, // global
 			Block: versionInfo.Block,
 			App:   versionInfo.App,
 		},
-		NodeID:  nodeKey.ID(),
-		Network: genDoc.ChainID,
-		Version: version.TMVersion,
-		Channels: []byte{
-			byte(blocksync.BlockSyncChannel),
-			byte(consensus.StateChannel),
-			byte(consensus.DataChannel),
-			byte(consensus.VoteChannel),
-			byte(consensus.VoteSetBitsChannel),
-			byte(mempoolreactor.MempoolChannel),
-			byte(evidence.EvidenceChannel),
-			byte(statesync.SnapshotChannel),
-			byte(statesync.ChunkChannel),
-			byte(statesync.LightBlockChannel),
-			byte(statesync.ParamsChannel),
-		},
-		Moniker: cfg.Moniker,
+		NodeID:   nodeKey.ID(),
+		Network:  genDoc.ChainID,
+		Version:  version.TMVersion,
+		Channels: channels,
+		Moniker:  cfg.Moniker,
 		Other: types.NodeInfoOther{
 			TxIndex:    txIndexerStatus,
 			RPCAddress: cfg.RPC.ListenAddress,

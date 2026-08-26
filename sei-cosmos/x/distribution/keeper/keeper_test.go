@@ -304,7 +304,9 @@ func TestFundCommunityPool(t *testing.T) {
 	err := app.DistrKeeper.FundCommunityPool(ctx, amount, addr[0])
 	assert.Nil(t, err)
 
-	assert.Equal(t, initPool.CommunityPool.Add(sdk.NewDecCoinsFromCoins(amount...)...), app.DistrKeeper.GetFeePool(ctx).CommunityPool)
+	wantPool, err := sdk.NewDecCoinsFromCoins(amount...)
+	require.NoError(t, err)
+	assert.Equal(t, initPool.CommunityPool.Add(wantPool...), app.DistrKeeper.GetFeePool(ctx).CommunityPool)
 	assert.Empty(t, app.BankKeeper.GetAllBalances(ctx, addr[0]))
 }
 
@@ -322,11 +324,28 @@ func TestFundCommunityPoolRejectsOutOfRangeAmount(t *testing.T) {
 	coins := sdk.NewCoins(sdk.NewCoin("bigcoin", maxAmt))
 	require.NoError(t, apptesting.FundAccount(app.BankKeeper, ctx, addr[0], coins))
 
-	require.Panics(t, func() {
-		_ = app.DistrKeeper.FundCommunityPool(ctx, coins, addr[0])
-	}, "funding the community pool with an out-of-range amount must be rejected")
+	require.NotPanics(t, func() {
+		err := app.DistrKeeper.FundCommunityPool(ctx, coins, addr[0])
+		require.Error(t, err)
+	})
 
 	// The stored fee pool must be unchanged after the rejected attempt.
-	require.NotPanics(t, func() { app.DistrKeeper.GetFeePool(ctx) })
 	require.True(t, app.DistrKeeper.GetFeePool(ctx).CommunityPool.IsZero())
+	require.Equal(t, coins, app.BankKeeper.GetAllBalances(ctx, addr[0]))
+}
+
+func TestDistributeFromFeePoolRejectsOutOfRangeAmount(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	recipient := seiapp.AddTestAddrs(app, ctx, 1, sdk.ZeroInt())[0]
+	maxAmt := sdk.NewIntFromBigInt(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)))
+	coins := sdk.NewCoins(sdk.NewCoin("bigcoin", maxAmt))
+
+	require.NotPanics(t, func() {
+		err := app.DistrKeeper.DistributeFromFeePool(ctx, coins, recipient)
+		require.Error(t, err)
+	})
+	require.True(t, app.DistrKeeper.GetFeePool(ctx).CommunityPool.IsZero())
+	require.True(t, app.BankKeeper.GetAllBalances(ctx, recipient).IsZero())
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,32 @@ func TestDistributionCommunityTaxParamMigration(t *testing.T) {
 	testWrapper.App.RegisterUpgradeHandlers()
 	params := testWrapper.App.DistrKeeper.GetParams(testWrapper.Ctx)
 	testWrapper.Require().Equal(params.CommunityTax, sdk.NewDec(0))
+}
+
+func TestV67RemovesRetiredModuleVersions(t *testing.T) {
+	t.Setenv("UPGRADE_VERSION_LIST", "v6.7")
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	testWrapper.App.RegisterUpgradeHandlers()
+
+	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
+	versionMap[storekeys.IBCStoreKey] = 1
+	versionMap["capability"] = 1
+	versionMap["feegrant"] = 1
+	versionMap["transfer"] = 2
+	testWrapper.App.UpgradeKeeper.SetModuleVersionMap(testWrapper.Ctx, versionMap)
+
+	testWrapper.App.UpgradeKeeper.ApplyUpgrade(testWrapper.Ctx, types.Plan{
+		Name:   "v6.7",
+		Height: testWrapper.Ctx.BlockHeight(),
+	})
+
+	versionMap = testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
+	require.NotContains(t, versionMap, storekeys.IBCStoreKey)
+	require.NotContains(t, versionMap, "capability")
+	require.NotContains(t, versionMap, "feegrant")
+	require.NotContains(t, versionMap, "transfer")
 }
 
 func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {

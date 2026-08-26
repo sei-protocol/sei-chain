@@ -898,9 +898,47 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	if target > math.MaxUint32 {
 		return fmt.Errorf("rollback height target %d exceeds max uint32", target)
 	}
+	// Whether the state store can follow is settled before the commit store
+	// moves. A state store that can follow and then fails mid-rollback is an
+	// error, but one that cannot follow at all must not disable the command:
+	// rollback is what an operator reaches for when the node cannot make
+	// progress, and it rewound SC and Tendermint alone before SS could follow
+	// at all. That outcome is now announced instead of silent.
+	var ssRollback seidbtypes.Rollbackable
+	if rs.ssStore != nil {
+		var reason error
+		capable, ok := rs.ssStore.(seidbtypes.Rollbackable)
+		switch {
+		case !ok:
+			reason = fmt.Errorf("state store %T does not support rollback", rs.ssStore)
+		default:
+			ssRollback = capable
+			if validator, ok := rs.ssStore.(seidbtypes.RollbackValidator); ok {
+				reason = validator.ValidateRollback(target)
+			}
+		}
+		if reason != nil {
+			ssRollback = nil
+			warnStateStoreStaysAhead(target, rs.ssStore.GetLatestVersion(), reason)
+		}
+	}
 	err := rs.scStore.Rollback(target)
 	if err != nil {
 		return err
+	}
+	if ssRollback != nil {
+		// The commit store is already at the target here, and the caller rewinds
+		// Tendermint only after this returns, so a failure leaves three layers on
+		// two heights. It is recoverable rather than terminal: re-running the
+		// command takes the app-behind-Tendermint path and rewinds Tendermint,
+		// and the state store converges on its own if the failure landed after
+		// the directory swap, because the marker drives the next open. The
+		// pre-flight is what keeps this to an I/O failure rather than a plan the
+		// state store was never going to accept.
+		if err := ssRollback.Rollback(target); err != nil {
+			return fmt.Errorf("rollback state store to version %d: %w", target, err)
+		}
+		fmt.Printf("Rolled back SS to version %d\n", rs.ssStore.GetLatestVersion())
 	}
 	// We need to update the lastCommitInfo after rollback
 	if rs.scStore.Version() != 0 {
@@ -908,6 +946,17 @@ func (rs *Store) RollbackToVersion(target int64) error {
 		rs.adoptSCCommitInfo()
 	}
 	return nil
+}
+
+// warnStateStoreStaysAhead tells the operator that only part of the node moved.
+// Re-execution rewrites the keys the replayed blocks write, so the state store
+// heals when the chain replays the same blocks; the keys written only by the
+// discarded ones keep their old values and do not.
+func warnStateStoreStaysAhead(target, ssVersion int64, reason error) {
+	fmt.Printf("WARNING: state store rollback skipped: %v\n", reason)
+	fmt.Printf("WARNING: the commit store and Tendermint roll back to version %d while the state store stays at version %d\n",
+		target, ssVersion)
+	fmt.Printf("WARNING: rebuild the state store from state sync unless the chain replays the same blocks above version %d\n", target)
 }
 
 // getStoreByName performs a lookup of a StoreKey given a store name typically

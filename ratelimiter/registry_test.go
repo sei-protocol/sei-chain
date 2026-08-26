@@ -113,6 +113,41 @@ func TestAllow_RejectionRecordsMethodMetric(t *testing.T) {
 	require.True(t, found, "expected rpc_rate_limit_rejected_total metric")
 }
 
+func TestAllow_CometBFTRejectionRecordsMethodMetric(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	registryMetrics.rejectedCounter = must(provider.Meter("ratelimiter").Int64Counter(
+		"rpc_rate_limit_rejected_total",
+	))
+
+	r := mustNew(t, cfg(0.001, 1))
+	ip := "10.0.0.42"
+	require.True(t, r.Allow(t.Context(), ip, PlaneCometBFT, "status"))
+	require.False(t, r.Allow(t.Context(), ip, PlaneCometBFT, "tx_search"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	found := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "rpc_rate_limit_rejected_total" {
+				continue
+			}
+			sum := m.Data.(metricdata.Sum[int64])
+			require.Equal(t, int64(1), sum.DataPoints[0].Value)
+			attrs := sum.DataPoints[0].Attributes.ToSlice()
+			require.Contains(t, attrs, attribute.String("plane", PlaneCometBFT))
+			require.Contains(t, attrs, attribute.String("method_namespace", "tx_search"))
+			found = true
+		}
+	}
+	require.True(t, found, "expected rpc_rate_limit_rejected_total metric")
+}
+
 func TestAllow_IPv6_SamePrefixSharesBucket(t *testing.T) {
 	r := mustNew(t, cfg(0.001, 1))
 	require.True(t, r.Allow(t.Context(), "2001:db8::1", "evm", "eth_call"), "first address in /64 passes")

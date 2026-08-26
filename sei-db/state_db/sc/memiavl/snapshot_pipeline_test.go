@@ -145,7 +145,7 @@ func TestWriteSnapshotWithBuffer(t *testing.T) {
 			if tree.root == nil {
 				return 0, nil
 			}
-			if err := w.writeRecursive(tree.root); err != nil {
+			if err := w.writePostOrder(tree.root); err != nil {
 				return 0, err
 			}
 			return w.leafCounter, nil

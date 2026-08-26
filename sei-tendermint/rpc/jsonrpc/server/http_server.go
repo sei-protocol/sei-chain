@@ -196,6 +196,25 @@ func writeRPCResponse(w http.ResponseWriter, rsps ...rpctypes.RPCResponse) {
 	_, _ = w.Write(body)
 }
 
+// writeJSONRPCErrorWithStatus writes a JSON-RPC 2.0 error object for POST /
+// admission rejections. reqBody is best-effort parsed for the response id.
+func writeJSONRPCErrorWithStatus(w http.ResponseWriter, reqBody []byte, httpStatus int, code rpctypes.ErrorCode, format string, args ...interface{}) {
+	var req rpctypes.RPCRequest
+	if len(reqBody) > 0 {
+		_ = json.Unmarshal(reqBody, &req)
+	}
+	resp := req.MakeErrorf(code, format, args...)
+	body, err := json.Marshal(resp)
+	if err != nil {
+		logger.Error("Error encoding RPC response", "err", err)
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(httpStatus)
+	_, _ = w.Write(body)
+}
+
 //-----------------------------------------------------------------------------
 
 // recoverAndLogHandler wraps an HTTP handler, adding error logging.  If the

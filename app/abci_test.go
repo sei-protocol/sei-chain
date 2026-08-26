@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,18 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIBCModuleIsNotWired(t *testing.T) {
+	testApp := Setup(t, false, false, false)
+	_, basicWired := ModuleBasics["ibc"]
+	_, moduleWired := testApp.mm.Modules["ibc"]
+	require.False(t, basicWired)
+	require.False(t, moduleWired)
+	require.NotContains(t, testApp.mm.OrderInitGenesis, "ibc")
+	for _, typeURL := range testApp.interfaceRegistry.ListImplementations("cosmos.base.v1beta1.Msg") {
+		require.Falsef(t, strings.HasPrefix(typeURL, "/ibc."), "IBC message type remains registered: %s", typeURL)
+	}
+}
 
 // TestMigrationSubspaceRegistered verifies the generic "migration" params
 // subspace is wired with its key table so governance can edit
@@ -141,4 +154,29 @@ func TestMigrationBatchSizeAppliedAtBlockStart(t *testing.T) {
 	got, ok := a.rootStore.GetMigrationBatchSize()
 	require.True(t, ok)
 	require.Equal(t, 640, got, "BeginBlock must apply a param already in state when the block starts")
+}
+
+func TestIBCStoreQueriesAreUnavailable(t *testing.T) {
+	testApp := Setup(t, false, false, false)
+
+	for _, path := range []string{
+		"/store/ibc/key",
+		"/store/ibc/subspace",
+		"/store/transfer/key",
+		"/store/transfer/subspace",
+		"/store/capability/key",
+		"/store/capability/subspace",
+	} {
+		t.Run(path, func(t *testing.T) {
+			response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: path})
+			require.NoError(t, err)
+			require.Equal(t, "ibc", response.Codespace)
+			require.Equal(t, uint32(103), response.Code)
+			require.Equal(t, "ibc module is deprecated", response.Log)
+		})
+	}
+
+	response, err := testApp.Query(context.Background(), &abci.RequestQuery{Path: "/store/bank/key"})
+	require.NoError(t, err)
+	require.False(t, response.IsErr())
 }

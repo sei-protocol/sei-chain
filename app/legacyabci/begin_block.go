@@ -5,8 +5,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
@@ -22,22 +20,18 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 
-	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
 type BeginBlockKeepers struct {
-	EpochKeeper      *epochmodulekeeper.Keeper
-	UpgradeKeeper    *upgradekeeper.Keeper
-	CapabilityKeeper *capabilitykeeper.Keeper
-	DistrKeeper      *distrkeeper.Keeper
-	SlashingKeeper   *slashingkeeper.Keeper
-	EvidenceKeeper   *evidencekeeper.Keeper
-	StakingKeeper    *stakingkeeper.Keeper
-	IBCKeeper        *ibckeeper.Keeper
-	EvmKeeper        *evmkeeper.Keeper
+	EpochKeeper    *epochmodulekeeper.Keeper
+	UpgradeKeeper  *upgradekeeper.Keeper
+	DistrKeeper    *distrkeeper.Keeper
+	SlashingKeeper *slashingkeeper.Keeper
+	EvidenceKeeper *evidencekeeper.Keeper
+	StakingKeeper  *stakingkeeper.Keeper
+	EvmKeeper      *evmkeeper.Keeper
 }
 
 func BeginBlock(
@@ -56,19 +50,9 @@ func BeginBlock(
 
 	keepers.EpochKeeper.BeginBlock(ctx)
 	upgrade.BeginBlocker(*keepers.UpgradeKeeper, ctx)
-	capability.BeginBlocker(ctx, *keepers.CapabilityKeeper)
 	distribution.BeginBlocker(ctx, votes, *keepers.DistrKeeper)
 	slashing.BeginBlocker(ctx, votes, *keepers.SlashingKeeper)
 	evidence.BeginBlocker(ctx, byzantineValidators, *keepers.EvidenceKeeper)
 	staking.BeginBlocker(ctx, *keepers.StakingKeeper)
-	func() {
-		ibcStart := time.Now()
-		defer func() {
-			legacyAbciMetrics.ibcBeginBlockerDuration.Record(ctx.Context(), time.Since(ibcStart).Seconds())
-			// TODO(PLT-343): remove once ibc_begin_blocker_duration verified
-			telemetry.ModuleMeasureSince("ibc", ibcStart, telemetry.MetricKeyBeginBlocker)
-		}()
-		ibcclient.BeginBlocker(ctx, keepers.IBCKeeper.ClientKeeper)
-	}()
 	keepers.EvmKeeper.BeginBlock(ctx)
 }

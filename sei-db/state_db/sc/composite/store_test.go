@@ -2168,15 +2168,13 @@ func TestInitializeRejectsUnknownStoreNames(t *testing.T) {
 		"the valid name should not appear in the unknown-names list")
 }
 
-// TestInitializeAcceptsUnknownStoreNamesInMemiavlOnly is the
-// regression test for the sei-ibc-go simapp failure: downstream test
-// apps that mount more modules than seid (icahost / icacontroller)
-// must be able to run in MemiavlOnly. The PassthroughRouter installed
-// for that mode performs no name lookup, so Initialize must accept
-// arbitrary names. The test follows up by writing through one of
-// those non-canonical stores and reading the value back to confirm
-// the full ApplyChangeSets / Commit / Get path actually works against
-// memiavl for names outside keys.MemIAVLStoreKeys.
+// TestInitializeAcceptsUnknownStoreNamesInMemiavlOnly ensures downstream
+// apps that mount more modules than seid can run in MemiavlOnly. The
+// PassthroughRouter installed for that mode performs no name lookup, so
+// Initialize must accept arbitrary names. The test follows up by writing
+// through one of those non-canonical stores and reading the value back to
+// confirm the full ApplyChangeSets / Commit / Get path works against memiavl
+// for names outside keys.MemIAVLStoreKeys.
 func TestInitializeAcceptsUnknownStoreNamesInMemiavlOnly(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MemiavlOnly

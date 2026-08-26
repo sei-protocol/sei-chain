@@ -8,6 +8,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"golang.org/x/mod/semver"
 )
 
@@ -90,6 +91,18 @@ func (app *App) RegisterUpgradeHandlers() {
 				cp.Block.MaxGasWanted = 50000000 // 50 mil
 				app.StoreConsensusParams(ctx, cp)
 				return newVM, err
+			}
+
+			if upgradeName == "v6.7" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return nil, err
+				}
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, storekeys.IBCStoreKey)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, capabilityModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
+				return newVM, nil
 			}
 
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
