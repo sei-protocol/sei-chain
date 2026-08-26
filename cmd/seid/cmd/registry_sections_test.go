@@ -9,10 +9,12 @@ import (
 	// Linked so the checks below see the whole key space rather than the part this binary already
 	// reached. A section registers during its own package's initialisation, and these two register the
 	// node's and the application's configuration files; nothing else imports either yet, so without
-	// these the cross-section refusals are evaluated over a set neither file is in. A test import
-	// rather than a production one, because nothing consumes these sections yet.
-	_ "github.com/sei-protocol/sei-chain/config/cosmosbase"
-	_ "github.com/sei-protocol/sei-chain/config/tendermintbase"
+	// these the cross-section refusals are evaluated over a set neither file is in. Named rather than
+	// blank, so the assertion on the two root sections is what keeps them here: a dropped import
+	// stops compiling instead of quietly narrowing the union. Test imports rather than production
+	// ones, because nothing consumes these sections yet.
+	"github.com/sei-protocol/sei-chain/config/cosmosbase"
+	"github.com/sei-protocol/sei-chain/config/tendermintbase"
 )
 
 // TestEverySectionThisBinaryDeclaresIsUsable is the check no single section can make.
@@ -82,8 +84,17 @@ func TestNoRootKeyCollidesWithAnotherSectionsName(t *testing.T) {
 		}
 		roots = append(roots, s)
 	}
-	if len(roots) == 0 {
-		t.Fatal("no section declares keys at the root of a file, so this check holds for an empty set")
+	// Named rather than counted. Both configuration files put keys at their root, one section each, and
+	// a guard on the count passes when an import goes and the union quietly narrows to one file.
+	atRoot := map[string]bool{}
+	for _, root := range roots {
+		atRoot[root.Name] = true
+	}
+	for _, want := range []string{cosmosbase.BaseSectionName, tendermintbase.RootSectionName} {
+		if !atRoot[want] {
+			t.Fatalf("%s declares no keys at the root of its file, so this covers one file rather than "+
+				"the key space and a collision across the two would not be seen", want)
+		}
 	}
 	for _, root := range roots {
 		for _, key := range root.Keys {
