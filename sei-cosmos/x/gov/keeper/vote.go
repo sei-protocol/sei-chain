@@ -3,6 +3,9 @@ package keeper
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
@@ -81,8 +84,10 @@ func (keeper Keeper) GetArchivedTallyVotes(ctx sdk.Context, proposalID uint64, e
 
 // GetVote gets the vote from an address on a specific proposal
 func (keeper Keeper) GetVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress) (vote types.Vote, found bool) {
-	store := ctx.KVStore(keeper.storeKey)
-	bz := store.Get(types.VoteKey(proposalID, voterAddr))
+	store := keeper.visibleVotesStore(ctx, proposalID)
+	votesPrefix := types.VotesKey(proposalID)
+	voteKey := types.VoteKey(proposalID, voterAddr)
+	bz := store.Get(voteKey[len(votesPrefix):])
 	if bz == nil {
 		return vote, false
 	}
@@ -110,6 +115,20 @@ func (keeper Keeper) SetVote(ctx sdk.Context, vote types.Vote) {
 // IterateAllVotes iterates over the all the stored votes and performs a callback function
 func (keeper Keeper) IterateAllVotes(ctx sdk.Context, cb func(vote types.Vote) (stop bool)) {
 	store := ctx.KVStore(keeper.storeKey)
+	progressIterator := sdk.KVStorePrefixIterator(store, types.TallyProgressKeyPrefix)
+	for ; progressIterator.Valid(); progressIterator.Next() {
+		proposalID := types.GetProposalIDFromBytes(progressIterator.Key()[len(types.TallyProgressKeyPrefix):])
+		progress, found := keeper.getTallyProgress(ctx, proposalID)
+		if !found {
+			continue
+		}
+		if keeper.iterateVoteStore(prefix.NewStore(store, types.TallyVotesKey(proposalID, progress.Expedited)), cb) {
+			_ = progressIterator.Close()
+			return
+		}
+	}
+	_ = progressIterator.Close()
+
 	iterator := sdk.KVStorePrefixIterator(store, types.VotesKeyPrefix)
 
 	defer func() { _ = iterator.Close() }()
@@ -126,8 +145,11 @@ func (keeper Keeper) IterateAllVotes(ctx sdk.Context, cb func(vote types.Vote) (
 
 // IterateVotes iterates over the all the proposals votes and performs a callback function
 func (keeper Keeper) IterateVotes(ctx sdk.Context, proposalID uint64, cb func(vote types.Vote) (stop bool)) {
-	store := ctx.KVStore(keeper.storeKey)
-	iterator := sdk.KVStorePrefixIterator(store, types.VotesKey(proposalID))
+	keeper.iterateVoteStore(keeper.visibleVotesStore(ctx, proposalID), cb)
+}
+
+func (keeper Keeper) iterateVoteStore(store storetypes.KVStore, cb func(vote types.Vote) (stop bool)) bool {
+	iterator := store.Iterator(nil, nil)
 
 	defer func() { _ = iterator.Close() }()
 	for ; iterator.Valid(); iterator.Next() {
@@ -136,9 +158,60 @@ func (keeper Keeper) IterateVotes(ctx sdk.Context, proposalID uint64, cb func(vo
 		populateLegacyOption(&vote)
 
 		if cb(vote) {
-			break
+			return true
 		}
 	}
+	return false
+}
+
+func (keeper Keeper) visibleVotesStore(ctx sdk.Context, proposalID uint64) storetypes.KVStore {
+	store := ctx.KVStore(keeper.storeKey)
+	pending := prefix.NewStore(store, types.VotesKey(proposalID))
+	progress, found := keeper.getTallyProgress(ctx, proposalID)
+	if !found {
+		return pending
+	}
+
+	return visibleVotesStore{
+		KVStore:  pending,
+		archived: prefix.NewStore(store, types.TallyVotesKey(proposalID, progress.Expedited)),
+		storeKey: keeper.storeKey,
+	}
+}
+
+type visibleVotesStore struct {
+	storetypes.KVStore
+	archived storetypes.KVStore
+	storeKey sdk.StoreKey
+}
+
+func (store visibleVotesStore) Get(key []byte) []byte {
+	if value := store.KVStore.Get(key); value != nil {
+		return value
+	}
+	return store.archived.Get(key)
+}
+
+func (store visibleVotesStore) Has(key []byte) bool {
+	return store.KVStore.Has(key) || store.archived.Has(key)
+}
+
+func (store visibleVotesStore) Iterator(start, end []byte) storetypes.Iterator {
+	return cachekv.NewCacheMergeIterator(
+		store.archived.Iterator(start, end),
+		store.KVStore.Iterator(start, end),
+		true,
+		store.storeKey,
+	)
+}
+
+func (store visibleVotesStore) ReverseIterator(start, end []byte) storetypes.Iterator {
+	return cachekv.NewCacheMergeIterator(
+		store.archived.ReverseIterator(start, end),
+		store.KVStore.ReverseIterator(start, end),
+		false,
+		store.storeKey,
+	)
 }
 
 // populateLegacyOption adds graceful fallback of deprecated `Option` field, in case

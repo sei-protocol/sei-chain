@@ -140,18 +140,10 @@ For pseudocode purposes, here are the two function we will use to read or write 
   proposals that have reached the end of their voting period are advanced within
   the block's vote-processing budget.
 
-## Incremental tally state
-
-An expired proposal retains a tally accumulator, a cursor, and a snapshot of the
-bonded validators and tally parameters until all of its vote records have been
-processed. Processed votes move to a round-specific archive so an application-state
-export can reconstruct every vote while a tally is unfinished. New votes are rejected
-after the accumulator is created. Completed tally archives are removed incrementally
-under the same per-block vote-record budget.
-  To process a finished proposal, the application tallies the votes, computes the
-  votes of each validator and checks if every validator in the validator set has
-  voted. If the proposal is accepted, deposits are refunded. Finally, the proposal
-  content `Handler` is executed.
+To process a finished proposal, the application tallies the votes, computes the
+votes of each validator and checks if every validator in the validator set has
+voted. If the proposal is accepted, deposits are refunded. Finally, the proposal
+content `Handler` is executed.
 
 And the pseudocode for the `ProposalProcessingQueue`:
 
@@ -213,3 +205,21 @@ And the pseudocode for the `ProposalProcessingQueue`:
 
       store(Governance, <proposalID|'proposal'>, proposal)
 ```
+
+## Incremental tally state
+
+An expired proposal retains a tally accumulator, a cursor, and a snapshot of the
+bonded validators and tally parameters until all of its vote records have been
+processed. Processed votes move to a round-specific archive so an application-state
+export can reconstruct every vote while a tally is unfinished. New votes are rejected
+after the accumulator is created. Delegator deductions are capped by the validator's
+snapshotted shares, keeping every validator's contribution within its snapshotted
+voting-power budget if delegations change between tally blocks. Completed tally
+archives are removed incrementally under the same per-block vote-record budget, with
+part of that budget reserved so cleanup cannot be starved by unfinished tallies.
+
+Application-state export serializes all archived and pending votes, but not the
+in-progress accumulator. On import, an expired voting proposal starts a new tally from
+those votes and the imported staking and governance-parameter state. The accumulator
+is created during genesis initialization, so the proposal does not reopen for votes
+before its first `EndBlock`.

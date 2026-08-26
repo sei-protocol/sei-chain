@@ -16,6 +16,9 @@ var logger = seilog.NewLogger("cosmos", "x", "gov")
 // MaxVotesProcessedPerBlock is the governance vote-record budget shared by tallying and cleanup.
 const MaxVotesProcessedPerBlock = 1000
 
+// minTallyCleanupVotesPerBlock reserves part of the budget for completed tally archives.
+const minTallyCleanupVotesPerBlock = 100
+
 // EndBlocker expires governance proposals and advances bounded vote tally work.
 func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	endBlockerStart := time.Now()
@@ -54,6 +57,7 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	})
 
 	remainingVotes := MaxVotesProcessedPerBlock
+	remainingVotes -= keeper.CleanupTallyVotes(ctx, minTallyCleanupVotesPerBlock)
 
 	// fetch active proposals whose voting periods have ended (are passed the block time)
 	keeper.IterateActiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
