@@ -11,8 +11,8 @@ import (
 	"golang.org/x/mod/module"
 )
 
-// bannedUpstream lists original upstream modules that sei has forked into local
-// subdirectories. Neither go.mod nor go.sum should reference these.
+// bannedUpstream lists upstream modules that Sei does not depend on directly.
+// Most have local forks; IBC is retired.
 var bannedUpstream = []string{
 	"github.com/tendermint/tendermint",
 	"github.com/cosmos/cosmos-sdk",
@@ -37,7 +37,7 @@ func isBannedModule(modPath string) (banned string, ok bool) {
 }
 
 // TestGoMod_NoBannedDependencies ensures that go.mod require directives never
-// reference original upstream modules that sei has forked.
+// reference banned upstream modules.
 //
 // Module paths may carry a major-version suffix (e.g. github.com/cosmos/ibc-go/v6).
 // The check strips the suffix with module.SplitPathVersion before comparing,
@@ -54,13 +54,13 @@ func TestGoMod_NoBannedDependencies(t *testing.T) {
 
 	for _, req := range f.Require {
 		banned, ok := isBannedModule(req.Mod.Path)
-		require.Falsef(t, ok, "go.mod must not depend on %s (use local fork instead), but found: %s %s",
+		require.Falsef(t, ok, "go.mod must not depend on banned module %s, but found: %s %s",
 			banned, req.Mod.Path, req.Mod.Version)
 	}
 }
 
 // TestGoSum_NoBannedDependencies ensures that go.sum never contains checksums
-// for original upstream modules that sei has forked.
+// for banned upstream modules.
 func TestGoSum_NoBannedDependencies(t *testing.T) {
 	f, err := os.Open("go.sum")
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestGoSum_NoBannedDependencies(t *testing.T) {
 			continue
 		}
 		banned, ok := isBannedModule(modPath)
-		require.Falsef(t, ok, "go.sum must not reference %s (use local fork instead), but found: %s",
+		require.Falsef(t, ok, "go.sum must not reference banned module %s, but found: %s",
 			banned, line)
 	}
 	require.NoError(t, scanner.Err())
