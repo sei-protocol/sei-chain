@@ -230,8 +230,10 @@ func rpcDefaults(mode registry.Mode) any { return *forMode(mode).RPC }
 
 // consensusDefaults is what a generated file carries for the consensus section.
 //
-// The same values for every mode: the timings have to agree across the validator set for it to reach a
-// decision.
+// The same values for every mode: nothing in the binary derives one of these from a node kind. What this
+// section declares is a log path, a proposer's own empty-block policy, a gossip mode, two reactor sleeps
+// and a local restart check. The timings that do have to agree across the validator set are the paths
+// removedSettings leaves out.
 func consensusDefaults(mode registry.Mode) any { return *forMode(mode).Consensus }
 
 // mempoolDefaults is what a generated file carries for the mempool section.
