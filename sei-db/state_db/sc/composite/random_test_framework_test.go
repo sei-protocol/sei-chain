@@ -572,7 +572,7 @@ func simulateBlocks(
 
 		require.NoError(t, cs.ApplyChangeSets(cset), "ApplyChangeSets")
 		oracle.apply(cset)
-		version, err := cs.Commit()
+		version, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err, "Commit")
 		require.Equal(t, startVersion+1, version, "Commit must advance the version by exactly one")
 
@@ -1246,7 +1246,7 @@ func verifyCommitInfo(t *testing.T, cs *CompositeCommitStore, expectLattice bool
 	require.NotNil(t, last)
 	require.Equal(t, expectLattice, containsLatticeStoreInfo(last.StoreInfos),
 		"evm_lattice presence in LastCommitInfo")
-	working := cs.WorkingCommitInfo()
+	working := cs.WorkingCommitInfo(cs.Version() + 1)
 	require.NotNil(t, working)
 	require.Equal(t, expectLattice, containsLatticeStoreInfo(working.StoreInfos),
 		"evm_lattice presence in WorkingCommitInfo")
@@ -1391,7 +1391,7 @@ func seedMigrationSentinels(t *testing.T, cs *CompositeCommitStore, oracle *stor
 	}
 	require.NoError(t, cs.ApplyChangeSets(cset), "ApplyChangeSets(sentinels)")
 	oracle.apply(cset)
-	version, err := cs.Commit()
+	version, err := cs.Commit(cs.Version() + 1)
 	require.NoError(t, err, "Commit(sentinels)")
 	require.Equal(t, startVersion+1, version)
 }

@@ -8,6 +8,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -171,33 +172,49 @@ func writeLocalMetaToBatch(
 	moduleHashes map[string]*lthash.LtHash,
 	moduleStats map[string]lthash.ModuleStats,
 ) error {
+	pairs, err := encodeLocalMeta(version, ltHash, moduleHashes, moduleStats)
+	if err != nil {
+		return err
+	}
+	for _, pair := range pairs {
+		if err := batch.Set(pair.Key, pair.Value); err != nil {
+			return fmt.Errorf("set %q: %w", pair.Key, err)
+		}
+	}
+	return nil
+}
+
+// encodeLocalMeta encodes one data database's LocalMeta as reserved-prefix key-value pairs, for a
+// caller to hand to Snapshot.Finalize so they land in the same atomic batch as that version's diff.
+//
+// The pairs are the committed version, the per-DB root LtHash, and a hash plus a stats entry per
+// module. It rejects a nil ltHash.
+func encodeLocalMeta(
+	version int64,
+	ltHash *lthash.LtHash,
+	moduleHashes map[string]*lthash.LtHash,
+	moduleStats map[string]lthash.ModuleStats,
+) ([]*proto.KVPair, error) {
 	if ltHash == nil {
 		// The version and the root must be co-present on disk. deriveGlobalState sums the persisted
 		// per-DB roots into the store root, and hydratePerDBState substitutes the identity for a DB
 		// that records none — so a DB carrying a version without a root would contribute nothing to
 		// the store root while holding data, silently omitting its keys from the AppHash.
-		return fmt.Errorf("flatkv: refusing to write metadata for version %d with no root hash", version)
+		return nil, fmt.Errorf("flatkv: refusing to write metadata for version %d with no root hash", version)
 	}
-	if err := batch.Set(ktype.MetaVersionKey, versionToBytes(version)); err != nil {
-		return fmt.Errorf("set meta version: %w", err)
-	}
-	if err := batch.Set(ktype.MetaLtHashKey, ltHash.Marshal()); err != nil {
-		return fmt.Errorf("set meta hash: %w", err)
-	}
+	pairs := make([]*proto.KVPair, 0, 2+len(moduleHashes)+len(moduleStats))
+	pairs = append(pairs, &proto.KVPair{Key: ktype.MetaVersionKey, Value: versionToBytes(version)})
+	pairs = append(pairs, &proto.KVPair{Key: ktype.MetaLtHashKey, Value: ltHash.Marshal()})
 	for module, h := range moduleHashes {
 		if h == nil {
 			continue
 		}
-		if err := batch.Set(ktype.ModuleLtHashKey(module), h.Marshal()); err != nil {
-			return fmt.Errorf("set module %q meta hash: %w", module, err)
-		}
+		pairs = append(pairs, &proto.KVPair{Key: ktype.ModuleLtHashKey(module), Value: h.Marshal()})
 	}
 	for module, st := range moduleStats {
-		if err := batch.Set(ktype.ModuleStatsKey(module), st.Marshal()); err != nil {
-			return fmt.Errorf("set module %q stats: %w", module, err)
-		}
+		pairs = append(pairs, &proto.KVPair{Key: ktype.ModuleStatsKey(module), Value: st.Marshal()})
 	}
-	return nil
+	return pairs, nil
 }
 
 // validatePerModuleMetadata enforces the load-time invariant that a persisted
@@ -313,16 +330,12 @@ func newPerDBModuleStatsMap() map[string]map[string]lthash.ModuleStats {
 // valid on a truly fresh store (committedVersion == 0 and no prior commits),
 // rejected on read-only stores, and persists durably across restart.
 //
-// Implementation notes:
-//   - We persist version = initialVersion - 1 to every per-DB LocalMeta, so
-//     Commit(initialVersion) is ahead of the current watermark.
-//   - The four writes are not atomic with one another. A crash partway through
-//     leaves some DBs seeded and some not, which the open path recognizes as an
-//     interrupted initialization and discards (see checkDataDBAlignment); the
-//     caller then re-seeds. A retry with any initialVersion is therefore valid,
-//     not only the one that was interrupted.
-//   - LtHashes stay at their zero values (lthash.New()) — a freshly seeded
-//     store has no data, so committed/working LtHashes remain the identity.
+// It records initialVersion-1 as the height every database has reached, so Commit(initialVersion) is
+// the next contiguous block. LtHashes stay at their zero values: a freshly seeded store holds no data.
+//
+// The per-database writes are atomic individually but not with one another, so a crash partway through
+// leaves a torn seed. The open path discards one, which makes a retry with any initialVersion valid and
+// not only the one that was interrupted.
 func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	if s.readOnly {
 		return errReadOnly
@@ -334,36 +347,40 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 		return fmt.Errorf("flatkv: SetInitialVersion can only be called on a fresh store; committedVersion=%d",
 			s.committedVersion)
 	}
-	if s.miscDB == nil {
+	if s.isClosed() {
 		return fmt.Errorf("flatkv: SetInitialVersion called before LoadLatest")
 	}
 
 	seededVersion := initialVersion - 1
 
-	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
-	for _, ndb := range s.namedDataDBs() {
-		ltHash := s.perDBWorkingLtHash[ndb.dir]
-		moduleHashes := s.perDBModuleWorkingLtHash[ndb.dir]
-		moduleStats := s.perDBModuleWorkingStats[ndb.dir]
-		batch := ndb.db.NewBatch()
-		if err := writeLocalMetaToBatch(batch, seededVersion, ltHash, moduleHashes, moduleStats); err != nil {
-			_ = batch.Close()
-			return fmt.Errorf("flatkv: SetInitialVersion: prepare %s local meta: %w", ndb.dir, err)
+	for _, dir := range dataDBDirs {
+		if s.perDBWorkingLtHash[dir] == nil {
+			s.perDBWorkingLtHash[dir] = lthash.New()
 		}
-		if err := batch.Commit(syncOpt); err != nil {
-			_ = batch.Close()
-			return fmt.Errorf("flatkv: SetInitialVersion: commit %s local meta: %w", ndb.dir, err)
-		}
-		_ = batch.Close()
-		s.localMeta[ndb.dir] = &ktype.LocalMeta{
+	}
+
+	if err := s.sealSeededVersion(seededVersion); err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: seal seeded version: %w", err)
+	}
+
+	for _, dir := range dataDBDirs {
+		s.localMeta[dir] = &ktype.LocalMeta{
 			CommittedVersion: seededVersion,
-			LtHash:           ltHash.Clone(),
-			ModuleLtHashes:   cloneModuleHashes(moduleHashes),
-			ModuleStats:      cloneModuleStats(moduleStats),
+			LtHash:           s.perDBWorkingLtHash[dir].Clone(),
+			ModuleLtHashes:   cloneModuleHashes(s.perDBModuleWorkingLtHash[dir]),
+			ModuleStats:      cloneModuleStats(s.perDBModuleWorkingStats[dir]),
 		}
 	}
 
 	s.committedVersion = seededVersion
+
+	// The seal only stages the records; the engines flush asynchronously. Wait for them so the seed is
+	// durable across a restart, as this method promises. For a non-genesis seed the snapshot below supplies
+	// the same barrier, but it does not run at genesis.
+	if err := s.flushLatestVersion(); err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: flush seeded version: %w", err)
+	}
+
 	if seededVersion > 0 {
 		if err := s.WriteSnapshot(""); err != nil {
 			return fmt.Errorf("flatkv: SetInitialVersion: write seeded snapshot: %w", err)

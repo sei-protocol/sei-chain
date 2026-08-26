@@ -8,43 +8,54 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSnapshotSetHashThenReleaseHappyPath(t *testing.T) {
+func TestSnapshotFinalizeThenReleaseHappyPath(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 	require.NoError(t, snap.Release())
 }
 
-func TestSnapshotSetHashNilFails(t *testing.T) {
+// A consumer with nothing to record still has to finalize, so an empty write set is legal: it is
+// finalization, not the metadata, that makes a snapshot flushable.
+func TestSnapshotFinalizeWithNoWritesIsLegal(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
+	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.Error(t, snap.SetHash(nil))
-	hashAndRelease(t, snap) // clean up with a valid hash
+
+	require.NoError(t, snap.Finalize(nil))
+	awaitFlushed(t, snap, time.Second)
+	require.NoError(t, snap.Release())
+
+	db := engine.(*snapshotEngine).db.(*testDB)
+	val, ok := db.get("k")
+	require.True(t, ok, "an empty finalization must still let the diff flush")
+	require.Equal(t, []byte("v"), val)
 }
 
-func TestSnapshotSetHashTwiceFails(t *testing.T) {
+func TestSnapshotFinalizeTwiceFails(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
-	require.Error(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
+	require.Error(t, snap.Finalize(hashWrites(testHash)))
 	require.NoError(t, snap.Release())
 }
 
-func TestSnapshotReleaseWithoutHashIsFatal(t *testing.T) {
+func TestSnapshotReleaseWithoutFinalizeIsFatal(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.Error(t, snap.Release(), "releasing the final reservation on an unhashed snapshot must fail")
+	require.Error(t, snap.Release(),
+		"releasing the final reservation on an unfinalized snapshot must fail")
 }
 
 func TestSnapshotDoubleReleaseFails(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 	require.NoError(t, snap.Release())
 	require.Error(t, snap.Release())
 }
@@ -56,7 +67,7 @@ func TestSnapshotReserveExtendsLifetime(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, snap.Reserve()) // refCount = 2
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 	require.NoError(t, snap.Release()) // refCount = 1, still alive
 
 	val, found, err := snap.Get([]byte("k"), false)
@@ -67,60 +78,7 @@ func TestSnapshotReserveExtendsLifetime(t *testing.T) {
 	require.NoError(t, snap.Release()) // refCount = 0
 }
 
-func TestSnapshotAwaitHashReturnsImmediatelyIfSet(t *testing.T) {
-	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
-	snap, err := engine.Commit()
-	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
-
-	got, err := snap.AwaitHash(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, testHash, got)
-	require.NoError(t, snap.Release())
-}
-
-func TestSnapshotAwaitHashBlocksUntilSet(t *testing.T) {
-	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
-	snap, err := engine.Commit()
-	require.NoError(t, err)
-
-	got := make(chan []byte, 1)
-	go func() {
-		h, e := snap.AwaitHash(context.Background())
-		require.NoError(t, e)
-		got <- h
-	}()
-
-	select {
-	case <-got:
-		t.Fatal("AwaitHash returned before SetHash")
-	case <-time.After(30 * time.Millisecond):
-	}
-
-	require.NoError(t, snap.SetHash(testHash))
-	select {
-	case h := <-got:
-		require.Equal(t, testHash, h)
-	case <-time.After(time.Second):
-		t.Fatal("AwaitHash did not unblock after SetHash")
-	}
-	require.NoError(t, snap.Release())
-}
-
-func TestSnapshotAwaitHashContextCancelled(t *testing.T) {
-	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
-	snap, err := engine.Commit()
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err = snap.AwaitHash(ctx)
-	require.Error(t, err)
-
-	hashAndRelease(t, snap)
-}
-
-func TestSnapshotSetHashGatesFlush(t *testing.T) {
+func TestSnapshotFinalizeGatesFlush(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
 	db := engine.(*snapshotEngine).db.(*testDB)
 
@@ -128,11 +86,11 @@ func TestSnapshotSetHashGatesFlush(t *testing.T) {
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 
-	// Without SetHash, nothing may flush.
+	// Without Finalize, nothing may flush.
 	require.Never(t, func() bool { return db.has("k") }, 40*time.Millisecond, 5*time.Millisecond,
-		"unhashed snapshot must not flush")
+		"unfinalized snapshot must not flush")
 
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 	awaitFlushed(t, snap, time.Second)
 	require.NoError(t, snap.Release())
 
@@ -150,7 +108,7 @@ func TestSnapshotAwaitFlushContextCancelled(t *testing.T) {
 	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	snap, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -165,7 +123,7 @@ func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
 	snap, err := engine.Commit()
 	require.NoError(t, err)
 	ver := snap.(*snapshotImpl).version
-	hashAndRelease(t, snap)
+	finalizeAndRelease(t, snap)
 	awaitRetired(t, engine, ver)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -184,14 +142,14 @@ func TestBackpressureBlocksAndUnblocksOnFlush(t *testing.T) {
 
 	// Accumulate more unflushed-but-eligible versions than MaxUnflushedVersions (flush is stalled).
 	for i := 0; i < 3; i++ {
-		commitAndHashRelease(t, engine)
+		commitFinalizeRelease(t, engine)
 	}
 
 	blocked := make(chan struct{})
 	go func() {
 		snap, err := engine.Commit()
 		require.NoError(t, err)
-		hashAndRelease(t, snap)
+		finalizeAndRelease(t, snap)
 		close(blocked)
 	}()
 
@@ -221,22 +179,22 @@ func TestHeldReservationDoesNotTriggerCommitBackpressure(t *testing.T) {
 	cfg.MaxUnflushedVersions = 2
 	engine := newTestEngineWithConfig(t, cfg, db)
 
-	// v1 is hashed and flushed but never released: it cannot retire, so no later version can
+	// v1 is finalized and flushed but never released: it cannot retire, so no later version can
 	// flush until it is released.
 	require.NoError(t, engine.Set([]byte("k1"), []byte("v1")))
 	snap1, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, snap1.SetHash(testHash))
+	require.NoError(t, snap1.Finalize(hashWrites(testHash)))
 	awaitFlushed(t, snap1, 2*time.Second)
 
-	// Accumulate well more than MaxUnflushedVersions hashed-and-released versions behind the
+	// Accumulate well more than MaxUnflushedVersions finalized-and-released versions behind the
 	// held snapshot. None of them are flushable, so none may count toward backpressure and no
 	// Commit may block.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		for i := 0; i < 5; i++ {
-			commitAndHashRelease(t, engine)
+			commitFinalizeRelease(t, engine)
 		}
 	}()
 	select {
@@ -251,20 +209,22 @@ func TestHeldReservationDoesNotTriggerCommitBackpressure(t *testing.T) {
 	require.True(t, db.has("k1"))
 }
 
-func TestCloseLeavesInjectedResourcesOpen(t *testing.T) {
+// The engine owns the database it was constructed with and closes it, so that nothing can keep reading
+// or writing a database whose staging and cache have gone away. The pools stay open: they are shared
+// with other engines and belong to the caller.
+func TestCloseClosesOwnedDBAndLeavesPoolsOpen(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 	require.NoError(t, engine.Close())
-	require.False(t, db.isClosed(),
-		"the DB is injected and caller-owned; the engine must not close it")
+	require.True(t, db.isClosed(), "the engine owns the DB and must close it")
 }
 
 func TestCloseDoesNotFlush(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 
-	// v1 is never hashed, which deterministically keeps the background flusher away from v2:
-	// the flush frontier stops at the first unhashed version.
+	// v1 is never finalized, which deterministically keeps the background flusher away from v2:
+	// the flush frontier stops at the first unfinalized version.
 	require.NoError(t, engine.Set([]byte("k1"), []byte("v1")))
 	_, err := engine.Commit()
 	require.NoError(t, err)
@@ -272,12 +232,12 @@ func TestCloseDoesNotFlush(t *testing.T) {
 	require.NoError(t, engine.Set([]byte("k2"), []byte("v2")))
 	snap2, err := engine.Commit()
 	require.NoError(t, err)
-	hashAndRelease(t, snap2)
+	finalizeAndRelease(t, snap2)
 
-	// Close abandons everything unflushed — hashed or not. Recovery is the upstream WAL's job.
+	// Close abandons everything unflushed — finalized or not. Recovery is the upstream WAL's job.
 	require.NoError(t, engine.Close())
-	require.False(t, db.has("k1"), "Close must not flush unhashed snapshots")
-	require.False(t, db.has("k2"), "Close must not flush hashed snapshots either")
+	require.False(t, db.has("k1"), "Close must not flush unfinalized snapshots")
+	require.False(t, db.has("k2"), "Close must not flush finalized snapshots either")
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
@@ -287,13 +247,13 @@ func TestCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, engine.Close(), "a second Close must be a safe no-op")
 }
 
-func TestCloseSkipsUnhashedSnapshot(t *testing.T) {
+func TestCloseSkipsUnfinalizedSnapshot(t *testing.T) {
 	db := newTestDB(nil)
 	engine := newTestEngineWithDB(t, db, 1, 4096)
 	require.NoError(t, engine.Set([]byte("k"), []byte("v")))
 	_, err := engine.Commit()
 	require.NoError(t, err)
-	// Never hashed.
+	// Never finalized.
 	require.NoError(t, engine.Close())
-	require.False(t, db.has("k"), "Close must not flush unhashed snapshots")
+	require.False(t, db.has("k"), "Close must not flush unfinalized snapshots")
 }
