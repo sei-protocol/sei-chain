@@ -26,36 +26,28 @@ const (
 
 // notWritableInThisFile are root paths this section does not declare.
 //
-// Neither is a setting an operator can usefully write here. The home directory is where this file is found,
-// so a value inside it would be the file naming its own location, and the command line already carries it.
-// The node mode is the same fact the file states at the top under its own name, and declaring a second
-// spelling would let the two disagree, with the resolution answering for one and the node reading the
-// other.
+// Neither is a setting an operator can usefully write here. The home directory is where this file is
+// found, so a value inside it would be the file naming its own location, and the command line already
+// carries it. The node kind is the fact the file states at the top under its own name, and a second
+// spelling would let the two disagree.
+//
+// A generated file does state the node kind, so a reader handed a decoded file finds no section declaring
+// it and reports it beside an operator's typos. Exempting that one key belongs to the reader: the kind of
+// node is what a resolution is asked about, so a declared answer for it would be the question.
 var notWritableInThisFile = []string{"home", "mode"}
 
-// The node kind is the one of those two a reader has to account for.
-//
-// A generated file states it at the top, so a caller that hands a decoded file to the resolver finds no
-// section declaring it and files it beside an operator's typos. Declaring it is not the answer: the kind
-// of node is what the resolution is asked about, so a declared answer for it would be the question. The
-// reader is where this is settled, by exempting this one key from what it reports as unknown, and saying
-// so here is what stops that being rediscovered.
-
-// removedFromTheNode are the root paths this section does not declare because nothing reads them.
-//
-// The node marks each field deprecated and nothing in the tree reads any of them: out-of-process ABCI
-// was removed, and so was peer filtering through it. The generated file writes twelve root keys and none
-// of these three. Two of them state an affirmative value in the node's own defaults, an address and a
-// transport name, so declaring them put settings for a transport the binary no longer has into the key
-// space a writer would render from.
+// removedFromTheNode are the root paths this section does not declare because nothing reads them. The
+// node marks each field deprecated, out-of-process ABCI having been removed along with peer filtering
+// through it, and two of the three state an address and a transport name that a writer would otherwise
+// render into new files.
 var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers"}
 
 // nodeRootSchema declares the keys that sit at the root of the node's configuration file.
 //
 // The node's own top-level type carries these and the nine tables both, so declaring against it directly
-// would declare every table's keys a second time. This squashes the same base group that type squashes, so
-// fourteen spellings still come from the node's own tags, and restates only the two fields it holds beside
-// that group. A test holds those two against it.
+// would declare every table's keys a second time. This squashes the same base group that type squashes,
+// so fourteen spellings still come from the node's own tags, and restates only the two fields it holds
+// beside that group. A test holds those two against it.
 type nodeRootSchema struct {
 	tmcfg.BaseConfig `mapstructure:",squash"`
 
@@ -63,24 +55,8 @@ type nodeRootSchema struct {
 	HashVaultDisabledUnsafe bool   `mapstructure:"hash-vault-disabled-unsafe"`
 }
 
-// removedSettings are the consensus paths this section does not declare.
-//
-// Every one is a setting the node removed, and the struct marks each field deprecated. The fields are kept
-// so a decode can tell that an operator set one, and declaring any of them would offer a key that changes
-// nothing about how the node runs.
-//
-// The node marks them two ways. Most carry the prefix on the field name; the leader election one carries
-// the standard comment instead, which is why it went on being declared as a settable key. Its declared
-// value was the affirmative one, so an operator reading a generated file would find the behaviour named
-// and switchable and neither is true.
-//
-// The reader has a check that names the removed settings an operator wrote, and it reaches half of them.
-// Most of the rest are held on a value rather than a pointer, so a written zero cannot be told from an
-// unwritten field, though a written value that is not the zero can be. One is a pointer the check could
-// name as cheaply as the eight pointers it already names, and simply does not. Which ones those are, and
-// which of the two reasons each has, is recorded beside the check that measures it rather than counted
-// twice here. Nothing calls the check in any case, so leaving these out of the file is what an operator
-// actually gets.
+// removedSettings are the consensus paths this section does not declare. Each names a field the node's
+// struct marks deprecated, so the key would offer a setting that a written value cannot change.
 var removedSettings = []string{
 	"unsafe-overrides-enabled",
 	"unsafe-propose-timeout-override",
@@ -100,33 +76,9 @@ var removedSettings = []string{
 	"stateless-leader-election",
 }
 
-// neverReachTheMempool are the mempool paths this section does not declare.
-//
-// No code reads them. That is the criterion, and it is a stronger one than the marking on the fields,
-// where two of the three are marked dead at their destination and the third carries only a note about an
-// upstream issue. Declaring any of them would offer a key that changes nothing about how the node runs.
-//
-// A generated file writes all three, which is the one place this section departs from the other two that
-// leave paths out. The peer section's dial hook and the sixteen removed consensus settings are each
-// unread and unwritten, so for them the two facts agree and either would serve as the rule. Here they
-// disagree, and the criterion is the reader: a key nothing reads is not a setting, whoever writes it into
-// a file. What that costs is an operator who has one of these lines being told it reaches nothing, which
-// is the true answer and the reason it is worth saying rather than resolving in silence.
-//
-// It is also why the peer seeds go the other way despite the same shape. That key is read, so refusing it
-// would take a live setting out of the space; these are not, so declaring them would put three dead ones
-// in.
-//
-// Two paths carry a written mempool value into the running node. The conversion into the mempool's own
-// configuration is one, and a test drives it. The transaction reactor is the other, reading several
-// settings straight off this struct without that conversion, and it sits behind an internal package that
-// this one cannot import, so that half is established by reading it rather than by a test. Naming only
-// the conversion would also have made the rule narrower than the list: three settings it does not carry
-// are declared, and correctly, because the reactor reads them.
-//
-// The pair named almost the same as two of these is live and does reach the mempool. That near-collision
-// is why this is measured rather than reasoned about: a transaction lifetime is a setting and the pending
-// lifetime beside it is not.
+// neverReachTheMempool are the mempool paths this section does not declare. No code reads them, so
+// declaring one would offer a setting that changes nothing, even though a generated file writes all
+// three. The similarly spelled ttl-duration and ttl-num-blocks are live and stay declared.
 var neverReachTheMempool = []string{
 	unreadAndUnmarked,
 	"pending-ttl-duration",
@@ -277,15 +229,14 @@ func rpcDefaults(mode registry.Mode) any { return *forMode(mode).RPC }
 
 // consensusDefaults is what a generated file carries for the consensus section.
 //
-// The same values for every mode. How long a node waits at each step of a round has to agree across the
-// validator set for the set to reach a decision, so a value that followed from the kind of node asking
-// would be this package proposing that they disagree.
+// The same values for every mode: the timings have to agree across the validator set for it to reach a
+// decision.
 func consensusDefaults(mode registry.Mode) any { return *forMode(mode).Consensus }
 
 // mempoolDefaults is what a generated file carries for the mempool section.
 //
-// The same values for every mode. What a node holds before a transaction is decided is a limit on its own
-// memory and bandwidth, and nothing in the binary makes one follow from what kind of node is asking.
+// The same values for every mode: these limits bound one node's own memory and bandwidth, and nothing in
+// the binary derives one from a node kind.
 func mempoolDefaults(mode registry.Mode) any { return *forMode(mode).Mempool }
 
 // stateSyncDefaults is what a generated file carries for the state sync section.

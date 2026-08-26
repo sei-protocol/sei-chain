@@ -62,24 +62,16 @@ func TestEveryDeclaredKeyResolvesForEveryMode(t *testing.T) {
 	}
 }
 
-// TestNoRootKeyCollidesWithAnotherSectionsName covers the collision the registry does not refuse.
+// TestNoRootKeyCollidesWithAnotherSectionsName covers the collision the registry does not refuse. Within
+// one file, a key at the top that is also a table's name cannot be written: no file holds both, so one of
+// the two settings is unreachable and nothing says which.
 //
-// A key at the top of a file that is also a section's name cannot be written: no file holds both a value
-// for that name and a table under it, so one of the two settings is unreachable and nothing says which.
+// Asked here because two packages declare keys at a root, one per configuration file, and a check inside
+// either sees only its own.
 //
-// Asked here because it is a property of the whole key space and of no single section. Two packages
-// declare keys at a root, one per configuration file, and a check inside either sees only its own.
-//
-// Any match fails, including one that spans the two files and is therefore harmless on its own. A root
-// key in one file against a table name in the other is two settings an operator can write, in two places,
-// so nothing is unreachable; the reason it still fails is that telling the two cases apart would need a
-// section to state which file it belongs to, and it does not. Rather than add that, the rule here is the
-// stronger one: a name is a table's or a root key's, once, across the whole key space.
-//
-// The rule costs nothing while nothing matches, and this test passing is that statement rather than a
-// count written beside it. Reusing a name deliberately means changing this test and saying why, which is
-// the point: the alternative is a rule nothing states, and a collision inside one file reaching an
-// operator as a setting that silently cannot be written.
+// Any reused name fails, including a pair spanning the two files, where both settings are in fact
+// writable. Telling the two cases apart needs a section to state which file it belongs to, and none does,
+// so the rule is the stronger one: a name is a table's or a root key's, once, across the key space.
 func TestNoRootKeyCollidesWithAnotherSectionsName(t *testing.T) {
 	tables := map[string]bool{}
 	var roots []registry.Section

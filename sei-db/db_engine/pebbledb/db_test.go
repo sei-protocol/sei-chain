@@ -13,7 +13,7 @@ import (
 //
 // It used to run fn twice — once with the read-through cache warm and once with it disabled — so that
 // cache-sensitive tests exercised both paths. That cache layer is gone: caching now lives above the
-// storage layer in the snapshot engine, so there is a single mode and this is a plain fixture.
+// storage layer in the view manager, so there is a single mode and this is a plain fixture.
 func withTestConfig(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig)) {
 	fn(t, DefaultTestConfig(t))
 }

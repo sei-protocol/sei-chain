@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -37,7 +37,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		)
 	}
 
-	// verifyPersistedDBMetadata reads the databases rather than the stores, so whatever the engines have
+	// verifyPersistedDBMetadata reads the databases rather than the stores, so whatever the view managers have
 	// staged has to reach pebble before it can see it.
 	if err := cs.flushLatestVersion(); err != nil {
 		return fmt.Errorf("VerifyLtHash: flush before reading persisted metadata: %w", err)
@@ -79,7 +79,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 // comparable to the maintained per-module metadata. Module membership uses the
 // same physical-key routing the write path uses.
 func scanStoreByModule(
-	store snapshot.SnapshotEngine,
+	store view.ViewManager,
 ) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
 	iter, err := store.Iterator(nil)
 	if err != nil {

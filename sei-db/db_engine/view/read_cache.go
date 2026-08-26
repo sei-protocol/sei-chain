@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"context"
@@ -29,20 +29,20 @@ for converting to a RW lock:
 */
 
 // readCache is a read-through cache over the backing DB. It knows nothing about versions or
-// snapshots; the shard resolves versioned data first and consults the cache only for keys with no
+// views; the shard resolves versioned data first and consults the cache only for keys with no
 // in-memory override.
 //
-// A failed DB read is fatal: the cache bricks the engine, which takes every shard out of service so
+// A failed DB read is fatal: the cache bricks the manager, which takes every shard out of service so
 // no further reads are served (see outOfServiceErr).
 //
 // The cache is a passive component of its shard and shares the shard's mutex: it holds no lock
 // of its own. Methods with the Locked postfix require the shared lock to be held and never
 // block; resolve and resolveBatch run without the lock and may block on DB reads; the
 // background read-completion paths (injectValue, bulkInjectValues) acquire the lock themselves
-// for a single self-contained section each. Keeping one mutex preserves the engine's
+// for a single self-contained section each. Keeping one mutex preserves the manager's
 // single-lock-grab read path.
 type readCache struct {
-	// Cancelled when the engine shuts down; interrupts blocked waits on in-flight reads.
+	// Cancelled when the manager shuts down; interrupts blocked waits on in-flight reads.
 	ctx context.Context
 
 	// The underlying key-value database.
@@ -54,25 +54,25 @@ type readCache struct {
 	// The shard's mutex, shared with this cache (see the type doc).
 	lock *sync.Mutex
 
-	// Maps the context cancellation observed by a blocked read to the engine's shutdown error:
-	// the latched fatal error, or ErrEngineClosed on a clean close. Blocked reads select on ctx,
-	// which is cancelled only when the engine shuts down, and the Close contract requires the
-	// error released to such callers to wrap ErrEngineClosed or the fatal error.
+	// Maps the context cancellation observed by a blocked read to the manager's shutdown error:
+	// the latched fatal error, or ErrViewManagerClosed on a clean close. Blocked reads select on ctx,
+	// which is cancelled only when the manager shuts down, and the Close contract requires the
+	// error released to such callers to wrap ErrViewManagerClosed or the fatal error.
 	shutdownError func() error
 
-	// Reports a failed DB read to the engine, which bricks and stops serving reads. Called
-	// without the shard lock held, since it acquires the engine's versionLock.
+	// Reports a failed DB read to the manager, which bricks and stops serving reads. Called
+	// without the shard lock held, since it acquires the manager's versionLock.
 	reportReadFailure func(error)
 
 	// The failure that took this cache out of service, or nil while it is healthy. Set when the
-	// engine bricks — for any reason, not only a failed read of this shard — after which the shard
-	// refuses reads rather than serving data the engine can no longer vouch for.
+	// manager bricks — for any reason, not only a failed read of this shard — after which the shard
+	// refuses reads rather than serving data the manager can no longer vouch for.
 	//
 	// Guarded by the shared lock.
 	outOfServiceErr error
 
-	// SnapshotEngine-level metrics. Nil-safe; if nil, no metrics are recorded.
-	metrics *SnapshotEngineMetrics
+	// ViewManager-level metrics. Nil-safe; if nil, no metrics are recorded.
+	metrics *ViewManagerMetrics
 
 	// The estimated bookkeeping overhead per entry, in bytes, counted toward the size budget.
 	overheadPerEntry uint64
@@ -109,7 +109,7 @@ const (
 	statusDeleted valueStatus = 4
 	// A read of this value from the DB failed. This is a terminal state so that readers already
 	// waiting on the entry are never stranded; it is not the mechanism that keeps the failure from
-	// being papered over. A failed read bricks the engine and takes the cache out of service (see
+	// being papered over. A failed read bricks the manager and takes the cache out of service (see
 	// readCache.outOfServiceErr), so the entry is never consulted again.
 	statusFailed valueStatus = 5
 )
@@ -180,9 +180,9 @@ func newReadCache(
 	maxSize uint64,
 	// The estimated bookkeeping overhead per entry, in bytes.
 	overheadPerEntry uint64,
-	// Maps the context cancellation observed by a blocked read to the engine's shutdown error.
+	// Maps the context cancellation observed by a blocked read to the manager's shutdown error.
 	shutdownError func() error,
-	// Reports a failed DB read to the engine, which bricks and stops serving reads.
+	// Reports a failed DB read to the manager, which bricks and stops serving reads.
 	reportReadFailure func(error),
 ) *readCache {
 	return &readCache{
@@ -304,9 +304,9 @@ func (c *readCache) resolve(key []byte, outcome lookupOutcome) ([]byte, bool, er
 	result, err := threading.InterruptiblePull(c.ctx, outcome.valueChan)
 	c.metrics.reportCacheMissLatency(time.Since(startTime))
 	if err != nil {
-		// The pull is interrupted only by ctx cancellation, which means the engine is shutting
-		// down; report the engine's shutdown error per the Close contract.
-		return nil, false, fmt.Errorf("engine shut down while awaiting read: %w", c.shutdownError())
+		// The pull is interrupted only by ctx cancellation, which means the manager is shutting
+		// down; report the manager's shutdown error per the Close contract.
+		return nil, false, fmt.Errorf("view manager shut down while awaiting read: %w", c.shutdownError())
 	}
 	outcome.valueChan <- result // reload the channel in case there are other listeners
 	if result.err != nil {
@@ -321,7 +321,7 @@ func (c *readCache) resolve(key []byte, outcome lookupOutcome) ([]byte, bool, er
 // asynchronously (bulkInjectValues).
 //
 // A non-nil return means the whole batch failed. The first read error is returned after the full
-// drain, unless the engine shuts down first.
+// drain, unless the manager shuts down first.
 func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byte) error {
 	if len(pending) == 0 {
 		return nil
@@ -351,9 +351,9 @@ func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byt
 		if err != nil {
 			// Context cancellation is a hard teardown: post-shutdown entry state is
 			// unobservable, and draining could block on reads that never complete while the
-			// pool is being torn down, so bail immediately with the engine's shutdown error
+			// pool is being torn down, so bail immediately with the manager's shutdown error
 			// per the Close contract.
-			return fmt.Errorf("engine shut down while awaiting batch read: %w", c.shutdownError())
+			return fmt.Errorf("view manager shut down while awaiting batch read: %w", c.shutdownError())
 		}
 		pending[i].valueChan <- result
 		pending[i].result = result
@@ -382,7 +382,7 @@ func (e *cacheEntry) injectValue(key []byte, result readResult) {
 
 	if e.status == statusScheduled {
 		if result.err != nil {
-			// Terminal state so readers already waiting on this entry are not stranded. The engine
+			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
 			// over valueChan, not from the entry.
 			e.status = statusFailed
@@ -409,7 +409,7 @@ func (e *cacheEntry) injectValue(key []byte, result readResult) {
 
 	c.lock.Unlock()
 
-	// Release the waiter before bricking. reportReadFailure acquires the engine's versionLock, and
+	// Release the waiter before bricking. reportReadFailure acquires the manager's versionLock, and
 	// nobody may be blocked on us while we wait for it.
 	e.valueChan <- result
 
@@ -435,7 +435,7 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 		}
 		result := reads[i].result
 		if result.err != nil {
-			// Terminal state so readers already waiting on this entry are not stranded. The engine
+			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
 			// over valueChan, not from the entry.
 			entry.status = statusFailed
@@ -458,7 +458,7 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 	c.lock.Unlock()
 
 	// The waiters for this batch were already released by resolveBatch, so there is nobody blocked
-	// on us while reportReadFailure acquires the engine's versionLock.
+	// on us while reportReadFailure acquires the manager's versionLock.
 	if failure != nil {
 		c.reportReadFailure(failure)
 	}
@@ -483,7 +483,7 @@ func (c *readCache) entryLocked(key []byte, createIfMissing bool) *cacheEntry {
 }
 
 // putRetiredLocked installs data retired out of the shard's MVCC layer. A nil value marks the
-// key as known-deleted (the engine-wide tombstone convention); any other value is cached as
+// key as known-deleted (the manager-wide tombstone convention); any other value is cached as
 // available. Inserts everything, then evicts overflow once at the end.
 //
 // The Locked postfix indicates that the caller must hold the shared lock.
