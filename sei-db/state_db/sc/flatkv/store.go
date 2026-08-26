@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/zbiljic/go-filelock"
@@ -147,14 +146,6 @@ type CommitStore struct {
 	pendingBlockHeight int64
 
 	lastSnapshotTime time.Time
-
-	// pendingCheckpoint is the version a controller.CheckpointScheduler asked this store to snapshot
-	// at, 0 when none is pending. Atomic rather than under mu because Commit consumes it under the
-	// write lock and ScheduleCheckpoint sets it from the scheduler's goroutine.
-	pendingCheckpoint atomic.Int64
-
-	// snapshotInProgress is true while WriteSnapshot is running for a due checkpoint.
-	snapshotInProgress atomic.Bool
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
