@@ -95,7 +95,7 @@ func init() {
 		5:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockID]())},
 		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*timestamppb.Timestamp]())},
 		7:  {MaxCount: 1},
-		8:  {Nested: utils.Some(reflect.TypeFor[*TxKey]())},
+		8:  {MaxCount: 10000, Nested: utils.Some(reflect.TypeFor[*TxKey]())},
 		9:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
 		10: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Commit]())},
 		11: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Header]())},

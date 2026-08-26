@@ -162,7 +162,7 @@ message Proposal {
     (gogoproto.stdtime) = true
   ];
   bytes signature = 7;
-  repeated TxKey tx_keys = 8;
+  repeated TxKey tx_keys = 8 [(wireguard.max_count) = 10000];
   EvidenceList evidence = 9;
   Commit last_commit = 10;
   Header header = 11 [(gogoproto.nullable) = false];

@@ -12,7 +12,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-const maxCommitSignatures = types.MaxVotesCount
+const (
+	maxCommitSignatures = types.MaxVotesCount
+	maxProposalTxKeys   = 10000
+)
 
 func marshal(t *testing.T, m gogoproto.Message) []byte {
 	t.Helper()
@@ -51,6 +54,28 @@ func consensusProposalMessage(lastCommit *tmproto.Commit, evidenceCommits ...*tm
 	return &tmcons.Message{Sum: &tmcons.Message_Proposal{
 		Proposal: &tmcons.Proposal{Proposal: inner},
 	}}
+}
+
+func consensusProposalMessageWithTxKeys(n int) *tmcons.Message {
+	txKeys := make([]*tmproto.TxKey, n)
+	for i := range txKeys {
+		txKeys[i] = &tmproto.TxKey{}
+	}
+	return &tmcons.Message{Sum: &tmcons.Message_Proposal{
+		Proposal: &tmcons.Proposal{Proposal: tmproto.Proposal{
+			TxKeys: txKeys,
+		}},
+	}}
+}
+
+func TestSchemaForMessage_AcceptsProposalTxKeysAtCap(t *testing.T) {
+	require.NoError(t, protoutils.Scan[*tmcons.Message](marshal(t,
+		consensusProposalMessageWithTxKeys(maxProposalTxKeys))))
+}
+
+func TestSchemaForMessage_RejectsProposalTxKeysOverCap(t *testing.T) {
+	require.Error(t, protoutils.Scan[*tmcons.Message](marshal(t,
+		consensusProposalMessageWithTxKeys(maxProposalTxKeys+1))))
 }
 
 func TestSchemaForMessage_AcceptsLastCommitAtCap(t *testing.T) {
