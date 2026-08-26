@@ -53,7 +53,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for tendermint.types.TxKey.
 	runtime.MustRegister[*TxKey](runtime.Schema{
-		1: {MaxCount: 1},
+		1: {MaxCount: 1, MaxSize: 32},
 	})
 
 	// Register the wireguard.Schema generated for tendermint.types.Vote.
@@ -95,7 +95,7 @@ func init() {
 		5:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*BlockID]())},
 		6:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*timestamppb.Timestamp]())},
 		7:  {MaxCount: 1},
-		8:  {MaxCount: 10000, Nested: utils.Some(reflect.TypeFor[*TxKey]())},
+		8:  {MaxCount: 2000, Nested: utils.Some(reflect.TypeFor[*TxKey]())},
 		9:  {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*EvidenceList]())},
 		10: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Commit]())},
 		11: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Header]())},
