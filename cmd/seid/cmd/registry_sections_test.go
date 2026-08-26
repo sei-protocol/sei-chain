@@ -28,7 +28,7 @@ import (
 // This package links every section a node's configuration reaches, so asking here is asking about the set
 // a node actually gets. Nothing is enumerated, so a section added later is covered without this file
 // changing, provided its package is linked: a registrar nothing imports registers in no binary, and the
-// blank imports above are what keep that claim true.
+// named imports above are what keep that claim true.
 func TestEverySectionThisBinaryDeclaresIsUsable(t *testing.T) {
 	for _, defect := range registry.Defects() {
 		t.Errorf("%s was refused, so none of its keys is declared: %v", defect.Section, defect.Err)

@@ -73,10 +73,10 @@ func declaredSections() []string { return append([]string(nil), registeredHere..
 func declaredHere(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, name := range declaredSections() {
-		registered, ok := registry.Lookup(name)
+	for _, tc := range declaredAgainst {
+		registered, ok := registry.Lookup(tc.section)
 		if !ok {
-			t.Fatalf("%s is not registered; Defects: %v", name, registry.Defects())
+			t.Fatalf("%s is not registered; Defects: %v", tc.section, registry.Defects())
 		}
 		out = append(out, registered.Keys...)
 	}
@@ -135,9 +135,16 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 // declaredAgainst pairs each section with the struct it declares against and how many of that struct's
 // paths it leaves out.
 //
-// A section absent from it is a section whose key count nothing measures. The root section is not here
-// because it declares against a local schema whose squashed group counts as one tagged field, so the
-// arithmetic this table does would be wrong for it; a test of its own holds that section.
+// One table, read by every walk in this file, so a section added here joins the count check, the marking
+// checks and the walk over what varies by node kind together rather than needing a list extended
+// alongside each of them.
+//
+// The table is held against the registrations rather than trusted: the count check walks what the
+// registrations recorded and fails on a section with no row here, so a section cannot register and go
+// unmeasured. The one deliberate absence is the section whose keys sit at the root of the file, which
+// declares against a local schema whose squashed group counts as a single tagged field, so the arithmetic
+// this table does would be wrong for it. It is named in that check rather than skipped by silence, and a
+// test of its own holds it.
 var declaredAgainst = []struct {
 	section string
 	proto   any
@@ -181,12 +188,11 @@ func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
 			continue
 		}
-		proto, named := markedIn[name]
-		if !named {
+		marked := markingsFor(t, name)
+		if marked == nil {
 			t.Errorf("%s declares keys and no struct is named as carrying their markings", name)
 			continue
 		}
-		marked := deprecatedPaths(t, reflect.TypeOf(proto).Elem())
 		for _, key := range registered.Excluded {
 			rel := strings.TrimPrefix(key, name+".")
 			if marked[rel] {
@@ -218,13 +224,12 @@ func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
 			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
 			continue
 		}
-		proto, named := markedIn[name]
-		if !named {
+		marked := markingsFor(t, name)
+		if marked == nil {
 			t.Errorf("%s declares keys and no struct is named as carrying their markings, so nothing "+
 				"measures whether any of them is a setting the node removed", name)
 			continue
 		}
-		marked := deprecatedPaths(t, reflect.TypeOf(proto).Elem())
 		for _, key := range registered.Keys {
 			rel := strings.TrimPrefix(key, name+".")
 			if marked[rel] {
@@ -235,25 +240,48 @@ func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
 	}
 }
 
+// markingsFor returns every path a section's keys could be marked deprecated on, across the structs those
+// keys come from.
+//
+// Returns nil for a section nothing names, so a caller reports that rather than measuring an empty set.
+func markingsFor(t *testing.T, section string) map[string]bool {
+	t.Helper()
+	protos, named := markedIn[section]
+	if !named {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, proto := range protos {
+		for path := range deprecatedPaths(t, reflect.TypeOf(proto).Elem()) {
+			out[path] = true
+		}
+	}
+	return out
+}
+
 // markedIn pairs each section with the node's own struct whose deprecation markings apply to its keys.
 //
 // Named per section rather than taken from what the section declares against, because the root one
-// declares against a local schema that squashes the node's base group. The markings that apply to those
-// keys live on that group, and a schema this package wrote carries none of them.
+// declares against a local schema this package wrote, which carries no markings of its own. Its keys come
+// from two of the node's structs and so do their markings, which is why a section names a set rather than
+// one struct.
 //
 // Walked from the registered set rather than from this map, so a section added without a row here fails
 // instead of skipping the check.
-var markedIn = map[string]any{
-	P2PSectionName:             &tmcfg.P2PConfig{},
-	RPCSectionName:             &tmcfg.RPCConfig{},
-	ConsensusSectionName:       &tmcfg.ConsensusConfig{},
-	MempoolSectionName:         &tmcfg.MempoolConfig{},
-	StateSyncSectionName:       &tmcfg.StateSyncConfig{},
-	TxIndexSectionName:         &tmcfg.TxIndexConfig{},
-	InstrumentationSectionName: &tmcfg.InstrumentationConfig{},
-	PrivValidatorSectionName:   &tmcfg.PrivValidatorConfig{},
-	SelfRemediationSectionName: &tmcfg.SelfRemediationConfig{},
-	RootSectionName:            &tmcfg.BaseConfig{},
+var markedIn = map[string][]any{
+	P2PSectionName:             {&tmcfg.P2PConfig{}},
+	RPCSectionName:             {&tmcfg.RPCConfig{}},
+	ConsensusSectionName:       {&tmcfg.ConsensusConfig{}},
+	MempoolSectionName:         {&tmcfg.MempoolConfig{}},
+	StateSyncSectionName:       {&tmcfg.StateSyncConfig{}},
+	TxIndexSectionName:         {&tmcfg.TxIndexConfig{}},
+	InstrumentationSectionName: {&tmcfg.InstrumentationConfig{}},
+	PrivValidatorSectionName:   {&tmcfg.PrivValidatorConfig{}},
+	SelfRemediationSectionName: {&tmcfg.SelfRemediationConfig{}},
+	// Two, because the root schema squashes the node's base group and restates two fields the node holds
+	// beside it. A marking on either of those two lives on the top-level type, so naming only the group
+	// would leave them unwatched: eleven keys, nine of them covered.
+	RootSectionName: {&tmcfg.BaseConfig{}, &tmcfg.Config{}},
 }
 
 // TestTheDeclaredKeysAreTheOnesTheReaderDecodes holds the declaration to the struct the node decodes into.
@@ -486,7 +514,7 @@ func TestTheExcludedConsensusPathsAreTheRemovedOnes(t *testing.T) {
 // TestTheDeprecationWarningReachesTheRecordedSubset measures the gap in the reader's own check.
 //
 // Eight of the sixteen removed settings make the warning name them and eight cannot, so an operator who
-// wrote one of those seven would get nothing back even from a caller that ran the check. Held so that
+// wrote one of those eight would get nothing back even from a caller that ran the check. Held so that
 // making the check complete shows up as a failure rather than as a sentence going quietly stale.
 func TestTheDeprecationWarningReachesTheRecordedSubset(t *testing.T) {
 	for _, rel := range removedSettings {
