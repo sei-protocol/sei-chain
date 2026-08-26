@@ -55,6 +55,13 @@ func TestGetBlockByNumber(t *testing.T) {
 
 // Covers the Sei-only timestampMs over the real JSON-RPC transport, including the
 // synthetic genesis block, which is encoded by a different function than the rest.
+//
+// This pins encoding and presence at second granularity only: mockBlockHeader builds
+// its time with time.Unix(_, 0), so UnixMilli() here is just Unix()*1000, and its
+// nanoseconds cannot be changed without moving the block hashes the rest of this
+// package asserts against. The millisecond value is proven where a fractional-second
+// header is available: TestEncodeTmBlockTimestampMs for the encoder, and
+// TestSubscribeNewHeadsAutobahn over the WS transport.
 func TestGetBlockTimestampMs(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
