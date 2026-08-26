@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"bytes"
@@ -8,16 +8,16 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-var _ dbm.Iterator = (*snapshotIterator)(nil)
+var _ dbm.Iterator = (*viewIterator)(nil)
 
-// kvPair is a single in-memory override at a snapshot version. A nil value
+// kvPair is a single in-memory override at a view version. A nil value
 // signals a tombstone: it suppresses any DB-side value at the same key.
 type kvPair struct {
 	key   []byte
 	value []byte
 }
 
-// snapshotIterator is a forward-only cursor that merges a pre-sorted slice
+// viewIterator is a forward-only cursor that merges a pre-sorted slice
 // of in-memory overrides with an underlying DB iterator. Keys are returned in
 // ascending lexicographic order; when both sides hold the same key, the override
 // wins (and nil-valued overrides suppress the DB entry entirely).
@@ -34,9 +34,9 @@ type kvPair struct {
 //     avoid leaking dbIter resources.
 //   - The iterator pins the overrides slice (and the byte slices it references)
 //     for its full lifetime.
-//   - This type knows nothing about snapshots, reservations, or any other
+//   - This type knows nothing about views, reservations, or any other
 //     enclosing cache state. Callers that need additional cleanup (e.g.
-//     releasing a snapshot reservation) should wrap this iterator.
+//     releasing a view reservation) should wrap this iterator.
 //
 // Returned slices:
 //   - Slices returned by Key and Value remain valid until Close and must not be
@@ -45,15 +45,15 @@ type kvPair struct {
 //     buffers so they remain stable as the dbIter advances.
 //
 // Filtering:
-//   - Keys under the engine's reserved metadata prefix (reservedPrefix) are
+//   - Keys under the manager's reserved metadata prefix (reservedPrefix) are
 //     excluded from iteration output: the DB-side values there belong to the
 //     most recently flushed version and are generally stale relative to this
-//     snapshot. They are engine bookkeeping, not user data.
+//     view. They are manager bookkeeping, not user data.
 //
 // Concurrency:
 //   - Not thread-safe. A single iterator must not be shared across goroutines;
 //     create one iterator per consumer.
-type snapshotIterator struct {
+type viewIterator struct {
 	// overrides are sorted in iteration order by key (see reverse). The caller is
 	// responsible for sorting; the iterator does not re-validate ordering.
 	overrides   []kvPair
@@ -64,8 +64,8 @@ type snapshotIterator struct {
 	// pre-positioned).
 	dbIter dbm.Iterator
 
-	// reservedPrefix is the engine's reserved metadata key prefix (see
-	// SnapshotEngineConfig.ReservedPrefix); entries under it are excluded from
+	// reservedPrefix is the manager's reserved metadata key prefix (see
+	// ViewManagerConfig.ReservedPrefix); entries under it are excluded from
 	// iteration output.
 	reservedPrefix []byte
 
@@ -106,7 +106,7 @@ type snapshotIterator struct {
 	dbIterClosed bool
 }
 
-// newSnapshotIterator constructs a snapshotIterator over pre-materialized inputs.
+// newViewIterator constructs a viewIterator over pre-materialized inputs.
 //
 // Caller obligations:
 //   - overrides must be sorted in iteration order by key — ascending, or descending
@@ -115,7 +115,7 @@ type snapshotIterator struct {
 //   - dbIter must be a fresh DB iterator, already positioned at its first key
 //     (tm-db iterators are created pre-positioned). The new iterator takes
 //     ownership and will Close it.
-//   - reservedPrefix is the engine's reserved metadata key prefix, whose keys are
+//   - reservedPrefix is the manager's reserved metadata key prefix, whose keys are
 //     excluded from iteration output (see the Filtering section of the type doc).
 //   - reverse must match both the order overrides are sorted in and the direction
 //     dbIter was opened with. Mismatching them yields a silently wrong merge.
@@ -126,15 +126,15 @@ type snapshotIterator struct {
 // The returned iterator is already positioned on its first pair. A failure while
 // positioning it is returned here rather than surfaced through Error, and closes
 // dbIter on the way out.
-func newSnapshotIterator(
+func newViewIterator(
 	overrides []kvPair,
 	dbIter dbm.Iterator,
 	reservedPrefix []byte,
 	reverse bool,
 	start []byte,
 	end []byte,
-) (*snapshotIterator, error) {
-	it := &snapshotIterator{
+) (*viewIterator, error) {
+	it := &viewIterator{
 		overrides:      overrides,
 		dbIter:         dbIter,
 		reservedPrefix: reservedPrefix,
@@ -158,36 +158,36 @@ func newSnapshotIterator(
 	return it, nil
 }
 
-func (it *snapshotIterator) Domain() ([]byte, []byte) {
+func (it *viewIterator) Domain() ([]byte, []byte) {
 	return it.start, it.end
 }
 
-func (it *snapshotIterator) Valid() bool {
+func (it *viewIterator) Valid() bool {
 	return !it.closed && it.err == nil && it.key != nil
 }
 
-func (it *snapshotIterator) Next() {
+func (it *viewIterator) Next() {
 	if !it.Valid() {
 		return
 	}
 	it.advance()
 }
 
-func (it *snapshotIterator) Key() []byte {
+func (it *viewIterator) Key() []byte {
 	return it.key
 }
 
-func (it *snapshotIterator) Value() []byte {
+func (it *viewIterator) Value() []byte {
 	return it.value
 }
 
-func (it *snapshotIterator) Error() error {
+func (it *viewIterator) Error() error {
 	return it.err
 }
 
 // advance moves the cursor onto the next merged pair, or off the end. On the way off the end, and on
 // any failure, key and value go nil so Valid reports false.
-func (it *snapshotIterator) advance() {
+func (it *viewIterator) advance() {
 	it.key, it.value = nil, nil
 
 	for {
@@ -239,7 +239,7 @@ func (it *snapshotIterator) advance() {
 			continue
 		}
 		if bytes.HasPrefix(pick.key, it.reservedPrefix) {
-			// The engine's reserved metadata keyspace is not part of the snapshot's user data.
+			// The manager's reserved metadata keyspace is not part of the view's user data.
 			continue
 		}
 		it.key, it.value = pick.key, pick.value
@@ -250,19 +250,19 @@ func (it *snapshotIterator) advance() {
 // advanceDBIterator advances dbIter past its current position and refreshes
 // nextDBPair. After this call, nextDBPair holds the new tip, or is nil if the
 // iterator has been exhausted.
-func (it *snapshotIterator) advanceDBIterator() error {
+func (it *viewIterator) advanceDBIterator() error {
 	it.dbIter.Next()
 	return it.refreshDBPair()
 }
 
 // advanceOverrideIndex moves past the current override.
-func (it *snapshotIterator) advanceOverrideIndex() {
+func (it *viewIterator) advanceOverrideIndex() {
 	it.overrideIdx++
 }
 
 // refreshDBPair clones dbIter's current tip into nextDBPair. nextDBPair is set
 // to nil if the iterator is exhausted or has errored.
-func (it *snapshotIterator) refreshDBPair() error {
+func (it *viewIterator) refreshDBPair() error {
 	if err := it.dbIter.Error(); err != nil {
 		it.nextDBPair = nil
 		return fmt.Errorf("db iterator error: %w", err)
@@ -285,7 +285,7 @@ func (it *snapshotIterator) refreshDBPair() error {
 	return nil
 }
 
-func (it *snapshotIterator) Close() error {
+func (it *viewIterator) Close() error {
 	if it.closed {
 		return nil
 	}
@@ -295,7 +295,7 @@ func (it *snapshotIterator) Close() error {
 
 // closeDBIter closes dbIter exactly once across all callers (the constructor
 // error path, the merge running off the end, and Close). Subsequent calls return nil.
-func (it *snapshotIterator) closeDBIter() error {
+func (it *viewIterator) closeDBIter() error {
 	if it.dbIterClosed {
 		return nil
 	}

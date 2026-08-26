@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -622,12 +622,12 @@ func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
 		"the error must name the snapshot as the cause rather than being swallowed")
 }
 
-var _ snapshot.Snapshot = (*stubSnapshot)(nil)
+var _ view.View = (*stubView)(nil)
 
-// stubSnapshot is a snapshot whose Release outcome the test chooses. Only Name and Release are
+// stubView is a view whose Release outcome the test chooses. Only Name and Release are
 // implemented; every other method panics, so a use this stub was not written for is loud rather than
 // silently wrong.
-type stubSnapshot struct {
+type stubView struct {
 	// Reported by Name.
 	name string
 
@@ -638,37 +638,37 @@ type stubSnapshot struct {
 	releaseCalls int
 }
 
-func (s *stubSnapshot) Name() string {
+func (s *stubView) Name() string {
 	return s.name
 }
 
-func (s *stubSnapshot) Release() error {
+func (s *stubView) Release() error {
 	s.releaseCalls++
 	return s.releaseErr
 }
 
-func (s *stubSnapshot) Get(key []byte, updateLru bool) ([]byte, bool, error) {
-	panic("stubSnapshot: unexpected Get")
+func (s *stubView) Get(key []byte, updateLru bool) ([]byte, bool, error) {
+	panic("stubView: unexpected Get")
 }
 
-func (s *stubSnapshot) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	panic("stubSnapshot: unexpected BatchGet")
+func (s *stubView) BatchGet(keys [][]byte) (map[string][]byte, error) {
+	panic("stubView: unexpected BatchGet")
 }
 
-func (s *stubSnapshot) GetDiff() (map[string][]byte, error) {
-	panic("stubSnapshot: unexpected GetDiff")
+func (s *stubView) GetDiff() (map[string][]byte, error) {
+	panic("stubView: unexpected GetDiff")
 }
 
-func (s *stubSnapshot) Reserve() error {
-	panic("stubSnapshot: unexpected Reserve")
+func (s *stubView) Reserve() error {
+	panic("stubView: unexpected Reserve")
 }
 
-func (s *stubSnapshot) Finalize(writes []*proto.KVPair) error {
-	panic("stubSnapshot: unexpected Finalize")
+func (s *stubView) Finalize(writes []*proto.KVPair) error {
+	panic("stubView: unexpected Finalize")
 }
 
-func (s *stubSnapshot) AwaitFlush(ctx context.Context) error {
-	panic("stubSnapshot: unexpected AwaitFlush")
+func (s *stubView) AwaitFlush(ctx context.Context) error {
+	panic("stubView: unexpected AwaitFlush")
 }
 
 // A reservation left held stalls its store's flushes forever, so a failing hand-back must not stop the
@@ -679,10 +679,10 @@ func (s *stubSnapshot) AwaitFlush(ctx context.Context) error {
 func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
 	names := []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
 
-	stubs := make(map[string]*stubSnapshot, len(names))
-	sealed := make(map[string]snapshot.Snapshot, len(names))
+	stubs := make(map[string]*stubView, len(names))
+	sealed := make(map[string]view.View, len(names))
 	for _, name := range names {
-		stub := &stubSnapshot{name: name, releaseErr: errors.New("engine is bricked")}
+		stub := &stubView{name: name, releaseErr: errors.New("view manager is bricked")}
 		stubs[name] = stub
 		sealed[name] = stub
 	}
@@ -690,12 +690,12 @@ func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
 
 	err := s.releaseLastSealed()
 	require.Error(t, err, "a failed hand-back must be returned, not swallowed")
-	require.ErrorContains(t, err, "engine is bricked")
+	require.ErrorContains(t, err, "view manager is bricked")
 
 	for _, name := range names {
 		require.Equal(t, 1, stubs[name].releaseCalls,
 			"every reservation must be handed back; stopping at the first failure strands the rest")
-		require.ErrorContains(t, err, "release sealed snapshot for "+name,
+		require.ErrorContains(t, err, "release sealed view for "+name,
 			"the joined error must name every store that failed")
 	}
 	require.Nil(t, s.lastSealed, "the handles must be forgotten even when a hand-back failed")
@@ -709,13 +709,13 @@ func TestCloseReportsReleaseFailure(t *testing.T) {
 	// Give back the genuine reservations first, then swap in a failing stub, so the real stores are not
 	// left holding anything when they are torn down below.
 	require.NoError(t, s.releaseLastSealed())
-	s.lastSealed = map[string]snapshot.Snapshot{
-		accountDBDir: &stubSnapshot{name: accountDBDir, releaseErr: errors.New("engine is bricked")},
+	s.lastSealed = map[string]view.View{
+		accountDBDir: &stubView{name: accountDBDir, releaseErr: errors.New("view manager is bricked")},
 	}
 
 	err := s.Close()
 	require.Error(t, err)
-	require.ErrorContains(t, err, "release sealed snapshots")
+	require.ErrorContains(t, err, "release sealed views")
 }
 
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
@@ -1809,7 +1809,7 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 		{Name: "gov", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("proposal"), Value: []byte{0x01}}}}},
 	}))
 	commitAndCheck(t, s)
-	before := snapshotWorkingHashes(s)
+	before := captureWorkingHashes(s)
 
 	addr := addrN(0xBB)
 	slot := slotN(0x01)
@@ -1856,7 +1856,7 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("bal"), Value: []byte{0x02}}}}},
 	}))
 	commitAndCheck(t, s)
-	before := snapshotWorkingHashes(s)
+	before := captureWorkingHashes(s)
 
 	addr := addrN(0xCC)
 	slot := slotN(0x02)
@@ -1906,7 +1906,7 @@ func TestCommitFailsCleanlyOnHashError(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 	committed := s.Version()
-	before := snapshotWorkingHashes(s)
+	before := captureWorkingHashes(s)
 
 	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")

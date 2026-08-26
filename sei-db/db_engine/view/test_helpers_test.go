@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"bytes"
@@ -106,7 +106,7 @@ func (d *testDB) Delete(key []byte, _ types.WriteOptions) error {
 	return nil
 }
 
-// NewIter returns a snapshot-at-creation ascending iterator: it captures a sorted copy of the store
+// NewIter returns a view-at-creation ascending iterator: it captures a sorted copy of the store
 // under the read lock, so concurrent mutations after the call do not affect iteration. Honors
 // IterOptions bounds (lower inclusive, upper exclusive).
 func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
@@ -132,7 +132,7 @@ func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 		}
 		pairs = append(pairs, kvPair{key: kb, value: cloneBytes(v)})
 	}
-	// A reverse iterator yields keys largest-first, so the double must too: the engine merges this
+	// A reverse iterator yields keys largest-first, so the double must too: the manager merges this
 	// stream against a descending override list, and an ascending DB side would silently corrupt the
 	// merge rather than fail.
 	sort.Slice(pairs, func(i, j int) bool {
@@ -174,7 +174,7 @@ func (d *testDB) get(key string) ([]byte, bool) {
 }
 
 // fakeDBIter is a forward-only dbm.Iterator over a pre-sorted, pre-copied slice. It is positioned at
-// the first element on construction, matching the tm-db contract the snapshot iterator relies on.
+// the first element on construction, matching the tm-db contract the view iterator relies on.
 type fakeDBIter struct {
 	pairs []kvPair
 	idx   int
@@ -266,56 +266,56 @@ func (b *testBatch) Close() error {
 	return nil
 }
 
-// --- engine construction helpers ---
+// --- manager construction helpers ---
 
 // newTestConfig returns a config suitable for unit tests. Metrics are disabled; overhead is set to 1
 // so dbCache size accounting is easy to reason about.
-func newTestConfig(shardCount, maxSize uint64) *SnapshotEngineConfig {
-	c := DefaultTestSnapshotEngineConfig()
+func newTestConfig(shardCount, maxSize uint64) *ViewManagerConfig {
+	c := DefaultTestViewManagerConfig()
 	c.ShardCount = shardCount
 	c.MaxSize = maxSize
 	c.EstimatedOverheadPerEntry = 1
 	return c
 }
 
-func newTestEngine(t *testing.T, seed map[string][]byte, shardCount, maxSize uint64) (SnapshotEngine, *testDB) {
+func newTestManager(t *testing.T, seed map[string][]byte, shardCount, maxSize uint64) (ViewManager, *testDB) {
 	t.Helper()
 	db := newTestDB(seed)
-	return newTestEngineWithDB(t, db, shardCount, maxSize), db
+	return newTestManagerWithDB(t, db, shardCount, maxSize), db
 }
 
-func newTestEngineWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) SnapshotEngine {
+func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) ViewManager {
 	t.Helper()
-	return newTestEngineWithConfig(t, newTestConfig(shardCount, maxSize), db)
+	return newTestManagerWithConfig(t, newTestConfig(shardCount, maxSize), db)
 }
 
-// newTestEngineWithConfig builds an engine and registers cleanup that closes it and then drains
-// the work pool, mirroring the production teardown order (engine, then pools, then DB). Close is
+// newTestManagerWithConfig builds an manager and registers cleanup that closes it and then drains
+// the work pool, mirroring the production teardown order (manager, then pools, then DB). Close is
 // idempotent, so tests that exercise it explicitly are unaffected; its error is ignored because
-// brick tests intentionally leave the engine failed.
-func newTestEngineWithConfig(t *testing.T, config *SnapshotEngineConfig, db *testDB) SnapshotEngine {
+// brick tests intentionally leave the manager failed.
+func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testDB) ViewManager {
 	t.Helper()
 	pool := threading.NewAdHocPool()
-	engine, err := NewSnapshotEngine(config, db, pool, pool)
+	manager, err := NewViewManager(config, db, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = engine.Close()
+		_ = manager.Close()
 		pool.Close()
 		_ = db.Close()
 	})
-	return engine
+	return manager
 }
 
 // --- shard construction helpers ---
 
 func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	t.Helper()
-	config := DefaultTestSnapshotEngineConfig()
+	config := DefaultTestViewManagerConfig()
 	config.EstimatedOverheadPerEntry = 0
-	// A standalone shard has no engine to brick, and it takes itself out of service on a failed read
+	// A standalone shard has no manager to brick, and it takes itself out of service on a failed read
 	// without help, so reporting is a no-op here.
 	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
-		func() error { return ErrEngineClosed },
+		func() error { return ErrViewManagerClosed },
 		func(error) {})
 	require.NoError(t, err)
 	return s
@@ -325,52 +325,52 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 
 var testHash = []byte("test-hash")
 
-// testHashKey lives under DefaultTestSnapshotEngineConfig's reserved prefix, so finalization writes
-// using it are filtered out of iteration exactly as engine metadata should be.
+// testHashKey lives under DefaultTestViewManagerConfig's reserved prefix, so finalization writes
+// using it are filtered out of iteration exactly as manager metadata should be.
 const testHashKey = "_meta/hash"
 
-// hashWrites is the finalization write set a test uses to record a snapshot's hash, standing in for
+// hashWrites is the finalization write set a test uses to record a view's hash, standing in for
 // what a real consumer emits.
 func hashWrites(hash []byte) []*proto.KVPair {
 	return []*proto.KVPair{{Key: []byte(testHashKey), Value: hash}}
 }
 
-func finalizeAndRelease(t *testing.T, snap Snapshot) {
+func finalizeAndRelease(t *testing.T, view View) {
 	t.Helper()
-	require.NoError(t, snap.Finalize(hashWrites(testHash)))
-	require.NoError(t, snap.Release())
+	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	require.NoError(t, view.Release())
 }
 
 // finalizeAwaitFlushAndRelease waits for the flush before releasing. A released version is retired out
 // of the version map as soon as it flushes, and a wait that arrives after that retirement fails, which
 // TestAwaitFlushAfterRetirementFails pins. Releasing first therefore makes the wait a race against the
 // lifecycle goroutine.
-func finalizeAwaitFlushAndRelease(t *testing.T, snap Snapshot) {
+func finalizeAwaitFlushAndRelease(t *testing.T, view View) {
 	t.Helper()
-	require.NoError(t, snap.Finalize(hashWrites(testHash)))
-	awaitFlushed(t, snap, time.Second)
-	require.NoError(t, snap.Release())
+	require.NoError(t, view.Finalize(hashWrites(testHash)))
+	awaitFlushed(t, view, time.Second)
+	require.NoError(t, view.Release())
 }
 
-func commitFinalizeRelease(t *testing.T, engine SnapshotEngine) {
+func commitFinalizeRelease(t *testing.T, manager ViewManager) {
 	t.Helper()
-	snap, err := engine.Commit()
+	view, err := manager.Commit()
 	require.NoError(t, err)
-	finalizeAndRelease(t, snap)
+	finalizeAndRelease(t, view)
 }
 
-func awaitFlushed(t *testing.T, snap Snapshot, timeout time.Duration) {
+func awaitFlushed(t *testing.T, view View, timeout time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	require.NoError(t, snap.AwaitFlush(ctx))
+	require.NoError(t, view.AwaitFlush(ctx))
 }
 
-// awaitRetired blocks until the given version has been retired (dropped from the engine's version
+// awaitRetired blocks until the given version has been retired (dropped from the manager's version
 // map), failing the test if it does not happen within a short window.
-func awaitRetired(t *testing.T, engine SnapshotEngine, version uint64) {
+func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
 	t.Helper()
-	e := engine.(*snapshotEngine)
+	e := manager.(*viewManager)
 	require.Eventually(t, func() bool {
 		e.versionLock.Lock()
 		defer e.versionLock.Unlock()
@@ -379,18 +379,18 @@ func awaitRetired(t *testing.T, engine SnapshotEngine, version uint64) {
 	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
 }
 
-// openIteratorCount reports how many iterators are currently open on the engine. Every iterator
-// registers with every shard, so any one shard's count is the engine's count.
-func openIteratorCount(engine SnapshotEngine) uint64 {
-	s := engine.(*snapshotEngine).shards[0]
+// openIteratorCount reports how many iterators are currently open on the manager. Every iterator
+// registers with every shard, so any one shard's count is the manager's count.
+func openIteratorCount(manager ViewManager) uint64 {
+	s := manager.(*viewManager).shards[0]
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	return s.openIterators
 }
 
-// isTracked reports whether the engine still tracks the given snapshot version.
-func isTracked(engine SnapshotEngine, version uint64) bool {
-	e := engine.(*snapshotEngine)
+// isTracked reports whether the manager still tracks the given view version.
+func isTracked(manager ViewManager, version uint64) bool {
+	e := manager.(*viewManager)
 	e.versionLock.Lock()
 	defer e.versionLock.Unlock()
 	_, ok := e.versionMap[version]
@@ -399,7 +399,7 @@ func isTracked(engine SnapshotEngine, version uint64) bool {
 
 // drainIterator drains an Iterator into cloned key/value pairs in iteration order. It returns any
 // error instead of asserting, so it is safe to call from non-test goroutines. It does NOT close the
-// iterator; the caller must, or the engine reports a leak when it closes.
+// iterator; the caller must, or the manager reports a leak when it closes.
 func drainIterator(it dbm.Iterator) ([]kvPair, error) {
 	var out []kvPair
 	for ; it.Valid(); it.Next() {
@@ -412,7 +412,7 @@ func drainIterator(it dbm.Iterator) ([]kvPair, error) {
 }
 
 // collectIterator drains an Iterator into cloned key/value pairs in iteration order, then closes it.
-// Closing matters: an open iterator makes the engine refuse writes.
+// Closing matters: an open iterator makes the manager refuse writes.
 func collectIterator(t *testing.T, it dbm.Iterator) []kvPair {
 	t.Helper()
 	out, err := drainIterator(it)

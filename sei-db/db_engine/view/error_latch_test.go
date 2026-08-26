@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A DB read error is fatal: it bricks the engine and takes every shard out of service, so no read
+// A DB read error is fatal: it bricks the manager and takes every shard out of service, so no read
 // succeeds afterwards. These tests pin that for every read path, plus the internal coherence the
 // read paths must leave behind (no entry stranded in statusScheduled, a failing key read from the DB
 // exactly once).
@@ -19,30 +19,30 @@ import (
 
 func TestSingleGetErrorIsPermanent(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
+	manager := newTestManagerWithDB(t, db, 1, 1<<20)
 
 	db.getErr = errors.New("io boom")
-	_, _, err := engine.Get([]byte("k"), true)
+	_, _, err := manager.Get([]byte("k"), true)
 	require.ErrorContains(t, err, "io boom")
 
-	// The fault "clears", but the engine must keep failing the key rather than retry.
+	// The fault "clears", but the manager must keep failing the key rather than retry.
 	db.getErr = nil
-	_, _, err = engine.Get([]byte("k"), true)
+	_, _, err = manager.Get([]byte("k"), true)
 	require.ErrorContains(t, err, "io boom", "a failed read must never be retried")
 }
 
 func TestBatchGetErrorIsPermanent(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k": []byte("v")})
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
+	manager := newTestManagerWithDB(t, db, 1, 1<<20)
 
 	db.getErr = errors.New("io boom")
-	_, err := engine.BatchGet([][]byte{[]byte("k")})
+	_, err := manager.BatchGet([][]byte{[]byte("k")})
 	require.ErrorContains(t, err, "io boom")
 
 	db.getErr = nil
-	_, _, err = engine.Get([]byte("k"), true)
+	_, _, err = manager.Get([]byte("k"), true)
 	require.ErrorContains(t, err, "io boom", "a failed batch read must never be retried")
-	_, err = engine.BatchGet([][]byte{[]byte("k")})
+	_, err = manager.BatchGet([][]byte{[]byte("k")})
 	require.ErrorContains(t, err, "io boom", "the latch must also fail subsequent batch reads")
 }
 
@@ -55,11 +55,11 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 		"k2": []byte("v2"),
 		"k3": []byte("v3"),
 	})
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
-	shard := engine.(*snapshotEngine).shards[0]
+	manager := newTestManagerWithDB(t, db, 1, 1<<20)
+	shard := manager.(*viewManager).shards[0]
 
 	db.getErrKeys = map[string]error{"k2": errors.New("io boom")}
-	_, err := engine.BatchGet([][]byte{[]byte("k1"), []byte("k2"), []byte("k3")})
+	_, err := manager.BatchGet([][]byte{[]byte("k1"), []byte("k2"), []byte("k3")})
 	require.ErrorContains(t, err, "io boom")
 	db.getErrKeys = nil
 
@@ -84,7 +84,7 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 	// The survivors were cached successfully, but one key's failure poisons the whole shard: reads of
 	// keys that never failed are refused too, and the fault having cleared changes nothing.
 	for _, key := range []string{"k1", "k2", "k3"} {
-		_, _, err = engine.Get([]byte(key), true)
+		_, _, err = manager.Get([]byte(key), true)
 		require.ErrorContains(t, err, "io boom",
 			"read of %q must be refused after another key's read failed", key)
 	}
@@ -99,11 +99,11 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 // mid-batch is covered by TestBatchGetPartialFailureLeavesCoherentState.
 func TestBatchGetAfterFailureIsRefusedBeforeClassifying(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k1": []byte("v1")})
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
-	shard := engine.(*snapshotEngine).shards[0]
+	manager := newTestManagerWithDB(t, db, 1, 1<<20)
+	shard := manager.(*viewManager).shards[0]
 
 	db.getErrKeys = map[string]error{"k2": errors.New("io boom")}
-	_, _, err := engine.Get([]byte("k2"), true)
+	_, _, err := manager.Get([]byte("k2"), true)
 	require.ErrorContains(t, err, "io boom")
 	db.getErrKeys = nil
 
@@ -113,7 +113,7 @@ func TestBatchGetAfterFailureIsRefusedBeforeClassifying(t *testing.T) {
 	var batchErr error
 	go func() {
 		defer close(done)
-		_, batchErr = engine.BatchGet([][]byte{[]byte("k1"), []byte("k2")})
+		_, batchErr = manager.BatchGet([][]byte{[]byte("k1"), []byte("k2")})
 	}()
 	select {
 	case <-done:
@@ -130,39 +130,39 @@ func TestBatchGetAfterFailureIsRefusedBeforeClassifying(t *testing.T) {
 	require.False(t, ok, "a refused batch must not create cache entries")
 }
 
-// A failed DB read must stop the engine, not just the key that failed. Halting is the caller's job;
+// A failed DB read must stop the manager, not just the key that failed. Halting is the caller's job;
 // this pins that a caller which ignores the error gets nowhere.
-func TestReadFailureStopsTheEngine(t *testing.T) {
+func TestReadFailureStopsTheManager(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k1": []byte("v1"), "k2": []byte("v2")})
 	// Several shards, so the read that fails and the reads that must stop land in different ones.
-	engine := newTestEngineWithDB(t, db, 4, 1<<20)
+	manager := newTestManagerWithDB(t, db, 4, 1<<20)
 
 	// Warm k2 into its shard's cache, so refusing it later cannot be explained by a DB read.
-	v, found, err := engine.Get([]byte("k2"), true)
+	v, found, err := manager.Get([]byte("k2"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte("v2"), v)
 
 	db.getErrKeys = map[string]error{"k1": errors.New("io boom")}
-	_, _, err = engine.Get([]byte("k1"), true)
+	_, _, err = manager.Get([]byte("k1"), true)
 	require.ErrorContains(t, err, "io boom")
 	db.getErrKeys = nil
 
 	// Convergence, not immediacy: the brick is fired after the failing read is released, so allow it
 	// to land. Every shard must stop, including the one that never saw a failure.
 	require.Eventually(t, func() bool {
-		_, _, readErr := engine.Get([]byte("k2"), true)
+		_, _, readErr := manager.Get([]byte("k2"), true)
 		return readErr != nil
 	}, 2*time.Second, time.Millisecond, "a cached read in an unaffected shard was still served")
 
-	_, err = engine.BatchGet([][]byte{[]byte("k2")})
+	_, err = manager.BatchGet([][]byte{[]byte("k2")})
 	require.Error(t, err, "BatchGet must be refused too")
 
-	_, err = engine.Commit()
-	require.Error(t, err, "Commit must be refused once the engine is bricked")
+	_, err = manager.Commit()
+	require.Error(t, err, "Commit must be refused once the manager is bricked")
 
-	// Close surfaces the original cause rather than a bare ErrEngineClosed.
-	require.ErrorContains(t, engine.Close(), "io boom")
+	// Close surfaces the original cause rather than a bare ErrViewManagerClosed.
+	require.ErrorContains(t, manager.Close(), "io boom")
 }
 
 // Two goroutines racing on one failing key: both must observe the error, and the key must be read
@@ -170,10 +170,10 @@ func TestReadFailureStopsTheEngine(t *testing.T) {
 // in the statusFailed terminal state so neither reader is stranded.
 func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 	db := newTestDB(nil)
-	engine := newTestEngineWithDB(t, db, 1, 1<<20)
-	shard := engine.(*snapshotEngine).shards[0]
+	manager := newTestManagerWithDB(t, db, 1, 1<<20)
+	shard := manager.(*viewManager).shards[0]
 
-	// Set the fault knobs only after construction: NewSnapshotEngine performs an initial-hash
+	// Set the fault knobs only after construction: NewViewManager performs an initial-hash
 	// read through the same DB, which must neither block on the gate nor observe the error.
 	// Baseline the read counter past that construction-time read.
 	base := db.getCalls.Load()
@@ -181,7 +181,7 @@ func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 	db.getErr = errors.New("io boom")
 
 	// Close the gate exactly once, and unconditionally on test failure: t.Cleanup runs LIFO, so
-	// this releases any gated in-flight read before the engine/pool teardown registered at
+	// this releases any gated in-flight read before the manager/pool teardown registered at
 	// construction — a failed assertion must not deadlock the pool drain.
 	releaseGate := sync.OnceFunc(func() { close(db.getGate) })
 	t.Cleanup(releaseGate)
@@ -189,7 +189,7 @@ func TestConcurrentReadersOfFailingKeyBothError(t *testing.T) {
 	readErrs := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			_, _, err := engine.Get([]byte("k"), true)
+			_, _, err := manager.Get([]byte("k"), true)
 			readErrs <- err
 		}()
 	}
