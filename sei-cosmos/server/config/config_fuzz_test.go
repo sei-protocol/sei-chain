@@ -1166,6 +1166,10 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 			"grpc.keepalive-permit-without-stream",
 			cfg.GRPC.KeepalivePermitWithoutStream, def.GRPC.KeepalivePermitWithoutStream, false,
 		},
+		{
+			"grpc.rate-limiting-enabled",
+			cfg.GRPC.RateLimitingEnabled, def.GRPC.RateLimitingEnabled, false,
+		},
 		{"telemetry.service-name", cfg.Telemetry.ServiceName, def.Telemetry.ServiceName, false},
 		{"telemetry.enable-hostname", cfg.Telemetry.EnableHostname, def.Telemetry.EnableHostname, false},
 		{
@@ -1354,7 +1358,7 @@ func TestBaseConfigManifestNamesEveryField(t *testing.T) {
 	)
 }
 
-// grpcKeys covers the three [grpc] keys read as plain casts.
+// grpcKeys covers the four [grpc] keys read as plain casts.
 //
 // The section is where the guarding in this reader is most complete, which is why only three keys
 // are rows. Eight others are read behind v.IsSet or through clampNonNegativeDuration and so resolve
@@ -1378,6 +1382,12 @@ var grpcKeys = []configtest.KeySpec{
 		Key: "grpc.keepalive-permit-without-stream", Path: "KeepalivePermitWithoutStream",
 		Cast: configtest.CastBool, Unguarded: true,
 		Why: "whether a client may ping with no active stream; false either way, so this row states " +
+			"the key is read rather than recording a divergence",
+	},
+	{
+		Key: "grpc.rate-limiting-enabled", Path: "RateLimitingEnabled",
+		Cast: configtest.CastBool, Unguarded: true,
+		Why: "the declared default is false and an absent key resolves false, so this row states " +
 			"the key is read rather than recording a divergence",
 	},
 }
@@ -1406,6 +1416,9 @@ var grpcKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 	"grpc.keepalive-time",
 	"grpc.keepalive-timeout",
 	"grpc.keepalive-min-time",
+	"grpc.ip-rate-limit-rps",
+	"grpc.ip-rate-limit-burst",
+	"grpc.trusted-proxy-cidrs",
 }
 
 func readGRPC(t testing.TB) func(configtest.AppOpts) (any, error) {
@@ -1419,6 +1432,7 @@ func FuzzGRPCConfig(f *testing.F) {
 	seeds.AddRow(uint(0), fuzzing.KindBool, "", int64(0), true)
 	seeds.AddRow(uint(1), fuzzing.KindString, "127.0.0.1:19090", int64(0), false)
 	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
+	seeds.AddRow(uint(3), fuzzing.KindBool, "", int64(0), true)
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "grpc", readGRPC(f), grpcKeys, seeds,
 		grpcKeysWithTargetsOfTheirOwn...)
@@ -1429,8 +1443,8 @@ func FuzzGRPCConfig(f *testing.F) {
 	})
 }
 
-// TestGRPCKeyNamesMatchTheRecordedNames pins all eleven [grpc] key names, the three rows and the
-// eight driven elsewhere.
+// TestGRPCKeyNamesMatchTheRecordedNames pins all fifteen [grpc] key names, the four rows and the
+// eleven driven elsewhere.
 //
 // The eight had no record before this, because their target carries a local struct rather than a
 // KeySpec table, so nothing held their spelling. That is the gap this closes.
@@ -1450,6 +1464,9 @@ func TestGRPCManifestNamesEveryField(t *testing.T) {
 		"KeepaliveTime",
 		"KeepaliveTimeout",
 		"KeepaliveMinTime",
+		"IPRateLimitRPS",
+		"IPRateLimitBurst",
+		"TrustedProxyCIDRs",
 	)
 }
 
@@ -1485,12 +1502,18 @@ func TestGetConfigGRPCAbsentReads(t *testing.T) {
 		{"grpc.keepalive-time", got.KeepaliveTime, def.KeepaliveTime},
 		{"grpc.keepalive-timeout", got.KeepaliveTimeout, def.KeepaliveTimeout},
 		{"grpc.keepalive-min-time", got.KeepaliveMinTime, def.KeepaliveMinTime},
+		{"grpc.ip-rate-limit-rps", got.IPRateLimitRPS, def.IPRateLimitRPS},
+		{"grpc.ip-rate-limit-burst", got.IPRateLimitBurst, def.IPRateLimitBurst},
 	} {
 		if c.absent != c.declared {
 			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its v.IsSet guard "+
 				"is gone. That is the failure the guard exists to prevent, and config.go:519-521 says "+
 				"why: a node upgrading with an older app.toml stays bounded", c.key, c.absent, c.declared)
 		}
+	}
+
+	if got.TrustedProxyCIDRs != nil {
+		t.Errorf("an absent grpc.trusted-proxy-cidrs resolved to %v rather than nil", got.TrustedProxyCIDRs)
 	}
 
 	// Read unconditionally and clamped. Nothing guards these, so the assertion is on the coincidence

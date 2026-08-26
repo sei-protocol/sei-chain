@@ -5,6 +5,8 @@ import "strings"
 const (
 	// PlaneCometBFT is the rate-limit plane label for Tendermint RPC HTTP.
 	PlaneCometBFT = "cometbft"
+	// PlaneGRPC is the rate-limit plane label for native gRPC (:9090).
+	PlaneGRPC = "grpc"
 
 	// rpcMethodBucketOther is the fallback label for unrecognized methods.
 	rpcMethodBucketOther = "other"
@@ -75,6 +77,37 @@ var knownCometBFTRPCMethods = map[string]struct{}{
 	"websocket":            {},
 }
 
+// knownGRPCServices lists protobuf service names registered on the native gRPC
+// server. Rejection metrics on PlaneGRPC record the service name rather than
+// the full /service/Method path, keeping OTel attribute cardinality bounded.
+var knownGRPCServices = map[string]struct{}{
+	"cosmos.auth.v1beta1.Query":                         {},
+	"cosmos.authz.v1beta1.Query":                        {},
+	"cosmos.bank.v1beta1.Query":                         {},
+	"cosmos.base.reflection.v2alpha1.ReflectionService": {},
+	"cosmos.base.tendermint.v1beta1.Service":            {},
+	"cosmos.consensus.v1.Query":                         {},
+	"cosmos.distribution.v1beta1.Query":                 {},
+	"cosmos.evidence.v1beta1.Query":                     {},
+	"cosmos.feegrant.v1beta1.Query":                     {},
+	"cosmos.gov.v1beta1.Query":                          {},
+	"cosmos.mint.v1beta1.Query":                         {},
+	"cosmos.params.v1beta1.Query":                       {},
+	"cosmos.slashing.v1beta1.Query":                     {},
+	"cosmos.staking.v1beta1.Query":                      {},
+	"cosmos.tx.v1beta1.Service":                         {},
+	"cosmos.upgrade.v1beta1.Query":                      {},
+	"cosmos.vesting.v1beta1.Query":                      {},
+	"grpc.reflection.v1alpha.ServerReflection":          {},
+	"seiprotocol.seichain.epoch.Query":                  {},
+	"seiprotocol.seichain.evm.Query":                    {},
+	"seiprotocol.seichain.mint.Query":                   {},
+	"seiprotocol.seichain.oracle.Query":                 {},
+	"seiprotocol.seichain.tokenfactory.Query":           {},
+	"cosmos.circuit.v1.Query":                           {},
+	"cosmwasm.wasm.v1.Query":                            {},
+}
+
 // bucketRPCMethod maps a raw JSON-RPC method name to a low-cardinality label
 // suitable for OTel/Prometheus metrics. Attacker-controlled method strings
 // collapse to rpcMethodBucketOther.
@@ -85,7 +118,33 @@ func bucketRPCMethod(plane, method string) string {
 	if plane == PlaneCometBFT {
 		return bucketCometBFTRPCMethod(method)
 	}
+	if plane == PlaneGRPC {
+		return bucketGRPCMethod(method)
+	}
 	return bucketNamespacedRPCMethod(method)
+}
+
+func bucketGRPCMethod(fullMethod string) string {
+	if fullMethod == "" || len(fullMethod) > maxRPCMethodLen {
+		return rpcMethodBucketOther
+	}
+	svc := grpcServiceFromFullMethod(fullMethod)
+	if svc == "" || len(svc) > maxRPCMethodLen {
+		return rpcMethodBucketOther
+	}
+	if _, ok := knownGRPCServices[svc]; ok {
+		return svc
+	}
+	return rpcMethodBucketOther
+}
+
+func grpcServiceFromFullMethod(fullMethod string) string {
+	method := strings.TrimPrefix(fullMethod, "/")
+	slash := strings.LastIndexByte(method, '/')
+	if slash <= 0 {
+		return ""
+	}
+	return method[:slash]
 }
 
 func bucketCometBFTRPCMethod(method string) string {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -258,6 +259,33 @@ type GRPCConfig struct {
 	// KeepalivePermitWithoutStream defines whether the server allows keepalive
 	// pings even when there are no active streams.
 	KeepalivePermitWithoutStream bool `mapstructure:"keepalive-permit-without-stream"`
+
+	// IPRateLimitRPS is the per-IP sustained request rate in requests/second for
+	// native gRPC (:9090). Zero disables the token bucket (Allow always returns
+	// true) and does not bypass the admission interceptor when
+	// rate-limiting-enabled is true.
+	IPRateLimitRPS float64 `mapstructure:"ip-rate-limit-rps"`
+
+	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
+	// bucket (same effect as ip-rate-limit-rps = 0) and does not bypass the
+	// admission interceptor when rate-limiting-enabled is true.
+	IPRateLimitBurst int `mapstructure:"ip-rate-limit-burst"`
+
+	// RateLimitingEnabled is the master switch for gRPC rate-limit admission.
+	RateLimitingEnabled bool `mapstructure:"rate-limiting-enabled"`
+
+	// TrustedProxyCIDRs lists CIDRs whose x-forwarded-for metadata is trusted
+	// when resolving the client IP for rate limiting. Empty means trust no proxy.
+	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
+}
+
+// RateLimiterConfig builds the ratelimiter.Config used by native gRPC admission.
+func (c GRPCConfig) RateLimiterConfig() ratelimiter.Config {
+	return ratelimiter.Config{
+		RPS:               c.IPRateLimitRPS,
+		Burst:             c.IPRateLimitBurst,
+		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
+	}
 }
 
 // GRPCWebConfig defines configuration for the gRPC-web server.
@@ -386,6 +414,10 @@ func DefaultConfig() *Config {
 			KeepaliveTimeout:             DefaultGRPCKeepaliveTimeout,
 			KeepaliveMinTime:             DefaultGRPCKeepaliveMinTime,
 			KeepalivePermitWithoutStream: DefaultGRPCKeepalivePermitWithoutStream,
+			IPRateLimitRPS:               ratelimiter.DefaultRPS,
+			IPRateLimitBurst:             ratelimiter.DefaultBurst,
+			RateLimitingEnabled:          false,
+			TrustedProxyCIDRs:            nil,
 		},
 		Rosetta: RosettaConfig{
 			Enable:     false,
@@ -572,6 +604,19 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
+	grpcIPRateLimitRPS := ratelimiter.DefaultRPS
+	if v.IsSet("grpc.ip-rate-limit-rps") {
+		grpcIPRateLimitRPS = v.GetFloat64("grpc.ip-rate-limit-rps")
+	}
+	grpcIPRateLimitBurst := ratelimiter.DefaultBurst
+	if v.IsSet("grpc.ip-rate-limit-burst") {
+		grpcIPRateLimitBurst = v.GetInt("grpc.ip-rate-limit-burst")
+	}
+	grpcTrustedProxyCIDRs := []string(nil)
+	if v.IsSet("grpc.trusted-proxy-cidrs") {
+		grpcTrustedProxyCIDRs = v.GetStringSlice("grpc.trusted-proxy-cidrs")
+	}
+
 	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
@@ -627,6 +672,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepaliveTimeout:             grpcKeepaliveTimeout,
 			KeepaliveMinTime:             grpcKeepaliveMinTime,
 			KeepalivePermitWithoutStream: v.GetBool("grpc.keepalive-permit-without-stream"),
+			IPRateLimitRPS:               grpcIPRateLimitRPS,
+			IPRateLimitBurst:             grpcIPRateLimitBurst,
+			RateLimitingEnabled:          v.GetBool("grpc.rate-limiting-enabled"),
+			TrustedProxyCIDRs:            grpcTrustedProxyCIDRs,
 		},
 		GRPCWeb: GRPCWebConfig{
 			Enable:             v.GetBool("grpc-web.enable"),

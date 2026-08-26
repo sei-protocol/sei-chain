@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc/gogoreflection"
@@ -25,7 +26,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		maxRecvMsgSize = config.DefaultGRPCMaxRecvMsgSize
 	}
 
-	grpcSrv := grpc.NewServer(
+	serverOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(100),
 		// MaxRecvMsgSize bounds per-request memory allocation before the rate
 		// limiter fires, preventing an oversized request from exhausting memory.
@@ -41,7 +42,19 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 			MinTime:             cfg.KeepaliveMinTime,
 			PermitWithoutStream: cfg.KeepalivePermitWithoutStream,
 		}),
-	)
+	}
+	if cfg.RateLimitingEnabled {
+		rateLimitRegistry, err := ratelimiter.New(cfg.RateLimiterConfig())
+		if err != nil {
+			return nil, fmt.Errorf("grpc rate limiter: %w", err)
+		}
+		serverOpts = append(serverOpts,
+			grpc.ChainUnaryInterceptor(UnaryRateLimitInterceptor(rateLimitRegistry)),
+			grpc.ChainStreamInterceptor(StreamRateLimitInterceptor(rateLimitRegistry)),
+		)
+	}
+
+	grpcSrv := grpc.NewServer(serverOpts...)
 	app.RegisterGRPCServer(grpcSrv)
 	// reflection allows consumers to build dynamic clients that can write
 	// to any cosmos-sdk application without relying on application packages at compile time

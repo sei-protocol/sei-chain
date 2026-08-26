@@ -61,4 +61,17 @@ func TestBucketRPCMethod_CometBFTUnknownMethods(t *testing.T) {
 func TestBucketRPCMethod_Invalid(t *testing.T) {
 	require.Equal(t, MethodInvalid, bucketRPCMethod("evm", MethodInvalid))
 	require.Equal(t, MethodInvalid, bucketRPCMethod(PlaneCometBFT, MethodInvalid))
+	require.Equal(t, MethodInvalid, bucketRPCMethod(PlaneGRPC, MethodInvalid))
+}
+
+func TestBucketRPCMethod_GrpcknownServices(t *testing.T) {
+	require.Equal(t, "cosmos.bank.v1beta1.Query", bucketRPCMethod(PlaneGRPC, "/cosmos.bank.v1beta1.Query/Balance"))
+	require.Equal(t, "cosmos.tx.v1beta1.Service", bucketRPCMethod(PlaneGRPC, "/cosmos.tx.v1beta1.Service/Simulate"))
+}
+
+func TestBucketRPCMethod_GrpcUnknownServices(t *testing.T) {
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, ""))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, "/bogus.Service/Call"))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, "not-a-grpc-path"))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, strings.Repeat("a", maxRPCMethodLen+1)))
 }
