@@ -66,10 +66,10 @@ func declaredSections() []string { return SectionsRegisteredHere() }
 // declaredKeys are the keys the sections this package registers declare.
 //
 // Read out of the registry rather than matched against the section names as prefixes, because a section
-// whose keys sit at the root of the file has no prefix for a match to find. The prefix form covered a
-// hundred and ten of the hundred and twenty-four keys and was blind to the whole root section, so the
-// claim that those fourteen answer the same for every node kind was measured by nothing. It also assumed
-// a section's name and its prefix are the same string, which is a thing the registry keeps separate.
+// whose keys sit at the root of the file has no prefix for a match to find. The prefix form was blind to
+// every one of those keys, so the claim that they answer the same for every node kind was measured by
+// nothing. It also assumed a section's name and its prefix are the same string, which is a thing the
+// registry keeps separate.
 func declaredKeys(t *testing.T) []string {
 	t.Helper()
 	var out []string
