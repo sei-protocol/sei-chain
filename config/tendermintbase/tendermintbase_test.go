@@ -154,6 +154,47 @@ var declaredAgainst = []struct {
 	{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 0},
 }
 
+// TestEveryExclusionByDeprecationStillHasOne closes the direction the check beside it cannot see.
+//
+// That check walks declared keys, so it catches a declared key whose field becomes deprecated and never
+// an excluded key whose field stops being one. The second is the expiry that matters: the node dropping
+// the note and starting to honour a setting leaves the key absent from the space, an operator told it
+// reaches nothing, and every other test here passing.
+//
+// Deprecation is the default justification, so an exclusion resting on something else has to say so. The
+// four that do are each named by the constant that carries their reason, which is what keeps this from
+// becoming a list somebody has to remember: a new exclusion is either marked deprecated or it fails here
+// until its reason is written down.
+func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
+	justifiedOtherwise := map[string]string{
+		filledFromTheCommandLine:      "the command line carries it after the file is read",
+		derivedFromTheConnectionLimit: "unset is the setting, and a default here would be invented",
+		readByNothing:                 "nothing reads it and no generated file carries it",
+		"max-batch-bytes":             "no code reads it, and its field carries no deprecation note",
+	}
+
+	for _, tc := range declaredAgainst {
+		registered, ok := registry.Lookup(tc.section)
+		if !ok {
+			t.Errorf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			continue
+		}
+		marked := deprecatedPaths(t, reflect.TypeOf(tc.proto).Elem())
+		for _, key := range registered.Excluded {
+			rel := strings.TrimPrefix(key, tc.section+".")
+			if marked[rel] {
+				continue
+			}
+			if _, stated := justifiedOtherwise[rel]; stated {
+				continue
+			}
+			t.Errorf("%s is excluded and its field is not marked deprecated, so either the node now "+
+				"honours the setting and the key belongs declared, or the reason for leaving it out "+
+				"needs saying", key)
+		}
+	}
+}
+
 // TestNoDeclaredKeyNamesADeprecatedField holds every section against its struct's own marking.
 //
 // A field the node marks deprecated is one a written value cannot change, so declaring it offers a key
