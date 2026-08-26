@@ -265,14 +265,8 @@ func (s Section) detached() Section {
 
 // Sections returns every registered section, sorted by name.
 func Sections() []Section {
-	mu.RLock()
-	defer mu.RUnlock()
-	out := make([]Section, 0, len(sections))
-	for _, s := range sections {
-		out = append(out, s.detached())
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	registered, _ := snapshot()
+	return registered
 }
 
 // Lookup returns a registered section.
@@ -281,6 +275,22 @@ func Lookup(name string) (Section, bool) {
 	defer mu.RUnlock()
 	s, ok := sections[name]
 	return s.detached(), ok
+}
+
+// snapshot returns every registered section and every refused registration, read together.
+//
+// One acquisition for both, because a caller that asked for them separately would be describing two
+// registries: a registration arriving between the two reads is refused in one answer and absent from
+// the other, which is the state a guard on the defects exists to refuse and would then miss.
+func snapshot() ([]Section, []Defect) {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]Section, 0, len(sections))
+	for _, s := range sections {
+		out = append(out, s.detached())
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, append([]Defect(nil), defects...)
 }
 
 // Defects returns every registration this package could not use.
