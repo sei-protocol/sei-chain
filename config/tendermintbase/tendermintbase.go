@@ -50,10 +50,10 @@ var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers"}
 
 // nodeRootSchema declares the keys that sit at the root of the node's configuration file.
 //
-// The node's own top-level type carries these and the nine tables both, so declaring against it directly
-// would declare every table's keys a second time. This squashes the same base group that type squashes,
-// so fourteen spellings still come from the node's own tags, and restates only the two fields it holds
-// beside that group. A test holds those two against it.
+// The node's own top-level type carries these and every table both, so declaring against it directly
+// would declare each table's keys a second time. This squashes the same base group that type squashes, so
+// the spellings still come from the node's own tags, and restates only the fields it holds beside that
+// group. A test holds those against it.
 type nodeRootSchema struct {
 	tmcfg.BaseConfig `mapstructure:",squash"`
 

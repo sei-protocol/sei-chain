@@ -130,11 +130,8 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 // declaredAgainst pairs each section with the struct it declares against and how many of that struct's
 // paths it leaves out.
 //
-// Every walk in this file reads it, so a section added here joins all of them.
-//
-// The count check walks what the registrations recorded and fails on a section with no row here, so a
-// section cannot register and go unmeasured. It names the root section as the one absence, whose squashed
-// group would make this table's arithmetic wrong.
+// TestTheDeclaredKeysAreTheOnesTheReaderDecodes reads it and fails on a registered section with no row, so
+// a section added to this package needs a row here and one in markedIn.
 var declaredAgainst = []struct {
 	section string
 	proto   any
@@ -149,6 +146,7 @@ var declaredAgainst = []struct {
 	{InstrumentationSectionName, &tmcfg.InstrumentationConfig{}, 1},
 	{PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, 1},
 	{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 0},
+	{RootSectionName, &nodeRootSchema{}, len(notWritableInThisFile) + len(removedFromTheNode)},
 }
 
 // TestEveryExclusionByDeprecationStillHasOne holds each excluded path to a justification: its field is
@@ -172,7 +170,7 @@ func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
 			continue
 		}
-		marked := markingsFor(t, name)
+		marked := markingsFor(t, registered)
 		if marked == nil {
 			t.Errorf("%s declares keys and no struct is named as carrying their markings", name)
 			continue
@@ -201,7 +199,7 @@ func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
 			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
 			continue
 		}
-		marked := markingsFor(t, name)
+		marked := markingsFor(t, registered)
 		if marked == nil {
 			t.Errorf("%s declares keys and no struct is named as carrying their markings, so nothing "+
 				"measures whether any of them is a setting the node removed", name)
@@ -221,12 +219,14 @@ func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
 // keys come from.
 //
 // Returns nil for a section nothing names, so a caller reports that rather than measuring an empty set.
-func markingsFor(t *testing.T, section string) map[string]bool {
+func markingsFor(t *testing.T, registered registry.Section) map[string]bool {
 	t.Helper()
-	protos, named := markedIn[section]
+	protos, named := markedIn[registered.Name]
 	if !named {
 		return nil
 	}
+	holdThePairingToTheSection(t, registered, protos)
+
 	out := map[string]bool{}
 	for _, proto := range protos {
 		for path := range deprecatedPaths(t, reflect.TypeOf(proto).Elem()) {
@@ -236,11 +236,53 @@ func markingsFor(t *testing.T, section string) map[string]bool {
 	return out
 }
 
+// holdThePairingToTheSection fails unless markedIn's structs and the section's own paths account for each
+// other: every path the section derives names a field of a listed struct, and every listed struct is named
+// by one of those paths.
+//
+// markedIn is written by hand and the registry keeps no prototype, so these paths are the only witness to
+// what a section declared against.
+func holdThePairingToTheSection(t *testing.T, registered registry.Section, protos []any) {
+	t.Helper()
+	carriers := map[reflect.Type]bool{}
+	for _, path := range slices.Concat(registered.Keys, registered.Excluded) {
+		rel := strings.TrimPrefix(path, registered.Name+".")
+		typ, found := carrying(protos, rel)
+		if !found {
+			t.Fatalf("%s derives %s and no struct named as carrying its markings declares a field tagged "+
+				"%q, so a marking on that field is not one this reads", registered.Name, path, rel)
+		}
+		carriers[typ] = true
+	}
+	for _, proto := range protos {
+		typ := reflect.TypeOf(proto).Elem()
+		if !carriers[typ] {
+			t.Fatalf("%s is named as carrying %s's markings and no path that section derives names a "+
+				"field of it, so what it contributes here is another type's markings",
+				typ.Name(), registered.Name)
+		}
+	}
+}
+
+// carrying returns the struct among a section's marking structs whose own tag names a path.
+func carrying(protos []any, rel string) (reflect.Type, bool) {
+	for _, proto := range protos {
+		typ := reflect.TypeOf(proto).Elem()
+		// fieldTagged reads a struct's own fields and not a squashed group's, which is the rule the
+		// deprecation parse reads a tag by. A struct that reaches the path only through a group it
+		// squashes carries none of that path's markings.
+		if _, ok := fieldTagged(typ, rel); ok {
+			return typ, true
+		}
+	}
+	return nil, false
+}
+
 // markedIn pairs each section with the node's own structs whose deprecation markings apply to its keys.
 //
 // A set rather than one struct, because the root section declares against a local schema carrying no
-// markings, and its keys come from two of the node's structs. Callers walk the registered set, so a
-// section with no row here fails rather than skipping the check.
+// markings and its keys come from more than one of the node's structs. Callers walk the registered set,
+// so a section with no row here fails rather than skipping the check.
 var markedIn = map[string][]any{
 	P2PSectionName:             {&tmcfg.P2PConfig{}},
 	RPCSectionName:             {&tmcfg.RPCConfig{}},
@@ -251,9 +293,9 @@ var markedIn = map[string][]any{
 	InstrumentationSectionName: {&tmcfg.InstrumentationConfig{}},
 	PrivValidatorSectionName:   {&tmcfg.PrivValidatorConfig{}},
 	SelfRemediationSectionName: {&tmcfg.SelfRemediationConfig{}},
-	// Two, because the root schema squashes the node's base group and restates two fields the node holds
-	// beside it. A marking on either of those two lives on the top-level type, so naming only the group
-	// would leave them unwatched: eleven keys, nine of them covered.
+	// Two, because the root schema squashes the node's base group and restates the fields the node holds
+	// beside it. A marking on one of those lives on the top-level type, and one on a base setting lives on
+	// the group, so either name alone leaves the other unwatched.
 	RootSectionName: {&tmcfg.BaseConfig{}, &tmcfg.Config{}},
 }
 
@@ -263,10 +305,8 @@ var markedIn = map[string][]any{
 // moves the reader and the declaration together, and there is no third statement to drift from.
 func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 	// Walked against the registered set first, so a section added without a row fails here rather than
-	// having its key count go unmeasured. The root section is the one absence, because it declares
-	// against a schema whose squashed group counts as a single tagged field and the arithmetic below
-	// would be wrong for it; a test of its own holds that section.
-	counted := map[string]bool{RootSectionName: true}
+	// having its key count go unmeasured.
+	counted := map[string]bool{}
 	for _, tc := range declaredAgainst {
 		counted[tc.section] = true
 	}
@@ -371,30 +411,41 @@ func generatedFileCarries(t *testing.T, table, rel string) bool {
 		t.Fatalf("read the rendered file: %v", err)
 	}
 	// Scoped to the table asked about, because a key name is not unique in this file: the listen address
-	// appears under three tables and the connection ceiling under two, so an unscoped match answers for
+	// and the connection ceiling each appear under more than one table, so an unscoped match answers for
 	// whichever writes the name first.
 	//
-	// A table the file does not contain is fatal rather than absent. Answering false for it would let a
+	// A region the file writes no key in is fatal rather than absent. Answering false for it would let a
 	// caller asserting a key is unwritten pass while measuring nothing, which is the shape the scoping is
-	// here to remove.
-	inTable, sawTable := table == "", table == ""
-	found := false
+	// here to remove. Counted rather than looked for by header, because the keys above the first table
+	// have no header and a missing region there would otherwise read as one holding no key.
+	inTable := table == ""
+	written, found := 0, false
 	for _, line := range strings.Split(string(body), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inTable = trimmed == "["+table+"]"
-			sawTable = sawTable || inTable
 			continue
 		}
-		if !inTable {
+		// A commented line is the template's own prose, and that prose carries an equals sign in places,
+		// so counting one would answer that a key was written here.
+		if !inTable || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if name, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(name) == rel {
+		name, _, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		written++
+		if strings.TrimSpace(name) == rel {
 			found = true
 		}
 	}
-	if !sawTable {
-		t.Fatalf("the rendered file has no [%s] table, so nothing measures what it writes there", table)
+	if written == 0 {
+		where := "above its first table"
+		if table != "" {
+			where = "in its [" + table + "] table"
+		}
+		t.Fatalf("the rendered file writes no key %s, so nothing measures what it writes there", where)
 	}
 	return found
 }
@@ -789,12 +840,11 @@ func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
 // TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries closes the one place a spelling is restated.
 //
 // The root section declares against a schema rather than the node's top-level type, because that type
-// carries the nine tables as well and declaring against it would declare their keys twice. The schema
-// squashes the same base group, so the spellings still derive from the node's own tags, and it restates
-// two fields by hand.
-//
-// This holds those two to the type they came from, by name, tag and type, and counts the non-table fields
-// so a third one appearing there fails here rather than going undeclared.
+// carries the tables as well and declaring against it would declare their keys twice. The schema squashes
+// the same base group and restates by hand the fields the node holds beside it, and each of those is held
+// here by name, tag and type, with the schema's own field count holding the set. A root field carrying no
+// mapstructure tag fails too: the reader falls back to the field's own name, so an operator writes the key
+// under that spelling and no section declares it.
 func TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries(t *testing.T) {
 	live := reflect.TypeOf(tmcfg.Config{})
 	schema := reflect.TypeOf(nodeRootSchema{})
@@ -802,11 +852,19 @@ func TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries(t *testing.T) {
 	var restated int
 	for i := 0; i < live.NumField(); i++ {
 		f := live.Field(i)
-		tag, ok := f.Tag.Lookup("mapstructure")
-		if !ok {
+		// An unexported field is the node's private state. Reflection cannot write one, so no written
+		// value reaches it and no key belongs to it.
+		if !f.IsExported() {
 			continue
 		}
-		// The squashed base group and the nine tables are not restated; everything else is.
+		tag, ok := f.Tag.Lookup("mapstructure")
+		if !ok {
+			t.Errorf("the node's type carries %s at its root with no mapstructure tag, and the reader "+
+				"falls back to the field's own name, so an operator writes that key and no section "+
+				"declares it", f.Name)
+			continue
+		}
+		// The squashed base group and the tables are not restated; everything else is.
 		if strings.Contains(tag, "squash") {
 			continue
 		}
@@ -859,8 +917,8 @@ func TestEachRootExclusionStillHasItsReason(t *testing.T) {
 
 	// Settled elsewhere in the file, so neither is offered here.
 	for key, why := range map[string]string{
-		"home":                  "the file's own location, which the command line carries",
-		statedAtTheTopOfTheFile: "the kind of node, which the file states at the top under its own name",
+		filledFromTheCommandLine: "the file's own location, which the command line carries",
+		statedAtTheTopOfTheFile:  "the kind of node, which the file states at the top under its own name",
 	} {
 		if declared[key] {
 			t.Errorf("%q is declared at the root and it is %s, so an operator can write a second value "+
@@ -901,7 +959,7 @@ func TestEachRootExclusionStillHasItsReason(t *testing.T) {
 func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 	for _, s := range registry.Sections() {
 		for _, key := range s.Keys {
-			if key == "home" || strings.HasSuffix(key, ".home") {
+			if key == filledFromTheCommandLine || strings.HasSuffix(key, "."+filledFromTheCommandLine) {
 				t.Errorf("%s declares %q, and the node fills that field from the command line after the "+
 					"file is read, so what this section states for it is the empty string", s.Name, key)
 			}
