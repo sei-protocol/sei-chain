@@ -84,6 +84,20 @@ func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestPrepareApplicationEVMOnlyInMemory(t *testing.T) {
+	app := abci.BaseApplication{}
+
+	prepared := prepareApplication(&config.Config{
+		BaseConfig: config.BaseConfig{
+			EVMOnlyInMemory: true,
+			MockApp:         true,
+			FastCheckTx:     true,
+		},
+	}, app)
+
+	require.Equal(t, "evmonly-in-memory", prepared.Info().Data)
+}
+
 func TestValidateNodeSetupConfigRejectsMockAppWithoutAutobahn(t *testing.T) {
 	err := validateNodeSetupConfig(&config.Config{
 		BaseConfig: config.BaseConfig{
@@ -98,6 +112,27 @@ func TestValidateNodeSetupConfigAllowsMockAppWithAutobahn(t *testing.T) {
 	err := validateNodeSetupConfig(&config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp: true,
+		},
+		AutobahnConfigFile: "/tmp/autobahn.json",
+	})
+
+	require.NoError(t, err)
+}
+
+func TestValidateNodeSetupConfigRejectsEVMOnlyInMemoryWithoutAutobahn(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			EVMOnlyInMemory: true,
+		},
+	})
+
+	require.Error(t, err)
+}
+
+func TestValidateNodeSetupConfigAllowsEVMOnlyInMemoryWithAutobahn(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			EVMOnlyInMemory: true,
 		},
 		AutobahnConfigFile: "/tmp/autobahn.json",
 	})

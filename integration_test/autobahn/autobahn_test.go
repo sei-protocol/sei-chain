@@ -5,6 +5,7 @@
 // Requires a running autobahn Docker cluster. Run via:
 //
 //	make autobahn-integration-test
+//	make autobahn-evmonly-integration-test
 //
 // Or directly (cluster must already be up):
 //
@@ -13,9 +14,11 @@ package autobahn
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,8 +27,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	tmhttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/evmtest"
 )
 
@@ -75,6 +85,10 @@ const (
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
 	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
+
+	evmOnlyInMemoryEnv = "AUTOBAHN_EVMONLY_IN_MEMORY"
+	evmOnlyLoadTxs     = 4_000
+	evmOnlyLoadTimeout = 3 * time.Minute
 )
 
 var (
@@ -196,6 +210,21 @@ func assertAutobahnEnabled(t *testing.T) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("autobahn not enabled on %s (no 'GigaRouter initialized' in container log): %v\n%s",
 				name, err, out)
+		}
+	}
+}
+
+func evmOnlyInMemoryEnabled() bool {
+	return os.Getenv(evmOnlyInMemoryEnv) == "true"
+}
+
+func assertEVMOnlyInMemoryEnabled(t *testing.T) {
+	t.Helper()
+	for _, name := range listRunningNodes(t) {
+		cmd := exec.Command("docker", "exec", name, "sh", "-c",
+			"grep -q 'Autobahn EVM-only in-memory execution enabled' build/generated/logs/seid-*.log")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("EVM-only in-memory execution not enabled on %s: %v\n%s", name, err, out)
 		}
 	}
 }
@@ -337,10 +366,12 @@ func TestMain(m *testing.M) {
 		teardownCluster() // best-effort
 		os.Exit(1)
 	}
-	if err := setupFullnodeNode(); err != nil {
-		fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
-		teardownCluster()
-		os.Exit(1)
+	if !evmOnlyInMemoryEnabled() {
+		if err := setupFullnodeNode(); err != nil {
+			fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
+			teardownCluster()
+			os.Exit(1)
+		}
 	}
 	code := m.Run()
 	teardownCluster()
@@ -564,12 +595,125 @@ func TestAutobahn(t *testing.T) {
 	// validator sets.
 	maxFaults = (clusterSize - 1) / 3
 	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
+	if evmOnlyInMemoryEnabled() {
+		t.Run("EVMOnlyLoad", testEVMOnlyLoad)
+		return
+	}
 
 	t.Run("BlockProduction", testBlockProduction)
 	t.Run("EVMTransfer", testEVMTransfer)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
 	t.Run("Recovery", testRecovery)
+}
+
+type evmOnlyLoadState struct{}
+
+func (evmOnlyLoadState) SetBalance(common.Address, *big.Int)               {}
+func (evmOnlyLoadState) SetCode(common.Address, []byte)                    {}
+func (evmOnlyLoadState) SetState(common.Address, common.Hash, common.Hash) {}
+
+func testEVMOnlyLoad(t *testing.T) {
+	assertAutobahnEnabled(t)
+	assertEVMOnlyInMemoryEnabled(t)
+	if clusterSize != 4 {
+		t.Fatalf("EVM-only Docker load test requires four validators, got %d", clusterSize)
+	}
+
+	workload, err := scenarios.NewTransferWorkload(scenarios.Config{
+		TxsPerBlock:   evmOnlyLoadTxs,
+		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyInMemoryChainID),
+		GasPrice:      big.NewInt(1_000_000_000),
+		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
+		TransferValue: big.NewInt(1),
+		TxGasLimit:    21_000,
+	}, evmOnlyLoadState{})
+	if err != nil {
+		t.Fatalf("create EVM-only transfer workload: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), evmOnlyLoadTimeout)
+	defer cancel()
+	block, err := workload.BuildBlock(ctx, 1)
+	if err != nil {
+		t.Fatalf("build EVM-only transfer workload: %v", err)
+	}
+
+	clients := make([]*tmhttp.HTTP, clusterSize)
+	for i := range clients {
+		client, err := tmhttp.New(fmt.Sprintf("http://localhost:%d", 26657+3*i))
+		if err != nil {
+			t.Fatalf("create node %d RPC client: %v", i, err)
+		}
+		clients[i] = client
+	}
+	started := time.Now()
+	group, groupCtx := errgroup.WithContext(ctx)
+	for nodeIndex, client := range clients {
+		nodeIndex, client := nodeIndex, client
+		group.Go(func() error {
+			for txIndex := nodeIndex; txIndex < len(block.Txs); txIndex += len(clients) {
+				response, err := client.BroadcastTxSync(groupCtx, tmtypes.Tx(block.Txs[txIndex]))
+				if err != nil {
+					return fmt.Errorf("broadcast tx %d through node %d: %w", txIndex, nodeIndex, err)
+				}
+				if response.Code != 0 {
+					return fmt.Errorf("broadcast tx %d through node %d: code=%d log=%s", txIndex, nodeIndex, response.Code, response.Log)
+				}
+			}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	lastHeight, included := waitForEVMOnlyTxs(t, ctx, clients[0], len(block.Txs))
+	waitForEVMOnlyHeight(t, ctx, clients, lastHeight)
+	elapsed := time.Since(started)
+	t.Logf("Autobahn finalized %d raw EVM transfers through %d validators in %s (%.0f tx/s)",
+		included, clusterSize, elapsed.Round(time.Millisecond), float64(included)/elapsed.Seconds())
+}
+
+func waitForEVMOnlyTxs(t *testing.T, ctx context.Context, client *tmhttp.HTTP, target int) (int64, int) {
+	t.Helper()
+	nextHeight := int64(1)
+	included := 0
+	for included < target {
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("waiting for %d EVM-only transactions: finalized %d: %v", target, included, err)
+		}
+		latest, err := client.Block(ctx, nil)
+		if err != nil || latest.Block == nil || latest.Block.Height < nextHeight {
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		for nextHeight <= latest.Block.Height {
+			height := nextHeight
+			block, err := client.Block(ctx, &height)
+			if err != nil || block.Block == nil {
+				break
+			}
+			included += len(block.Block.Data.Txs)
+			nextHeight++
+		}
+	}
+	return nextHeight - 1, included
+}
+
+func waitForEVMOnlyHeight(t *testing.T, ctx context.Context, clients []*tmhttp.HTTP, target int64) {
+	t.Helper()
+	for i, client := range clients {
+		for {
+			if err := ctx.Err(); err != nil {
+				t.Fatalf("waiting for node %d to execute EVM-only height %d: %v", i, target, err)
+			}
+			block, err := client.Block(ctx, nil)
+			if err == nil && block.Block != nil && block.Block.Height >= target {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
 
 // restartNode re-invokes the container's seid-start script inside sei-node-<i>.

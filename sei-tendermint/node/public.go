@@ -7,6 +7,7 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
@@ -121,10 +122,17 @@ func validateNodeSetupConfig(conf *config.Config) error {
 	if conf.MockApp && conf.AutobahnConfigFile == "" {
 		return fmt.Errorf("mock-app requires autobahn-config-file")
 	}
+	if conf.EVMOnlyInMemory && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("evm-only-in-memory requires autobahn-config-file")
+	}
 	return nil
 }
 
 func prepareApplication(conf *config.Config, app abci.Application) abci.Application {
+	if conf.EVMOnlyInMemory {
+		logger.Warn("Autobahn EVM-only in-memory execution enabled; state is ephemeral and unsafe for persistent networks")
+		return p2p.NewEVMOnlyInMemoryApplication(config.AutobahnEVMOnlyInMemoryChainID)
+	}
 	if conf.MockApp {
 		return NewMockApp(app)
 	}
