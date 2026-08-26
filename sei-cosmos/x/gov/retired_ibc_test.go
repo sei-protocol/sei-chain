@@ -63,6 +63,13 @@ func TestRetiredIBCProposalV66CodecCompatibility(t *testing.T) {
 	upgradeRoundTrip, err := encoding.Marshaler.Marshal(&upgrade)
 	require.NoError(t, err)
 	require.Equal(t, upgradeFixture, upgradeRoundTrip)
+	upgradeJSON, err := encoding.Marshaler.MarshalAsJSON(&upgrade)
+	require.NoError(t, err)
+	var upgradeFromJSON retiredibcgov.UpgradeProposal
+	require.NoError(t, encoding.Marshaler.UnmarshalAsJSON(upgradeJSON, &upgradeFromJSON))
+	upgradeJSONRoundTrip, err := encoding.Marshaler.Marshal(&upgradeFromJSON)
+	require.NoError(t, err)
+	require.Equal(t, upgradeFixture, upgradeJSONRoundTrip)
 
 	proposals := []struct {
 		name            string
@@ -88,20 +95,46 @@ func TestRetiredIBCProposalV66CodecCompatibility(t *testing.T) {
 					require.NoError(t, codec.Unmarshal(mustDecodeHex(t, proposalFixture.encodedProposal), &proposal))
 					require.Equal(t, proposalFixture.typeURL, proposal.Content.TypeUrl)
 					require.IsType(t, proposalFixture.contentType, proposal.GetContent())
+					proposalJSON, err := codec.MarshalAsJSON(&proposal)
+					require.NoError(t, err)
+					var proposalFromJSON govtypes.Proposal
+					require.NoError(t, codec.UnmarshalAsJSON(proposalJSON, &proposalFromJSON))
+					require.IsType(t, proposalFixture.contentType, proposalFromJSON.GetContent())
 				})
 			}
 		})
 	}
 }
 
+func TestRetiredIBCProposalGenesisExport(t *testing.T) {
+	testApp := seiapp.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{})
+	proposal := decodeV66Proposal(t, testApp, upgradeProposalHex)
+	testApp.GovKeeper.SetProposal(ctx, proposal)
+
+	genesisState := gov.ExportGenesis(ctx, testApp.GovKeeper)
+	exported, err := testApp.AppCodec().MarshalAsJSON(genesisState)
+	require.NoError(t, err)
+	var imported govtypes.GenesisState
+	require.NoError(t, testApp.AppCodec().UnmarshalAsJSON(exported, &imported))
+	require.Len(t, imported.Proposals, 1)
+	require.IsType(t, &retiredibcgov.UpgradeProposal{}, imported.Proposals[0].GetContent())
+}
+
 func TestRetiredIBCProposalSubmissionIsRejected(t *testing.T) {
-	for _, tc := range []struct {
+	testCases := []struct {
 		content govtypes.Content
 		typeURL string
 	}{
 		{&retiredibcgov.ClientUpdateProposal{Title: "title", Description: "description"}, retiredibcgov.ClientUpdateProposalTypeURL},
 		{&retiredibcgov.UpgradeProposal{Title: "title", Description: "description"}, retiredibcgov.UpgradeProposalTypeURL},
-	} {
+	}
+	testApp := seiapp.Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{})
+	initialProposalID, err := testApp.GovKeeper.GetProposalID(ctx)
+	require.NoError(t, err)
+
+	for _, tc := range testCases {
 		packed, err := codectypes.NewAnyWithValue(tc.content.(proto.Message))
 		require.NoError(t, err)
 		require.Equal(t, tc.typeURL, packed.TypeUrl)
@@ -109,17 +142,19 @@ func TestRetiredIBCProposalSubmissionIsRejected(t *testing.T) {
 		msg, err := govtypes.NewMsgSubmitProposal(tc.content, nil, sdk.AccAddress("12345678901234567890"))
 		require.NoError(t, err)
 		requireRetiredIBCError(t, msg.ValidateBasic())
+
+		handler := testApp.MsgServiceRouter().Handler(msg)
+		require.NotNil(t, handler)
+		_, err = handler(ctx, msg)
+		requireRetiredIBCError(t, err)
+
+		_, err = testApp.GovKeeper.SubmitProposal(ctx, tc.content)
+		requireRetiredIBCError(t, err)
 	}
 
-	testApp := seiapp.Setup(t, false, false, false)
-	ctx := testApp.NewContext(false, tmproto.Header{})
-	content := &retiredibcgov.ClientUpdateProposal{}
-	msg, err := govtypes.NewMsgSubmitProposal(content, nil, sdk.AccAddress("12345678901234567890"))
+	proposalID, err := testApp.GovKeeper.GetProposalID(ctx)
 	require.NoError(t, err)
-	handler := testApp.MsgServiceRouter().Handler(msg)
-	require.NotNil(t, handler)
-	_, err = handler(ctx, msg)
-	requireRetiredIBCError(t, err)
+	require.Equal(t, initialProposalID, proposalID)
 }
 
 func TestRetiredIBCProposalDepositQueueDoesNotPanic(t *testing.T) {
