@@ -432,7 +432,7 @@ docker-cluster-stop:
 # 10 and 20, two live validators, and frozen-rpc-router published on port 8553.
 docker-frozen-rpc-cluster-start: docker-frozen-rpc-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@mkdir -p $(shell go env GOMODCACHE)
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \
 		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
@@ -448,7 +448,7 @@ docker-frozen-rpc-cluster-start-ci: docker-frozen-rpc-cluster-stop ensure-integr
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@test -f $(PROJECT_HOME)/build/seid || (echo "build/seid missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
 	@test -f $(PROJECT_HOME)/build/frozen-rpc-router || (echo "build/frozen-rpc-router missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
-	@mkdir -p $(shell go env GOMODCACHE)
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \
 		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
