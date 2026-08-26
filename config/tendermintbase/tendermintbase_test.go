@@ -143,7 +143,7 @@ var declaredAgainst = []struct {
 	proto   any
 	exclude int
 }{
-	{P2PSectionName, &tmcfg.P2PConfig{}, 3 + len(patchedByTheNodeController)},
+	{P2PSectionName, &tmcfg.P2PConfig{}, 3},
 	{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 	{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings) + 1},
 	{MempoolSectionName, &tmcfg.MempoolConfig{}, len(neverReachTheMempool) + 1},
@@ -249,16 +249,18 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 // TestEachPeerExclusionStillHasItsReason holds every path this section leaves out to the fact that
 // justified leaving it out.
 //
-// Three exclusions and three different reasons, so each is checked against the thing that would expire
-// it rather than against the list. An exclusion whose reason has gone is a setting an operator can use
-// that the key space refuses, and it fails silently: the key simply is not there.
+// Every one has a different reason, so each is checked against the thing that would expire it rather
+// than against the list. An exclusion whose reason has gone is a setting an operator can use that the
+// key space refuses, and it fails silently: the key simply is not there.
+//
+// No count here. Two rounds of review found this doc naming a number the list beneath it had outgrown,
+// so the list is the only statement of how many there are.
 func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	registered, ok := registry.Lookup(P2PSectionName)
 	if !ok {
 		t.Fatalf("%s is not registered; Defects: %v", P2PSectionName, registry.Defects())
 	}
-	for _, rel := range append([]string{filledFromTheCommandLine, derivedFromTheConnectionLimit,
-		readByNothing}, patchedByTheNodeController...) {
+	for _, rel := range []string{filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing} {
 		if !slices.Contains(registered.Excluded, P2PSectionName+"."+rel) {
 			t.Errorf("excluded is %v and does not name %s", registered.Excluded, rel)
 		}
@@ -279,20 +281,24 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 			"declared rather than excluded", *got)
 	}
 
-	// The dial hook: excluded because nothing reads it and no generated file carries it. The second
-	// half is the measurable one, and it is the half that would expire first: the node wiring the field
-	// up would start writing it, and the key would then be one an operator's file holds and this space
-	// refuses. Without this the exclusion is the only one of the three whose reason nothing holds.
-	// The two the controller patches: their reason is that something outside this binary writes them
-	// after the file is written, which no test here can see. What is measured instead is that a
-	// generated file does carry them, since a key the file did not write would need a different reason.
-	for _, rel := range patchedByTheNodeController {
-		if !generatedFileCarries(t, rel) {
-			t.Errorf("%s is excluded as a path something outside the binary writes and a generated file "+
-				"no longer carries it, so the reason for leaving it out has changed", rel)
+	// The two a cluster patches in are declared, not excluded, because a node run by hand sets both and
+	// its configuration file accepts both. Held here so a later round does not quietly refuse them: the
+	// symptom would be an operator told that the address their node advertises reaches nothing.
+	declared := map[string]bool{}
+	for _, key := range registered.Keys {
+		declared[key] = true
+	}
+	for _, rel := range []string{"external-address", "persistent-peers"} {
+		if !declared[P2PSectionName+"."+rel] {
+			t.Errorf("%s.%s is a setting an operator running a node by hand writes and the section does "+
+				"not declare it", P2PSectionName, rel)
 		}
 	}
 
+	// The dial hook: excluded because nothing reads it and no generated file carries it. The second
+	// half is the measurable one, and it is the half that would expire first, since the node wiring the
+	// field up would start writing it and the key would then be one an operator's file holds and this
+	// space refuses.
 	if generatedFileCarries(t, readByNothing) {
 		t.Errorf("%s is excluded and a generated file now carries it, so it is a setting an operator "+
 			"writes and belongs declared", readByNothing)

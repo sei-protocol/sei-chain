@@ -1516,6 +1516,19 @@ func TestAFieldCollectingUnmatchedKeysDeclaresNone(t *testing.T) {
 	if want := []string{"remaining_field.kept"}; !reflect.DeepEqual(registered.Keys, want) {
 		t.Errorf("declares %v, want %v; the collector itself is not a setting", registered.Keys, want)
 	}
+
+	// Driven through a resolution as well, because the lookup above sees only the walk that decides what
+	// is declared. The other walk decides what is stated, and a collector it kept would render a value
+	// under a key the section does not declare, which the two walks being compared would then refuse. The
+	// two agree structurally today, and the sibling test on exclusions declines to assume exactly that.
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got, stated := resolved.Values["remaining_field.other"]; stated {
+		t.Errorf("the collector is stated as %v, so the walk that states values kept a field the walk "+
+			"that declares them left out", got)
+	}
 }
 
 // TestANestedFileSourceIsRefusedRatherThanResolvedPast measures what a wrong shape used to cost.
