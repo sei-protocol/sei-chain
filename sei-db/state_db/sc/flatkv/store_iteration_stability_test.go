@@ -18,7 +18,7 @@ import (
 // committing blocks.
 //
 // It matters more here than one layer down, because a flatKV EVM iterator is not one iterator — it is
-// four or five, spread across four snapshot engines, stitched together by a merge. They are created
+// four or five, spread across four view managers, stitched together by a merge. They are created
 // one after another, so they only add up to a single coherent instant because creation happens under
 // the store's own lock. These tests assert the composition, not just the parts.
 
@@ -66,7 +66,7 @@ func iteratorTwin(t *testing.T, open func() (dbm.Iterator, error)) (dbm.Iterator
 	return held, before
 }
 
-// An EVM iterator spans several lanes over four engines. Committing a block that rewrites every one
+// An EVM iterator spans several lanes over four view managers. Committing a block that rewrites every one
 // of those lanes must be accepted, and must not be visible through any of them.
 func TestEvmIteratorSurvivesCommitAcrossEveryLane(t *testing.T) {
 	s := setupTestStore(t)
@@ -93,7 +93,7 @@ func TestEvmIteratorSurvivesCommitAcrossEveryLane(t *testing.T) {
 	require.NoError(t, after.Close())
 }
 
-// The same property for a single non-EVM module, which is one lane over the misc engine.
+// The same property for a single non-EVM module, which is one lane over the misc view manager.
 func TestModuleIteratorSurvivesCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { _ = s.Close() }()
@@ -121,7 +121,7 @@ func TestModuleIteratorSurvivesCommit(t *testing.T) {
 	require.NoError(t, iter.Close())
 }
 
-// The global iterator merges all four data engines with no bounds. It refuses to open while a block
+// The global iterator merges all four data view managers with no bounds. It refuses to open while a block
 // is staged, so it is opened between blocks; from then on it must be unaffected by later ones.
 func TestRawGlobalIteratorSurvivesCommit(t *testing.T) {
 	s := setupTestStore(t)
@@ -161,8 +161,8 @@ func TestEvmIteratorSurvivesAutoSnapshot(t *testing.T) {
 	require.NoError(t, iter.Close())
 }
 
-// Enough blocks that the engines flush and retire the version the iterator copied from, so its data
-// has physically moved out of the engines' in-memory maps by the time it is drained.
+// Enough blocks that the view managers flush and retire the version the iterator copied from, so its data
+// has physically moved out of the view managers' in-memory maps by the time it is drained.
 func TestEvmIteratorSurvivesRetirement(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { _ = s.Close() }()

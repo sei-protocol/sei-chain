@@ -6,7 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
@@ -15,7 +15,7 @@ func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
 	}
 }
 
-func smallTestEngineConfig(name string) snapshot.SnapshotEngineConfig {
+func smallTestViewManagerConfig(name string) view.ViewManagerConfig {
 	cfg := defaultStoreConfig(name)
 	cfg.MaxSize = 16 * unit.MB
 	cfg.MetricsEnabled = false
@@ -31,13 +31,13 @@ func DefaultTestConfig(t *testing.T) *Config {
 		SnapshotInterval:       DefaultSnapshotInterval,
 		SnapshotKeepRecent:     DefaultSnapshotKeepRecent,
 		AccountDBConfig:        smallTestPebbleConfig(),
-		AccountStoreConfig:     smallTestEngineConfig("account"),
+		AccountStoreConfig:     smallTestViewManagerConfig("account"),
 		CodeDBConfig:           smallTestPebbleConfig(),
-		CodeStoreConfig:        smallTestEngineConfig("code"),
+		CodeStoreConfig:        smallTestViewManagerConfig("code"),
 		StorageDBConfig:        smallTestPebbleConfig(),
-		StorageStoreConfig:     smallTestEngineConfig("storage"),
+		StorageStoreConfig:     smallTestViewManagerConfig("storage"),
 		MiscDBConfig:           smallTestPebbleConfig(),
-		MiscStoreConfig:        smallTestEngineConfig("misc"),
+		MiscStoreConfig:        smallTestViewManagerConfig("misc"),
 		ReaderThreadsPerCore:   2.0,
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,

@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// A single shard of a SnapshotEngine. The shard owns the MVCC layer: versioned in-memory data
+// A single shard of a ViewManager. The shard owns the MVCC layer: versioned in-memory data
 // awaiting flush, per-version diffs, and version bookkeeping. Reads that miss the versioned data
 // fall through to the shard's read-through DB cache (see readCache).
 //
 // A shard that is out of service refuses reads and writes, reporting the failure that stopped it.
 // Two things put it there:
 //
-//   - The engine was shut down. Only reachable by calling Close concurrently with an operation that
+//   - The manager was shut down. Only reachable by calling Close concurrently with an operation that
 //     touches a shard, which is illegal.
 //   - The database crashed. Database failures are fatal and are never recovered from, so every shard
 //     goes out of service, not just the one that saw the failure.
@@ -41,13 +41,13 @@ type shard struct {
 	// The read-through DB cache backing this shard. A passive component sharing this shard's
 	// lock: its xxxLocked methods require the lock held, while its resolve methods and background
 	// read-completion paths manage their own synchronization. The cache never calls outward while
-	// holding the lock — it never calls into the shard at all, and its one call into the engine
+	// holding the lock — it never calls into the shard at all, and its one call into the manager
 	// (reportReadFailure, which acquires versionLock) is made only after releasing the lock — so
 	// nesting cache calls under the shard lock cannot deadlock. See readCache.
 	cache *readCache
 
-	// SnapshotEngine-level metrics. Nil-safe; if nil, no metrics are recorded.
-	metrics *SnapshotEngineMetrics
+	// ViewManager-level metrics. Nil-safe; if nil, no metrics are recorded.
+	metrics *ViewManagerMetrics
 
 	// The current version number.
 	currentVersion uint64
@@ -57,7 +57,7 @@ type shard struct {
 
 	// The number of iterators currently reading this shard. Close reports a non-zero count as a
 	// leaked iterator, since reading one after the database has closed is undefined behaviour (see
-	// SnapshotEngine.Close).
+	// ViewManager.Close).
 	//
 	// Guarded by lock.
 	openIterators uint64
@@ -67,27 +67,27 @@ type shard struct {
 type versionedValue struct {
 	// The value.
 	value []byte
-	// The engine version at which this value was written. Note that this is NOT the same
+	// The manager version at which this value was written. Note that this is NOT the same
 	// as block height, this is just a version number that monotonically increases over the lifetime
-	// of a snapshot engine instance.
+	// of a view manager instance.
 	version uint64
 }
 
 // Creates a new Shard.
 func NewShard(
 	ctx context.Context,
-	config *SnapshotEngineConfig,
+	config *ViewManagerConfig,
 	// The underlying key-value database.
 	db types.KeyValueDB,
 	// A work pool for asynchronous reads.
 	readPool threading.Pool,
 	// The maximum size of this shard, in bytes.
 	maxSize uint64,
-	// Maps the context cancellation observed by a blocked read to the engine's shutdown error
-	// (the latched fatal error, or ErrEngineClosed on a clean close). Called only after ctx has
+	// Maps the context cancellation observed by a blocked read to the manager's shutdown error
+	// (the latched fatal error, or ErrViewManagerClosed on a clean close). Called only after ctx has
 	// been cancelled.
 	shutdownError func() error,
-	// Reports a failed DB read to the engine, which bricks and stops serving reads.
+	// Reports a failed DB read to the manager, which bricks and stops serving reads.
 	reportReadFailure func(error),
 ) (*shard, error) {
 
@@ -118,7 +118,7 @@ func NewShard(
 }
 
 // takeOutOfService stops this shard from serving reads and accepting writes, reporting err as the
-// cause. Called on every shard when the engine shuts down, so a failure anywhere stops every shard.
+// cause. Called on every shard when the manager shuts down, so a failure anywhere stops every shard.
 func (s *shard) takeOutOfService(err error) {
 	s.lock.Lock()
 	s.cache.takeOutOfServiceLocked(err)

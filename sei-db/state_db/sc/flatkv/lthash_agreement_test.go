@@ -1312,8 +1312,8 @@ func TestLtHashAgreementImport(t *testing.T) {
 // store alongside the source, requiring the two to stay in lockstep.
 //
 // This is the case no existing test covers, and it is the one most likely to fail. An imported store's
-// engines hold a baseline sealed before the import, and the first post-import commit derives the block's
-// hash by diffing the newly sealed snapshot against that baseline. If the baseline does not account for
+// view managers hold a baseline sealed before the import, and the first post-import commit derives the
+// block's hash by diffing the newly sealed view against that baseline. If the baseline does not account for
 // the imported rows, the first commit after an import mixes in new values without mixing out the values
 // they replaced — so block N agrees and block N+1 does not.
 func TestLtHashAgreementImportThenCommit(t *testing.T) {

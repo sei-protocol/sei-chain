@@ -8,8 +8,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	dbm "github.com/tendermint/tm-db"
@@ -75,7 +75,7 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 	}
 
 	// Read lock for the construction span: buildEvmIterator/buildMiscDBLane
-	// snapshot the pending-writes maps and pin the Pebble view here, so the
+	// copy the pending-writes maps and pin the Pebble reader here, so the
 	// returned iterator may safely outlive a concurrent ApplyChangeSets/Commit.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -263,7 +263,7 @@ func moduleIteratorBounds(store string, start, end []byte) (lowerBound, upperBou
 // through a transform that re-labels rows to their logical key and decodes the value. The per-lane
 // transform supplies the only behavior that differs between lanes.
 func buildLane(
-	source snapshot.SnapshotEngine,
+	source view.ViewManager,
 	lowerBound, upperBound []byte,
 	ascending bool,
 	transform iterators.IteratorTransform,

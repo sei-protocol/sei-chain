@@ -1,4 +1,4 @@
-package snapshot
+package view
 
 import (
 	"bytes"
@@ -13,8 +13,8 @@ import (
 )
 
 // TestDifferentialAgainstModel drives randomized operation sequences through both the real
-// SnapshotEngine and a naive deep-copy oracle (modelEngine), deep-comparing every observable read
-// (live + all held snapshots: Get, BatchGet, GetDiff, Iterator) after each step. Any data-integrity
+// ViewManager and a naive deep-copy oracle (modelManager), deep-comparing every observable read
+// (live + all held views: Get, BatchGet, GetDiff, Iterator) after each step. Any data-integrity
 // divergence fails the test. Seeds are fixed for reproducibility.
 func TestDifferentialAgainstModel(t *testing.T) {
 	configs := []struct {
@@ -43,7 +43,7 @@ const (
 	opSet = iota
 	opDelete
 	opBatch
-	opSnapshot
+	opView
 )
 
 func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed int64) {
@@ -60,12 +60,12 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 
 	db := newTestDB(seedData)
 	cfg := newTestConfig(shardCount, maxSize)
-	cfg.MaxUnflushedVersions = 64 // keep held snapshots from tripping backpressure
-	engine := newTestEngineWithConfig(t, cfg, db)
-	model := newModelEngine(seedData)
+	cfg.MaxUnflushedVersions = 64 // keep held views from tripping backpressure
+	manager := newTestManagerWithConfig(t, cfg, db)
+	model := newModelManager(seedData)
 
 	type openSnap struct {
-		snap Snapshot
+		view View
 		ver  uint64
 	}
 	var opens []openSnap
@@ -73,7 +73,7 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 	const iterations = 400
 
 	releaseOldest := func() {
-		require.NoError(t, opens[0].snap.Release())
+		require.NoError(t, opens[0].view.Release())
 		opens = opens[1:]
 	}
 
@@ -81,70 +81,70 @@ func runDifferential(t *testing.T, shardCount, maxSize uint64, seedDB bool, seed
 		switch pickOp(rng) {
 		case opSet:
 			k, v := pick(rng, keys), randVal(rng)
-			require.NoError(t, engine.Set(k, v))
+			require.NoError(t, manager.Set(k, v))
 			model.Set(k, v)
 		case opDelete:
 			k := pick(rng, keys)
-			require.NoError(t, engine.Delete(k))
+			require.NoError(t, manager.Delete(k))
 			model.Delete(k)
 		case opBatch:
 			muts := randMuts(rng, keys)
-			require.NoError(t, engine.BatchSet(muts))
+			require.NoError(t, manager.BatchSet(muts))
 			model.BatchSet(muts)
-		case opSnapshot:
+		case opView:
 			if len(opens) >= maxOpen {
 				releaseOldest()
 			}
-			snap, err := engine.Commit()
+			view, err := manager.Commit()
 			require.NoError(t, err)
 			ver := model.Commit()
 			// Hash immediately while holding the reservation: this lets the background flusher race
 			// ahead of Release, exercising the flush-then-read (merge in-memory + DB) path.
-			require.NoError(t, snap.Finalize(hashWrites(testHash)))
-			opens = append(opens, openSnap{snap: snap, ver: ver})
+			require.NoError(t, view.Finalize(hashWrites(testHash)))
+			opens = append(opens, openSnap{view: view, ver: ver})
 		}
 
 		// The live (mutable) version must agree on every operation.
 		liveLabel := fmt.Sprintf("live@i=%d", i)
 		compareReads(t, liveLabel,
-			func(k []byte) ([]byte, bool, error) { return engine.Get(k, true) },
+			func(k []byte) ([]byte, bool, error) { return manager.Get(k, true) },
 			model.GetLive, keys)
-		checkLiveIteration(t, liveLabel, engine, model)
+		checkLiveIteration(t, liveLabel, manager, model)
 
-		// Periodically deep-check every held snapshot.
+		// Periodically deep-check every held view.
 		if i%10 == 0 {
 			for _, o := range opens {
-				checkSnapshot(t, o.snap, model, o.ver, keys)
+				checkView(t, o.view, model, o.ver, keys)
 			}
 		}
 	}
 
-	// Final full check, then drain all held snapshots in order.
+	// Final full check, then drain all held views in order.
 	for _, o := range opens {
-		checkSnapshot(t, o.snap, model, o.ver, keys)
+		checkView(t, o.view, model, o.ver, keys)
 	}
 	for len(opens) > 0 {
 		releaseOldest()
 	}
 }
 
-// checkSnapshot deep-compares a held snapshot against the oracle across all read surfaces.
-func checkSnapshot(t *testing.T, snap Snapshot, model *modelEngine, ver uint64, keys [][]byte) {
-	label := fmt.Sprintf("snap@v=%d", ver)
+// checkView deep-compares a held view against the oracle across all read surfaces.
+func checkView(t *testing.T, view View, model *modelManager, ver uint64, keys [][]byte) {
+	label := fmt.Sprintf("view@v=%d", ver)
 	lookup := func(k []byte) ([]byte, bool) { return model.GetAt(ver, k) }
 
-	compareReads(t, label, func(k []byte) ([]byte, bool, error) { return snap.Get(k, false) }, lookup, keys)
-	compareBatchGet(t, label, snap.BatchGet, lookup, keys)
+	compareReads(t, label, func(k []byte) ([]byte, bool, error) { return view.Get(k, false) }, lookup, keys)
+	compareBatchGet(t, label, view.BatchGet, lookup, keys)
 
-	gotDiff, err := snap.GetDiff()
+	gotDiff, err := view.GetDiff()
 	require.NoError(t, err, "%s GetDiff", label)
 	require.Equal(t, model.DiffAt(ver), gotDiff, "%s diff mismatch", label)
 }
 
-// checkLiveIteration compares the engine's mutable-version iterator against the oracle. The iterator
-// must be closed before the caller writes again, since the engine refuses writes while one is open.
-func checkLiveIteration(t *testing.T, label string, engine SnapshotEngine, model *modelEngine) {
-	it, err := engine.Iterator(nil)
+// checkLiveIteration compares the manager's mutable-version iterator against the oracle. The iterator
+// must be closed before the caller writes again, since the manager refuses writes while one is open.
+func checkLiveIteration(t *testing.T, label string, manager ViewManager, model *modelManager) {
+	it, err := manager.Iterator(nil)
 	require.NoError(t, err, "%s Iterator", label)
 	compareIterator(t, label, it, model.IterateLive())
 }
@@ -177,7 +177,7 @@ func compareBatchGet(t *testing.T, label string, batchGet func([][]byte) (map[st
 }
 
 func compareIterator(t *testing.T, label string, it dbm.Iterator, expected []kvPair) {
-	got := collectIterator(t, it) // closes it, which is what releases the engine's write block
+	got := collectIterator(t, it) // closes it, which is what releases the manager's write block
 	require.Equal(t, len(expected), len(got), "%s iterator length", label)
 	for i := range expected {
 		require.True(t, bytes.Equal(expected[i].key, got[i].key), "%s iterator key at %d", label, i)
@@ -196,7 +196,7 @@ func pickOp(rng *testutil.TestRandom) int {
 	case r < 80:
 		return opBatch
 	default:
-		return opSnapshot
+		return opView
 	}
 }
 
