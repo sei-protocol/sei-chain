@@ -109,7 +109,7 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 		proto   any
 		exclude int
 	}{
-		{P2PSectionName, &tmcfg.P2PConfig{}, 3 + len(patchedByTheNodeController)},
+		{P2PSectionName, &tmcfg.P2PConfig{}, 3},
 		{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 	} {
 		registered, ok := registry.Lookup(tc.section)
@@ -143,8 +143,7 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	if !ok {
 		t.Fatalf("%s is not registered; Defects: %v", P2PSectionName, registry.Defects())
 	}
-	for _, rel := range append([]string{filledFromTheCommandLine, derivedFromTheConnectionLimit,
-		readByNothing}, patchedByTheNodeController...) {
+	for _, rel := range []string{filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing} {
 		if !slices.Contains(registered.Excluded, P2PSectionName+"."+rel) {
 			t.Errorf("excluded is %v and does not name %s", registered.Excluded, rel)
 		}
@@ -165,13 +164,17 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 			"declared rather than excluded", *got)
 	}
 
-	// The two the controller patches: their reason is that something outside this binary writes them
-	// after the file is written, which no test here can see. What is measured instead is that a
-	// generated file does carry them, since a key the file did not write would need a different reason.
-	for _, rel := range patchedByTheNodeController {
-		if !generatedFileCarries(t, rel) {
-			t.Errorf("%s is excluded as a path something outside the binary writes and a generated file "+
-				"no longer carries it, so the reason for leaving it out has changed", rel)
+	// The two a cluster patches in are declared, not excluded, because a node run by hand sets both and
+	// its configuration file accepts both. Held here so a later round does not quietly refuse them: the
+	// symptom would be an operator told that the address their node advertises reaches nothing.
+	declared := map[string]bool{}
+	for _, key := range registered.Keys {
+		declared[key] = true
+	}
+	for _, rel := range []string{"external-address", "persistent-peers"} {
+		if !declared[P2PSectionName+"."+rel] {
+			t.Errorf("%s.%s is a setting an operator running a node by hand writes and the section does "+
+				"not declare it", P2PSectionName, rel)
 		}
 	}
 

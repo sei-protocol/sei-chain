@@ -23,8 +23,7 @@ const (
 // a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
 	registry.RegisterSectionExcluding(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
-		append([]string{filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing},
-			patchedByTheNodeController...)...)
+		filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing)
 	registry.RegisterSectionExcluding(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
 		filledFromTheCommandLine)
 }
@@ -74,15 +73,6 @@ const derivedFromTheConnectionLimit = "max-outbound-connections"
 // key that changes nothing about how the node runs.
 const readByNothing = "test-dial-fail"
 
-// patchedByTheNodeController are the peer paths this section does not declare.
-//
-// Both name an address the node advertises or dials, and on a cluster the controller resolves them from
-// live discovery and patches them into the node's file after the file is written. The rule keeping them
-// out is not that this binary fills them, which is what the root directory does, but that something this
-// file cannot see does. A declared value would be decoded over whichever patch already ran, and an empty
-// one leaves a node with no advertised address and no peers to dial.
-var patchedByTheNodeController = []string{"external-address", "persistent-peers"}
-
 // filledByTheGenerator are keys the init command sets after the pipeline forMode mirrors, from an input a
 // mode does not carry.
 //
@@ -98,6 +88,13 @@ var filledByTheGenerator = []string{P2PSectionName + ".bootstrap-peers"}
 // Answered per mode. Three of these settings follow from what kind of node is asking: a validator refuses
 // duplicate addresses, a seed accepts them and raises its connection ceiling because serving peers is what
 // it exists for, and a node that serves queries binds an address where a validator leaves the default.
+//
+// The advertised address and the peer list are declared even though a cluster patches them in from live
+// discovery after the file is written. A node run by hand has nothing patching them, and an operator
+// sets both, so refusing the keys would leave that node unable to state its own address or its own peers
+// through this key space while its configuration file accepts both. What a patch and a declaration do to
+// each other is a question for whatever writes the file, and the same question the peer seeds raise: it
+// is answered by what a writer preserves, not by which keys exist.
 func p2pDefaults(mode registry.Mode) any { return *forMode(mode).P2P }
 
 // rpcDefaults is what a generated file carries for the remote procedure call section.
