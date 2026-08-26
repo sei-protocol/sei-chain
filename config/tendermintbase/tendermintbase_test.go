@@ -155,17 +155,11 @@ var declaredAgainst = []struct {
 	{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 0},
 }
 
-// TestEveryExclusionByDeprecationStillHasOne closes the direction the check beside it cannot see.
+// TestEveryExclusionByDeprecationStillHasOne holds each excluded path to a justification: its field is
+// marked deprecated, or the path is listed here with the reason it has instead.
 //
-// That check walks declared keys, so it catches a declared key whose field becomes deprecated and never
-// an excluded key whose field stops being one. The second is the expiry that matters: the node dropping
-// the note and starting to honour a setting leaves the key absent from the space, an operator told it
-// reaches nothing, and every other test here passing.
-//
-// Deprecation is the default justification, so an exclusion resting on something else has to say so. The
-// four that do are each named by the constant that carries their reason, which is what keeps this from
-// becoming a list somebody has to remember: a new exclusion is either marked deprecated or it fails here
-// until its reason is written down.
+// An excluded path whose field stops being deprecated is a setting the node honours and the key space
+// refuses, and the operator is told it reaches nothing.
 func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 	justifiedOtherwise := map[string]string{
 		filledFromTheCommandLine:      "the command line carries it after the file is read",
@@ -647,19 +641,13 @@ func fieldTagged(typ reflect.Type, rel string) (reflect.StructField, bool) {
 	return reflect.StructField{}, false
 }
 
-// TestTheStateSyncKeysAreDeclaredAsASet holds the section to the set an operator fills together.
+// TestTheStateSyncKeysAreDeclaredAsASet holds the section to the set an operator fills together: turning
+// state sync on means writing every one of them, so a key this space refuses is one an operator writes
+// and is told nothing reads.
 //
-// Turning state sync on means writing every one of these, so a key this space refuses is one an operator
-// writes and is told nothing reads. The snapshot servers were left out on the reasoning that a key with
-// no default cannot be declared, and three siblings in the same section disprove it: the trust height,
-// the trust hash and the scratch directory each state a zero value and are declared.
-//
-// The generated file writes four of the five. It leaves the scratch directory out and says so in words,
-// naming it among the keys it omits on purpose while still parsing them if set, which is the whole of the
-// evidence that an operator writes these by hand.
-//
-// Both halves of that reasoning are measured below rather than stated: that each key the operator
-// supplies states nothing, and that the template writes four of the five.
+// None of the four an operator supplies states a value, since none is one the binary can know, and a
+// generated file writes all but the scratch directory. The template names that one among the keys it
+// omits deliberately while still parsing it if set.
 func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
 	registered, ok := registry.Lookup(StateSyncSectionName)
 	if !ok {
