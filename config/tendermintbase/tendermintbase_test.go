@@ -463,7 +463,9 @@ func parseDeprecatedFields(dir string) (map[string]map[string]bool, error) {
 	return out, nil
 }
 
-// markedFields returns the mapstructure keys of the fields a struct marks deprecated.
+// markedFields returns the mapstructure keys of the fields a struct marks deprecated, reading the tag by
+// the rules that derive a key from it: a field naming no key declares none, and so does one collecting
+// what the decode matched nothing for.
 func markedFields(structType *ast.StructType) map[string]bool {
 	marked := map[string]bool{}
 	for _, field := range structType.Fields.List {
@@ -473,10 +475,15 @@ func markedFields(structType *ast.StructType) map[string]bool {
 		if !strings.HasPrefix(field.Names[0].Name, "Deprecated") && !isDeprecationNote(field.Doc) {
 			continue
 		}
-		tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
-		if key, ok := tag.Lookup("mapstructure"); ok {
-			marked[strings.Split(key, ",")[0]] = true
+		tag, ok := reflect.StructTag(strings.Trim(field.Tag.Value, "`")).Lookup("mapstructure")
+		if !ok {
+			continue
 		}
+		parts := strings.Split(tag, ",")
+		if parts[0] == "" || parts[0] == "-" || hasOpt(parts[1:], "remain") {
+			continue
+		}
+		marked[parts[0]] = true
 	}
 	return marked
 }
