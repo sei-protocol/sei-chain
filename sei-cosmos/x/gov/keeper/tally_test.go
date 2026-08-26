@@ -555,7 +555,7 @@ func TestTallyIncrementalPersistsProgressAndCleansArchivedVotes(t *testing.T) {
 	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
 }
 
-func TestTallyIncrementalCapsDelegationsAddedAfterSnapshot(t *testing.T) {
+func TestTallyIncrementalScalesDelegationsAddedAfterSnapshot(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
@@ -591,7 +591,11 @@ func TestTallyIncrementalCapsDelegationsAddedAfterSnapshot(t *testing.T) {
 	complete, processed, _, _, tallyResult := app.GovKeeper.TallyIncremental(ctx, proposal, 2)
 	require.True(t, complete)
 	require.Equal(t, 2, processed)
-	require.True(t, tallyResult.Yes.Add(tallyResult.No).Equal(snapshotValidatorTokens))
+	observedValidatorTokens := snapshotValidatorTokens.Add(delegatedTokens)
+	expectedYes := snapshotValidatorTokens.Mul(snapshotValidatorTokens).Quo(observedValidatorTokens)
+	expectedNo := snapshotValidatorTokens.Sub(expectedYes)
+	require.True(t, tallyResult.Yes.Equal(expectedYes))
+	require.True(t, tallyResult.No.Equal(expectedNo))
 	totalVotingPower := tallyResult.Yes.Add(tallyResult.Abstain).Add(tallyResult.No).Add(tallyResult.NoWithVeto)
 	require.False(t, totalVotingPower.GT(snapshotTotalBonded))
 }

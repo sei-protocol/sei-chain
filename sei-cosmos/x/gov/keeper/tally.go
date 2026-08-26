@@ -29,11 +29,12 @@ type tallyOptionResults struct {
 }
 
 type tallyValidator struct {
-	Address             string                    `json:"address"`
-	BondedTokens        sdk.Int                   `json:"bonded_tokens"`
-	DelegatorShares     sdk.Dec                   `json:"delegator_shares"`
-	DelegatorDeductions sdk.Dec                   `json:"delegator_deductions"`
-	Vote                types.WeightedVoteOptions `json:"vote"`
+	Address                 string                    `json:"address"`
+	BondedTokens            sdk.Int                   `json:"bonded_tokens"`
+	DelegatorShares         sdk.Dec                   `json:"delegator_shares"`
+	ObservedDelegatorShares sdk.Dec                   `json:"observed_delegator_shares"`
+	DelegatorResults        tallyOptionResults        `json:"delegator_results"`
+	Vote                    types.WeightedVoteOptions `json:"vote"`
 }
 
 // Tally calculates a proposal's result without changing its tally state.
@@ -41,7 +42,7 @@ func (keeper Keeper) Tally(ctx sdk.Context, proposal types.Proposal) (passes boo
 	progress := keeper.initializeTally(ctx, proposal)
 	validators := progress.validatorMap()
 	keeper.IterateVotes(ctx, proposal.ProposalId, func(vote types.Vote) bool {
-		keeper.addVoteToTally(ctx, &progress, validators, vote)
+		keeper.addVoteToTally(ctx, validators, vote)
 		return false
 	})
 	return keeper.finishTally(progress)
@@ -129,12 +130,7 @@ func (keeper Keeper) CleanupTallyVotes(ctx sdk.Context, maxVotes int) (deleted i
 
 func (keeper Keeper) initializeTally(ctx sdk.Context, proposal types.Proposal) tallyProgress {
 	progress := tallyProgress{
-		Results: tallyOptionResults{
-			Yes:        sdk.ZeroDec(),
-			Abstain:    sdk.ZeroDec(),
-			No:         sdk.ZeroDec(),
-			NoWithVeto: sdk.ZeroDec(),
-		},
+		Results:           newTallyOptionResults(),
 		TotalVotingPower:  sdk.ZeroDec(),
 		TotalBondedTokens: keeper.sk.TotalBondedTokens(ctx),
 		TallyParams:       keeper.GetTallyParams(ctx),
@@ -143,10 +139,11 @@ func (keeper Keeper) initializeTally(ctx sdk.Context, proposal types.Proposal) t
 
 	keeper.sk.IterateBondedValidatorsByPower(ctx, func(_ int64, validator stakingtypes.ValidatorI) bool {
 		progress.Validators = append(progress.Validators, tallyValidator{
-			Address:             validator.GetOperator().String(),
-			BondedTokens:        validator.GetBondedTokens(),
-			DelegatorShares:     validator.GetDelegatorShares(),
-			DelegatorDeductions: sdk.ZeroDec(),
+			Address:                 validator.GetOperator().String(),
+			BondedTokens:            validator.GetBondedTokens(),
+			DelegatorShares:         validator.GetDelegatorShares(),
+			ObservedDelegatorShares: sdk.ZeroDec(),
+			DelegatorResults:        newTallyOptionResults(),
 		})
 		return false
 	})
@@ -178,7 +175,7 @@ func (keeper Keeper) processTallyVotes(
 		var vote types.Vote
 		keeper.cdc.MustUnmarshal(value, &vote)
 		populateLegacyOption(&vote)
-		keeper.addVoteToTally(ctx, progress, validators, vote)
+		keeper.addVoteToTally(ctx, validators, vote)
 
 		voter := sdk.MustAccAddressFromBech32(vote.Voter)
 		store.Set(types.TallyVoteKey(proposalID, progress.Expedited, voter), value)
@@ -192,7 +189,6 @@ func (keeper Keeper) processTallyVotes(
 
 func (keeper Keeper) addVoteToTally(
 	ctx sdk.Context,
-	progress *tallyProgress,
 	validators map[string]*tallyValidator,
 	vote types.Vote,
 ) {
@@ -207,19 +203,10 @@ func (keeper Keeper) addVoteToTally(
 			return false
 		}
 
-		remainingShares := validator.DelegatorShares.Sub(validator.DelegatorDeductions)
-		if !remainingShares.IsPositive() {
-			return false
-		}
-
-		// Delegations can change while an incremental tally is in progress. The
-		// validator snapshot is a fixed voting-power budget, so later delegation
-		// reads cannot deduct more shares than that snapshot contains.
-		votingShares := sdk.MinDec(delegation.GetShares(), remainingShares)
-		validator.DelegatorDeductions = validator.DelegatorDeductions.Add(votingShares)
+		votingShares := delegation.GetShares()
+		validator.ObservedDelegatorShares = validator.ObservedDelegatorShares.Add(votingShares)
 		votingPower := votingShares.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
-		progress.Results.add(vote.Options, votingPower)
-		progress.TotalVotingPower = progress.TotalVotingPower.Add(votingPower)
+		validator.DelegatorResults.add(vote.Options, votingPower)
 		return false
 	})
 }
@@ -235,14 +222,7 @@ func (progress *tallyProgress) validatorMap() map[string]*tallyValidator {
 
 func (keeper Keeper) finishTally(progress tallyProgress) (passes bool, burnDeposits bool, tallyResults types.TallyResult) {
 	for _, validator := range progress.Validators {
-		if len(validator.Vote) == 0 {
-			continue
-		}
-
-		sharesAfterDeductions := validator.DelegatorShares.Sub(validator.DelegatorDeductions)
-		votingPower := sharesAfterDeductions.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
-		progress.Results.add(validator.Vote, votingPower)
-		progress.TotalVotingPower = progress.TotalVotingPower.Add(votingPower)
+		progress.addValidatorResults(validator)
 	}
 
 	tallyResults = progress.Results.tallyResult()
@@ -271,6 +251,31 @@ func (keeper Keeper) finishTally(progress tallyProgress) (passes bool, burnDepos
 	return false, false, tallyResults
 }
 
+func (progress *tallyProgress) addValidatorResults(validator tallyValidator) {
+	if validator.DelegatorShares.IsZero() {
+		return
+	}
+
+	countedDelegatorShares := validator.ObservedDelegatorShares
+	delegatorScale := sdk.OneDec()
+	if countedDelegatorShares.GT(validator.DelegatorShares) {
+		delegatorScale = validator.DelegatorShares.Quo(countedDelegatorShares)
+		countedDelegatorShares = validator.DelegatorShares
+	}
+
+	progress.Results.addScaled(validator.DelegatorResults, delegatorScale)
+	delegatorVotingPower := countedDelegatorShares.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
+	progress.TotalVotingPower = progress.TotalVotingPower.Add(delegatorVotingPower)
+
+	if len(validator.Vote) == 0 {
+		return
+	}
+	validatorShares := validator.DelegatorShares.Sub(countedDelegatorShares)
+	validatorVotingPower := validatorShares.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
+	progress.Results.add(validator.Vote, validatorVotingPower)
+	progress.TotalVotingPower = progress.TotalVotingPower.Add(validatorVotingPower)
+}
+
 func (results *tallyOptionResults) add(options types.WeightedVoteOptions, votingPower sdk.Dec) {
 	for _, option := range options {
 		subPower := votingPower.Mul(option.Weight)
@@ -286,6 +291,22 @@ func (results *tallyOptionResults) add(options types.WeightedVoteOptions, voting
 		default:
 			panic(fmt.Sprintf("unsupported vote option %s", option.Option))
 		}
+	}
+}
+
+func (results *tallyOptionResults) addScaled(other tallyOptionResults, scale sdk.Dec) {
+	results.Yes = results.Yes.Add(other.Yes.Mul(scale))
+	results.Abstain = results.Abstain.Add(other.Abstain.Mul(scale))
+	results.No = results.No.Add(other.No.Mul(scale))
+	results.NoWithVeto = results.NoWithVeto.Add(other.NoWithVeto.Mul(scale))
+}
+
+func newTallyOptionResults() tallyOptionResults {
+	return tallyOptionResults{
+		Yes:        sdk.ZeroDec(),
+		Abstain:    sdk.ZeroDec(),
+		No:         sdk.ZeroDec(),
+		NoWithVeto: sdk.ZeroDec(),
 	}
 }
 
