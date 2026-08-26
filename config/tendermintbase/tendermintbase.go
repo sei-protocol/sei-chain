@@ -32,11 +32,12 @@ const (
 // and switchable and neither is true.
 //
 // The reader has a check that names the removed settings an operator wrote, and it reaches half of them.
-// The ones it misses are held on a value rather than a pointer, so a written zero cannot be told from an
-// unwritten field; a written value that is not the zero can be, which is why the gap is one somebody
-// could close rather than one the shape forbids. Which ones those are is recorded beside the check that
-// measures it, rather than counted twice here. Nothing calls the check in any case, so leaving these out
-// of the file is what an operator actually gets.
+// Most of the rest are held on a value rather than a pointer, so a written zero cannot be told from an
+// unwritten field, though a written value that is not the zero can be. One is a pointer the check could
+// name as cheaply as the seven pointers it already names, and simply does not. Which ones those are, and
+// which of the two reasons each has, is recorded beside the check that measures it rather than counted
+// twice here. Nothing calls the check in any case, so leaving these out of the file is what an operator
+// actually gets.
 var removedSettings = []string{
 	"unsafe-overrides-enabled",
 	"unsafe-propose-timeout-override",
@@ -62,11 +63,12 @@ var removedSettings = []string{
 // where two of the three are marked dead at their destination and the third carries only a note about an
 // upstream issue. Declaring any of them would offer a key that changes nothing about how the node runs.
 //
-// Two paths carry a written mempool value into the running node and both are checked. The conversion into
-// the mempool's own configuration is one; the transaction reactor is the other, and it reads several
-// settings straight off this struct without going through that conversion. Naming only the conversion
-// would have made the rule narrower than the list: three settings it does not carry are declared, and
-// correctly, because the reactor reads them.
+// Two paths carry a written mempool value into the running node. The conversion into the mempool's own
+// configuration is one, and a test drives it. The transaction reactor is the other, reading several
+// settings straight off this struct without that conversion, and it sits behind an internal package that
+// this one cannot import, so that half is established by reading it rather than by a test. Naming only
+// the conversion would also have made the rule narrower than the list: three settings it does not carry
+// are declared, and correctly, because the reactor reads them.
 //
 // The pair named almost the same as two of these is live and does reach the mempool. That near-collision
 // is why this is measured rather than reasoned about: a transaction lifetime is a setting and the pending

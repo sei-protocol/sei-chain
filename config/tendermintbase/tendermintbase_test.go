@@ -62,11 +62,11 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 // declaredSections are the sections this package registers, so a test walks the set rather than a list that
 // has to be extended alongside it.
 func declaredSections() []string {
-	return []string{
-		P2PSectionName, RPCSectionName, ConsensusSectionName, MempoolSectionName,
-		StateSyncSectionName, TxIndexSectionName, InstrumentationSectionName,
-		PrivValidatorSectionName, SelfRemediationSectionName,
+	out := make([]string, 0, len(declaredAgainst))
+	for _, tc := range declaredAgainst {
+		out = append(out, tc.section)
 	}
+	return out
 }
 
 // declaredHere are the keys the sections this package registers declare.
@@ -78,10 +78,10 @@ func declaredSections() []string {
 func declaredHere(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, name := range declaredSections() {
-		registered, ok := registry.Lookup(name)
+	for _, tc := range declaredAgainst {
+		registered, ok := registry.Lookup(tc.section)
 		if !ok {
-			t.Fatalf("%s is not registered; Defects: %v", name, registry.Defects())
+			t.Fatalf("%s is not registered; Defects: %v", tc.section, registry.Defects())
 		}
 		out = append(out, registered.Keys...)
 	}
@@ -140,9 +140,14 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 // declaredAgainst pairs each section with the struct it declares against and how many of that struct's
 // paths it leaves out.
 //
-// One table, read by the count check and by the deprecation check alike, so a section added here is
-// covered by both without either being extended on its own. A section absent from it is a section whose
-// keys nothing measures.
+// One table, read by every walk in this file, so a section added here joins the count check, the marking
+// checks and the walk over what varies by node kind together rather than needing a list extended
+// alongside each of them.
+//
+// What is not checked yet is this list against the registrations themselves. A section that registers and
+// is left out of the table is unmeasured and nothing fails, which removing a row and watching the suite
+// pass confirms. Closing it needs the registrations to record the set they made, and that arrives with
+// the section whose keys sit at the root of the file.
 var declaredAgainst = []struct {
 	section string
 	proto   any
@@ -442,7 +447,7 @@ func TestTheExcludedConsensusPathsAreTheRemovedOnes(t *testing.T) {
 // TestTheDeprecationWarningReachesTheRecordedSubset measures the gap in the reader's own check.
 //
 // Eight of the sixteen removed settings make the warning name them and eight cannot, so an operator who
-// wrote one of those seven would get nothing back even from a caller that ran the check. Held so that
+// wrote one of those eight would get nothing back even from a caller that ran the check. Held so that
 // making the check complete shows up as a failure rather than as a sentence going quietly stale.
 func TestTheDeprecationWarningReachesTheRecordedSubset(t *testing.T) {
 	for _, rel := range removedSettings {
