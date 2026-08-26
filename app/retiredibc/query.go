@@ -14,7 +14,8 @@ var storeNames = map[string]struct{}{
 	storekeys.CapabilityStoreKey:  {},
 }
 
-var errDeprecated = sdkerrors.New("ibc", 103, "ibc module is deprecated")
+// ErrDeprecated reports that IBC functionality is no longer available.
+var ErrDeprecated = sdkerrors.New("ibc", 103, "ibc module is deprecated")
 
 // QueryResponse returns the deprecation response for a retired IBC raw-store query.
 func QueryResponse(requestPath string) *abci.ResponseQuery {
@@ -26,6 +27,6 @@ func QueryResponse(requestPath string) *abci.ResponseQuery {
 		return nil
 	}
 
-	response := sdkerrors.QueryResult(errDeprecated)
+	response := sdkerrors.QueryResult(ErrDeprecated)
 	return &response
 }

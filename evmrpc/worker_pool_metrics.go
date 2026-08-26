@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -555,8 +554,6 @@ func (m *WorkerPoolMetrics) RecordSubscriptionEnd() {
 func (m *WorkerPoolMetrics) RecordSubscriptionError() {
 	m.SubscriptionErrors.Add(1)
 	otelMetrics.subscriptionErrorsTotal.Add(context.Background(), 1)
-	// TODO(PLT-326): remove once evmrpc_subscriptions_errors_total verified
-	telemetry.IncrCounter(1, "sei", "evm", "subscriptions", "errors")
 }
 
 // GetTPS calculates the current TPS based on time window
