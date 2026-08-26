@@ -5,6 +5,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
@@ -170,23 +172,63 @@ func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
 	}
 }
 
-// TestTheExcludedPathIsTheOneWithNoDefault names why the one exclusion is there.
+// TestEachPeerExclusionStillHasItsReason holds every path this section leaves out to the fact that
+// justified leaving it out.
 //
-// The outbound ceiling is a pointer the node's defaults leave unset, and unset is the setting: the node
-// derives a ceiling from the total limit instead. A default here would be invented. If the node ever gives
-// it one, this fails and the key should be declared rather than excluded.
-func TestTheExcludedPathIsTheOneWithNoDefault(t *testing.T) {
+// Three exclusions and three different reasons, so each is checked against the thing that would expire
+// it rather than against the list. An exclusion whose reason has gone is a setting an operator can use
+// that the key space refuses, and it fails silently: the key simply is not there.
+func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	registered, ok := registry.Lookup(P2PSectionName)
 	if !ok {
-		t.Fatalf("%s is not registered", P2PSectionName)
+		t.Fatalf("%s is not registered; Defects: %v", P2PSectionName, registry.Defects())
 	}
-	if !slices.Contains(registered.Excluded, P2PSectionName+".max-outbound-connections") {
-		t.Fatalf("excluded is %v and does not name the outbound ceiling", registered.Excluded)
+	for _, rel := range []string{filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing} {
+		if !slices.Contains(registered.Excluded, P2PSectionName+"."+rel) {
+			t.Errorf("excluded is %v and does not name %s", registered.Excluded, rel)
+		}
 	}
+
+	// The outbound ceiling: a pointer the node's defaults leave unset, where unset is the setting,
+	// because the node derives a ceiling from the total limit instead. A default here would be invented.
 	if got := tmcfg.DefaultP2PConfig().MaxOutboundConnections; got != nil {
 		t.Errorf("the node now defaults the outbound ceiling to %v, so it states a value and belongs "+
 			"declared rather than excluded", *got)
 	}
+
+	// The dial hook: excluded because nothing reads it and no generated file carries it. The second
+	// half is the measurable one, and it is the half that would expire first: the node wiring the field
+	// up would start writing it, and the key would then be one an operator's file holds and this space
+	// refuses. Without this the exclusion is the only one of the three whose reason nothing holds.
+	if generatedFileCarries(t, readByNothing) {
+		t.Errorf("%s is excluded and a generated file now carries it, so it is a setting an operator "+
+			"writes and belongs declared", readByNothing)
+	}
+}
+
+// generatedFileCarries reports whether the file the node writes for itself holds a key.
+//
+// Rendered through the node's own writer rather than matched against the template's source, so what is
+// measured is what an operator's file actually contains.
+func generatedFileCarries(t *testing.T, rel string) bool {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
+		t.Fatalf("make a home to render into: %v", err)
+	}
+	if err := tmcfg.WriteConfigFile(home, tmcfg.DefaultConfig()); err != nil {
+		t.Fatalf("render a node configuration file: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(home, "config", "config.toml"))
+	if err != nil {
+		t.Fatalf("read the rendered file: %v", err)
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if name, _, found := strings.Cut(line, "="); found && strings.TrimSpace(name) == rel {
+			return true
+		}
+	}
+	return false
 }
 
 // taggedFields counts the fields of a struct that carry a mapstructure name, following the same rules the
@@ -320,7 +362,14 @@ func deprecatedPaths(t *testing.T, typ reflect.Type) map[string]bool {
 		t.Fatalf("%s was not found in the node's configuration source, so nothing measures which of "+
 			"its fields are deprecated", typ.Name())
 	}
-	return marked
+	// Copied, because the source is parsed once for the whole package and one caller strikes rows off
+	// what it is handed as it checks them. Sharing the map left a later caller reading an emptied set,
+	// so the deprecation checks passed or failed on the order they ran in.
+	out := make(map[string]bool, len(marked))
+	for key := range marked {
+		out[key] = true
+	}
+	return out
 }
 
 // deprecatedFields reports, per struct name, the mapstructure key of every field the node marks
@@ -514,13 +563,16 @@ func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 // TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates names the writer for each key on the list.
 //
 // A declared value is what a generated file carries, and these are the keys where that is not true
-// because the init command sets them after the pipeline forMode mirrors. Held as a list with a test
-// rather than a sentence, so a third key joining the class fails here instead of becoming a declared
-// default nothing questions.
+// because the init command sets them after the pipeline forMode mirrors.
 //
-// Each row asserts both halves: the key is declared, so it is not quietly excluded, and what the
-// generator supplies is something the declaration does not state. A key that stopped diverging fails
-// too, which is what makes this a record of the class rather than a note about two keys.
+// Each listed key is checked both ways: it is declared, so it is not quietly excluded, and what makes
+// its declared value wrong still makes it wrong. A key that stops diverging fails, so a row cannot go
+// stale while reading as a live exception.
+//
+// What this does not measure is the other direction. Nothing enumerates the values that command sets
+// after the pipeline, so a key joining this class and never added to the list is invisible here.
+// Closing that needs a reader over the command itself, which is a different mechanism from this one;
+// until it exists the list is maintained by review and this holds only what is on it.
 func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
 	// The generator's own source for each key, read from it rather than restated, so a change there
 	// moves this. A chain identifier is needed for the peer seeds because that is the input the mode
