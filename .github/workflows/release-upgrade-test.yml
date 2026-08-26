@@ -1,6 +1,12 @@
 name: Release to Main Upgrade Test
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release-upgrade-test.yml
+      - .github/scripts/release-upgrade-test.sh
   schedule:
     - cron: '17 7 * * *'
   workflow_dispatch:
