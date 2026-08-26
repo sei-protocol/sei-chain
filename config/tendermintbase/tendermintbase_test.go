@@ -320,9 +320,13 @@ func hasOpt(opts []string, want string) bool {
 
 // warningCannotName are the removed settings the reader's own deprecation check does not report.
 //
-// Seven are durations or booleans, where a written zero and an unwritten field hold the same value, so
-// the check has nothing to test. The eighth is a pointer the check could name and does not. Recorded so
-// that making the check complete fails here rather than leaving a sentence quietly stale.
+// Seven are held on a value, so a written value equal to the field's own default cannot be told from an
+// unwritten field. Six of those default to the zero and the seventh defaults to true, which is why the
+// undetectable write differs per key rather than being the zero everywhere. The eighth is a pointer, where
+// any written value is distinguishable.
+//
+// Every one of the eight has a write the check could detect and does not. Recorded so that making the
+// check complete fails here rather than leaving a sentence stale.
 var warningCannotName = map[string]bool{
 	"unsafe-overrides-enabled":              true,
 	"unsafe-propose-timeout-override":       true,

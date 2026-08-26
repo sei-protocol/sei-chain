@@ -26,12 +26,10 @@ const (
 // and switchable and neither is true.
 //
 // The reader has a check that names the removed settings an operator wrote, and it reaches half of them.
-// Most of the rest are held on a value rather than a pointer, so a written zero cannot be told from an
-// unwritten field, though a written value that is not the zero can be. One is a pointer the check could
-// name as cheaply as the eight pointers it already names, and simply does not. Which ones those are, and
-// which of the two reasons each has, is recorded beside the check that measures it rather than counted
-// twice here. Nothing calls the check in any case, so leaving these out of the file is what an operator
-// actually gets.
+// For the rest, a written value equal to the field's own default cannot be told from an unwritten field,
+// and every one of them still has a write the check could detect. Which keys those are is recorded beside
+// the check that measures it. Nothing calls the check in any case, so leaving these out of the file is
+// what an operator actually gets.
 var removedSettings = []string{
 	"unsafe-overrides-enabled",
 	"unsafe-propose-timeout-override",
