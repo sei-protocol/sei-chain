@@ -377,10 +377,14 @@ func hasOpt(opts []string, want string) bool {
 	return false
 }
 
-// warningCannotName are the removed settings the reader's own deprecation check does not report. Most are
-// held on a value, where a written value equal to the field's own default is indistinguishable from an
-// unwritten one, so the check has nothing to test for that write. The bypass override is a pointer the
-// check could name and does not.
+// warningCannotName are the removed settings the reader's own deprecation check does not report, for three
+// different reasons.
+//
+// Most are fields the check simply never tests, and a written value distinguishable from their default
+// would be there for it to find. The leader election setting defaults to true, so the value an operator
+// writes to keep the behaviour cannot be told from an unwritten field, though the value that turns it off
+// can. The bypass override is a pointer, where any written value is distinguishable and the check names
+// eight other pointers the same way.
 var warningCannotName = map[string]bool{
 	"unsafe-overrides-enabled":              true,
 	"unsafe-propose-timeout-override":       true,
