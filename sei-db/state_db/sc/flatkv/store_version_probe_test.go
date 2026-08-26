@@ -80,7 +80,7 @@ func TestGetLatestVersionWatermarksBehindWAL(t *testing.T) {
 
 	// Pin that the two candidate sources genuinely disagree here, so this test fails for an
 	// implementation that reads a watermark rather than for an implementation detail.
-	for _, ndb := range s.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), meta.CommittedVersion, "%s watermark trails the WAL", ndb.dir)

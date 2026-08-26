@@ -10,6 +10,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types/proposal"
 )
 
+type proposalSubmissionValidator interface {
+	ValidateProposalSubmission() error
+}
+
 // SubmitProposal create new proposal given a content
 func (keeper Keeper) SubmitProposal(ctx sdk.Context, content types.Content) (types.Proposal, error) {
 	return keeper.SubmitProposalWithExpedite(ctx, content, false)
@@ -17,6 +21,11 @@ func (keeper Keeper) SubmitProposal(ctx sdk.Context, content types.Content) (typ
 
 // SubmitProposalWithExpedite create new proposal given a content and whether expedited or not
 func (keeper Keeper) SubmitProposalWithExpedite(ctx sdk.Context, content types.Content, isExpedited bool) (types.Proposal, error) {
+	if validator, ok := content.(proposalSubmissionValidator); ok {
+		if err := validator.ValidateProposalSubmission(); err != nil {
+			return types.Proposal{}, err
+		}
+	}
 	if !keeper.router.HasRoute(content.ProposalRoute()) {
 		return types.Proposal{}, sdkerrors.Wrap(types.ErrNoProposalHandlerExists, content.ProposalRoute())
 	}

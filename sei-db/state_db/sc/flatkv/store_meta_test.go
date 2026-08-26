@@ -147,7 +147,8 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 
 	// Simulate a store written before per-module hashing: strip every
 	// per-module meta key (hashes + stats) while keeping the per-DB root.
-	iter, err := s.storageDB.NewIter(&types.IterOptions{
+	requireFlushedToDisk(t, s)
+	iter, err := s.rawDBFor(storageDBDir).NewIter(&types.IterOptions{
 		LowerBound: ktype.ModuleLtHashPrefixBytes,
 		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
 	})
@@ -160,7 +161,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	require.NoError(t, iter.Close())
 	require.NotEmpty(t, keys, "precondition: storageDB must carry per-module meta keys")
 	for _, k := range keys {
-		require.NoError(t, s.storageDB.Delete(k, types.WriteOptions{}))
+		require.NoError(t, s.rawDBFor(storageDBDir).Delete(k, types.WriteOptions{}))
 	}
 	require.NoError(t, s.Close())
 
@@ -175,7 +176,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	require.Contains(t, err.Error(), "predates per-module hashing")
 }
 
-func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
+func TestStoreSealBlockUpdatesLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -192,7 +193,8 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
-	data, err := s.storageDB.Get(ktype.MetaVersionKey)
+	requireFlushedToDisk(t, s)
+	data, err := s.rawDBFor(storageDBDir).Get(ktype.MetaVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
 }
@@ -363,7 +365,7 @@ func TestDerivedGlobalStatePersistence(t *testing.T) {
 	// DBs' own version records and its root is the sum of their roots. Read both
 	// off disk and check the derivation rather than a stored copy.
 	derived := lthash.New()
-	for _, ndb := range s.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), meta.CommittedVersion, "%s version record", ndb.dir)
@@ -520,7 +522,7 @@ func TestDataDBAheadOfWALIsRebuiltNotRefused(t *testing.T) {
 
 	require.NoError(t, s2.LoadLatest(), "an unreachable version must be repaired, not fatal")
 	require.Equal(t, int64(2), s2.Version(), "the store lands at the WAL tail")
-	for _, ndb := range s2.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s2, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), meta.CommittedVersion, "%s version record", ndb.dir)
@@ -547,7 +549,7 @@ func TestEmptyBlockAdvancesWatermarkAcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(2), s.Version())
 
-	for _, ndb := range s.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), meta.CommittedVersion,

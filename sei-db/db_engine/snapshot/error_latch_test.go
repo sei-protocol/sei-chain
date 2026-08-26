@@ -93,11 +93,10 @@ func TestBatchGetPartialFailureLeavesCoherentState(t *testing.T) {
 // A BatchGet issued after a read has failed is refused before any classification happens, so it
 // cannot start reads it will not drain and cannot create entries it will not resolve.
 //
-// This replaces a regression test for a stranding bug in BatchGet's classification loop (returning
-// early on an already-failed key stranded preceding keys in statusScheduled). That path is no longer
-// reachable: an entry only becomes statusFailed in the same critical section that takes the shard out
-// of service, so a batch that would encounter one is refused first. Live stranding coverage is now in
-// TestBatchGetPartialFailureLeavesCoherentState, where the failure happens mid-batch.
+// A batch cannot encounter an already-failed entry partway through: an entry only becomes
+// statusFailed in the same critical section that takes the shard out of service, so any batch that
+// would meet one is refused before it classifies anything. Stranding when the failure happens
+// mid-batch is covered by TestBatchGetPartialFailureLeavesCoherentState.
 func TestBatchGetAfterFailureIsRefusedBeforeClassifying(t *testing.T) {
 	db := newTestDB(map[string][]byte{"k1": []byte("v1")})
 	engine := newTestEngineWithDB(t, db, 1, 1<<20)
