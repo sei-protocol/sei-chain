@@ -12,7 +12,6 @@ import (
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
@@ -427,7 +426,7 @@ func (s *EVMStateStore) Close() error {
 
 func (s *EVMStateStore) SupportsCheckpoint() bool {
 	for _, db := range s.managedDBs {
-		if !controller.SupportsCheckpoint(db) {
+		if !sssnapshot.SupportsCheckpoint(db) {
 			return false
 		}
 	}
@@ -455,7 +454,7 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 			done(errors.New("EVM state store has no managed DB to checkpoint"))
 			return
 		}
-		controller.ScheduleCheckpoint(db, destDir, shouldRun, done)
+		sssnapshot.ScheduleCheckpoint(db, destDir, shouldRun, done)
 		return
 	}
 
@@ -465,10 +464,10 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 	}
 
 	storeTypes := AllEVMStoreTypes()
-	report := controller.FanIn(len(storeTypes), done)
+	report := sssnapshot.FanIn(len(storeTypes), done)
 	for _, storeType := range storeTypes {
 		name := StoreTypeName(storeType)
-		controller.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
+		sssnapshot.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
 			if err != nil {
 				err = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
 			}
@@ -483,11 +482,11 @@ func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) erro
 		if db == nil {
 			return errors.New("EVM state store has no managed DB to stamp")
 		}
-		return controller.SetCheckpointVersion(db, destDir, version)
+		return sssnapshot.SetCheckpointVersion(db, destDir, version)
 	}
 	for _, storeType := range AllEVMStoreTypes() {
 		name := StoreTypeName(storeType)
-		if err := controller.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
+		if err := sssnapshot.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
 			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", name, err)
 		}
 	}
@@ -506,7 +505,7 @@ func (s *EVMStateStore) StartSnapshots(
 		Backend:         ssConfig.Backend,
 		KeepRecent:      ssConfig.SnapshotKeepRecent,
 		ExternalPruning: ssConfig.ExternalPruning,
-		Scheduler:       s,
+		Checkpointer:    s,
 		Floor:           floor,
 	})
 	if err != nil {

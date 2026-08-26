@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +22,7 @@ func (*controlledScheduler) SupportsCheckpoint() bool {
 func (s *controlledScheduler) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
 	s.pending <- func() {
 		if !shouldRun() {
-			done(controller.ErrCheckpointCanceled)
+			done(ErrCheckpointCanceled)
 			return
 		}
 		if s.fail {
@@ -146,11 +145,11 @@ func TestOpenClearsLeftoverHardlinkProbes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, linkProbeName), nil, 0o600))
 
 	_, err := Open(Config{
-		Name:       "test",
-		Root:       root,
-		SourceDirs: []string{source},
-		Backend:    config.PebbleDBBackend,
-		Scheduler:  &controlledScheduler{pending: make(chan func(), 1)},
+		Name:         "test",
+		Root:         root,
+		SourceDirs:   []string{source},
+		Backend:      config.PebbleDBBackend,
+		Checkpointer: &controlledScheduler{pending: make(chan func(), 1)},
 	})
 	require.NoError(t, err)
 
@@ -207,7 +206,7 @@ func openManagerWithFloor(
 		Backend:         config.PebbleDBBackend,
 		KeepRecent:      keepRecent,
 		ExternalPruning: external,
-		Scheduler:       scheduler,
+		Checkpointer:    scheduler,
 		Floor:           floor,
 	})
 	require.NoError(t, err)

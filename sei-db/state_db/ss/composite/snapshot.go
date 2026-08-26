@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
@@ -75,6 +74,9 @@ type snapshotCoordinator struct {
 	// floor carries the newest height every member holds to the members' own retention, which counts
 	// only its own directories and would otherwise let an unpaired newer height crowd it out.
 	floor *sssnapshot.Floor
+	// target is the height a controller.CheckpointScheduler asked for, 0 when none is outstanding.
+	// Atomic rather than under mu because the write path consults it for every version.
+	target atomic.Int64
 
 	mu sync.Mutex
 	// lastRequested is the newest label already requested or present in any
@@ -150,6 +152,9 @@ func (s *CompositeStateStore) startSnapshotManager(members []snapshotMember, flo
 func (c *snapshotCoordinator) stop() {
 	c.mu.Lock()
 	c.stopped = true
+	// Dropped rather than serviced: no later block will arrive to reach it, and a scheduler polling
+	// checkpointInProgress across shutdown would otherwise be told a checkpoint is still coming.
+	c.target.Store(0)
 	c.mu.Unlock()
 	c.scheduling.Wait()
 	c.publishing.Wait()
@@ -161,11 +166,14 @@ func (c *snapshotCoordinator) isRunning() bool {
 	return !c.stopped
 }
 
-// maybeSnapshot takes a snapshot when version lands on an interval boundary.
-// It is called from the write path for every version, so the common case is the
-// modulo test and nothing else.
+// maybeSnapshot takes a snapshot when version is a height this coordinator owes one at. It is called
+// from the write path for every version, so the common case is the due test and nothing else.
 func (c *snapshotCoordinator) maybeSnapshot(version int64) {
-	if c == nil || version <= 0 || c.interval <= 0 || version%c.interval != 0 {
+	if c == nil || version <= 0 {
+		return
+	}
+	due, scheduled := c.due(version)
+	if !due {
 		return
 	}
 	now := time.Now()
@@ -179,7 +187,7 @@ func (c *snapshotCoordinator) maybeSnapshot(version int64) {
 		// A repeated commit-path call is expected and is not a skipped attempt.
 	case c.inFlight:
 		skipReason = "in_flight"
-	case !c.lastRequestAt.IsZero() && now.Sub(c.lastRequestAt) < c.minTime:
+	case !scheduled && !c.lastRequestAt.IsZero() && now.Sub(c.lastRequestAt) < c.minTime:
 		skipReason = "minimum_time_interval"
 	default:
 		c.lastRequested = version
@@ -219,6 +227,70 @@ func (c *snapshotCoordinator) maybeSnapshot(version int64) {
 	}
 }
 
+// due reports whether version is a height this coordinator owes a snapshot at, and whether it was a
+// scheduler that asked. Two cadences can ask — the configured SnapshotInterval, and a target a
+// controller.CheckpointScheduler dispatched — and a height both name is one snapshot, not two.
+//
+// Which one asked decides whether the minimum-time gate applies. That gate paces the configured
+// interval; applying it to a dispatched target would drop the one height the scheduler's other stores
+// are checkpointing at, which is the whole guarantee it exists to make. Skipping it loses no pacing,
+// because a scheduler gates its own dispatches: a dispatched target arrives already paced.
+func (c *snapshotCoordinator) due(version int64) (due bool, scheduled bool) {
+	scheduled = c.consumeTarget(version)
+	return scheduled || (c.interval > 0 && version%c.interval == 0), scheduled
+}
+
+// consumeTarget reports whether version is the height a scheduler asked for, clearing the target once
+// version has reached it. With no target outstanding it is a single atomic load, which is what keeps
+// it callable for every version on the write path.
+//
+// It clears on an overshoot as well as on a match: a target left set at a height already past is one
+// no later block can match. Overshooting means the write path skipped the height between the target
+// being accepted and the block arriving, so it is reported rather than absorbed.
+func (c *snapshotCoordinator) consumeTarget(version int64) bool {
+	target := c.target.Load()
+	if target == 0 || version < target {
+		return false
+	}
+	if !c.target.CompareAndSwap(target, 0) {
+		return false
+	}
+	if version > target {
+		logger.Error("state store passed a scheduled checkpoint height without snapshotting it",
+			"targetVersion", target, "version", version)
+		return false
+	}
+	return true
+}
+
+// acceptTarget records version as the height this coordinator owes a scheduled snapshot at. It holds
+// one target at a time. A height already requested, a second request while one is pending, or a
+// request after stop is ignored.
+func (c *snapshotCoordinator) acceptTarget(version int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stopped {
+		return
+	}
+	if c.target.Load() != 0 {
+		return
+	}
+	if version <= c.lastRequested {
+		return
+	}
+	c.target.Store(version)
+}
+
+// checkpointInProgress reports whether a snapshot is currently being staged or published.
+func (c *snapshotCoordinator) checkpointInProgress() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inFlight
+}
+
 func (c *snapshotCoordinator) finishSnapshot() {
 	c.mu.Lock()
 	c.inFlight = false
@@ -251,7 +323,7 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 		return c.isRunning() && !canceled.Load()
 	}
 
-	report := controller.FanIn(len(c.members), func(err error) {
+	report := sssnapshot.FanIn(len(c.members), func(err error) {
 		c.startPublish(version, staged, err, start)
 	})
 	for i, member := range c.members {
@@ -295,7 +367,7 @@ func (c *snapshotCoordinator) startPublish(
 		defer c.publishing.Done()
 		defer c.finishSnapshot()
 		if checkpointErr != nil {
-			if errors.Is(checkpointErr, controller.ErrCheckpointCanceled) {
+			if errors.Is(checkpointErr, sssnapshot.ErrCheckpointCanceled) {
 				sssnapshot.RecordCompletion(start, "canceled")
 			} else {
 				sssnapshot.RecordCompletion(start, "failure")

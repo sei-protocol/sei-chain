@@ -112,12 +112,7 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	recordPendingWrites(s.ctx, miscDBDir, 0)
 
 	// Periodic snapshot so WAL stays bounded and restarts are fast.
-	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
-		s.phaseTimer.SetPhase("commit_write_snapshot")
-		if err := s.WriteSnapshot(""); err != nil {
-			logger.Error("auto snapshot failed", "version", version, "err", err)
-		}
-	}
+	s.snapshotIfDue(version)
 
 	// Best-effort WAL truncation, throttled to amortize ReadDir cost.
 	if version%1000 == 0 {
