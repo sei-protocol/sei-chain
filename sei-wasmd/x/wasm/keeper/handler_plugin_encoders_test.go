@@ -410,7 +410,7 @@ func TestEncoding(t *testing.T) {
 			isError: true,
 			errorIs: types.ErrUnsupportedForContract,
 		},
-		"IBC send packet falls through to raw packet handler": {
+		"IBC send packet is unsupported": {
 			sender:             addr1,
 			srcContractIBCPort: "myIBCPort",
 			srcMsg: wasmvmtypes.CosmosMsg{
@@ -425,7 +425,7 @@ func TestEncoding(t *testing.T) {
 				},
 			},
 			isError: true,
-			errorIs: types.ErrUnknownMsg,
+			errorIs: types.ErrUnsupportedForContract,
 		},
 		"Gov vote: yes": {
 			sender:             addr1,

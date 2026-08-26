@@ -8,7 +8,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 	"github.com/stretchr/testify/assert"
@@ -214,41 +213,6 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 				assert.Equal(t, myEvent, gotEvents[i])
 				assert.Equal(t, []byte(myData), gotData[i])
 			}
-		})
-	}
-}
-
-func TestIBCRawPacketHandler(t *testing.T) {
-	specs := map[string]struct {
-		portID    string
-		channelID string
-	}{
-		"valid packet": {
-			portID:    "contractsIBCPort",
-			channelID: "channel-1",
-		},
-		"empty contract port": {
-			channelID: "channel-1",
-		},
-		"empty channel": {
-			portID: "contractsIBCPort",
-		},
-	}
-	for name, spec := range specs {
-		t.Run(name, func(t *testing.T) {
-			h := NewIBCRawPacketHandler()
-			msg := wasmvmtypes.CosmosMsg{IBC: &wasmvmtypes.IBCMsg{SendPacket: &wasmvmtypes.SendPacketMsg{
-				ChannelID: spec.channelID,
-				Data:      []byte("myData"),
-				Timeout:   wasmvmtypes.IBCTimeout{Block: &wasmvmtypes.IBCTimeoutBlock{Revision: 1, Height: 2}},
-			}}}
-
-			evts, data, gotErr := h.DispatchMsg(sdk.Context{}, RandomAccountAddress(t), spec.portID, msg, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
-
-			require.ErrorIs(t, gotErr, ibccoretypes.ErrIBCDeprecated)
-			require.EqualError(t, gotErr, "ibc module is deprecated")
-			assert.Nil(t, evts)
-			assert.Nil(t, data)
 		})
 	}
 }

@@ -27,19 +27,13 @@ var (
 	)
 
 	wasmKeeperMetrics = struct {
-		contractInstantiateDuration       metric.Float64Histogram
-		contractExecuteDuration           metric.Float64Histogram
-		contractMigrateDuration           metric.Float64Histogram
-		contractSudoDuration              metric.Float64Histogram
-		contractQuerySmartDuration        metric.Float64Histogram
-		contractQueryRawDuration          metric.Float64Histogram
-		contractIBCOpenChannelDuration    metric.Float64Histogram
-		contractIBCConnectChannelDuration metric.Float64Histogram
-		contractIBCCloseChannelDuration   metric.Float64Histogram
-		contractIBCRecvPacketDuration     metric.Float64Histogram
-		contractIBCAckPacketDuration      metric.Float64Histogram
-		contractIBCTimeoutPacketDuration  metric.Float64Histogram
-		contractQuerySmartGasUsed         metric.Int64Histogram
+		contractInstantiateDuration metric.Float64Histogram
+		contractExecuteDuration     metric.Float64Histogram
+		contractMigrateDuration     metric.Float64Histogram
+		contractSudoDuration        metric.Float64Histogram
+		contractQuerySmartDuration  metric.Float64Histogram
+		contractQueryRawDuration    metric.Float64Histogram
+		contractQuerySmartGasUsed   metric.Int64Histogram
 	}{
 		contractInstantiateDuration: must(meter.Float64Histogram(
 			"wasm_contract_instantiate_duration",
@@ -76,42 +70,6 @@ var (
 			metric.WithDescription("Duration of wasm contract raw query operations"),
 			metric.WithUnit("s"),
 			queryLatencyBuckets,
-		)),
-		contractIBCOpenChannelDuration: must(meter.Float64Histogram(
-			"wasm_contract_ibc_open_channel_duration",
-			metric.WithDescription("Duration of wasm contract IBC open-channel callbacks"),
-			metric.WithUnit("s"),
-			contractLatencyBuckets,
-		)),
-		contractIBCConnectChannelDuration: must(meter.Float64Histogram(
-			"wasm_contract_ibc_connect_channel_duration",
-			metric.WithDescription("Duration of wasm contract IBC connect-channel callbacks"),
-			metric.WithUnit("s"),
-			contractLatencyBuckets,
-		)),
-		contractIBCCloseChannelDuration: must(meter.Float64Histogram(
-			"wasm_contract_ibc_close_channel_duration",
-			metric.WithDescription("Duration of wasm contract IBC close-channel callbacks"),
-			metric.WithUnit("s"),
-			contractLatencyBuckets,
-		)),
-		contractIBCRecvPacketDuration: must(meter.Float64Histogram(
-			"wasm_contract_ibc_recv_packet_duration",
-			metric.WithDescription("Duration of wasm contract IBC recv-packet callbacks"),
-			metric.WithUnit("s"),
-			contractLatencyBuckets,
-		)),
-		contractIBCAckPacketDuration: must(meter.Float64Histogram(
-			"wasm_contract_ibc_ack_packet_duration",
-			metric.WithDescription("Duration of wasm contract IBC ack-packet callbacks"),
-			metric.WithUnit("s"),
-			contractLatencyBuckets,
-		)),
-		contractIBCTimeoutPacketDuration: must(meter.Float64Histogram(
-			"wasm_contract_ibc_timeout_packet_duration",
-			metric.WithDescription("Duration of wasm contract IBC timeout-packet callbacks"),
-			metric.WithUnit("s"),
-			contractLatencyBuckets,
 		)),
 		contractQuerySmartGasUsed: must(meter.Int64Histogram(
 			"wasm_contract_query_smart_gas_used",
@@ -162,42 +120,6 @@ func recordContractQueryRawDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractQueryRawDuration.Record(ctx, time.Since(start).Seconds())
 	// TODO(PLT-910): remove once wasm_contract_query_raw_duration verified
 	telemetry.MeasureSince(start, "wasm", "contract", "query-raw")
-}
-
-func recordContractIBCOpenChannelDuration(ctx context.Context, start time.Time) {
-	wasmKeeperMetrics.contractIBCOpenChannelDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_ibc_open_channel_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "ibc-open-channel")
-}
-
-func recordContractIBCConnectChannelDuration(ctx context.Context, start time.Time) {
-	wasmKeeperMetrics.contractIBCConnectChannelDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_ibc_connect_channel_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "ibc-connect-channel")
-}
-
-func recordContractIBCCloseChannelDuration(ctx context.Context, start time.Time) {
-	wasmKeeperMetrics.contractIBCCloseChannelDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_ibc_close_channel_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "ibc-close-channel")
-}
-
-func recordContractIBCRecvPacketDuration(ctx context.Context, start time.Time) {
-	wasmKeeperMetrics.contractIBCRecvPacketDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_ibc_recv_packet_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "ibc-recv-packet")
-}
-
-func recordContractIBCAckPacketDuration(ctx context.Context, start time.Time) {
-	wasmKeeperMetrics.contractIBCAckPacketDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_ibc_ack_packet_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "ibc-ack-packet")
-}
-
-func recordContractIBCTimeoutPacketDuration(ctx context.Context, start time.Time) {
-	wasmKeeperMetrics.contractIBCTimeoutPacketDuration.Record(ctx, time.Since(start).Seconds())
-	// TODO(PLT-910): remove once wasm_contract_ibc_timeout_packet_duration verified
-	telemetry.MeasureSince(start, "wasm", "contract", "ibc-timeout-packet")
 }
 
 func recordContractQuerySmartInvocation(contractAddress string) {
