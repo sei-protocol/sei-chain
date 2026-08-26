@@ -4,20 +4,16 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
-	ibcante "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/ante"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	wasmTypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 )
 
-// HandlerOptions extend the SDK's AnteHandler options by requiring the IBC
-// channel keeper.
+// HandlerOptions extends the SDK's AnteHandler options with application configuration.
 type HandlerOptions struct {
 	ante.HandlerOptions
 
-	IBCKeeper         *keeper.Keeper
 	WasmConfig        *wasmTypes.WasmConfig
 	TXCounterStoreKey sdk.StoreKey
 }
@@ -57,7 +53,6 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SigGasConsumer),
 		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
 		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
-		ibcante.NewAnteDecorator(options.IBCKeeper),
 	}
 
 	anteHandler := sdk.ChainAnteDecorators(anteDecorators...)

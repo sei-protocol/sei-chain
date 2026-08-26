@@ -34,7 +34,6 @@ func (r *CustomRouter) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
 // forked from wasm
 func CustomMessageHandler(
 	router wasmkeeper.MessageRouter,
-	channelKeeper wasmtypes.ChannelKeeper,
 	bankKeeper wasmtypes.Burner,
 	evmKeeper *evmkeeper.Keeper,
 	unpacker codectypes.AnyUnpacker,
@@ -46,7 +45,6 @@ func CustomMessageHandler(
 		})
 	return wasmkeeper.NewMessageHandlerChain(
 		wasmkeeper.NewSDKMessageHandler(&CustomRouter{MessageRouter: router, evmKeeper: evmKeeper}, encoders),
-		wasmkeeper.NewIBCRawPacketHandler(channelKeeper),
 		wasmkeeper.NewBurnCoinMessageHandler(bankKeeper),
 	)
 }

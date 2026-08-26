@@ -31,6 +31,16 @@ func TestFeegrantStoreRemainsMounted(t *testing.T) {
 	require.Equal(t, []byte("retained"), store.Get([]byte("allowance")))
 }
 
+func TestIBCStoreRemainsMounted(t *testing.T) {
+	require.Contains(t, kvStoreKeyNames, keys.IBCStoreKey)
+
+	testApp := Setup(t, false, false, false)
+	ctx := testApp.NewContext(false, tmproto.Header{})
+	store := ctx.KVStore(testApp.GetKey(keys.IBCStoreKey))
+	store.Set([]byte("client"), []byte("retained"))
+	require.Equal(t, []byte("retained"), store.Get([]byte("client")))
+}
+
 func TestTransferStoreRemainsMounted(t *testing.T) {
 	require.Contains(t, kvStoreKeyNames, keys.IBCTransferStoreKey)
 

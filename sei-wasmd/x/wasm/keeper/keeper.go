@@ -77,7 +77,6 @@ type Keeper struct {
 	accountKeeper         types.AccountKeeper
 	bank                  CoinTransferrer
 	paramsKeeper          types.ParamsKeeper
-	upgradeKeeper         types.UpgradeKeeper
 	wasmVM                types.WasmerEngine
 	simulationWasmVM      types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
@@ -105,8 +104,6 @@ func NewKeeper(
 	bankKeeper types.BankKeeper,
 	stakingKeeper types.StakingKeeper,
 	distKeeper types.DistributionKeeper,
-	channelKeeper types.ChannelKeeper,
-	upgradeKeeper types.UpgradeKeeper,
 	router MessageRouter,
 	queryRouter GRPCQueryRouter,
 	homeDir string,
@@ -150,15 +147,14 @@ func NewKeeper(
 		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
-		upgradeKeeper:     upgradeKeeper,
-		messenger:         NewDefaultMessageHandler(router, channelKeeper, bankKeeper, cdc),
+		messenger:         NewDefaultMessageHandler(router, bankKeeper, cdc),
 		queryGasLimit:     wasmConfig.SmartQueryGasLimit,
 		paramSpace:        paramSpace,
 		gasRegister:       NewDefaultWasmGasRegister(),
 		maxQueryStackSize: types.DefaultMaxQueryStackSize,
 		maxCallDepth:      types.DefaultMaxCallDepth,
 	}
-	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, channelKeeper, queryRouter, keeper)
+	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, queryRouter, keeper)
 	for _, o := range opts {
 		o.apply(keeper)
 	}

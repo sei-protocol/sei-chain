@@ -26,10 +26,29 @@ const (
 // Modes returns every mode a default is asked for, in a fixed order.
 func Modes() []Mode { return []Mode{ModeValidator, ModeFull, ModeSeed, ModeArchive} }
 
+// IsFullnodeMode reports whether a node of this kind serves queries to callers other than itself.
+//
+// Stated here because more than one package needs it and they sit on opposite sides of an import edge.
+// The package that owns the node a binary was started as also owns the type that describes it, and a
+// section's own package needs the same fact to state a default that varies on it while being imported by
+// that package rather than importing it.
+//
+// An archive node counts. It serves queries, which is the property this names, and it is the mode most
+// easily forgotten when the rule is written out by hand.
+func IsFullnodeMode(mode Mode) bool { return mode == ModeFull || mode == ModeArchive }
+
 // Section is one registered configuration section.
 type Section struct {
-	// Name is the section's own segment, and the first segment of every key it declares.
+	// Name identifies the section. A lookup, a report and a defect are keyed by it, and for most
+	// sections it is also the first segment of every key.
 	Name string
+	// Prefix is the first segment of every key this section declares, and is empty for a section whose
+	// keys sit at the root of the file with no section of their own.
+	//
+	// Separate from Name because the two do different jobs. A node-wide setting such as the pruning
+	// strategy is written at the top of app.toml and read as "pruning", so it has no segment to take a
+	// name from, and it still needs one to be looked up and reported under.
+	Prefix string
 	// Keys are the dotted paths this section declares, sorted.
 	Keys []string
 	// Defaults returns the section's default for a mode.
@@ -68,7 +87,23 @@ var (
 // It never panics. A registration this package cannot use is recorded as a Defect and the
 // section is not registered.
 func RegisterSection(name string, prototype any, defaults func(Mode) any) {
-	keys, err := deriveKeys(name, prototype)
+	record(name, name, prototype, defaults)
+}
+
+// RegisterRootKeys records a section whose keys sit at the root of the file, with no section of their own.
+//
+// name identifies the section for lookups and reports and is not part of any key. Everything else matches
+// RegisterSection: the keys come from the mapstructure tags, and the tags are the only spelling.
+//
+// Some settings are node-wide and are written at the top of a file rather than inside a table. Giving them
+// a section would rename them, and a renamed key is one an operator's existing file no longer reaches.
+func RegisterRootKeys(name string, prototype any, defaults func(Mode) any) {
+	record(name, "", prototype, defaults)
+}
+
+// record is the one path both registrations take.
+func record(name, prefix string, prototype any, defaults func(Mode) any) {
+	keys, err := deriveKeys(name, prefix, prototype)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -86,7 +121,7 @@ func RegisterSection(name string, prototype any, defaults func(Mode) any) {
 			defects = append(defects, Defect{Section: name, Err: err})
 			return
 		}
-		sections[name] = Section{Name: name, Keys: keys, Defaults: defaults}
+		sections[name] = Section{Name: name, Prefix: prefix, Keys: keys, Defaults: defaults}
 	}
 }
 
@@ -106,7 +141,17 @@ func envNamesAreDistinct(adding []string) error {
 	}
 	for _, key := range adding {
 		env := EnvName(key)
-		if other, taken := spellings[env]; taken {
+		other, taken := spellings[env]
+		switch {
+		case taken && other == key:
+			// Two sections declaring one key, which a prefix made impossible and a key at the root of the
+			// file does not. One section's default renders over the other's and which one depends on the
+			// order the sections are walked, so the value a node runs is decided by nothing an operator
+			// or a reviewer can see. Named as the one key it is, because the spelling reason below is not
+			// the reason here.
+			return fmt.Errorf("%q is declared by two sections; one default renders over the other and "+
+				"which one wins depends on the order the sections are walked", key)
+		case taken:
 			return fmt.Errorf("%q and %q both answer to %s, because a dot and a hyphen are the same "+
 				"character to the environment, so one of them can never be set from it", other, key, env)
 		}
@@ -166,19 +211,19 @@ func Keys() []string {
 // outside state-commit.flatkv.*. Ninety-two operator-facing keys reach their field only through a
 // spelling the tags do not produce, and a silent fallback is what made that invisible. Refusing to
 // guess is what keeps the tag authoritative.
-func deriveKeys(section string, prototype any) ([]string, error) {
-	if section == "" {
+func deriveKeys(name, prefix string, prototype any) ([]string, error) {
+	if name == "" {
 		return nil, fmt.Errorf("section name is empty")
 	}
-	if section != strings.ToLower(section) {
+	if name != strings.ToLower(name) {
 		return nil, fmt.Errorf("section name %q is not lower case; configuration sources "+
-			"enumerate lower-cased, so a key under it would never match a written one", section)
+			"enumerate lower-cased, so a key under it would never match a written one", name)
 	}
-	if bad, found := unaddressableChar(section); found {
+	if bad, found := unaddressableChar(name); found {
 		return nil, fmt.Errorf("section name %q carries %q, and a section is one segment. A dotted name "+
 			"declares keys inside another section's subtree, where the two sections' defaults land in "+
 			"one map and whichever renders last silently wins; a space cannot be written in an "+
-			"environment variable name at all", section, bad)
+			"environment variable name at all", name, bad)
 	}
 	if prototype == nil {
 		return nil, fmt.Errorf("no struct")
@@ -192,7 +237,10 @@ func deriveKeys(section string, prototype any) ([]string, error) {
 	}
 
 	var keys []string
-	if err := walk(t, section, &keys, map[reflect.Type]bool{}); err != nil {
+	// The label is the section name, and the prefix is what builds a key. They differ for a section whose
+	// keys sit at the root, where the prefix is empty: a message built from that reads ".HaltHeight has no
+	// mapstructure tag", which names no section at all.
+	if err := walk(t, label(name, prefix), prefix, &keys, map[reflect.Type]bool{}); err != nil {
 		return nil, err
 	}
 	if len(keys) == 0 {
@@ -216,10 +264,10 @@ func deriveKeys(section string, prototype any) ([]string, error) {
 // open carries the struct types on the current path, so a self-referential one is refused rather than
 // recursed into. A stack overflow cannot be recovered into a Defect, so this is the one refusal that
 // has to happen before the recursion rather than after it.
-func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]bool) error {
+func walk(t reflect.Type, label, prefix string, keys *[]string, open map[reflect.Type]bool) error {
 	if open[t] {
 		return fmt.Errorf("%s is %s, which contains itself; a key space derived from it has no end",
-			prefix, t)
+			label, t)
 	}
 	open[t] = true
 	defer delete(open, t)
@@ -233,14 +281,17 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 			// this way with no other sign.
 			if _, tagged := f.Tag.Lookup("mapstructure"); tagged {
 				return fmt.Errorf("%s.%s is unexported and carries a mapstructure tag; nothing can write "+
-					"to it, so the tag names a key that reaches no field", prefix, f.Name)
+					"to it, so the tag names a key that reaches no field", label, f.Name)
 			}
 			continue
 		}
 
-		tag, squash, err := tagOf(f, prefix)
+		tag, squash, skip, err := tagOf(f, label)
 		if err != nil {
 			return err
+		}
+		if skip {
+			continue
 		}
 
 		ft := f.Type
@@ -252,17 +303,17 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 		// a shared base without adding a segment.
 		if squash {
 			if ft.Kind() != reflect.Struct {
-				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", prefix, f.Name, ft.Kind())
+				return fmt.Errorf("%s.%s is squashed but is a %s, not a struct", label, f.Name, ft.Kind())
 			}
-			if err := walkSubtree(ft, prefix, prefix+"."+f.Name, keys, open); err != nil {
+			if err := walkSubtree(ft, label, prefix, join(label, f.Name), keys, open); err != nil {
 				return err
 			}
 			continue
 		}
 
-		path := prefix + "." + tag
+		path := join(prefix, tag)
 		if ft.Kind() == reflect.Struct && !isLeaf(ft) {
-			if err := walkSubtree(ft, path, prefix+"."+f.Name, keys, open); err != nil {
+			if err := walkSubtree(ft, join(label, tag), path, join(label, f.Name), keys, open); err != nil {
 				return err
 			}
 			continue
@@ -272,14 +323,33 @@ func walk(t reflect.Type, prefix string, keys *[]string, open map[reflect.Type]b
 	return nil
 }
 
+// label is the name a diagnostic carries for a section.
+//
+// The section's own name, because a prefix is empty for a section whose keys sit at the root of the file and
+// a message built from that names nothing.
+func label(name, prefix string) string {
+	if prefix == "" {
+		return name
+	}
+	return prefix
+}
+
+// join appends a key segment to a prefix, and returns the segment alone when there is no prefix.
+func join(prefix, segment string) string {
+	if prefix == "" {
+		return segment
+	}
+	return prefix + "." + segment
+}
+
 // walkSubtree appends the keys a struct-typed field declares, and refuses one that declares none.
 //
 // A struct configuration cannot reach is a setting an operator writes into nothing. A defined type
 // over a leaf, an empty struct, and a struct whose every field is unexported all arrive here having
 // contributed nothing, and both walks agree about it, so no later check can see the loss.
-func walkSubtree(t reflect.Type, path, field string, keys *[]string, open map[reflect.Type]bool) error {
+func walkSubtree(t reflect.Type, label, path, field string, keys *[]string, open map[reflect.Type]bool) error {
 	before := len(*keys)
-	if err := walk(t, path, keys, open); err != nil {
+	if err := walk(t, label, path, keys, open); err != nil {
 		return err
 	}
 	if len(*keys) == before {
@@ -289,42 +359,68 @@ func walkSubtree(t reflect.Type, path, field string, keys *[]string, open map[re
 }
 
 // tagOf returns a field's mapstructure name, or reports that the field cannot be addressed.
-func tagOf(f reflect.StructField, prefix string) (name string, squash bool, err error) {
+func tagOf(f reflect.StructField, label string) (name string, squash, skip bool, err error) {
 	tag, ok := f.Tag.Lookup("mapstructure")
 	if !ok {
-		return "", false, fmt.Errorf("%s.%s has no mapstructure tag; a key derived from a field "+
+		return "", false, false, fmt.Errorf("%s.%s has no mapstructure tag; a key derived from a field "+
 			"name is a key no operator writes, which is how ninety-two legacy keys became "+
-			"unreachable through their tags", prefix, f.Name)
+			"unreachable through their tags", label, f.Name)
 	}
 
+	name, squash = parseTag(tag)
+	if squash {
+		if name != "" {
+			return "", false, false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
+				label, f.Name, name)
+		}
+		return "", true, false, nil
+	}
+	if assignedOutsideConfiguration(name) {
+		return "", false, true, nil
+	}
+	if name == "" {
+		return "", false, false, fmt.Errorf("%s.%s has an empty mapstructure name", label, f.Name)
+	}
+	if bad, found := unaddressableChar(name); found {
+		return "", false, false, fmt.Errorf("%s.%s names %q, which carries %q. A dot makes the field claim a "+
+			"subtree the struct does not have, and neither a dot nor a space survives a round trip "+
+			"through a configuration source", label, f.Name, name, bad)
+	}
+	if neverMatchesAWrittenKey(name) {
+		return "", false, false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
+			"source enumerates lower-cased, so this key would never match a written one",
+			label, f.Name, name)
+	}
+	return name, false, false, nil
+}
+
+// parseTag splits a mapstructure tag into the name it gives a field and whether it squashes.
+func parseTag(tag string) (name string, squash bool) {
 	parts := strings.Split(tag, ",")
-	name = parts[0]
 	for _, opt := range parts[1:] {
 		if opt == "squash" {
 			squash = true
 		}
 	}
-	if squash {
-		if name != "" {
-			return "", false, fmt.Errorf("%s.%s is squashed and also names %q; one or the other",
-				prefix, f.Name, name)
-		}
-		return "", true, nil
-	}
-	if name == "" || name == "-" {
-		return "", false, fmt.Errorf("%s.%s has an empty mapstructure name", prefix, f.Name)
-	}
-	if bad, found := unaddressableChar(name); found {
-		return "", false, fmt.Errorf("%s.%s names %q, which carries %q. A dot makes the field claim a "+
-			"subtree the struct does not have, and neither a dot nor a space survives a round trip "+
-			"through a configuration source", prefix, f.Name, name, bad)
-	}
-	if name != strings.ToLower(name) {
-		return "", false, fmt.Errorf("%s.%s names %q, which is not lower case; a configuration "+
-			"source enumerates lower-cased, so this key would never match a written one",
-			prefix, f.Name, name)
-	}
-	return name, false, nil
+	return parts[0], squash
+}
+
+// assignedOutsideConfiguration reports whether a tag excludes its field from configuration.
+//
+// Something else in the program assigns such a field, so no reader resolves a key for it, and declaring
+// one would put a key in the space that reaches no field. An untagged field is refused for the same
+// reason read from the other end: it would declare a key derived from a field name, which is a key no
+// operator writes. The two look alike in a diff and mean opposite things.
+func assignedOutsideConfiguration(name string) bool {
+	return name == "-"
+}
+
+// neverMatchesAWrittenKey reports whether a key segment is spelled so that no written value can reach it.
+//
+// A configuration source enumerates its keys lower-cased, so a segment carrying an upper-case letter is
+// one an operator can write and nothing answers.
+func neverMatchesAWrittenKey(name string) bool {
+	return name != strings.ToLower(name)
 }
 
 // unaddressableChar returns the first character in a key segment that no configuration source can
