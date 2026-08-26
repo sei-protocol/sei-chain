@@ -37,6 +37,9 @@ func InitGenesis(ctx sdk.Context, ak types.AccountKeeper, bk types.BankKeeper, k
 			k.InsertInactiveProposalQueue(ctx, proposal.ProposalId, proposal.DepositEndTime)
 		case types.StatusVotingPeriod:
 			k.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+			if !proposal.VotingEndTime.After(ctx.BlockTime()) {
+				k.InitializeTally(ctx, proposal)
+			}
 		}
 		k.SetProposal(ctx, proposal)
 	}
@@ -67,10 +70,6 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 		deposits := k.GetDeposits(ctx, proposal.ProposalId)
 		proposalsDeposits = append(proposalsDeposits, deposits...)
 
-		if k.IsTallying(ctx, proposal.ProposalId) {
-			archivedVotes := k.GetArchivedTallyVotes(ctx, proposal.ProposalId, proposal.IsExpedited)
-			proposalsVotes = append(proposalsVotes, archivedVotes...)
-		}
 		votes := k.GetVotes(ctx, proposal.ProposalId)
 		proposalsVotes = append(proposalsVotes, votes...)
 	}

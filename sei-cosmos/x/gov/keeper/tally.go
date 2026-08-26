@@ -3,7 +3,6 @@ package keeper
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
@@ -37,15 +36,15 @@ type tallyValidator struct {
 	Vote                types.WeightedVoteOptions `json:"vote"`
 }
 
-// Tally processes every vote for a proposal and returns its result.
+// Tally calculates a proposal's result without changing its tally state.
 func (keeper Keeper) Tally(ctx sdk.Context, proposal types.Proposal) (passes bool, burnDeposits bool, tallyResults types.TallyResult) {
-	complete, _, passes, burnDeposits, tallyResults := keeper.TallyIncremental(ctx, proposal, math.MaxInt)
-	if !complete {
-		panic(fmt.Sprintf("tally for proposal %d did not complete", proposal.ProposalId))
-	}
-
-	keeper.cleanupProposalTallyVotes(ctx, proposal.ProposalId, proposal.IsExpedited, math.MaxInt, nil)
-	return passes, burnDeposits, tallyResults
+	progress := keeper.initializeTally(ctx, proposal)
+	validators := progress.validatorMap()
+	keeper.IterateVotes(ctx, proposal.ProposalId, func(vote types.Vote) bool {
+		keeper.addVoteToTally(ctx, &progress, validators, vote)
+		return false
+	})
+	return keeper.finishTally(progress)
 }
 
 // TallyIncremental processes at most maxVotes vote records and persists an unfinished tally.
@@ -81,6 +80,18 @@ func (keeper Keeper) TallyIncremental(
 func (keeper Keeper) IsTallying(ctx sdk.Context, proposalID uint64) bool {
 	store := ctx.KVStore(keeper.storeKey)
 	return store.Has(types.TallyProgressKey(proposalID))
+}
+
+// InitializeTally persists a proposal's tally accumulator when one does not exist.
+func (keeper Keeper) InitializeTally(ctx sdk.Context, proposal types.Proposal) {
+	progress, found := keeper.getTallyProgress(ctx, proposal.ProposalId)
+	if found {
+		if progress.Expedited != proposal.IsExpedited {
+			panic(fmt.Sprintf("tally round for proposal %d changed", proposal.ProposalId))
+		}
+		return
+	}
+	keeper.setTallyProgress(ctx, proposal.ProposalId, keeper.initializeTally(ctx, proposal))
 }
 
 // CleanupTallyVotes deletes at most maxVotes vote records archived by completed tallies.
@@ -149,11 +160,7 @@ func (keeper Keeper) processTallyVotes(
 	progress *tallyProgress,
 	maxVotes int,
 ) (complete bool, processed int) {
-	validators := make(map[string]*tallyValidator, len(progress.Validators))
-	for i := range progress.Validators {
-		validator := &progress.Validators[i]
-		validators[validator.Address] = validator
-	}
+	validators := progress.validatorMap()
 
 	store := ctx.KVStore(keeper.storeKey)
 	votesPrefix := types.VotesKey(proposalID)
@@ -196,16 +203,34 @@ func (keeper Keeper) addVoteToTally(
 
 	keeper.sk.IterateDelegations(ctx, voter, func(_ int64, delegation stakingtypes.DelegationI) bool {
 		validator, ok := validators[delegation.GetValidatorAddr().String()]
-		if !ok {
+		if !ok || validator.DelegatorShares.IsZero() {
 			return false
 		}
 
-		validator.DelegatorDeductions = validator.DelegatorDeductions.Add(delegation.GetShares())
-		votingPower := delegation.GetShares().MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
+		remainingShares := validator.DelegatorShares.Sub(validator.DelegatorDeductions)
+		if !remainingShares.IsPositive() {
+			return false
+		}
+
+		// Delegations can change while an incremental tally is in progress. The
+		// validator snapshot is a fixed voting-power budget, so later delegation
+		// reads cannot deduct more shares than that snapshot contains.
+		votingShares := sdk.MinDec(delegation.GetShares(), remainingShares)
+		validator.DelegatorDeductions = validator.DelegatorDeductions.Add(votingShares)
+		votingPower := votingShares.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
 		progress.Results.add(vote.Options, votingPower)
 		progress.TotalVotingPower = progress.TotalVotingPower.Add(votingPower)
 		return false
 	})
+}
+
+func (progress *tallyProgress) validatorMap() map[string]*tallyValidator {
+	validators := make(map[string]*tallyValidator, len(progress.Validators))
+	for i := range progress.Validators {
+		validator := &progress.Validators[i]
+		validators[validator.Address] = validator
+	}
+	return validators
 }
 
 func (keeper Keeper) finishTally(progress tallyProgress) (passes bool, burnDeposits bool, tallyResults types.TallyResult) {

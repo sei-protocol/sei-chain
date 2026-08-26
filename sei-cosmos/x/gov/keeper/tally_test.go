@@ -524,7 +524,13 @@ func TestTallyIncrementalPersistsProgressAndCleansArchivedVotes(t *testing.T) {
 	require.Equal(t, 1, processed)
 	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
 	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
-	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), 2)
+	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), 3)
+
+	_, _, queryResult := app.GovKeeper.Tally(ctx, proposal)
+	require.False(t, queryResult.Equals(types.EmptyTallyResult()))
+	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
+	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), 3)
 
 	err = app.GovKeeper.AddVote(ctx, proposal.ProposalId, addrs[3], types.NewNonSplitVoteOption(types.OptionNo))
 	require.ErrorIs(t, err, types.ErrInactiveProposal)
@@ -547,6 +553,47 @@ func TestTallyIncrementalPersistsProgressAndCleansArchivedVotes(t *testing.T) {
 	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
 	require.Equal(t, 1, app.GovKeeper.CleanupTallyVotes(ctx, 2))
 	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
+}
+
+func TestTallyIncrementalCapsDelegationsAddedAfterSnapshot(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, proposal)
+
+	require.NoError(t, app.GovKeeper.AddVote(
+		ctx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+	require.NoError(t, app.GovKeeper.AddVote(
+		ctx,
+		proposal.ProposalId,
+		addrs[3],
+		types.NewNonSplitVoteOption(types.OptionNo),
+	))
+
+	validator, found := app.StakingKeeper.GetValidator(ctx, valAddrs[0])
+	require.True(t, found)
+	snapshotValidatorTokens := validator.GetBondedTokens()
+	snapshotTotalBonded := app.StakingKeeper.TotalBondedTokens(ctx)
+	app.GovKeeper.InitializeTally(ctx, proposal)
+
+	delegatedTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 20)
+	_, err = app.StakingKeeper.Delegate(ctx, addrs[3], delegatedTokens, stakingtypes.Unbonded, validator, true)
+	require.NoError(t, err)
+
+	complete, processed, _, _, tallyResult := app.GovKeeper.TallyIncremental(ctx, proposal, 2)
+	require.True(t, complete)
+	require.Equal(t, 2, processed)
+	require.True(t, tallyResult.Yes.Add(tallyResult.No).Equal(snapshotValidatorTokens))
+	totalVotingPower := tallyResult.Yes.Add(tallyResult.Abstain).Add(tallyResult.No).Add(tallyResult.NoWithVeto)
+	require.False(t, totalVotingPower.GT(snapshotTotalBonded))
 }
 
 func TestTallyArchivesExpeditedAndRegularRoundsSeparately(t *testing.T) {
