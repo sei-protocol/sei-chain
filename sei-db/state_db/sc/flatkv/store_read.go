@@ -4,9 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -144,44 +143,50 @@ func (s *CommitStore) Has(moduleName string, key []byte) bool {
 }
 
 // =============================================================================
-// Internal Getters (used by ApplyChangeSets for LtHash computation)
+// Internal Getters
 // =============================================================================
+//
+// Each of these reads through its store, which already merges the values staged by the block currently
+// being applied over the on-disk data. A key absent from both, and a key that same block deleted
+// earlier, both come back as the zero value; every caller below collapses those two cases anyway.
 
-// readFromDB checks pending writes first, then falls back to a DB read.
-// Returns (zero, nil) when the key is not found.
-func readFromDB[T vtype.VType](
+// getAndParse returns the value stored under physKey, deserialized, or the zero value of T when the
+// key is absent.
+//
+// A key that the block currently being applied has already deleted reads as absent rather than as a
+// tombstone, so callers need not distinguish "never existed" from "deleted by the block in progress" —
+// both yield the zero value, which every FlatKV read path already treats the same way as a value whose
+// IsDelete reports true.
+func getAndParse[T vtype.VType](
+	store snapshot.SnapshotEngine,
 	physKey []byte,
-	pendingWrites map[string]T,
-	db seidbtypes.KeyValueDB,
-	deserialize func([]byte) (T, error),
-	dbName string,
+	parse func([]byte) (T, error),
 ) (T, error) {
-	if v, ok := pendingWrites[string(physKey)]; ok {
-		return v, nil
-	}
-	raw, err := db.Get(physKey)
+	var zero T
+	raw, found, err := store.Get(physKey, true)
 	if err != nil {
-		var zero T
-		if errorutils.IsNotFound(err) {
-			return zero, nil
-		}
-		return zero, fmt.Errorf("%s I/O error for key %x: %w", dbName, physKey, err)
+		return zero, fmt.Errorf("%s read of key %x: %w", store.Name(), physKey, err)
 	}
-	return deserialize(raw)
+	if !found {
+		return zero, nil
+	}
+	return parse(raw)
 }
 
 func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error) {
 	if len(keyBytes) != ktype.AddressLen {
 		return nil, fmt.Errorf("accountDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	return readFromDB(ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes), s.accountWrites, s.accountDB, vtype.DeserializeAccountData, "accountDB")
+	return getAndParse(s.accountStore, ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes),
+		vtype.DeserializeAccountData)
 }
 
 func (s *CommitStore) getStorageData(keyBytes []byte) (*vtype.StorageData, error) {
 	if len(keyBytes) != ktype.AddressLen+ktype.SlotLen {
 		return nil, fmt.Errorf("storageDB: expected key length %d, got %d", ktype.AddressLen+ktype.SlotLen, len(keyBytes))
 	}
-	return readFromDB(ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes), s.storageWrites, s.storageDB, vtype.DeserializeStorageData, "storageDB")
+	return getAndParse(s.storageStore, ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes),
+		vtype.DeserializeStorageData)
 }
 
 func (s *CommitStore) getStorageValue(key []byte) ([]byte, error) {
@@ -199,7 +204,8 @@ func (s *CommitStore) getCodeData(keyBytes []byte) (*vtype.CodeData, error) {
 	if len(keyBytes) != ktype.AddressLen {
 		return nil, fmt.Errorf("codeDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	return readFromDB(ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes), s.codeWrites, s.codeDB, vtype.DeserializeCodeData, "codeDB")
+	return getAndParse(s.codeStore, ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes),
+		vtype.DeserializeCodeData)
 }
 
 func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
@@ -214,7 +220,8 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getMiscData(moduleName string, keyBytes []byte) (*vtype.MiscData, error) {
-	return readFromDB(ktype.ModulePhysicalKey(moduleName, keyBytes), s.miscWrites, s.miscDB, vtype.DeserializeMiscData, "miscDB")
+	return getAndParse(s.miscStore, ktype.ModulePhysicalKey(moduleName, keyBytes),
+		vtype.DeserializeMiscData)
 }
 
 func (s *CommitStore) getMiscValue(moduleName string, key []byte) ([]byte, error) {

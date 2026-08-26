@@ -29,7 +29,7 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	require.NoError(t, err)
 
 	db.commitBlock = make(chan struct{})
-	require.NoError(t, snap.SetHash(testHash))
+	require.NoError(t, snap.Finalize(hashWrites(testHash)))
 
 	// Wait until the flusher is stalled inside Commit.
 	require.Eventually(t, func() bool { return db.commitEntered.Load() > 0 },
@@ -54,45 +54,45 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	}
 }
 
-// Close must release AwaitHash and AwaitFlush waiters with errors wrapping ErrEngineClosed.
-func TestCloseUnblocksHashAndFlushWaiters(t *testing.T) {
+// Close must release AwaitFlush waiters with errors wrapping ErrEngineClosed, both for a snapshot
+// that can never flush on its own account and for one stuck behind it.
+func TestCloseUnblocksFlushWaiters(t *testing.T) {
 	engine := newTestEngineWithDB(t, newTestDB(nil), 1, 4096)
 
-	// v1 is never hashed: its AwaitHash waiter blocks, and the flush frontier stops at v1 so
-	// v2's AwaitFlush waiter blocks too.
-	unhashed, err := engine.Commit()
+	// v1 is never finalized, so it can never flush; the flush frontier stops there, which strands v2
+	// as well even though v2 is finalized.
+	unfinalized, err := engine.Commit()
 	require.NoError(t, err)
-	hashed, err := engine.Commit()
+	finalized, err := engine.Commit()
 	require.NoError(t, err)
-	require.NoError(t, hashed.SetHash(testHash))
+	require.NoError(t, finalized.Finalize(hashWrites(testHash)))
 
-	awaitHashErr := make(chan error, 1)
-	awaitFlushErr := make(chan error, 1)
+	unfinalizedErr := make(chan error, 1)
+	strandedErr := make(chan error, 1)
 	go func() {
-		_, err := unhashed.AwaitHash(context.Background())
-		awaitHashErr <- err
+		unfinalizedErr <- unfinalized.AwaitFlush(context.Background())
 	}()
 	go func() {
-		awaitFlushErr <- hashed.AwaitFlush(context.Background())
+		strandedErr <- finalized.AwaitFlush(context.Background())
 	}()
 
 	// Let the waiters park; neither may return while the engine is healthy.
 	select {
-	case err := <-awaitHashErr:
-		t.Fatalf("AwaitHash returned before Close: %v", err)
-	case err := <-awaitFlushErr:
-		t.Fatalf("AwaitFlush returned before Close: %v", err)
+	case err := <-unfinalizedErr:
+		t.Fatalf("unfinalized AwaitFlush returned before Close: %v", err)
+	case err := <-strandedErr:
+		t.Fatalf("stranded AwaitFlush returned before Close: %v", err)
 	case <-time.After(20 * time.Millisecond):
 	}
 
 	require.NoError(t, engine.Close())
 
-	for name, ch := range map[string]chan error{"AwaitHash": awaitHashErr, "AwaitFlush": awaitFlushErr} {
+	for name, ch := range map[string]chan error{"unfinalized": unfinalizedErr, "stranded": strandedErr} {
 		select {
 		case err := <-ch:
-			require.ErrorIs(t, err, ErrEngineClosed, "%s must report ErrEngineClosed", name)
+			require.ErrorIs(t, err, ErrEngineClosed, "%s AwaitFlush must report ErrEngineClosed", name)
 		case <-time.After(2 * time.Second):
-			t.Fatalf("%s waiter did not unblock after Close", name)
+			t.Fatalf("%s AwaitFlush waiter did not unblock after Close", name)
 		}
 	}
 }
@@ -110,8 +110,8 @@ func TestCloseUnblocksBackpressuredCommit(t *testing.T) {
 
 	// The first snapshot's flush stalls in Commit; the second accumulates past the cap, so the
 	// next Commit() blocks on backpressure.
-	commitAndHashRelease(t, engine)
-	commitAndHashRelease(t, engine)
+	commitFinalizeRelease(t, engine)
+	commitFinalizeRelease(t, engine)
 
 	blockedDone := make(chan error, 1)
 	go func() {
@@ -192,9 +192,6 @@ func TestMethodsAfterCloseReportEngineClosed(t *testing.T) {
 	_, err = engine.Commit()
 	require.ErrorIs(t, err, ErrEngineClosed)
 
-	_, err = snap.AwaitHash(context.Background())
-	require.ErrorIs(t, err, ErrEngineClosed)
-
 	err = snap.AwaitFlush(context.Background())
 	require.ErrorIs(t, err, ErrEngineClosed)
 
@@ -230,7 +227,7 @@ func TestCloseLeavesNoEngineGoroutines(t *testing.T) {
 		require.NoError(t, err)
 		snap, err := engine.Commit()
 		require.NoError(t, err)
-		hashAndRelease(t, snap)
+		finalizeAndRelease(t, snap)
 
 		require.NoError(t, engine.Close())
 		pool.Close()
