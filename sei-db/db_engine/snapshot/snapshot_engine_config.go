@@ -19,9 +19,9 @@ type SnapshotEngineConfig struct {
 	// This value should be derived experimentally, and may differ between different builds and architectures.
 	EstimatedOverheadPerEntry uint64
 
-	// Name used as the "cache" attribute on OTel metrics. Must be non-empty when MetricsEnabled
-	// is true; ignored otherwise.
-	MetricsName string
+	// Identifies this engine instance. Reported by SnapshotEngine.Name and used as the "cache"
+	// attribute on OTel metrics. Must be non-empty.
+	Name string
 
 	// Whether to enable OTel metrics collection.
 	MetricsEnabled bool
@@ -29,12 +29,12 @@ type SnapshotEngineConfig struct {
 	// How often to scrape cache size for metrics, in seconds.
 	MetricsScrapeIntervalSeconds float64
 
-	// The maximum number of hashed-but-unflushed snapshots (snapshots whose diffs have not yet
+	// The maximum number of finalized-but-unflushed snapshots (snapshots whose diffs have not yet
 	// been written to the underlying DB) tolerated before Commit() blocks. This backpressure
 	// engages only when the underlying DB is the bottleneck. It intentionally does NOT bound
-	// unhashed or unreleased snapshots: the engine only receives hashes from an external
-	// workflow, and the caller is responsible for pausing execution if hashing or release falls
-	// behind (see SnapshotEngine.Snapshot).
+	// unfinalized or unreleased snapshots: the engine only receives finalization metadata from an
+	// external workflow, and the caller is responsible for pausing execution if finalization or
+	// release falls behind (see Snapshot).
 	MaxUnflushedVersions uint64
 
 	// Target size, in bytes, of a write batch when flushing snapshot data to the underlying DB.
@@ -47,14 +47,14 @@ type SnapshotEngineConfig struct {
 	// which hurts read amplification and compaction shape.
 	TargetBytesPerFlush uint64
 
-	// A special metadata key where the DB stores its hash.
+	// The key prefix reserved for engine metadata, under which Snapshot.Finalize writes land.
 	//
-	// This key is owned by the engine and is reserved; it is never observable through any engine
-	// read path (iterators filter it out — see Snapshot.Iterator). For performance reasons the
-	// write path does not check for it, so writing it through Set/Delete/BatchSet, or reading it
-	// through Get/BatchGet, is undefined behavior: flushes overwrite user writes to this key, and
-	// a cached read of it can go permanently stale.
-	HashKey string
+	// This namespace is owned by the engine; it is never observable through any engine read path
+	// (iterators filter it out — see SnapshotEngine.Iterator). For performance reasons the write
+	// path does not check for it, so writing a key under this prefix through Set/Delete/BatchSet,
+	// or reading one through Get/BatchGet, is undefined behavior: flushes overwrite user writes to
+	// these keys, and a cached read of one can go permanently stale.
+	ReservedPrefix string
 
 	// Whether to fsync flushed data to the underlying DB on each flush commit. When false, flushes
 	// are not individually fsync'd: on a hard OS/power crash the most recent unsynced flushes may be
@@ -63,27 +63,27 @@ type SnapshotEngineConfig struct {
 	FlushSync bool
 }
 
-// Default configuration for a production snapshot engine. metricsName and hashKey are arguments
-// rather than defaults because neither has a safe one: hashKey is a keyspace decision (see HashKey)
-// and metricsName exists to distinguish instances (see MetricsName).
-func DefaultSnapshotEngineConfig(metricsName string, hashKey string) *SnapshotEngineConfig {
+// Default configuration for a production snapshot engine. name and reservedPrefix are arguments
+// rather than defaults because neither has a safe one: reservedPrefix is a keyspace decision (see
+// ReservedPrefix) and name exists to distinguish instances (see Name).
+func DefaultSnapshotEngineConfig(name string, reservedPrefix string) *SnapshotEngineConfig {
 	return &SnapshotEngineConfig{
 		ShardCount:                   8,
 		MaxSize:                      unit.GB / 2,
 		EstimatedOverheadPerEntry:    256,
-		MetricsName:                  metricsName,
+		Name:                         name,
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
 		MaxUnflushedVersions:         4,
 		TargetBytesPerFlush:          unit.MB * 4,
-		HashKey:                      hashKey,
+		ReservedPrefix:               reservedPrefix,
 		FlushSync:                    false,
 	}
 }
 
 // Default configuration for unit tests. Main difference is that allocated space is much smaller by default.
 func DefaultTestSnapshotEngineConfig() *SnapshotEngineConfig {
-	config := DefaultSnapshotEngineConfig("test", "_meta/hash")
+	config := DefaultSnapshotEngineConfig("test", "_meta/")
 	config.MaxSize = unit.MB * 16
 	config.MetricsEnabled = false
 	return config
@@ -106,8 +106,8 @@ func (c *SnapshotEngineConfig) Validate() error {
 	if c.EstimatedOverheadPerEntry == 0 {
 		return fmt.Errorf("EstimatedOverheadPerEntry must be greater than 0")
 	}
-	if c.MetricsEnabled && c.MetricsName == "" {
-		return fmt.Errorf("MetricsName must be non-empty when MetricsEnabled is true")
+	if c.Name == "" {
+		return fmt.Errorf("Name must be non-empty")
 	}
 	if c.MetricsEnabled && c.MetricsScrapeIntervalSeconds <= 0 {
 		return fmt.Errorf("MetricsScrapeIntervalSeconds must be positive when MetricsEnabled is true")
@@ -118,8 +118,8 @@ func (c *SnapshotEngineConfig) Validate() error {
 	if c.TargetBytesPerFlush == 0 {
 		return fmt.Errorf("TargetBytesPerFlush must be greater than 0")
 	}
-	if c.HashKey == "" {
-		return fmt.Errorf("HashKey must be non-empty")
+	if c.ReservedPrefix == "" {
+		return fmt.Errorf("ReservedPrefix must be non-empty")
 	}
 	return nil
 }

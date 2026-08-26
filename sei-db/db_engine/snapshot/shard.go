@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -14,6 +15,14 @@ import (
 // A single shard of a SnapshotEngine. The shard owns the MVCC layer: versioned in-memory data
 // awaiting flush, per-version diffs, and version bookkeeping. Reads that miss the versioned data
 // fall through to the shard's read-through DB cache (see readCache).
+//
+// A shard that is out of service refuses reads and writes, reporting the failure that stopped it.
+// Two things put it there:
+//
+//   - The engine was shut down. Only reachable by calling Close concurrently with an operation that
+//     touches a shard, which is illegal.
+//   - The database crashed. Database failures are fatal and are never recovered from, so every shard
+//     goes out of service, not just the one that saw the failure.
 type shard struct {
 	// A lock to protect the shard's data. Shared with the read cache (see the cache field).
 	//
@@ -46,8 +55,9 @@ type shard struct {
 	// The oldest version number kept in versionedData.
 	oldestVersion uint64
 
-	// The number of iterators currently reading this shard. Writes are refused while it is non-zero,
-	// so an iterator's view cannot change under it (see SnapshotEngine.Iterator).
+	// The number of iterators currently reading this shard. Close reports a non-zero count as a
+	// leaked iterator, since reading one after the database has closed is undefined behaviour (see
+	// SnapshotEngine.Close).
 	//
 	// Guarded by lock.
 	openIterators uint64
@@ -264,44 +274,36 @@ func (s *shard) getSizeInfo() (bytes uint64, entries uint64) {
 	return s.cache.sizeInfoLocked()
 }
 
-// iteratorOpened records that an iterator is reading this shard, which blocks writes until it is
-// closed. Balanced by exactly one iteratorClosed.
+// iteratorOpened records that an iterator is reading this shard. Balanced by exactly one
+// iteratorClosed.
 func (s *shard) iteratorOpened() {
 	s.lock.Lock()
 	s.openIterators++
 	s.lock.Unlock()
 }
 
-// iteratorClosed records that an iterator reading this shard has been closed.
-func (s *shard) iteratorClosed() {
+// iteratorClosed records that an iterator reading this shard has been closed. Closing more than were
+// opened is refused rather than wrapping the count, which would make the leak report at Close useless.
+func (s *shard) iteratorClosed() error {
 	s.lock.Lock()
-	s.openIterators--
-	s.lock.Unlock()
-}
+	defer s.lock.Unlock()
 
-// writableLocked reports whether a write may proceed, returning an error while an iterator is open or
-// once the shard has been taken out of service (the engine was closed or bricked). Without the
-// out-of-service check a post-shutdown write would be accepted into versioned data that no lifecycle
-// runner remains to flush, silently discarding it.
-//
-// The Locked postfix indicates that the caller must hold the shard lock.
-func (s *shard) writableLocked() error {
-	if err := s.cache.outOfServiceLocked(); err != nil {
-		return err
+	if s.openIterators == 0 {
+		return errors.New("an iterator was closed on a shard that has none open")
 	}
-	if s.openIterators > 0 {
-		return fmt.Errorf("cannot write while %d iterator(s) are open; close them first",
-			s.openIterators)
-	}
+	s.openIterators--
 	return nil
 }
 
 // Set sets the value for the given key at the current version.
+//
+// A write to a shard that is out of service is refused: it would land in versioned data that no
+// lifecycle runner remains to flush, and so be discarded silently.
 func (s *shard) Set(key []byte, value []byte) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if err := s.writableLocked(); err != nil {
+	if err := s.cache.outOfServiceLocked(); err != nil {
 		return err
 	}
 	s.setLocked(key, value)
@@ -328,14 +330,14 @@ func (s *shard) setLocked(key []byte, value []byte) {
 	}
 }
 
-// BatchSet sets the values for a batch of keys at the current version.
+// BatchSet sets the values for a batch of keys at the current version. Refused on a shard that is
+// out of service, for the reason given on Set.
 func (s *shard) BatchSet(entries []*proto.KVPair) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	// Checked once for the whole batch rather than per key: the count cannot change while we hold
-	// the lock.
-	if err := s.writableLocked(); err != nil {
+	// Checked once for the whole batch rather than per key: it cannot change while we hold the lock.
+	if err := s.cache.outOfServiceLocked(); err != nil {
 		return err
 	}
 	for i := range entries {
@@ -402,12 +404,13 @@ func (s *shard) GetDiffsForVersions(
 	return diffs, nil
 }
 
-// materializeCurrentOverrides returns every in-memory override in this shard at the current
-// version. The result is unsorted.
+// materializeCurrentOverrides returns the in-memory overrides in this shard at the current version
+// whose keys fall within [lowerBound, upperBound). A nil bound is unbounded on that side. The result
+// is unsorted.
 //
 // Because the target is always the current version, each key resolves to the back of its deque —
 // no version scan is needed, unlike lookupVersionedLocked, which serves reads at older versions.
-func (s *shard) materializeCurrentOverrides() ([]kvPair, error) {
+func (s *shard) materializeCurrentOverrides(lowerBound []byte, upperBound []byte) ([]kvPair, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -420,6 +423,12 @@ func (s *shard) materializeCurrentOverrides() ([]kvPair, error) {
 	out := make([]kvPair, 0, len(s.versionedData))
 	for key, deque := range s.versionedData {
 		if deque.IsEmpty() {
+			continue
+		}
+		if lowerBound != nil && key < string(lowerBound) {
+			continue
+		}
+		if upperBound != nil && key >= string(upperBound) {
 			continue
 		}
 		out = append(out, kvPair{

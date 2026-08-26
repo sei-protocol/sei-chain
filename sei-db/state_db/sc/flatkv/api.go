@@ -23,6 +23,16 @@ type Options struct {
 // Write path: ApplyChangeSets (buffer) → Commit (persist).
 // Read path: Get/Has/Iterator read committed state only; LoadVersionReadOnly serves past versions.
 // Key format: x/evm memiavl keys (mapped internally to account/code/storage DBs).
+//
+// There are no recoverable errors. Any error returned by this store is fatal, and halting is the
+// caller's responsibility: on the first error the caller must stop rather than proceed on state the
+// store cannot vouch for. Behaviour after that first error is undefined — a later call may fail, or may
+// answer plausibly — so continued operation is not evidence that the failure was benign.
+//
+// Byte slices passed to or received from any method — including the keys and values an iterator
+// yields — must not be mutated. They are not defensively copied: a value out of an iterator can point
+// straight into memory the store is still using, so writing to it corrupts state that other readers
+// will see.
 type Store interface {
 	// LoadLatest opens this store at the latest persisted version, ready to commit. It must be called
 	// before any read or write, and is the only way to obtain a committable store. Use Rollback to move a
@@ -115,13 +125,10 @@ type Store interface {
 		ascending bool,
 	) (dbm.Iterator, error)
 
-	// RootHash returns the 32-byte checksum of the working LtHash.
-	// Note: This is the Blake3-256 digest of the underlying 2048-byte
-	// raw LtHash vector.
-	RootHash() []byte
-
-	// CommittedRootHash returns the 32-byte checksum of the last committed LtHash.
-	CommittedRootHash() []byte
+	// RootHash returns the 32-byte checksum of the committed LtHash and the height that checksum
+	// describes. Note: the checksum is the Blake3-256 digest of the underlying 2048-byte raw LtHash
+	// vector.
+	RootHash() ([]byte, int64)
 
 	// HashCategories returns the hash logger category names this store reports (the global root plus one
 	// per data DB). The set is fixed. The caller registers these on the logger.

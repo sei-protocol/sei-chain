@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/snapshot"
 )
 
 const (
@@ -19,9 +19,9 @@ type Config struct {
 	// Must be set before calling Validate().
 	DataDir string
 
-	// Fsync controls whether PebbleDB writes to the data DBs use fsync.
-	// WAL always uses NoSync (matching memiavl); crash recovery relies on
-	// WAL catchup, which is idempotent.
+	// Fsync controls whether every snapshot engine's flush is fsync'd. It overwrites each store
+	// config's FlushSync, so the four databases are always synced alike. The state WAL is
+	// unaffected and always writes NoSync.
 	// Default: false
 	Fsync bool `mapstructure:"fsync"`
 
@@ -66,26 +66,30 @@ type Config struct {
 	// AccountDBConfig defines the PebbleDB configuration for the account database.
 	AccountDBConfig pebbledb.PebbleDBConfig
 
-	// AccountCacheConfig defines the cache configuration for the account database.
-	AccountCacheConfig dbcache.CacheConfig
+	// AccountStoreConfig defines the snapshot engine configuration for the account database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	AccountStoreConfig snapshot.SnapshotEngineConfig
 
 	// CodeDBConfig defines the PebbleDB configuration for the code database.
 	CodeDBConfig pebbledb.PebbleDBConfig
 
-	// CodeCacheConfig defines the cache configuration for the code database.
-	CodeCacheConfig dbcache.CacheConfig
+	// CodeStoreConfig defines the snapshot engine configuration for the code database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	CodeStoreConfig snapshot.SnapshotEngineConfig
 
 	// StorageDBConfig defines the PebbleDB configuration for the storage database.
 	StorageDBConfig pebbledb.PebbleDBConfig
 
-	// StorageCacheConfig defines the cache configuration for the storage database.
-	StorageCacheConfig dbcache.CacheConfig
+	// StorageStoreConfig defines the snapshot engine configuration for the storage database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	StorageStoreConfig snapshot.SnapshotEngineConfig
 
 	// MiscDBConfig defines the PebbleDB configuration for the misc database.
 	MiscDBConfig pebbledb.PebbleDBConfig
 
-	// MiscCacheConfig defines the cache configuration for the misc database.
-	MiscCacheConfig dbcache.CacheConfig
+	// MiscStoreConfig defines the snapshot engine configuration for the misc database. The store
+	// owns this database's read cache and write staging, so its MaxSize is that database's cache budget.
+	MiscStoreConfig snapshot.SnapshotEngineConfig
 
 	// Controls the number of goroutines in the DB read pool. The number of threads in this pool is equal to
 	// ReaderThreadsPerCore * runtime.NumCPU() + ReaderConstantThreadCount.
@@ -113,6 +117,17 @@ type Config struct {
 	LtHashThreadsPerCore float64
 }
 
+// MetaKeyPrefix is the key namespace FlatKV reserves for per-database metadata, and which each
+// snapshot engine owns: Finalize writes land under it and iteration filters it out. It matches
+// ktype.MetaKeyPrefixBytes, restated here because ktype imports this package's siblings.
+const MetaKeyPrefix = "_meta/"
+
+// defaultStoreConfig returns the snapshot engine defaults for one database, named for the database's
+// directory so metrics and per-database hash bookkeeping can tell the stores apart.
+func defaultStoreConfig(name string) snapshot.SnapshotEngineConfig {
+	return *snapshot.DefaultSnapshotEngineConfig(name, MetaKeyPrefix)
+}
+
 // DefaultConfig returns Config with safe default values.
 func DefaultConfig() *Config {
 	cfg := &Config{
@@ -122,13 +137,13 @@ func DefaultConfig() *Config {
 		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
-		AccountCacheConfig:        dbcache.DefaultCacheConfig(),
+		AccountStoreConfig:        defaultStoreConfig("account"),
 		CodeDBConfig:              pebbledb.DefaultConfig(),
-		CodeCacheConfig:           dbcache.DefaultCacheConfig(),
+		CodeStoreConfig:           defaultStoreConfig("code"),
 		StorageDBConfig:           pebbledb.DefaultConfig(),
-		StorageCacheConfig:        dbcache.DefaultCacheConfig(),
+		StorageStoreConfig:        defaultStoreConfig("storage"),
 		MiscDBConfig:              pebbledb.DefaultConfig(),
-		MiscCacheConfig:           dbcache.DefaultCacheConfig(),
+		MiscStoreConfig:           defaultStoreConfig("misc"),
 		ReaderThreadsPerCore:      2.0,
 		ReaderConstantThreadCount: 0,
 		ReaderPoolQueueSize:       1024,
@@ -137,8 +152,8 @@ func DefaultConfig() *Config {
 		LtHashThreadsPerCore:      1.0,
 	}
 
-	cfg.AccountCacheConfig.MaxSize = unit.GB
-	cfg.StorageCacheConfig.MaxSize = unit.GB * 4
+	cfg.AccountStoreConfig.MaxSize = unit.GB
+	cfg.StorageStoreConfig.MaxSize = unit.GB * 4
 
 	return cfg
 }
@@ -152,17 +167,17 @@ func (c *Config) Copy() *Config {
 
 // Validate checks that the configuration is sane and returns an error if it is not.
 func (c *Config) Validate() error {
-	if err := c.AccountCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("account cache config is invalid: %w", err)
+	if err := c.AccountStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("account store config is invalid: %w", err)
 	}
-	if err := c.CodeCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("code cache config is invalid: %w", err)
+	if err := c.CodeStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("code store config is invalid: %w", err)
 	}
-	if err := c.StorageCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("storage cache config is invalid: %w", err)
+	if err := c.StorageStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("storage store config is invalid: %w", err)
 	}
-	if err := c.MiscCacheConfig.Validate(); err != nil {
-		return fmt.Errorf("misc cache config is invalid: %w", err)
+	if err := c.MiscStoreConfig.Validate(); err != nil {
+		return fmt.Errorf("misc store config is invalid: %w", err)
 	}
 	if c.DataDir == "" {
 		return fmt.Errorf("data dir is required")
