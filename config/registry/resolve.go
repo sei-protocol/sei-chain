@@ -96,21 +96,24 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 			mode, Modes())
 	}
 
+	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
+	// same registry: asking again leaves a window a concurrent registration fits through, and a section
+	// arriving in that window is declared by one part of the answer and not by another. The refusals
+	// below read from this snapshot for the same reason, since a guard that consulted the registry
+	// separately would be answering about a different one than the key space it guards.
+	registered, refused := snapshot()
+
 	// Refused before anything is resolved, because a registration this package could not use is a
 	// section missing from the key space, and every key it declared then reads as one no section
 	// declares. An operator's written value for such a key is reported as unknown rather than applied,
 	// which is the hole this function promises never to hand out. Two sections colliding is the case
 	// that matters: the loser is dropped whole and which one loses follows package initialisation
 	// order, so the same binary can answer differently for reasons no caller can see.
-	if bad := Defects(); len(bad) > 0 {
+	if len(refused) > 0 {
 		return out, fmt.Errorf("the registry could not use %d registration(s), so the key space is "+
-			"incomplete: %v", len(bad), bad)
+			"incomplete: %v", len(refused), refused)
 	}
 
-	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
-	// same registry: asking again leaves a window a concurrent registration fits through, and a section
-	// arriving in that window is declared by one part of the answer and not by another.
-	registered := Sections()
 	defaults, err := defaultValues(mode, registered)
 	if err != nil {
 		return out, err
@@ -472,10 +475,6 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 	return out, ignored
 }
 
-// fileValues normalises a configuration file's keys to lower case.
-//
-// A source enumerates lower-cased while a file may not be written that way, and a key that differed
-// only in case would resolve as unknown while the operator's value went nowhere.
 // refuseANestedFile refuses a file source whose tables were left nested.
 //
 // The shape a configuration reader hands back, and it resolves to pure defaults without complaint: every
@@ -504,6 +503,10 @@ func refuseANestedFile(values map[string]any, declared map[string]bool) error {
 	return nil
 }
 
+// fileValues normalises a configuration file's keys to lower case.
+//
+// A source enumerates lower-cased while a file may not be written that way, and a key that differed
+// only in case would resolve as unknown while the operator's value went nowhere.
 func fileValues(values map[string]any) map[string]any {
 	if values == nil {
 		return nil
