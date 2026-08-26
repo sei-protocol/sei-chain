@@ -11,5 +11,5 @@ a deterministic unsupported-operation error. ABCI smart queries do not expose
 IBC data.
 
 The `ibc`, `transfer`, and `capability` stores remain mounted for state
-compatibility but are excluded from `export-genesis`. Preserve the state
-database when those retired stores are required.
+compatibility. Preserve the state  database when those retired stores are
+required.
