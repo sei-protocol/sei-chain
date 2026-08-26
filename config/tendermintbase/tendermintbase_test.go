@@ -157,31 +157,38 @@ var declaredAgainst = []struct {
 // TestEveryExclusionByDeprecationStillHasOne closes the direction the check beside it cannot see.
 //
 // That check walks declared keys, so it catches a declared key whose field becomes deprecated and never
-// an excluded key whose field stops being one. The second is the expiry that matters: the node dropping
+// an excluded key whose field stops being one. This walks the registered set, so the section whose keys
+// sit at the root of the file is covered too, and three of its exclusions rest on exactly this reason. The second is the expiry that matters: the node dropping
 // the note and starting to honour a setting leaves the key absent from the space, an operator told it
 // reaches nothing, and every other test here passing.
 //
-// Deprecation is the default justification, so an exclusion resting on something else has to say so. The
-// four that do are each named by the constant that carries their reason, which is what keeps this from
-// becoming a list somebody has to remember: a new exclusion is either marked deprecated or it fails here
-// until its reason is written down.
+// Deprecation is the default justification, so an exclusion resting on something else has to say so, and
+// the ones that do are named by the constant carrying their reason. That is what keeps this from becoming
+// a list somebody has to remember: a new exclusion is either marked deprecated or it fails here until its
+// reason is written down.
 func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 	justifiedOtherwise := map[string]string{
 		filledFromTheCommandLine:      "the command line carries it after the file is read",
 		derivedFromTheConnectionLimit: "unset is the setting, and a default here would be invented",
 		readByNothing:                 "nothing reads it and no generated file carries it",
 		"max-batch-bytes":             "no code reads it, and its field carries no deprecation note",
+		"mode":                        "the file states it at the top under its own name",
 	}
 
-	for _, tc := range declaredAgainst {
-		registered, ok := registry.Lookup(tc.section)
+	for _, name := range declaredSections() {
+		registered, ok := registry.Lookup(name)
 		if !ok {
-			t.Errorf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
 			continue
 		}
-		marked := deprecatedPaths(t, reflect.TypeOf(tc.proto).Elem())
+		proto, named := markedIn[name]
+		if !named {
+			t.Errorf("%s declares keys and no struct is named as carrying their markings", name)
+			continue
+		}
+		marked := deprecatedPaths(t, reflect.TypeOf(proto).Elem())
 		for _, key := range registered.Excluded {
-			rel := strings.TrimPrefix(key, tc.section+".")
+			rel := strings.TrimPrefix(key, name+".")
 			if marked[rel] {
 				continue
 			}
