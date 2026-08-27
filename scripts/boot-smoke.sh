@@ -18,10 +18,17 @@
 # Linux-only (runs the linux/amd64 binary natively; uses GNU timeout).
 #
 # Usage: boot-smoke.sh <path-to-seid> [boots]
+#
+# BOOT_TIMEOUT (seconds, default 25) bounds each boot. The default is sized for a
+# native boot, where the handshake lands about a second in. Raise it when the binary
+# runs under emulation, which the release hook does for arm64 on an amd64 runner:
+# wasmer's JIT compile at the genesis wasm store is the slow part and emulation
+# multiplies it, so a native-sized window can kill a healthy binary.
 set -euo pipefail
 
 BIN=${1:?usage: boot-smoke.sh <path-to-seid> [boots]}
 BOOTS=${2:-8}
+BOOT_TIMEOUT=${BOOT_TIMEOUT:-25}
 CHAIN_ID=boot-smoke-1
 
 # Linux-only: this gate runs the binary natively and uses GNU timeout. Skip cleanly on
@@ -61,7 +68,7 @@ for i in $(seq 1 "$BOOTS"); do
   [ "$i" -eq 1 ] && RAYON="RAYON_NUM_THREADS=1"
 
   LOG="$H/start.log"
-  env $RAYON timeout -k 5 25 "$BIN" start --home "$H" >"$LOG" 2>&1 || true
+  env $RAYON timeout -k 5 "$BOOT_TIMEOUT" "$BIN" start --home "$H" >"$LOG" 2>&1 || true
 
   if grep -qE "SIGSEGV|SIGILL|SIGBUS|panic:" "$LOG"; then
     echo "boot-smoke: boot $i/$BOOTS CRASHED${RAYON:+ (RAYON_NUM_THREADS=1)}:" >&2
