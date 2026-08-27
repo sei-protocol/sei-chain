@@ -1,6 +1,8 @@
 package seitoml
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -115,6 +117,64 @@ func TestAReadReusesItsDecodeAndNeverAStaleOne(t *testing.T) {
 			if !reflect.DeepEqual(held, fresh) {
 				t.Errorf("%s left a decode describing another document:\n held %v\nfresh %v",
 					tc.name, held, fresh)
+			}
+		})
+	}
+}
+
+// TestAFileWhoseCostOutgrowsItsSizeIsRefusedBeforeItIsRead covers the one refusal that has to happen at
+// the door.
+//
+// Nothing downstream of reading this file can refuse a boot, which is the promise the whole surface rests
+// on. A file whose cost grows faster than the bytes describing it breaks that promise from outside: it is
+// not refused, it exhausts the process, and a recover cannot catch a kernel kill. So the cost is bounded
+// here, before the bytes are parsed, and the bound is a refusal an operator is told about.
+//
+// The three shapes are the ones that grow: many segments in one heading, arrays inside arrays, and a file
+// that is simply enormous. Each is written far past its bound so a change that loosens one of them fails
+// rather than merely slowing down.
+func TestAFileWhoseCostOutgrowsItsSizeIsRefusedBeforeItIsRead(t *testing.T) {
+	const header = "schema_version = 1\nnode_mode = \"validator\"\n"
+	for _, tc := range []struct {
+		name string
+		body string
+		says string
+	}{
+		{
+			name: "one heading of many segments",
+			body: "[" + strings.Repeat("a.", maxKeyDepth+4) + "a]\nx = 1\n",
+			says: "segments deep",
+		},
+		{
+			name: "arrays inside arrays",
+			body: "x = " + strings.Repeat("[", maxArrayDepth+4) + strings.Repeat("]", maxArrayDepth+4) + "\n",
+			says: "nests arrays",
+		},
+		{
+			name: "more bytes than this file is read to",
+			body: strings.Repeat("# padding\n", maxFileBytes/8),
+			says: "read up to",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sei.toml")
+			if err := os.WriteFile(path, []byte(header+tc.body), 0o600); err != nil {
+				t.Fatalf("write the probe file: %v", err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatal("the file was accepted, so its cost reaches the node rather than being refused")
+			}
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("the refusal says %q and has to say %q, which is what tells an operator what "+
+					"about their file was refused", err, tc.says)
+			}
+			// The message is the one place an over-large key is certain to be rendered, so rendering it
+			// whole makes the refusal as large as the file it refused.
+			if len(err.Error()) > 4096 {
+				t.Errorf("the refusal is %d bytes long. It reaches a log line and an operator's terminal, "+
+					"so a message that grows with the file is the same problem in another place",
+					len(err.Error()))
 			}
 		})
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -18,14 +19,13 @@ import (
 	"github.com/sei-protocol/sei-chain/config/seitoml"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 
-	// The sections whose keys belong to the upstream server, which nothing else imports. A section
-	// reaches the registry through its owning package's initialisation, so a section nothing imports is
-	// absent from what this installs and absent silently, since an undeclared key is left to whatever
-	// answered it before.
+	// The sections whose keys belong to the upstream server. A section reaches the registry through its
+	// owning package's initialisation, so a section nothing imports is absent from what this installs, and
+	// absent silently, since an undeclared key is left to whatever answered it before.
 	_ "github.com/sei-protocol/sei-chain/config/cosmosbase"
 
-	// The sections whose keys belong to the node's own configuration file, which nothing else imports
-	// either. These are the sections the delivery beside this one decodes rather than installs.
+	// The sections whose keys belong to the node's own configuration file. These are the ones read by a
+	// decode, so they are deliberately left out of what this installs.
 	_ "github.com/sei-protocol/sei-chain/config/tendermintbase"
 )
 
@@ -34,16 +34,19 @@ const seiTomlName = "sei.toml"
 
 // installResolved puts the values sei.toml supplies into the source the boot has just built.
 //
-// Nothing here can stop a node starting. A node with no sei.toml, an unreadable one, or one recording a
-// mode this binary does not know installs nothing and reads exactly as it always has, so selecting this
-// manager is a switch rather than a configuration change. Refusing instead would turn a mistyped line in
-// a hand-editable file into an outage on the next restart.
+// Nothing here refuses a boot. A node with no sei.toml, an unreadable one, one recording a mode this
+// binary does not know, or a value the install cannot use installs nothing and reads exactly as it always
+// has, so selecting this manager is a switch rather than a configuration change. Refusing instead would
+// turn a mistyped line in a hand-editable file into an outage on the next restart.
+//
+// The recover below is not what carries that on its own, because a cost is not a panic: a file whose
+// reading outgrows the memory the process has is killed rather than recovered, and no recover runs. The
+// file is read within a bound stated where it is read, and that bound is the other half of this promise.
 func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logger) {
-	// The claim above is only true with this. What follows walks the node's own configuration types by
-	// reflection and decodes through two libraries, so a panic here is a shape nobody predicted rather
-	// than a value an operator wrote, and letting it escape would refuse the boot for the one reason this
-	// path promises never to refuse it. The nested recover keeps a panic from the logging itself inside,
-	// the way the advisory reporter does.
+	// A panic here would refuse the boot, which this path exists to never do. What follows walks the
+	// node's own configuration types by reflection and decodes through two libraries, so a panic is a
+	// shape nobody predicted rather than a value an operator wrote. The nested recover keeps a panic from
+	// the logging itself inside, the way the advisory reporter does.
 	defer func() {
 		if r := recover(); r != nil {
 			defer func() { _ = recover() }()
@@ -72,15 +75,7 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 		return
 	}
 
-	// Every channel an operator can use. Omitting one installs a lower layer over the top of what they
-	// chose, which is a value silently ignored rather than a value overridden. The flag channel matters
-	// most: an installed value sits above a bound flag, so a declared key a flag also delivers would
-	// resolve without ever seeing the command line and then bury it.
-	resolved, err := registry.Resolve(registry.Mode(mode), registry.Sources{
-		File:      written,
-		LookupEnv: os.LookupEnv,
-		Flags:     flagValues(typed),
-	})
+	resolved, err := registry.Resolve(registry.Mode(mode), everyChannelAnOperatorCanUse(written, typed))
 	if err != nil {
 		log.Warn("cannot resolve this node's configuration; every key reads as it always has",
 			"mode", mode, "err", err)
@@ -103,8 +98,30 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 			"err", err)
 		return
 	}
+	// Added names the keys the source did not already carry, so a node reads them from the registry for
+	// the first time. That is the set most likely to change what it runs, and it was computed and thrown
+	// away.
+	installed, omittedInstalled := capLoggedItems(report.Installed)
+	added, omittedAdded := capLoggedItems(report.Added)
 	log.Info("configuration installed", "mode", mode,
-		"installed", strings.Join(report.Installed, ","))
+		"count", len(report.Installed), "installed", strings.Join(installed, ","),
+		"omitted", omittedInstalled,
+		"read_here_first_count", len(report.Added), "read_here_first", strings.Join(added, ","),
+		"read_here_first_omitted", omittedAdded)
+}
+
+// everyChannelAnOperatorCanUse names the sources a resolution for this node reads.
+//
+// Omitting one installs a lower layer over the top of what an operator chose, which is a value silently
+// ignored rather than a value overridden. The flag channel matters most: an installed value sits above a
+// bound flag, so a declared key a flag also delivers would resolve without ever seeing the command line
+// and then bury it.
+func everyChannelAnOperatorCanUse(written map[string]any, typed map[string]string) registry.Sources {
+	return registry.Sources{
+		File:      written,
+		LookupEnv: os.LookupEnv,
+		Flags:     flagValues(typed),
+	}
 }
 
 // onlyWhatALookupSourceSupplied narrows a resolution to the keys something other than the defaults
@@ -145,26 +162,39 @@ func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved
 
 // reportWhatTheFileDidNotReach says what an operator asked for that had no effect.
 //
-// Two things, and neither is visible anywhere else. A key no section declares is one this file cannot
-// deliver, so it reads as a setting and changes nothing. And a variable set for a key no environment
-// variable can carry is ignored on purpose, with the reason recorded where the key is declared.
+// Two things, and neither is visible anywhere else. A key this file writes that no section declares reads
+// as a setting and changes nothing. And a variable set for a key the environment cannot carry is skipped on
+// purpose, so whatever the operator wrote elsewhere is what applies.
 //
-// Reported once each rather than per key, because a node resolves over a hundred declared keys and a line
-// each would bury the two or three that matter in the noise it creates.
+// Only the file's own keys are named. The same resolution reports flag names that match no declared key,
+// and those are not a mistake: a command carries flags that name no setting at all, so reporting them would
+// put this warning on every boot and bury the typo it exists to surface.
+//
+// The key list is capped, because a file that is broken in one way is usually broken in many, and the count
+// is what an operator alerts on.
 func reportWhatTheFileDidNotReach(resolved registry.Resolved, log *slog.Logger) {
-	if len(resolved.Unknown) > 0 {
+	if len(resolved.UnknownInFile) > 0 {
+		shown, omitted := capLoggedItems(resolved.UnknownInFile)
 		log.Warn("sei.toml writes keys no section declares; they have no effect",
-			"count", len(resolved.Unknown), "keys", strings.Join(resolved.Unknown, ","))
+			"count", len(resolved.UnknownInFile), "keys", strings.Join(shown, ","), "omitted", omitted)
 	}
-	if len(resolved.Ignored) == 0 {
-		return
-	}
-	cannot := registry.EnvCannotDeliver()
-	for _, key := range resolved.Ignored {
+	// Sorted, so a log line does not vary between runs for a configuration that did not change.
+	for _, key := range sortedKeys(resolved.Ignored) {
 		log.Warn("an environment variable is set for a key the environment cannot supply; it has no "+
 			"effect and the file's value applies", "key", key, "variable", registry.EnvName(key),
-			"why", cannot[key])
+			"why", resolved.Ignored[key])
 	}
+}
+
+// sortedKeys returns a map's keys in a fixed order, so a report does not vary between runs for a
+// configuration that did not change.
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for key := range m {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // reportWhatTheFileSaysTheNodeIs names a disagreement about what kind of node this is.
@@ -216,9 +246,9 @@ func OwnReportingEnabledForTest() bool {
 
 // readSeiToml loads the node's sei.toml, reporting the ordinary absence quietly.
 //
-// A node that has not generated one is the expected state while sections are still moving, so that is not
-// a warning. A file that exists and will not parse is, because somebody wrote it and it is not doing what
-// they think.
+// A node with no sei.toml reads every key the way it always has, which is a state this manager supports
+// rather than a mistake, so its absence is not a warning. A file that exists and will not parse is one
+// somebody wrote that is not doing what they think, so that is.
 func readSeiToml(cmd *cobra.Command, log *slog.Logger) (*seitoml.File, bool) {
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
@@ -228,7 +258,7 @@ func readSeiToml(cmd *cobra.Command, log *slog.Logger) (*seitoml.File, bool) {
 	file, err := readSeiTomlAt(home)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		// The common case, and not a mistake: a node with no sei.toml is every node today.
+		// Not a mistake. A node without this file resolves nothing and reads as it always has.
 		log.Debug("no sei.toml; every key reads as it always has", "home", home)
 		return nil, false
 	case err != nil:

@@ -2,7 +2,6 @@ package registry
 
 import (
 	"fmt"
-	"sort"
 )
 
 // decodedNotLookedUp holds the sections whose values reach their reader by a decode, and why.
@@ -19,6 +18,13 @@ var decodedNotLookedUp = map[string]string{}
 // The reason is required and names the struct the values are decoded into, which is what a reader has to
 // check the claim against. A section declared with no reason is recorded as a defect rather than accepted,
 // because the claim is the whole basis for delivering its keys differently.
+//
+// The section name is not checked here. A section registers itself and declares its delivery from two
+// calls, and nothing fixes the order between them, so a name absent now may be registered a moment later.
+// Defects answers instead, deriving it from the registry at every read: a name here that no section carries
+// is reported, which is what catches the misspelling this call is most likely to contain. Left unreported,
+// the section named delivers nothing and the correctly spelled section's keys install into a source its
+// reader never asks.
 func DeclareDecodedNotLookedUp(section, why string) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -61,7 +67,10 @@ func DecodedSections() map[string]string {
 // an operator writing the default value explicitly, because what is recorded is which layer answered and
 // not whether the answer differs from the default: writing false where the file says true has to arrive.
 func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
-	owning := DecodedSections()
+	// One read for the sections and the declarations together. Asking for each on its own leaves a window a
+	// registration fits through, and a section arriving in it is declared by one answer and absent from the
+	// other, so its keys are silently left undelivered.
+	registered, _, owning := snapshot()
 
 	supplied := make(map[string]bool, len(resolved.Overrides))
 	for _, key := range resolved.Overrides {
@@ -69,7 +78,7 @@ func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
 	}
 
 	out := map[string]map[string]any{}
-	for _, section := range Sections() {
+	for _, section := range registered {
 		if _, owned := owning[section.Name]; !owned {
 			continue
 		}
@@ -84,30 +93,4 @@ func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
 		}
 	}
 	return out
-}
-
-// UndeliveredSections returns the registered sections that named no delivery, sorted.
-//
-// A section reaches its reader one of two ways and the registry cannot tell which, so the answer is
-// declared. A section that declares nothing is treated as read by a lookup, which is right for almost all
-// of them and silently wrong for the rest: its keys resolve, install into the source, and change nothing
-// the node runs. That is the failure this package exists to remove, so the set is reported and a caller
-// linking every section holds it to what it expects.
-func UndeliveredSections(expectDecoded map[string]bool) []string {
-	var out []string
-	for _, section := range Sections() {
-		if expectDecoded[section.Name] != DecodedNotLookedUp(section.Name) {
-			out = append(out, section.Name)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// DecodedNotLookedUp reports whether a section's values reach their reader by a decode.
-func DecodedNotLookedUp(section string) bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	_, ok := decodedNotLookedUp[section]
-	return ok
 }

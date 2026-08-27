@@ -19,14 +19,20 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 )
 
-var logger = seilog.NewLogger("cmd", "seid", "configmanager")
+// loggerSegments name this package's logger.
+//
+// The name it is registered under is derived from these rather than written out a second time. Held apart,
+// a segment edited on one side leaves the other addressing a logger that does not exist, and the only
+// symptom is that this package's reports go quiet.
+var loggerSegments = []string{"cmd", "seid", "configmanager"}
 
-// loggerName is the name the logger above is registered under, and ownReportingFloor is the level its
-// reports are held at.
-const (
-	loggerName        = "cmd/seid/configmanager"
-	ownReportingFloor = slog.LevelInfo
-)
+var logger = seilog.NewLogger(loggerSegments[0], loggerSegments[1:]...)
+
+// loggerName is the name the logger above is registered under.
+var loggerName = strings.Join(loggerSegments, "/")
+
+// ownReportingFloor is the level this package's reports are held at.
+const ownReportingFloor = slog.LevelInfo
 
 // EnvVar gates which configuration manager seid uses.
 const EnvVar = "SEI_CONFIG_MANAGER"
@@ -61,7 +67,6 @@ type SeiConfigManager struct {
 	logger *slog.Logger
 }
 
-// log returns the logger to report through, and never returns nil.
 // keepOwnReportingVisible holds this package's own logger at a level its reports survive.
 //
 // Called after anything that may have set a level, and it is called more than once for that reason: the
@@ -77,12 +82,16 @@ type SeiConfigManager struct {
 // So this one logger keeps a floor, and only this one. Raising the level for the rest of the process is
 // still the operator's to choose.
 func keepOwnReportingVisible() {
+	// A count of zero means the name matched no registered logger, so the floor was not applied and every
+	// report this manager makes is left at whatever level the process is running. Reported rather than
+	// ignored, because a silenced manager is one that changes what a node runs and says nothing about it.
 	if seilog.SetLevel(loggerName, ownReportingFloor) == 0 {
-		// Nothing to hold, which happens when a caller supplied a logger of its own.
-		return
+		logger.Warn("this package's own reporting level could not be held, so its reports may be "+
+			"silenced", "logger", loggerName)
 	}
 }
 
+// log returns the logger to report through, and never returns nil.
 func (m SeiConfigManager) log() *slog.Logger {
 	if m.logger != nil {
 		return m.logger
@@ -268,11 +277,10 @@ func validateAdvisory(cmd *cobra.Command) (out advisoryOutcome) {
 	return out
 }
 
-// maxLoggedDiagnostics bounds the rendered list in one log line. A badly broken
-// config can produce a diagnostic per field, and count is what an operator alerts
-// on, so the full set is left to be re-derived from the file rather than emitted as
-// one unbounded line.
-const maxLoggedDiagnostics = 10
+// maxLoggedItems bounds the rendered list in one log line. A badly broken config can produce an item per
+// field, and count is what an operator alerts on, so the full set is left to be re-derived from the file
+// rather than emitted as one unbounded line.
+const maxLoggedItems = 10
 
 // logAdvisory reports an outcome through seilog. Nothing here refuses boot.
 func logAdvisory(lg *slog.Logger, out advisoryOutcome) {
@@ -306,7 +314,7 @@ func logAdvisory(lg *slog.Logger, out advisoryOutcome) {
 	if len(out.Diagnostics) == 0 {
 		return
 	}
-	shown, omitted := capDiagnostics(out.Diagnostics)
+	shown, omitted := capLoggedItems(out.Diagnostics)
 	// The home is reported because a resolveHomeDir that drifted from the legacy
 	// handler would have these diagnostics describe a directory the node is not
 	// booting on, and without the path in the line there is no way to tell from a log.
@@ -314,14 +322,15 @@ func logAdvisory(lg *slog.Logger, out advisoryOutcome) {
 		"home", out.Home, "count", len(out.Diagnostics), "diagnostics", shown, "omitted", omitted)
 }
 
-// capDiagnostics splits a diagnostic list into the part to render and the number left
-// out. It is separate from logAdvisory so the arithmetic can be asserted directly:
-// an off-by-one or an inverted omitted count is not visible in a log line anyone reads.
-func capDiagnostics(diags []string) (shown []string, omitted int) {
-	if len(diags) <= maxLoggedDiagnostics {
-		return diags, 0
+// capLoggedItems splits a list bound for one log line into the part to render and the number left out.
+//
+// Separate from the callers that log so the arithmetic can be asserted directly: an off-by-one or an
+// inverted omitted count is not visible in a log line anyone reads.
+func capLoggedItems(items []string) (shown []string, omitted int) {
+	if len(items) <= maxLoggedItems {
+		return items, 0
 	}
-	return diags[:maxLoggedDiagnostics], len(diags) - maxLoggedDiagnostics
+	return items[:maxLoggedItems], len(items) - maxLoggedItems
 }
 
 // resolveHomeDir resolves --home the same way the legacy handler does

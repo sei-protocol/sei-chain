@@ -263,14 +263,14 @@ func TestCapDiagnostics(t *testing.T) {
 	}{
 		{"none", 0, 0, 0},
 		{"one", 1, 1, 0},
-		{"exactly at the cap", maxLoggedDiagnostics, maxLoggedDiagnostics, 0},
-		{"one over the cap", maxLoggedDiagnostics + 1, maxLoggedDiagnostics, 1},
-		{"far over the cap", maxLoggedDiagnostics + 15, maxLoggedDiagnostics, 15},
+		{"exactly at the cap", maxLoggedItems, maxLoggedItems, 0},
+		{"one over the cap", maxLoggedItems + 1, maxLoggedItems, 1},
+		{"far over the cap", maxLoggedItems + 15, maxLoggedItems, 15},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			in := diags(tc.in)
-			shown, omitted := capDiagnostics(in)
+			shown, omitted := capLoggedItems(in)
 
 			require.Len(t, shown, tc.wantShown)
 			require.Equal(t, tc.wantOmitted, omitted)
@@ -299,7 +299,7 @@ func TestLogAdvisoryHandlesEveryOutcome(t *testing.T) {
 	lg := SeiConfigManager{}.log()
 	require.NotNil(t, lg, "the zero-value manager must resolve to a usable logger")
 
-	many := make([]string, maxLoggedDiagnostics+3)
+	many := make([]string, maxLoggedItems+3)
 	for i := range many {
 		many[i] = fmt.Sprintf("[ERROR] field%d: broken", i)
 	}

@@ -1,12 +1,13 @@
 package configmanager
 
 import (
+	"bytes"
 	"errors"
-	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -73,7 +74,18 @@ func TestAPanicWhileInstallingDoesNotRefuseTheBoot(t *testing.T) {
 			t.Fatalf("a panic escaped the install path and would have refused the boot: %v", r)
 		}
 	}()
-	// A command with no server context is the cheapest way in: the install reads one out of the command
-	// and the path under test is whatever it does with what it finds.
-	installResolved(nil, map[string]string{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	var reported bytes.Buffer
+	// No command at all. Reading a server context out of one is the first thing the install does, and the
+	// path under test is whatever happens when that cannot be done.
+	installResolved(nil, map[string]string{},
+		slog.New(slog.NewTextHandler(&reported, &slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	// The recover has to be shown to have run. Without this the test passes whether or not anything
+	// panicked, so the day the library this reaches grows a guard of its own, the recover stops being
+	// exercised and nothing here says so.
+	if !strings.Contains(reported.String(), "panicked") {
+		t.Fatalf("nothing panicked, so the recover this test exists for was never entered. What the "+
+			"install reported instead: %q", reported.String())
+	}
 }

@@ -106,7 +106,7 @@ func (f *File) refuseUnsupportedShapes() error {
 				"holds one value, so a repeated section has no reading", s.Name)
 		}
 		if err := keyIsAddressable(s.Name); err != nil {
-			return fmt.Errorf("table [%s]: %w", s.Name, err)
+			return fmt.Errorf("table [%s]: %w", shortKey(s.Name), err)
 		}
 		name := s.Name.String()
 		if headings[name] {
@@ -166,6 +166,11 @@ func (f *File) refuseUnsupportedShapes() error {
 // in the file, and a segment carrying a dot or a space cannot be split back into the segments it came
 // from.
 func keyIsAddressable(key parser.Key) error {
+	if len(key) > maxKeyDepth {
+		return fmt.Errorf("%s is %d segments deep and this file is read to %d. A setting here is a "+
+			"section and a key inside it, so nothing legitimate reaches that depth", shortKey(key),
+			len(key), maxKeyDepth)
+	}
 	for _, segment := range key {
 		if segment == "" {
 			return fmt.Errorf("%s has an empty segment, which names nothing", key)
@@ -204,6 +209,19 @@ func notBareKeyRune(r rune) bool {
 // space a table's do, so a caller works in that space and an edit there defines the table a second
 // time, producing a file a conforming reader refuses to load.
 func valueIsAddressable(key parser.Key, v parser.Value) error {
+	return valueIsAddressableWithin(key, v, 0)
+}
+
+// valueIsAddressableWithin is valueIsAddressable, carrying how deep into nested arrays it already is.
+//
+// The depth is carried rather than derived because the walk is what finds it: an array holds arrays, and
+// the cost of reading one grows faster than the bytes that describe it, so a small file can nest deeply
+// enough to exhaust the process. Nothing downstream can refuse a boot, so the refusal happens here.
+func valueIsAddressableWithin(key parser.Key, v parser.Value, depth int) error {
+	if depth > maxArrayDepth {
+		return fmt.Errorf("%s nests arrays %d deep and this file is read to %d. No setting here is a "+
+			"list of lists, so nothing legitimate reaches that depth", key, depth, maxArrayDepth)
+	}
 	switch x := v.X.(type) {
 	case parser.Token:
 		switch x.Type {
@@ -221,7 +239,7 @@ func valueIsAddressable(key parser.Key, v parser.Value) error {
 			if !ok {
 				continue
 			}
-			if err := valueIsAddressable(key, element); err != nil {
+			if err := valueIsAddressableWithin(key, element, depth+1); err != nil {
 				return err
 			}
 		}
@@ -229,11 +247,46 @@ func valueIsAddressable(key parser.Key, v parser.Value) error {
 	return nil
 }
 
+// The bounds this file is read within.
+//
+// None of them is a limit an operator can reach by writing configuration. They exist because nothing
+// downstream of reading can refuse a boot, so a file whose cost grows faster than its size has to be
+// refused before it is parsed rather than after it has taken the memory.
+const (
+	// maxFileBytes bounds what Load reads. A file stating every declared key is a few tens of kilobytes.
+	maxFileBytes = 1 << 20
+	// maxKeyDepth bounds the segments in one key. A setting is a section and a key inside it.
+	maxKeyDepth = 8
+	// maxArrayDepth bounds nesting inside a value. No setting here is a list of lists.
+	maxArrayDepth = 8
+)
+
+// shortKey renders a key for a message, bounded.
+//
+// The message that refuses a key for being too deep is the one place that key is certain to be rendered,
+// and rendering it whole makes the refusal as large as the file. Bounded here rather than at each message,
+// because the caller holding the key is the one that cannot know how deep it is.
+func shortKey(key parser.Key) string {
+	if len(key) <= maxKeyDepth {
+		return key.String()
+	}
+	return fmt.Sprintf("%s and %d more segments", key[:maxKeyDepth].String(), len(key)-maxKeyDepth)
+}
+
 // Load reads the document at path.
 //
 // A path with no file there reports fs.ErrNotExist, which errors.Is matches. That is the one outcome a
 // caller acts on rather than reports, since a node with no sei.toml yet needs New instead.
 func Load(path string) (*File, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxFileBytes {
+		return nil, fmt.Errorf("%s holds %d bytes and this file is read up to %d. A file stating every "+
+			"key this binary declares is a small fraction of that, so one this large is not that file",
+			path, info.Size(), maxFileBytes)
+	}
 	raw, err := os.ReadFile(path) //nolint:gosec // the caller's configured path is the subject
 	if err != nil {
 		return nil, err

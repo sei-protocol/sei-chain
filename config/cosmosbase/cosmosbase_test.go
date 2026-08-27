@@ -161,15 +161,15 @@ func TestTheLabelSetIsRefusedFromTheEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	var reported bool
-	for _, key := range resolved.Ignored {
-		if key == globalLabelsKey {
-			reported = true
-		}
-	}
+	reason, reported := resolved.Ignored[globalLabelsKey]
 	if !reported {
 		t.Errorf("a variable was set for %s and nothing reports that it did nothing. An operator whose "+
 			"variable is ignored has to be told", globalLabelsKey)
+	}
+	if reported && reason == "" {
+		t.Errorf("%s is reported as ignored and carries no reason. The report is the only place an "+
+			"operator learns their variable did nothing, and without a reason it does not tell them "+
+			"which channel to use instead", globalLabelsKey)
 	}
 	if got := resolved.Values[globalLabelsKey]; !reflect.DeepEqual(got, []any{}) {
 		t.Errorf("%s resolved to %#v (%T), want the declared default it was left to",
