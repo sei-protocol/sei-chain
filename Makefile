@@ -200,6 +200,25 @@ build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 .PHONY: build
 
+# Drive a real governance software upgrade on a single throwaway node and compare
+# how the chain answers for the retired modules on either side of it. Reaches the
+# halt / upgrade-info.json / store-reload path that the in-process Go tests never
+# take, without needing the docker cluster. Uses an isolated home; never touches
+# ~/.sei. Roughly 30s once seid is built.
+local-upgrade-test: build
+	./scripts/local_upgrade_test.sh --skip-build
+.PHONY: local-upgrade-test
+
+# Upgrade a throwaway local chain across two real binaries: seed state with the
+# modules that are alive on the previous release, then swap this binary in and
+# check what the upgrade did to it. The only place the pre-upgrade state is real,
+# since this binary can no longer create a feegrant allowance or store an oracle
+# vote. Builds the old release into a git worktree on first run (a few minutes);
+# about 30s after that. Uses an isolated home and never touches ~/.sei.
+cross-upgrade-test: build
+	./scripts/cross_version_upgrade_test.sh --skip-build
+.PHONY: cross-upgrade-test
+
 build-frozen-rpc-router:
 	mkdir -p ./build
 	go build -o ./build/frozen-rpc-router ./cmd/frozen-rpc-router

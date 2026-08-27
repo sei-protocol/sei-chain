@@ -1,0 +1,112 @@
+name: Upgrade Tests
+
+# Two phases separated by a real network upgrade, so they are dispatched
+# separately rather than run back to back. The record phase uploads its artifact
+# and the verify phase downloads it, which is what lets the two runs be days
+# apart.
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Which phase to run
+        required: true
+        type: choice
+        options: [record, verify]
+      network:
+        description: Target network
+        required: true
+        default: arctic-1
+        type: choice
+        options: [arctic-1, atlantic-2]
+      plan_name:
+        description: Governance plan name to record or verify
+        required: true
+        default: v6.7
+        type: string
+      record_run_id:
+        description: >-
+          Required for verify: the run id of the record run holding the
+          pre-upgrade artifact. Find it in this workflow's run history.
+        required: false
+        type: string
+  # The self-checks need no chain, so they gate changes to the suite itself.
+  pull_request:
+    paths:
+      - integration_test/upgrade_tests/**
+      - .github/workflows/upgrade_tests.yml
+
+jobs:
+  selftest:
+    name: Self-checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integration_test/upgrade_tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run selftest
+
+  run-phase:
+    name: ${{ inputs.phase }} on ${{ inputs.network }}
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.network == 'arctic-1' && 'devnet' || 'testnet' }}
+    # Reading an artifact from an earlier run needs more than the default
+    # contents scope.
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        working-directory: integration_test/upgrade_tests
+    env:
+      UPGRADE_TEST_NETWORK: ${{ inputs.network }}
+      UPGRADE_TEST_PLAN_NAME: ${{ inputs.plan_name }}
+      # Optional. Without it the suite runs read-only probes and skips the
+      # committed-history checks, saying so rather than passing quietly.
+      UPGRADE_TEST_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+    steps:
+      # Fail on the missing input rather than on a confusing "artifact not
+      # found" from the download step, which is what a blank run id produces:
+      # it defaults to the current run, where no artifact was ever uploaded.
+      - name: Require a record run id to verify against
+        if: inputs.phase == 'verify' && inputs.record_run_id == ''
+        run: |
+          echo "::error::verify needs record_run_id — the run id of the record phase" \
+               "that produced the pre-upgrade artifact. Check this workflow's run history."
+          exit 1
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+
+      - name: Download the pre-upgrade artifact
+        if: inputs.phase == 'verify'
+        uses: actions/download-artifact@v4
+        with:
+          name: pre-upgrade-${{ inputs.network }}-${{ inputs.plan_name }}
+          path: integration_test/upgrade_tests/artifacts
+          run-id: ${{ inputs.record_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: npm run ${{ inputs.phase }}
+
+      - name: Upload the pre-upgrade artifact
+        if: inputs.phase == 'record'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pre-upgrade-${{ inputs.network }}-${{ inputs.plan_name }}
+          path: integration_test/upgrade_tests/artifacts/pre-upgrade.json
+          # The gap between the two phases is however long the upgrade takes to
+          # ship, so the artifact has to outlive the default retention.
+          retention-days: 90
+          if-no-files-found: error

@@ -1,0 +1,25 @@
+{
+  "name": "sei-upgrade-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Two-phase suite that records how a live Sei network answers for the modules an upgrade retires, then verifies the answers after the upgrade lands.",
+  "license": "MIT",
+  "scripts": {
+    "record": "mocha --config .mocharc.record.json",
+    "verify": "mocha --config .mocharc.verify.json",
+    "selftest": "mocha --config .mocharc.selftest.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ethers": "^6.14.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^22.5.0",
+    "chai": "^4.4.1",
+    "mocha": "^10.7.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}

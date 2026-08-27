@@ -1,0 +1,6 @@
+{
+    "require": ["tsx"],
+    "timeout": 300000,
+    "exit": true,
+    "spec": ["record/*.spec.ts"]
+}

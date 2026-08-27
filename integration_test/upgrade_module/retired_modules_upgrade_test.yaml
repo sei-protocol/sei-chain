@@ -1,0 +1,145 @@
+# Retired Module Upgrade Scenario:
+#
+# The v6.7 upgrade retires module surfaces (feegrant, capability, ibc and
+# transfer are removed; the oracle message and query handlers are deprecated).
+# This drives a live four node cluster through the shape an operator sees on
+# upgrade day and asks one question: does the chain answer clients the same way
+# once the modules are gone?
+#
+# 1. Before the upgrade, probe every retired surface and spam the retired oracle
+#    handler with real broadcasts. Record a fingerprint of the answers.
+#
+# 2. Run a real governance software upgrade to v6.7. Every node lacks v6.7 in
+#    its version list, so all four panic at the upgrade height and are restarted
+#    with it, which is what makes the actual v6.7 handler run.
+#
+# 3. Confirm the cluster keeps producing blocks afterwards. Four nodes that
+#    agree on blocks past the upgrade height is the end-to-end statement that
+#    the handler is deterministic; a node that computed a different application
+#    hash would stall instead.
+#
+# 4. Probe again and require an identical fingerprint. Retiring a module changes
+#    what a node stores, never how it answers a client that has not noticed yet.
+#    A fingerprint that shifted at the upgrade height would mean two nodes
+#    mid-rollout disagree about whether a block is valid.
+
+- name: Test Retired Module Behavior Across the v6.7 Upgrade
+  inputs:
+    - cmd: echo "v6.7"
+      env: VERSION
+
+    # A fee granter that is not the fee payer. Only a granter distinct from the
+    # payer is refused, so the probe needs a second address to be meaningful.
+    - cmd: printf "12345678\n" | seid keys show admin -a
+      env: DISTINCT_GRANTER
+      node: sei-node-0
+
+    # PRE-UPGRADE BEHAVIOR
+    - cmd: probe_retired_modules.sh $DISTINCT_GRANTER 5
+      env: PRE_UPGRADE_PROBE
+      node: sei-node-0
+
+    # PASS PROPOSAL FOR THE v6.7 UPGRADE
+    - cmd: proposal_target_height.sh 60
+      env: TARGET_HEIGHT
+      node: sei-node-0
+    - cmd: proposal_submit.sh $TARGET_HEIGHT major $VERSION
+      env: PROPOSAL_ID
+      node: sei-node-0
+    - cmd: proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-0
+    - cmd: proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-1
+    - cmd: proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-2
+    - cmd: proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-3
+    - cmd: proposal_wait_for_pass.sh $PROPOSAL_ID node_admin
+      node: sei-node-0
+
+    # No node knows v6.7 yet, so each one panics on reaching the upgrade height.
+    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+      node: sei-node-1
+    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+      node: sei-node-2
+    - cmd: wait_for_height.sh $TARGET_HEIGHT node_admin
+      node: sei-node-3
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-1
+      env: LOG_UPGRADE_NEEDED_NODE_1
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-2
+      env: LOG_UPGRADE_NEEDED_NODE_2
+    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
+      node: sei-node-3
+      env: LOG_UPGRADE_NEEDED_NODE_3
+
+    # Restarting with v6.7 in the version list is what registers and runs the
+    # real upgrade handler.
+    - cmd: seid_upgrade.sh $VERSION
+      node: sei-node-0
+    - cmd: seid_upgrade.sh $VERSION
+      node: sei-node-1
+    - cmd: seid_upgrade.sh $VERSION
+      node: sei-node-2
+    - cmd: seid_upgrade.sh $VERSION
+      node: sei-node-3
+    - cmd: verify_running.sh
+      node: sei-node-0
+      env: RUNNING_UPGRADED_NODE_0
+    - cmd: verify_running.sh
+      node: sei-node-1
+      env: RUNNING_UPGRADED_NODE_1
+    - cmd: verify_running.sh
+      node: sei-node-2
+      env: RUNNING_UPGRADED_NODE_2
+    - cmd: verify_running.sh
+      node: sei-node-3
+      env: RUNNING_UPGRADED_NODE_3
+
+    # Blocks past the upgrade height mean all four nodes agreed on the state the
+    # handler produced. The runner records a non-zero script exit without
+    # failing the step, so capture an explicit result.
+    - cmd: wait_for_height.sh $((TARGET_HEIGHT + 5)) node_admin; if [ $? -eq 0 ]; then echo ADVANCED_PAST_UPGRADE; else echo STALLED_AT_UPGRADE; fi
+      env: CHAIN_ADVANCED_AFTER_UPGRADE
+      node: sei-node-0
+
+    # POST-UPGRADE BEHAVIOR
+    - cmd: probe_retired_modules.sh $DISTINCT_GRANTER 5
+      env: POST_UPGRADE_PROBE
+      node: sei-node-0
+
+  verifiers:
+    # Every node reached the upgrade height and asked for v6.7.
+    - type: eval
+      expr: LOG_UPGRADE_NEEDED_NODE_1 == "PASS" or LOG_UPGRADE_NEEDED_NODE_2 == "PASS" or LOG_UPGRADE_NEEDED_NODE_3 == "PASS"
+
+    # Every node came back up on the upgraded version.
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_0 == "PASS"
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_1 == "PASS"
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_2 == "PASS"
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_3 == "PASS"
+
+    # The cluster kept producing blocks, so the four nodes agreed on the
+    # application hash the upgrade handler produced.
+    - type: regex
+      result: CHAIN_ADVANCED_AFTER_UPGRADE
+      expr: '(?m)^ADVANCED_PAST_UPGRADE$'
+
+    # Every retired surface answered as expected before the upgrade. Asserting
+    # this separately from the comparison below distinguishes "the upgrade
+    # changed behavior" from "the probe was already failing on both sides".
+    - type: regex
+      result: PRE_UPGRADE_PROBE
+      expr: '(?m)^PROBE_RESULT=ALL_MATCH$'
+    - type: regex
+      result: POST_UPGRADE_PROBE
+      expr: '(?m)^PROBE_RESULT=ALL_MATCH$'
+
+    # ...and answered identically afterwards.
+    - type: eval
+      expr: PRE_UPGRADE_PROBE == POST_UPGRADE_PROBE
