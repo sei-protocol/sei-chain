@@ -17,13 +17,13 @@ var (
 		importLatency              metric.Float64Histogram
 		batchWriteLatency          metric.Float64Histogram
 
-		compactionCount        metric.Int64Counter
-		compactionDuration     metric.Float64Histogram
-		compactionBytesRead    metric.Int64Counter
-		compactionBytesWritten metric.Int64Counter
-		flushCount             metric.Int64Counter
-		flushDuration          metric.Float64Histogram
-		flushBytesWritten      metric.Int64Counter
+		compactionCount        metric.Int64Gauge
+		compactionDuration     metric.Float64Gauge
+		compactionBytesRead    metric.Int64Gauge
+		compactionBytesWritten metric.Int64Gauge
+		flushCount             metric.Int64Gauge
+		flushDuration          metric.Float64Gauge
+		flushBytesWritten      metric.Int64Gauge
 
 		sstableCount      metric.Int64Gauge
 		sstableTotalSize  metric.Int64Gauge
@@ -31,8 +31,8 @@ var (
 		memtableTotalSize metric.Int64Gauge
 		walSize           metric.Int64Gauge
 
-		cacheHits   metric.Int64Counter
-		cacheMisses metric.Int64Counter
+		cacheHits   metric.Int64Gauge
+		cacheMisses metric.Int64Gauge
 		cacheSize   metric.Int64Gauge
 
 		batchSize                metric.Int64Histogram
@@ -79,40 +79,40 @@ var (
 			metric.WithUnit("s"),
 		)),
 
-		compactionCount: must(meter.Int64Counter(
+		compactionCount: must(meter.Int64Gauge(
 			"pebble_compaction_count",
-			metric.WithDescription("Total number of compactions"),
+			metric.WithDescription("Total number of compactions since the DB opened"),
 			metric.WithUnit("{count}"),
 		)),
-		compactionDuration: must(meter.Float64Histogram(
+		compactionDuration: must(meter.Float64Gauge(
 			"pebble_compaction_duration",
-			metric.WithDescription("Duration of compaction operations"),
+			metric.WithDescription("Cumulative time spent compacting since the DB opened"),
 			metric.WithUnit("s"),
 		)),
-		compactionBytesRead: must(meter.Int64Counter(
+		compactionBytesRead: must(meter.Int64Gauge(
 			"pebble_compaction_bytes_read",
-			metric.WithDescription("Total bytes read during compaction"),
+			metric.WithDescription("Total bytes read during compaction since the DB opened"),
 			metric.WithUnit("By"),
 		)),
-		compactionBytesWritten: must(meter.Int64Counter(
+		compactionBytesWritten: must(meter.Int64Gauge(
 			"pebble_compaction_bytes_written",
-			metric.WithDescription("Total bytes written during compaction"),
+			metric.WithDescription("Total bytes written during compaction since the DB opened"),
 			metric.WithUnit("By"),
 		)),
 
-		flushCount: must(meter.Int64Counter(
+		flushCount: must(meter.Int64Gauge(
 			"pebble_flush_count",
-			metric.WithDescription("Total number of memtable flushes"),
+			metric.WithDescription("Total number of memtable flushes since the DB opened"),
 			metric.WithUnit("{count}"),
 		)),
-		flushDuration: must(meter.Float64Histogram(
+		flushDuration: must(meter.Float64Gauge(
 			"pebble_flush_duration",
-			metric.WithDescription("Duration of memtable flush operations"),
+			metric.WithDescription("Cumulative time spent flushing memtables since the DB opened"),
 			metric.WithUnit("s"),
 		)),
-		flushBytesWritten: must(meter.Int64Counter(
+		flushBytesWritten: must(meter.Int64Gauge(
 			"pebble_flush_bytes_written",
-			metric.WithDescription("Total bytes written during memtable flushes"),
+			metric.WithDescription("Total bytes written during memtable flushes since the DB opened"),
 			metric.WithUnit("By"),
 		)),
 
@@ -142,14 +142,14 @@ var (
 			metric.WithUnit("By"),
 		)),
 
-		cacheHits: must(meter.Int64Counter(
+		cacheHits: must(meter.Int64Gauge(
 			"pebble_cache_hits",
-			metric.WithDescription("Total number of cache hits"),
+			metric.WithDescription("Total number of cache hits since the DB opened"),
 			metric.WithUnit("{count}"),
 		)),
-		cacheMisses: must(meter.Int64Counter(
+		cacheMisses: must(meter.Int64Gauge(
 			"pebble_cache_misses",
-			metric.WithDescription("Total number of cache misses"),
+			metric.WithDescription("Total number of cache misses since the DB opened"),
 			metric.WithUnit("{count}"),
 		)),
 		cacheSize: must(meter.Int64Gauge(
