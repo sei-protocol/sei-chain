@@ -19,12 +19,23 @@ func makeRegistry(t *testing.T) (*Registry, *types.Committee) {
 		types.GenSecretKey(rng).Public(): 1,
 		types.GenSecretKey(rng).Public(): 1,
 	}))
-	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}))
+	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}, utils.None[string]()))
 	return r, committee
 }
 
-func midRoad(idx types.EpochIndex) types.RoadIndex {
-	return FirstRoad(idx) + EpochLength/2
+func TestClosingEpoch(t *testing.T) {
+	got, ok := ClosingEpoch(LastRoad(0)).Get()
+	require.True(t, ok)
+	require.Equal(t, types.EpochIndex(0), got)
+
+	got, ok = ClosingEpoch(LastRoad(1)).Get()
+	require.True(t, ok)
+	require.Equal(t, types.EpochIndex(1), got)
+
+	_, ok = ClosingEpoch(FirstRoad(1)).Get()
+	require.False(t, ok)
+	_, ok = ClosingEpoch(LastRoad(0) - 1).Get()
+	require.False(t, ok)
 }
 
 func TestRegistry_EpochByIndex_UnknownReturnsNotFound(t *testing.T) {
@@ -64,195 +75,239 @@ func TestNewRegistry_Genesis(t *testing.T) {
 	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
 		t.Fatal("EpochAt(FirstRoad(2)) expected error for unregistered epoch, got nil")
 	}
-}
-
-func TestEpochAt_FoundAfterAdvanceIfNeeded(t *testing.T) {
-	r, _ := makeRegistry(t)
-	if _, err := r.EpochAt(FirstRoad(1)); err != nil {
-		t.Fatalf("epoch 1 must be present from NewRegistry: %v", err)
-	}
-	r.AdvanceIfNeeded(0)
-	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
-		t.Fatal("AdvanceIfNeeded(0) must not seed epoch 2")
-	}
-	r.AdvanceIfNeeded(LastRoad(0))
-	ep, err := r.EpochAt(FirstRoad(1))
-	if err != nil {
-		t.Fatalf("EpochAt(FirstRoad(1)) after last road of epoch 0: %v", err)
-	}
-	if ep.EpochIndex() != 1 {
-		t.Fatalf("EpochAt(FirstRoad(1)).EpochIndex() = %d, want 1", ep.EpochIndex())
-	}
-	if _, err := r.EpochAt(FirstRoad(2)); err == nil {
-		t.Fatal("AdvanceIfNeeded must not seed epoch 2")
-	}
-}
-
-func TestSetupInitialEpochs(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		span   utils.Option[types.RoadRange]
-		want   []types.EpochIndex
-		absent types.EpochIndex
-	}{
-		{
-			name:   "empty None is no-op",
-			span:   utils.None[types.RoadRange](),
-			want:   []types.EpochIndex{0, 1},
-			absent: 2,
-		},
-		{
-			name:   "mid CommitQC seeds placeholder next",
-			span:   utils.Some(types.RoadRange{First: midRoad(5), Next: midRoad(5) + 1}),
-			want:   []types.EpochIndex{4, 5, 6},
-			absent: 7,
-		},
-		{
-			name: "commit span from first",
-			span: utils.Some(types.RoadRange{
-				First: midRoad(2),
-				Next:  midRoad(5) + 1,
-			}),
-			want:   []types.EpochIndex{1, 2, 3, 4, 5, 6},
-			absent: 7,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r, _ := makeRegistry(t)
-			r.SetupInitialEpochs(tc.span)
-			for _, idx := range tc.want {
-				if _, err := r.EpochAt(FirstRoad(idx)); err != nil {
-					t.Fatalf("EpochAt(epoch %d): %v", idx, err)
-				}
-			}
-			if _, err := r.EpochAt(FirstRoad(tc.absent)); err == nil {
-				t.Fatalf("EpochAt(epoch %d) should not be present", tc.absent)
-			}
-		})
-	}
-}
-
-func TestActivateEpoch_SkipsExistingSeeds(t *testing.T) {
-	r, committee := makeRegistry(t)
-	r.SetupInitialEpochs(utils.None[types.RoadRange]())
-	seeded := r.MustEpoch(1)
-	seededCommittee := seeded.Committee()
-
-	pk := committee.Lanes().At(0).Validator
-	ep, err := r.ActivateEpoch(
-		0,
-		map[types.PublicKey]uint64{pk: 1},
-		time.Time{},
-		r.FirstBlock(),
-	)
+	ep, err := r.WaitForEpoch(t.Context(), 0)
 	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(2), ep.EpochIndex())
-	require.Equal(t, FirstRoad(2), ep.RoadRange().First)
-	require.Equal(t, FirstRoad(3), ep.RoadRange().Next)
-	got := r.MustEpoch(1)
-	require.Equal(t, seededCommittee, got.Committee())
-	_, ok := ep.Committee().Lane(pk).Get()
-	require.True(t, ok)
-	require.Equal(t, 1, ep.Committee().Lanes().Len())
+	require.Equal(t, types.EpochIndex(0), ep.EpochIndex())
+	ep, err = r.WaitForEpoch(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, types.EpochIndex(1), ep.EpochIndex())
 }
 
-func TestActivateEpoch_RejoinJoinedFromLatestNotPlaceholder(t *testing.T) {
+func addFromEnd(t *testing.T, r *Registry, end types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
+	t.Helper()
+	require.NoError(t, r.StageAndActivate(end, weights))
+	return r.MustEpoch(end + 2)
+}
+
+func TestStageEpoch_FromEndStake(t *testing.T) {
 	rng := utils.TestRng()
 	a := types.GenSecretKey(rng)
 	b := types.GenSecretKey(rng)
 	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
 		a.Public(): 1, b.Public(): 1,
 	}))
-	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}))
-	r.SetupInitialEpochs(utils.None[types.RoadRange]())
+	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}, utils.None[string]()))
+	genesis := r.MustEpoch(1).Committee()
+	_, err := r.EpochByIndex(2)
+	require.Error(t, err)
 
-	epLeave, err := r.ActivateEpoch(
-		0,
-		map[types.PublicKey]uint64{b.Public(): 1},
-		time.Time{}, r.FirstBlock(),
-	)
-	require.NoError(t, err)
+	ep := addFromEnd(t, r, 0, map[types.PublicKey]uint64{b.Public(): 7})
+	require.Equal(t, types.EpochIndex(2), ep.EpochIndex())
+	require.Equal(t, FirstRoad(2), ep.RoadRange().First)
+	require.Equal(t, FirstRoad(3), ep.RoadRange().Next)
+	require.Equal(t, genesis, r.MustEpoch(1).Committee())
+	require.False(t, ep.Committee().HasReplica(a.Public()))
+	require.Equal(t, uint64(7), ep.Committee().Weight(b.Public()))
+	require.Equal(t, ep, r.MustEpoch(2))
+
+	require.NoError(t, r.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 7, a.Public(): 0}))
+	require.Equal(t, ep, r.MustEpoch(2))
+}
+
+func TestStageEpoch_RequiresNext(t *testing.T) {
+	rng := utils.TestRng()
+	pk := types.GenSecretKey(rng).Public()
+	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		pk: 1, types.GenSecretKey(rng).Public(): 1,
+	}))
+	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}, utils.None[string]()))
+	require.Error(t, r.StageEpoch(5, map[types.PublicKey]uint64{pk: 1}))
+}
+
+func TestStageEpoch_RefusesWhileUnconfirmed(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	weights := map[types.PublicKey]uint64{pk: 1}
+	require.NoError(t, r.StageEpoch(0, weights))
+
+	require.Error(t, r.StageEpoch(1, weights))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), r.Pending())
+
+	require.NoError(t, r.StageEpoch(0, weights))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), r.Pending())
+
+	require.NoError(t, r.ActivateEpoch(2))
+	require.NoError(t, r.StageEpoch(1, weights))
+	require.Equal(t, utils.Some(types.EpochIndex(3)), r.Pending())
+}
+
+func TestStageEpoch_KeepsRegisteredEpoch(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	first := addFromEnd(t, r, 0, map[types.PublicKey]uint64{pk: 1})
+
+	other := committee.Lanes().At(1).Validator
+	require.Error(t, r.StageAndActivate(0, map[types.PublicKey]uint64{other: 5}))
+	require.Equal(t, first, r.MustEpoch(2))
+}
+
+func TestStageEpoch_RejoinTakesNewJoined(t *testing.T) {
+	rng := utils.TestRng()
+	a := types.GenSecretKey(rng)
+	b := types.GenSecretKey(rng)
+	committee := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{
+		a.Public(): 1, b.Public(): 1,
+	}))
+	r := utils.OrPanic1(NewRegistry(committee, 0, time.Time{}, utils.None[string]()))
+
+	epLeave := addFromEnd(t, r, 0, map[types.PublicKey]uint64{b.Public(): 1})
 	require.Equal(t, types.EpochIndex(2), epLeave.EpochIndex())
 	require.False(t, epLeave.Committee().HasReplica(a.Public()))
 
-	// Seed a genesis-committee placeholder ahead of the activated epoch. Deriving from that
-	// slot would treat A as still present and keep Joined=0.
-	r.AdvanceIfNeeded(LastRoad(2))
-	seeded := r.MustEpoch(3)
-	require.True(t, seeded.Committee().HasReplica(a.Public()))
-
-	epJoin, err := r.ActivateEpoch(
-		epLeave.EpochIndex(),
-		map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
-		time.Time{}, r.FirstBlock(),
-	)
-	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(4), epJoin.EpochIndex())
+	epJoin := addFromEnd(t, r, 1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1})
+	require.Equal(t, types.EpochIndex(3), epJoin.EpochIndex())
 	lane := epJoin.Committee().Lane(a.Public()).OrPanic("rejoin")
-	require.Equal(t, types.EpochIndex(4), lane.Joined)
+	require.Equal(t, types.EpochIndex(3), lane.Joined)
 }
 
-func TestWaitForEpoch_FastPathAndWait(t *testing.T) {
+func TestStageEpoch_PendingIsInvisible(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		r, _ := makeRegistry(t)
-		ep, err := r.WaitForEpoch(t.Context(), 0)
-		require.NoError(t, err)
-		require.Equal(t, types.EpochIndex(0), ep.EpochIndex())
+		r, committee := makeRegistry(t)
+		pk := committee.Lanes().At(0).Validator
+		require.NoError(t, r.StageEpoch(0, map[types.PublicKey]uint64{pk: 1}))
+		require.Equal(t, utils.Some(types.EpochIndex(2)), r.Pending())
 
-		ep, err = r.WaitForEpoch(t.Context(), 1)
-		require.NoError(t, err)
-		require.Equal(t, types.EpochIndex(1), ep.EpochIndex())
-
+		_, err := r.EpochByIndex(2)
+		require.Error(t, err)
 		_, err = r.EpochAt(FirstRoad(2))
 		require.Error(t, err)
 
 		var got *types.Epoch
-		var waitErr error
-		go func() {
-			got, waitErr = r.WaitForEpoch(t.Context(), 2)
-		}()
+		go func() { got, _ = r.WaitForEpoch(t.Context(), 2) }()
 		synctest.Wait()
-		require.Nil(t, got, "WaitForEpoch returned before AdvanceIfNeeded")
+		require.Nil(t, got, "WaitForEpoch returned for a staged committee")
 
-		r.AdvanceIfNeeded(LastRoad(1))
+		require.NoError(t, r.ActivateEpoch(2))
 		synctest.Wait()
-		require.NoError(t, waitErr)
 		require.Equal(t, types.EpochIndex(2), got.EpochIndex())
 	})
 }
 
-func TestPruneBefore_DropsIntermediateKeepsGenesis(t *testing.T) {
-	r, _ := makeRegistry(t)
-	r.AdvanceIfNeeded(LastRoad(0))
-	r.AdvanceIfNeeded(LastRoad(1))
-	_ = r.MustEpoch(1)
-	_ = r.MustEpoch(2)
+func TestActivateEpoch_IdempotentAndRefusesUnstaged(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	require.Error(t, r.ActivateEpoch(2))
 
-	r.PruneBefore(2)
-	require.Equal(t, types.EpochRange{First: 2, Next: 3}, r.Live())
-	_ = r.MustEpoch(0)
-	_, err := r.EpochByIndex(1)
+	require.NoError(t, r.StageEpoch(0, map[types.PublicKey]uint64{pk: 1}))
+	require.NoError(t, r.ActivateEpoch(2))
+	ep := r.MustEpoch(2)
+	require.NoError(t, r.ActivateEpoch(2))
+	require.Equal(t, ep, r.MustEpoch(2))
+}
+
+func TestPruneBefore_KeepsPending(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	weights := map[types.PublicKey]uint64{pk: 1}
+	for endEpoch := types.EpochIndex(0); endEpoch < 4; endEpoch++ {
+		require.NoError(t, r.StageAndActivate(endEpoch, weights))
+	}
+	require.NoError(t, r.StageEpoch(4, weights))
+
+	require.NoError(t, r.PruneBefore(10)) // clamped to live.Next
+	_, err := r.EpochByIndex(5)
 	require.ErrorIs(t, err, types.ErrPruned)
-	_ = r.MustEpoch(2)
+	require.Equal(t, utils.Some(types.EpochIndex(6)), r.Pending())
+	require.NoError(t, r.ActivateEpoch(6))
+}
+
+func TestPruneBefore_DropsDerivedKeepsGenesis(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	weights := map[types.PublicKey]uint64{pk: 1}
+	_ = addFromEnd(t, r, 0, weights)
+	_ = addFromEnd(t, r, 1, weights)
+	_ = addFromEnd(t, r, 2, weights)
+
+	require.NoError(t, r.PruneBefore(4))
+	_, err := r.EpochByIndex(2)
+	require.ErrorIs(t, err, types.ErrPruned)
+	_, err = r.EpochByIndex(3)
+	require.ErrorIs(t, err, types.ErrPruned)
+	_ = r.MustEpoch(0)
+	_ = r.MustEpoch(1)
+	_ = r.MustEpoch(4)
 	require.Equal(t, types.GlobalBlockNumber(0), r.FirstBlock())
 
-	_, err = r.EpochAt(FirstRoad(1))
+	_, err = r.EpochAt(FirstRoad(2))
 	require.ErrorIs(t, err, types.ErrPruned)
-	_, err = r.WaitForEpoch(t.Context(), 1)
+	_, err = r.WaitForEpoch(t.Context(), 2)
 	require.ErrorIs(t, err, types.ErrPruned)
 
-	r.PruneBefore(1) // no rewind
-	_ = r.MustEpoch(2)
+	require.NoError(t, r.PruneBefore(1)) // no rewind
+	_ = r.MustEpoch(4)
 
-	pk := r.MustEpoch(0).Committee().Lanes().At(0).Validator
-	ep, err := r.ActivateEpoch(
-		0,
-		map[types.PublicKey]uint64{pk: 1},
-		time.Time{},
-		r.FirstBlock(),
-	)
-	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(3), ep.EpochIndex())
-	_, err = r.EpochByIndex(1)
+	ep := addFromEnd(t, r, 3, weights)
+	require.Equal(t, types.EpochIndex(5), ep.EpochIndex())
+	require.NoError(t, r.PruneBefore(5))
+	_, err = r.EpochByIndex(4)
 	require.ErrorIs(t, err, types.ErrPruned)
+	_ = r.MustEpoch(5)
+
+	require.NoError(t, r.PruneBefore(10)) // clamped to live.Next
+	_, err = r.EpochByIndex(5)
+	require.ErrorIs(t, err, types.ErrPruned)
+	_ = r.MustEpoch(0)
+	_ = r.MustEpoch(1)
+}
+
+func TestNewRegistry_RestoresPrunedSnapshot(t *testing.T) {
+	rng := utils.TestRng()
+	a := types.GenSecretKey(rng).Public()
+	b := types.GenSecretKey(rng).Public()
+	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1, b: 1}))
+	dir := utils.Some(t.TempDir())
+
+	r1 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
+	require.NoError(t, r1.StageAndActivate(0, map[types.PublicKey]uint64{b: 2}))
+	require.NoError(t, r1.StageAndActivate(1, map[types.PublicKey]uint64{a: 3, b: 2}))
+	require.NoError(t, r1.StageAndActivate(2, map[types.PublicKey]uint64{a: 4, b: 2}))
+	require.NoError(t, r1.PruneBefore(3))
+
+	r2 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
+
+	_ = r2.MustEpoch(1)
+	_, err := r2.EpochByIndex(2)
+	require.ErrorIs(t, err, types.ErrPruned)
+	ep3 := r2.MustEpoch(3)
+	ep4 := r2.MustEpoch(4)
+	require.Equal(t, utils.None[types.EpochIndex](), r2.Pending())
+	require.Equal(t, uint64(3), ep3.Committee().Weight(a))
+	require.Equal(t, types.EpochIndex(3), ep3.Committee().Lane(a).OrPanic("a in epoch 3").Joined)
+	require.Equal(t, types.EpochIndex(3), ep4.Committee().Lane(a).OrPanic("a in epoch 4").Joined)
+}
+
+func TestNewRegistry_RestoresSnapshotPending(t *testing.T) {
+	rng := utils.TestRng()
+	a := types.GenSecretKey(rng).Public()
+	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
+	dir := utils.Some(t.TempDir())
+
+	r1 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
+	require.NoError(t, r1.StageEpoch(0, map[types.PublicKey]uint64{a: 2}))
+
+	r2 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
+	_ = r2.MustEpoch(1)
+	require.Equal(t, utils.Some(types.EpochIndex(2)), r2.Pending())
+	_, err := r2.EpochByIndex(2)
+	require.Error(t, err)
+	require.False(t, errors.Is(err, types.ErrPruned))
+
+	require.NoError(t, r2.ActivateEpoch(2))
+	require.Equal(t, uint64(2), r2.MustEpoch(2).Committee().Weight(a))
+	require.Equal(t, utils.None[types.EpochIndex](), r2.Pending())
+
+	r3 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
+	require.Equal(t, uint64(2), r3.MustEpoch(2).Committee().Weight(a))
+	require.Equal(t, utils.None[types.EpochIndex](), r3.Pending())
 }

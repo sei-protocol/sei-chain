@@ -19,6 +19,10 @@ const blocksCacheSize = 4000
 // next CommitQC range waiting for execution.
 var ErrOutOfOrder = errors.New("out of order")
 
+// ErrAppHashDivergence is returned when a quorum-certified AppHash differs from
+// the one local execution produced.
+var ErrAppHashDivergence = errors.New("AppHash divergence")
+
 // Config is the config for the data State.
 type Config struct {
 	// Registry is the authoritative source of committee and stake information.
@@ -48,7 +52,7 @@ type inner struct {
 
 	// first is the exclusive low end of retained in-memory state: maps keep [first, next*).
 	// Advanced by runPersist(). Durable copies below first live in BlockStore.
-	//
+	// Heights below first have a persisted AppQC that matched local execution.
 	// first <= nextAppQC <= nextAppProposal <= nextBlock <= nextQC
 	first           types.GlobalBlockNumber
 	nextAppQC       types.GlobalBlockNumber
@@ -134,6 +138,23 @@ func (i *inner) insertAppQC(appQC *types.AppQC) error {
 		i.nextAppQC++
 	}
 	return nil
+}
+
+// appQCCertifiesRoad reports whether road has an AppQC matching local execution.
+// Roads below first are already certified by a persisted matching AppQC.
+func (i *inner) appQCCertifiesRoad(road types.RoadIndex) bool {
+	if i.first < i.nextQC && i.qcs[i.first].qc.QC().Proposal().Index() > road {
+		return true
+	}
+	for n := i.first; n < i.nextQC; {
+		p := i.qcs[n].qc.QC().Proposal()
+		if p.Index() == road {
+			return n < i.nextAppQC &&
+				bytes.Equal(i.appProposals[n].AppHash(), i.appQCs[n].Proposal().AppHash())
+		}
+		n = max(n+1, p.GlobalRange().Next)
+	}
+	return false
 }
 
 func (i *inner) insertAppProposal(appProposal *types.AppProposal) error {
@@ -229,12 +250,16 @@ func NewState(cfg *Config, blockStore types.BlockStore) (*State, error) {
 	m.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
 	m.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 	m.NextBlock.Evict.Set(utils.Clamp[int64](inner.first))
-	return &State{
+	s := &State{
 		cfg:        cfg,
 		metrics:    m,
 		inner:      utils.NewWatch(inner),
 		blockStore: blockStore,
-	}, nil
+	}
+	if err := s.activateStagedEpoch(); err != nil {
+		return nil, fmt.Errorf("activateStagedEpoch: %w", err)
+	}
+	return s, nil
 }
 
 // loadFromBlockStore replays the persisted suffix from blockStore into s.inner.
@@ -244,14 +269,6 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 	if err != nil {
 		return nil, fmt.Errorf("blockStore.ReadSuffix(): %w", err)
 	}
-	var commitSpan utils.Option[types.RoadRange]
-	if qcs := suffix.CommitQCs; len(qcs) > 0 {
-		commitSpan = utils.Some(types.RoadRange{
-			First: qcs[0].Index(),
-			Next:  qcs[len(qcs)-1].Index() + 1,
-		})
-	}
-	cfg.Registry.SetupInitialEpochs(commitSpan)
 	firstBlock := cfg.Registry.FirstBlock()
 	status := suffix.Status.Or(types.SuffixRange{
 		First:           firstBlock,
@@ -301,8 +318,6 @@ func loadFromBlockStore(cfg *Config, blockStore types.BlockStore) (*inner, error
 		if err := inner.insertAppProposal(appProposal); err != nil {
 			return nil, fmt.Errorf("load AppProposal from BlockStore: %w", err)
 		}
-		// Match PushAppHash: do not rely only on SetupInitialEpochs for NextCommitEpoch.
-		cfg.Registry.AdvanceIfNeeded(appProposal.RoadIndex())
 		inner.publishNextCommitEpoch(cfg.Registry)
 	}
 	for _, appQC := range suffix.AppQCs {
@@ -320,6 +335,30 @@ func (s *State) First() types.GlobalBlockNumber {
 
 // Registry returns the epoch registry.
 func (s *State) Registry() *epoch.Registry { return s.cfg.Registry }
+
+// activateStagedEpoch publishes the staged committee when LastRoad of the
+// deriving epoch has a matching AppQC, or when that road is already below first.
+func (s *State) activateStagedEpoch() error {
+	idx, ok := s.cfg.Registry.Pending().Get()
+	if !ok {
+		return nil
+	}
+	for inner := range s.inner.Lock() {
+		endEpoch := idx - 2
+		if !inner.appQCCertifiesRoad(epoch.LastRoad(endEpoch)) {
+			return nil
+		}
+		break
+	}
+	if err := s.cfg.Registry.ActivateEpoch(idx); err != nil {
+		return fmt.Errorf("activate epoch %d: %w", idx, err)
+	}
+	for inner := range s.inner.Lock() {
+		inner.publishNextCommitEpoch(s.cfg.Registry)
+		return nil
+	}
+	panic("unreachable")
+}
 
 // insertBlocksByHash matches byHash against stored (already verified) QC
 // headers over gr ∩ [nextBlock, nextQC) and inserts hits. Advances nextBlock
@@ -638,15 +677,22 @@ func (s *State) globalBlockByHashFromDB(hash types.BlockHeaderHash) (utils.Optio
 	return utils.Some(assembleGlobalBlock(bn.Number, bn.Block, qc)), nil
 }
 
-// PushAppHash marks blocks up to n as executed and advances the epoch
-// registry when n closes a CommitQC at an epoch boundary.
-func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash) error {
+// PushAppHash records the AppHash for executed blocks through n and stages
+// C_{E+2} when n closes LastRoad(E).
+func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash types.AppHash, weights map[types.PublicKey]uint64) error {
+	var endEpoch utils.Option[types.EpochIndex]
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return n < inner.nextBlock }); err != nil {
 			return err
 		}
 		if n < inner.nextAppProposal {
-			return nil
+			if n >= inner.first {
+				p := inner.qcs[n].qc.QC().Proposal()
+				if n == p.GlobalRange().Next-1 {
+					endEpoch = epoch.ClosingEpoch(p.Index())
+				}
+			}
+			break
 		}
 		p := inner.qcs[n].qc.QC().Proposal()
 		if next, first := inner.nextAppProposal, p.GlobalRange().First; next < first {
@@ -674,13 +720,7 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			inner.nextAppProposal += 1
 		}
 		s.metrics.NextBlock.Execute.Set(utils.Clamp[int64](inner.nextAppProposal))
-		// Seed cursor: at LastRoad(N) register N+1 so runEpochAdvance can advance
-		// it once seal and the prune/execution leashes are met. N+2 is not needed —
-		// ConsensusSpec withholds the RoadIndex after LastRoad(N+1) until this fires
-		// again.
-		s.cfg.Registry.AdvanceIfNeeded(p.Index())
-		// Idle boundary: no further CommitQC will republish after registration.
-		inner.publishNextCommitEpoch(s.cfg.Registry)
+		endEpoch = epoch.ClosingEpoch(p.Index())
 		ctrl.Updated()
 		// CRITICAL: We need to persist AppHash before we return and start executing the next block,
 		// otherwise we lose the apphash on restart.
@@ -689,7 +729,12 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			return err
 		}
 	}
-	return nil
+	if e, ok := endEpoch.Get(); ok {
+		if err := s.cfg.Registry.StageEpoch(e, weights); err != nil {
+			return fmt.Errorf("StageEpoch(%d): %w", e, err)
+		}
+	}
+	return s.activateStagedEpoch()
 }
 
 func (s *State) PushGasUsed(gasUsed int64) {
@@ -736,9 +781,9 @@ func (s *State) PushAppQC(ctx context.Context, appQC *types.AppQC) error {
 		}
 		s.metrics.NextBlock.Certify.Set(utils.Clamp[int64](inner.nextAppQC))
 		ctrl.Updated()
-		return nil
+		break
 	}
-	panic("unreachable")
+	return s.activateStagedEpoch()
 }
 
 func (s *State) AppQC(ctx context.Context, n types.GlobalBlockNumber) (*types.AppQC, error) {
@@ -821,6 +866,7 @@ func (s *State) PruneBefore(retainFrom types.GlobalBlockNumber) error {
 // order and flushes once per batch. persisted.NextBlock advances with the
 // block tip to unblock PushAppHash only when data is durable.
 // Errors propagate vertically (kill the component).
+// AppQCs are persisted only when their AppHash matches local execution.
 //
 // Cursors seed from BlockStore.Status() when non-zero so PushQC-before-Run heights
 // are not skipped. When a tip is zero, seed from the recovery floor, never bare
@@ -867,7 +913,11 @@ func (s *State) runPersist(ctx context.Context) error {
 				status.NextAppProposal = appProposal.GlobalRange().Next
 			}
 			for status.NextAppQC < inner.nextAppQC {
-				appQC := inner.appQCs[status.NextAppQC]
+				n := status.NextAppQC
+				appQC := inner.appQCs[n]
+				if got, want := inner.appProposals[n].AppHash(), appQC.Proposal().AppHash(); !bytes.Equal(got, want) {
+					return fmt.Errorf("%w at block %v: local AppHash = %v, quorum AppHash = %v", ErrAppHashDivergence, n, got, want)
+				}
 				appQCs = append(appQCs, appQC)
 				status.NextAppQC = appQC.Proposal().GlobalRange().Next
 				status.First = status.NextAppQC - 1
@@ -900,16 +950,13 @@ func (s *State) runPersist(ctx context.Context) error {
 			return fmt.Errorf("flush BlockStore: %w", err)
 		}
 		// Prune the inner state.
+		var pruneEpoch utils.Option[types.EpochIndex]
 		for inner, ctrl := range s.inner.Lock() {
 			inner.persisted = status
 			t := time.Now()
 			from := inner.first
 			for inner.first < inner.persisted.First {
-				// Divergence detection
 				n := inner.first
-				if got, want := inner.appProposals[n].AppHash(), inner.appQCs[n].Proposal().AppHash(); !bytes.Equal(got, want) {
-					return fmt.Errorf("AppHash divergence detected at block %v: local AppHash = %v, quorum Apphash = %v", n, got, want)
-				}
 				b := inner.blocks[n]
 				latency := t.Sub(b.Payload().CreatedAt()).Seconds()
 				s.metrics.BlockLatency.Evict.Observe(latency)
@@ -928,9 +975,14 @@ func (s *State) runPersist(ctx context.Context) error {
 				if !ok {
 					return fmt.Errorf("evict advanced first but Anchor is None")
 				}
-				s.cfg.Registry.PruneBefore(a.Epoch.EpochIndex())
+				pruneEpoch = utils.Some(a.Epoch.EpochIndex())
 			}
 			ctrl.Updated()
+		}
+		if idx, ok := pruneEpoch.Get(); ok {
+			if err := s.cfg.Registry.PruneBefore(idx); err != nil {
+				return fmt.Errorf("prune epoch registry before %d: %w", idx, err)
+			}
 		}
 	}
 }
