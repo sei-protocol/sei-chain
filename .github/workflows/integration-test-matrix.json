@@ -81,13 +81,6 @@
     ]
   },
   {
-    "name": "Upgrade Module (Retired Modules)",
-    "env": "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0",
-    "scripts": [
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeRetiredModules"
-    ]
-  },
-  {
     "name": "SeiDB State Store",
     "scripts": [
       "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",

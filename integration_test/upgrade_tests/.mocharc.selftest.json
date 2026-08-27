@@ -1,6 +1,0 @@
-{
-    "require": ["tsx"],
-    "timeout": 30000,
-    "exit": true,
-    "spec": ["selftest/*.spec.ts"]
-}

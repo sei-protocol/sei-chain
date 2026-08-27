@@ -125,10 +125,3 @@ func TestUpgradeMajor(t *testing.T) {
 func TestUpgradeMinor(t *testing.T) {
 	runner.RunFile(t, "../upgrade_module/minor_upgrade_test.yaml")
 }
-
-// TestUpgradeRetiredModules runs a real v6.7 governance upgrade against a cluster
-// that is being spammed with transactions for the modules v6.7 retires, and
-// requires the retired surfaces to answer identically on both sides of it.
-func TestUpgradeRetiredModules(t *testing.T) {
-	runner.RunFile(t, "../upgrade_module/retired_modules_upgrade_test.yaml")
-}

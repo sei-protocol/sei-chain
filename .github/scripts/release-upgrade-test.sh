@@ -7,14 +7,21 @@ readonly RUN_ROOT="${RUNNER_TEMP:-/tmp}/sei-release-upgrade-${GITHUB_RUN_ID:-$$}
 readonly MAIN_WORKTREE="$RUN_ROOT/main"
 readonly RELEASE_WORKTREE="$RUN_ROOT/release"
 readonly BUILD_ROOT="$RUN_ROOT/bin"
-readonly ARTIFACT_ROOT="$REPO_ROOT/artifacts/release-upgrade"
+readonly ARTIFACT_ROOT="$RUN_ROOT/artifacts"
 readonly NODE_COUNT=4
+readonly ORACLE_VOTE_PERIOD=20
+readonly UPGRADE_NAME="v6.7"
+readonly -a EXPECTED_REMOVED_MODULES=(capability feegrant ibc transfer)
 
-RELEASE_BRANCH="${RELEASE_BRANCH:-}"
+RELEASE_BRANCH="${RELEASE_BRANCH:-release/v6.6}"
+MAIN_REF="${MAIN_REF:-${GITHUB_SHA:-HEAD}}"
 UPGRADE_LEAD_SECONDS="${UPGRADE_LEAD_SECONDS:-60}"
 POST_UPGRADE_BLOCKS="${POST_UPGRADE_BLOCKS:-10}"
 CLUSTER_STARTED=false
 MAIN_BINARY_HASH=
+RELEASE_MODULE_VERSIONS=
+FEE_GRANTER_ADDRESS=
+FEE_GRANTEE_ADDRESS=
 
 log() {
   printf '\n[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -36,45 +43,9 @@ validate_inputs() {
   ((POST_UPGRADE_BLOCKS >= 2 && POST_UPGRADE_BLOCKS <= 100)) ||
     die "post_upgrade_blocks must be between 2 and 100"
 
-  if [[ -n "$RELEASE_BRANCH" ]]; then
-    [[ "$RELEASE_BRANCH" =~ ^release/v[0-9]+\.[0-9]+(\.[0-9]+)?(-branch)?$ ]] ||
-      die "release_branch must look like release/v6.6 or release/v6.2.0-branch"
-  fi
-}
-
-resolve_latest_release_branch() {
-  local heads_file="$RUN_ROOT/release-heads"
-  git ls-remote --heads origin 'release/v*' >"$heads_file"
-
-  python3 - "$heads_file" <<'PY'
-import re
-import sys
-
-patterns = (
-    (re.compile(r"^refs/heads/(release/v(\d+)\.(\d+))$"), 2),
-    (re.compile(r"^refs/heads/(release/v(\d+)\.(\d+)\.(\d+))$"), 1),
-    (re.compile(r"^refs/heads/(release/v(\d+)\.(\d+)\.(\d+)-branch)$"), 0),
-)
-
-candidates = []
-with open(sys.argv[1], encoding="utf-8") as heads:
-    for line in heads:
-        _, ref = line.split()
-        for pattern, preference in patterns:
-            match = pattern.fullmatch(ref)
-            if not match:
-                continue
-            branch = match.group(1)
-            numbers = tuple(int(part) for part in match.groups()[1:])
-            version = numbers if len(numbers) == 3 else (*numbers, 0)
-            candidates.append((version, preference, branch))
-            break
-
-if not candidates:
-    raise SystemExit("no official release/v* branch found")
-
-print(max(candidates)[2])
-PY
+  [[ "$RELEASE_BRANCH" =~ ^release/v[0-9]+\.[0-9]+(\.[0-9]+)?(-branch)?$ ]] ||
+    die "release_branch must look like release/v6.6 or release/v6.2.0-branch"
+  [[ -n "$MAIN_REF" ]] || die "main_ref must not be empty"
 }
 
 latest_upgrade_tag() {
@@ -97,46 +68,17 @@ print(max(versions)[1])
 PY
 }
 
-version_greater_than() {
-  python3 - "$1" "$2" <<'PY'
-import re
-import sys
-
-def parse(value):
-    match = re.fullmatch(r"v(\d+)\.(\d+)(?:\.(\d+))?", value)
-    if not match:
-        raise SystemExit(f"invalid upgrade version: {value}")
-    return tuple(int(part or 0) for part in match.groups())
-
-raise SystemExit(0 if parse(sys.argv[1]) > parse(sys.argv[2]) else 1)
-PY
-}
-
-next_minor_version() {
-  python3 - "$1" "$2" <<'PY'
-import re
-import sys
-
-def parse(value):
-    match = re.fullmatch(r"v(\d+)\.(\d+)(?:\.(\d+))?", value)
-    if not match:
-        raise SystemExit(f"invalid upgrade version: {value}")
-    return tuple(int(part or 0) for part in match.groups())
-
-highest = max(parse(sys.argv[1]), parse(sys.argv[2]))
-print(f"v{highest[0]}.{highest[1] + 1}")
-PY
+has_upgrade_tag() {
+  local source_dir="$1"
+  local upgrade_name="$2"
+  grep -Fxq "$upgrade_name" "$source_dir/app/tags"
 }
 
 prepare_worktrees() {
-  if [[ -z "$RELEASE_BRANCH" ]]; then
-    RELEASE_BRANCH="$(resolve_latest_release_branch)"
-  fi
-
-  log "Pinning origin/main and $RELEASE_BRANCH"
-  git fetch --no-tags origin main
+  log "Pinning main $MAIN_REF and release $RELEASE_BRANCH"
   local main_sha
-  main_sha="$(git rev-parse FETCH_HEAD)"
+  main_sha="$(git rev-parse "$MAIN_REF^{commit}")" ||
+    die "unable to resolve main ref $MAIN_REF"
 
   git fetch --no-tags origin "$RELEASE_BRANCH"
   local release_sha
@@ -146,6 +88,7 @@ prepare_worktrees() {
   git worktree add --detach "$RELEASE_WORKTREE" "$release_sha"
 
   {
+    printf 'main_ref=%s\n' "$MAIN_REF"
     printf 'main_sha=%s\n' "$main_sha"
     printf 'release_branch=%s\n' "$RELEASE_BRANCH"
     printf 'release_sha=%s\n' "$release_sha"
@@ -158,30 +101,15 @@ prepare_upgrade_name() {
   release_upgrade="$(latest_upgrade_tag "$RELEASE_WORKTREE")"
   main_upgrade="$(latest_upgrade_tag "$MAIN_WORKTREE")"
 
-  if version_greater_than "$main_upgrade" "$release_upgrade"; then
-    UPGRADE_NAME="$main_upgrade"
-    log "Using main upgrade name $UPGRADE_NAME"
-  else
-    UPGRADE_NAME="$(next_minor_version "$main_upgrade" "$release_upgrade")"
-    log "Generating synthetic main upgrade name $UPGRADE_NAME"
-    python3 - "$MAIN_WORKTREE/app/tags" "$UPGRADE_NAME" <<'PY'
-import pathlib
-import sys
-
-tags_path = pathlib.Path(sys.argv[1])
-content = tags_path.read_bytes()
-separator = b"" if not content or content.endswith(b"\n") else b"\n"
-tags_path.write_bytes(content + separator + sys.argv[2].encode() + b"\n")
-PY
-    (
-      cd "$MAIN_WORKTREE"
-      go run ./scripts/bump_version
-    ) 2>&1 | tee "$ARTIFACT_ROOT/precompile-generation.log"
-  fi
+  ! has_upgrade_tag "$RELEASE_WORKTREE" "$UPGRADE_NAME" ||
+    die "$RELEASE_BRANCH already knows $UPGRADE_NAME; it cannot exercise that upgrade"
+  has_upgrade_tag "$MAIN_WORKTREE" "$UPGRADE_NAME" ||
+    die "main $MAIN_REF does not register $UPGRADE_NAME"
+  log "Testing $RELEASE_BRANCH ($release_upgrade) -> main with $UPGRADE_NAME"
 
   {
     printf 'release_upgrade=%s\n' "$release_upgrade"
-    printf 'main_upgrade_before_generation=%s\n' "$main_upgrade"
+    printf 'main_latest_upgrade=%s\n' "$main_upgrade"
     printf 'test_upgrade=%s\n' "$UPGRADE_NAME"
   } | tee -a "$ARTIFACT_ROOT/revisions.txt"
 }
@@ -198,8 +126,12 @@ build_binary() {
   local source_dir="$1"
   local output_path="$2"
   local label="$3"
+  local source_commit
+  local source_version
   local go_mod_cache
   local go_build_cache
+  source_commit="$(git -C "$source_dir" rev-parse HEAD)"
+  source_version="$(git -C "$source_dir" describe --tags --always)"
   go_mod_cache="$(go env GOMODCACHE)"
   go_build_cache="$(go env GOCACHE)"
   mkdir -p "$go_mod_cache" "$go_build_cache"
@@ -213,8 +145,11 @@ build_binary() {
     -v "$go_build_cache:/root/.cache/go-build:Z" \
     -w /sei-protocol/sei-chain \
     -e LEDGER_ENABLED=false \
+    -e GOFLAGS=-buildvcs=false \
+    -e "BUILD_COMMIT=$source_commit" \
+    -e "BUILD_VERSION=$source_version" \
     sei-chain/localnode \
-    bash -c 'export PATH=/usr/local/go/bin:$PATH && make clean && make build-linux'
+    bash -c 'export PATH=/usr/local/go/bin:$PATH && make clean && make VERSION="$BUILD_VERSION" COMMIT="$BUILD_COMMIT" build-linux'
 
   install -m 0755 "$source_dir/build/seid" "$output_path"
   sha256sum "$output_path" | tee "$ARTIFACT_ROOT/$label.sha256"
@@ -259,6 +194,184 @@ wait_for_node_height() {
   die "$node did not reach height $target within $timeout_seconds seconds"
 }
 
+wait_for_blocks() {
+  local node="$1"
+  local blocks="$2"
+  local start
+  start="$(height "$node")" || die "unable to query $node before waiting for blocks"
+  wait_for_node_height "$node" "$((start + blocks))" 180
+}
+
+node_key_address() {
+  local node="$1"
+  local key="$2"
+  printf '12345678\n' |
+    docker exec -i "$node" seid keys show "$key" -a 2>/dev/null
+}
+
+node_validator_address() {
+  local node="$1"
+  printf '12345678\n' |
+    docker exec -i "$node" seid keys show node_admin --bech val -a 2>/dev/null
+}
+
+require_check_tx_success() {
+  local label="$1"
+  local output="$2"
+  local code
+  code="$(jq -r '.code // 0' <<<"$output" 2>/dev/null)" ||
+    die "$label did not return JSON: $output"
+  [[ "$code" == "0" ]] ||
+    die "$label was rejected: $(jq -r '.raw_log // .' <<<"$output")"
+}
+
+feegrant_spend_limit() {
+  jq -er '
+    [
+      .. | objects | select(has("spend_limit")) |
+      .spend_limit[] | select(.denom == "usei") | .amount | tonumber
+    ][0]
+  '
+}
+
+query_module_versions() {
+  local node="$1"
+  docker exec "$node" seid q upgrade module_versions --output json |
+    jq -er '.module_versions | map(.name) | sort | .[]'
+}
+
+seed_release_oracle_rates() {
+  log "Seeding oracle exchange rates with release validator votes"
+  local configured_vote_period
+  configured_vote_period="$(
+    docker exec sei-node-0 seid q oracle params --output json |
+      jq -er '.params.vote_period | tonumber'
+  )" || die "unable to query the release oracle vote period"
+  ((configured_vote_period == ORACLE_VOTE_PERIOD)) ||
+    die "release oracle vote period is $configured_vote_period, expected $ORACLE_VOTE_PERIOD"
+
+  local attempt
+  local code
+  local current
+  local start
+  local tally_height
+  local node
+  local output_file
+  local validator
+  local rates=
+
+  for ((attempt = 1; attempt <= 3; attempt++)); do
+    current="$(height sei-node-0)"
+    start="$((current + ORACLE_VOTE_PERIOD - (current % ORACLE_VOTE_PERIOD) + 1))"
+    wait_for_node_height sei-node-0 "$start" 180
+
+    for ((i = 0; i < NODE_COUNT; i++)); do
+      node="sei-node-$i"
+      output_file="$ARTIFACT_ROOT/oracle-vote-$attempt-$i.json"
+      validator="$(node_validator_address "$node")" ||
+        die "unable to resolve the oracle validator in $node"
+      [[ -n "$validator" ]] || die "oracle validator in $node is empty"
+      if ! (
+        printf '12345678\n' |
+          docker exec -i "$node" seid tx oracle aggregate-vote \
+            "1.${attempt}uatom,2.${attempt}ueth" "$validator" \
+            --from node_admin --chain-id sei --fees 200000usei --gas 2000000 \
+            --broadcast-mode sync --yes --output json
+      ) >"$output_file" 2>"$output_file.stderr"; then
+        die "oracle vote failed in $node; see $output_file.stderr"
+      fi
+      code="$(jq -r '.code // 0' "$output_file" 2>/dev/null)" ||
+        die "oracle vote in $node did not return JSON; see $output_file"
+      [[ "$code" == "0" ]] ||
+        die "oracle vote in $node was rejected; see $output_file"
+    done
+
+    current="$(height sei-node-0)"
+    tally_height="$((current + ORACLE_VOTE_PERIOD - (current % ORACLE_VOTE_PERIOD) + 2))"
+    wait_for_node_height sei-node-0 "$tally_height" 180
+    if rates="$(docker exec sei-node-0 seid q oracle exchange-rates --output json 2>&1)" &&
+      jq -e '.denom_oracle_exchange_rate_pairs | length > 0' <<<"$rates" >/dev/null; then
+      printf '%s\n' "$rates" >"$ARTIFACT_ROOT/release-oracle-rates.json"
+      return
+    fi
+  done
+
+  die "release validators did not produce oracle exchange rates; see oracle-vote artifacts"
+}
+
+seed_release_state() {
+  log "Seeding state through modules available on the release binary"
+  FEE_GRANTER_ADDRESS="$(node_key_address sei-node-0 admin)" ||
+    die "unable to resolve the release fee granter"
+  FEE_GRANTEE_ADDRESS="$(node_key_address sei-node-0 node_admin)" ||
+    die "unable to resolve the release fee grantee"
+  [[ -n "$FEE_GRANTER_ADDRESS" && -n "$FEE_GRANTEE_ADDRESS" ]] ||
+    die "release feegrant accounts are empty"
+
+  local grant_output
+  if ! grant_output="$(
+    printf '12345678\n' |
+      docker exec -i sei-node-0 seid tx feegrant grant \
+        "$FEE_GRANTER_ADDRESS" "$FEE_GRANTEE_ADDRESS" \
+        --spend-limit 100000000usei --from admin --chain-id sei \
+        --fees 200000usei --gas 2000000 --broadcast-mode sync --yes --output json \
+        2>"$ARTIFACT_ROOT/release-feegrant-grant.stderr"
+  )"; then
+    die "release binary could not grant a fee allowance; see release-feegrant-grant.stderr"
+  fi
+  require_check_tx_success "fee allowance grant" "$grant_output"
+  wait_for_blocks sei-node-0 3
+
+  local allowance
+  allowance="$(docker exec sei-node-0 seid q feegrant grant \
+    "$FEE_GRANTER_ADDRESS" "$FEE_GRANTEE_ADDRESS" --output json 2>&1)" ||
+    die "release binary could not query the seeded fee allowance: $allowance"
+  jq -e '.allowance' <<<"$allowance" >/dev/null ||
+    die "release fee allowance was not stored: $allowance"
+  printf '%s\n' "$allowance" >"$ARTIFACT_ROOT/release-feegrant.json"
+  local allowance_before
+  allowance_before="$(feegrant_spend_limit <<<"$allowance")" ||
+    die "release fee allowance has no usei spend limit: $allowance"
+
+  local spend_output
+  if ! spend_output="$(
+    printf '12345678\n' |
+      docker exec -i sei-node-0 seid tx bank send node_admin \
+        "$FEE_GRANTER_ADDRESS" 1usei --fee-account "$FEE_GRANTER_ADDRESS" \
+        --from node_admin --chain-id sei --fees 200000usei --gas 2000000 \
+        --broadcast-mode sync --yes --output json \
+        2>"$ARTIFACT_ROOT/release-feegrant-spend.stderr"
+  )"; then
+    die "release binary could not spend the fee allowance; see release-feegrant-spend.stderr"
+  fi
+  require_check_tx_success "fee-granted bank send" "$spend_output"
+  wait_for_blocks sei-node-0 3
+
+  local allowance_after_output
+  allowance_after_output="$(docker exec sei-node-0 seid q feegrant grant \
+    "$FEE_GRANTER_ADDRESS" "$FEE_GRANTEE_ADDRESS" --output json 2>&1)" ||
+    die "release binary could not re-query the spent fee allowance: $allowance_after_output"
+  local allowance_after
+  allowance_after="$(feegrant_spend_limit <<<"$allowance_after_output")" ||
+    die "spent release fee allowance has no usei spend limit: $allowance_after_output"
+  ((allowance_after < allowance_before)) ||
+    die "fee-granted send did not consume the allowance ($allowance_before -> $allowance_after)"
+  printf '%s\n' "$allowance_after_output" \
+    >"$ARTIFACT_ROOT/release-feegrant-after-spend.json"
+
+  seed_release_oracle_rates
+
+  RELEASE_MODULE_VERSIONS="$(query_module_versions sei-node-0)" ||
+    die "unable to query release module versions"
+  printf '%s\n' "$RELEASE_MODULE_VERSIONS" >"$ARTIFACT_ROOT/release-module-versions.txt"
+
+  local module
+  for module in "${EXPECTED_REMOVED_MODULES[@]}" oracle; do
+    grep -Fxq "$module" <<<"$RELEASE_MODULE_VERSIONS" ||
+      die "release module version map does not contain $module"
+  done
+}
+
 assert_all_nodes_progress() {
   local blocks="$1"
   local label="$2"
@@ -297,7 +410,8 @@ start_release_cluster() {
     DOCKER_DETACH=true \
       DOCKER_PLATFORM=linux/amd64 \
       INVARIANT_CHECK_INTERVAL=10 \
-      UPGRADE_VERSION_LIST= \
+      ORACLE_VOTE_PERIOD="$ORACLE_VOTE_PERIOD" \
+      UPGRADE_VERSION_LIST='' \
       make docker-cluster-start-skipbuild
   )
   CLUSTER_STARTED=true
@@ -353,6 +467,9 @@ stage_main_binary() {
   local node
   local actual_hash
 
+  docker exec --user root sei-node-0 \
+    sh -c 'cp /root/go/bin/seid /tmp/seid.release && chmod 0755 /tmp/seid.release'
+
   for ((i = 0; i < NODE_COUNT; i++)); do
     node="sei-node-$i"
     docker cp "$BUILD_ROOT/main-seid" "$node:/tmp/seid.next"
@@ -377,16 +494,19 @@ seid_process_state() {
   local node="$1"
   local state
   if ! state="$(docker exec "$node" sh -c '
-    if pgrep -x seid >/dev/null 2>&1; then
-      printf running
-    else
-      status=$?
-      if [ "$status" -eq 1 ]; then
-        printf stopped
-      else
-        exit "$status"
+    for comm in /proc/[0-9]*/comm; do
+      [ -r "$comm" ] || continue
+      read -r name <"$comm" || continue
+      if [ "$name" = seid ]; then
+        process_dir="${comm%/comm}"
+        read -r stat_pid stat_comm process_state stat_rest <"$process_dir/stat" ||
+          continue
+        [ "$process_state" = Z ] && continue
+        printf running
+        exit
       fi
-    fi
+    done
+    printf stopped
   ')"; then
     die "unable to inspect the seid process in $node"
   fi
@@ -400,10 +520,41 @@ seid_process_state() {
   esac
 }
 
+stop_node_process() {
+  local node="$1"
+  docker exec "$node" sh -c '
+    for comm in /proc/[0-9]*/comm; do
+      [ -r "$comm" ] || continue
+      read -r name <"$comm" || continue
+      if [ "$name" = seid ]; then
+        process_dir="${comm%/comm}"
+        read -r stat_pid stat_comm process_state stat_rest <"$process_dir/stat" ||
+          continue
+        [ "$process_state" = Z ] && continue
+        pid="${comm#/proc/}"
+        pid="${pid%/comm}"
+        kill -TERM "$pid"
+      fi
+    done
+  ' || die "unable to stop seid in $node"
+
+  local deadline=$((SECONDS + 60))
+  while ((SECONDS < deadline)); do
+    if [[ "$(seid_process_state "$node")" == stopped ]]; then
+      return
+    fi
+    sleep 1
+  done
+  die "seid in $node did not stop within 60 seconds"
+}
+
 install_main_binary() {
   local node_id="$1"
   local node="sei-node-$node_id"
   local actual_hash
+
+  docker exec "$node" test -f /root/.sei/data/upgrade-info.json ||
+    die "$node halted without writing upgrade-info.json"
 
   log "Installing main on $node"
   mkdir -p "$ARTIFACT_ROOT/pre-upgrade-logs"
@@ -428,7 +579,8 @@ start_main_binary() {
 
 upgrade_nodes_as_they_halt() {
   log "Supervising each validator through the upgrade at height $TARGET_HEIGHT"
-  local deadline=$((SECONDS + 360))
+  local timeout_seconds=$((UPGRADE_LEAD_SECONDS + 360))
+  local deadline=$((SECONDS + timeout_seconds))
   local upgraded_count=0
   local ready_count=0
   local current
@@ -501,9 +653,9 @@ upgrade_nodes_as_they_halt() {
   done
 
   ((upgraded_count == NODE_COUNT)) ||
-    die "only $upgraded_count of $NODE_COUNT validators halted and upgraded within 360 seconds"
+    die "only $upgraded_count of $NODE_COUNT validators halted and upgraded within $timeout_seconds seconds"
   ((ready_count == NODE_COUNT)) ||
-    die "only $ready_count of $NODE_COUNT upgraded validators became ready within 360 seconds"
+    die "only $ready_count of $NODE_COUNT upgraded validators became ready within $timeout_seconds seconds"
 
   for ((i = 0; i < NODE_COUNT; i++)); do
     state="$(seid_process_state "sei-node-$i")"
@@ -511,6 +663,143 @@ upgrade_nodes_as_they_halt() {
       die "sei-node-$i is not running after the coordinated upgrade"
   done
   verify_running_binary_hash "$MAIN_BINARY_HASH" main
+}
+
+assert_v67_upgrade() {
+  log "Asserting the v6.7 module retirement"
+  local applied_output
+  applied_output="$(docker exec sei-node-0 \
+    seid q upgrade applied "$UPGRADE_NAME" --output json 2>&1)" ||
+    die "unable to query applied plan $UPGRADE_NAME: $applied_output"
+
+  local applied_height
+  applied_height="$(jq -er '.header.height | tonumber' <<<"$applied_output")" ||
+    die "applied plan $UPGRADE_NAME has no height: $applied_output"
+  ((applied_height == TARGET_HEIGHT)) ||
+    die "$UPGRADE_NAME applied at height $applied_height, expected $TARGET_HEIGHT"
+  printf 'applied_height=%s\n' "$applied_height" |
+    tee -a "$ARTIFACT_ROOT/revisions.txt"
+
+  local main_module_versions
+  main_module_versions="$(query_module_versions sei-node-0)" ||
+    die "unable to query main module versions"
+  printf '%s\n' "$main_module_versions" \
+    >"$ARTIFACT_ROOT/main-module-versions.txt"
+
+  local removed_modules
+  local expected_removed
+  removed_modules="$(
+    comm -23 \
+      <(printf '%s\n' "$RELEASE_MODULE_VERSIONS") \
+      <(printf '%s\n' "$main_module_versions")
+  )"
+  expected_removed="$(printf '%s\n' "${EXPECTED_REMOVED_MODULES[@]}" | sort)"
+  [[ "$removed_modules" == "$expected_removed" ]] ||
+    die "unexpected removed module versions; expected [$expected_removed], got [$removed_modules]"
+
+  grep -Fxq oracle <<<"$main_module_versions" ||
+    die "main module version map no longer contains oracle"
+
+  local feegrant_output
+  feegrant_output="$(
+    printf '12345678\n' |
+      docker exec -i sei-node-0 seid tx bank send node_admin \
+        "$FEE_GRANTER_ADDRESS" 1usei --fee-account "$FEE_GRANTER_ADDRESS" \
+        --from node_admin --chain-id sei --fees 200000usei --gas 2000000 \
+        --broadcast-mode sync --yes --output json 2>&1 || true
+  )"
+  printf '%s\n' "$feegrant_output" >"$ARTIFACT_ROOT/main-feegrant-response.txt"
+  grep -Fq "fee grants are not enabled" <<<"$feegrant_output" ||
+    die "main did not reject the previously valid fee-granted send: $feegrant_output"
+
+  local oracle_output
+  oracle_output="$(
+    docker exec sei-node-0 seid q oracle exchange-rates --output json 2>&1 || true
+  )"
+  printf '%s\n' "$oracle_output" >"$ARTIFACT_ROOT/main-oracle-response.txt"
+  grep -Fq "oracle module is deprecated" <<<"$oracle_output" ||
+    die "main did not deprecate the release oracle query: $oracle_output"
+}
+
+export_node_state() {
+  local binary_path="$1"
+  local label="$2"
+  local raw_output="$ARTIFACT_ROOT/$label.raw"
+  local json_output="$ARTIFACT_ROOT/$label.json"
+  local error_output="$ARTIFACT_ROOT/$label.stderr"
+  local exported=false
+  local attempt
+
+  for ((attempt = 1; attempt <= 10; attempt++)); do
+    if docker exec sei-node-0 "$binary_path" export --home /root/.sei --chain-id sei \
+      >"$raw_output" 2>"$error_output"; then
+      exported=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "$exported" == true ]] || return 1
+
+  if ! python3 - "$raw_output" "$json_output" <<'PY'
+import json
+import pathlib
+import sys
+
+raw_path = pathlib.Path(sys.argv[1])
+output_path = pathlib.Path(sys.argv[2])
+text = raw_path.read_text(encoding="utf-8", errors="replace")
+decoder = json.JSONDecoder()
+offset = 0
+
+for line in text.splitlines(keepends=True):
+    stripped = line.lstrip()
+    if stripped.startswith("{"):
+        start = offset + len(line) - len(stripped)
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            pass
+        else:
+            if isinstance(value, dict) and "app_state" in value:
+                output_path.write_text(
+                    json.dumps(value, separators=(",", ":")) + "\n",
+                    encoding="utf-8",
+                )
+                break
+    offset += len(line)
+else:
+    raise SystemExit("no genesis document found")
+PY
+  then
+    return 1
+  fi
+}
+
+verify_retained_state() {
+  log "Verifying retired state through both binaries"
+  stop_node_process sei-node-0
+
+  export_node_state /root/go/bin/seid main-export ||
+    die "main export failed; see main-export.stderr"
+  jq -e '
+    (.app_state | has("feegrant") | not) and
+    (.app_state | has("capability") | not) and
+    (.app_state | has("ibc") | not) and
+    (.app_state | has("transfer") | not) and
+    (.app_state.oracle.exchange_rates | length > 0)
+  ' "$ARTIFACT_ROOT/main-export.json" >/dev/null ||
+    die "main export did not omit retired modules while retaining oracle rates"
+
+  if export_node_state /tmp/seid.release release-export-after-upgrade; then
+    jq -e '
+      (.app_state.feegrant.allowances | length > 0) and
+      (.app_state | has("capability")) and
+      (.app_state.oracle.exchange_rates | length > 0)
+    ' "$ARTIFACT_ROOT/release-export-after-upgrade.json" >/dev/null ||
+      die "release export lost retained feegrant, capability, or oracle state"
+  else
+    log "Release binary could not export upgraded state; keeping its diagnostics"
+  fi
 }
 
 verify_post_upgrade() {
@@ -525,21 +814,15 @@ verify_post_upgrade() {
 
   assert_all_nodes_progress 3 "post-upgrade"
 
-  local minimum=
-  local maximum=0
   local current
   for ((i = 0; i < NODE_COUNT; i++)); do
     current="$(height "sei-node-$i")"
-    ((current > maximum)) && maximum="$current"
-    if [[ -z "$minimum" ]] || ((current < minimum)); then
-      minimum="$current"
-    fi
+    printf 'post_upgrade_node_%s_height=%s\n' "$i" "$current" |
+      tee -a "$ARTIFACT_ROOT/revisions.txt"
   done
-  ((maximum - minimum <= 3)) ||
-    die "validators are not synchronized after upgrade (min=$minimum max=$maximum)"
 
-  printf 'post_upgrade_min_height=%s\n' "$minimum" |
-    tee -a "$ARTIFACT_ROOT/revisions.txt"
+  assert_v67_upgrade
+  verify_retained_state
   log "Upgrade $UPGRADE_NAME succeeded"
 }
 
@@ -573,6 +856,7 @@ cleanup() {
   fi
   git -C "$REPO_ROOT" worktree remove --force "$MAIN_WORKTREE" 2>/dev/null
   git -C "$REPO_ROOT" worktree remove --force "$RELEASE_WORKTREE" 2>/dev/null
+  git -C "$REPO_ROOT" worktree prune
   exit "$exit_code"
 }
 
@@ -587,6 +871,7 @@ main() {
   build_binary "$RELEASE_WORKTREE" "$BUILD_ROOT/release-seid" release
   build_binary "$MAIN_WORKTREE" "$BUILD_ROOT/main-seid" main
   start_release_cluster
+  seed_release_state
   stage_main_binary
   submit_upgrade
   upgrade_nodes_as_they_halt
