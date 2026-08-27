@@ -28,28 +28,39 @@
 // anywhere, and seid init has to write one for a new node. Neither exists yet, which is why the gate
 // defaults to the legacy manager.
 //
-// # Delivering a value
+// # Two deliveries, because a node reads a setting two ways
 //
-// A node reads a setting one of two ways, and only one of them can be delivered from here today. Most
-// settings are looked up by name from a source the boot builds, so a resolved value reaches them by being
-// installed into that source. The settings the node's own configuration file carries are read once, by
+// Most settings are looked up by name from a source the boot builds, so a resolved value reaches them by
+// being installed into that source. The settings the node's own configuration file carries are read once, by
 // decoding that file into a struct before any lookup happens, so a value installed into the source
-// afterwards reaches nothing at all. Those sections are identified and deliberately left out of the
-// install, because installing a value that changes nothing is worse than not installing it: it reads as
-// applied everywhere except in the node. They are reported instead, and delivered by the change after this
-// one.
+// afterwards reaches nothing at all. Those are decoded into a copy of the struct and published into it.
+//
+// A section names which of the two it needs, and the registry answers for the name. Nothing can tell from
+// the outside: both look like a key with a value.
+//
+// # Precedence
+//
+// A value in sei.toml wins over the same key in app.toml or config.toml. The node's own files are read
+// first and sei.toml is delivered on top, so for a key both state, the running node uses sei.toml's and the
+// other file still says what it said.
+//
+// That is why the reports name every key that moved. After the delivery, neither of the node's own files
+// describes what it is running, and nothing else does either.
 //
 // # Refusing nothing
 //
 // Nothing here can stop a node starting. A missing sei.toml, an unreadable one, a mode this binary does not
-// know, a value the install refuses, or a panic in the delivery itself all leave every key reading as it
-// always has, and the node starts. A mistyped line in a hand-edited file must not become an outage on the
-// next restart.
+// know, a value that decodes to something other than what it says, or a panic in the delivery itself all
+// leave every key reading as it always has, and the node starts. A mistyped line in a hand-edited file must
+// not become an outage on the next restart.
+//
+// A refusal is per section, not per file, because a decode is all or nothing for whatever it is handed. An
+// operator who fixes one setting and mistypes another gets the first one.
 //
 // What that costs is that a value which does not arrive is reported rather than refused, which makes these
 // reports the only signal an operator has. So they are held at a floor that survives a fleet running its
-// nodes quiet, without lowering a level an operator raised; they name the source they are about; and they
-// are bounded, because a report that fires on every boot is one nobody reads.
+// nodes quiet, without lowering a level an operator raised; they name the source they are about; they carry
+// no password; and they are bounded, because a report that fires on every boot is one nobody reads.
 //
 // Deferred: a path that writes sei.toml, so a node's configuration can be rendered from its existing files
 // rather than only read out of a file somebody has to author by hand.

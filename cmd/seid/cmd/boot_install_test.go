@@ -188,7 +188,8 @@ func TestEveryDeclaredKeyIsInstalled(t *testing.T) {
 func TestAppTomlDoesNotReachTheFlagChannel(t *testing.T) {
 	const key = "state-sync.snapshot-keep-recent"
 	if _, declared := declaredKey(key); !declared {
-		t.Skipf("%s is not declared, so this cannot happen through it", key)
+		t.Fatalf("%s is not declared, so this test cannot reach the inversion it exists for. Skipping "+
+			"instead would leave the only guard on it passing while measuring nothing", key)
 	}
 	configtest.Isolate(t)
 
@@ -230,15 +231,18 @@ func TestAppTomlDoesNotReachTheFlagChannel(t *testing.T) {
 // accepted, which measures the absence of a value rather than the refusal.
 func TestAFileThisBinaryCannotUseLeavesTheNodeAsItWas(t *testing.T) {
 	supplies := "\n[evm]\nmax_tx_pool_txs = 111\n"
-	for name, body := range map[string]string{
-		"no file at all":       "",
-		"a mode nothing knows": "schema_version = 1\nnode_mode = \"sentry\"\n" + supplies,
-		"no mode at all":       "schema_version = 1\n" + supplies,
-		"not parseable":        "schema_version = 1\nnode_mode = \"validator\"\n[evm\n" + supplies,
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"no file at all", ""},
+		{"a mode nothing knows", "schema_version = 1\nnode_mode = \"sentry\"\n" + supplies},
+		{"no mode at all", "schema_version = 1\n" + supplies},
+		{"not parseable", "schema_version = 1\nnode_mode = \"validator\"\n[evm\n" + supplies},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			configtest.Isolate(t)
-			ctx := bootWith(t, body, nil)
+			ctx := bootWith(t, tc.body, nil)
 			if got := ctx.Viper.Get(bootProbeKey); got != nil {
 				t.Errorf("%s reads %#v, so a value was installed from a file this binary cannot use. "+
 					"A node whose file names a mode this binary does not know would run one mode's "+

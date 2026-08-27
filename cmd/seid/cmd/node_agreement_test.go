@@ -123,13 +123,5 @@ func whatTheBootGenerates(t *testing.T) map[string]string {
 		t.Fatal("the boot produced no node configuration")
 	}
 
-	var keys []string
-	for name := range registry.DecodedSections() {
-		section, ok := registry.Lookup(name)
-		if !ok {
-			continue
-		}
-		keys = append(keys, section.Keys...)
-	}
-	return configmanager.DescribeForTest(ctx.Config, keys)
+	return configmanager.DescribeForTest(t, ctx.Config, keysADecodeDelivers())
 }

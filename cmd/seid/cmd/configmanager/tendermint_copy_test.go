@@ -101,6 +101,10 @@ func splitPath(path string) []string {
 }
 
 // shares reports whether two values point at the same memory.
+//
+// An interface is followed to what it holds. Without that case every interface-typed field answers "not
+// shared" whatever it holds, and this type carries nine of them, so the assertion using this would pass for
+// two fields holding the identical pointer.
 func shares(a, b reflect.Value) bool {
 	if a.Kind() != b.Kind() {
 		return false
@@ -110,6 +114,60 @@ func shares(a, b reflect.Value) bool {
 		return !a.IsNil() && !b.IsNil() && a.Pointer() == b.Pointer()
 	case reflect.Slice:
 		return a.Len() > 0 && b.Len() > 0 && a.Pointer() == b.Pointer()
+	case reflect.Interface:
+		return !a.IsNil() && !b.IsNil() && shares(a.Elem(), b.Elem())
 	}
 	return false
+}
+
+// TestPublishingKeepsThePointerEverySectionIsHeldBy is the property the delivery rests on, and nothing
+// else in the node states it.
+//
+// A component takes a section rather than the configuration that holds it, so it keeps a pointer of its own
+// from whenever it was built. Assigning the whole configuration replaces every one of those pointers with a
+// fresh one, which leaves each holder reading the values its section had before the delivery ran. The
+// delivery would then be correct only because it happens to run before anything is built, and nothing
+// states that order or fails when it changes.
+//
+// Driven from the type, so a section added to the node's configuration is covered without this changing.
+func TestPublishingKeepsThePointerEverySectionIsHeldBy(t *testing.T) {
+	target := tmcfg.DefaultConfig()
+	candidate, err := copyNodeConfig(target)
+	if err != nil {
+		t.Fatalf("copyNodeConfig: %v", err)
+	}
+
+	held := map[string]uintptr{}
+	held4321 := reflect.ValueOf(target).Elem()
+	for i := 0; i < held4321.NumField(); i++ {
+		f := held4321.Type().Field(i)
+		if f.Type.Kind() != reflect.Pointer || f.Type.Elem().Kind() != reflect.Struct {
+			continue
+		}
+		if held4321.Field(i).IsNil() {
+			continue
+		}
+		held[f.Name] = held4321.Field(i).Pointer()
+	}
+	if len(held) == 0 {
+		t.Fatal("this configuration holds no section behind a pointer of its own, so there is no identity " +
+			"here to keep and this test measures nothing")
+	}
+
+	candidate.Mempool.Size = 4321
+	if err := publishNodeConfig(target, candidate); err != nil {
+		t.Fatalf("publishNodeConfig: %v", err)
+	}
+
+	after := reflect.ValueOf(target).Elem()
+	for name, was := range held {
+		if got := after.FieldByName(name).Pointer(); got != was {
+			t.Errorf("%s sits behind a different pointer after the delivery, so a component that took it "+
+				"beforehand goes on reading the values it had before", name)
+		}
+	}
+	if got := target.Mempool.Size; got != 4321 {
+		t.Errorf("the delivered value reads %d, want 4321. Keeping the pointer is only worth anything if "+
+			"the value arrives through it", got)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -53,4 +54,58 @@ func asUint(t *testing.T, v any) uint64 {
 		t.Fatalf("the declared value %v is not a number: %v", v, err)
 	}
 	return n
+}
+
+// TestAPasswordInASettingDoesNotReachTheReport covers the one value here that is a secret.
+//
+// The transaction index can be told to write to PostgreSQL, and it is told so with a connection string that
+// carries the password in it. This report is the only place the running configuration is written down,
+// which makes it the only place that password reaches a log file, a journal and whatever ships them onward.
+// The node's own configuration file holds the same string, and nothing there reads it out to a log.
+//
+// The report cannot be turned down either: this package holds its own logger at a floor so a quiet fleet
+// still sees what a delivery changed.
+func TestAPasswordInASettingDoesNotReachTheReport(t *testing.T) {
+	const password = "sup3rs3cret"
+	const dsn = "postgres://seid:" + password + "@10.0.0.9:5432/idx"
+
+	var out bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	reportWhatMoved("tx-index",
+		[]string{"tx-index.psql-conn"},
+		map[string]string{"tx-index.psql-conn": ""},
+		map[string]string{"tx-index.psql-conn": dsn},
+		log)
+
+	if strings.Contains(out.String(), password) {
+		t.Errorf("the report carries the password from a connection string: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "10.0.0.9:5432") {
+		t.Errorf("the report no longer says where the index writes, so an operator cannot tell what "+
+			"moved: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "tx-index.psql-conn") {
+		t.Errorf("the report does not name the key that moved: %s", out.String())
+	}
+}
+
+// TestAValueWithNoPasswordIsReportedAsWritten keeps the redaction from rewriting ordinary values.
+//
+// Most settings are not connection strings, and a value an operator reads back has to be the one they
+// wrote. A path, a host and port, and a list of words all parse as something a URL parser accepts, so the
+// narrow case is what has to be detected rather than anything that parses.
+func TestAValueWithNoPasswordIsReportedAsWritten(t *testing.T) {
+	for _, value := range []string{
+		"tcp://0.0.0.0:26656",
+		"/var/lib/sei/data",
+		"kv",
+		"",
+		"postgres://seid@10.0.0.9:5432/idx",
+		"a,b,c",
+	} {
+		if got := withoutCredentials(value); got != value {
+			t.Errorf("%q is reported as %q, and an operator reading it back has to see what they wrote",
+				value, got)
+		}
+	}
 }
