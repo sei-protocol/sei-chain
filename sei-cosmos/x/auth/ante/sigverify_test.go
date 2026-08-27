@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types/multisig"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/legacy/legacytx"
@@ -116,6 +117,49 @@ func (suite *AnteTestSuite) TestConsumeSignatureVerificationGas() {
 			suite.Require().Equal(tt.gasConsumed, tt.args.meter.GasConsumed(), fmt.Sprintf("%d != %d", tt.gasConsumed, tt.args.meter.GasConsumed()))
 		}
 	}
+}
+
+func (suite *AnteTestSuite) TestSigGasConsumeDecoratorRejectsMultisigSimulation() {
+	suite.SetupTest(true)
+
+	pubKeys, _ := generatePubKeysAndSignatures(2, []byte("sign bytes"), false)
+	multisigKey := kmultisig.NewLegacyAminoPubKey(2, pubKeys)
+	signer := sdk.AccAddress(multisigKey.Address())
+	account := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, signer)
+	suite.Require().NoError(account.SetPubKey(multisigKey))
+	suite.app.AccountKeeper.SetAccount(suite.ctx, account)
+
+	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
+	suite.Require().NoError(suite.txBuilder.SetMsgs(testdata.NewTestMsg(signer)))
+	suite.Require().NoError(suite.txBuilder.SetSignatures(signing.SignatureV2{
+		PubKey: multisigKey,
+		Data:   multisig.NewMultisig(len(pubKeys)),
+	}))
+
+	consumerCalled := false
+	decorator := ante.NewSigGasConsumeDecorator(
+		suite.app.AccountKeeper,
+		func(sdk.GasMeter, signing.SignatureV2, types.Params) error {
+			consumerCalled = true
+			return nil
+		},
+	)
+	nextCalled := false
+	next := func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		nextCalled = true
+		return ctx, nil
+	}
+
+	_, err := decorator.AnteHandle(suite.ctx, suite.txBuilder.GetTx(), true, next)
+	suite.Require().ErrorIs(err, sdkerrors.ErrNotSupported)
+	suite.Require().ErrorContains(err, "multisig transaction simulation is not supported")
+	suite.Require().False(consumerCalled)
+	suite.Require().False(nextCalled)
+
+	_, err = decorator.AnteHandle(suite.ctx, suite.txBuilder.GetTx(), false, next)
+	suite.Require().NoError(err)
+	suite.Require().True(consumerCalled)
+	suite.Require().True(nextCalled)
 }
 
 func (suite *AnteTestSuite) TestSigVerification() {

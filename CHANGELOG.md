@@ -36,6 +36,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * [#3990](https://github.com/sei-protocol/sei-chain/pull/3990) Freeze mode is limited to full nodes and disables transaction and evidence submission, mempool gossip, and state sync from startup while preserving query RPC and mempool-backed reads. Frozen and Autobahn nodes no longer advertise the unused mempool P2P channel.
 
 ### Upgrade guide
+* **Native multisig simulation.** Cosmos transaction simulation now rejects native multisig transactions. Single-signature Cosmos transactions and EVM JSON-RPC simulation are unaffected.
 * **IBC core removal.** Removes the retired IBC core source, protobufs, light clients, CLI, and simulation support. Retired IBC stores remain mounted but are omitted from `export-genesis`; preserve the state database or use v6.6 freeze nodes for historical IBC data.
 * **IBC transfer removal.** Removes ICS-20 execution, module APIs, CLI commands, CosmWasm transfer messages, transfer codecs, and transfer keeper integration, including the IBC EVM precompile's keeper injection. The transfer store and module account remain materialized for state compatibility. Transfer queries, historical transfer transaction decoding, and pre-v6.7 IBC precompile tracing must be served by v6.6 freeze nodes; v6.7 nodes do not provide them.
 * **IBC query removal.** Removes the IBC core gRPC, REST, Protobuf, raw ABCI store, and native CosmWasm query APIs, along with CLI query commands. Historical IBC queries must be served by v6.6 freeze nodes.

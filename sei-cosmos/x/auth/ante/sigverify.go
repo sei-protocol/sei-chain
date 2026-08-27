@@ -186,6 +186,10 @@ func (sgcd SigGasConsumeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simula
 			Sequence: sig.Sequence,
 		}
 
+		if err := rejectMultisigSimulation(simulate, sig); err != nil {
+			return ctx, err
+		}
+
 		err = sgcd.sigGasConsumer(ctx.GasMeter(), sig, params)
 		if err != nil {
 			return ctx, err
@@ -193,6 +197,18 @@ func (sgcd SigGasConsumeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simula
 	}
 
 	return next(ctx, tx, simulate)
+}
+
+func rejectMultisigSimulation(simulate bool, sig signing.SignatureV2) error {
+	if !simulate {
+		return nil
+	}
+	_, hasMultisigKey := sig.PubKey.(multisig.PubKey)
+	_, hasMultisigData := sig.Data.(*signing.MultiSignatureData)
+	if hasMultisigKey || hasMultisigData {
+		return sdkerrors.Wrap(sdkerrors.ErrNotSupported, "multisig transaction simulation is not supported")
+	}
+	return nil
 }
 
 // Verify all signatures for a tx and return an error if any are invalid. Note,
