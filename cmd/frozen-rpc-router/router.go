@@ -49,11 +49,12 @@ var blockParameterIndexes = map[string]int{
 }
 
 type router struct {
-	live               *upstream
-	frozen             []*upstream
-	client             *http.Client
-	maxRequestBodySize int64
-	liveProxy          *httputil.ReverseProxy
+	live                   *upstream
+	frozen                 []*upstream
+	client                 *http.Client
+	maxRequestBodySize     int64
+	maxBlockReferenceDepth int
+	liveProxy              *httputil.ReverseProxy
 }
 
 type upstream struct {
@@ -94,7 +95,7 @@ type batchGroup struct {
 	err       error
 }
 
-func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *http.Client, maxRequestBodySize int64) (*router, error) {
+func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *http.Client, maxRequestBodySize int64, maxBlockReferenceDepth int) (*router, error) {
 	liveURL, err := parseEndpoint(liveAddress)
 	if err != nil {
 		return nil, fmt.Errorf("invalid live node: %w", err)
@@ -104,6 +105,9 @@ func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *htt
 	}
 	if maxRequestBodySize <= 0 {
 		return nil, errors.New("maximum request body size must be positive")
+	}
+	if maxBlockReferenceDepth <= 0 {
+		return nil, errors.New("maximum block reference depth must be positive")
 	}
 
 	live := &upstream{endpoint: liveURL}
@@ -130,11 +134,12 @@ func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *htt
 	liveProxy := httputil.NewSingleHostReverseProxy(liveURL)
 	liveProxy.Transport = client.Transport
 	return &router{
-		live:               live,
-		frozen:             frozen,
-		client:             client,
-		maxRequestBodySize: maxRequestBodySize,
-		liveProxy:          liveProxy,
+		live:                   live,
+		frozen:                 frozen,
+		client:                 client,
+		maxRequestBodySize:     maxRequestBodySize,
+		maxBlockReferenceDepth: maxBlockReferenceDepth,
+		liveProxy:              liveProxy,
 	}, nil
 }
 
@@ -377,7 +382,7 @@ func (r *router) route(call rpcCall) (*upstream, *rpcError) {
 		if !ok {
 			return r.live, nil
 		}
-		return r.upstreamForReference(parseBlockReference(parameter)), nil
+		return r.upstreamForReference(r.parseBlockReference(parameter)), nil
 	}
 }
 
@@ -403,10 +408,10 @@ func (r *router) routeGetLogs(params json.RawMessage) (*upstream, *rpcError) {
 	from := blockReference{live: true}
 	to := blockReference{live: true}
 	if hasFrom {
-		from = parseBlockReference(fromRaw)
+		from = r.parseBlockReference(fromRaw)
 	}
 	if hasTo {
-		to = parseBlockReference(toRaw)
+		to = r.parseBlockReference(toRaw)
 	}
 	return r.routeRange(from, to)
 }
@@ -421,7 +426,7 @@ func (r *router) routeFeeHistory(params json.RawMessage) (*upstream, *rpcError) 
 	if !ok {
 		return r.live, nil
 	}
-	last := parseBlockReference(lastRaw)
+	last := r.parseBlockReference(lastRaw)
 	if !last.known || last.live {
 		return r.live, nil
 	}
@@ -466,38 +471,45 @@ func (r *router) upstreamForReference(reference blockReference) *upstream {
 	return r.live
 }
 
-func parseBlockReference(raw json.RawMessage) blockReference {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return blockReference{}
-	}
-	if trimmed[0] == '{' {
-		var object map[string]json.RawMessage
-		if json.Unmarshal(trimmed, &object) != nil {
+func (r *router) parseBlockReference(raw json.RawMessage) blockReference {
+	for depth := 0; depth <= r.maxBlockReferenceDepth; depth++ {
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 			return blockReference{}
 		}
-		blockNumber, ok := object["blockNumber"]
-		if !ok {
-			return blockReference{}
+		if trimmed[0] == '{' {
+			if depth == r.maxBlockReferenceDepth {
+				return blockReference{}
+			}
+			var object map[string]json.RawMessage
+			if json.Unmarshal(trimmed, &object) != nil {
+				return blockReference{}
+			}
+			blockNumber, ok := object["blockNumber"]
+			if !ok {
+				return blockReference{}
+			}
+			raw = blockNumber
+			continue
 		}
-		return parseBlockReference(blockNumber)
-	}
 
-	var value string
-	if json.Unmarshal(trimmed, &value) != nil {
-		return blockReference{}
+		var value string
+		if json.Unmarshal(trimmed, &value) != nil {
+			return blockReference{}
+		}
+		switch value {
+		case "earliest":
+			return blockReference{height: 0, known: true}
+		case "latest", "pending", "safe", "finalized":
+			return blockReference{live: true}
+		}
+		height, err := strconv.ParseUint(strings.TrimPrefix(value, "0x"), 16, 64)
+		if err != nil || !strings.HasPrefix(value, "0x") || height > math.MaxInt64 {
+			return blockReference{}
+		}
+		return blockReference{height: height, known: true}
 	}
-	switch value {
-	case "earliest":
-		return blockReference{height: 0, known: true}
-	case "latest", "pending", "safe", "finalized":
-		return blockReference{live: true}
-	}
-	height, err := strconv.ParseUint(strings.TrimPrefix(value, "0x"), 16, 64)
-	if err != nil || !strings.HasPrefix(value, "0x") || height > math.MaxInt64 {
-		return blockReference{}
-	}
-	return blockReference{height: height, known: true}
+	return blockReference{}
 }
 
 func parseQuantity(raw json.RawMessage) (uint64, bool) {
