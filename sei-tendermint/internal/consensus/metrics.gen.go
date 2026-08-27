@@ -179,8 +179,8 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_parts",
-			Help:      "Number of block parts transmitted by each peer.",
-		}, []string{"peer_id"}),
+			Help:      "Number of block parts received from peers.",
+		}, nil),
 		StepDuration: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -266,7 +266,7 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "late_votes",
-			Help:      "Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.",
+			Help:      "Number of late votes received by the node, labeled by validator address for the current validator set or other.",
 		}, []string{"validator_address"}),
 		FinalRound: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
@@ -401,8 +401,8 @@ func (m *Metrics) StateSyncingAt() *tmprometheus.GaugeInt {
 	return m.StateSyncing.WithLabelValues()
 }
 
-func (m *Metrics) BlockPartsAt(peer_id string) *tmprometheus.CounterInt {
-	return m.BlockParts.WithLabelValues(peer_id)
+func (m *Metrics) BlockPartsAt() *tmprometheus.CounterInt {
+	return m.BlockParts.WithLabelValues()
 }
 
 func (m *Metrics) StepDurationAt(step string) *tmprometheus.Histogram {
