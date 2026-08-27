@@ -47,9 +47,9 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 }
 
 // Sei commits blocks more often than once a second, so the seconds-only
-// Ethereum "timestamp" repeats across consecutive blocks. timestampMs carries
+// Ethereum "timestamp" repeats across consecutive blocks. milliTimestamp carries
 // the sub-second part the Tendermint header already holds.
-func TestEncodeTmBlockTimestampMs(t *testing.T) {
+func TestEncodeTmBlockMilliTimestamp(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	header := mockBlockHeader(MockHeight8)
@@ -69,7 +69,7 @@ func TestEncodeTmBlockTimestampMs(t *testing.T) {
 	require.Nil(t, err)
 
 	require.Equal(t, hexutil.Uint64(1696941649), result["timestamp"])
-	require.Equal(t, hexutil.Uint64(1696941649125), result["timestampMs"])
+	require.Equal(t, hexutil.Uint64(1696941649125), result["milliTimestamp"])
 }
 
 func TestEncodeBankMsg(t *testing.T) {

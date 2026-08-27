@@ -457,7 +457,7 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
 		"stateRoot":             appHash,
 		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()),      //nolint:gosec
-		"timestampMs":           hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
+		"milliTimestamp":        hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      common.Hash{},                               // see function doc
 		"mixHash":               common.Hash{},                               // inapplicable to Sei
 		"excessBlobGas":         hexutil.Uint64(0),                           // inapplicable to Sei
@@ -499,7 +499,7 @@ func encodeTmHeader(
 		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
 		"stateRoot":             appHash,
 		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),      //nolint:gosec
-		"timestampMs":           hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
+		"milliTimestamp":        hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot":      txHash,
 		"mixHash":               common.Hash{},     // inapplicable to Sei
 		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei

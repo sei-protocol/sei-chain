@@ -56,7 +56,7 @@ func encodeGenesisBlock() map[string]any {
 		"gasLimit":         hexutil.Uint64(0),
 		"gasUsed":          hexutil.Uint64(0),
 		"timestamp":        hexutil.Uint64(0),
-		"timestampMs":      hexutil.Uint64(0), // Sei-only, see EncodeTmBlock
+		"milliTimestamp":   hexutil.Uint64(0), // BEP-520-compatible, see EncodeTmBlock
 		"transactionsRoot": common.Hash{},
 		"receiptsRoot":     common.Hash{},
 		"size":             hexutil.Uint64(0),
@@ -422,8 +422,8 @@ func EncodeTmBlock(
 	}
 	// "timestamp" stays in whole seconds because every Ethereum client reads it
 	// that way, and Sei block intervals are shorter than a second, so it repeats
-	// across consecutive blocks. "timestampMs" is the Sei-only companion exposing
-	// the sub-second precision the Tendermint header already carries.
+	// across consecutive blocks. "milliTimestamp" is the BEP-520-compatible
+	// companion exposing the sub-second precision the Tendermint header already carries.
 	result := map[string]any{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
@@ -439,7 +439,7 @@ func EncodeTmBlock(
 		"gasLimit":         hexutil.Uint64(gasLimit),                     //nolint:gosec
 		"gasUsed":          hexutil.Uint64(blockGasUsed),                 //nolint:gosec
 		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),      //nolint:gosec
-		"timestampMs":      hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec
+		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec
 		"transactionsRoot": txHash,
 		"receiptsRoot":     resultHash,
 		"size":             hexutil.Uint64(block.Block.Size()), //nolint:gosec

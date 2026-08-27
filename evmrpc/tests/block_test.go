@@ -53,16 +53,16 @@ func TestGetBlockByNumber(t *testing.T) {
 	)
 }
 
-// Covers the Sei-only timestampMs over the real JSON-RPC transport, including the
+// Covers the BEP-520-compatible milliTimestamp over the real JSON-RPC transport, including the
 // synthetic genesis block, which is encoded by a different function than the rest.
 //
 // This pins encoding and presence at second granularity only: mockBlockHeader builds
 // its time with time.Unix(_, 0), so UnixMilli() here is just Unix()*1000, and its
 // nanoseconds cannot be changed without moving the block hashes the rest of this
 // package asserts against. The millisecond value is proven where a fractional-second
-// header is available: TestEncodeTmBlockTimestampMs for the encoder, and
+// header is available: TestEncodeTmBlockMilliTimestamp for the encoder, and
 // TestSubscribeNewHeadsAutobahn over the WS transport.
-func TestGetBlockTimestampMs(t *testing.T) {
+func TestGetBlockMilliTimestamp(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
@@ -70,12 +70,12 @@ func TestGetBlockTimestampMs(t *testing.T) {
 			block := res["result"].(map[string]interface{})
 			blockTime := mockBlockHeader(2).Time
 			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.Unix())), block["timestamp"])
-			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.UnixMilli())), block["timestampMs"])
+			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.UnixMilli())), block["milliTimestamp"])
 
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", false)
 			genesis := res["result"].(map[string]interface{})
 			require.Equal(t, "0x0", genesis["timestamp"])
-			require.Equal(t, "0x0", genesis["timestampMs"])
+			require.Equal(t, "0x0", genesis["milliTimestamp"])
 		},
 	)
 }
