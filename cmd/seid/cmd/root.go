@@ -145,6 +145,7 @@ func initRootCmd(
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
 		config.Cmd(),
+		seiConfigCmd(),
 		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
@@ -476,4 +477,17 @@ supply_enabled = {{ .LightInvariance.SupplyEnabled }}
 `
 
 	return customAppTemplate, customAppConfig
+}
+
+// seiConfigCmd groups the commands that answer questions about a node's sei.toml.
+//
+// Its own group rather than a subcommand of the existing configuration command, which reads and writes the
+// files this one is about rather than the file that replaces them.
+func seiConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sei-config",
+		Short: "Inspect the node's sei.toml",
+	}
+	cmd.AddCommand(configmanager.CheckCmd())
+	return cmd
 }
