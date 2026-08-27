@@ -11,7 +11,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 // ErrSnapshotWriterClosed is reported (wrapped) by calls that observe the writer shutting down
@@ -108,13 +107,13 @@ func newSnapshotWriter(
 // The writer takes its own reservation on every view for as long as it needs one, and hands it back
 // whether it writes a snapshot, declines to, or fails. The caller only has to hold a reservation of its
 // own until this returns, and so does not have to know whether the writer keeps the block past the call.
-func (w *SnapshotWriter) Offer(version int64, views map[string]view.View) error {
-	reserved, err := reserveViews(views)
-	if err != nil {
+func (w *SnapshotWriter) Offer(blockView *storeView) error {
+	version := blockView.blockHeight
+	if err := blockView.reserve(); err != nil {
 		return fmt.Errorf("reserve version %d for snapshot: %w", version, err)
 	}
 
-	request := &snapshotRequest{version: version, views: reserved}
+	request := &snapshotRequest{blockView: blockView}
 	if err := w.enqueue(request); err != nil {
 		return errors.Join(
 			fmt.Errorf("offer version %d to snapshot writer: %w", version, err),
@@ -235,16 +234,16 @@ func (w *SnapshotWriter) maybeCheckpointBlock(request *snapshotRequest) (err err
 	defer func() {
 		if relErr := request.release(); relErr != nil {
 			err = errors.Join(err, fmt.Errorf(
-				"hand back reservations for version %d: %w", request.version, relErr))
+				"hand back reservations for version %d: %w", request.blockView.blockHeight, relErr))
 		}
 	}()
 
-	if !w.shouldSnapshot(request.version) {
+	if !w.shouldSnapshot(request.blockView.blockHeight) {
 		w.phaseTimer.SetPhase("release_declined_block")
 		return nil
 	}
 	if err := w.writeCheckpoint(request); err != nil {
-		return fmt.Errorf("write snapshot at version %d: %w", request.version, err)
+		return fmt.Errorf("write snapshot at version %d: %w", request.blockView.blockHeight, err)
 	}
 	return nil
 }
@@ -261,7 +260,7 @@ func (w *SnapshotWriter) discardQueued() {
 			case *snapshotRequest:
 				if err := request.release(); err != nil {
 					logger.Error("failed to hand back reservations of a discarded snapshot",
-						"version", request.version, "err", err)
+						"version", request.blockView.blockHeight, "err", err)
 				}
 			case *flushRequest:
 				request.responseChan <- struct{}{}
@@ -282,7 +281,7 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 			metric.WithAttributes(successAttr(err)))
 		if err != nil {
 			logger.Error("FlatKV snapshot failed",
-				"version", request.version, "elapsed", time.Since(start), "err", err)
+				"version", request.blockView.blockHeight, "elapsed", time.Since(start), "err", err)
 		}
 	}()
 
@@ -293,21 +292,21 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 	workCtx := context.WithoutCancel(w.ctx)
 
 	tmpPath, err := checkpointDatabases(
-		workCtx, w.dir, request.version, request.views, w.dbs, w.phaseTimer)
+		workCtx, w.dir, request.blockView, w.dbs, w.phaseTimer)
 	if err != nil {
-		return fmt.Errorf("snapshot version %d: %w", request.version, err)
+		return fmt.Errorf("snapshot version %d: %w", request.blockView.blockHeight, err)
 	}
 
 	w.phaseTimer.SetPhase("publish_snapshot")
 	pruned, err := publishSnapshot(
-		workCtx, w.dir, w.keepRecent, w.externalPruning, request.version, tmpPath)
+		workCtx, w.dir, w.keepRecent, w.externalPruning, request.blockView.blockHeight, tmpPath)
 	if err != nil {
-		return fmt.Errorf("publish snapshot at version %d: %w", request.version, err)
+		return fmt.Errorf("publish snapshot at version %d: %w", request.blockView.blockHeight, err)
 	}
 
-	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, request.version)
+	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, request.blockView.blockHeight)
 	logger.Info("FlatKV snapshot created",
-		"version", request.version, "pruned", pruned, "elapsed", time.Since(start))
+		"version", request.blockView.blockHeight, "pruned", pruned, "elapsed", time.Since(start))
 	return nil
 }
 
@@ -340,21 +339,4 @@ func (w *SnapshotWriter) stoppedError() error {
 		return fmt.Errorf("snapshot writer failed: %w", err)
 	}
 	return ErrSnapshotWriterClosed
-}
-
-// reserveViews takes a reservation on each of the given views, for a consumer that will outlive
-// whoever already holds one. Every reservation taken is handed back if any one of them fails, since a
-// caller that gets an error takes ownership of nothing.
-func reserveViews(views map[string]view.View) (map[string]view.View, error) {
-	reserved := make(map[string]view.View, len(views))
-	for name, sealed := range views {
-		if err := sealed.Reserve(); err != nil {
-			for _, taken := range reserved {
-				_ = taken.Release()
-			}
-			return nil, fmt.Errorf("reserve %s view: %w", name, err)
-		}
-		reserved[name] = sealed
-	}
-	return reserved, nil
 }

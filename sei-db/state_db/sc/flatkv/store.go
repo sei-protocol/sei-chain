@@ -138,10 +138,10 @@ type CommitStore struct {
 	// All four stores, for the paths that treat them uniformly.
 	stores []view.ViewManager
 
-	// The views produced by the most recent commit, one per store and keyed by its name, each still
-	// holding the reservation Commit handed out. flushLatestVersion waits on them, and holding them
-	// keeps any later block out of pebble until the next commit hands them back.
-	lastSealed map[string]view.View
+	// The views of the most recently committed block, one reservation held for as long as they stay
+	// installed, which is what keeps any later block out of pebble. Nil outside the window in which the
+	// view managers exist.
+	lastSealed *atomicStoreView
 
 	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
 	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
@@ -960,8 +960,11 @@ func (s *CommitStore) closeStores() error {
 	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
 	// awaiting a flush on views whose store is already gone.
-	if err := s.releaseLastSealed(); err != nil {
-		errs = append(errs, fmt.Errorf("release sealed views: %w", err))
+	if s.lastSealed != nil {
+		if err := s.lastSealed.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("release sealed views: %w", err))
+		}
+		s.lastSealed = nil
 	}
 
 	for _, store := range s.stores {

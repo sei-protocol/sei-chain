@@ -1,9 +1,7 @@
 package flatkv
 
 import (
-	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -12,7 +10,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -638,98 +635,20 @@ func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
 		"the error must name the snapshot as the cause rather than being swallowed")
 }
 
-var _ view.View = (*stubView)(nil)
-
-// stubView is a view whose Release outcome the test chooses. Only Name and Release are
-// implemented; every other method panics, so a use this stub was not written for is loud rather than
-// silently wrong.
-type stubView struct {
-	// Reported by Name.
-	name string
-
-	// Returned by every Release call.
-	releaseErr error
-
-	// Counts Release calls.
-	releaseCalls int
-}
-
-func (s *stubView) Name() string {
-	return s.name
-}
-
-func (s *stubView) Release() error {
-	s.releaseCalls++
-	return s.releaseErr
-}
-
-func (s *stubView) Get(key []byte, updateLru bool) ([]byte, bool, error) {
-	panic("stubView: unexpected Get")
-}
-
-func (s *stubView) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	panic("stubView: unexpected BatchGet")
-}
-
-func (s *stubView) GetDiff() (map[string][]byte, error) {
-	panic("stubView: unexpected GetDiff")
-}
-
-func (s *stubView) Reserve() error {
-	panic("stubView: unexpected Reserve")
-}
-
-func (s *stubView) Finalize(writes []*proto.KVPair) error {
-	panic("stubView: unexpected Finalize")
-}
-
-func (s *stubView) AwaitFlush(ctx context.Context) error {
-	panic("stubView: unexpected AwaitFlush")
-}
-
-// A reservation left held stalls its store's flushes forever, so a failing hand-back must not stop the
-// others, and the failure must be reported rather than logged and dropped.
-//
-// Every stub fails, so "all of them were attempted" holds whatever order the map is walked in — with a
-// single failing entry among healthy ones the check would only catch a short-circuit half the time.
-func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
-	names := []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
-
-	stubs := make(map[string]*stubView, len(names))
-	sealed := make(map[string]view.View, len(names))
-	for _, name := range names {
-		stub := &stubView{name: name, releaseErr: errors.New("view manager is bricked")}
-		stubs[name] = stub
-		sealed[name] = stub
-	}
-	s := &CommitStore{lastSealed: sealed}
-
-	err := s.releaseLastSealed()
-	require.Error(t, err, "a failed hand-back must be returned, not swallowed")
-	require.ErrorContains(t, err, "view manager is bricked")
-
-	for _, name := range names {
-		require.Equal(t, 1, stubs[name].releaseCalls,
-			"every reservation must be handed back; stopping at the first failure strands the rest")
-		require.ErrorContains(t, err, "release sealed view for "+name,
-			"the joined error must name every store that failed")
-	}
-	require.Nil(t, s.lastSealed, "the handles must be forgotten even when a hand-back failed")
-}
-
 // The store's contract makes every error fatal, so a hand-back failure during teardown has to reach the
 // caller of Close rather than only the log.
 func TestCloseReportsReleaseFailure(t *testing.T) {
 	s := setupTestStore(t)
 
-	// Give back the genuine reservations first, then swap in a failing stub, so the real stores are not
+	// Retire the genuine holder first, then install one over failing stubs, so the real stores are not
 	// left holding anything when they are torn down below.
-	require.NoError(t, s.releaseLastSealed())
-	s.lastSealed = map[string]view.View{
-		accountDBDir: &stubView{name: accountDBDir, releaseErr: errors.New("view manager is bricked")},
-	}
+	require.NoError(t, s.lastSealed.Close())
+	sealed, _ := bricksOnRelease(t, s.Version())
+	installed, err := newAtomicStoreView(sealed)
+	require.NoError(t, err)
+	s.lastSealed = installed
 
-	err := s.Close()
+	err = s.Close()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "release sealed views")
 }

@@ -120,6 +120,7 @@ func TestCatchupAcceptsWALStartingExactlyAtReplayStart(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	s.committedVersion = 9
+	require.NoError(t, s.sealBaseline(), "re-seal the baseline at the rewound height, as open would")
 	require.NoError(t, s.replayIntoMutableStore(0))
 	require.Equal(t, int64(10), s.committedVersion)
 }
@@ -294,8 +295,10 @@ func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	}
 	require.Equal(t, int64(3), s.committedVersion)
 
-	// Rewind only the in-memory watermark so the WAL holds blocks the store must re-apply.
+	// Rewind the in-memory watermark so the WAL holds blocks the store must re-apply, and re-seal the
+	// baseline there, which is the pair of things open does before it replays.
 	s.committedVersion = 1
+	require.NoError(t, s.sealBaseline())
 	it, ok, err := s.openReplayIterator(s.committedVersion, 0)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -370,6 +373,11 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 		accountDBDir: 4, codeDBDir: 4, miscDBDir: 4,
 		storageDBDir: 2,
 	}
+	// Open would have derived the committed version from the lowest height any store reached and sealed
+	// the baseline there, which is what a catch-up replays forward from.
+	s.committedVersion = 2
+	require.NoError(t, s.sealBaseline())
+
 	addr, slot := addrN(3), slotN(3)
 	block3 := []*proto.NamedChangeSet{namedCS(
 		noncePair(addr, 3),
