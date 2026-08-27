@@ -86,3 +86,44 @@ func TestLoadMultiTreeWithPrefetchDisabled(t *testing.T) {
 	tree := db2.TreeByName("test")
 	require.NotNil(t, tree)
 }
+
+func TestPublishSnapshotRejectsCorruptCandidate(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "test",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{
+			Key:   []byte("key"),
+			Value: []byte("value"),
+		}}},
+	}}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+
+	snapshotDir := snapshotName(db.Version())
+	tmpPath := filepath.Join(dir, snapshotDir+"-tmp")
+	targetPath := filepath.Join(dir, snapshotDir)
+	require.NoError(t, db.MultiTree.WriteSnapshot(context.Background(), tmpPath, db.snapshotWriterPool))
+
+	leavesPath := filepath.Join(tmpPath, "test", FileNameLeaves)
+	leaves, err := os.OpenFile(leavesPath, os.O_WRONLY|os.O_APPEND, 0)
+	require.NoError(t, err)
+	_, err = leaves.Write(make([]byte, SizeLeafWithoutHash))
+	require.NoError(t, err)
+	require.NoError(t, leaves.Close())
+
+	err = db.publishSnapshot(context.Background(), tmpPath, targetPath, snapshotDir)
+	require.ErrorContains(t, err, "corrupted snapshot, leaves file size")
+	require.NoDirExists(t, targetPath)
+
+	current, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(0), current)
+}

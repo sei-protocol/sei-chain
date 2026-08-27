@@ -771,6 +771,9 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	// Check if snapshot already exists
 	if info, err := os.Stat(targetPath); err == nil {
 		if info.IsDir() {
+			if err := db.validateSnapshot(ctx, targetPath); err != nil {
+				return fmt.Errorf("existing snapshot %q is invalid: %w", snapshotDir, err)
+			}
 			logger.Info("snapshot already exists, skipping",
 				"snapshot_dir", snapshotDir,
 				"version", db.lastCommitInfo.Version)
@@ -791,27 +794,23 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	writeElapsed := time.Since(writeStart).Seconds()
 
 	if err != nil {
-		logger.Error("snapshot write failed, cleaning up temporary directory",
-			"tmpDir", tmpDir,
-			"error", err,
-		)
-		cleanupErr := os.RemoveAll(path)
-		if cleanupErr != nil {
-			logger.Error("failed to clean up temporary snapshot directory",
-				"tmpDir", tmpDir,
-				"cleanup_error", cleanupErr,
-			)
-		} else {
-			logger.Debug("temporary snapshot directory cleaned up successfully",
-				"tmpDir", tmpDir,
-			)
-		}
-		return errorutils.Join(err, cleanupErr)
+		return cleanupFailedSnapshotRewrite(path, tmpDir, "snapshot write failed", err)
+	}
+
+	if err := db.publishSnapshot(ctx, path, targetPath, snapshotDir); err != nil {
+		return cleanupFailedSnapshotRewrite(path, tmpDir, "snapshot publication failed", err)
 	}
 
 	logger.Info("snapshot rewrite completed", "duration_sec", writeElapsed)
+	return nil
+}
 
-	// Rename temporary directory to final location
+// publishSnapshot validates and publishes a completed snapshot.
+func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir string) error {
+	if err := db.validateSnapshot(ctx, path); err != nil {
+		return fmt.Errorf("validate temporary snapshot: %w", err)
+	}
+
 	if err := os.Rename(path, targetPath); err != nil {
 		// An existing snapshot-<h> directory (from a prior atomic rename) can be
 		// used; drop our redundant temp rather than failing this rewrite. Only a
@@ -821,6 +820,9 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 			if info, statErr := os.Stat(targetPath); statErr != nil || !info.IsDir() {
 				return fmt.Errorf("snapshot path %q exists but is not a usable directory: %w", targetPath, err)
 			}
+			if validationErr := db.validateSnapshot(ctx, targetPath); validationErr != nil {
+				return fmt.Errorf("existing snapshot %q is invalid: %w", targetPath, validationErr)
+			}
 			logger.Info("reusing existing snapshot directory, dropping redundant temp",
 				"snapshotDir", snapshotDir,
 			)
@@ -829,26 +831,39 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 			}
 			return updateCurrentSymlink(db.dir, snapshotDir)
 		}
-		logger.Error("failed to rename snapshot directory, cleaning up",
-			"tmpDir", tmpDir,
-			"targetDir", snapshotDir,
-			"error", err,
-		)
-		// Clean up temporary directory on rename failure
-		if cleanupErr := os.RemoveAll(path); cleanupErr != nil {
-			logger.Error("failed to clean up temporary snapshot directory after rename failure",
-				"tmpDir", tmpDir,
-				"cleanup_error", cleanupErr,
-			)
-			return errorutils.Join(err, cleanupErr)
-		}
-		logger.Info("temporary snapshot directory cleaned up after rename failure",
-			"tmpDir", tmpDir,
-		)
-		return err
+		return fmt.Errorf("rename snapshot directory to %q: %w", targetPath, err)
 	}
 
 	return updateCurrentSymlink(db.dir, snapshotDir)
+}
+
+func (db *DB) validateSnapshot(ctx context.Context, path string) error {
+	opts := db.opts
+	opts.SnapshotPrefetchThreshold = 0
+	mtree, err := LoadMultiTree(ctx, path, opts)
+	if err != nil {
+		return err
+	}
+	return mtree.Close()
+}
+
+func cleanupFailedSnapshotRewrite(path, tmpDir, operation string, err error) error {
+	logger.Error(operation+", cleaning up temporary directory",
+		"tmpDir", tmpDir,
+		"error", err,
+	)
+	cleanupErr := os.RemoveAll(path)
+	if cleanupErr != nil {
+		logger.Error("failed to clean up temporary snapshot directory",
+			"tmpDir", tmpDir,
+			"cleanup_error", cleanupErr,
+		)
+	} else {
+		logger.Debug("temporary snapshot directory cleaned up successfully",
+			"tmpDir", tmpDir,
+		)
+	}
+	return errorutils.Join(err, cleanupErr)
 }
 
 func (db *DB) Reload() error {

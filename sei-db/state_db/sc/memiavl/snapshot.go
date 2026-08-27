@@ -932,6 +932,10 @@ func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) erro
 
 // writeLeafDirect performs the actual leaf write (called by writer goroutine)
 func (w *snapshotWriter) writeLeafDirect(version uint32, keyLen uint32, keyOffset uint64, hash []byte) error {
+	if len(hash) != SizeHash {
+		return fmt.Errorf("invalid leaf hash size %d, expected %d", len(hash), SizeHash)
+	}
+
 	var buf [SizeLeafWithoutHash]byte
 	binary.LittleEndian.PutUint32(buf[OffsetLeafVersion:], version)
 	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], keyLen)
@@ -974,6 +978,10 @@ func (w *snapshotWriter) writeBranch(version, size uint32, height, preTrees uint
 
 // writeBranchDirect performs the actual branch write (called by writer goroutine)
 func (w *snapshotWriter) writeBranchDirect(version, size uint32, height, preTrees uint8, keyLeaf uint32, hash []byte) error {
+	if len(hash) != SizeHash {
+		return fmt.Errorf("invalid branch hash size %d, expected %d", len(hash), SizeHash)
+	}
+
 	var buf [SizeNodeWithoutHash]byte
 	buf[OffsetHeight] = height
 	buf[OffsetPreTrees] = preTrees
