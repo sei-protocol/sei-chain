@@ -117,13 +117,13 @@ func TestResetClearsHowSectionsAreDelivered(t *testing.T) {
 	}
 }
 
-// TestOnlyASuppliedValueReachesADecodedSection is the difference between delivering a value and
-// replacing an operator's file.
+// TestEveryResolvedValueReachesADecodedSection is what makes one file the configuration.
 //
-// A section read by a decode already holds what its own file said. Handing it a default would rewrite
-// that on every boot for every key the operator's file does not mention, so a key that took its default
-// is skipped and a key any other layer answered is delivered.
-func TestOnlyASuppliedValueReachesADecodedSection(t *testing.T) {
+// A section read by a decode holds what its own file said, and that file is not consulted for a declared
+// key under this manager. So every key the resolution answered has to be handed over, including the ones
+// that took their declared value, or a key sei.toml leaves out would keep whatever was on disk and the
+// file would be a patch rather than the configuration.
+func TestEveryResolvedValueReachesADecodedSection(t *testing.T) {
 	registry.Reset()
 	registerProbe(t, "mempool")
 	registerProbe(t, "api")
@@ -137,15 +137,16 @@ func TestOnlyASuppliedValueReachesADecodedSection(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	got, _ := registry.SuppliedAndOwnedByDecodedSections(resolved)
-	want := map[string]map[string]any{"mempool": {"mempool.a": "from the file"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("the decoded sections are handed %v, want %v. A key nobody wrote arriving here replaces "+
-			"an operator's own value, and a section delivered by a lookup arriving here is delivered "+
-			"twice", got, want)
+	got, _ := registry.ResolvedAndOwnedByDecodedSections(resolved)
+	want := map[string]map[string]any{
+		"mempool": {"mempool.a": "from the file", "mempool.b": "from the default"},
 	}
-	if _, held := got["mempool"]["mempool.b"]; held {
-		t.Error("mempool.b took its default and was handed to the decode anyway, which writes a value " +
-			"nobody chose over whatever the node's own file holds")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the decoded sections are handed %v, want %v. Every key the resolution answered has to "+
+			"arrive, and a section a lookup delivers must not", got, want)
+	}
+	if _, wrong := got["api"]; wrong {
+		t.Error("api is delivered by a lookup and was handed to the decode as well, so its keys would " +
+			"be delivered twice")
 	}
 }
