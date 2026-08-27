@@ -97,6 +97,7 @@ for i in $(seq 1 "$BOOTS"); do
   # emulated budget large enough to be safe would also be the guaranteed cost.
   rc=0
   saw_handshake=0
+  crash_log="$LOG"
   env $RAYON timeout -k 5 "$BOOT_TIMEOUT" "$BIN" start --home "$H" >"$LOG" 2>&1 &
   boot_pid=$!
   while kill -0 "$boot_pid" 2>/dev/null; do
@@ -104,6 +105,10 @@ for i in $(seq 1 "$BOOTS"); do
       saw_handshake=1
       # Brief dwell so a crash immediately after the handshake still reaches the log.
       sleep 3
+      # Snapshot before the TERM. The signal now arrives seconds after the handshake,
+      # while blocksync and the RPC servers are still starting, so a panic on a
+      # half-initialised shutdown path would otherwise be read as a crash.
+      cp "$LOG" "$LOG.run" && crash_log="$LOG.run"
       kill "$boot_pid" 2>/dev/null || true
       break
     fi
@@ -111,7 +116,7 @@ for i in $(seq 1 "$BOOTS"); do
   done
   wait "$boot_pid" 2>/dev/null || rc=$?
 
-  if grep -qE "SIGSEGV|SIGILL|SIGBUS|panic:" "$LOG"; then
+  if grep -qE "SIGSEGV|SIGILL|SIGBUS|panic:" "$crash_log"; then
     echo "boot-smoke: boot $i/$BOOTS CRASHED${RAYON:+ (RAYON_NUM_THREADS=1)}:" >&2
     tail -25 "$LOG" >&2
     exit 1

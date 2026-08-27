@@ -44,6 +44,8 @@ Extracted from
 - libgcc.a sha256: `d3e066fafde74d53a89d48f2ceb9ed9934249a5d450e281edd22947a829469d8`
 - libgcc_eh.a sha256: `d14c9973a735909e11a863b0c850300bfd3aa683ef4689cbe76a53139766ed79`
 
+To re-derive:
+
 ```sh
 wget https://dl-cdn.alpinelinux.org/alpine/v3.15/main/x86_64/gcc-10.3.1_git20211027-r0.apk
 tar -xzf gcc-10.3.1_git20211027-r0.apk \
@@ -59,6 +61,8 @@ Extracted from
 - apk sha256: `9edc3e2a6fafa434ba55b33d5c19ba49107ed7a49607af939252c98b3b280417`
 - libgcc.a sha256: `119d1714e0a2b47e1d829d0e92dc3ab51a25e1778f67ed43d2e6c87469573cc2`
 - libgcc_eh.a sha256: `2963a26e62a46ee283c5463ebaad176ddf74b6a049850df833cee5f333ca57a9`
+
+To re-derive:
 
 ```sh
 wget https://dl-cdn.alpinelinux.org/alpine/v3.15/main/aarch64/gcc-10.3.1_git20211027-r0.apk

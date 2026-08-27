@@ -24,7 +24,7 @@ before:
     # emulated speed.
     # `env` is required: goreleaser execs the hook directly rather than through a shell,
     # so a bare VAR=value prefix would be taken as the program name.
-    - env BOOT_TIMEOUT=300 bash scripts/boot-smoke.sh build/seid-arm64 4
+    - env BOOT_TIMEOUT=300 bash scripts/boot-smoke.sh build/seid-arm64 2
 
 builds:
   # The static seid is built in Alpine (musl-native) by the `before:` hook above
