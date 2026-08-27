@@ -80,12 +80,17 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 			"mode", mode, "err", err)
 		return
 	}
-	// Before the report below, because a refused registration is what makes that one point at the wrong
-	// file, and an operator reading in order should meet the cause first.
+	// First, because every report below is a log line and a refusal is reported at a level an operator
+	// may have raised the threshold above. Doing this after would mean the one setting somebody changes
+	// in order to see a refusal is the setting a refusal suppresses.
+	applyResolvedLogLevel(resolved, typed, log)
+
+	// Before the reports it explains, because a refused registration is what makes the next one point at
+	// the wrong file, and an operator reading in order should meet the cause first.
 	reportWhatThisBinaryCouldNotUse(resolved, log)
 
-	// A key nothing declares is the most common thing an operator gets wrong and the only signal they
-	// have for it.
+	// After the level, so a file that raises it can report its own mistakes. A key nothing declares is
+	// the most common thing an operator gets wrong and the only signal they have for it.
 	reportWhatTheFileDidNotReach(resolved, log)
 
 	// Before anything is delivered. A key that arrives here is the answer for the kind sei.toml names, and
@@ -98,27 +103,21 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// boot drop to debug everywhere else. On `seid keys list` nobody asked, and a line held above the
 	// operator's own level buries the reports beside it that are actionable.
 	//
-	// Holding keys back joins them. It is a problem, but not one an operator can act on, and its trigger
-	// is any sei.toml carrying a [p2p], [mempool] or root key, which is nearly every file somebody would
-	// write. It keeps its own level on the boot, because that is the one place holding them back changes
-	// what the node runs.
-	//
 	// What a refused registration says, and what a key nothing declares says, report everywhere. Both are
 	// things to fix.
-	said, warned := log.Info, log.Warn
+	said := log.Info
 	if !runsANode(cmd) {
-		said, warned = log.Debug, log.Debug
+		said = log.Debug
 	}
 
-	// One read for both halves. A section arriving between two reads would be absent from what is
-	// reported and present in what is dropped, which is undelivered and unreported at once.
-	forADecode, ownedByADecode := registry.SuppliedAndOwnedByDecodedSections(resolved)
+	// One read, and both halves are used: the values a decode has to deliver, and every key those
+	// sections own so the install below leaves them out. Two reads would let a section arrive between
+	// them, absent from the delivery and present in what the install drops.
+	forADecode, ownedByADecode := registry.ResolvedAndOwnedByDecodedSections(resolved)
 
-	// Only what the file itself wrote. The supplied set is filled by every channel, and a flag or a
-	// variable answering one of these keys does reach the node, so reporting it as read-as-it-always-has
-	// would be false as well as pointed at the wrong file.
-	heldFromTheFile := whatTheFileWroteForADecode(forADecode, written)
-	reportWhatThisInstallHoldsBack(heldFromTheFile, warned)
+	// The second delivery. Their file is read into a struct before this runs and nothing consults the
+	// source for them afterwards, so the values are decoded into that struct instead.
+	deliverDecodedSections(ctx, forADecode, log)
 
 	// Every declared key a lookup reads, whether sei.toml mentioned it or not. There is no case where this
 	// is empty for a reason an operator caused: the paths above already returned for a file that could not
@@ -196,42 +195,6 @@ func everyKeyALookupReads(resolved registry.Resolved, ownedByADecode []string) r
 		out.Values[key] = value
 	}
 	return out
-}
-
-// whatTheFileWroteForADecode narrows the decoded sections' supplied values to the keys the file itself
-// wrote, sorted. A key a flag or the environment answered reaches the node through that channel, so naming
-// the file for it would report a value as held back when it arrived.
-func whatTheFileWroteForADecode(bySection map[string]map[string]any, written map[string]any) []string {
-	inTheFile := make(map[string]bool, len(written))
-	for key := range written {
-		inTheFile[strings.ToLower(key)] = true
-	}
-	var keys []string
-	for _, values := range bySection {
-		for key := range values {
-			if inTheFile[strings.ToLower(key)] {
-				keys = append(keys, key)
-			}
-		}
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-// reportWhatThisInstallHoldsBack names the supplied keys this install cannot deliver, because their reader
-// decoded its file before this ran.
-//
-// Unreported they are invisible: absent from what was installed, and declared, so absent from the
-// undeclared keys too. No source is named, because the resolution does not record which one answered, and
-// naming the file for a value a variable supplied is a misattribution.
-func reportWhatThisInstallHoldsBack(keys []string, say func(string, ...any)) {
-	if len(keys) == 0 {
-		return
-	}
-	shown, omitted := capLoggedItems(keys)
-	say("sei.toml writes keys whose reader decodes its file whole; this install cannot deliver them "+
-		"and they read as they always have",
-		"count", len(keys), "keys", strings.Join(shown, ","), "omitted", omitted)
 }
 
 // reportWhatThisBinaryCouldNotUse names a registration this binary's own source got wrong.

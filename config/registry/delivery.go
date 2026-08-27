@@ -50,22 +50,23 @@ func DecodedSections() map[string]string {
 	return out
 }
 
-// SuppliedAndOwnedByDecodedSections answers both halves of the decoded-delivery question from one read.
+// ResolvedAndOwnedByDecodedSections answers both halves of the decoded-delivery question from one read.
 //
-// The values each decoded section was supplied, and every key those sections own whether supplied or not. A
-// caller needs both: the first to deliver or report, the second to know what to leave out of a delivery that
+// The resolved values each decoded section has to be handed, and every key those sections own. A caller
+// needs both: the first to deliver or report, the second to know what to leave out of a delivery that
 // cannot carry it.
+//
+// Every key the resolution answered, not only the ones a source wrote. A key sei.toml leaves out takes the
+// value this binary declares, and that has to reach the struct like any other, because the struct is what
+// the node reads and config.toml is not consulted for a declared key. That does replace what an operator's
+// config.toml said for a key their sei.toml does not mention, and it is meant to: one file states what a
+// node runs.
 //
 // Together rather than from two calls, because a section arriving between two reads is absent from one
 // answer and present in the other, so its keys are dropped from the install by the second and not reported
 // by the first. Silently undelivered and unreported is the outcome one read exists to prevent.
-func SuppliedAndOwnedByDecodedSections(resolved Resolved) (map[string]map[string]any, []string) {
+func ResolvedAndOwnedByDecodedSections(resolved Resolved) (map[string]map[string]any, []string) {
 	registered, _, owning := snapshot()
-
-	supplied := make(map[string]bool, len(resolved.Overrides))
-	for _, key := range resolved.Overrides {
-		supplied[key] = true
-	}
 
 	out := map[string]map[string]any{}
 	var everyKey []string
@@ -75,13 +76,14 @@ func SuppliedAndOwnedByDecodedSections(resolved Resolved) (map[string]map[string
 		}
 		everyKey = append(everyKey, section.Keys...)
 		for _, key := range section.Keys {
-			if !supplied[key] {
+			value, answered := resolved.Values[key]
+			if !answered {
 				continue
 			}
 			if out[section.Name] == nil {
 				out[section.Name] = map[string]any{}
 			}
-			out[section.Name][key] = resolved.Values[key]
+			out[section.Name][key] = value
 		}
 	}
 	sort.Strings(everyKey)
