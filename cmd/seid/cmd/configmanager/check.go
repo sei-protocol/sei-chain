@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -24,8 +25,17 @@ import (
 // change is already on every node.
 //
 // The same questions have exact answers before then. The file, the binary and the environment are all the
-// input, so a refusal is deterministic: the same file against the same binary gives the same answer here as
-// it will at boot. This asks them where an answer costs a failed check rather than a restart.
+// input, so the same file against the same binary gives the same answer here as it will at boot, for the
+// same environment. That last part is a real condition and not a formality: this reads the environment of
+// whoever runs it, and a node started by an init system or a container runtime has a different one. A
+// variable that answers a declared key is a variable this cannot see unless it is set here too.
+//
+// What it does not rehearse is the install into the source a node builds, because that source does not
+// exist until a boot builds it. A key can be refused there for a reason nothing here can see, and the whole
+// install is dropped when it is. That is worth adding when the surface it covers is more than a handful of
+// keys on a live node.
+//
+// This asks what it can answer where an answer costs a failed check rather than a restart.
 func CheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -46,6 +56,7 @@ func CheckCmd() *cobra.Command {
 				return nil
 			}
 			out := cmd.OutOrStdout()
+			reportWhetherABootWouldReadThisFile(out, os.Getenv)
 			for _, line := range problems {
 				report(out, line)
 			}
@@ -58,6 +69,25 @@ func CheckCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// reportWhetherABootWouldReadThisFile says whether this node is set up to use the file at all.
+//
+// Without it, a passing check reads as "this file is in use and correct" on a node where a boot ignores it
+// completely, which is the state every node is in until an operator switches the gate. That is the wrong
+// conclusion in the more dangerous direction: it invites somebody to trust a file nothing reads.
+//
+// Answered from the environment this command runs in, which is the same limitation the resolution has.
+func reportWhetherABootWouldReadThisFile(out io.Writer, getenv func(string) string) {
+	if _, err := Select(getenv); err != nil {
+		report(out, fmt.Sprintf("%s is set to something this binary does not accept, so a boot would "+
+			"refuse before reaching this file: %v", EnvVar, err))
+		return
+	}
+	if getenv(EnvVar) != "v2" {
+		report(out, fmt.Sprintf("%s is not set to v2 for this command, so a boot in the same environment "+
+			"reads none of this file. What follows is what it would reach if it were", EnvVar))
+	}
 }
 
 // report writes one line of the answer.
@@ -106,12 +136,34 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 		return []string{fmt.Sprintf("this node's configuration cannot be resolved: %v", err)}, true, nil
 	}
 
-	for _, key := range resolved.Unknown {
+	// Only the file's own keys. A flag matching no declared key arrives in the same resolution and is not
+	// a mistake: every command carries flags that name no setting, so reporting those would fail this
+	// check on every invocation that types one, including a correct file.
+	for _, key := range resolved.UnknownInFile {
 		problems = append(problems, fmt.Sprintf("%s: sei.toml writes this and no section declares it, "+
 			"so it has no effect", key))
 	}
+	if running := theModeTheNodesOwnFileRecords(home); modesDisagree(mode, running) {
+		problems = append(problems, fmt.Sprintf("sei.toml says this is a %s and the node's own "+
+			"configuration file says %s. Every value resolved here is the answer for the first and the "+
+			"node would run as the second", mode, running))
+	}
 	problems = append(problems, whatADecodeWouldRefuse(resolved)...)
 	return problems, true, nil
+}
+
+// theModeTheNodesOwnFileRecords reads what kind of node the node's own configuration file says this is.
+//
+// Read from the file here rather than taken from a running node, because nothing is running. An absent file
+// or an absent key answers empty, which is not a disagreement: a node that was never initialised has
+// nothing to disagree with.
+func theModeTheNodesOwnFileRecords(home string) string {
+	v := viper.New()
+	v.SetConfigFile(filepath.Join(home, "config", "config.toml"))
+	if err := v.ReadInConfig(); err != nil {
+		return ""
+	}
+	return v.GetString("mode")
 }
 
 // whatADecodeWouldRefuse rehearses each decoded section the way the boot's delivery does.
@@ -123,13 +175,14 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 func whatADecodeWouldRefuse(resolved registry.Resolved) []string {
 	bySection := registry.SuppliedByDecodedSection(resolved)
 	var problems []string
-	for _, name := range sortedSectionNames(bySection) {
+	for _, name := range sortedKeys(bySection) {
 		values := bySection[name]
 		base := tmcfg.DefaultConfig()
 
-		if bad := refuseWhatDecodesToSomethingElse(base, values); len(bad) > 0 {
-			problems = append(problems, fmt.Sprintf("[%s]: %s is a length of time written as a plain "+
-				"number, which reads as nanoseconds", name, strings.Join(bad, "; ")))
+		// Each message says what is wrong with the value it names, and there is more than one thing that
+		// can be. Stating one of them here would describe the others wrongly.
+		if bad := whatDecodesToSomethingElse(base, values); len(bad) > 0 {
+			problems = append(problems, fmt.Sprintf("[%s]: %s", name, strings.Join(bad, "; ")))
 			continue
 		}
 

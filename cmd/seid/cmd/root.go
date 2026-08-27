@@ -487,6 +487,17 @@ func seiConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sei-config",
 		Short: "Inspect the node's sei.toml",
+		// A hook of its own, which stops the root one from running. Two things follow, and both are
+		// required rather than convenient.
+		//
+		// The root hook writes files. It runs the configuration handler, which generates config.toml and
+		// app.toml when they are absent, so a command that answers a question about a file would create
+		// two others as a side effect.
+		//
+		// It also copies configuration values into flags and marks them changed, which is exactly the
+		// state that makes a flag indistinguishable from a key an operator's app.toml holds. A command
+		// reading its flags after that cannot tell what was typed, and it reports on what was typed.
+		PersistentPreRunE: func(*cobra.Command, []string) error { return nil },
 	}
 	cmd.AddCommand(configmanager.CheckCmd())
 	return cmd
