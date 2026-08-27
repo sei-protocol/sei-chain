@@ -218,7 +218,9 @@ func TestATypedFlagReachesTheKeyItCarries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := cmd.Flags().Set(flag, "from-the-command-line"); err != nil {
-		t.Skipf("--%s is not on this command, so nothing here can carry the key: %v", flag, err)
+		t.Fatalf("--%s is not on this command, so nothing here can carry the key: %v. This is the only "+
+			"guard on a flag name and its key being spelled differently, and skipping would leave it "+
+			"passing while measuring nothing", flag, err)
 	}
 	ctx, err := runManager(t, configmanager.SeiConfigManager{}, cmd)
 	if err != nil {
@@ -341,7 +343,11 @@ func TestNoDeliveryCarriesADeclaredDefault(t *testing.T) {
 			// What the node holds before any file supplies anything.
 			bare := bootWithNodeFile(t, "schema_version = 1\nnode_mode = \""+string(mode)+"\"\n", nil)
 			keys := everyDeclaredKey()
-			before := configmanager.DescribeForTest(bare.Config, keys)
+			// The node's own configuration holds the decoded sections and nothing else, so those are the
+			// only keys it can be read for. Handing it the rest compares an absent value with an absent
+			// value, which reports that every one of them is unchanged whatever the delivery did.
+			decodedKeys := keysADecodeDelivers()
+			before := configmanager.DescribeForTest(t, bare.Config, decodedKeys)
 			beforeSource := map[string]string{}
 			for _, key := range keys {
 				beforeSource[key] = fmt.Sprint(bare.Viper.Get(key))
@@ -355,15 +361,20 @@ func TestNoDeliveryCarriesADeclaredDefault(t *testing.T) {
 					"would pass for a delivery that does nothing", got)
 			}
 
-			afterDescribed := configmanager.DescribeForTest(after.Config, keys)
-			for _, key := range keys {
+			afterDescribed := configmanager.DescribeForTest(t, after.Config, decodedKeys)
+			for _, key := range decodedKeys {
 				if key == "mempool.size" {
 					continue
 				}
 				if afterDescribed[key] != before[key] {
-					t.Errorf("%s reads %q after a file that supplies only mempool.size, and %q before. A "+
-						"declared default was delivered over a setting nobody wrote",
-						key, afterDescribed[key], before[key])
+					t.Errorf("%s reads %q in the node's configuration after a file that supplies only "+
+						"mempool.size, and %q before. A declared default was delivered over a setting "+
+						"nobody wrote", key, afterDescribed[key], before[key])
+				}
+			}
+			for _, key := range keys {
+				if key == "mempool.size" {
+					continue
 				}
 				if got := fmt.Sprint(after.Viper.Get(key)); got != beforeSource[key] {
 					t.Errorf("%s reads %q in the source and %q before it. A declared default was "+
@@ -378,5 +389,51 @@ func TestNoDeliveryCarriesADeclaredDefault(t *testing.T) {
 func everyDeclaredKey() []string {
 	keys := registry.Keys()
 	sort.Strings(keys)
+	return keys
+}
+
+// TestANumberTooLargeForTheSettingIsRefused reaches the same failure as a negative one, from the other side.
+//
+// A number the field cannot hold is not refused by the decoder. It saturates, so the largest value the field
+// has becomes what the setting means. That is precisely the outcome the guard beside this refuses a minus
+// one for, and a number written far too high arrives at it without passing anything that objects.
+func TestANumberTooLargeForTheSettingIsRefused(t *testing.T) {
+	configtest.Isolate(t)
+	was := tmcfg.DefaultConfig().P2P.MaxConnections
+
+	ctx := bootWithNodeFile(t, nodeFileHeader+"\n[p2p]\nmax-connections = 1e20\nmax-incoming-connection-attempts = 7\n",
+		nil)
+	if got := ctx.Config.P2P.MaxConnections; got != was {
+		t.Errorf("the node runs a connection ceiling of %d after 1e20 was written, want the %d it had. A "+
+			"number that size saturates to the largest the field holds, so the ceiling bounds nothing",
+			got, was)
+	}
+	if got := ctx.Config.P2P.MaxIncomingConnectionAttempts; got == 7 {
+		t.Error("the value beside the refused one was applied, so the section was published in part")
+	}
+}
+
+// TestAFractionWhereTheSettingHoldsWholeNumbersIsRefused covers a value that decodes to a different number.
+//
+// A fraction is truncated rather than rounded, so a mempool written as one and a half decodes to one.
+// Nothing later objects, because by the time anything reads it the value is a whole number and a perfectly
+// ordinary one.
+func TestAFractionWhereTheSettingHoldsWholeNumbersIsRefused(t *testing.T) {
+	configtest.Isolate(t)
+	was := tmcfg.DefaultConfig().Mempool.Size
+
+	ctx := bootWithNodeFile(t, nodeFileHeader+"\n[mempool]\nsize = 1.5\n", nil)
+	if got := ctx.Config.Mempool.Size; got != was {
+		t.Errorf("the node runs a mempool of %d after 1.5 was written, want the %d it had. The fraction "+
+			"is dropped rather than rounded, so the node would carry a single transaction", got, was)
+	}
+}
+
+// keysADecodeDelivers returns every key the decoded sections own, sorted.
+//
+// Through the one accessor that answers both halves from a single read of the registry, so a test cannot
+// see a registry the boot did not.
+func keysADecodeDelivers() []string {
+	_, keys := registry.ResolvedAndOwnedByDecodedSections(registry.Resolved{})
 	return keys
 }

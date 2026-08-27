@@ -16,15 +16,22 @@
 // so two builds can answer for different sets of keys, and a question asked of one is not answered for
 // another.
 //
-// A setting whose reader decodes the node's own configuration file, rather than looking the key up, is
-// resolved and reported here but not delivered: a value installed into the source after that decode reaches
-// nothing at all. Those keys read as they always have.
+// A node reads a setting one of two ways and both are delivered. Most are looked up by name from a source
+// the boot builds, so a resolved value is installed into it. The settings the node's own configuration file
+// carries are decoded out of it before any lookup happens, so a value installed afterwards would reach
+// nothing; those are decoded into a copy of the struct and published into it. A section names which of the
+// two it needs and the registry answers for the name.
 //
 // # Refusing nothing
 //
 // Nothing here can stop a node starting. A missing sei.toml, an unreadable one, a mode this binary does not
-// know, a value the install refuses, or a panic in the delivery itself all leave every key reading as it
-// always has, and the node starts. A mistyped line in a hand-edited file must not become an outage on the
-// next restart. What that costs is that a value which does not arrive is reported rather than refused,
-// which makes these reports the only signal an operator has.
+// know, a value that decodes to something other than what it says, or a panic in the delivery itself all
+// leave every key reading as it always has, and the node starts. A mistyped line in a hand-edited file must
+// not become an outage on the next restart.
+//
+// A refusal is per section, not per file, because a decode is all or nothing for whatever it is handed. An
+// operator who fixes one setting and mistypes another gets the first one.
+//
+// What that costs is that a value which does not arrive is reported rather than refused, which makes these
+// reports the only signal an operator has.
 package configmanager
