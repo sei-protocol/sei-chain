@@ -13,10 +13,12 @@ func TestParseConfig(t *testing.T) {
 		"--live-node", "localhost:8545",
 		"--frozen-node", "200=localhost:8547",
 		"--frozen-node", "100=localhost:8546",
+		"--max-block-reference-depth", "32",
 	}, io.Discard)
 	require.NoError(t, err)
 	require.Equal(t, "0.0.0.0:9000", cfg.listenAddress)
 	require.Equal(t, "localhost:8545", cfg.liveNode)
+	require.Equal(t, 32, cfg.maxBlockReferenceDepth)
 
 	nodes, err := parseFrozenNodes(cfg.frozenNodes)
 	require.NoError(t, err)
@@ -29,6 +31,11 @@ func TestParseConfig(t *testing.T) {
 func TestParseConfigRejectsMissingLiveNode(t *testing.T) {
 	_, err := parseConfig(nil, io.Discard)
 	require.EqualError(t, err, "--live-node is required")
+}
+
+func TestParseConfigRejectsNonPositiveBlockReferenceDepth(t *testing.T) {
+	_, err := parseConfig([]string{"--live-node", "localhost:8545", "--max-block-reference-depth", "0"}, io.Discard)
+	require.EqualError(t, err, "--max-block-reference-depth must be positive")
 }
 
 func TestParseFrozenNodesRejectsInvalidPairs(t *testing.T) {

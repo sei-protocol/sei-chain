@@ -32,7 +32,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	router, err := newRouter(cfg.liveNode, frozenNodes, nil, cfg.maxRequestBodySize)
+	router, err := newRouter(cfg.liveNode, frozenNodes, nil, cfg.maxRequestBodySize, cfg.maxBlockReferenceDepth)
 	if err != nil {
 		return err
 	}
