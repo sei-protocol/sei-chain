@@ -43,6 +43,10 @@ const (
 // - 0x31<proposalID_Bytes><tallyRound_Byte><voterAddrLen (1 Byte)><voterAddr_Bytes>: Archived voter
 //
 // - 0x32<proposalID_Bytes><tallyRound_Byte>: Tally archive cleanup cursor
+//
+// - 0x33<proposalID_Bytes><voterAddrLen (1 Byte)><voterAddr_Bytes>: Voter delegation snapshot
+//
+// - 0x34<proposalID_Bytes><tallyRound_Byte><voterAddrLen (1 Byte)><voterAddr_Bytes>: Archived voter delegation snapshot
 var (
 	ProposalsKeyPrefix          = []byte{0x00}
 	ActiveProposalQueuePrefix   = []byte{0x01}
@@ -53,9 +57,11 @@ var (
 
 	VotesKeyPrefix = []byte{0x20}
 
-	TallyProgressKeyPrefix = []byte{0x30}
-	TallyVotesKeyPrefix    = []byte{0x31}
-	TallyCleanupKeyPrefix  = []byte{0x32}
+	TallyProgressKeyPrefix        = []byte{0x30}
+	TallyVotesKeyPrefix           = []byte{0x31}
+	TallyCleanupKeyPrefix         = []byte{0x32}
+	VoteDelegationsKeyPrefix      = []byte{0x33}
+	TallyVoteDelegationsKeyPrefix = []byte{0x34}
 )
 
 var lenTime = len(sdk.FormatTimeBytes(time.Now()))
@@ -117,6 +123,11 @@ func VoteKey(proposalID uint64, voterAddr sdk.AccAddress) []byte {
 	return append(VotesKey(proposalID), address.MustLengthPrefix(voterAddr.Bytes())...)
 }
 
+// VoteDelegationsKey returns the key for the delegation snapshot captured with a vote.
+func VoteDelegationsKey(proposalID uint64, voterAddr sdk.AccAddress) []byte {
+	return append(append(VoteDelegationsKeyPrefix, GetProposalIDBytes(proposalID)...), address.MustLengthPrefix(voterAddr.Bytes())...)
+}
+
 // TallyProgressKey returns the key for a proposal's incremental tally state.
 func TallyProgressKey(proposalID uint64) []byte {
 	return append(TallyProgressKeyPrefix, GetProposalIDBytes(proposalID)...)
@@ -130,6 +141,11 @@ func TallyVotesKey(proposalID uint64, expedited bool) []byte {
 // TallyVoteKey returns the key for a vote archived during a proposal tally.
 func TallyVoteKey(proposalID uint64, expedited bool, voterAddr sdk.AccAddress) []byte {
 	return append(TallyVotesKey(proposalID, expedited), address.MustLengthPrefix(voterAddr.Bytes())...)
+}
+
+// TallyVoteDelegationsKey returns the key for an archived vote's delegation snapshot.
+func TallyVoteDelegationsKey(proposalID uint64, expedited bool, voterAddr sdk.AccAddress) []byte {
+	return append(append(append(TallyVoteDelegationsKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited)), address.MustLengthPrefix(voterAddr.Bytes())...)
 }
 
 // TallyCleanupKey returns the key for a proposal tally round's archived-vote cleanup cursor.

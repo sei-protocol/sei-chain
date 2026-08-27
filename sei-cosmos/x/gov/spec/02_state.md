@@ -119,12 +119,14 @@ We also mention a method to update the tally for a given proposal:
 _Stores are KVStores in the multi-store. The key to find the store is the first
 parameter in the list_`
 
-We will use one KVStore `Governance` to store two mappings:
+We will use one KVStore `Governance` to store three mappings:
 
 - A mapping from `proposalID|'proposal'` to `Proposal`.
 - A mapping from `proposalID|'addresses'|address` to `Vote`. This mapping allows
   us to query all addresses that voted on the proposal along with their vote by
   doing a range query on `proposalID:addresses`.
+- A mapping from `proposalID|'delegations'|address` to the voter's per-validator
+  delegation shares when the vote was recorded.
 
 For pseudocode purposes, here are the two function we will use to read or write in stores:
 
@@ -163,7 +165,7 @@ And the pseudocode for the `ProposalProcessingQueue`:
       // Tally
       voterIterator = rangeQuery(Governance, <proposalID|'addresses'>) //return all the addresses that voted on the proposal
       for each (voterAddress, vote) in voterIterator
-        delegations = stakingKeeper.getDelegations(voterAddress) // get all delegations for current voter
+        delegations = getVoteDelegationSnapshot(voterAddress)
 
         for each delegation in delegations
           // make sure delegation.Shares does NOT include shares being unbonded
@@ -212,16 +214,20 @@ An expired proposal retains a tally accumulator, a cursor, and a snapshot of the
 bonded validators and tally parameters until all of its vote records have been
 processed. Processed votes move to a round-specific archive so an application-state
 export can reconstruct every vote while a tally is unfinished. New votes are rejected
-after the accumulator is created. Delegator results are accumulated per validator. If
-the observed live delegation shares exceed that validator's snapshot, every delegator
+after the accumulator is created. Each vote retains the voter's per-validator
+delegation shares from the time the vote was recorded, and that snapshot moves with
+the vote into the tally archive. Delegator results are accumulated per validator from
+those stored shares, so delegation changes after voting do not alter the result. If
+the stored delegation shares exceed that validator's tally snapshot, every delegator
 option is scaled by the same factor to fit the snapshotted voting-power budget. This
-makes the result independent of vote-record order and prevents later records from
-being dropped when delegations change between tally blocks. Completed tally archives
-are removed incrementally under the same per-block vote-record budget, with part of
-that budget reserved so cleanup cannot be starved by unfinished tallies.
+makes the result independent of vote-record order. Completed tally archives and their
+delegation snapshots are removed incrementally under the same per-block vote-record
+budget, with part of that budget reserved so cleanup cannot be starved by unfinished
+tallies.
 
-Application-state export serializes all archived and pending votes, but not the
-in-progress accumulator. On import, an expired voting proposal starts a new tally from
-those votes and the imported staking and governance-parameter state. The accumulator
-is created during genesis initialization, so the proposal does not reopen for votes
-before its first `EndBlock`.
+Application-state export serializes all archived and pending votes together with their
+delegation snapshots, but not the in-progress accumulator. On import, an expired voting
+proposal starts a new tally from those votes, their original delegation snapshots, and
+the imported validator and governance-parameter state. The accumulator is created
+during genesis initialization, so the proposal does not reopen for votes before its
+first `EndBlock`.

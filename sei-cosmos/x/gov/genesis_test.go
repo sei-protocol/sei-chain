@@ -197,6 +197,12 @@ func TestExportGenesisIncludesVotesFromUnfinishedTally(t *testing.T) {
 
 	genesis := gov.ExportGenesis(ctx, app.GovKeeper)
 	require.Len(t, genesis.Votes, 3)
+	require.Len(t, genesis.VoteDelegationSnapshots, 3)
+	genesisJSON := app.AppCodec().MustMarshalJSON(genesis)
+	var decodedGenesis types.GenesisState
+	app.AppCodec().MustUnmarshalJSON(genesisJSON, &decodedGenesis)
+	require.True(t, genesis.Equal(decodedGenesis))
+	genesis = &decodedGenesis
 
 	importedApp := seiapp.Setup(t, false, false, false)
 	importedCtx := importedApp.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(proposal.VotingEndTime)
@@ -210,6 +216,7 @@ func TestExportGenesisIncludesVotesFromUnfinishedTally(t *testing.T) {
 
 	require.True(t, importedApp.GovKeeper.IsTallying(importedCtx, proposal.ProposalId))
 	require.Len(t, importedApp.GovKeeper.GetVotes(importedCtx, proposal.ProposalId), 3)
+	require.Len(t, importedApp.GovKeeper.GetVoteDelegationSnapshots(importedCtx, proposal), 3)
 	newVoter := make(sdk.AccAddress, 20)
 	binary.BigEndian.PutUint64(newVoter[12:], 4)
 	err = importedApp.GovKeeper.AddVote(
