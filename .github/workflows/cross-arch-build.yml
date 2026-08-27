@@ -182,8 +182,9 @@ jobs:
     name: "Linux ARM64 (static)"
     runs-on: ubuntu-24.04-arm
     needs: [static-paths]
-    # Same gating as the amd64 static job. This is the only place the arm64 release
-    # binary is booted: the release runner is amd64 and cannot execute it.
+    # Same gating as the amd64 static job. The release hook also boots the arm64 binary
+    # through binfmt, but only this job boots it on arm64 hardware, which is what the
+    # gcc>=12 unwind b-tree needs to surface reliably.
     if: >-
       !cancelled() && (
       startsWith(github.base_ref, 'release/') ||
@@ -197,8 +198,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       # Native arm64, so no binfmt or emulation is involved and the boots below run on
-      # real hardware. The release job builds the same commit under emulation; the build
-      # is reproducible, so the binary gated here is the one that ships.
+      # real hardware.
       - name: Build statically (Alpine / musl)
         run: bash scripts/build-static.sh arm64
 

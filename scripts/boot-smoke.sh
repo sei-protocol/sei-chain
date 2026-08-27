@@ -15,15 +15,16 @@
 # StoreCode calls succeed (Sei stores its built-in pointer contracts at InitChain), which
 # is exactly the code path that crashes.
 #
-# Linux-only (runs the linux/amd64 binary natively; uses GNU timeout).
+# Linux-only (uses GNU timeout). Runs the binary natively, or through binfmt when it
+# was built for another architecture, which is how the release hook boots the arm64
+# binary on an amd64 runner.
 #
 # Usage: boot-smoke.sh <path-to-seid> [boots]
 #
-# BOOT_TIMEOUT (seconds, default 25) bounds each boot. The default is sized for a
-# native boot, where the handshake lands about a second in. Raise it when the binary
-# runs under emulation, which the release hook does for arm64 on an amd64 runner:
-# wasmer's JIT compile at the genesis wasm store is the slow part and emulation
-# multiplies it, so a native-sized window can kill a healthy binary.
+# BOOT_TIMEOUT (seconds, default 25) is the ceiling for one boot, not its cost: a boot
+# ends shortly after the handshake appears. Raise it when the binary runs under
+# emulation, which the release hook does for arm64 on an amd64 runner, since wasmer's
+# JIT compile at the genesis wasm store is the slow part and emulation multiplies it.
 set -euo pipefail
 
 BIN=${1:?usage: boot-smoke.sh <path-to-seid> [boots]}
@@ -41,15 +42,38 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 0
 fi
 
-# Refuse a binary this host cannot execute. Natively that means a matching
-# architecture; with binfmt registered a foreign one runs too, which is how the release
-# hook boots the arm64 binary on an amd64 runner. Probing execution covers both, and
-# without it the run reaches `seid init`, dies with an exec-format error, and reports
-# "did not reach the ABCI handshake", which reads as a crashing binary rather than a
-# binary this machine was never able to run.
+# Classify the binary before running it, so each failure reports its own cause. The
+# execution probe alone cannot: a missing path, a non-executable file, a foreign
+# architecture and a seid that crashes in `version` all fail it, and reporting them all
+# as a binfmt problem hides the one this gate exists to catch.
+[ -e "$BIN" ] || { echo "boot-smoke: ERROR: $BIN does not exist." >&2; exit 1; }
+[ -x "$BIN" ] || { echo "boot-smoke: ERROR: $BIN is not executable." >&2; exit 1; }
+
+# Read the ELF header once and length-check it, so a non-ELF or truncated file reports
+# itself rather than yielding a garbage machine value or dying inside od.
+elf_header=$(od -An -tx1 -N20 "$BIN" | tr -d ' \n')
+if [ "${#elf_header}" -ne 40 ] || [ "${elf_header:0:8}" != "7f454c46" ]; then
+  echo "boot-smoke: ERROR: $BIN is not an ELF binary, or its header is truncated." >&2
+  exit 1
+fi
+elf_machine=${elf_header:36:4}
+case "$(uname -m)" in
+  x86_64)         host_machine=3e00 ;;
+  aarch64|arm64)  host_machine=b700 ;;
+  *) echo "boot-smoke: unsupported host architecture $(uname -m)" >&2; exit 1 ;;
+esac
+
+# The probe runs for every binary, so a native one that cannot run its own subcommands is
+# still reported. Only the message branches on architecture: a foreign binary that fails
+# here needs binfmt, a native one that fails is the defect this gate exists to catch.
 if ! "$BIN" version >/dev/null 2>&1; then
-  echo "boot-smoke: ERROR: cannot execute $BIN on $(uname -m)." >&2
-  echo "            For a foreign architecture, register binfmt before running this." >&2
+  if [ "$elf_machine" != "$host_machine" ]; then
+    echo "boot-smoke: ERROR: $BIN is a foreign-architecture binary (e_machine $elf_machine)" >&2
+    echo "            that this host ($(uname -m)) cannot run; register binfmt first." >&2
+  else
+    echo "boot-smoke: ERROR: $BIN is a native $(uname -m) binary but 'seid version' failed:" >&2
+    "$BIN" version >&2 2>&1 || true
+  fi
   exit 1
 fi
 
@@ -68,15 +92,45 @@ for i in $(seq 1 "$BOOTS"); do
   [ "$i" -eq 1 ] && RAYON="RAYON_NUM_THREADS=1"
 
   LOG="$H/start.log"
-  env $RAYON timeout -k 5 "$BOOT_TIMEOUT" "$BIN" start --home "$H" >"$LOG" 2>&1 || true
+  # Stop as soon as the handshake lands rather than waiting out the budget: BOOT_TIMEOUT
+  # is the ceiling for a slow boot, not the price of a healthy one. Without this an
+  # emulated budget large enough to be safe would also be the guaranteed cost.
+  rc=0
+  saw_handshake=0
+  env $RAYON timeout -k 5 "$BOOT_TIMEOUT" "$BIN" start --home "$H" >"$LOG" 2>&1 &
+  boot_pid=$!
+  while kill -0 "$boot_pid" 2>/dev/null; do
+    if grep -q "Completed ABCI Handshake" "$LOG" 2>/dev/null; then
+      saw_handshake=1
+      # Brief dwell so a crash immediately after the handshake still reaches the log.
+      sleep 3
+      kill "$boot_pid" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+  done
+  wait "$boot_pid" 2>/dev/null || rc=$?
 
   if grep -qE "SIGSEGV|SIGILL|SIGBUS|panic:" "$LOG"; then
     echo "boot-smoke: boot $i/$BOOTS CRASHED${RAYON:+ (RAYON_NUM_THREADS=1)}:" >&2
     tail -25 "$LOG" >&2
     exit 1
   fi
-  if ! grep -q "Completed ABCI Handshake" "$LOG"; then
-    echo "boot-smoke: boot $i/$BOOTS did not reach the ABCI handshake${RAYON:+ (RAYON_NUM_THREADS=1)}:" >&2
+  # A healthy boot is killed by `timeout` too, since the node keeps running once the
+  # handshake completes, so the exit status alone cannot tell the two apart. The
+  # handshake decides; the status then says whether the budget ran out or the process
+  # left on its own, which are different problems with different fixes.
+  if [ "$saw_handshake" -eq 0 ] && ! grep -q "Completed ABCI Handshake" "$LOG"; then
+    case "$rc" in
+      124|137)
+        echo "boot-smoke: boot $i/$BOOTS TIMED OUT after ${BOOT_TIMEOUT}s before the ABCI handshake${RAYON:+ (RAYON_NUM_THREADS=1)}." >&2
+        echo "            The binary may be healthy but too slow for this budget; raise BOOT_TIMEOUT" >&2
+        echo "            if it is running under emulation." >&2
+        ;;
+      *)
+        echo "boot-smoke: boot $i/$BOOTS exited (status $rc) before the ABCI handshake${RAYON:+ (RAYON_NUM_THREADS=1)}:" >&2
+        ;;
+    esac
     tail -25 "$LOG" >&2
     exit 1
   fi

@@ -13,16 +13,18 @@ before:
     # libgcc checksums match, output is static, no gcc>=12 b-tree unwinder).
     - bash scripts/build-static.sh amd64
     - bash scripts/build-static.sh arm64
-    # Boot the binary before packaging: catches crash-at-first-wasm-use defects that
-    # neither a successful link nor `seid version` can (see scripts/boot-smoke.sh). Only
-    # the native architecture can be booted here; the arm64 binary is gated by the
-    # Linux ARM64 (static) CI job, which runs the same 8-boot gauntlet on arm64 hardware
-    # against a bit-identical build of the same commit.
+    # Boot both binaries before packaging: catches crash-at-first-wasm-use defects that
+    # neither a successful link nor `seid version` can (see scripts/boot-smoke.sh). The
+    # arm64 boots run through binfmt, so the artefact that ships is the one booted.
     - bash scripts/boot-smoke.sh build/seid-amd64 4
-    # The arm64 binary boots here under emulation, so the artefact that ships is the one
-    # booted. Emulated timing is not trusted to surface the gcc>=12 unwind b-tree, which
-    # is why the Linux ARM64 (static) job still runs the full gauntlet on real hardware.
-    - BOOT_TIMEOUT=120 bash scripts/boot-smoke.sh build/seid-arm64 4
+    # Emulated timing is not trusted to surface the gcc>=12 unwind b-tree, so this is a
+    # liveness check on the shipped bytes rather than the real gate: the Linux ARM64
+    # (static) job runs the full 8-boot gauntlet on arm64 hardware. Two boots here cover
+    # both threading modes; more would only repeat what that job already does, at
+    # emulated speed.
+    # `env` is required: goreleaser execs the hook directly rather than through a shell,
+    # so a bare VAR=value prefix would be taken as the program name.
+    - env BOOT_TIMEOUT=300 bash scripts/boot-smoke.sh build/seid-arm64 4
 
 builds:
   # The static seid is built in Alpine (musl-native) by the `before:` hook above
