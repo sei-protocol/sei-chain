@@ -63,6 +63,33 @@ func TestOpenMemiAVLReplayReadOnlyAcceptsAFullyCoveredHeight(t *testing.T) {
 	require.Equal(t, int64(3), db.Version())
 }
 
+// TestOpenMemiAVLReplayReadOnlyAcceptsAnInitialVersionAboveOne covers a chain
+// seeded above height 1. Its changelog starts at the initial version while
+// initEmptyDB leaves the snapshot at version 0, so the versions below the
+// changelog never existed and the replay is complete despite the distance.
+func TestOpenMemiAVLReplayReadOnlyAcceptsAnInitialVersionAboveOne(t *testing.T) {
+	const initialVersion = 1000
+
+	homeDir := t.TempDir()
+	store := newTestMemiavlStore(t, homeDir)
+	require.NoError(t, store.SetInitialVersion(initialVersion))
+	for nonce := uint64(1); nonce <= 2; nonce++ {
+		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name:      keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), nonce)}},
+		}}))
+		_, err := store.Commit(store.Version() + 1)
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.Close())
+
+	db, err := openMemiAVLReplayReadOnly(utils.GetCosmosSCStorePath(homeDir), initialVersion+1)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	require.Equal(t, int64(initialVersion+1), db.Version())
+	require.Equal(t, int64(0), db.SnapshotVersion())
+}
+
 // TestOpenMemiAVLReplayReadOnlyRejectsAPrunedChangelogGap covers a changelog
 // pruned past the snapshot. Replay reaches the requested height from a
 // contiguous suffix, so the final version looks correct while the versions

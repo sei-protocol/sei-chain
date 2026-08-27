@@ -1159,15 +1159,23 @@ func verifyReplayCoverage(db *memiavl.DB, height int64) error {
 	if firstOffset == 0 {
 		return nil
 	}
-	// #nosec G115 -- WAL offsets are far below MaxInt64 in practice.
-	firstVersion := int64(firstOffset) + db.GetWALIndexDelta()
-	if firstVersion > snapshotVersion+1 {
-		return fmt.Errorf("the memiavl changelog starts at version %d but the snapshot ends at version "+
-			"%d, so versions %d-%d would be missing from the replay; digest a height at or below %d, "+
-			"or use --memiavl-open-mode snapshot",
-			firstVersion, snapshotVersion, snapshotVersion+1, firstVersion-1, snapshotVersion)
+	// #nosec G115 -- changelog offsets stay far below MaxInt64.
+	firstIndex := int64(firstOffset)
+	delta := db.GetWALIndexDelta()
+	// Catchup raises its start offset to the changelog's first offset. That is
+	// correct when the version after the snapshot never had an offset, which is how
+	// a chain whose initial version is above 1 looks until its first snapshot
+	// rewrite. It drops committed versions only when the offset existed and was
+	// pruned away.
+	wantIndex := snapshotVersion + 1 - delta
+	if wantIndex <= 0 || wantIndex >= firstIndex {
+		return nil
 	}
-	return nil
+	firstVersion := firstIndex + delta
+	return fmt.Errorf("the memiavl changelog starts at version %d but the snapshot ends at version "+
+		"%d, so versions %d-%d would be missing from the replay; digest a height at or below %d, "+
+		"or use --memiavl-open-mode snapshot",
+		firstVersion, snapshotVersion, snapshotVersion+1, firstVersion-1, snapshotVersion)
 }
 
 func digestMemIAVLReplay(dbDir string, height int64, findTarget []byte, normalization string) error {
