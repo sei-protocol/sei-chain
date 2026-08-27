@@ -69,4 +69,15 @@ func TestTallyKeys(t *testing.T) {
 	require.Equal(t, append(append(VoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), address.MustLengthPrefix(addr.Bytes())...), VoteDelegationsKey(2, addr))
 	require.Equal(t, append(append(append(TallyVoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), byte(1)), address.MustLengthPrefix(addr.Bytes())...), TallyVoteDelegationsKey(2, false, addr))
 	require.Equal(t, append(append(VoterProposalsKeyPrefix, address.MustLengthPrefix(addr.Bytes())...), GetProposalIDBytes(2)...), VoterProposalsKey(addr, 2))
+
+	for _, expedited := range []bool{false, true} {
+		proposalID, decodedExpedited := SplitTallyCleanupKey(TallyCleanupKey(2, expedited))
+		require.Equal(t, uint64(2), proposalID)
+		require.Equal(t, expedited, decodedExpedited)
+		require.Equal(
+			t,
+			TallyVoteDelegationsKey(2, expedited, addr),
+			TallyVoteDelegationsKeyFromVoteKey(TallyVoteKey(2, expedited, addr)),
+		)
+	}
 }

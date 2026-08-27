@@ -106,7 +106,7 @@ func (keeper Keeper) CleanupTallyVotes(ctx sdk.Context, maxVotes int) (deleted i
 	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid() && deleted < maxVotes; iterator.Next() {
-		proposalID, expedited := splitTallyCleanupKey(iterator.Key())
+		proposalID, expedited := types.SplitTallyCleanupKey(iterator.Key())
 		cursor := decodeCleanupCursor(iterator.Value())
 		count, complete, nextCursor := keeper.cleanupProposalTallyVotes(
 			ctx,
@@ -400,7 +400,7 @@ func (keeper Keeper) cleanupProposalTallyVotes(
 	for ; iterator.Valid() && deleted < maxVotes; iterator.Next() {
 		cursor = append(cursor[:0], iterator.Key()...)
 		store.Delete(iterator.Key())
-		snapshotKey := append([]byte{types.TallyVoteDelegationsKeyPrefix[0]}, iterator.Key()[1:]...)
+		snapshotKey := types.TallyVoteDelegationsKeyFromVoteKey(iterator.Key())
 		store.Delete(snapshotKey)
 		deleted++
 	}
@@ -417,19 +417,4 @@ func decodeCleanupCursor(value []byte) []byte {
 		return nil
 	}
 	return append([]byte(nil), value...)
-}
-
-func splitTallyCleanupKey(key []byte) (proposalID uint64, expedited bool) {
-	if len(key) != 10 {
-		panic(fmt.Sprintf("invalid tally cleanup key length %d", len(key)))
-	}
-	proposalID = types.GetProposalIDFromBytes(key[1:9])
-	switch key[9] {
-	case 0:
-		return proposalID, true
-	case 1:
-		return proposalID, false
-	default:
-		panic(fmt.Sprintf("invalid tally round %d", key[9]))
-	}
 }
