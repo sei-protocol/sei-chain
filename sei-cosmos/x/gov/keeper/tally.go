@@ -179,13 +179,10 @@ func (keeper Keeper) processTallyVotes(
 		voter := sdk.MustAccAddressFromBech32(vote.Voter)
 		snapshotKey := types.VoteDelegationsKey(proposalID, voter)
 		snapshotValue := store.Get(snapshotKey)
-		var snapshot types.VoteDelegationSnapshot
 		if snapshotValue == nil {
-			snapshot = keeper.snapshotVoteDelegations(ctx, proposalID, voter)
-			snapshotValue = keeper.cdc.MustMarshal(&snapshot)
-		} else {
-			snapshot = keeper.unmarshalVoteDelegations(snapshotValue)
+			panic(fmt.Sprintf("missing delegation snapshot for proposal %d voter %s", proposalID, voter))
 		}
+		snapshot := keeper.unmarshalVoteDelegations(snapshotValue)
 		keeper.addVoteToTally(validators, vote, snapshot)
 
 		store.Set(types.TallyVoteKey(proposalID, progress.Expedited, voter), value)
@@ -237,7 +234,7 @@ func (keeper Keeper) voteDelegations(
 	if bz := store.Get(types.TallyVoteDelegationsKey(proposalID, expedited, voter)); bz != nil {
 		return keeper.unmarshalVoteDelegations(bz)
 	}
-	return keeper.snapshotVoteDelegations(ctx, proposalID, voter)
+	panic(fmt.Sprintf("missing delegation snapshot for proposal %d voter %s", proposalID, voter))
 }
 
 func (progress *tallyProgress) validatorMap() map[string]*tallyValidator {
