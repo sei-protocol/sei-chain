@@ -165,7 +165,7 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHea
 // without a nil-check on the same type. The "no such block" case is
 // rejected at the BlockByHash call site before delegating here.
 //
-// LastCommit is non-nil with empty Signatures.
+// LastCommit is non-nil with empty Signatures, matching executeBlock's empty CommitInfo.
 func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
@@ -184,7 +184,12 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 				Height: utils.Clamp[int64](gb.GlobalNumber),
 				Time:   gb.Timestamp,
 			},
-			Data:       types.Data{Txs: tmTxs},
+			Data: types.Data{Txs: tmTxs},
+			// Autobahn does not feed per-validator votes into the app. Filling N
+			// absent signatures would make trace replay's BeginBlock bump
+			// missed-block counters and diverge from production. ToReqBeginBlock
+			// skips the per-validator loop when Signatures is empty, so empty
+			// Votes flow into distribution/slashing on both paths.
 			LastCommit: &types.Commit{},
 		},
 	}
