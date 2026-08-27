@@ -132,8 +132,21 @@ func (cs *CommitStore) ReleaseSnapshotRefs() error {
 	return err
 }
 
-func (cs *CommitStore) Commit() (int64, error) {
-	return cs.db.Commit()
+// Commit persists the working state at version. memiavl derives the height it commits from its own
+// last committed block, so version is a cross-check rather than an instruction.
+func (cs *CommitStore) Commit(version int64) (int64, error) {
+	neverCommitted := cs.db.Version() == 0
+	committed, err := cs.db.Commit()
+	if err != nil {
+		return committed, err
+	}
+	if !neverCommitted && committed != version {
+		// A store that has never committed is exempt: one seeded to start above height 1 legitimately
+		// disagrees with a caller counting from the beginning.
+		panic(fmt.Sprintf("memiavl: committed block %d but the caller is building block %d",
+			committed, version))
+	}
+	return committed, nil
 }
 
 func (cs *CommitStore) Version() int64 {
@@ -173,8 +186,18 @@ func (cs *CommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	return cs.db.ApplyUpgrades(upgrades)
 }
 
-func (cs *CommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	return cs.db.WorkingCommitInfo()
+func (cs *CommitStore) WorkingCommitInfo(version int64) *proto.CommitInfo {
+	ci := cs.db.WorkingCommitInfo()
+	if cs.db.Version() == 0 {
+		// A store that has never committed may start its history above height 1, so memiavl and the
+		// caller can disagree here without either being wrong.
+		return ci
+	}
+	if ci.Version != version {
+		panic(fmt.Sprintf("memiavl: working commit info is for block %d but the caller is building block %d",
+			ci.Version, version))
+	}
+	return ci
 }
 
 func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {

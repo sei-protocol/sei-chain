@@ -34,14 +34,14 @@ func reopenCommittedRoot(t *testing.T, dir string, readOnly bool) []byte {
 	if !readOnly {
 		require.NoError(t, s.LoadLatest())
 		defer func() { require.NoError(t, s.Close()) }()
-		return s.CommittedRootHash()
+		return rootHash(s)
 	}
 	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	cs := ro.(*CommitStore)
 	defer func() { require.NoError(t, cs.Close()) }()
-	return cs.CommittedRootHash()
+	return rootHash(cs)
 }
 
 // TestEmptyValueSurvivesWALReplay drives a key set to an empty value, then
@@ -64,7 +64,7 @@ func TestEmptyValueSurvivesWALReplay(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	liveRoot := s.CommittedRootHash()
+	liveRoot := rootHash(s)
 	dir := s.config.DataDir
 
 	require.NoError(t, s.Close())
