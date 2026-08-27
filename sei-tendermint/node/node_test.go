@@ -34,13 +34,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Service, error) {
+func newLocalNodeService(ctx context.Context, cfg *config.Config, nodeOptions ...Option) (service.Service, error) {
 	app := kvstore.NewApplication()
 	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
 	return New(
@@ -51,13 +50,14 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		nil,
 		nil,
 		types.DefaultConsensusPolicy(),
+		nodeOptions...,
 	)
 }
 
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
-	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
+	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", freeLoopbackAddr(t))
 
 	ctx := t.Context()
 
@@ -102,7 +102,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_restart_event_test")
 	require.NoError(t, err)
 	cfg.Mode = config.ModeFull
-	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
+	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", freeLoopbackAddr(t))
 
 	ctx := t.Context()
 
@@ -133,6 +133,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config) *nodeImpl {
 	t.Helper()
+	conf.RPC.ListenAddress = fmt.Sprintf("tcp://%s", freeLoopbackAddr(t))
 
 	ns, err := newLocalNodeService(ctx, conf)
 	require.NoError(t, err)
@@ -197,7 +198,7 @@ func TestNodeSetAppVersion(t *testing.T) {
 }
 
 func TestNodeSetPrivValTCP(t *testing.T) {
-	addr := fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
+	addr := fmt.Sprintf("tcp://%s", freeLoopbackAddr(t))
 
 	t.Cleanup(leaktest.Check(t))
 	ctx := t.Context()
@@ -236,7 +237,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 	ctx := t.Context()
 
-	addrNoPrefix := tcp.TestReserveAddr().String()
+	addrNoPrefix := freeLoopbackAddr(t)
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_priv_val_tcp_test")
 	require.NoError(t, err)

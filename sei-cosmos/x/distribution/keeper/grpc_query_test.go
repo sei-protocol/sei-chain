@@ -592,7 +592,9 @@ func (suite *KeeperTestSuite) TestGRPCCommunityPool() {
 				suite.Require().Nil(err)
 				req = &types.QueryCommunityPoolRequest{}
 
-				expPool = &types.QueryCommunityPoolResponse{Pool: sdk.NewDecCoinsFromCoins(amount...)}
+				pool, err := sdk.NewDecCoinsFromCoins(amount...)
+				suite.Require().NoError(err)
+				expPool = &types.QueryCommunityPoolResponse{Pool: pool}
 			},
 			true,
 		},

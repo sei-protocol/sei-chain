@@ -35,6 +35,9 @@ const (
 	CodeLagIsHighError ErrorCode = -32604 // Lag is too high error
 )
 
+// RequestBatchSizeLimit is the maximum number of JSON-RPC requests allowed in one batch.
+const RequestBatchSizeLimit = 10
+
 var errorCodeString = map[ErrorCode]string{
 	CodeParseError:     "Parse error",
 	CodeInvalidRequest: "Invalid request",

@@ -125,16 +125,28 @@ func (v View) Next() View {
 	return v
 }
 
-// ViewSpec is the full local context for starting a view: justification QCs plus
-// the epoch active at that view. Epoch is required; View(), NextGlobalBlock(), and
-// NextTimestamp() panic if it is nil.
+// ConsensusSpec is the durable CommitQC tip paired with the epoch of the
+// RoadIndex that follows it. CommitQC is None before the first tip; until then
+// Epoch is genesis epoch 0 (and FirstBlock is the next global block). Consensus
+// advances with a spec verbatim.
+type ConsensusSpec struct {
+	CommitQC utils.Option[*CommitQC]
+	Epoch    *Epoch
+}
+
+// Index is the RoadIndex of the next view: CommitQC.Index()+1, or 0 if there is no tip.
+func (s ConsensusSpec) Index() RoadIndex {
+	return NextIndexOpt(s.CommitQC)
+}
+
+// ViewSpec is ConsensusSpec plus the TimeoutQC for the current view number.
+// Epoch is required; View(), NextGlobalBlock(), and NextTimestamp() panic if it is nil.
 type ViewSpec struct {
+	ConsensusSpec
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
 	// I.e. that TimeoutQC comes from the expected consensus instance.
-	CommitQC  utils.Option[*CommitQC]
 	TimeoutQC utils.Option[*TimeoutQC]
-	Epoch     *Epoch
 }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
@@ -149,7 +161,7 @@ func (vs *ViewSpec) NextGlobalBlock() GlobalBlockNumber {
 
 // View is the view justified by vs.
 func (vs *ViewSpec) View() View {
-	idx := NextIndexOpt(vs.CommitQC)
+	idx := vs.Index()
 	if view := NextViewOpt(vs.TimeoutQC); view.Index == idx {
 		view.EpochIndex = vs.Epoch.EpochIndex()
 		return view
@@ -411,7 +423,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			return fmt.Errorf("proposer %q, want %q", got, want)
 		}
 		// Verify the proposer's signature.
-		if err := m.proposal.VerifySig(c); err != nil {
+		if err := m.proposal.VerifySig(); err != nil {
 			return fmt.Errorf("proposal signature: %w", err)
 		}
 		// Do we have the required timeoutQC?

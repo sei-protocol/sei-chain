@@ -380,6 +380,13 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
 	}
 
+	// Wait until the block we want to checkpoint has actually been flushed down to the pebble instances.
+	// Since we continue to hold the reservation on that block, later blocks are prevented from being
+	// flushed down to pebble, thus making the checkpoint operation thread safe.
+	if err := s.flushLatestVersion(); err != nil {
+		return fmt.Errorf("await flush before snapshot at version %d: %w", version, err)
+	}
+
 	dir := s.flatkvDir()
 	snapDir := snapshotName(version)
 	finalPath := filepath.Join(dir, snapDir)
@@ -398,15 +405,24 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		}
 	}()
 
-	// namedDataDBs has a fixed iteration order, so the checkpoint is reproducible.
-	for _, ndb := range s.namedDataDBs() {
-		cp, ok := ndb.db.(types.Checkpointable)
-		if !ok {
-			return fmt.Errorf("db %s does not support Checkpoint", ndb.dir)
+	// A checkpoint addresses a database as a file rather than as a key-value store, which is the one thing a
+	// view manager cannot express — so this is the single place FlatKV reaches past one, and the manager's
+	// escape hatch names checkpointing as its only sanctioned use. What makes it safe is the flush awaited
+	// above plus the reservation still held on that block: together they pin the pebble instances at exactly
+	// the committed version for the duration.
+	//
+	// dataDBDirs has a fixed iteration order, so the checkpoint is reproducible.
+	for _, dir := range dataDBDirs {
+		manager := s.viewManagerFor(dir)
+		if manager == nil {
+			return fmt.Errorf("no view manager for %s", dir)
 		}
-		dest := filepath.Join(tmpPath, ndb.dir)
-		if err := cp.Checkpoint(dest); err != nil {
-			return fmt.Errorf("checkpoint %s: %w", ndb.dir, err)
+		cp, ok := manager.EscapeHatchUnderlyingDB().(types.Checkpointable)
+		if !ok {
+			return fmt.Errorf("db %s does not support Checkpoint", dir)
+		}
+		if err := cp.Checkpoint(filepath.Join(tmpPath, dir)); err != nil {
+			return fmt.Errorf("checkpoint %s: %w", dir, err)
 		}
 	}
 

@@ -13,6 +13,12 @@ const (
 	DefaultAddress = "127.0.0.1:9095"
 )
 
+// The keys this package's reader resolves.
+const (
+	flagAdminEnabled = "admin_server.admin_enabled"
+	flagAdminAddress = "admin_server.admin_address"
+)
+
 // Config defines configuration for the admin gRPC server.
 type Config struct {
 	// Enabled controls whether the admin gRPC server starts.
@@ -29,10 +35,10 @@ var DefaultConfig = Config{
 // ReadConfig reads admin config from app options (Viper-backed).
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	cfg := DefaultConfig
-	if v := opts.Get("admin_server.admin_enabled"); v != nil {
+	if v := opts.Get(flagAdminEnabled); v != nil {
 		cfg.Enabled = cast.ToBool(v)
 	}
-	if v := opts.Get("admin_server.admin_address"); v != nil {
+	if v := opts.Get(flagAdminAddress); v != nil {
 		if s := cast.ToString(v); s != "" {
 			cfg.Address = s
 		}

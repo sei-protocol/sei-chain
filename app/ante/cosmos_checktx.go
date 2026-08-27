@@ -25,9 +25,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	paramskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/keeper"
-	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -70,7 +67,6 @@ func CosmosCheckTxAnte(
 	ek *evmkeeper.Keeper,
 	accountKeeper authkeeper.AccountKeeper,
 	bankKeeper bankkeeper.Keeper,
-	ibcKeeper *ibckeeper.Keeper,
 ) (returnCtx sdk.Context, returnErr error) {
 	// Auth params are needed for stateless checks before SetGasMeter installs the
 	// tx meter. Read them on a throwaway meter so this early lookup does not
@@ -113,7 +109,8 @@ func CosmosCheckTxAnte(
 	}
 	ctx = DecoratePriority(ctx, priority)
 
-	return ctx, CheckMessage(ctx, tx, ibcKeeper)
+	// IBC message types are no longer registered, so no retired IBC messages can reach CheckTx.
+	return ctx, nil
 }
 
 func HandleOutofGas(recoveredErr any, gasLimit uint64, gasConsumed uint64) error {
@@ -567,69 +564,6 @@ func UpdateSigners(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountK
 		}
 	}
 	return events, nil
-}
-
-func CheckMessage(ctx sdk.Context, tx sdk.Tx, ibcKeeper *ibckeeper.Keeper) error {
-	// keep track of total packet messages and number of redundancies across `RecvPacket`, `AcknowledgePacket`, and `TimeoutPacket/OnClose`
-	redundancies := 0
-	packetMsgs := 0
-	for _, m := range tx.GetMsgs() {
-		switch msg := m.(type) {
-		case *channeltypes.MsgRecvPacket:
-			response, err := ibcKeeper.RecvPacket(sdk.WrapSDKContext(ctx), msg)
-			if err != nil {
-				return err
-			}
-			if response.Result == channeltypes.NOOP {
-				redundancies += 1
-			}
-			packetMsgs += 1
-
-		case *channeltypes.MsgAcknowledgement:
-			response, err := ibcKeeper.Acknowledgement(sdk.WrapSDKContext(ctx), msg)
-			if err != nil {
-				return err
-			}
-			if response.Result == channeltypes.NOOP {
-				redundancies += 1
-			}
-			packetMsgs += 1
-
-		case *channeltypes.MsgTimeout:
-			response, err := ibcKeeper.Timeout(sdk.WrapSDKContext(ctx), msg)
-			if err != nil {
-				return err
-			}
-			if response.Result == channeltypes.NOOP {
-				redundancies += 1
-			}
-			packetMsgs += 1
-
-		case *channeltypes.MsgTimeoutOnClose:
-			response, err := ibcKeeper.TimeoutOnClose(sdk.WrapSDKContext(ctx), msg)
-			if err != nil {
-				return err
-			}
-			if response.Result == channeltypes.NOOP {
-				redundancies += 1
-			}
-			packetMsgs += 1
-
-		case *clienttypes.MsgUpdateClient:
-			_, err := ibcKeeper.UpdateClient(sdk.WrapSDKContext(ctx), msg)
-			if err != nil {
-				return err
-			}
-
-		}
-	}
-
-	// only return error if all packet messages are redundant
-	if redundancies == packetMsgs && packetMsgs > 0 {
-		return channeltypes.ErrRedundantTx
-	}
-
-	return nil
 }
 
 func CheckAuthzContainsEvm(authzMsg *authz.MsgExec, nestedLvl int) (bool, error) {

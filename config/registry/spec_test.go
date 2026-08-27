@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -29,8 +30,9 @@ import (
 // authoring check, and it reads its order from Source's declaration rather than from its caller's
 // argument order, so no caller can reorder its way to a different answer.
 
-// gigaSection mirrors what the giga executor's own package would register. The struct under test
-// is the real one, so the key comparison below measures the live reader rather than a copy of it.
+// gigaSection re-registers the giga executor's section with a default that varies by mode, so the
+// mode property below has something to measure. The struct is the real one, so the key comparison
+// measures the live reader rather than a copy of it.
 const gigaSection = "giga_executor"
 
 func registerGiga(t *testing.T) {
@@ -758,9 +760,6 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	type emptyName struct {
 		N string `mapstructure:""`
 	}
-	type dashName struct {
-		N string `mapstructure:"-"`
-	}
 	type upperName struct {
 		N string `mapstructure:"N"`
 	}
@@ -812,7 +811,6 @@ func TestEveryRefusalIsReportedAsADefect(t *testing.T) {
 	}{
 		{"a squashed field that also names a segment", "s", &squashNamed{}, anyDefault, "one or the other"},
 		{"an empty mapstructure name", "s", &emptyName{}, anyDefault, "empty mapstructure name"},
-		{"a dash mapstructure name", "s", &dashName{}, anyDefault, "empty mapstructure name"},
 		{"an upper-case key", "s", &upperName{}, anyDefault, "not lower case"},
 		{"a squashed scalar", "s", &squashScalar{}, anyDefault, "not a struct"},
 		{"a struct declaring nothing", "s", &noKeys{}, anyDefault, "declares no keys"},
@@ -1036,35 +1034,59 @@ func requireEnvCollisionRefused(t *testing.T, spelling string) {
 // every other caller's declared set.
 func TestAReadKeySliceCannotReachTheRegistry(t *testing.T) {
 	registry.Reset()
-	registry.RegisterSection("s", &struct {
-		B string `mapstructure:"b"`
-		A string `mapstructure:"a"`
-	}{}, func(registry.Mode) any {
-		return struct {
-			B string `mapstructure:"b"`
-			A string `mapstructure:"a"`
-		}{}
-	})
+	type shape struct {
+		B    string `mapstructure:"b"`
+		A    string `mapstructure:"a"`
+		Gone string `mapstructure:"gone"`
+	}
+	registry.RegisterSectionExcluding("s", &shape{},
+		func(registry.Mode) any { return shape{} }, "gone")
 	requireNoDefects(t)
 
-	want := []string{"s.a", "s.b"}
-	for _, read := range []struct {
-		name string
-		keys func() []string
-	}{
-		{"Lookup", func() []string { s, _ := registry.Lookup("s"); return s.Keys }},
-		{"Sections", func() []string { return registry.Sections()[0].Keys }},
-	} {
-		t.Run(read.name, func(t *testing.T) {
-			got := read.keys()
-			for i := range got {
-				got[i] = "clobbered"
-			}
-			if after := read.keys(); !reflect.DeepEqual(after, want) {
-				t.Errorf("writing into the slice %s returned left the registry declaring %v, want %v",
-					read.name, after, want)
-			}
-		})
+	// Every slice field Section carries, through both accessors, found by walking the type rather than
+	// named here. A field added later is covered without this test changing, which is what the copy's
+	// own doc claims and could not deliver while the fields were listed by hand.
+	//
+	// The exclusion list is the one that shows why this matters beyond one wrong key: it is read on
+	// every resolution, so a caller reaching it drops a path from one walk and not the other, and the
+	// section then declares a key nothing answers.
+	reads := map[string]func() registry.Section{
+		"Lookup":   func() registry.Section { got, _ := registry.Lookup("s"); return got },
+		"Sections": func() registry.Section { return registry.Sections()[0] },
+	}
+	typ := reflect.TypeOf(registry.Section{})
+	covered := 0
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if field.Type.Kind() != reflect.Slice || !field.IsExported() {
+			continue
+		}
+		covered++
+		for name, read := range reads {
+			t.Run(name+"."+field.Name, func(t *testing.T) {
+				// Copied element by element, not taken as a slice value. A slice read out of the
+				// section shares its backing array, so a write that reached the registry would move
+				// this too and the comparison would hold while the storage was clobbered.
+				live := reflect.ValueOf(read()).FieldByName(field.Name)
+				want := reflect.MakeSlice(live.Type(), live.Len(), live.Len())
+				reflect.Copy(want, live)
+				// Written by index rather than appended, because every section registered today has a
+				// capacity equal to its length, so an append reallocates and would pass while the
+				// registry's own storage was still reachable.
+				got := reflect.ValueOf(read()).FieldByName(field.Name)
+				for j := range got.Len() {
+					got.Index(j).Set(reflect.Zero(got.Type().Elem()))
+				}
+				after := reflect.ValueOf(read()).FieldByName(field.Name)
+				if !reflect.DeepEqual(after.Interface(), want.Interface()) {
+					t.Errorf("writing into %s left the registry holding %v, want %v",
+						field.Name, after.Interface(), want.Interface())
+				}
+			})
+		}
+	}
+	if covered == 0 {
+		t.Fatal("Section carries no exported slice field, so this covers nothing")
 	}
 }
 
@@ -1351,5 +1373,200 @@ func TestARefusalInsideASquashedBaseIsReported(t *testing.T) {
 	// The prefix is the section, not a subtree, because squash adds no segment.
 	if msg := defects[0].Err.Error(); !strings.Contains(msg, "sq.Untagged") {
 		t.Errorf("the refusal reads %q; a squashed field's path is the section's own", msg)
+	}
+}
+
+// TestAFieldExcludedFromConfigDeclaresNoKey covers the tag that means "not from configuration".
+//
+// mapstructure reads "-" as skip this field, and a configuration struct uses it for a field something else
+// in the program assigns.
+//
+// Such a field declares no key. Declaring one that resolved to a default would put a key in the space that
+// reaches no field: an operator could write it and the assignment would discard whatever they wrote.
+//
+// An untagged field stays a defect. The two look alike in a diff and mean opposite things: one is a field
+// the author excluded from configuration, the other is a field configuration cannot reach because nothing
+// names it.
+func TestAFieldExcludedFromConfigDeclaresNoKey(t *testing.T) {
+	type excluded struct {
+		Kept     string `mapstructure:"kept"`
+		Assigned int    `mapstructure:"-"`
+	}
+
+	registry.Reset()
+	registry.RegisterSection("probe", &excluded{}, func(registry.Mode) any {
+		return &excluded{Kept: "x", Assigned: 42}
+	})
+	for _, d := range registry.Defects() {
+		t.Fatalf("a field excluded from configuration was reported as a defect: %v", d.Err)
+	}
+
+	if got, want := registry.Keys(), []string{"probe.kept"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("declared keys are %v, want %v. A key for an excluded field is one an operator can write "+
+			"that whatever assigns the field then discards", got, want)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("resolving a section with an excluded field: %v", err)
+	}
+	if _, present := resolved.Values["probe.assigned"]; present {
+		t.Error("the excluded field resolved to a value, so an operator could write a key that reaches no " +
+			"field")
+	}
+
+	// An untagged field means the opposite and stays a defect.
+	type untagged struct {
+		Kept      string `mapstructure:"kept"`
+		Forgotten int
+	}
+	registry.Reset()
+	registry.RegisterSection("probe", &untagged{}, func(registry.Mode) any { return &untagged{} })
+	defects := registry.Defects()
+	if len(defects) == 0 {
+		t.Fatal("a field with no tag at all registered cleanly, so a key nothing names reaches no field")
+	}
+	// Named, so this cannot pass on a refusal raised for some other reason.
+	if got := defects[0].Err.Error(); !strings.Contains(got, "Forgotten") {
+		t.Errorf("the refusal reads %q and does not name the untagged field", got)
+	}
+}
+
+// TestAnExclusionDropsAPathFromBothWalks holds the property that makes an exclusion usable.
+//
+// A section is walked twice, once as a type to decide what it declares and once as a value to decide what
+// it states. An exclusion that reached one walk and not the other would leave a section declaring a key
+// nothing answers, or answering a key it never declared, and the registry refuses both. So it has to reach
+// both, and the only way to see that is through a resolution.
+func TestAnExclusionDropsAPathFromBothWalks(t *testing.T) {
+	registry.Reset()
+	type leftOut struct {
+		Kept    string `mapstructure:"kept"`
+		Dropped string `mapstructure:"dropped"`
+	}
+	registry.RegisterSectionExcluding("exclusion_both_walks", &leftOut{}, func(registry.Mode) any {
+		return leftOut{Kept: "a", Dropped: "b"}
+	}, "dropped")
+
+	registered, ok := registry.Lookup("exclusion_both_walks")
+	if !ok {
+		t.Fatalf("not registered; Defects: %v", registry.Defects())
+	}
+	if want := []string{"exclusion_both_walks.kept"}; !reflect.DeepEqual(registered.Keys, want) {
+		t.Errorf("declares %v, want %v", registered.Keys, want)
+	}
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if _, answered := resolved.Values["exclusion_both_walks.dropped"]; answered {
+		t.Error("the excluded path is answered, so the value walk kept what the type walk dropped")
+	}
+	if got := resolved.Values["exclusion_both_walks.kept"]; got != "a" {
+		t.Errorf("the kept key answers %#v; excluding one path must not drop the others", got)
+	}
+}
+
+// TestAnExclusionCoveringNothingIsRefused keeps a stale exclusion from reading as a deliberate omission.
+//
+// The field an exclusion names can be renamed or removed. Left alone, the exclusion then excludes nothing
+// while still saying in the source that this section deliberately leaves a setting out.
+func TestAnExclusionCoveringNothingIsRefused(t *testing.T) {
+	registry.Reset()
+	type present struct {
+		Kept string `mapstructure:"kept"`
+	}
+	registry.RegisterSectionExcluding("exclusion_covers_nothing", &present{}, func(registry.Mode) any {
+		return present{Kept: "a"}
+	}, "renamed-away")
+
+	if _, ok := registry.Lookup("exclusion_covers_nothing"); ok {
+		t.Fatal("the section registered with an exclusion naming no field it carries")
+	}
+	var found bool
+	for _, d := range registry.Defects() {
+		if d.Section == "exclusion_covers_nothing" && strings.Contains(d.Err.Error(), "covers nothing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no defect says the exclusion covers nothing; Defects: %v", registry.Defects())
+	}
+}
+
+// TestAFieldCollectingUnmatchedKeysDeclaresNone covers the one tag option that has no name.
+//
+// A remaining field is where the decode puts what it matched no field for, so what lands in it is what an
+// operator misspelled. No exclusion can reach it, because an exclusion names a key and this field has none.
+func TestAFieldCollectingUnmatchedKeysDeclaresNone(t *testing.T) {
+	registry.Reset()
+	type collector struct {
+		Kept  string         `mapstructure:"kept"`
+		Other map[string]any `mapstructure:",remain"`
+	}
+	registry.RegisterSection("remaining_field", &collector{}, func(registry.Mode) any {
+		return collector{Kept: "a"}
+	})
+
+	registered, ok := registry.Lookup("remaining_field")
+	if !ok {
+		t.Fatalf("a struct carrying a remaining field was refused; Defects: %v", registry.Defects())
+	}
+	if want := []string{"remaining_field.kept"}; !reflect.DeepEqual(registered.Keys, want) {
+		t.Errorf("declares %v, want %v; the collector itself is not a setting", registered.Keys, want)
+	}
+
+	// Driven through a resolution as well, because the lookup above sees only the walk that decides what
+	// is declared. The other walk decides what is stated, and a collector it kept would render a value
+	// under a key the section does not declare, which the two walks being compared would then refuse. The
+	// two agree structurally today, and the sibling test on exclusions declines to assume exactly that.
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got, stated := resolved.Values["remaining_field.other"]; stated {
+		t.Errorf("the collector is stated as %v, so the walk that states values kept a field the walk "+
+			"that declares them left out", got)
+	}
+}
+
+// TestANestedFileSourceIsRefusedRatherThanResolvedPast measures what a wrong shape used to cost.
+//
+// File is one flat map of whole dotted keys. Handed a decoded configuration file instead, every key an
+// operator wrote sits a level below where anything matches it, so the resolution carried pure defaults
+// and reported the table's name as the one key nothing declares. A caller installing that result writes
+// the binary's own defaults over the file it was reading, which is how an empty value reaches a setting
+// something outside the binary had patched.
+//
+// So the shape is refused. Asserted through what an operator loses rather than through the error, because
+// an error nobody returns and a value nobody applies look the same from the outside.
+func TestANestedFileSourceIsRefusedRatherThanResolvedPast(t *testing.T) {
+	registry.Reset()
+	type peers struct {
+		Persistent string `mapstructure:"persistent-peers"`
+	}
+	registry.RegisterSection("net", &peers{},
+		func(registry.Mode) any { return peers{Persistent: ""} })
+	requireNoDefects(t)
+
+	const written = "node-id@10.0.0.1:26656"
+	nested := map[string]any{"net": map[string]any{"persistent-peers": written}}
+	if _, err := registry.Resolve(registry.ModeValidator, registry.Sources{File: nested}); err == nil {
+		t.Fatal("a nested file source resolved, so a caller installing the result would have written " +
+			"the declared empty value over the peer list the file carried")
+	}
+
+	// The flat shape of the same file still resolves, so the refusal is of the shape and not of the key.
+	flat := map[string]any{"net.persistent-peers": written}
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{File: flat})
+	if err != nil {
+		t.Fatalf("the flat shape was refused: %v", err)
+	}
+	if got := resolved.Values["net.persistent-peers"]; got != written {
+		t.Errorf("net.persistent-peers resolved to %v, want the written %q", got, written)
+	}
+	if !slices.Contains(resolved.Overrides, "net.persistent-peers") {
+		t.Errorf("Overrides is %v, so an install would skip the one key the file wrote", resolved.Overrides)
 	}
 }

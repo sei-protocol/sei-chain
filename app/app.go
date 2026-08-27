@@ -63,9 +63,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	distr "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -94,6 +91,7 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/sync/errgroup"
@@ -107,6 +105,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/retiredibc"
+	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -118,13 +118,6 @@ import (
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
-	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
-	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
-	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
-	ibcporttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
-	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -214,17 +207,14 @@ var (
 		authzmodule.AppModuleBasic{},
 		genutil.AppModuleBasic{},
 		bank.AppModuleBasic{},
-		capability.AppModuleBasic{},
 		staking.AppModuleBasic{},
 		mint.AppModuleBasic{},
 		distr.AppModuleBasic{},
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
 		slashing.AppModuleBasic{},
-		ibc.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
-		transfer.AppModuleBasic{},
 		vesting.AppModuleBasic{},
 		oraclemodule.AppModuleBasic{},
 		evm.AppModuleBasic{},
@@ -242,7 +232,7 @@ var (
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
+		transferModuleName:             {authtypes.Minter, authtypes.Burner},
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
@@ -263,8 +253,8 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, storekeys.IBCStoreKey, upgradetypes.StoreKey, feegrantModuleName,
+		evidencetypes.StoreKey, transferModuleName, capabilityModuleName, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
@@ -299,8 +289,10 @@ var (
 )
 
 const (
-	MinGasEVMTx        = 21000
-	feegrantModuleName = "feegrant"
+	MinGasEVMTx          = 21000
+	capabilityModuleName = "capability"
+	feegrantModuleName   = "feegrant"
+	transferModuleName   = "transfer"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
 	// notifier buffer. Capacity 1 pairs with the notifier's
@@ -385,30 +377,22 @@ type App struct {
 	memKeys map[string]*sdk.MemoryStoreKey
 
 	// keepers
-	AccountKeeper    authkeeper.AccountKeeper
-	AuthzKeeper      authzkeeper.Keeper
-	BankKeeper       bankkeeper.Keeper
-	GigaBankKeeper   *gigabankkeeper.BaseKeeper
-	CapabilityKeeper *capabilitykeeper.Keeper
-	StakingKeeper    stakingkeeper.Keeper
-	SlashingKeeper   slashingkeeper.Keeper
-	MintKeeper       mintkeeper.Keeper
-	DistrKeeper      distrkeeper.Keeper
-	GovKeeper        govkeeper.Keeper
-	UpgradeKeeper    upgradekeeper.Keeper
-	ParamsKeeper     paramskeeper.Keeper
-	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
-	EvidenceKeeper   evidencekeeper.Keeper
-	TransferKeeper   ibctransferkeeper.Keeper
-	WasmKeeper       wasm.Keeper
-	OracleKeeper     oraclekeeper.Keeper
-	EvmKeeper        evmkeeper.Keeper
-	GigaEvmKeeper    gigaevmkeeper.Keeper
-
-	// make scoped keepers public for test purposes
-	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
-	ScopedTransferKeeper capabilitykeeper.ScopedKeeper
-	ScopedWasmKeeper     capabilitykeeper.ScopedKeeper
+	AccountKeeper  authkeeper.AccountKeeper
+	AuthzKeeper    authzkeeper.Keeper
+	BankKeeper     bankkeeper.Keeper
+	GigaBankKeeper *gigabankkeeper.BaseKeeper
+	StakingKeeper  stakingkeeper.Keeper
+	SlashingKeeper slashingkeeper.Keeper
+	MintKeeper     mintkeeper.Keeper
+	DistrKeeper    distrkeeper.Keeper
+	GovKeeper      govkeeper.Keeper
+	UpgradeKeeper  upgradekeeper.Keeper
+	ParamsKeeper   paramskeeper.Keeper
+	EvidenceKeeper evidencekeeper.Keeper
+	WasmKeeper     wasm.Keeper
+	OracleKeeper   oraclekeeper.Keeper
+	EvmKeeper      evmkeeper.Keeper
+	GigaEvmKeeper  gigaevmkeeper.Keeper
 
 	EpochKeeper epochmodulekeeper.Keeper
 
@@ -484,6 +468,14 @@ type App struct {
 	GigaOCCEnabled bool
 }
 
+// Query handles ABCI queries without exposing retired IBC stores.
+func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
+	if response := retiredibc.QueryResponse(req.Path); response != nil {
+		return response, nil
+	}
+	return app.BaseApp.Query(ctx, req)
+}
+
 type AppOption func(*App)
 
 // New returns a reference to an initialized blockchain app
@@ -521,7 +513,7 @@ func New(
 
 	keys := sdk.NewKVStoreKeys(kvStoreKeyNames...)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
 		BaseApp:              bApp,
@@ -557,15 +549,6 @@ func New(
 
 	// set the BaseApp's parameter store
 	bApp.SetParamStore(app.ParamsKeeper.Subspace(baseapp.Paramspace).WithKeyTable(paramskeeper.ConsensusParamsKeyTable()))
-
-	// add capability keeper and ScopeToModule for ibc module
-	app.CapabilityKeeper = capabilitykeeper.NewKeeper(appCodec, keys[capabilitytypes.StoreKey], memKeys[capabilitytypes.MemStoreKey])
-
-	// grant capabilities for the ibc and ibc-transfer modules
-	scopedIBCKeeper := app.CapabilityKeeper.ScopeToModule(ibchost.ModuleName)
-	scopedTransferKeeper := app.CapabilityKeeper.ScopeToModule(ibctransfertypes.ModuleName)
-	scopedWasmKeeper := app.CapabilityKeeper.ScopeToModule(wasm.ModuleName)
-	// this line is used by starport scaffolding # stargate/app/scopedKeeper
 
 	// add keepers
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
@@ -604,28 +587,6 @@ func New(
 
 	// ... other modules keepers
 
-	// Create IBC Keeper
-	app.IBCKeeper = ibckeeper.NewKeeper(
-		appCodec, keys[ibchost.StoreKey], app.GetSubspace(ibchost.ModuleName), app.StakingKeeper, app.UpgradeKeeper, scopedIBCKeeper,
-	)
-
-	// Create Transfer Keepers
-	app.TransferKeeper = ibctransferkeeper.NewKeeperWithAddressHandler(
-		appCodec,
-		keys[ibctransfertypes.StoreKey],
-		app.GetSubspace(ibctransfertypes.ModuleName),
-		app.IBCKeeper.ChannelKeeper,
-		app.IBCKeeper.ChannelKeeper,
-		&app.IBCKeeper.PortKeeper,
-		app.AccountKeeper,
-		app.BankKeeper,
-		scopedTransferKeeper,
-		evmkeeper.NewEvmAddressHandler(&app.EvmKeeper),
-	)
-	transferModule := transfer.NewAppModule(app.TransferKeeper)
-	transferIBCModule := transfer.NewIBCModule(app.TransferKeeper)
-
-	// Create evidence Keeper for to register the IBC light client misbehaviour evidence route
 	evidenceKeeper := evidencekeeper.NewKeeper(
 		appCodec, keys[evidencetypes.StoreKey], &app.StakingKeeper, app.SlashingKeeper,
 	)
@@ -670,11 +631,8 @@ func New(
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
 			app.MsgServiceRouter(),
-			app.IBCKeeper.ChannelKeeper,
-			scopedWasmKeeper,
 			app.BankKeeper,
 			appCodec,
-			app.TransferKeeper,
 			&app.EvmKeeper,
 			app.StakingKeeper,
 		),
@@ -689,11 +647,6 @@ func New(
 		app.BankKeeper,
 		app.StakingKeeper,
 		app.DistrKeeper,
-		app.IBCKeeper.ChannelKeeper,
-		&app.IBCKeeper.PortKeeper,
-		scopedWasmKeeper,
-		app.UpgradeKeeper,
-		app.TransferKeeper,
 		app.MsgServiceRouter(),
 		app.GRPCQueryRouter(),
 		wasmDir,
@@ -715,7 +668,7 @@ func New(
 	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
-		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		&app.AccountKeeper, &app.StakingKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
@@ -786,7 +739,7 @@ func New(
 
 	app.GigaEvmKeeper = *gigaevmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.GigaBankKeeper,
-		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		&app.AccountKeeper, &app.StakingKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.GigaEvmKeeper.UseRegularStore = true
 	app.GigaBankKeeper.UseRegularStore = true
@@ -833,6 +786,7 @@ func New(
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
+		AddRoute(retiredibcgov.RouterKey, retiredibcgov.ProposalHandler).
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
@@ -850,13 +804,6 @@ func New(
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
 
-	// Create static IBC router, add transfer route, then set and seal it
-	ibcRouter := ibcporttypes.NewRouter()
-	ibcRouter.AddRoute(ibctransfertypes.ModuleName, transferIBCModule)
-	ibcRouter.AddRoute(wasm.ModuleName, wasm.NewIBCHandler(app.WasmKeeper, app.IBCKeeper.ChannelKeeper))
-	// this line is used by starport scaffolding # ibc/app/router
-	app.IBCKeeper.SetRouter(ibcRouter)
-
 	if enableCustomEVMPrecompiles {
 		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
@@ -873,7 +820,6 @@ func New(
 		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper, app.UpgradeKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
@@ -881,12 +827,10 @@ func New(
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		upgrade.NewAppModule(app.UpgradeKeeper),
 		evidence.NewAppModule(app.EvidenceKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
-		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
@@ -894,15 +838,13 @@ func New(
 	)
 
 	app.BeginBlockKeepers = legacyabci.BeginBlockKeepers{
-		EpochKeeper:      &app.EpochKeeper,
-		UpgradeKeeper:    &app.UpgradeKeeper,
-		CapabilityKeeper: app.CapabilityKeeper,
-		DistrKeeper:      &app.DistrKeeper,
-		SlashingKeeper:   &app.SlashingKeeper,
-		EvidenceKeeper:   &app.EvidenceKeeper,
-		StakingKeeper:    &app.StakingKeeper,
-		IBCKeeper:        app.IBCKeeper,
-		EvmKeeper:        &app.EvmKeeper,
+		EpochKeeper:    &app.EpochKeeper,
+		UpgradeKeeper:  &app.UpgradeKeeper,
+		DistrKeeper:    &app.DistrKeeper,
+		SlashingKeeper: &app.SlashingKeeper,
+		EvidenceKeeper: &app.EvidenceKeeper,
+		StakingKeeper:  &app.StakingKeeper,
+		EvmKeeper:      &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
 		GovKeeper:     &app.GovKeeper,
@@ -913,7 +855,6 @@ func New(
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
 		AccountKeeper: app.AccountKeeper,
 		BankKeeper:    app.BankKeeper,
-		IBCKeeper:     app.IBCKeeper,
 		EvmKeeper:     &app.EvmKeeper,
 		ParamsKeeper:  app.ParamsKeeper,
 		UpgradeKeeper: &app.UpgradeKeeper,
@@ -932,13 +873,9 @@ func New(
 
 	// NOTE: The genutils module must occur after staking so that pools are
 	// properly initialized with tokens from genesis accounts.
-	// NOTE: Capability module must occur first so that it can initialize any capabilities
-	// so that other modules that want to create or claim capabilities afterwards in InitChain
-	// can do so safely.
 	app.mm.SetOrderInitGenesis(
 		upgradetypes.ModuleName,
 		paramstypes.ModuleName,
-		capabilitytypes.ModuleName,
 		authtypes.ModuleName,
 		banktypes.ModuleName,
 		distrtypes.ModuleName,
@@ -947,10 +884,8 @@ func New(
 		govtypes.ModuleName,
 		minttypes.ModuleName,
 		vestingtypes.ModuleName,
-		ibchost.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
-		ibctransfertypes.ModuleName,
 		authz.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
@@ -968,7 +903,6 @@ func New(
 	app.sm = module.NewSimulationManager(
 		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
@@ -978,8 +912,6 @@ func New(
 		evidence.NewAppModule(app.EvidenceKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
-		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
@@ -1012,7 +944,6 @@ func New(
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:         app.IBCKeeper,
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
 			WasmKeeper:        &app.WasmKeeper,
@@ -1068,10 +999,6 @@ func New(
 	if err := loadVersionHandler(); err != nil {
 		panic(err)
 	}
-
-	app.ScopedIBCKeeper = scopedIBCKeeper
-	app.ScopedTransferKeeper = scopedTransferKeeper
-	app.ScopedWasmKeeper = scopedWasmKeeper
 
 	// Create hard fork manager and register all hard fork upgrade handlers. Note,
 	// when creating the manager, BaseApp must already be instantiated.
@@ -1234,7 +1161,14 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
+	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
+	app.initializeRetiredTransferModuleAccount(ctx)
+	return response
+}
+
+// initializeRetiredTransferModuleAccount materializes the retained transfer module account during genesis.
+func (app *App) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
+	app.AccountKeeper.GetModuleAccount(ctx, transferModuleName)
 }
 
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
@@ -2813,8 +2747,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
-	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(evmtypes.ModuleName)

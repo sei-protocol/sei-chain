@@ -26,10 +26,15 @@ func (s *CommitStore) HashCategories() []string {
 }
 
 // RecordHashes reports this store's hashes for blockNumber: the committed global root and each data DB's
-// committed per-DB LtHash checksum. Intended to be called right after Commit, when localMeta holds the
-// just-committed per-DB hashes and CommittedRootHash reflects the same version.
+// committed per-DB LtHash checksum. Call right after Commit; a blockNumber the store is not committed at
+// is an error, since the hashes would then be attributed to a block they do not describe.
 func (s *CommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error {
-	if err := hl.ReportHash(blockNumber, FlatKVRootHashType, s.CommittedRootHash()); err != nil {
+	rootHash, version := s.RootHash()
+	if uint64(version) != blockNumber { //nolint:gosec // commit versions are non-negative
+		return fmt.Errorf("flatkv: asked to record hashes for block %d but the store is committed at %d",
+			blockNumber, version)
+	}
+	if err := hl.ReportHash(blockNumber, FlatKVRootHashType, rootHash); err != nil {
 		return fmt.Errorf("failed to report flatkv root hash: %w", err)
 	}
 	for _, dir := range dataDBDirs {

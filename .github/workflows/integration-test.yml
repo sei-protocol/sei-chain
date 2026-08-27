@@ -132,7 +132,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
-      - name: Build seid binary in localnode container
+      - name: Build seid and frozen RPC router binaries in localnode container
         env:
           DOCKER_PLATFORM: linux/amd64
         run: make build-seid-in-localnode-ci
@@ -142,7 +142,7 @@ jobs:
           docker tag sei-chain/localnode "${GHCR_LOCALNODE}:${{ github.run_id }}"
           push_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
       - name: Package CI artifacts
-        run: tar -czf integration-build.tar.gz build/seid
+        run: tar -czf integration-build.tar.gz build/seid build/frozen-rpc-router
       - name: Upload integration CI artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -206,7 +206,7 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          # The seid binary is now extracted to build/seid; drop the
+          # The binaries are now extracted under build/; drop the
           # tarball so its copy does not sit on disk for the rest of the job.
           rm -f integration-build.tar.gz
           source .github/scripts/docker-registry-retry.sh
@@ -218,7 +218,12 @@ jobs:
           # retagged as sei-chain/*; keeps a single tag per image.
           docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
       - name: Start 4 node docker cluster
+        if: ${{ matrix.test.cluster != 'frozen-rpc-router' }}
         run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
+
+      - name: Start frozen RPC router docker cluster
+        if: ${{ matrix.test.cluster == 'frozen-rpc-router' }}
+        run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 make docker-frozen-rpc-cluster-start-ci
 
       - name: Wait for docker cluster to start
         run: |
@@ -229,9 +234,11 @@ jobs:
           sleep 10
 
       - name: Start rpc node
+        if: ${{ matrix.test.cluster != 'frozen-rpc-router' }}
         run: ${{matrix.test.env}} make run-rpc-node-integration-ci &
 
       - name: Verify Sei Chain is running
+        if: ${{ matrix.test.cluster != 'frozen-rpc-router' }}
         run: go test -tags yaml_integration -v -timeout 5m ./integration_test/runner/... -run TestStartup
 
       - name: ${{ matrix.test.name }}
@@ -259,6 +266,8 @@ jobs:
               tail -200 "build/generated/logs/seid-${NODE_ID}.log" || true
             fi
           done
+          echo "==================== sei-frozen-rpc-router ===================="
+          docker logs --tail 200 sei-frozen-rpc-router || true
 
       - name: Prepare log artifact name
         if: ${{ always() }}
@@ -356,7 +365,7 @@ jobs:
       - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          # The seid binary is now extracted to build/seid; drop the
+          # The binaries are now extracted under build/; drop the
           # tarball so its copy does not sit on disk for the rest of the job.
           rm -f integration-build.tar.gz
           source .github/scripts/docker-registry-retry.sh

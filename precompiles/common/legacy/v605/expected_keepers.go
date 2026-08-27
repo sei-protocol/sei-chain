@@ -4,10 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -16,7 +12,6 @@ import (
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	ibctypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -116,21 +111,4 @@ type DistributionKeeper interface {
 	SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error
 	WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error)
 	DelegationTotalRewards(c context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error)
-}
-
-type TransferKeeper interface {
-	Transfer(goCtx context.Context, msg *ibctypes.MsgTransfer) (*ibctypes.MsgTransferResponse, error)
-}
-
-type ClientKeeper interface {
-	GetClientState(ctx sdk.Context, clientID string) (exported.ClientState, bool)
-	GetClientConsensusState(ctx sdk.Context, clientID string, height exported.Height) (exported.ConsensusState, bool)
-}
-
-type ConnectionKeeper interface {
-	GetConnection(ctx sdk.Context, connectionID string) (connectiontypes.ConnectionEnd, bool)
-}
-
-type ChannelKeeper interface {
-	GetChannel(ctx sdk.Context, portID, channelID string) (types.Channel, bool)
 }
