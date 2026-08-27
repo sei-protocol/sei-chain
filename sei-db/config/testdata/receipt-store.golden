@@ -1,3 +1,4 @@
+Enable = bool(true)
 DBDirectory = string("")
 Backend = string("pebbledb")
 AsyncWriteBuffer = int(100)

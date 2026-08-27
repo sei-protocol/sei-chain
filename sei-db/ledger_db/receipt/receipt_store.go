@@ -210,14 +210,8 @@ func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.R
 	if err != nil {
 		return nil, err
 	}
-
 	if bz == nil {
-		// try legacy store for older receipts
-		store := ctx.KVStore(s.storeKey)
-		bz = store.Get(types.ReceiptKey(txHash))
-		if bz == nil {
-			return nil, ErrNotFound
-		}
+		return legacyReceiptFromKVStore(ctx, s.storeKey, txHash)
 	}
 
 	var r types.Receipt

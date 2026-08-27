@@ -212,5 +212,10 @@ func TestManifestNamesEveryField(t *testing.T) {
 		// app.toml. Exposing a key for it would let a node stand its pruner down with nothing to
 		// replace it, and the resulting unbounded growth is silent.
 		"ExternalPruning",
+		// Enable is tagged mapstructure:"-" because the reader this manifest describes cannot
+		// turn the store off: the legacy path opens it unconditionally, and an operator setting
+		// a key that the boot ignores is worse than no key. The only caller that reads it is one
+		// composing the stores in process, which is where the field is addressable.
+		"Enable",
 	)
 }

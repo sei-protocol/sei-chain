@@ -29,6 +29,14 @@ const DefaultReceiptLogFilterParallelism = 16
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
+	// Enable reports whether the receipt store is opened at all. A node with it off
+	// serves no receipt or log query and keeps no receipt history.
+	//
+	// Not read from app.toml: the legacy path always opens the store, so the only
+	// caller that can turn it off is one composing the stores in process
+	// (GigaStorageConfig).
+	Enable bool `mapstructure:"-"`
+
 	// DBDirectory defines the directory to store the receipt store db files
 	// If not explicitly set, default to application home directory
 	// default to empty
@@ -82,6 +90,7 @@ type ReceiptStoreConfig struct {
 // for setting KeepRecent from the global min-retain-blocks flag.
 func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	return ReceiptStoreConfig{
+		Enable:               true,
 		Backend:              "pebbledb",
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           0,
