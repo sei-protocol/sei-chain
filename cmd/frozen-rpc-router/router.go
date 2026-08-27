@@ -22,7 +22,6 @@ const (
 	jsonRPCUnsupportedError = -32000
 	jsonRPCUpstreamError    = -32001
 	rpcRouteHeader          = "Sei-RPC-Route"
-	maxBlockReferenceDepth  = 16
 )
 
 var blockParameterIndexes = map[string]int{
@@ -50,11 +49,12 @@ var blockParameterIndexes = map[string]int{
 }
 
 type router struct {
-	live               *upstream
-	frozen             []*upstream
-	client             *http.Client
-	maxRequestBodySize int64
-	liveProxy          *httputil.ReverseProxy
+	live                   *upstream
+	frozen                 []*upstream
+	client                 *http.Client
+	maxRequestBodySize     int64
+	maxBlockReferenceDepth int
+	liveProxy              *httputil.ReverseProxy
 }
 
 type upstream struct {
@@ -95,7 +95,7 @@ type batchGroup struct {
 	err       error
 }
 
-func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *http.Client, maxRequestBodySize int64) (*router, error) {
+func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *http.Client, maxRequestBodySize int64, maxBlockReferenceDepth int) (*router, error) {
 	liveURL, err := parseEndpoint(liveAddress)
 	if err != nil {
 		return nil, fmt.Errorf("invalid live node: %w", err)
@@ -105,6 +105,9 @@ func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *htt
 	}
 	if maxRequestBodySize <= 0 {
 		return nil, errors.New("maximum request body size must be positive")
+	}
+	if maxBlockReferenceDepth <= 0 {
+		return nil, errors.New("maximum block reference depth must be positive")
 	}
 
 	live := &upstream{endpoint: liveURL}
@@ -131,11 +134,12 @@ func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *htt
 	liveProxy := httputil.NewSingleHostReverseProxy(liveURL)
 	liveProxy.Transport = client.Transport
 	return &router{
-		live:               live,
-		frozen:             frozen,
-		client:             client,
-		maxRequestBodySize: maxRequestBodySize,
-		liveProxy:          liveProxy,
+		live:                   live,
+		frozen:                 frozen,
+		client:                 client,
+		maxRequestBodySize:     maxRequestBodySize,
+		maxBlockReferenceDepth: maxBlockReferenceDepth,
+		liveProxy:              liveProxy,
 	}, nil
 }
 
@@ -378,7 +382,7 @@ func (r *router) route(call rpcCall) (*upstream, *rpcError) {
 		if !ok {
 			return r.live, nil
 		}
-		return r.upstreamForReference(parseBlockReference(parameter)), nil
+		return r.upstreamForReference(r.parseBlockReference(parameter)), nil
 	}
 }
 
@@ -404,10 +408,10 @@ func (r *router) routeGetLogs(params json.RawMessage) (*upstream, *rpcError) {
 	from := blockReference{live: true}
 	to := blockReference{live: true}
 	if hasFrom {
-		from = parseBlockReference(fromRaw)
+		from = r.parseBlockReference(fromRaw)
 	}
 	if hasTo {
-		to = parseBlockReference(toRaw)
+		to = r.parseBlockReference(toRaw)
 	}
 	return r.routeRange(from, to)
 }
@@ -422,7 +426,7 @@ func (r *router) routeFeeHistory(params json.RawMessage) (*upstream, *rpcError) 
 	if !ok {
 		return r.live, nil
 	}
-	last := parseBlockReference(lastRaw)
+	last := r.parseBlockReference(lastRaw)
 	if !last.known || last.live {
 		return r.live, nil
 	}
@@ -467,14 +471,14 @@ func (r *router) upstreamForReference(reference blockReference) *upstream {
 	return r.live
 }
 
-func parseBlockReference(raw json.RawMessage) blockReference {
-	for depth := 0; depth <= maxBlockReferenceDepth; depth++ {
+func (r *router) parseBlockReference(raw json.RawMessage) blockReference {
+	for depth := 0; depth <= r.maxBlockReferenceDepth; depth++ {
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 			return blockReference{}
 		}
 		if trimmed[0] == '{' {
-			if depth == maxBlockReferenceDepth {
+			if depth == r.maxBlockReferenceDepth {
 				return blockReference{}
 			}
 			var object map[string]json.RawMessage
