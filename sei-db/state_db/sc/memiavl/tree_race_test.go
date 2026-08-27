@@ -1,7 +1,10 @@
 package memiavl
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -98,5 +101,79 @@ func TestTreeConcurrentRootHash(t *testing.T) {
 
 	for i := 1; i < workers; i++ {
 		require.Equal(t, hashes[0], hashes[i], "concurrent RootHash produced divergent hashes")
+	}
+}
+
+// TestSnapshotWriteRaceWithLiveCommits reproduces the corrupted-snapshot failure
+// that surfaces at startup as "leaves file size N is not a multiple of 48". The
+// background rewrite serializes a Copy of the tree while consensus keeps
+// committing, and the copy is taken mid-version, which is where DB.Commit takes
+// it. If the copy is not frozen, those commits mutate nodes the writer is
+// traversing: Mutate clears MemNode.hash under the writer, and writeLeafDirect
+// emits the 16-byte header and the hash as two writes, so a torn read of the
+// cleared slice header writes a leaf record with no hash and leaves the file 32
+// bytes short. Under -race the unsynchronized MemNode access is the signal; the
+// file-size assertions cover the on-disk symptom.
+func TestSnapshotWriteRaceWithLiveCommits(t *testing.T) {
+	const (
+		rounds           = 6
+		blocksPerRound   = 30
+		keysPerChangeSet = 400
+	)
+
+	dir := t.TempDir()
+	tree := seedTree(t, copyTestSeedKeys)
+
+	var (
+		wg       sync.WaitGroup
+		errMtx   sync.Mutex
+		writeErr []error
+	)
+
+	for round := 0; round < rounds; round++ {
+		// Copy mid-version, before SaveVersion, matching DB.Commit's ordering.
+		tree.ApplyChangeSet(changeSet(round*137, keysPerChangeSet, fmt.Sprintf("pre%02d", round)))
+		frozen := tree.Copy()
+
+		snapshotDir := filepath.Join(dir, fmt.Sprintf("snapshot-%d", round))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := frozen.WriteSnapshot(context.Background(), snapshotDir); err != nil {
+				errMtx.Lock()
+				writeErr = append(writeErr, err)
+				errMtx.Unlock()
+			}
+		}()
+
+		_, _, err := tree.SaveVersion(true)
+		require.NoError(t, err)
+		for block := 0; block < blocksPerRound; block++ {
+			tree.ApplyChangeSet(changeSet(block*29, keysPerChangeSet, fmt.Sprintf("r%02db%02d", round, block)))
+			_, _, err := tree.SaveVersion(true)
+			require.NoError(t, err)
+		}
+	}
+	wg.Wait()
+	require.Empty(t, writeErr, "snapshot writer failed while the live tree committed")
+
+	for round := 0; round < rounds; round++ {
+		snapshotDir := filepath.Join(dir, fmt.Sprintf("snapshot-%d", round))
+
+		info, err := os.Stat(filepath.Join(snapshotDir, FileNameLeaves))
+		require.NoError(t, err)
+		require.Zerof(t, info.Size()%int64(SizeLeaf),
+			"round %d: leaves file size %d is not a multiple of %d", round, info.Size(), SizeLeaf)
+
+		info, err = os.Stat(filepath.Join(snapshotDir, FileNameNodes))
+		require.NoError(t, err)
+		require.Zerof(t, info.Size()%int64(SizeNode),
+			"round %d: nodes file size %d is not a multiple of %d", round, info.Size(), SizeNode)
+
+		// The published snapshot must reopen, which is the check that panics the
+		// node on restart when a rewrite raced a commit.
+		snapshot, err := OpenSnapshot(snapshotDir, Options{})
+		require.NoErrorf(t, err, "round %d: snapshot written during live commits does not reopen", round)
+		require.NoError(t, snapshot.Close())
 	}
 }
