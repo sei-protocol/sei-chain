@@ -22,7 +22,7 @@ func TestOpenMemiAVLReplayReadOnlyRefusesATornChangelogWithoutRepair(t *testing.
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), 1)}},
 	}}))
-	_, err := store.Commit()
+	_, err := store.Commit(store.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, store.Close())
 
@@ -52,7 +52,7 @@ func TestOpenMemiAVLReplayReadOnlyAcceptsAFullyCoveredHeight(t *testing.T) {
 			Name:      keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), nonce)}},
 		}}))
-		_, err := store.Commit()
+		_, err := store.Commit(store.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, store.Close())
@@ -75,7 +75,7 @@ func TestOpenMemiAVLReplayReadOnlyRejectsAPrunedChangelogGap(t *testing.T) {
 			Name:      keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), nonce)}},
 		}}))
-		_, err := store.Commit()
+		_, err := store.Commit(store.Version() + 1)
 		require.NoError(t, err)
 	}
 	commit(1)
