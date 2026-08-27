@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "compile": "hardhat compile",
-    "rpc:geth": "geth --dev --http --http.addr 127.0.0.1 --http.port 9547 --http.api eth,net,web3,debug,txpool --dev.period 0",
+    "rpc:geth": "geth --dev --http --http.addr 127.0.0.1 --http.port 9547 --http.api eth,net,web3,debug,txpool --dev.period 1",
     "rpc:fork": "hardhat --config hardhat/hardhat.config.ts node --port 9546",
     "rpc:bootstrap": "mocha --config .mocharc.bootstrap.json",
     "rpc:run": "mocha --config .mocharc.run.json",
