@@ -1406,13 +1406,13 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 	m := db.storage.Metrics()
 
 	// Compaction metrics - report raw counts
-	otelMetrics.compactionCount.Add(ctx, m.Compact.Count)
+	otelMetrics.compactionCount.Record(ctx, m.Compact.Count)
 	otelMetrics.compactionDuration.Record(ctx, m.Compact.Duration.Seconds())
 
 	// Flush metrics - report raw counts
-	otelMetrics.flushCount.Add(ctx, m.Flush.Count)
+	otelMetrics.flushCount.Record(ctx, m.Flush.Count)
 	otelMetrics.flushDuration.Record(ctx, m.Flush.WriteThroughput.WorkDuration.Seconds())
-	otelMetrics.flushBytesWritten.Add(ctx, m.Flush.WriteThroughput.Bytes)
+	otelMetrics.flushBytesWritten.Record(ctx, m.Flush.WriteThroughput.Bytes)
 
 	// Storage metrics per level with level as attribute
 	for level := 0; level < len(m.Levels); level++ {
@@ -1421,8 +1421,8 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 
 		otelMetrics.sstableCount.Record(ctx, levelMetrics.TablesCount, metric.WithAttributes(levelAttr))
 		otelMetrics.sstableTotalSize.Record(ctx, levelMetrics.TablesSize, metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.TableBytesIn), metric.WithAttributes(levelAttr))           //nolint:gosec
-		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.TableBytesCompacted), metric.WithAttributes(levelAttr)) //nolint:gosec
+		otelMetrics.compactionBytesRead.Record(ctx, int64(levelMetrics.TableBytesIn), metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesWritten.Record(ctx, int64(levelMetrics.TableBytesCompacted), metric.WithAttributes(levelAttr))
 	}
 
 	// Memtable metrics
@@ -1433,7 +1433,7 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size)) //nolint:gosec
 
 	// Cache metrics - report raw counts
-	otelMetrics.cacheHits.Add(ctx, m.BlockCache.Hits)
-	otelMetrics.cacheMisses.Add(ctx, m.BlockCache.Misses)
+	otelMetrics.cacheHits.Record(ctx, m.BlockCache.Hits)
+	otelMetrics.cacheMisses.Record(ctx, m.BlockCache.Misses)
 	otelMetrics.cacheSize.Record(ctx, m.BlockCache.Size)
 }
