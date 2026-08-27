@@ -51,6 +51,21 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 		registry.ModeFull:      "false",
 		registry.ModeArchive:   "false",
 	},
+	"tx-index.indexer": {
+		registry.ModeValidator: "[null]",
+		registry.ModeSeed:      "[null]",
+		registry.ModeFull:      "[kv]",
+		registry.ModeArchive:   "[kv]",
+	},
+}
+
+// declaredSections are the section names declaredAgainst lists, for a walk that needs the names alone.
+func declaredSections() []string {
+	out := make([]string, 0, len(declaredAgainst))
+	for _, tc := range declaredAgainst {
+		out = append(out, tc.section)
+	}
+	return out
 }
 
 // keysFromDeclaredSections returns the keys every section this package registers declares, read out of the
@@ -132,6 +147,47 @@ var declaredAgainst = []struct {
 	{RPCSectionName, &tmcfg.RPCConfig{}, 1},
 	{ConsensusSectionName, &tmcfg.ConsensusConfig{}, len(removedSettings) + 1},
 	{MempoolSectionName, &tmcfg.MempoolConfig{}, len(neverReachTheMempool) + 1},
+	{StateSyncSectionName, &tmcfg.StateSyncConfig{}, 0},
+	{TxIndexSectionName, &tmcfg.TxIndexConfig{}, 0},
+	{InstrumentationSectionName, &tmcfg.InstrumentationConfig{}, 1},
+	{PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, 1},
+	{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 1},
+}
+
+// TestEveryExclusionByDeprecationStillHasOne holds each excluded path to a justification: its field is
+// marked deprecated, or the path is listed here with the reason it has instead.
+//
+// An excluded path whose field stops being deprecated is a setting the node honours and the key space
+// refuses, and the operator is told it reaches nothing.
+func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
+	justifiedOtherwise := map[string]string{
+		filledFromTheCommandLine:      "the command line carries it after the file is read",
+		derivedFromTheConnectionLimit: "unset is the setting, and a default here would be invented",
+		readByNothing:                 "nothing reads it and no generated file carries it",
+		unreadAndUnmarked:             "no code reads it, and its field carries no deprecation note",
+		reachesNoReactor:              "no reactor reads it, and its field carries no deprecation note",
+	}
+
+	for _, tc := range declaredAgainst {
+		registered, ok := registry.Lookup(tc.section)
+		if !ok {
+			t.Errorf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			continue
+		}
+		marked := deprecatedPaths(t, reflect.TypeOf(tc.proto).Elem())
+		for _, key := range registered.Excluded {
+			rel := strings.TrimPrefix(key, tc.section+".")
+			if marked[rel] {
+				continue
+			}
+			if _, stated := justifiedOtherwise[rel]; stated {
+				continue
+			}
+			t.Errorf("%s is excluded and its field is not marked deprecated, so either the node now "+
+				"honours the setting and the key belongs declared, or the reason for leaving it out "+
+				"needs saying", key)
+		}
+	}
 }
 
 // TestNoDeclaredKeyNamesADeprecatedField holds every section against its struct's own marking. A declared
@@ -198,7 +254,7 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 
 	// The root directory: excluded because the command line carries it after the file is read, so the
 	// file never states it.
-	if generatedFileCarries(t, filledFromTheCommandLine) {
+	if generatedFileCarries(t, P2PSectionName, filledFromTheCommandLine) {
 		t.Errorf("%s is excluded because no file states it and a generated file now does, so an "+
 			"operator writes it and it belongs declared", filledFromTheCommandLine)
 	}
@@ -228,7 +284,7 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 	// half is the measurable one, and it is the half that would expire first, since the node wiring the
 	// field up would start writing it and the key would then be one an operator's file holds and this
 	// space refuses.
-	if generatedFileCarries(t, readByNothing) {
+	if generatedFileCarries(t, P2PSectionName, readByNothing) {
 		t.Errorf("%s is excluded and a generated file now carries it, so it is a setting an operator "+
 			"writes and belongs declared", readByNothing)
 	}
@@ -237,8 +293,9 @@ func TestEachPeerExclusionStillHasItsReason(t *testing.T) {
 // generatedFileCarries reports whether the file the node writes for itself holds a key.
 //
 // Rendered through the node's own writer rather than matched against the template's source, so what is
-// measured is what an operator's file actually contains.
-func generatedFileCarries(t *testing.T, rel string) bool {
+// measured is what an operator's file actually contains. An empty table name asks about the keys above
+// the first table, which is where the node's own root settings are written.
+func generatedFileCarries(t *testing.T, table, rel string) bool {
 	t.Helper()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
@@ -251,12 +308,33 @@ func generatedFileCarries(t *testing.T, rel string) bool {
 	if err != nil {
 		t.Fatalf("read the rendered file: %v", err)
 	}
+	// Scoped to the table asked about, because a key name is not unique in this file: the listen address
+	// appears under three tables and the connection ceiling under two, so an unscoped match answers for
+	// whichever writes the name first.
+	//
+	// A table the file does not contain is fatal rather than absent. Answering false for it would let a
+	// caller asserting a key is unwritten pass while measuring nothing, which is the shape the scoping is
+	// here to remove.
+	inTable, sawTable := table == "", table == ""
+	found := false
 	for _, line := range strings.Split(string(body), "\n") {
-		if name, _, found := strings.Cut(line, "="); found && strings.TrimSpace(name) == rel {
-			return true
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inTable = trimmed == "["+table+"]"
+			sawTable = sawTable || inTable
+			continue
+		}
+		if !inTable {
+			continue
+		}
+		if name, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(name) == rel {
+			found = true
 		}
 	}
-	return false
+	if !sawTable {
+		t.Fatalf("the rendered file has no [%s] table, so nothing measures what it writes there", table)
+	}
+	return found
 }
 
 // taggedFields counts the fields of a struct that carry a mapstructure name, following the same rules the
@@ -575,15 +653,90 @@ func fieldTagged(typ reflect.Type, rel string) (reflect.StructField, bool) {
 	return reflect.StructField{}, false
 }
 
-// TestNoSectionDeclaresTheRootDirectory covers a field six of these sections carry.
+// TestTheStateSyncKeysAreDeclaredAsASet holds the section to the set an operator fills together: turning
+// state sync on means writing every one of them, so a key this space refuses is one an operator writes
+// and is told nothing reads.
+func TestTheStateSyncKeysAreDeclaredAsASet(t *testing.T) {
+	registered, ok := registry.Lookup(StateSyncSectionName)
+	if !ok {
+		t.Fatalf("%s is not registered; Defects: %v", StateSyncSectionName, registry.Defects())
+	}
+	if len(registered.Excluded) != 0 {
+		t.Errorf("the section excludes %v, and every path it carries is one an operator writes",
+			registered.Excluded)
+	}
+	declared := map[string]bool{}
+	for _, key := range registered.Keys {
+		declared[key] = true
+	}
+
+	// The keys turning state sync on means writing. Each is spelled once, so the three checks below
+	// cannot drift onto different keys.
+	live := tmcfg.DefaultStateSyncConfig()
+	for _, key := range []struct {
+		rel string
+		// shipsAValue reads the node's defaults for a key whose value is the operator's own. A default
+		// arriving for one of those would leave this section declaring a value it invented.
+		shipsAValue func() bool
+		// written is whether a generated file carries the key. The scratch directory is the one of these
+		// it leaves out, and the template names it among the keys it omits on purpose while still
+		// parsing them if set.
+		written bool
+	}{
+		{rel: "enable", written: true},
+		{rel: "use-p2p", written: true},
+		{rel: "rpc-servers", shipsAValue: func() bool { return len(live.RPCServers) != 0 }, written: true},
+		{rel: "trust-height", shipsAValue: func() bool { return live.TrustHeight != 0 }, written: true},
+		{rel: "trust-hash", shipsAValue: func() bool { return live.TrustHash != "" }, written: true},
+		{rel: "temp-dir", shipsAValue: func() bool { return live.TempDir != "" }},
+	} {
+		if !declared[StateSyncSectionName+"."+key.rel] {
+			t.Errorf("%s.%s is one of the keys an operator fills to turn state sync on and the section "+
+				"does not declare it", StateSyncSectionName, key.rel)
+		}
+		if key.shipsAValue != nil && key.shipsAValue() {
+			t.Errorf("the node now ships a value for %s.%s, so it is no longer a setting only an "+
+				"operator can supply and the reasoning for declaring the set has changed",
+				StateSyncSectionName, key.rel)
+		}
+		if got := generatedFileCarries(t, StateSyncSectionName, key.rel); got != key.written {
+			t.Errorf("a generated file carries %s.%s = %v and %v was expected, so the split between "+
+				"what the template writes and what an operator adds has moved",
+				StateSyncSectionName, key.rel, got, key.written)
+		}
+	}
+}
+
+// TestEverySectionThisPackageRegistersIsUsable is the check no single section here can make.
+//
+// A registration the registry cannot use is recorded rather than panicked, so a section that failed to
+// register is absent rather than loud, and some refusals depend on what else has registered. The walk
+// covers the sections declaredAgainst lists, and the defect sweep covers every registration.
+func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
+	for _, name := range declaredSections() {
+		registered, ok := registry.Lookup(name)
+		if !ok {
+			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
+			continue
+		}
+		if len(registered.Keys) == 0 {
+			t.Errorf("%s registered and declares no key", name)
+		}
+	}
+	for _, d := range registry.Defects() {
+		t.Errorf("the registry refused %s: %v", d.Section, d.Err)
+	}
+}
+
+// TestNoSectionDeclaresTheRootDirectory covers a field several of these sections carry.
 //
 // Each holds a root directory tagged the same as the key at the top of the file, and the node fills every
 // one from the command line after the file is read. So each states the empty string, and a delivery that
 // wrote a declared value would blank the root a running node found its data, its genesis file and its
 // signing key under.
 //
-// Checked across every registered section rather than the five, so a section added later that carries the
-// same field fails here instead of shipping the same hole.
+// Checked across every registered section rather than a list of the ones that carry it today, so a
+// section added later with the same field fails here instead of shipping the same hole.
 func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 	for _, s := range registry.Sections() {
 		for _, key := range s.Keys {

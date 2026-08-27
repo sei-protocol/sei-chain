@@ -12,6 +12,12 @@ const (
 	RPCSectionName       = "rpc"
 	ConsensusSectionName = "consensus"
 	MempoolSectionName   = "mempool"
+
+	StateSyncSectionName       = "statesync"
+	TxIndexSectionName         = "tx-index"
+	InstrumentationSectionName = "instrumentation"
+	PrivValidatorSectionName   = "priv-validator"
+	SelfRemediationSectionName = "self-remediation"
 )
 
 // removedSettings are the consensus paths this section does not declare. Each names a field the node's
@@ -39,10 +45,28 @@ var removedSettings = []string{
 // declaring one would offer a setting that changes nothing, even though a generated file writes all
 // three. The similarly spelled ttl-duration and ttl-num-blocks are live and stay declared.
 var neverReachTheMempool = []string{
-	"max-batch-bytes",
+	unreadAndUnmarked,
 	"pending-ttl-duration",
 	"pending-ttl-num-blocks",
 }
+
+// unreadAndUnmarked is the one member of neverReachTheMempool whose field carries no deprecation note; the
+// field points at an upstream issue instead. No check on markings reaches it, so the name states the
+// reason for leaving it out.
+const unreadAndUnmarked = "max-batch-bytes"
+
+// reachesNoReactor is the self remediation path this section does not declare.
+//
+// The other four settings in that group reach a reactor, three to the block sync one and one to the state
+// sync one. This one reaches neither: the node checks its bound when validating and nothing else reads it,
+// so a written value changes nothing about when the node restarts. Its field carries no deprecation note
+// either, so no check on markings accounts for it.
+const reachesNoReactor = "p2p-no-peers-available-window-seconds"
+
+// fixedForEveryNode is the metric prefix this section does not declare. The node marks the field
+// deprecated and states that its metrics always use one fixed prefix, so the value is not an operator's
+// to set.
+const fixedForEveryNode = "namespace"
 
 // Registration puts these sections in the configuration registry.
 //
@@ -62,6 +86,14 @@ func init() {
 		append([]string{filledFromTheCommandLine}, removedSettings...)...)
 	registry.RegisterSectionExcluding(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
 		append([]string{filledFromTheCommandLine}, neverReachTheMempool...)...)
+	registry.RegisterSection(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults)
+	registry.RegisterSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
+	registry.RegisterSectionExcluding(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
+		instrumentationDefaults, fixedForEveryNode)
+	registry.RegisterSectionExcluding(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{},
+		privValidatorDefaults, filledFromTheCommandLine)
+	registry.RegisterSectionExcluding(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
+		selfRemediationDefaults, reachesNoReactor)
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.
@@ -84,13 +116,11 @@ func forMode(mode registry.Mode) *tmcfg.Config {
 	return out
 }
 
-// filledFromTheCommandLine is the path six of these sections carry and none declares.
+// filledFromTheCommandLine is the root directory path several of these sections carry and none declares.
 //
-// Each holds a root directory field tagged the same as the one at the top of the file, and the node fills
-// every one of them from the command line after the file is read. Five leave it out under this name and
-// the section at the top of the file leaves it out under its own, which is why the count here is not the
-// number of times this constant appears. So the file never carries the value, and
-// what these sections state for it is the empty string. Declaring it would hand a delivery an empty root to
+// Each holds a field tagged the same as the one at the top of the file, and the node fills every one of
+// them from the command line after the file is read, so the file never carries the value and what these
+// sections would state for it is the empty string. Declaring it would hand a delivery an empty root to
 // write over a running node's, and a node that cannot find its data directory, its genesis file or its
 // signing key does not start.
 const filledFromTheCommandLine = "home"
@@ -152,3 +182,34 @@ func consensusDefaults(mode registry.Mode) any { return *forMode(mode).Consensus
 // The same values for every mode: these limits bound one node's own memory and bandwidth, and nothing in
 // the binary derives one from a node kind.
 func mempoolDefaults(mode registry.Mode) any { return *forMode(mode).Mempool }
+
+// stateSyncDefaults is what a generated file carries for the state sync section.
+//
+// The same values for every mode. Whether a node starts from a snapshot is a decision about how it is being
+// brought up rather than about what it will be, and every kind of node can be brought up either way.
+func stateSyncDefaults(mode registry.Mode) any { return *forMode(mode).StateSync }
+
+// txIndexDefaults is what a generated file carries for the transaction index section.
+//
+// Answered per mode, for the indexer alone. A node that serves queries indexes transactions so it can
+// answer them, and a validator and a seed serve none, so they index nothing and keep the write.
+func txIndexDefaults(mode registry.Mode) any { return *forMode(mode).TxIndex }
+
+// instrumentationDefaults is what a generated file carries for the instrumentation section.
+//
+// The same values for every mode. What a node measures about itself is a decision about how it is operated,
+// and an operator who collects metrics collects them from every kind of node they run.
+func instrumentationDefaults(mode registry.Mode) any { return *forMode(mode).Instrumentation }
+
+// privValidatorDefaults is what a generated file carries for the signing key section.
+//
+// The same values for every mode. These are paths and an address for reaching a signer, and a node that
+// does not sign simply does not use them, so varying them by kind would state a difference the binary does
+// not make.
+func privValidatorDefaults(mode registry.Mode) any { return *forMode(mode).PrivValidator }
+
+// selfRemediationDefaults is what a generated file carries for the self remediation section.
+//
+// The same values for every mode. These are the thresholds at which a node restarts itself, and each one
+// describes a node that has stopped making progress, which is the same condition whatever the node is for.
+func selfRemediationDefaults(mode registry.Mode) any { return *forMode(mode).SelfRemediation }
