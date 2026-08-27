@@ -362,7 +362,7 @@ func DefaultConfig() *Config {
 		},
 		Telemetry: telemetry.Config{
 			Enabled:                 true,
-			PrometheusRetentionTime: 7200,
+			PrometheusRetentionTime: 0,
 			GlobalLabels:            nil,
 		},
 		API: APIConfig{
