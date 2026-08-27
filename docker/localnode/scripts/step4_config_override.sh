@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
 NODE_ID=${ID:-0}
+VALIDATOR=${VALIDATOR:-true}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 AUTOBAHN=${AUTOBAHN:-false}
@@ -28,6 +29,10 @@ TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
 cp build/generated/genesis.json ~/.sei/config/genesis.json
 cp "$APP_CONFIG_FILE" ~/.sei/config/app.toml
 cp "$TENDERMINT_CONFIG_FILE" ~/.sei/config/config.toml
+
+if [ "$VALIDATOR" != "true" ]; then
+  sed -i 's/^mode = "validator"/mode = "full"/' ~/.sei/config/config.toml
+fi
 
 # Override up persistent peers
 NODE_IP=$(hostname -i | awk '{print $1}')
