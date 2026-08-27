@@ -43,7 +43,7 @@ func TestImportMemiavlModulesToFlatKVEncodesEVMValues(t *testing.T) {
 			{Key: miscKey, Value: miscValue},
 		}},
 	}}))
-	version, err := memStore.Commit()
+	version, err := memStore.Commit(memStore.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 	require.NoError(t, memStore.Close())
@@ -94,7 +94,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 			noncePair(newAddr, 7),
 		}},
 	}}))
-	_, err := memStore.Commit()
+	_, err := memStore.Commit(memStore.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, memStore.Close())
 
@@ -158,7 +158,7 @@ func TestImportMemiavlModulesToFlatKVRefusesStaleHeight(t *testing.T) {
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 1)}},
 	}}))
-	v1, err := memStore.Commit()
+	v1, err := memStore.Commit(memStore.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v1)
 
@@ -166,7 +166,7 @@ func TestImportMemiavlModulesToFlatKVRefusesStaleHeight(t *testing.T) {
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 2)}},
 	}}))
-	v2, err := memStore.Commit()
+	v2, err := memStore.Commit(memStore.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), v2)
 	require.NoError(t, memStore.Close())
@@ -198,7 +198,7 @@ func TestImportMemiavlModulesToFlatKVRefusesFutureHeight(t *testing.T) {
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 1)}},
 	}}))
-	_, err := memStore.Commit()
+	_, err := memStore.Commit(memStore.Version() + 1)
 	require.NoError(t, err)
 	require.NoError(t, memStore.Close())
 
@@ -291,7 +291,7 @@ func TestImportMemiavlModulesToFlatKVHandlesLargeDataset(t *testing.T) {
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}}))
-	version, err := memStore.Commit()
+	version, err := memStore.Commit(memStore.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), version)
 	require.NoError(t, memStore.Close())

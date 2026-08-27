@@ -22,7 +22,9 @@ func NewMemIAVLWrapper(commitStore *memiavl.CommitStore) DBWrapper {
 }
 
 func (m *memIAVLWrapper) Commit() (int64, error) {
-	return m.base.Commit()
+	// The benchmark wrapper interface carries no height, so the next one is derived here. That is
+	// sound only because nothing in the benchmark path takes a block's hash before committing it.
+	return m.base.Commit(m.base.Version() + 1)
 }
 
 func (m *memIAVLWrapper) LoadLatest() error {

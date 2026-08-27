@@ -28,8 +28,8 @@ type PhysicalKVPair struct {
 // pairs ready for FlatKV bulk import.
 //
 // It applies the same translation logic that CommitStore.ApplyChangeSets uses
-// (classifyAndPrefix + processStorageChanges + processCodeChanges +
-// processMiscChanges + mergeAccountUpdates), but assumes the import target
+// (classifyAndPrefix + toStorageValues + toCodeValues +
+// toMiscValues + mergeAccountUpdates), but assumes the import target
 // is empty so it does not merge with prior DB values.
 //
 // Storage / code / misc / non-EVM pairs are emitted directly from each
@@ -94,19 +94,19 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 
 	out := make([]PhysicalKVPair, 0, len(filteredPairs))
 
-	storageChanges, err := processStorageChanges(changesByType[keys.EVMKeyStorage], t.blockHeight)
+	storageChanges, err := toStorageValues(changesByType[keys.EVMKeyStorage], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process storage changes: %w", err)
 	}
 	out = appendNonDeletes(out, storageChanges)
 
-	codeChanges, err := processCodeChanges(changesByType[keys.EVMKeyCode], t.blockHeight)
+	codeChanges, err := toCodeValues(changesByType[keys.EVMKeyCode], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process code changes: %w", err)
 	}
 	out = appendNonDeletes(out, codeChanges)
 
-	miscChanges, err := processMiscChanges(changesByType[keys.EVMKeyMisc], t.blockHeight)
+	miscChanges, err := toMiscValues(changesByType[keys.EVMKeyMisc], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process misc changes: %w", err)
 	}
@@ -160,12 +160,8 @@ func (t *ImportTranslator) Finalize() []PhysicalKVPair {
 	return appendNonDeletes(make([]PhysicalKVPair, 0, len(merged)), merged)
 }
 
-// appendNonDeletes serializes every non-delete entry in m and appends the
-// resulting (physical_key, serialized_value) pair to out. Hoisted out of
-// the three processStorage/Code/Misc branches in Translate (and reused
-// by Finalize) so that the "drop tombstones, serialize to PhysicalKVPair"
-// contract lives in one place; mirrors gatherPairs's generic use
-// of vtype.VType in store_apply.go.
+// appendNonDeletes serializes every non-delete entry in m and appends the resulting
+// (physical_key, serialized_value) pair to out.
 func appendNonDeletes[T vtype.VType](out []PhysicalKVPair, m map[string]T) []PhysicalKVPair {
 	for k, v := range m {
 		if v.IsDelete() {

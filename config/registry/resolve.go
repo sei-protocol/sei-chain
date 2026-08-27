@@ -32,6 +32,22 @@ type Resolved struct {
 	// value they wrote elsewhere is what applies. Ignored carries the keys; the reason is the same for all of them, because it is a fact about
 	// the channel rather than about any section.
 	Ignored []string
+	// Refused are the registrations this package could not use, so the key space is missing every key
+	// each of them declared.
+	//
+	// Reported rather than an error, for the reason Defect is recorded rather than panicked: every one
+	// of these comes from a call in this binary's own source, so a defect is a mistake a compiler could
+	// have caught and never something an operator wrote. Refusing to resolve would turn that mistake
+	// into a node that will not start, which is the fleet-wide incident the recording exists to avoid.
+	//
+	// What to do about one is the caller's, the same division Unknown draws: a path that writes a
+	// configuration file has cause to refuse, because it would render a file missing whole sections,
+	// while a booting node has cause to say so and run. Neither is stated as a rule here because no
+	// caller consumes this yet: the one path that installs a resolution neither refuses on it nor
+	// carries it into what it reports, so a resolution over a diminished key space installs quietly
+	// today. A section named here is absent from Values, so an operator's written value for one of its
+	// keys arrives in Unknown rather than being applied.
+	Refused []Defect
 	// Unknown are keys a source carried that no section declares, sorted.
 	//
 	// Reported rather than an error, because what to do about one is the caller's decision: a
@@ -48,6 +64,12 @@ type Resolved struct {
 // supply. LookupEnv is a function rather than a map because an environment cannot be enumerated for a
 // prefix, since a variable is only findable if you already know its name.
 type Sources struct {
+	// File is one flat map whose keys are whole dotted paths, matched without regard to case.
+	//
+	// Flat rather than nested, because that is the shape the other two sources carry: a flag name and
+	// an environment variable are each one string naming one key. A decoded configuration file is the
+	// wrong shape, since a table there is a nested map and every key an operator wrote sits a level
+	// below where anything matches it. Resolve refuses that shape rather than resolving past it.
 	File      map[string]any
 	LookupEnv func(string) (string, bool)
 	Flags     map[string]any
@@ -92,13 +114,21 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 
 	// One snapshot, read once and passed everywhere below. Every part of the answer has to describe the
 	// same registry: asking again leaves a window a concurrent registration fits through, and a section
-	// arriving in that window is declared by one part of the answer and not by another.
-	registered := Sections()
+	// arriving in that window is declared by one part of the answer and not by another. The refusals come
+	// from the same read, because they are what says which keys the key space is missing, and a list of
+	// missing keys taken separately from the space it describes can name a section the space has or omit
+	// one it lacks.
+	registered, refused := snapshot()
+	out.Refused = refused
+
 	defaults, err := defaultValues(mode, registered)
 	if err != nil {
 		return out, err
 	}
 	declared := declaredKeys(registered)
+	if err := refuseANestedFile(from.File, declared); err != nil {
+		return out, err
+	}
 	undeliverable := keysNoVariableCanCarry(defaults)
 
 	out.Values = make(map[string]any, len(declared))
@@ -170,6 +200,11 @@ func defaultValues(mode Mode, registered []Section) (map[string]any, error) {
 		values, err := sectionValues(s.Prefix, s.Defaults(mode))
 		if err != nil {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
+		}
+		// The same paths the declaration left out. Both walks read the one struct, so a path dropped from
+		// the declared side and kept here would be a value under a key nothing declares.
+		for _, key := range s.Excluded {
+			delete(values, key)
 		}
 		if err := matchesDeclaration(s.Keys, values); err != nil {
 			return out, fmt.Errorf("section %q default for mode %q: %w", s.Name, mode, err)
@@ -445,6 +480,36 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 	}
 	sort.Strings(ignored)
 	return out, ignored
+}
+
+// refuseANestedFile refuses a file source whose tables were left nested.
+//
+// The shape a configuration reader hands back, and it resolves to pure defaults without complaint: every
+// key an operator wrote sits one level below where a dotted path matches it, so nothing is applied, and
+// the table's own name is the one thing reported, as a key no section declares. A caller that then
+// installs what it resolved writes the whole declared set over the file it was trying to read.
+//
+// Detected by a table sitting where a declared key's first segment does, which is that mistake and
+// nothing else. Nothing looks inside the table, because the shape is wrong whether or not the keys
+// beneath it are ones this space knows: an empty table and a table of typos are both nested. A declared
+// key whose own field is a map is left alone, since the value an operator writes for it is a table.
+func refuseANestedFile(values map[string]any, declared map[string]bool) error {
+	for key, v := range values {
+		if _, isTable := v.(map[string]any); !isTable {
+			continue
+		}
+		lower := strings.ToLower(key)
+		if declared[lower] {
+			continue
+		}
+		for d := range declared {
+			if strings.HasPrefix(d, lower+".") {
+				return fmt.Errorf("the file source holds a table at %q, where this reads one flat map "+
+					"of whole dotted keys such as %q", key, d)
+			}
+		}
+	}
+	return nil
 }
 
 // fileValues normalises a configuration file's keys to lower case.
