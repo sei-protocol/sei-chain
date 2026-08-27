@@ -111,11 +111,11 @@ func (keeper Keeper) SetVote(ctx sdk.Context, vote types.Vote) {
 	addr := sdk.MustAccAddressFromBech32(vote.Voter)
 
 	store.Set(types.VoteKey(vote.ProposalId, addr), bz)
-	store.Set(types.VoterProposalsKey(addr, vote.ProposalId), []byte{1})
-	keeper.setVoteDelegations(ctx, vote.ProposalId, addr)
+	keeper.initializeVoteDelegationTracking(ctx, vote.ProposalId, addr)
 }
 
-func (keeper Keeper) setVoteDelegations(ctx sdk.Context, proposalID uint64, voter sdk.AccAddress) {
+func (keeper Keeper) initializeVoteDelegationTracking(ctx sdk.Context, proposalID uint64, voter sdk.AccAddress) {
+	ctx.KVStore(keeper.storeKey).Set(types.VoterProposalsKey(voter, proposalID), []byte{1})
 	snapshot := keeper.snapshotVoteDelegations(ctx, proposalID, voter)
 	keeper.setVoteDelegationSnapshot(ctx, snapshot)
 }
