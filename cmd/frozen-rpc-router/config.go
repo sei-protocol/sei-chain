@@ -15,6 +15,8 @@ const (
 	defaultListenAddress          = "127.0.0.1:8545"
 	defaultMaxRequestBodySize     = int64(5 << 20)
 	defaultMaxBlockReferenceDepth = 16
+	defaultBatchRequestLimit      = 1000
+	defaultWriteTimeout           = 30 * time.Second
 	defaultShutdownTimeout        = 10 * time.Second
 )
 
@@ -24,6 +26,8 @@ type config struct {
 	frozenNodes            frozenNodeFlags
 	maxRequestBodySize     int64
 	maxBlockReferenceDepth int
+	batchRequestLimit      int
+	writeTimeout           time.Duration
 	shutdownTimeout        time.Duration
 }
 
@@ -52,6 +56,8 @@ func parseConfig(args []string, output io.Writer) (config, error) {
 	flags.Var(&cfg.frozenNodes, "frozen-node", "freeze-height=ip:port pair; repeat once per frozen node")
 	flags.Int64Var(&cfg.maxRequestBodySize, "max-request-body-bytes", defaultMaxRequestBodySize, "maximum JSON-RPC request body size")
 	flags.IntVar(&cfg.maxBlockReferenceDepth, "max-block-reference-depth", defaultMaxBlockReferenceDepth, "maximum nested block reference depth")
+	flags.IntVar(&cfg.batchRequestLimit, "batch-request-limit", defaultBatchRequestLimit, "maximum number of calls in a JSON-RPC batch")
+	flags.DurationVar(&cfg.writeTimeout, "write-timeout", defaultWriteTimeout, "maximum duration for writing an HTTP response")
 	flags.DurationVar(&cfg.shutdownTimeout, "shutdown-timeout", defaultShutdownTimeout, "graceful shutdown timeout")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
@@ -67,6 +73,12 @@ func parseConfig(args []string, output io.Writer) (config, error) {
 	}
 	if cfg.maxBlockReferenceDepth <= 0 {
 		return config{}, errors.New("--max-block-reference-depth must be positive")
+	}
+	if cfg.batchRequestLimit <= 0 {
+		return config{}, errors.New("--batch-request-limit must be positive")
+	}
+	if cfg.writeTimeout <= 0 {
+		return config{}, errors.New("--write-timeout must be positive")
 	}
 	if cfg.shutdownTimeout <= 0 {
 		return config{}, errors.New("--shutdown-timeout must be positive")
