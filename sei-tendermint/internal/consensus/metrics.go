@@ -75,8 +75,8 @@ type Metrics struct {
 	// Whether or not a node is state syncing. 1 if yes, 0 if no.
 	StateSyncing tmprometheus.GaugeIntVec
 
-	// Number of block parts transmitted by each peer.
-	BlockParts tmprometheus.CounterIntVec `metrics_labels:"peer_id"`
+	// Number of block parts received from peers.
+	BlockParts tmprometheus.CounterIntVec
 
 	// Histogram of durations for each step in the consensus protocol.
 	StepDuration tmprometheus.HistogramVec `metrics_labels:"step" metrics_buckets:"exprange(0.1, 100, 8)"`
@@ -147,7 +147,7 @@ type Metrics struct {
 	// correspond to earlier heights and rounds than this node is currently
 	// in.
 	//metrics:Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.
-	LateVotes tmprometheus.CounterIntVec `metrics_labels:"validator_address"`
+	LateVotes tmprometheus.CounterIntVec
 
 	// FinalRound stores the final round id the proposal block reach consensus in.
 	//metrics:The final round number for where the proposal block reach consensus in, starting at 0.
@@ -227,9 +227,8 @@ func (m *Metrics) MarkRound(r int32, st time.Time) {
 	m.RoundVotingPowerPercentAt(pcn).Set(0)
 }
 
-func (m *Metrics) MarkLateVote(vote *types.Vote) {
-	validator := vote.ValidatorAddress.String()
-	m.LateVotesAt(validator).Add(1)
+func (m *Metrics) MarkLateVote() {
+	m.LateVotesAt().Add(1)
 }
 
 func (m *Metrics) MarkFinalRound(round int32, proposer string) {

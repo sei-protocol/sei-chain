@@ -179,8 +179,8 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_parts",
-			Help:      "Number of block parts transmitted by each peer.",
-		}, []string{"peer_id"}),
+			Help:      "Number of block parts received from peers.",
+		}, nil),
 		StepDuration: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -267,7 +267,7 @@ func NewMetrics() *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "late_votes",
 			Help:      "Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.",
-		}, []string{"validator_address"}),
+		}, nil),
 		FinalRound: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -401,8 +401,8 @@ func (m *Metrics) StateSyncingAt() *tmprometheus.GaugeInt {
 	return m.StateSyncing.WithLabelValues()
 }
 
-func (m *Metrics) BlockPartsAt(peer_id string) *tmprometheus.CounterInt {
-	return m.BlockParts.WithLabelValues(peer_id)
+func (m *Metrics) BlockPartsAt() *tmprometheus.CounterInt {
+	return m.BlockParts.WithLabelValues()
 }
 
 func (m *Metrics) StepDurationAt(step string) *tmprometheus.Histogram {
@@ -457,8 +457,8 @@ func (m *Metrics) RoundVotingPowerPercentAt(vote_type string) prometheus.Gauge {
 	return m.RoundVotingPowerPercent.WithLabelValues(vote_type)
 }
 
-func (m *Metrics) LateVotesAt(validator_address string) *tmprometheus.CounterInt {
-	return m.LateVotes.WithLabelValues(validator_address)
+func (m *Metrics) LateVotesAt() *tmprometheus.CounterInt {
+	return m.LateVotes.WithLabelValues()
 }
 
 func (m *Metrics) FinalRoundAt(proposer_address string) *tmprometheus.Histogram {
