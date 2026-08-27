@@ -33,7 +33,7 @@ type StateView interface {
 	//
 	// Get does not return an error: internal database failures are expected
 	// to panic so the process crashes rather than continuing with corrupt or incomplete state.
-	Get(key []byte) ([]byte, bool)
+	Get(module string, key []byte) ([]byte, bool)
 
 	// Close releases the view's underlying ref counting.
 	// Caller is required to Close the view after using it.
