@@ -47,6 +47,8 @@ const (
 // - 0x33<proposalID_Bytes><voterAddrLen (1 Byte)><voterAddr_Bytes>: Voter delegation snapshot
 //
 // - 0x34<proposalID_Bytes><tallyRound_Byte><voterAddrLen (1 Byte)><voterAddr_Bytes>: Archived voter delegation snapshot
+//
+// - 0x35<voterAddrLen (1 Byte)><voterAddr_Bytes><proposalID_Bytes>: Active proposal voted on by address
 var (
 	ProposalsKeyPrefix          = []byte{0x00}
 	ActiveProposalQueuePrefix   = []byte{0x01}
@@ -62,6 +64,7 @@ var (
 	TallyCleanupKeyPrefix         = []byte{0x32}
 	VoteDelegationsKeyPrefix      = []byte{0x33}
 	TallyVoteDelegationsKeyPrefix = []byte{0x34}
+	VoterProposalsKeyPrefix       = []byte{0x35}
 )
 
 var lenTime = len(sdk.FormatTimeBytes(time.Now()))
@@ -123,9 +126,19 @@ func VoteKey(proposalID uint64, voterAddr sdk.AccAddress) []byte {
 	return append(VotesKey(proposalID), address.MustLengthPrefix(voterAddr.Bytes())...)
 }
 
-// VoteDelegationsKey returns the key for the delegation snapshot captured with a vote.
+// VoteDelegationsKey returns the key for a vote's current delegation snapshot.
 func VoteDelegationsKey(proposalID uint64, voterAddr sdk.AccAddress) []byte {
 	return append(append(VoteDelegationsKeyPrefix, GetProposalIDBytes(proposalID)...), address.MustLengthPrefix(voterAddr.Bytes())...)
+}
+
+// VoterProposalsKey returns the key indexing an address's vote on an active proposal.
+func VoterProposalsKey(voterAddr sdk.AccAddress, proposalID uint64) []byte {
+	return append(VoterProposalsKeyPrefixForAddress(voterAddr), GetProposalIDBytes(proposalID)...)
+}
+
+// VoterProposalsKeyPrefixForAddress returns the active-proposal vote prefix for an address.
+func VoterProposalsKeyPrefixForAddress(voterAddr sdk.AccAddress) []byte {
+	return append(VoterProposalsKeyPrefix, address.MustLengthPrefix(voterAddr.Bytes())...)
 }
 
 // TallyProgressKey returns the key for a proposal's incremental tally state.

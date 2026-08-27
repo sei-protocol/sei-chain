@@ -68,4 +68,5 @@ func TestTallyKeys(t *testing.T) {
 	require.NotEqual(t, TallyCleanupKey(2, true), TallyCleanupKey(2, false))
 	require.Equal(t, append(append(VoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), address.MustLengthPrefix(addr.Bytes())...), VoteDelegationsKey(2, addr))
 	require.Equal(t, append(append(append(TallyVoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), byte(1)), address.MustLengthPrefix(addr.Bytes())...), TallyVoteDelegationsKey(2, false, addr))
+	require.Equal(t, append(append(VoterProposalsKeyPrefix, address.MustLengthPrefix(addr.Bytes())...), GetProposalIDBytes(2)...), VoterProposalsKey(addr, 2))
 }

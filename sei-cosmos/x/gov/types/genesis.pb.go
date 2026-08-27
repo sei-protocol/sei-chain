@@ -41,7 +41,7 @@ type GenesisState struct {
 	VotingParams VotingParams `protobuf:"bytes,6,opt,name=voting_params,json=votingParams,proto3" json:"voting_params" yaml:"voting_params"`
 	// params defines all the paramaters of related to tally.
 	TallyParams TallyParams `protobuf:"bytes,7,opt,name=tally_params,json=tallyParams,proto3" json:"tally_params" yaml:"tally_params"`
-	// vote_delegation_snapshots defines the delegation shares captured with each vote.
+	// vote_delegation_snapshots defines the delegation shares maintained for each vote.
 	VoteDelegationSnapshots []VoteDelegationSnapshot `protobuf:"bytes,8,rep,name=vote_delegation_snapshots,json=voteDelegationSnapshots,proto3" json:"vote_delegation_snapshots"`
 }
 
@@ -134,7 +134,7 @@ func (m *GenesisState) GetVoteDelegationSnapshots() []VoteDelegationSnapshot {
 	return nil
 }
 
-// VoteDelegationSnapshot defines the per-validator delegation shares captured with a vote.
+// VoteDelegationSnapshot defines the per-validator delegation shares maintained for a vote.
 type VoteDelegationSnapshot struct {
 	ProposalId  uint64           `protobuf:"varint,1,opt,name=proposal_id,json=proposalId,proto3" json:"proposal_id,omitempty" yaml:"proposal_id"`
 	Voter       string           `protobuf:"bytes,2,opt,name=voter,proto3" json:"voter,omitempty"`

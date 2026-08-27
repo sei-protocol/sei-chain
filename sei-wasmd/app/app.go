@@ -351,9 +351,8 @@ func NewWasmApp(
 
 	// register the staking hooks
 	// NOTE: stakingKeeper above is passed by reference, so that it will contain these hooks
-	app.stakingKeeper = *stakingKeeper.SetHooks(
-		stakingtypes.NewMultiStakingHooks(app.distrKeeper.Hooks(), app.slashingKeeper.Hooks()),
-	)
+	stakingHooks := stakingtypes.NewMultiStakingHooks(app.distrKeeper.Hooks(), app.slashingKeeper.Hooks())
+	app.stakingKeeper = *stakingKeeper.SetHooks(&stakingHooks)
 
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
@@ -413,6 +412,7 @@ func NewWasmApp(
 		app.paramsKeeper,
 		govRouter,
 	)
+	stakingHooks.AddHooks(app.govKeeper.StakingHooks())
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 	app.mm = module.NewManager(
