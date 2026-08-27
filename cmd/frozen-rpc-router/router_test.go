@@ -46,6 +46,17 @@ func TestRouteBlockParameters(t *testing.T) {
 	}
 }
 
+func TestParseBlockReferenceDepthLimit(t *testing.T) {
+	raw := json.RawMessage(`"0x64"`)
+	for range maxBlockReferenceDepth {
+		raw = json.RawMessage(`{"blockNumber":` + string(raw) + `}`)
+	}
+	require.Equal(t, blockReference{height: 100, known: true}, parseBlockReference(raw))
+
+	raw = json.RawMessage(`{"blockNumber":` + string(raw) + `}`)
+	require.Equal(t, blockReference{}, parseBlockReference(raw))
+}
+
 func TestRouteRanges(t *testing.T) {
 	r := newTestRouter(t)
 	testCases := []struct {

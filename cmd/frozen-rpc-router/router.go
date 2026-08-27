@@ -22,6 +22,7 @@ const (
 	jsonRPCUnsupportedError = -32000
 	jsonRPCUpstreamError    = -32001
 	rpcRouteHeader          = "Sei-RPC-Route"
+	maxBlockReferenceDepth  = 16
 )
 
 var blockParameterIndexes = map[string]int{
@@ -467,37 +468,44 @@ func (r *router) upstreamForReference(reference blockReference) *upstream {
 }
 
 func parseBlockReference(raw json.RawMessage) blockReference {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return blockReference{}
-	}
-	if trimmed[0] == '{' {
-		var object map[string]json.RawMessage
-		if json.Unmarshal(trimmed, &object) != nil {
+	for depth := 0; depth <= maxBlockReferenceDepth; depth++ {
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 			return blockReference{}
 		}
-		blockNumber, ok := object["blockNumber"]
-		if !ok {
-			return blockReference{}
+		if trimmed[0] == '{' {
+			if depth == maxBlockReferenceDepth {
+				return blockReference{}
+			}
+			var object map[string]json.RawMessage
+			if json.Unmarshal(trimmed, &object) != nil {
+				return blockReference{}
+			}
+			blockNumber, ok := object["blockNumber"]
+			if !ok {
+				return blockReference{}
+			}
+			raw = blockNumber
+			continue
 		}
-		return parseBlockReference(blockNumber)
-	}
 
-	var value string
-	if json.Unmarshal(trimmed, &value) != nil {
-		return blockReference{}
+		var value string
+		if json.Unmarshal(trimmed, &value) != nil {
+			return blockReference{}
+		}
+		switch value {
+		case "earliest":
+			return blockReference{height: 0, known: true}
+		case "latest", "pending", "safe", "finalized":
+			return blockReference{live: true}
+		}
+		height, err := strconv.ParseUint(strings.TrimPrefix(value, "0x"), 16, 64)
+		if err != nil || !strings.HasPrefix(value, "0x") || height > math.MaxInt64 {
+			return blockReference{}
+		}
+		return blockReference{height: height, known: true}
 	}
-	switch value {
-	case "earliest":
-		return blockReference{height: 0, known: true}
-	case "latest", "pending", "safe", "finalized":
-		return blockReference{live: true}
-	}
-	height, err := strconv.ParseUint(strings.TrimPrefix(value, "0x"), 16, 64)
-	if err != nil || !strings.HasPrefix(value, "0x") || height > math.MaxInt64 {
-		return blockReference{}
-	}
-	return blockReference{height: height, known: true}
+	return blockReference{}
 }
 
 func parseQuantity(raw json.RawMessage) (uint64, bool) {
