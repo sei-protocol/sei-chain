@@ -67,7 +67,7 @@ func (s *registryState) activate(idx types.EpochIndex, committee *types.Committe
 
 func (s *registryState) snapshot() *pb.PersistedEpochRegistry {
 	snapshot := &pb.PersistedEpochRegistry{
-		Live: make([]*pb.EpochRecord, 0, int(s.live.Next-s.live.First)),
+		Live: make([]*pb.EpochRecord, 0, utils.Clamp[int](s.live.Next-s.live.First)),
 	}
 	for idx := s.live.First; idx < s.live.Next; idx++ {
 		snapshot.Live = append(snapshot.Live, encodeEpochRecord(idx, s.m[idx].Committee()))
