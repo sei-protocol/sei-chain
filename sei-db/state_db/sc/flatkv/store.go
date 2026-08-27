@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
@@ -158,7 +157,10 @@ type CommitStore struct {
 	// nor Commit validates its version against this field.
 	pendingBlockHeight int64
 
-	lastSnapshotTime time.Time
+	// Writes snapshots off the execution thread. Built by openStores once the view managers exist and
+	// torn down by closeStores, so its lifetime is exactly the window in which the databases it
+	// checkpoints are open. Nil on a read-only store, which never commits.
+	snapshotWriter *SnapshotWriter
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
@@ -869,7 +871,38 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 		return err
 	}
 
+	if !s.readOnly {
+		// Built last, and only here: it checkpoints the databases the view managers above own, so it must
+		// not outlive them. closeStores drains it before those managers go away.
+		s.snapshotWriter = newSnapshotWriter(
+			s.ctx,
+			s.flatkvDir(),
+			s.config.SnapshotKeepRecent,
+			s.config.ExternalPruning,
+			s.config.SnapshotInterval,
+			s.config.MaxSnapshotLagBlocks,
+			s.checkpointables(),
+		)
+	}
+
 	return nil
+}
+
+// checkpointables returns the handle each database is checkpointed through, keyed by database
+// directory name. Captured once while the view managers exist, so a snapshot being written off-thread
+// never has to reach back into the store for a handle that teardown may have cleared.
+//
+// A checkpoint addresses a database as a file rather than as a key-value store, which is the one thing
+// a view manager cannot express — so this is the single place FlatKV reaches past one, and the
+// manager's escape hatch names checkpointing as its only sanctioned use.
+func (s *CommitStore) checkpointables() map[string]seidbtypes.Checkpointable {
+	dbs := make(map[string]seidbtypes.Checkpointable, len(dataDBDirs))
+	for _, name := range dataDBDirs {
+		if db, ok := s.rawDBFor(name).(seidbtypes.Checkpointable); ok {
+			dbs[name] = db
+		}
+	}
+	return dbs
 }
 
 // viewManagerFor returns the view manager mediating the named database, or nil before the managers exist.
@@ -912,6 +945,17 @@ func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
 // than short-circuited: every store must be given its chance to stop.
 func (s *CommitStore) closeStores() error {
 	var errs []error
+
+	// The writer must stop before anything below runs: closing a view manager closes the database it
+	// owns, and a checkpoint in progress would then be reading a closed handle. This is the choke point
+	// every teardown path reaches — Close directly, Rollback and resetForImport through closeDBsOnly —
+	// so the guard lives here rather than at each of them.
+	if s.snapshotWriter != nil {
+		if err := s.snapshotWriter.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close snapshot writer: %w", err))
+		}
+		s.snapshotWriter = nil
+	}
 
 	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)

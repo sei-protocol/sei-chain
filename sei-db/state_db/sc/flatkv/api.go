@@ -152,9 +152,6 @@ type Store interface {
 	// inspect the store's height without taking ownership of it.
 	GetLatestVersion() (int64, error)
 
-	// WriteSnapshot writes a complete snapshot to dir.
-	WriteSnapshot(dir string) error
-
 	// Rollback rewinds a store opened with LoadLatest to targetVersion and prunes everything above it:
 	// snapshots, WAL blocks and committed state. It is the only way to move a committable store backwards,
 	// and the result keeps committing from targetVersion+1. An unreachable target is rejected before

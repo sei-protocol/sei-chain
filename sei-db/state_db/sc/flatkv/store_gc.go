@@ -76,7 +76,7 @@ func (s *CommitStore) PruneSnapshots(blockNumber uint64) error {
 
 // activeSnapshotHeight returns the height of the snapshot "current" points at — the one the next open
 // clones and replays the state WAL forward from. It is usually the newest snapshot on disk, but a
-// crash during WriteSnapshot or a partial Rollback can leave it lower.
+// crash while a snapshot was being published, or a partial Rollback, can leave it lower.
 func (s *CommitStore) activeSnapshotHeight() (uint64, error) {
 	_, version, err := currentSnapshotDir(s.flatkvDir())
 	if err != nil {
