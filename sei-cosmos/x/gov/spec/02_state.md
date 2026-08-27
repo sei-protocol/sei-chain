@@ -147,6 +147,12 @@ votes of each validator and checks if every validator in the validator set has
 voted. If the proposal is accepted, deposits are refunded. Finally, the proposal
 content `Handler` is executed.
 
+Expired proposals remain queue-ordered. If an earlier proposal does not finish
+within the block's vote-processing budget, the queue scan stops and later proposals
+wait for the earlier tally to complete. This also prevents the block from initializing
+validator snapshots for an unbounded number of proposals after the vote budget is
+exhausted.
+
 And the pseudocode for the `ProposalProcessingQueue`:
 
 ```go

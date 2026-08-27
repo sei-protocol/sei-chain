@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -161,6 +162,19 @@ func TallyVoteDelegationsKey(proposalID uint64, expedited bool, voterAddr sdk.Ac
 	return append(append(append(TallyVoteDelegationsKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited)), address.MustLengthPrefix(voterAddr.Bytes())...)
 }
 
+// TallyVoteDelegationsKeyFromVoteKey returns the delegation-snapshot key paired with an archived vote key.
+func TallyVoteDelegationsKeyFromVoteKey(voteKey []byte) []byte {
+	kv.AssertKeyAtLeastLength(voteKey, 11)
+	if voteKey[0] != TallyVotesKeyPrefix[0] {
+		panic(fmt.Sprintf("invalid tally vote key prefix %d", voteKey[0]))
+	}
+	decodeTallyRound(voteKey[9])
+
+	key := append([]byte(nil), voteKey...)
+	key[0] = TallyVoteDelegationsKeyPrefix[0]
+	return key
+}
+
 // TallyCleanupKey returns the key for a proposal tally round's archived-vote cleanup cursor.
 func TallyCleanupKey(proposalID uint64, expedited bool) []byte {
 	return append(append(TallyCleanupKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited))
@@ -171,6 +185,17 @@ func tallyRound(expedited bool) byte {
 		return 0
 	}
 	return 1
+}
+
+func decodeTallyRound(round byte) bool {
+	switch round {
+	case tallyRound(true):
+		return true
+	case tallyRound(false):
+		return false
+	default:
+		panic(fmt.Sprintf("invalid tally round %d", round))
+	}
 }
 
 // Split keys function; used for iterators
@@ -190,6 +215,15 @@ func SplitActiveProposalQueueKey(key []byte) (proposalID uint64, endTime time.Ti
 // SplitInactiveProposalQueueKey split the inactive proposal key and returns the proposal id and endTime
 func SplitInactiveProposalQueueKey(key []byte) (proposalID uint64, endTime time.Time) {
 	return splitKeyWithTime(key)
+}
+
+// SplitTallyCleanupKey returns the proposal and tally round encoded in a cleanup key.
+func SplitTallyCleanupKey(key []byte) (proposalID uint64, expedited bool) {
+	kv.AssertKeyLength(key, 10)
+	if key[0] != TallyCleanupKeyPrefix[0] {
+		panic(fmt.Sprintf("invalid tally cleanup key prefix %d", key[0]))
+	}
+	return GetProposalIDFromBytes(key[1:9]), decodeTallyRound(key[9])
 }
 
 // SplitKeyDeposit split the deposits key and returns the proposal id and depositor address
