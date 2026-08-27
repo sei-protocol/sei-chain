@@ -42,7 +42,7 @@ func (keeper Keeper) Tally(ctx sdk.Context, proposal types.Proposal) (passes boo
 	progress := keeper.initializeTally(ctx, proposal)
 	validators := progress.validatorMap()
 	keeper.IterateVotes(ctx, proposal.ProposalId, func(vote types.Vote) bool {
-		keeper.addVoteToTally(ctx, validators, vote)
+		keeper.addVoteToTally(validators, vote, keeper.voteDelegations(ctx, proposal.ProposalId, progress.Expedited, vote))
 		return false
 	})
 	return keeper.finishTally(progress)
@@ -175,11 +175,23 @@ func (keeper Keeper) processTallyVotes(
 		var vote types.Vote
 		keeper.cdc.MustUnmarshal(value, &vote)
 		populateLegacyOption(&vote)
-		keeper.addVoteToTally(ctx, validators, vote)
 
 		voter := sdk.MustAccAddressFromBech32(vote.Voter)
+		snapshotKey := types.VoteDelegationsKey(proposalID, voter)
+		snapshotValue := store.Get(snapshotKey)
+		var snapshot types.VoteDelegationSnapshot
+		if snapshotValue == nil {
+			snapshot = keeper.snapshotVoteDelegations(ctx, proposalID, voter)
+			snapshotValue = keeper.cdc.MustMarshal(&snapshot)
+		} else {
+			snapshot = keeper.unmarshalVoteDelegations(snapshotValue)
+		}
+		keeper.addVoteToTally(validators, vote, snapshot)
+
 		store.Set(types.TallyVoteKey(proposalID, progress.Expedited, voter), value)
+		store.Set(types.TallyVoteDelegationsKey(proposalID, progress.Expedited, voter), snapshotValue)
 		store.Delete(key)
+		store.Delete(snapshotKey)
 		progress.Cursor = key
 		processed++
 	}
@@ -188,27 +200,43 @@ func (keeper Keeper) processTallyVotes(
 }
 
 func (keeper Keeper) addVoteToTally(
-	ctx sdk.Context,
 	validators map[string]*tallyValidator,
 	vote types.Vote,
+	snapshot types.VoteDelegationSnapshot,
 ) {
 	voter := sdk.MustAccAddressFromBech32(vote.Voter)
 	if validator, ok := validators[sdk.ValAddress(voter.Bytes()).String()]; ok {
 		validator.Vote = vote.Options
 	}
 
-	keeper.sk.IterateDelegations(ctx, voter, func(_ int64, delegation stakingtypes.DelegationI) bool {
-		validator, ok := validators[delegation.GetValidatorAddr().String()]
+	for _, delegation := range snapshot.Delegations {
+		validator, ok := validators[delegation.Validator]
 		if !ok || validator.DelegatorShares.IsZero() {
-			return false
+			continue
 		}
 
-		votingShares := delegation.GetShares()
+		votingShares := delegation.Shares
 		validator.ObservedDelegatorShares = validator.ObservedDelegatorShares.Add(votingShares)
 		votingPower := votingShares.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
 		validator.DelegatorResults.add(vote.Options, votingPower)
-		return false
-	})
+	}
+}
+
+func (keeper Keeper) voteDelegations(
+	ctx sdk.Context,
+	proposalID uint64,
+	expedited bool,
+	vote types.Vote,
+) types.VoteDelegationSnapshot {
+	voter := sdk.MustAccAddressFromBech32(vote.Voter)
+	store := ctx.KVStore(keeper.storeKey)
+	if bz := store.Get(types.VoteDelegationsKey(proposalID, voter)); bz != nil {
+		return keeper.unmarshalVoteDelegations(bz)
+	}
+	if bz := store.Get(types.TallyVoteDelegationsKey(proposalID, expedited, voter)); bz != nil {
+		return keeper.unmarshalVoteDelegations(bz)
+	}
+	return keeper.snapshotVoteDelegations(ctx, proposalID, voter)
 }
 
 func (progress *tallyProgress) validatorMap() map[string]*tallyValidator {
@@ -371,6 +399,8 @@ func (keeper Keeper) cleanupProposalTallyVotes(
 	for ; iterator.Valid() && deleted < maxVotes; iterator.Next() {
 		cursor = append(cursor[:0], iterator.Key()...)
 		store.Delete(iterator.Key())
+		snapshotKey := append([]byte{types.TallyVoteDelegationsKeyPrefix[0]}, iterator.Key()[1:]...)
+		store.Delete(snapshotKey)
 		deleted++
 	}
 

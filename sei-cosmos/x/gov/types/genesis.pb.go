@@ -7,6 +7,7 @@ import (
 	fmt "fmt"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
+	github_com_sei_protocol_sei_chain_sei_cosmos_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -39,6 +40,8 @@ type GenesisState struct {
 	VotingParams VotingParams `protobuf:"bytes,6,opt,name=voting_params,json=votingParams,proto3" json:"voting_params" yaml:"voting_params"`
 	// params defines all the paramaters of related to tally.
 	TallyParams TallyParams `protobuf:"bytes,7,opt,name=tally_params,json=tallyParams,proto3" json:"tally_params" yaml:"tally_params"`
+	// vote_delegation_snapshots defines the delegation shares captured with each vote.
+	VoteDelegationSnapshots []VoteDelegationSnapshot `protobuf:"bytes,8,rep,name=vote_delegation_snapshots,json=voteDelegationSnapshots,proto3" json:"vote_delegation_snapshots"`
 }
 
 func (m *GenesisState) Reset()         { *m = GenesisState{} }
@@ -123,42 +126,167 @@ func (m *GenesisState) GetTallyParams() TallyParams {
 	return TallyParams{}
 }
 
+func (m *GenesisState) GetVoteDelegationSnapshots() []VoteDelegationSnapshot {
+	if m != nil {
+		return m.VoteDelegationSnapshots
+	}
+	return nil
+}
+
+// VoteDelegationSnapshot defines the per-validator delegation shares captured with a vote.
+type VoteDelegationSnapshot struct {
+	ProposalId  uint64           `protobuf:"varint,1,opt,name=proposal_id,json=proposalId,proto3" json:"proposal_id,omitempty" yaml:"proposal_id"`
+	Voter       string           `protobuf:"bytes,2,opt,name=voter,proto3" json:"voter,omitempty"`
+	Delegations []VoteDelegation `protobuf:"bytes,3,rep,name=delegations,proto3" json:"delegations"`
+}
+
+func (m *VoteDelegationSnapshot) Reset()         { *m = VoteDelegationSnapshot{} }
+func (m *VoteDelegationSnapshot) String() string { return proto.CompactTextString(m) }
+func (*VoteDelegationSnapshot) ProtoMessage()    {}
+func (*VoteDelegationSnapshot) Descriptor() ([]byte, []int) {
+	return fileDescriptor_43cd825e0fa7a627, []int{1}
+}
+func (m *VoteDelegationSnapshot) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *VoteDelegationSnapshot) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_VoteDelegationSnapshot.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *VoteDelegationSnapshot) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_VoteDelegationSnapshot.Merge(m, src)
+}
+func (m *VoteDelegationSnapshot) XXX_Size() int {
+	return m.Size()
+}
+func (m *VoteDelegationSnapshot) XXX_DiscardUnknown() {
+	xxx_messageInfo_VoteDelegationSnapshot.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_VoteDelegationSnapshot proto.InternalMessageInfo
+
+func (m *VoteDelegationSnapshot) GetProposalId() uint64 {
+	if m != nil {
+		return m.ProposalId
+	}
+	return 0
+}
+
+func (m *VoteDelegationSnapshot) GetVoter() string {
+	if m != nil {
+		return m.Voter
+	}
+	return ""
+}
+
+func (m *VoteDelegationSnapshot) GetDelegations() []VoteDelegation {
+	if m != nil {
+		return m.Delegations
+	}
+	return nil
+}
+
+// VoteDelegation defines a voter's shares in one validator.
+type VoteDelegation struct {
+	Validator string                                                 `protobuf:"bytes,1,opt,name=validator,proto3" json:"validator,omitempty"`
+	Shares    github_com_sei_protocol_sei_chain_sei_cosmos_types.Dec `protobuf:"bytes,2,opt,name=shares,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"shares"`
+}
+
+func (m *VoteDelegation) Reset()         { *m = VoteDelegation{} }
+func (m *VoteDelegation) String() string { return proto.CompactTextString(m) }
+func (*VoteDelegation) ProtoMessage()    {}
+func (*VoteDelegation) Descriptor() ([]byte, []int) {
+	return fileDescriptor_43cd825e0fa7a627, []int{2}
+}
+func (m *VoteDelegation) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *VoteDelegation) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_VoteDelegation.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *VoteDelegation) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_VoteDelegation.Merge(m, src)
+}
+func (m *VoteDelegation) XXX_Size() int {
+	return m.Size()
+}
+func (m *VoteDelegation) XXX_DiscardUnknown() {
+	xxx_messageInfo_VoteDelegation.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_VoteDelegation proto.InternalMessageInfo
+
+func (m *VoteDelegation) GetValidator() string {
+	if m != nil {
+		return m.Validator
+	}
+	return ""
+}
+
 func init() {
 	proto.RegisterType((*GenesisState)(nil), "cosmos.gov.v1beta1.GenesisState")
+	proto.RegisterType((*VoteDelegationSnapshot)(nil), "cosmos.gov.v1beta1.VoteDelegationSnapshot")
+	proto.RegisterType((*VoteDelegation)(nil), "cosmos.gov.v1beta1.VoteDelegation")
 }
 
 func init() { proto.RegisterFile("cosmos/gov/v1beta1/genesis.proto", fileDescriptor_43cd825e0fa7a627) }
 
 var fileDescriptor_43cd825e0fa7a627 = []byte{
-	// 438 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x92, 0x41, 0x6f, 0xd3, 0x30,
-	0x14, 0xc7, 0x1b, 0xd6, 0x8e, 0xcd, 0x6d, 0x11, 0x98, 0x22, 0x45, 0x6b, 0x49, 0x42, 0x4e, 0xbd,
-	0x90, 0x68, 0xe3, 0x82, 0x90, 0xb8, 0x44, 0x48, 0x68, 0x07, 0xa4, 0x61, 0x10, 0x07, 0x2e, 0x95,
-	0x9b, 0x5a, 0x5e, 0xa4, 0xb4, 0x2f, 0xea, 0x33, 0x11, 0xfd, 0x16, 0x7c, 0x0e, 0x3e, 0xc9, 0x8e,
-	0x3b, 0x72, 0x2a, 0xa8, 0x3d, 0x71, 0xdd, 0x27, 0x40, 0xb1, 0x1d, 0xc8, 0x44, 0xe0, 0x66, 0x3f,
-	0xfd, 0xdf, 0xef, 0xf7, 0x6c, 0x3d, 0x12, 0xa4, 0x80, 0x4b, 0xc0, 0x58, 0x42, 0x19, 0x97, 0xa7,
-	0x73, 0xa1, 0xf8, 0x69, 0x2c, 0xc5, 0x4a, 0x60, 0x86, 0x51, 0xb1, 0x06, 0x05, 0x94, 0x9a, 0x44,
-	0x24, 0xa1, 0x8c, 0x6c, 0xe2, 0x64, 0xd2, 0xd6, 0x05, 0xa5, 0xe9, 0x38, 0x19, 0x49, 0x90, 0xa0,
-	0x8f, 0x71, 0x75, 0x32, 0xd5, 0xf0, 0x67, 0x97, 0x0c, 0x5e, 0x1b, 0xf2, 0x3b, 0xc5, 0x95, 0xa0,
-	0x6f, 0xc9, 0x08, 0x15, 0x5f, 0xab, 0x6c, 0x25, 0x67, 0xc5, 0x1a, 0x0a, 0x40, 0x9e, 0xcf, 0xb2,
-	0x85, 0xeb, 0x04, 0xce, 0xb4, 0x9b, 0xf8, 0x37, 0x5b, 0x7f, 0xbc, 0xe1, 0xcb, 0xfc, 0x45, 0xd8,
-	0x96, 0x0a, 0x19, 0xad, 0xcb, 0x17, 0xb6, 0x7a, 0xbe, 0xa0, 0xe7, 0xe4, 0x68, 0x21, 0x0a, 0xc0,
-	0x4c, 0xa1, 0x7b, 0x27, 0x38, 0x98, 0xf6, 0xcf, 0xc6, 0xd1, 0xdf, 0xe3, 0x47, 0xaf, 0x4c, 0x26,
-	0xb9, 0x7f, 0xb5, 0xf5, 0x3b, 0x5f, 0xbf, 0xfb, 0x47, 0xb6, 0x80, 0xec, 0x77, 0x3b, 0x7d, 0x49,
-	0x7a, 0x25, 0x28, 0x81, 0xee, 0x81, 0xe6, 0xb8, 0x6d, 0x9c, 0x0f, 0xa0, 0x44, 0x32, 0xb4, 0x90,
-	0x5e, 0x75, 0x43, 0x66, 0xba, 0xe8, 0x1b, 0x72, 0x5c, 0x4f, 0x8b, 0x6e, 0x57, 0x23, 0x26, 0x6d,
-	0x88, 0x7a, 0xf8, 0xe4, 0x81, 0xc5, 0x1c, 0xd7, 0x15, 0x64, 0x7f, 0x08, 0x54, 0x92, 0x7b, 0x76,
-	0xb2, 0x59, 0xc1, 0xd7, 0x7c, 0x89, 0x6e, 0x2f, 0x70, 0xa6, 0xfd, 0xb3, 0x27, 0xff, 0x79, 0xde,
-	0x85, 0x0e, 0x26, 0x8f, 0x2b, 0xf0, 0xcd, 0xd6, 0x7f, 0x64, 0x3e, 0xf3, 0x36, 0x26, 0x64, 0xc3,
-	0x45, 0x33, 0x4d, 0x53, 0x32, 0x2c, 0xc1, 0x7c, 0xb6, 0xf1, 0x1c, 0x6a, 0x4f, 0xf0, 0x8f, 0xe7,
-	0x57, 0xdf, 0x6f, 0x34, 0x13, 0xab, 0x19, 0x19, 0xcd, 0x2d, 0x48, 0xc8, 0x06, 0x65, 0x23, 0x4b,
-	0x67, 0x64, 0xa0, 0x78, 0x9e, 0x6f, 0x6a, 0xc7, 0x5d, 0xed, 0xf0, 0xdb, 0x1c, 0xef, 0xab, 0x9c,
-	0x55, 0x8c, 0xad, 0xe2, 0xa1, 0x51, 0x34, 0x11, 0x21, 0xeb, 0xab, 0x46, 0x92, 0x5d, 0xed, 0x3c,
-	0xe7, 0x7a, 0xe7, 0x39, 0x3f, 0x76, 0x9e, 0xf3, 0x65, 0xef, 0x75, 0xae, 0xf7, 0x5e, 0xe7, 0xdb,
-	0xde, 0xeb, 0x7c, 0x7c, 0x2e, 0x33, 0x75, 0xf9, 0x69, 0x1e, 0xa5, 0xb0, 0x8c, 0x51, 0x64, 0x4f,
-	0xf5, 0x6e, 0xa6, 0x90, 0xeb, 0x4b, 0x7a, 0xc9, 0xb3, 0x95, 0x39, 0x99, 0xfd, 0xfe, 0xac, 0x37,
-	0x5c, 0x6d, 0x0a, 0x81, 0xf3, 0x43, 0x1d, 0x7d, 0xf6, 0x2b, 0x00, 0x00, 0xff, 0xff, 0x00, 0x82,
-	0x10, 0xf3, 0x32, 0x03, 0x00, 0x00,
+	// 590 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x94, 0x41, 0x6f, 0xd3, 0x3c,
+	0x18, 0xc7, 0x9b, 0x6d, 0xed, 0xdb, 0xba, 0xed, 0xf4, 0x62, 0xca, 0x08, 0x6b, 0x49, 0x42, 0x4e,
+	0x15, 0x12, 0xa9, 0x36, 0x24, 0x40, 0x48, 0x70, 0x88, 0x2a, 0xa1, 0x21, 0x21, 0x0d, 0x0f, 0xed,
+	0xc0, 0x25, 0x72, 0x13, 0x2b, 0x8d, 0x94, 0xd6, 0x51, 0x6c, 0x22, 0xfa, 0x05, 0x38, 0xf3, 0x39,
+	0xb8, 0xf2, 0x25, 0x76, 0xdc, 0x0d, 0xc4, 0xa1, 0xa0, 0xf6, 0x1b, 0xf4, 0x13, 0xa0, 0xd8, 0xce,
+	0xda, 0x6a, 0x19, 0x88, 0x9b, 0xfd, 0xe4, 0xff, 0xfc, 0xfe, 0xcf, 0x63, 0x3f, 0x31, 0xb0, 0x7c,
+	0xca, 0x26, 0x94, 0x0d, 0x42, 0x9a, 0x0d, 0xb2, 0xa3, 0x11, 0xe1, 0xf8, 0x68, 0x10, 0x92, 0x29,
+	0x61, 0x11, 0x73, 0x92, 0x94, 0x72, 0x0a, 0xa1, 0x54, 0x38, 0x21, 0xcd, 0x1c, 0xa5, 0x38, 0xec,
+	0x95, 0x65, 0xd1, 0x4c, 0x66, 0x1c, 0x76, 0x42, 0x1a, 0x52, 0xb1, 0x1c, 0xe4, 0x2b, 0x19, 0xb5,
+	0xbf, 0x55, 0x41, 0xeb, 0x95, 0x24, 0x9f, 0x71, 0xcc, 0x09, 0x7c, 0x0b, 0x3a, 0x8c, 0xe3, 0x94,
+	0x47, 0xd3, 0xd0, 0x4b, 0x52, 0x9a, 0x50, 0x86, 0x63, 0x2f, 0x0a, 0x74, 0xcd, 0xd2, 0xfa, 0x7b,
+	0xae, 0xb9, 0x9a, 0x9b, 0xdd, 0x19, 0x9e, 0xc4, 0xcf, 0xed, 0x32, 0x95, 0x8d, 0x60, 0x11, 0x3e,
+	0x55, 0xd1, 0x93, 0x00, 0x9e, 0x80, 0x7a, 0x40, 0x12, 0xca, 0x22, 0xce, 0xf4, 0x1d, 0x6b, 0xb7,
+	0xdf, 0x3c, 0xee, 0x3a, 0xd7, 0xcb, 0x77, 0x86, 0x52, 0xe3, 0xfe, 0x7f, 0x31, 0x37, 0x2b, 0x5f,
+	0x7e, 0x9a, 0x75, 0x15, 0x60, 0xe8, 0x2a, 0x1d, 0xbe, 0x00, 0xd5, 0x8c, 0x72, 0xc2, 0xf4, 0x5d,
+	0xc1, 0xd1, 0xcb, 0x38, 0xe7, 0x94, 0x13, 0xb7, 0xad, 0x20, 0xd5, 0x7c, 0xc7, 0x90, 0xcc, 0x82,
+	0x6f, 0x40, 0xa3, 0xa8, 0x96, 0xe9, 0x7b, 0x02, 0xd1, 0x2b, 0x43, 0x14, 0xc5, 0xbb, 0xb7, 0x14,
+	0xa6, 0x51, 0x44, 0x18, 0x5a, 0x13, 0x60, 0x08, 0xf6, 0x55, 0x65, 0x5e, 0x82, 0x53, 0x3c, 0x61,
+	0x7a, 0xd5, 0xd2, 0xfa, 0xcd, 0xe3, 0x07, 0x7f, 0x68, 0xef, 0x54, 0x08, 0xdd, 0xfb, 0x39, 0x78,
+	0x35, 0x37, 0xef, 0xc8, 0xc3, 0xdc, 0xc6, 0xd8, 0xa8, 0x1d, 0x6c, 0xaa, 0xa1, 0x0f, 0xda, 0x19,
+	0x95, 0x87, 0x2d, 0x7d, 0x6a, 0xc2, 0xc7, 0xba, 0xa1, 0xfd, 0xfc, 0xf8, 0xa5, 0x4d, 0x4f, 0xd9,
+	0x74, 0xa4, 0xcd, 0x16, 0xc4, 0x46, 0xad, 0x6c, 0x43, 0x0b, 0x3d, 0xd0, 0xe2, 0x38, 0x8e, 0x67,
+	0x85, 0xc7, 0x7f, 0xc2, 0xc3, 0x2c, 0xf3, 0x78, 0x97, 0xeb, 0x94, 0x45, 0x57, 0x59, 0xdc, 0x96,
+	0x16, 0x9b, 0x08, 0x1b, 0x35, 0xf9, 0x5a, 0x09, 0x63, 0x70, 0x2f, 0xbf, 0x06, 0x2f, 0x20, 0x31,
+	0x09, 0x31, 0x8f, 0xe8, 0xd4, 0x63, 0x53, 0x9c, 0xb0, 0x31, 0xe5, 0x4c, 0xaf, 0x8b, 0xdb, 0x78,
+	0x78, 0xd3, 0x85, 0x0e, 0xaf, 0x72, 0xce, 0x54, 0x8a, 0xbb, 0x97, 0x1b, 0xa3, 0xbb, 0x59, 0xe9,
+	0x57, 0x66, 0x7f, 0xd5, 0xc0, 0x41, 0x79, 0x26, 0x7c, 0x0a, 0x9a, 0xd7, 0x47, 0xfb, 0x60, 0x35,
+	0x37, 0xa1, 0xec, 0x61, 0x6b, 0xa2, 0x41, 0xb2, 0x9e, 0xe4, 0x8e, 0x1c, 0xbf, 0x54, 0xdf, 0xb1,
+	0xb4, 0x7e, 0x43, 0x4e, 0x55, 0x0a, 0x5f, 0x83, 0xe6, 0xba, 0xa5, 0x62, 0x34, 0xed, 0xbf, 0x77,
+	0xa2, 0x3a, 0xd8, 0x4c, 0xb6, 0x3f, 0x69, 0x60, 0x7f, 0x5b, 0x05, 0x7b, 0xa0, 0x91, 0xe1, 0x38,
+	0x0a, 0x30, 0xa7, 0xa9, 0xa8, 0xb5, 0x81, 0xd6, 0x01, 0x78, 0x0e, 0x6a, 0x6c, 0x8c, 0x53, 0xc2,
+	0x64, 0x4d, 0xee, 0xcb, 0x9c, 0xf9, 0x63, 0x6e, 0x3e, 0x09, 0x23, 0x3e, 0xfe, 0x30, 0x72, 0x7c,
+	0x3a, 0x19, 0x30, 0x12, 0x3d, 0x12, 0xbf, 0xbb, 0x4f, 0x63, 0xb1, 0xf1, 0xc7, 0x38, 0x9a, 0xca,
+	0x95, 0x7c, 0x32, 0xf8, 0x2c, 0x21, 0xcc, 0x19, 0x12, 0x1f, 0x29, 0x9a, 0x8b, 0x2e, 0x16, 0x86,
+	0x76, 0xb9, 0x30, 0xb4, 0x5f, 0x0b, 0x43, 0xfb, 0xbc, 0x34, 0x2a, 0x97, 0x4b, 0xa3, 0xf2, 0x7d,
+	0x69, 0x54, 0xde, 0x3f, 0xfb, 0x27, 0xf2, 0x47, 0xf1, 0x1c, 0x09, 0xfe, 0xa8, 0x26, 0xa4, 0x8f,
+	0x7f, 0x07, 0x00, 0x00, 0xff, 0xff, 0x7b, 0x26, 0x3d, 0x35, 0xdf, 0x04, 0x00, 0x00,
 }
 
 func (m *GenesisState) Marshal() (dAtA []byte, err error) {
@@ -181,6 +309,20 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if len(m.VoteDelegationSnapshots) > 0 {
+		for iNdEx := len(m.VoteDelegationSnapshots) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.VoteDelegationSnapshots[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x42
+		}
+	}
 	{
 		size, err := m.TallyParams.MarshalToSizedBuffer(dAtA[:i])
 		if err != nil {
@@ -261,6 +403,95 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *VoteDelegationSnapshot) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *VoteDelegationSnapshot) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *VoteDelegationSnapshot) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Delegations) > 0 {
+		for iNdEx := len(m.Delegations) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Delegations[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1a
+		}
+	}
+	if len(m.Voter) > 0 {
+		i -= len(m.Voter)
+		copy(dAtA[i:], m.Voter)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.Voter)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.ProposalId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.ProposalId))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *VoteDelegation) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *VoteDelegation) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *VoteDelegation) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size := m.Shares.Size()
+		i -= size
+		if _, err := m.Shares.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintGenesis(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if len(m.Validator) > 0 {
+		i -= len(m.Validator)
+		copy(dAtA[i:], m.Validator)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.Validator)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintGenesis(dAtA []byte, offset int, v uint64) int {
 	offset -= sovGenesis(v)
 	base := offset
@@ -304,6 +535,49 @@ func (m *GenesisState) Size() (n int) {
 	l = m.VotingParams.Size()
 	n += 1 + l + sovGenesis(uint64(l))
 	l = m.TallyParams.Size()
+	n += 1 + l + sovGenesis(uint64(l))
+	if len(m.VoteDelegationSnapshots) > 0 {
+		for _, e := range m.VoteDelegationSnapshots {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *VoteDelegationSnapshot) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ProposalId != 0 {
+		n += 1 + sovGenesis(uint64(m.ProposalId))
+	}
+	l = len(m.Voter)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	if len(m.Delegations) > 0 {
+		for _, e := range m.Delegations {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *VoteDelegation) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Validator)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	l = m.Shares.Size()
 	n += 1 + l + sovGenesis(uint64(l))
 	return n
 }
@@ -560,6 +834,291 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if err := m.TallyParams.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field VoteDelegationSnapshots", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.VoteDelegationSnapshots = append(m.VoteDelegationSnapshots, VoteDelegationSnapshot{})
+			if err := m.VoteDelegationSnapshots[len(m.VoteDelegationSnapshots)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *VoteDelegationSnapshot) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: VoteDelegationSnapshot: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: VoteDelegationSnapshot: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ProposalId", wireType)
+			}
+			m.ProposalId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ProposalId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Voter", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Voter = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Delegations", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Delegations = append(m.Delegations, VoteDelegation{})
+			if err := m.Delegations[len(m.Delegations)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *VoteDelegation) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: VoteDelegation: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: VoteDelegation: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Validator", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Validator = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Shares", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Shares.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

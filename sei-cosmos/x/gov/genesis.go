@@ -30,6 +30,9 @@ func InitGenesis(ctx sdk.Context, ak types.AccountKeeper, bk types.BankKeeper, k
 	for _, vote := range data.Votes {
 		k.SetVote(ctx, vote)
 	}
+	for _, snapshot := range data.VoteDelegationSnapshots {
+		k.SetVoteDelegationSnapshot(ctx, snapshot)
+	}
 
 	for _, proposal := range data.Proposals {
 		switch proposal.Status {
@@ -66,21 +69,24 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 
 	var proposalsDeposits types.Deposits
 	var proposalsVotes types.Votes
+	voteDelegationSnapshots := make([]types.VoteDelegationSnapshot, 0, len(proposals))
 	for _, proposal := range proposals {
 		deposits := k.GetDeposits(ctx, proposal.ProposalId)
 		proposalsDeposits = append(proposalsDeposits, deposits...)
 
 		votes := k.GetVotes(ctx, proposal.ProposalId)
 		proposalsVotes = append(proposalsVotes, votes...)
+		voteDelegationSnapshots = append(voteDelegationSnapshots, k.GetVoteDelegationSnapshots(ctx, proposal)...)
 	}
 
 	return &types.GenesisState{
-		StartingProposalId: startingProposalID,
-		Deposits:           proposalsDeposits,
-		Votes:              proposalsVotes,
-		Proposals:          proposals,
-		DepositParams:      depositParams,
-		VotingParams:       votingParams,
-		TallyParams:        tallyParams,
+		StartingProposalId:      startingProposalID,
+		Deposits:                proposalsDeposits,
+		Votes:                   proposalsVotes,
+		Proposals:               proposals,
+		DepositParams:           depositParams,
+		VotingParams:            votingParams,
+		TallyParams:             tallyParams,
+		VoteDelegationSnapshots: voteDelegationSnapshots,
 	}
 }

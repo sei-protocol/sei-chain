@@ -49,7 +49,9 @@ func NewDecodeStore(cdc codec.Codec) func(kvA, kvB kv.Pair) string {
 			return fmt.Sprintf("%v\n%v", voteA, voteB)
 
 		case bytes.Equal(kvA.Key[:1], types.TallyProgressKeyPrefix),
-			bytes.Equal(kvA.Key[:1], types.TallyCleanupKeyPrefix):
+			bytes.Equal(kvA.Key[:1], types.TallyCleanupKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.VoteDelegationsKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.TallyVoteDelegationsKeyPrefix):
 			return fmt.Sprintf("%X\n%X", kvA.Value, kvB.Value)
 
 		default:

@@ -41,4 +41,22 @@ message GenesisState {
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\"tally_params\""
   ];
+  // vote_delegation_snapshots defines the delegation shares captured with each vote.
+  repeated VoteDelegationSnapshot vote_delegation_snapshots = 8 [(gogoproto.nullable) = false];
+}
+
+// VoteDelegationSnapshot defines the per-validator delegation shares captured with a vote.
+message VoteDelegationSnapshot {
+  uint64 proposal_id = 1 [(gogoproto.moretags) = "yaml:\"proposal_id\""];
+  string voter = 2;
+  repeated VoteDelegation delegations = 3 [(gogoproto.nullable) = false];
+}
+
+// VoteDelegation defines a voter's shares in one validator.
+message VoteDelegation {
+  string validator = 1;
+  string shares = 2 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
 }

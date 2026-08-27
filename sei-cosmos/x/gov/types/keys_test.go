@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 )
 
 var addr = sdk.AccAddress(ed25519.GenPrivKey().PubKey().Address())
@@ -65,4 +66,6 @@ func TestTallyKeys(t *testing.T) {
 	require.NotEqual(t, TallyVotesKey(2, true), TallyVotesKey(2, false))
 	require.NotEqual(t, TallyVoteKey(2, true, addr), TallyVoteKey(2, false, addr))
 	require.NotEqual(t, TallyCleanupKey(2, true), TallyCleanupKey(2, false))
+	require.Equal(t, append(append(VoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), address.MustLengthPrefix(addr.Bytes())...), VoteDelegationsKey(2, addr))
+	require.Equal(t, append(append(append(TallyVoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), byte(1)), address.MustLengthPrefix(addr.Bytes())...), TallyVoteDelegationsKey(2, false, addr))
 }

@@ -9,6 +9,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 // AddVote adds a vote on a specific proposal
@@ -110,6 +111,62 @@ func (keeper Keeper) SetVote(ctx sdk.Context, vote types.Vote) {
 	addr := sdk.MustAccAddressFromBech32(vote.Voter)
 
 	store.Set(types.VoteKey(vote.ProposalId, addr), bz)
+	keeper.setVoteDelegations(ctx, vote.ProposalId, addr)
+}
+
+func (keeper Keeper) setVoteDelegations(ctx sdk.Context, proposalID uint64, voter sdk.AccAddress) {
+	snapshot := keeper.snapshotVoteDelegations(ctx, proposalID, voter)
+	keeper.setVoteDelegationSnapshot(ctx, snapshot)
+}
+
+func (keeper Keeper) snapshotVoteDelegations(
+	ctx sdk.Context,
+	proposalID uint64,
+	voter sdk.AccAddress,
+) types.VoteDelegationSnapshot {
+	snapshot := types.VoteDelegationSnapshot{
+		ProposalId:  proposalID,
+		Voter:       voter.String(),
+		Delegations: []types.VoteDelegation{},
+	}
+	keeper.sk.IterateDelegations(ctx, voter, func(_ int64, delegation stakingtypes.DelegationI) bool {
+		snapshot.Delegations = append(snapshot.Delegations, types.VoteDelegation{
+			Validator: delegation.GetValidatorAddr().String(),
+			Shares:    delegation.GetShares(),
+		})
+		return false
+	})
+	return snapshot
+}
+
+func (keeper Keeper) setVoteDelegationSnapshot(ctx sdk.Context, snapshot types.VoteDelegationSnapshot) {
+	voter := sdk.MustAccAddressFromBech32(snapshot.Voter)
+	bz := keeper.cdc.MustMarshal(&snapshot)
+	ctx.KVStore(keeper.storeKey).Set(types.VoteDelegationsKey(snapshot.ProposalId, voter), bz)
+}
+
+// SetVoteDelegationSnapshot stores a vote's exported delegation snapshot.
+func (keeper Keeper) SetVoteDelegationSnapshot(ctx sdk.Context, snapshot types.VoteDelegationSnapshot) {
+	keeper.setVoteDelegationSnapshot(ctx, snapshot)
+}
+
+// GetVoteDelegationSnapshots returns the stored delegation snapshots for a proposal's visible votes.
+func (keeper Keeper) GetVoteDelegationSnapshots(
+	ctx sdk.Context,
+	proposal types.Proposal,
+) []types.VoteDelegationSnapshot {
+	snapshots := make([]types.VoteDelegationSnapshot, 0)
+	keeper.IterateVotes(ctx, proposal.ProposalId, func(vote types.Vote) bool {
+		snapshots = append(snapshots, keeper.voteDelegations(ctx, proposal.ProposalId, proposal.IsExpedited, vote))
+		return false
+	})
+	return snapshots
+}
+
+func (keeper Keeper) unmarshalVoteDelegations(bz []byte) types.VoteDelegationSnapshot {
+	var snapshot types.VoteDelegationSnapshot
+	keeper.cdc.MustUnmarshal(bz, &snapshot)
+	return snapshot
 }
 
 // IterateAllVotes iterates over the all the stored votes and performs a callback function
