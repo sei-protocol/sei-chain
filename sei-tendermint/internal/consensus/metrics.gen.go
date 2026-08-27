@@ -266,8 +266,8 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "late_votes",
-			Help:      "Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.",
-		}, nil),
+			Help:      "Number of late votes received by the node, labeled by validator address for the current validator set or other.",
+		}, []string{"validator_address"}),
 		FinalRound: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -457,8 +457,8 @@ func (m *Metrics) RoundVotingPowerPercentAt(vote_type string) prometheus.Gauge {
 	return m.RoundVotingPowerPercent.WithLabelValues(vote_type)
 }
 
-func (m *Metrics) LateVotesAt() *tmprometheus.CounterInt {
-	return m.LateVotes.WithLabelValues()
+func (m *Metrics) LateVotesAt(validator_address string) *tmprometheus.CounterInt {
+	return m.LateVotes.WithLabelValues(validator_address)
 }
 
 func (m *Metrics) FinalRoundAt(proposer_address string) *tmprometheus.Histogram {

@@ -2456,7 +2456,7 @@ func (cs *State) addVote(
 		"cs_height", cs.roundState.Height(),
 	)
 	if vote.Height < cs.roundState.Height() || (vote.Height == cs.roundState.Height() && vote.Round < cs.roundState.Round()) {
-		Global.MarkLateVote()
+		Global.MarkLateVote(vote.ValidatorAddress, cs.roundState.Validators())
 	}
 
 	// A precommit for the previous height?

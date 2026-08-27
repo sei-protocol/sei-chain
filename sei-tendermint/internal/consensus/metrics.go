@@ -145,9 +145,9 @@ type Metrics struct {
 
 	// LateVotes stores the number of votes that were received by this node that
 	// correspond to earlier heights and rounds than this node is currently
-	// in.
-	//metrics:Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.
-	LateVotes tmprometheus.CounterIntVec
+	// in, labeled by validator address for the current validator set.
+	//metrics:Number of late votes received by the node, labeled by validator address for the current validator set or other.
+	LateVotes tmprometheus.CounterIntVec `metrics_labels:"validator_address"`
 
 	// FinalRound stores the final round id the proposal block reach consensus in.
 	//metrics:The final round number for where the proposal block reach consensus in, starting at 0.
@@ -227,8 +227,14 @@ func (m *Metrics) MarkRound(r int32, st time.Time) {
 	m.RoundVotingPowerPercentAt(pcn).Set(0)
 }
 
-func (m *Metrics) MarkLateVote() {
-	m.LateVotesAt().Add(1)
+const lateVoteOtherLabel = "other"
+
+func (m *Metrics) MarkLateVote(addr types.Address, validators *types.ValidatorSet) {
+	label := lateVoteOtherLabel
+	if validators != nil && validators.HasAddress(addr) {
+		label = addr.String()
+	}
+	m.LateVotesAt(label).Add(1)
 }
 
 func (m *Metrics) MarkFinalRound(round int32, proposer string) {
