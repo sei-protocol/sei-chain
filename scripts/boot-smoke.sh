@@ -79,13 +79,28 @@ fi
 
 for i in $(seq 1 "$BOOTS"); do
   H=$(mktemp -d)
-  "$BIN" init smoke --chain-id "$CHAIN_ID" --home "$H" >/dev/null 2>&1
+  SETUP_LOG="$H/setup.log"
+
+  # Each setup step names itself on failure. These run outside `timeout` and used to
+  # discard both streams, so under `set -e` a failure aborted with no output at all,
+  # which from a goreleaser hook is an unexplained non-zero exit. They are also the same
+  # slow emulated path as the boot itself when the binary is foreign.
+  setup () {
+    local what=$1; shift
+    if ! "$@" >>"$SETUP_LOG" 2>&1; then
+      echo "boot-smoke: boot $i/$BOOTS failed during setup ($what):" >&2
+      tail -25 "$SETUP_LOG" >&2
+      exit 1
+    fi
+  }
+
+  setup "init" "$BIN" init smoke --chain-id "$CHAIN_ID" --home "$H"
   sed -i 's/"stake"/"usei"/g' "$H/config/genesis.json"
-  "$BIN" keys add val --keyring-backend test --home "$H" >/dev/null 2>&1
+  setup "keys add" "$BIN" keys add val --keyring-backend test --home "$H"
   ADDR=$("$BIN" keys show val -a --keyring-backend test --home "$H")
-  "$BIN" add-genesis-account "$ADDR" 100000000000000usei --home "$H" >/dev/null
-  "$BIN" gentx val 10000000000000usei --chain-id "$CHAIN_ID" --keyring-backend test --home "$H" >/dev/null 2>&1
-  "$BIN" collect-gentxs --home "$H" >/dev/null 2>&1
+  setup "add-genesis-account" "$BIN" add-genesis-account "$ADDR" 100000000000000usei --home "$H"
+  setup "gentx" "$BIN" gentx val 10000000000000usei --chain-id "$CHAIN_ID" --keyring-backend test --home "$H"
+  setup "collect-gentxs" "$BIN" collect-gentxs --home "$H"
 
   # First boot: force the deterministic single-threaded repro. Others: default threading.
   RAYON=""

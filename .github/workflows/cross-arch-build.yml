@@ -146,13 +146,13 @@ jobs:
       # the -z muldefs flag needed to link the libwasmvm v152/v155 archives. Alpine's
       # gcc is GNU ld + musl, so it links cleanly. Same script the goreleaser release
       # build runs (scripts/build-static.sh); goreleaser then packages it via the tool shim.
-      # goreleaser is never run by CI, so its before-hooks are unexecuted strings until a
-      # tag is pushed. This catches an unrunnable hook in milliseconds instead.
-      - name: Verify goreleaser before-hooks are executable
-        run: bash scripts/check-goreleaser-hooks.sh
-
       - name: Build statically (Alpine / musl)
         run: bash scripts/build-static.sh amd64
+
+      # goreleaser is never run by CI, so its hooks are unexecuted strings until a tag is
+      # pushed. This catches an unrunnable hook in milliseconds instead.
+      - name: Verify goreleaser hooks are executable
+        run: bash scripts/check-goreleaser-hooks.sh
 
       - name: Assert binary is statically linked
         run: |
