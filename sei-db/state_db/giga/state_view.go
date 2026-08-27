@@ -1,7 +1,5 @@
 package giga
 
-import "github.com/sei-protocol/sei-chain/sei-db/proto"
-
 const (
 	AddressLen = 20
 	HashLen    = 32
@@ -17,60 +15,38 @@ type Address [AddressLen]byte
 // and code hashes. Like Address, it can be freely converted to/from common.Hash or evmc.Hash.
 type Hash [HashLen]byte
 
-// StateDB is the top-level API used by the Giga EVM executor for
-// read and write. Writes commit into both SC and SS; reads can be served for
-// the current (in-progress) block or for a past, already-committed block.
-type StateDB interface {
-
-	// CommitStateChanges writes the given changesets into both SC and SS.
-	// Call after executing each block. Hash computation and disk I/O may
-	// continue asynchronously, but the state changes must be visible to
-	// subsequent reads as soon as this function returns.
-	CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error
-
-	// OpenSnapshot returns a read-only StateSnapshot of the current block
-	// (backed by an SC ephemeral snapshot). The caller must Close it when done.
-	OpenSnapshot() StateSnapshot
-
-	// OpenSnapshotAt returns a read-only StateSnapshot for the given
-	// committed block height (backed by SS). The bool is false when no
-	// snapshot exists at that height. When true, the caller must Close the
-	// returned snapshot when done.
-	OpenSnapshotAt(blockNum int64) (StateSnapshot, bool)
-}
-
-// StateSnapshot is a read-only, point-in-time view over the store's raw
-// key/value data, plus (via the embedded EVMStateSnapshot) EVM-specific
+// StateView is a read-only, point-in-time view over the store's raw
+// key/value data, plus (via the embedded EVMStateView) EVM-specific
 // accessors for account/storage/code/balance/nonce reads.
 //
 // Until Close, the underlying resources (e.g. an ephemeral SC snapshot or a
 // pinned SS version) stay alive, even concurrently with later writes/commits.
-type StateSnapshot interface {
-	EVMStateSnapshot
+type StateView interface {
+	EVMStateView
 
-	// GetBlockHeight returns the block height of this snapshot.
+	// GetBlockHeight returns the block height of this view.
 	GetBlockHeight() int64
 
-	// Get returns the raw value stored under key in this snapshot, and
+	// Get returns the raw value stored under key in this view, and
 	// whether it was found. It never observes writes made after the
-	// snapshot was taken.
+	// view was opened.
 	//
 	// Get does not return an error: internal database failures are expected
 	// to panic so the process crashes rather than continuing with corrupt or incomplete state.
-	Get(key []byte) ([]byte, bool)
+	Get(module string, key []byte) ([]byte, bool)
 
-	// Close releases the snapshot's underlying ref counting.
-	// Caller is required to Close the snapshot after using it.
-	// Not closing snapshot properly could lead to memory leak.
+	// Close releases the view's underlying ref counting.
+	// Caller is required to Close the view after using it.
+	// Not closing the view properly could lead to memory leak.
 	Close()
 }
 
-// EVMStateSnapshot is the EVM-specific read surface embedded by StateSnapshot.
+// EVMStateView is the EVM-specific read surface embedded by StateView.
 //
 // None of these methods return an error: any underlying database failure
 // is expected to panic so the process crashes rather than continuing with
 // corrupt or incomplete state.
-type EVMStateSnapshot interface {
+type EVMStateView interface {
 
 	// AccountExists reports whether addr has an account in state,
 	// including accounts that have self-destructed in the current block.
