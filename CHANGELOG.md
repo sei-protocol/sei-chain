@@ -47,6 +47,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.6
 sei-chain
+* [#4024](https://github.com/sei-protocol/sei-chain/pull/4024) Backport `release/v6.6`: Add frozen RPC router and Docker integration cluster (#3989)
+* [#4007](https://github.com/sei-protocol/sei-chain/pull/4007) Backport `release/v6.6`: Use iterative traversal for memiavl snapshot writes
+* [#4006](https://github.com/sei-protocol/sei-chain/pull/4006) Backport `release/v6.6`: Disable mempool traffic in freeze mode
+* [#3978](https://github.com/sei-protocol/sei-chain/pull/3978) Backport `release/v6.6`: Add freeze mode for historical EVM RPC
+* [#3966](https://github.com/sei-protocol/sei-chain/pull/3966) Bump version to v6.6.2 in prep for patch release
+* [#3965](https://github.com/sei-protocol/sei-chain/pull/3965) Backport `release/v6.6`: Update v6.6 change log in prep to cut v6.6.2 patch
 * [#3957](https://github.com/sei-protocol/sei-chain/pull/3957) Backport `release/v6.6`: Add context cancellation to SS DB layer
 * [#3954](https://github.com/sei-protocol/sei-chain/pull/3954) Backport `release/v6.6`: feat(seeds): ship Sei Labs seeds as the default bootstrap-peers
 * [#3951](https://github.com/sei-protocol/sei-chain/pull/3951) Backport `release/v6.6`: Tolerate failed Codex review executions
