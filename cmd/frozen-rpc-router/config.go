@@ -12,17 +12,19 @@ import (
 )
 
 const (
-	defaultListenAddress      = "127.0.0.1:8545"
-	defaultMaxRequestBodySize = int64(5 << 20)
-	defaultShutdownTimeout    = 10 * time.Second
+	defaultListenAddress          = "127.0.0.1:8545"
+	defaultMaxRequestBodySize     = int64(5 << 20)
+	defaultMaxBlockReferenceDepth = 16
+	defaultShutdownTimeout        = 10 * time.Second
 )
 
 type config struct {
-	listenAddress      string
-	liveNode           string
-	frozenNodes        frozenNodeFlags
-	maxRequestBodySize int64
-	shutdownTimeout    time.Duration
+	listenAddress          string
+	liveNode               string
+	frozenNodes            frozenNodeFlags
+	maxRequestBodySize     int64
+	maxBlockReferenceDepth int
+	shutdownTimeout        time.Duration
 }
 
 type frozenNodeConfig struct {
@@ -49,6 +51,7 @@ func parseConfig(args []string, output io.Writer) (config, error) {
 	flags.StringVar(&cfg.liveNode, "live-node", "", "HTTP RPC address of the live node (required)")
 	flags.Var(&cfg.frozenNodes, "frozen-node", "freeze-height=ip:port pair; repeat once per frozen node")
 	flags.Int64Var(&cfg.maxRequestBodySize, "max-request-body-bytes", defaultMaxRequestBodySize, "maximum JSON-RPC request body size")
+	flags.IntVar(&cfg.maxBlockReferenceDepth, "max-block-reference-depth", defaultMaxBlockReferenceDepth, "maximum nested block reference depth")
 	flags.DurationVar(&cfg.shutdownTimeout, "shutdown-timeout", defaultShutdownTimeout, "graceful shutdown timeout")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
@@ -61,6 +64,9 @@ func parseConfig(args []string, output io.Writer) (config, error) {
 	}
 	if cfg.maxRequestBodySize <= 0 {
 		return config{}, errors.New("--max-request-body-bytes must be positive")
+	}
+	if cfg.maxBlockReferenceDepth <= 0 {
+		return config{}, errors.New("--max-block-reference-depth must be positive")
 	}
 	if cfg.shutdownTimeout <= 0 {
 		return config{}, errors.New("--shutdown-timeout must be positive")
