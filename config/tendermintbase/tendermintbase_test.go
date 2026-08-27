@@ -63,9 +63,10 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 // over them cannot drift from what the registry holds.
 func declaredSections() []string { return append([]string(nil), registeredHere...) }
 
-// declaredHere returns the keys every section this package registers declares, read out of the registry
-// rather than matched by prefix, so a section whose keys sit at the root of the file contributes too.
-func declaredHere(t *testing.T) []string {
+// keysFromDeclaredSections returns the keys every section this package registers declares, read out of the
+// registry rather than matched by prefix, so a section whose keys sit at the root of the file contributes
+// too.
+func keysFromDeclaredSections(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	for _, name := range declaredSections() {
@@ -94,7 +95,7 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 	}
 
 	var measured []string
-	for _, key := range declaredHere(t) {
+	for _, key := range keysFromDeclaredSections(t) {
 		seen := map[string]bool{}
 		for _, mode := range registry.Modes() {
 			seen[fmt.Sprint(byMode[mode][key])] = true
