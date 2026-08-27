@@ -18,7 +18,48 @@ const (
 	InstrumentationSectionName = "instrumentation"
 	PrivValidatorSectionName   = "priv-validator"
 	SelfRemediationSectionName = "self-remediation"
+
+	// RootSectionName identifies the keys that sit at the top of the file with no table of their own. The
+	// name is for lookups and reports and is not part of any key.
+	RootSectionName = "node_base"
 )
+
+// notWritableInThisFile are root paths this section does not declare.
+//
+// Neither is a setting an operator can usefully write here. The home directory is where this file is
+// found, so a value inside it would be the file naming its own location, and the command line already
+// carries it. The node kind is the fact the file states at the top under its own name, and a second
+// spelling would let the two disagree.
+//
+// A generated file does state the node kind, so a reader handed a decoded file finds no section declaring
+// it and reports it beside an operator's typos. Exempting that one key belongs to the reader: the kind of
+// node is what a resolution is asked about, so a declared answer for it would be the question.
+var notWritableInThisFile = []string{filledFromTheCommandLine, statedAtTheTopOfTheFile}
+
+// statedAtTheTopOfTheFile is the path the root section leaves out because the file already states it.
+//
+// A generated file names the node kind at the top under its own name, so a second spelling would let the
+// two disagree, with a resolution answering for one and the node reading the other.
+const statedAtTheTopOfTheFile = "mode"
+
+// removedFromTheNode are the root paths this section does not declare because nothing reads them. The
+// node marks each field deprecated, out-of-process ABCI having been removed along with peer filtering
+// through it, and two of the three state an address and a transport name that a writer would otherwise
+// render into new files.
+var removedFromTheNode = []string{"proxy-app", "abci", "filter-peers"}
+
+// nodeRootSchema declares the keys that sit at the root of the node's configuration file.
+//
+// The node's own top-level type carries these and every table both, so declaring against it directly
+// would declare each table's keys a second time. This squashes the same base group that type squashes, so
+// the spellings still come from the node's own tags, and restates only the fields it holds beside that
+// group. A test holds those against it.
+type nodeRootSchema struct {
+	tmcfg.BaseConfig `mapstructure:",squash"`
+
+	AutobahnConfigFile      string `mapstructure:"autobahn-config-file"`
+	HashVaultDisabledUnsafe bool   `mapstructure:"hash-vault-disabled-unsafe"`
+}
 
 // removedSettings are the consensus paths this section does not declare. Each names a field the node's
 // struct marks deprecated, so the key would offer a setting that a written value cannot change.
@@ -78,22 +119,44 @@ const fixedForEveryNode = "namespace"
 // The keys derive from the struct's mapstructure tags, which is what the node's reader decodes through, so
 // a key here is a key that reader resolves rather than a second spelling of it.
 func init() {
-	registry.RegisterSectionExcluding(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
+	declareSection(P2PSectionName, &tmcfg.P2PConfig{}, p2pDefaults,
 		filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing)
-	registry.RegisterSectionExcluding(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
+	declareSection(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
 		filledFromTheCommandLine)
-	registry.RegisterSectionExcluding(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
+	declareSection(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
 		append([]string{filledFromTheCommandLine}, removedSettings...)...)
-	registry.RegisterSectionExcluding(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
+	declareSection(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
 		append([]string{filledFromTheCommandLine}, neverReachTheMempool...)...)
-	registry.RegisterSection(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults)
-	registry.RegisterSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
-	registry.RegisterSectionExcluding(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
+	declareSection(StateSyncSectionName, &tmcfg.StateSyncConfig{}, stateSyncDefaults)
+	declareSection(TxIndexSectionName, &tmcfg.TxIndexConfig{}, txIndexDefaults)
+	declareSection(InstrumentationSectionName, &tmcfg.InstrumentationConfig{},
 		instrumentationDefaults, fixedForEveryNode)
-	registry.RegisterSectionExcluding(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{},
+	declareSection(PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{},
 		privValidatorDefaults, filledFromTheCommandLine)
-	registry.RegisterSectionExcluding(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
+	declareSection(SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{},
 		selfRemediationDefaults, reachesNoReactor)
+	declareRootKeys(RootSectionName, &nodeRootSchema{}, rootDefaults,
+		append(append([]string{}, notWritableInThisFile...), removedFromTheNode...)...)
+}
+
+// registeredHere are the sections this package put in the registry, recorded as each one is registered.
+//
+// A test needs to know which sections are this package's, and a list written beside the registrations is a
+// second statement of the same fact: a section registered and left off the list is one nothing here checks,
+// which is the case the list exists to prevent. Recorded by the registration itself instead, so the two
+// cannot disagree.
+var registeredHere []string
+
+// declareSection registers a section and records that it belongs to this package.
+func declareSection(name string, prototype any, defaults func(registry.Mode) any, excluding ...string) {
+	registry.RegisterSectionExcluding(name, prototype, defaults, excluding...)
+	registeredHere = append(registeredHere, name)
+}
+
+// declareRootKeys registers a section whose keys sit at the root of the file, and records it the same way.
+func declareRootKeys(name string, prototype any, defaults func(registry.Mode) any, excluding ...string) {
+	registry.RegisterRootKeysExcluding(name, prototype, defaults, excluding...)
+	registeredHere = append(registeredHere, name)
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.
@@ -145,9 +208,11 @@ const readByNothing = "test-dial-fail"
 // Declared rather than excluded, because the generated file writes each one into every node's
 // configuration, and a key this space refuses is a key an operator's own file reports as unknown. What
 // they cost is the invariant on forMode: for these, a declared value is not what a generated file
-// carries. The peer seeds come from the chain identifier, which is a runtime input and not a node kind,
-// so no answer keyed on mode can be right. A writer takes the value from the generator instead.
-var filledByTheGenerator = []string{P2PSectionName + ".bootstrap-peers"}
+// carries. The peer seeds come from the chain identifier and the node name is a required argument to the
+// command, both runtime inputs and neither a node kind, so no answer keyed on mode can be right. The node
+// name is the sharper of the two: its declared value is the hostname of whatever machine is asking, so
+// this key resolves differently on every host. A writer takes both from the generator instead.
+var filledByTheGenerator = []string{P2PSectionName + ".bootstrap-peers", "moniker"}
 
 // p2pDefaults is what a generated file carries for the peer-to-peer section.
 //
@@ -207,6 +272,19 @@ func instrumentationDefaults(mode registry.Mode) any { return *forMode(mode).Ins
 // does not sign simply does not use them, so varying them by kind would state a difference the binary does
 // not make.
 func privValidatorDefaults(mode registry.Mode) any { return *forMode(mode).PrivValidator }
+
+// rootDefaults is what a generated file carries at the top of the node's configuration file.
+//
+// The same values for every mode. These name where a node keeps its data and how it logs, and nothing in
+// the binary makes either follow from what kind of node is asking.
+func rootDefaults(mode registry.Mode) any {
+	live := forMode(mode)
+	return nodeRootSchema{
+		BaseConfig:              live.BaseConfig,
+		AutobahnConfigFile:      live.AutobahnConfigFile,
+		HashVaultDisabledUnsafe: live.HashVaultDisabledUnsafe,
+	}
+}
 
 // selfRemediationDefaults is what a generated file carries for the self remediation section.
 //
