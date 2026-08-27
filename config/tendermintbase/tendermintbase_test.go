@@ -53,9 +53,9 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 	},
 }
 
-// declaredHere returns the keys the sections in declaredAgainst declare, read out of the registry rather
-// than matched by prefix, so every listed section contributes.
-func declaredHere(t *testing.T) []string {
+// keysFromDeclaredSections returns the keys every section this package registers declares, read out of the
+// registry rather than matched by prefix, so a section contributes whether or not its keys carry its name.
+func keysFromDeclaredSections(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	for _, tc := range declaredAgainst {
@@ -84,7 +84,7 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 	}
 
 	var measured []string
-	for _, key := range declaredHere(t) {
+	for _, key := range keysFromDeclaredSections(t) {
 		seen := map[string]bool{}
 		for _, mode := range registry.Modes() {
 			seen[fmt.Sprint(byMode[mode][key])] = true
