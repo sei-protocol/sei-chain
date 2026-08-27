@@ -8,9 +8,41 @@ import (
 
 // The names these sections have in the configuration key space.
 const (
-	P2PSectionName = "p2p"
-	RPCSectionName = "rpc"
+	P2PSectionName       = "p2p"
+	RPCSectionName       = "rpc"
+	ConsensusSectionName = "consensus"
+	MempoolSectionName   = "mempool"
 )
+
+// removedSettings are the consensus paths this section does not declare. Each names a field the node's
+// struct marks deprecated, so the key would offer a setting that a written value cannot change.
+var removedSettings = []string{
+	"unsafe-overrides-enabled",
+	"unsafe-propose-timeout-override",
+	"unsafe-propose-timeout-delta-override",
+	"unsafe-vote-timeout-override",
+	"unsafe-vote-timeout-delta-override",
+	"unsafe-commit-timeout-override",
+	"unsafe-bypass-commit-timeout-override",
+	"timeout-propose",
+	"timeout-propose-delta",
+	"timeout-prevote",
+	"timeout-prevote-delta",
+	"timeout-precommit",
+	"timeout-precommit-delta",
+	"timeout-commit",
+	"skip-timeout-commit",
+	"stateless-leader-election",
+}
+
+// neverReachTheMempool are the mempool paths this section does not declare. No code reads them, so
+// declaring one would offer a setting that changes nothing, even though a generated file writes all
+// three. The similarly spelled ttl-duration and ttl-num-blocks are live and stay declared.
+var neverReachTheMempool = []string{
+	"max-batch-bytes",
+	"pending-ttl-duration",
+	"pending-ttl-num-blocks",
+}
 
 // Registration puts these sections in the configuration registry.
 //
@@ -26,6 +58,10 @@ func init() {
 		filledFromTheCommandLine, derivedFromTheConnectionLimit, readByNothing)
 	registry.RegisterSectionExcluding(RPCSectionName, &tmcfg.RPCConfig{}, rpcDefaults,
 		filledFromTheCommandLine)
+	registry.RegisterSectionExcluding(ConsensusSectionName, &tmcfg.ConsensusConfig{}, consensusDefaults,
+		append([]string{filledFromTheCommandLine}, removedSettings...)...)
+	registry.RegisterSectionExcluding(MempoolSectionName, &tmcfg.MempoolConfig{}, mempoolDefaults,
+		append([]string{filledFromTheCommandLine}, neverReachTheMempool...)...)
 }
 
 // forMode is the configuration the seid init command writes for a kind of node.
@@ -102,3 +138,17 @@ func p2pDefaults(mode registry.Mode) any { return *forMode(mode).P2P }
 // Answered per mode, for the listen address alone: a node that serves queries binds one and a validator
 // does not.
 func rpcDefaults(mode registry.Mode) any { return *forMode(mode).RPC }
+
+// consensusDefaults is what a generated file carries for the consensus section.
+//
+// The same values for every mode: nothing in the binary derives one of these from a node kind. What this
+// section declares is a log path, a proposer's own empty-block policy, a gossip mode, two reactor sleeps
+// and a local restart check. The timings that do have to agree across the validator set are the paths
+// removedSettings leaves out.
+func consensusDefaults(mode registry.Mode) any { return *forMode(mode).Consensus }
+
+// mempoolDefaults is what a generated file carries for the mempool section.
+//
+// The same values for every mode: these limits bound one node's own memory and bandwidth, and nothing in
+// the binary derives one from a node kind.
+func mempoolDefaults(mode registry.Mode) any { return *forMode(mode).Mempool }
