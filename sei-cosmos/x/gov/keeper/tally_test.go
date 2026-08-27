@@ -528,6 +528,8 @@ func TestTallyIncrementalPersistsProgressAndCleansArchivedVotes(t *testing.T) {
 	store := ctx.KVStore(app.GetKey(types.StoreKey))
 	require.True(t, store.Has(types.TallyVoteDelegationsKey(proposal.ProposalId, false, addrs[0])))
 	require.False(t, store.Has(types.VoteDelegationsKey(proposal.ProposalId, addrs[0])))
+	require.False(t, store.Has(types.VoterProposalsKey(addrs[0], proposal.ProposalId)))
+	require.True(t, store.Has(types.VoterProposalsKey(addrs[1], proposal.ProposalId)))
 
 	_, _, queryResult := app.GovKeeper.Tally(ctx, proposal)
 	require.False(t, queryResult.Equals(types.EmptyTallyResult()))
@@ -561,7 +563,7 @@ func TestTallyIncrementalPersistsProgressAndCleansArchivedVotes(t *testing.T) {
 	}
 }
 
-func TestTallyIncrementalIgnoresDelegationsAddedAfterVote(t *testing.T) {
+func TestTallyIncrementalIgnoresDelegationsAddedAfterTallyStarts(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
@@ -603,7 +605,7 @@ func TestTallyIncrementalIgnoresDelegationsAddedAfterVote(t *testing.T) {
 	require.False(t, totalVotingPower.GT(snapshotTotalBonded))
 }
 
-func TestTallyIncrementalKeepsDelegationsRemovedAfterVote(t *testing.T) {
+func TestTallyIncrementalKeepsDelegationsRemovedAfterTallyStarts(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
@@ -635,6 +637,47 @@ func TestTallyIncrementalKeepsDelegationsRemovedAfterVote(t *testing.T) {
 	require.True(t, complete)
 	require.Equal(t, 1, processed)
 	require.False(t, burnDeposits)
+	require.True(t, tallyResult.No.Equal(delegatedTokens))
+}
+
+func TestTallyIncrementalUsesRedelegationsBeforeTallyStarts(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
+
+	sourceValidator, found := app.StakingKeeper.GetValidator(ctx, valAddrs[0])
+	require.True(t, found)
+	delegatedTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 20)
+	_, err := app.StakingKeeper.Delegate(ctx, addrs[3], delegatedTokens, stakingtypes.Unbonded, sourceValidator, true)
+	require.NoError(t, err)
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, proposal)
+	require.NoError(t, app.GovKeeper.AddVote(
+		ctx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+	require.NoError(t, app.GovKeeper.AddVote(
+		ctx,
+		proposal.ProposalId,
+		addrs[3],
+		types.NewNonSplitVoteOption(types.OptionNo),
+	))
+
+	delegation, found := app.StakingKeeper.GetDelegation(ctx, addrs[3], valAddrs[0])
+	require.True(t, found)
+	_, err = app.StakingKeeper.BeginRedelegation(ctx, addrs[3], valAddrs[0], valAddrs[1], delegation.GetShares())
+	require.NoError(t, err)
+	app.GovKeeper.InitializeTally(ctx, proposal)
+
+	complete, processed, _, _, tallyResult := app.GovKeeper.TallyIncremental(ctx, proposal, 2)
+	require.True(t, complete)
+	require.Equal(t, 2, processed)
+	require.True(t, tallyResult.Yes.Equal(app.StakingKeeper.TokensFromConsensusPower(ctx, 5)))
 	require.True(t, tallyResult.No.Equal(delegatedTokens))
 }
 

@@ -41,11 +41,11 @@ message GenesisState {
     (gogoproto.nullable) = false,
     (gogoproto.moretags) = "yaml:\"tally_params\""
   ];
-  // vote_delegation_snapshots defines the delegation shares captured with each vote.
+  // vote_delegation_snapshots defines the delegation shares maintained for each vote.
   repeated VoteDelegationSnapshot vote_delegation_snapshots = 8 [(gogoproto.nullable) = false];
 }
 
-// VoteDelegationSnapshot defines the per-validator delegation shares captured with a vote.
+// VoteDelegationSnapshot defines the per-validator delegation shares maintained for a vote.
 message VoteDelegationSnapshot {
   uint64 proposal_id = 1 [(gogoproto.moretags) = "yaml:\"proposal_id\""];
   string voter = 2;

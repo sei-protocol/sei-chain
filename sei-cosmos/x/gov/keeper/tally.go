@@ -192,6 +192,7 @@ func (keeper Keeper) processTallyVotes(
 		store.Set(types.TallyVoteDelegationsKey(proposalID, progress.Expedited, voter), snapshotValue)
 		store.Delete(key)
 		store.Delete(snapshotKey)
+		store.Delete(types.VoterProposalsKey(voter, proposalID))
 		progress.Cursor = key
 		processed++
 	}

@@ -111,6 +111,7 @@ func (keeper Keeper) SetVote(ctx sdk.Context, vote types.Vote) {
 	addr := sdk.MustAccAddressFromBech32(vote.Voter)
 
 	store.Set(types.VoteKey(vote.ProposalId, addr), bz)
+	store.Set(types.VoterProposalsKey(addr, vote.ProposalId), []byte{1})
 	keeper.setVoteDelegations(ctx, vote.ProposalId, addr)
 }
 
@@ -124,12 +125,24 @@ func (keeper Keeper) snapshotVoteDelegations(
 	proposalID uint64,
 	voter sdk.AccAddress,
 ) types.VoteDelegationSnapshot {
+	return keeper.snapshotVoteDelegationsExcept(ctx, proposalID, voter, nil)
+}
+
+func (keeper Keeper) snapshotVoteDelegationsExcept(
+	ctx sdk.Context,
+	proposalID uint64,
+	voter sdk.AccAddress,
+	excludedValidator sdk.ValAddress,
+) types.VoteDelegationSnapshot {
 	snapshot := types.VoteDelegationSnapshot{
 		ProposalId:  proposalID,
 		Voter:       voter.String(),
 		Delegations: []types.VoteDelegation{},
 	}
 	keeper.sk.IterateDelegations(ctx, voter, func(_ int64, delegation stakingtypes.DelegationI) bool {
+		if excludedValidator != nil && delegation.GetValidatorAddr().Equals(excludedValidator) {
+			return false
+		}
 		snapshot.Delegations = append(snapshot.Delegations, types.VoteDelegation{
 			Validator: delegation.GetValidatorAddr().String(),
 			Shares:    delegation.GetShares(),
@@ -137,6 +150,30 @@ func (keeper Keeper) snapshotVoteDelegations(
 		return false
 	})
 	return snapshot
+}
+
+func (keeper Keeper) refreshVoteDelegationSnapshots(
+	ctx sdk.Context,
+	voter sdk.AccAddress,
+	excludedValidator sdk.ValAddress,
+) {
+	store := ctx.KVStore(keeper.storeKey)
+	prefix := types.VoterProposalsKeyPrefixForAddress(voter)
+	iterator := sdk.KVStorePrefixIterator(store, prefix)
+	defer func() { _ = iterator.Close() }()
+	if !iterator.Valid() {
+		return
+	}
+
+	snapshot := keeper.snapshotVoteDelegationsExcept(ctx, 0, voter, excludedValidator)
+	for ; iterator.Valid(); iterator.Next() {
+		proposalID := types.GetProposalIDFromBytes(iterator.Key()[len(prefix):])
+		if keeper.IsTallying(ctx, proposalID) {
+			continue
+		}
+		snapshot.ProposalId = proposalID
+		keeper.setVoteDelegationSnapshot(ctx, snapshot)
+	}
 }
 
 func (keeper Keeper) setVoteDelegationSnapshot(ctx sdk.Context, snapshot types.VoteDelegationSnapshot) {
