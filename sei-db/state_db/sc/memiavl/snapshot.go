@@ -531,8 +531,13 @@ func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir strin
 }
 
 // snapshotSource returns the root to serialize together with the version to
-// record for it. Reading them as a pair keeps the metadata from naming a
-// version the serialized nodes do not correspond to.
+// record for it, read as a pair so a concurrent SaveVersion cannot land between
+// them and pair a root with the wrong version.
+//
+// The version returned is the last saved one. It describes the root only when
+// the tree has no unsaved writes, which holds for every snapshot writer today
+// because DB.Commit copies after SaveVersion. A snapshot written from a
+// mid-version copy would record a version its nodes are one ahead of.
 func (t *Tree) snapshotSource() (Node, uint32) {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()

@@ -1,19 +1,21 @@
 package memiavl
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
 
-// Copy hands a tree to readers that run concurrently with the live tree — the
-// background snapshot rewrite is the one that matters, since it serializes every
-// reachable node while consensus keeps committing. For that to be safe the copy
-// must be frozen: every MemNode it can reach is already hashed, and sits at or
-// below cowVersion so a live write clones it instead of mutating it in place.
-// The tests below pin both halves of that invariant.
+// Copy hands a tree to readers that run concurrently with the live tree: the
+// background snapshot rewrite, which serializes every reachable node, and the
+// DB.Copy consumers that read a copy while consensus keeps committing. For that
+// to be safe the copy must be frozen: every MemNode it can reach is already
+// hashed, and sits at or below cowVersion so a live write clones it instead of
+// mutating it in place. The tests below pin both halves of that invariant.
 
 const copyTestSeedKeys = 3000
 
@@ -128,6 +130,40 @@ func TestCopyIsStableWhileLiveTreeAdvances(t *testing.T) {
 
 	require.Equal(t, wantVersion, frozen.Version(), "copy's version moved with the live tree")
 	require.Equal(t, want, frozen.RootHash(), "live-tree commits mutated nodes the copy still references")
+}
+
+// TestSnapshotFromCopyIgnoresLaterCommits carries the freeze invariant through
+// the snapshot writer to what lands on disk: serializing a copy must reproduce
+// the tree as it stood when copied, however far the live tree has moved on.
+//
+// This is the deterministic form of the corruption. The concurrent version needs
+// -race to be caught reliably, because at test scale the writer finishes before
+// the live tree does much damage; here the commits land before the writer runs
+// at all, so an unfrozen copy drifts every time.
+func TestSnapshotFromCopyIgnoresLaterCommits(t *testing.T) {
+	tree := seedTree(t, copyTestSeedKeys)
+	tree.ApplyChangeSet(changeSet(0, 500, "mid"))
+
+	frozen := tree.Copy()
+	want := frozen.RootHash()
+
+	_, _, err := tree.SaveVersion(true)
+	require.NoError(t, err)
+	for round := 0; round < 20; round++ {
+		tree.ApplyChangeSet(changeSet(round*100, 500, fmt.Sprintf("adv%02d", round)))
+		_, _, err := tree.SaveVersion(true)
+		require.NoError(t, err)
+	}
+
+	snapshotDir := filepath.Join(t.TempDir(), "snapshot")
+	require.NoError(t, frozen.WriteSnapshot(context.Background(), snapshotDir))
+
+	snapshot, err := OpenSnapshot(snapshotDir, Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, snapshot.Close()) })
+
+	require.Equal(t, want, snapshot.RootHash(),
+		"snapshot of the copy picked up commits made after Copy returned")
 }
 
 // TestCopyDoesNotInheritBackgroundWriteChannel covers the other way a copy
