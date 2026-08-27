@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -582,10 +581,11 @@ func TestStoreFsyncConfig(t *testing.T) {
 // Auto-snapshot triggered by SnapshotInterval
 // =============================================================================
 
-// A failed periodic snapshot must fail the commit rather than being logged and discarded. The flush
-// wait at the front of WriteSnapshot is where a dead store surfaces, so swallowing an error there would
-// report a block as committed whose data will never reach disk — and the caller, which is required to
-// halt on the first error, would never learn it had one.
+// A failed periodic snapshot must fail a commit rather than being logged and discarded. The writer
+// latches its first failure and reports it from every later call, so a checkpoint that failed with no
+// caller to return to still stops the node. Swallowing it would report blocks as committed whose data
+// will never reach disk, and the caller, which is required to halt on the first error, would never
+// learn it had one.
 //
 // The failure is forced with directory permissions: the snapshot cannot create its temporary directory
 // under the flatkv root. The WAL and the databases live in subdirectories that already exist, so they
@@ -616,8 +616,24 @@ func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: make([]byte, 32)}}},
 	}}))
 
+	// The commit that trips the interval only hands the block to the writer, so it succeeds.
 	_, err = s.Commit(s.Version() + 1)
-	require.Error(t, err, "a failed periodic snapshot must fail the commit")
+	require.NoError(t, err)
+
+	// Waiting for the writer surfaces the failure it latched.
+	err = s.FlushSnapshots()
+	require.Error(t, err, "a failed snapshot must be reported, not swallowed")
+	require.ErrorContains(t, err, "create snapshot tmp dir",
+		"the error must name what actually failed")
+
+	// And the node halts: every later commit reports the same failure.
+	key = keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x03}, ktype.Slot{0x03}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{{
+		Name:      "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: make([]byte, 32)}}},
+	}}))
+	_, err = s.Commit(s.Version() + 1)
+	require.Error(t, err, "a bricked snapshot writer must fail every later commit")
 	require.ErrorContains(t, err, "auto snapshot",
 		"the error must name the snapshot as the cause rather than being swallowed")
 }
@@ -1005,27 +1021,6 @@ func TestStoreFsyncEnabled(t *testing.T) {
 	v, ok := s.Get(keys.EVMStoreKey, evmStorageKey(ktype.Address{0x01}, ktype.Slot{0x01}))
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
-}
-
-// =============================================================================
-// lastSnapshotTime is set after WriteSnapshot
-// =============================================================================
-
-func TestLastSnapshotTimeUpdated(t *testing.T) {
-	cfg := config.DefaultTestConfig(t)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	defer s.Close()
-
-	require.True(t, s.lastSnapshotTime.IsZero())
-
-	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
-	require.NoError(t, s.WriteSnapshot(""))
-
-	require.False(t, s.lastSnapshotTime.IsZero())
-	require.True(t, time.Since(s.lastSnapshotTime) < time.Second)
 }
 
 // =============================================================================

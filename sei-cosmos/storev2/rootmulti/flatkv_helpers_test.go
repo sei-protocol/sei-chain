@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -19,8 +20,48 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scmemiavl "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	"github.com/stretchr/testify/require"
 )
+
+// requireStateStoreCaughtUp waits for the state store to reach version.
+//
+// The state store applies a block asynchronously: ApplyChangesetAsync hands it to a background writer
+// whose queue is AsyncWriteBuffer deep, so a commit returning says nothing about the state store having
+// applied that block. Any test that asserts a state store version, or that rolls back — rollback
+// refuses a state store sitting below the target — has to establish this first.
+func requireStateStoreCaughtUp(t *testing.T, store *Store, version int64) {
+	t.Helper()
+	require.NotNil(t, store.ssStore)
+	require.Eventually(t, func() bool {
+		return store.ssStore.GetLatestVersion() >= version
+	}, 10*time.Second, 5*time.Millisecond,
+		"state store never caught up to version %d", version)
+}
+
+// requireStateStoreSnapshotAtOrBelow waits for a state store snapshot at or below target to be on
+// disk, which is what rolling the state store back to target requires as its base.
+//
+// State store snapshots are published asynchronously and their coordinator declines a boundary while
+// another snapshot is still in flight, so committing past a boundary does not mean its snapshot exists.
+// With a per-block interval only the first boundary is usually accepted, the rest reporting "in_flight".
+func requireStateStoreSnapshotAtOrBelow(t *testing.T, homeDir string, target int64) {
+	t.Helper()
+	root := utils.GetStateStoreSnapshotsPath(homeDir)
+	require.Eventually(t, func() bool {
+		versions, err := sscomposite.ListSnapshotVersions(root)
+		if err != nil {
+			return false
+		}
+		for _, version := range versions {
+			if version > 0 && version <= target {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 5*time.Millisecond,
+		"no state store snapshot at or below version %d was ever published under %s", target, root)
+}
 
 // ---------------------------------------------------------------------------
 // Config helpers

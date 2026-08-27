@@ -1292,7 +1292,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	for i := byte(1); i <= 3; i++ {
 		commitMixedState(t, s1, i)
 	}
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	// Blocks 4-7: more state (will need WAL catchup on reopen)
 	for i := byte(4); i <= 7; i++ {
@@ -1339,7 +1339,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 	for i := byte(1); i <= 5; i++ {
 		commitMixedState(t, s, i)
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	hashAtV5 := rootHash(s)
 
 	for i := byte(6); i <= 8; i++ {
@@ -1418,7 +1418,7 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 	for i := byte(1); i <= 5; i++ {
 		commitMixedState(t, s, i)
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	// Original timeline: blocks 6-8 with round byte as-is
 	for i := byte(6); i <= 8; i++ {

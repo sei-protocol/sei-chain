@@ -15,7 +15,7 @@ import (
 
 // The GC surface reads the snapshot directory and two plain fields, so most of it can be exercised
 // without opening the five PebbleDBs a real store carries. Only the tests that assert against
-// snapshots WriteSnapshot produced, or against a concurrent committer, pay for a live store.
+// snapshots the writer produced, or against a concurrent committer, pay for a live store.
 func gcStore(t *testing.T, dir string) (*CommitStore, controller.PrunableStore) {
 	t.Helper()
 	s := &CommitStore{config: config.Config{DataDir: dir}}
@@ -32,7 +32,7 @@ func gcStoreAtHead(t *testing.T, dir string, head int64) (*CommitStore, controll
 }
 
 // mkSnapshots creates snapshot directories and points "current" at the newest one on disk, which is
-// the shape production leaves behind: WriteSnapshot repoints the symlink at each snapshot it writes.
+// the shape production leaves behind: publishing repoints the symlink at each snapshot written.
 // The GC surface is bounded by the active snapshot, so a test that left "current" unset would be
 // measuring a state a live store never reaches. The tests that want a stale or missing symlink say so
 // after calling this.
@@ -290,7 +290,7 @@ func TestGCPruneSnapshotsWithoutSnapshots(t *testing.T) {
 }
 
 // The active snapshot is what the next open resolves to, so the cut line stops there even when it is
-// asked to go deeper. This is the shape a crash between WriteSnapshot's rename and its symlink update
+// asked to go deeper. This is the shape a crash between publishing's rename and its symlink update
 // leaves behind: snapshot 10 is on disk while "current" is still 5. Deleting 5 would leave a dangling
 // symlink, which os.Readlink resolves happily, so the store would open against a directory that is
 // not there.
@@ -330,7 +330,7 @@ func TestGCRollbackFloorHoldsHistoryWithoutActiveSnapshot(t *testing.T) {
 	require.Equal(t, uint64(0), store.GetRollbackFloor(80))
 }
 
-// A snapshot newer than "current" is what a crash between WriteSnapshot's rename and its symlink
+// A snapshot newer than "current" is what a crash between publishing's rename and its symlink
 // update leaves behind, and the next open takes the symlink rather than adopting the orphan. So the
 // floor stops at the active snapshot: reporting the orphan would hold the WAL only from there, and
 // the replay that starts at the active snapshot needs the blocks below it.
@@ -370,7 +370,7 @@ func TestGCExternalPruningStandsDownSnapshotPruner(t *testing.T) {
 			},
 		}
 		mkSnapshots(t, dir, 5, 10, 15)
-		s.pruneSnapshotsByCount(dir, 15)
+		pruneSnapshotsByCount(s.ctx, dir, s.config.SnapshotKeepRecent, s.config.ExternalPruning, 15)
 		return snapshotVersions(t, dir)
 	}
 
@@ -423,7 +423,7 @@ func TestGCExternalPruningStandsDownWALTruncation(t *testing.T) {
 	require.False(t, prune(true).pruned, "under ExternalPruning tryTruncateWAL must not touch the WAL")
 }
 
-// End to end against snapshots WriteSnapshot actually produced, including that the store still opens
+// End to end against snapshots the writer actually produced, including that the store still opens
 // afterwards — the prune must not disturb what the next open resolves through.
 func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 	dir := t.TempDir()
@@ -471,7 +471,7 @@ func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 
 // The collector runs on its own goroutine while the store commits on another. Only the race detector
 // can judge this: CommitStore keeps its committed version in a plain field that Commit advances under
-// the write lock, and WriteSnapshot rewrites the snapshot directory the other two methods scan.
+// the write lock, and publishing rewrites the snapshot directory the other two methods scan.
 func TestGCConcurrentWithCommitter(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
