@@ -30,9 +30,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.6
 sei-chain
-<<<<<<< HEAD
-* [#4006](https://github.com/sei-protocol/sei-chain/pull/4006) Backport `release/v6.6`: Disable transaction and evidence submission and mempool gossip in freeze mode
-=======
 * [#4053](https://github.com/sei-protocol/sei-chain/pull/4053) Backport `release/v6.6`: Validate snapshots before publication
 * [#4050](https://github.com/sei-protocol/sei-chain/pull/4050) Backport `release/v6.6`: Fix memiavl snapshot race condition
 * [#4048](https://github.com/sei-protocol/sei-chain/pull/4048) Backport `release/v6.6`: Bound frozen RPC router batch allocations
@@ -43,7 +40,6 @@ sei-chain
 * [#3978](https://github.com/sei-protocol/sei-chain/pull/3978) Backport `release/v6.6`: Add freeze mode for historical EVM RPC
 * [#3966](https://github.com/sei-protocol/sei-chain/pull/3966) Bump version to v6.6.2 in prep for patch release
 * [#3965](https://github.com/sei-protocol/sei-chain/pull/3965) Backport `release/v6.6`: Update v6.6 change log in prep to cut v6.6.2 patch
->>>>>>> ea3836f (Update v6.6 change log in prep to cut v6.6.3 patch (#4033))
 * [#3957](https://github.com/sei-protocol/sei-chain/pull/3957) Backport `release/v6.6`: Add context cancellation to SS DB layer
 * [#3954](https://github.com/sei-protocol/sei-chain/pull/3954) Backport `release/v6.6`: feat(seeds): ship Sei Labs seeds as the default bootstrap-peers
 * [#3951](https://github.com/sei-protocol/sei-chain/pull/3951) Backport `release/v6.6`: Tolerate failed Codex review executions
