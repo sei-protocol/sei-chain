@@ -1,8 +1,0 @@
-"telemetry.service-name"
-"telemetry.enabled"
-"telemetry.enable-hostname"
-"telemetry.enable-hostname-label"
-"telemetry.enable-service-label"
-"telemetry.prometheus-retention-time"
-# keys with a target of their own
-"telemetry.global-labels"
