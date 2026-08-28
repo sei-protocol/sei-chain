@@ -199,6 +199,23 @@ func removeTmpDirs(dir string) error {
 	return nil
 }
 
+// resolveSnapshotToClone returns the directory of the snapshot a read-only view of targetVersion
+// opens against: the newest snapshot at or below it, or the active snapshot when targetVersion is 0.
+func resolveSnapshotToClone(root string, targetVersion int64) (string, error) {
+	if targetVersion <= 0 {
+		snapDir, _, err := currentSnapshotDir(root)
+		if err != nil {
+			return "", fmt.Errorf("resolve current snapshot for readonly: %w", err)
+		}
+		return snapDir, nil
+	}
+	baseVersion, err := seekSnapshot(root, targetVersion)
+	if err != nil {
+		return "", fmt.Errorf("seek snapshot for readonly: %w", err)
+	}
+	return filepath.Join(root, snapshotName(baseVersion)), nil
+}
+
 // createWorkingDir ensures a mutable working directory exists, cloned from
 // snapDir. If the working dir already exists and was cloned from the same
 // snapshot (recorded in SNAPSHOT_BASE), the expensive re-clone is skipped
@@ -383,6 +400,10 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 
 	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
 	// tree this is about to publish into, and only one writer of that tree may run at a time.
+	//
+	// The flush does not cover a retention cut line the collector may hand the writer, which arrives on
+	// its own channel. That one is safe to overlap: it deletes strictly below the active snapshot while
+	// this publishes above it, so a publication racing it can only make it delete less.
 	if s.snapshotWriter != nil {
 		if err := s.snapshotWriter.Flush(); err != nil {
 			return fmt.Errorf("await pending snapshot before writing version %d: %w", version, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -21,7 +22,9 @@ var ErrSnapshotWriterClosed = errors.New("snapshot writer closed")
 // view managers sample their own gauges at.
 const snapshotQueueScrapeInterval = 10 * time.Second
 
-// SnapshotWriter decides which committed blocks become snapshots and writes them asynchronously.
+// SnapshotWriter decides which committed blocks become snapshots and writes them asynchronously, and
+// deletes the snapshots a retention cut line has made unnecessary. Its goroutine is the only one that
+// mutates the snapshot tree on a live store.
 //
 // The writer has no recoverable errors. The first internal failure is latched and every subsequent call
 // reports it, so a failure that has no caller to fail at the time it happens still stops the node:
@@ -56,6 +59,11 @@ type SnapshotWriter struct {
 	// messages is the queue. Its capacity is how many blocks may pile up behind a snapshot before
 	// offering another one blocks, which is the whole of the writer's backpressure.
 	messages chan any
+
+	// pruneCutLine holds the retention cut line the StorageGarbageCollector last asked for, until
+	// the writer acts on it. Capacity 1: a cut line still waiting is replaced by the next rather
+	// than queued behind it, cut lines only ever rising.
+	pruneCutLine chan uint64
 
 	// exited is closed once the background goroutine has returned.
 	exited chan struct{}
@@ -94,6 +102,7 @@ func newSnapshotWriter(
 		ctx:             ctx,
 		stop:            stop,
 		messages:        make(chan any, max(queueDepth, 1)),
+		pruneCutLine:    make(chan uint64, 1),
 		exited:          make(chan struct{}),
 		phaseTimer:      metrics.NewPhaseTimer(flatkvMeter, "seidb_snapshot_writer"),
 	}
@@ -122,8 +131,53 @@ func (w *SnapshotWriter) Offer(blockView *storeView) error {
 	return nil
 }
 
+// PruneBelow hands the writer a retention cut line: every snapshot strictly below it may go. It
+// returns as soon as the cut line is recorded, without waiting for the deletion, and reports the
+// latched error if the writer has failed.
+//
+// A cut line still waiting when a newer one arrives is replaced rather than queued behind it. Cut
+// lines only ever rise, so the newest is the only one that carries information.
+func (w *SnapshotWriter) PruneBelow(cutLine uint64) error {
+	if err := w.errorIfBricked(); err != nil {
+		return fmt.Errorf("snapshot writer failed: %w", err)
+	}
+
+	select {
+	case <-w.pruneCutLine: // discard the cut line this one supersedes
+	default:
+	}
+	select {
+	case w.pruneCutLine <- cutLine:
+	default:
+		// Only reachable with a second caller, which refilled the cell between the two selects. Its
+		// cut line supersedes this one in turn, so dropping this one costs nothing.
+	}
+	return nil
+}
+
+// CloneSnapshot materializes the snapshot at or below targetVersion into destDir, and does not
+// return until it is there. A targetVersion of 0 names the active snapshot.
+//
+// The copy runs on the writer's goroutine, which is also the goroutine that prunes. That is what
+// makes the snapshot it resolves still be there when the copy reaches it: done on the caller's
+// thread, a prune can delete the directory between the two.
+func (w *SnapshotWriter) CloneSnapshot(targetVersion int64, destDir string) error {
+	request := newCloneRequest(targetVersion, destDir)
+	if err := w.enqueue(request); err != nil {
+		return fmt.Errorf("clone snapshot for version %d: %w", targetVersion, err)
+	}
+	select {
+	case err := <-request.responseChan:
+		return err
+	case <-w.ctx.Done():
+		return fmt.Errorf("clone snapshot for version %d: %w", targetVersion, w.stoppedError())
+	}
+}
+
 // Flush blocks until the writer has dealt with every block offered so far, including a snapshot it is
 // part way through. It reports the latched error if the writer has failed.
+//
+// It is not a barrier for PruneBelow, which delivers on its own channel.
 func (w *SnapshotWriter) Flush() error {
 	request := newFlushRequest()
 	if err := w.enqueue(request); err != nil {
@@ -140,10 +194,8 @@ func (w *SnapshotWriter) Flush() error {
 	}
 }
 
-// Close stops the writer and waits for its goroutine to exit. A snapshot still being written runs to
-// completion first, because it is reading databases the caller is about to close; whatever is still
-// queued behind it is discarded and its reservations handed back. Reports the latched error if the
-// writer failed. Idempotent.
+// Close stops the writer and waits for its goroutine to exit, which may include finishing blocks that
+// are still queued. Reports the latched error if the writer failed. Idempotent.
 func (w *SnapshotWriter) Close() error {
 	w.stop()
 	// The goroutine closes exited from a deferred call on every exit path, so this cannot strand.
@@ -195,7 +247,8 @@ func (w *SnapshotWriter) reportQueueDepth() {
 	}
 }
 
-// run drains the queue until the writer is stopped or a message fails.
+// run acts on the blocks offered to the writer and the cut lines handed to it, until the writer is
+// stopped or one of them fails.
 func (w *SnapshotWriter) run() {
 	defer close(w.exited)
 	// Whatever is still queued is owed a hand-back, so nothing is left holding a reservation that would
@@ -206,25 +259,69 @@ func (w *SnapshotWriter) run() {
 		// Charged for however long the queue stays empty, so a writer that is never idle is one the
 		// cadence is outrunning.
 		w.phaseTimer.SetPhase("idle")
+
+		var err error
 		select {
 		case <-w.ctx.Done():
 			return
+		case cutLine := <-w.pruneCutLine:
+			err = w.handlePruneCutLine(cutLine)
 		case message := <-w.messages:
-			var err error
-			switch request := message.(type) {
-			case *snapshotRequest:
-				err = w.maybeCheckpointBlock(request)
-			case *flushRequest:
-				request.responseChan <- struct{}{}
-			default:
-				err = fmt.Errorf("unknown snapshot writer message type %T", message)
-			}
-			if err != nil {
-				w.brick(err)
-				return
-			}
+			err = w.handleMessage(message)
+		}
+		if err != nil {
+			w.brick(err)
+			return
 		}
 	}
+}
+
+// handleMessage acts on one message from the queue.
+func (w *SnapshotWriter) handleMessage(message any) error {
+	switch request := message.(type) {
+	case *snapshotRequest:
+		return w.maybeCheckpointBlock(request)
+	case *cloneRequest:
+		// Answered rather than returned: a clone that fails describes one caller's read, not the
+		// writer's ability to keep snapshotting, so it must not stop the writer the way a failed
+		// checkpoint does.
+		request.responseChan <- w.cloneSnapshot(request)
+		return nil
+	case *flushRequest:
+		request.responseChan <- struct{}{}
+		return nil
+	default:
+		return fmt.Errorf("unknown snapshot writer message type %T", message)
+	}
+}
+
+// cloneSnapshot resolves the snapshot a clone request names and copies it into the request's
+// destination directory.
+func (w *SnapshotWriter) cloneSnapshot(request *cloneRequest) error {
+	w.phaseTimer.SetPhase("clone_snapshot")
+
+	snapDir, err := resolveSnapshotToClone(w.dir, request.targetVersion)
+	if err != nil {
+		return err
+	}
+	if err := createWorkingDir(snapDir, request.destDir); err != nil {
+		return fmt.Errorf("clone snapshot %s: %w", filepath.Base(snapDir), err)
+	}
+	return nil
+}
+
+// handlePruneCutLine deletes the snapshots a retention cut line from the StorageGarbageCollector has
+// made unnecessary.
+//
+// A failure here stops the writer, as a failed checkpoint does. A snapshot that will not unlink means
+// the storage underneath is misconfigured or broken, and a node that cannot reclaim snapshots is on a
+// terminal path to a full disk, so there is nothing to recover to.
+func (w *SnapshotWriter) handlePruneCutLine(cutLine uint64) error {
+	w.phaseTimer.SetPhase("prune_snapshots")
+	if err := pruneSnapshotsBelow(w.ctx, w.dir, cutLine); err != nil {
+		return fmt.Errorf("prune snapshots below cut line %d: %w", cutLine, err)
+	}
+	return nil
 }
 
 // Possibly checkpoint a block. Releases reservation when finished regardless of choice.
@@ -262,6 +359,9 @@ func (w *SnapshotWriter) discardQueued() {
 					logger.Error("failed to hand back reservations of a discarded snapshot",
 						"version", request.blockView.blockHeight, "err", err)
 				}
+			case *cloneRequest:
+				request.responseChan <- fmt.Errorf("clone snapshot for version %d: %w",
+					request.targetVersion, w.stoppedError())
 			case *flushRequest:
 				request.responseChan <- struct{}{}
 			}

@@ -88,10 +88,20 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 
 	treeMap := make(map[string]*Tree, len(entries))
 	treeNames := make([]string, 0, len(entries))
+	// closeOpened releases the snapshots already opened when the load cannot
+	// complete, so a failed load does not leak their mmaps and file handles.
+	closeOpened := func() {
+		for _, tree := range treeMap {
+			if closeErr := tree.Close(); closeErr != nil {
+				logger.Error("failed to close partially loaded tree", "error", closeErr)
+			}
+		}
+	}
 	for _, e := range entries {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
+			closeOpened()
 			return nil, ctx.Err()
 		default:
 		}
@@ -102,6 +112,7 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 		treeNames = append(treeNames, name)
 		snapshot, err := OpenSnapshot(filepath.Join(dir, name), opts)
 		if err != nil {
+			closeOpened()
 			return nil, err
 		}
 		treeMap[name] = NewFromSnapshot(snapshot, opts)
@@ -617,13 +628,22 @@ func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
 	}
 	var metadata proto.MultiTreeMetadata
 	if err := metadata.Unmarshal(bz); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: unmarshal metadata: %w", errCorruptedSnapshot, err)
 	}
-	if metadata.CommitInfo.Version > math.MaxUint32 {
-		return nil, fmt.Errorf("commit info version overflows uint32: %d", metadata.CommitInfo.Version)
+	if metadata.CommitInfo == nil {
+		// An empty or truncated metadata file unmarshals successfully but
+		// carries no commit info; reject it here so every load path returns a
+		// validation failure instead of dereferencing nil.
+		return nil, fmt.Errorf("%w: metadata has no commit info", errCorruptedSnapshot)
 	}
-	if metadata.InitialVersion > math.MaxUint32 {
-		return nil, fmt.Errorf("initial version overflows uint32: %d", metadata.InitialVersion)
+	// Both fields are int64 varints on disk, so corrupted metadata can carry
+	// negative values as easily as oversized ones; setInitialVersion panics on
+	// a negative initial version if it gets that far.
+	if metadata.CommitInfo.Version < 0 || metadata.CommitInfo.Version > math.MaxUint32 {
+		return nil, fmt.Errorf("%w: commit info version %d out of uint32 range", errCorruptedSnapshot, metadata.CommitInfo.Version)
+	}
+	if metadata.InitialVersion < 0 || metadata.InitialVersion > math.MaxUint32 {
+		return nil, fmt.Errorf("%w: initial version %d out of uint32 range", errCorruptedSnapshot, metadata.InitialVersion)
 	}
 
 	return &metadata, nil

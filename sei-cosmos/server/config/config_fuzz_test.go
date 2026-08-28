@@ -316,6 +316,10 @@ var guardedKeys = []guardedKey{
 	{Key: "state-commit.flatkv.snapshot-interval", Path: "StateCommit.FlatKVConfig.SnapshotInterval", Set: 777},
 	{Key: "state-commit.flatkv.snapshot-keep-recent", Path: "StateCommit.FlatKVConfig.SnapshotKeepRecent", Set: 6},
 	{
+		Key: "state-commit.flatkv.max-snapshot-lag-blocks", Path: "StateCommit.FlatKVConfig.MaxSnapshotLagBlocks",
+		Set: 32,
+	},
+	{
 		Key: "state-commit.flatkv.enable-read-write-metrics", Path: "StateCommit.FlatKVConfig.EnableReadWriteMetrics",
 		Set: true, DefaultIsZero: true,
 	},

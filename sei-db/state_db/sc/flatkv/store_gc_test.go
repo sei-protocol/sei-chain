@@ -3,7 +3,9 @@ package flatkv
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 
@@ -211,20 +213,20 @@ func TestGCRollbackFloorScanFailureHoldsHistory(t *testing.T) {
 	require.Equal(t, uint64(0), store.GetRollbackFloor(10))
 }
 
-// PruneSnapshots drops everything strictly below the height it is given, and the height need not
-// have a snapshot on it.
+// The retention policy drops everything strictly below the height it is given, and the height need
+// not have a snapshot on it. Exercised directly rather than through PruneSnapshots, which only hands
+// the cut line to the snapshot writer — see TestGCPruneSnapshotsDefersToTheWriter.
 func TestGCPruneSnapshotsDeletesBelowTheCutLine(t *testing.T) {
-	s, store := gcStoreAtHead(t, t.TempDir(), 30)
-	dir := s.flatkvDir()
+	dir := t.TempDir()
 	mkSnapshots(t, dir, 0, 5, 10, 20, 30)
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(30)))
 
 	// A cut line of 25 has no snapshot on it; 20 is the newest below it and goes with the rest.
-	require.NoError(t, store.PruneSnapshots(25))
+	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 25))
 	require.Equal(t, []int64{30}, snapshotVersions(t, dir))
 
 	// Idempotent: the same cut line twice deletes nothing more.
-	require.NoError(t, store.PruneSnapshots(25))
+	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 25))
 	require.Equal(t, []int64{30}, snapshotVersions(t, dir))
 }
 
@@ -241,7 +243,9 @@ func TestGCPruneSnapshotsKeepsTheSnapshotItReported(t *testing.T) {
 	for rollbackWindow := uint64(0); rollbackWindow <= 40; rollbackWindow++ {
 		floor := store.GetRollbackFloor(rollbackWindow)
 		before := snapshotVersions(t, dir)
-		require.NoError(t, store.PruneSnapshots(floor))
+		if floor > 0 {
+			require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, floor))
+		}
 		remaining := snapshotVersions(t, dir)
 
 		if floor == 0 {
@@ -258,12 +262,11 @@ func TestGCPruneSnapshotsKeepsTheSnapshotItReported(t *testing.T) {
 // A cut line at or below the oldest snapshot leaves the lot. It must not be read as "delete
 // everything below the newest".
 func TestGCPruneSnapshotsBelowTheOldestSnapshotIsNoOp(t *testing.T) {
-	s, store := gcStoreAtHead(t, t.TempDir(), 1_000)
-	dir := s.flatkvDir()
+	dir := t.TempDir()
 	mkSnapshots(t, dir, 500, 900)
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(900)))
 
-	require.NoError(t, store.PruneSnapshots(500))
+	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 500))
 	require.Equal(t, []int64{500, 900}, snapshotVersions(t, dir))
 }
 
@@ -279,14 +282,28 @@ func TestGCPruneSnapshotsAtZeroIsNoOp(t *testing.T) {
 	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir))
 }
 
+// A store with no snapshot writer has no goroutine to do the deletion on, so the cycle is skipped
+// rather than performed here. The next cycle carries a cut line at or above this one, so nothing is
+// lost by declining. This is the shape of a read-only store, a closed one, and one reopening.
+func TestGCPruneSnapshotsWithoutAWriterIsSkipped(t *testing.T) {
+	s, store := gcStoreAtHead(t, t.TempDir(), 30)
+	dir := s.flatkvDir()
+	mkSnapshots(t, dir, 5, 10, 20)
+	require.NoError(t, updateCurrentSymlink(dir, snapshotName(20)))
+
+	require.Nil(t, s.snapshotWriter, "the fixture builds a store that never opened")
+	require.NoError(t, store.PruneSnapshots(20))
+	require.Equal(t, []int64{5, 10, 20}, snapshotVersions(t, dir))
+}
+
 // A store with no snapshots has nothing to prune, which is not a failure — and notably not an error
 // about the missing active symlink, since there is no deletion to protect.
 func TestGCPruneSnapshotsWithoutSnapshots(t *testing.T) {
-	s, store := gcStoreAtHead(t, t.TempDir(), 100)
-	require.NoError(t, store.PruneSnapshots(10))
+	dir := t.TempDir()
+	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 10))
 
-	require.NoError(t, os.RemoveAll(s.flatkvDir()))
-	require.NoError(t, store.PruneSnapshots(10))
+	require.NoError(t, os.RemoveAll(dir))
+	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 10))
 }
 
 // The active snapshot is what the next open resolves to, so the cut line stops there even when it is
@@ -295,25 +312,24 @@ func TestGCPruneSnapshotsWithoutSnapshots(t *testing.T) {
 // symlink, which os.Readlink resolves happily, so the store would open against a directory that is
 // not there.
 func TestGCPruneSnapshotsKeepsActiveSnapshotBelowTheCutLine(t *testing.T) {
-	s, store := gcStoreAtHead(t, t.TempDir(), 10)
-	dir := s.flatkvDir()
+	dir := t.TempDir()
 	mkSnapshots(t, dir, 3, 5, 10)
 	require.NoError(t, updateCurrentSymlink(dir, snapshotName(5)))
 
-	require.NoError(t, store.PruneSnapshots(10))
+	require.NoError(t, pruneSnapshotsBelow(t.Context(), dir, 10))
 	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir),
 		"the cut line stops at the active snapshot, so 3 goes and 5 stays")
 }
 
 // Without a resolvable active snapshot there is nothing to bound the deletion by, so the prune is
-// refused rather than run blind.
+// refused rather than run blind. The refusal reaches the snapshot writer, which stops on it — see
+// TestSnapshotWriterPruneFailureBricks.
 func TestGCPruneSnapshotsRefusesWithoutActiveSnapshot(t *testing.T) {
-	s, store := gcStoreAtHead(t, t.TempDir(), 10)
-	dir := s.flatkvDir()
+	dir := t.TempDir()
 	mkSnapshots(t, dir, 5, 10)
 	require.NoError(t, os.Remove(currentPath(dir)))
 
-	require.Error(t, store.PruneSnapshots(10))
+	require.Error(t, pruneSnapshotsBelow(t.Context(), dir, 10))
 	require.Equal(t, []int64{5, 10}, snapshotVersions(t, dir))
 }
 
@@ -455,8 +471,11 @@ func TestGCPrunesRealSnapshotsAndStoreStillOpens(t *testing.T) {
 	floor := store.GetRollbackFloor(1)
 	require.Equal(t, uint64(4), floor, "newest snapshot at or below head - 1")
 
+	// The deletion runs on the writer's goroutine, so it is not done when PruneSnapshots returns.
 	require.NoError(t, store.PruneSnapshots(floor))
-	require.Equal(t, []int64{4, 6}, snapshotVersions(t, cfg.DataDir))
+	require.Eventually(t, func() bool {
+		return slices.Equal([]int64{4, 6}, snapshotVersions(t, cfg.DataDir))
+	}, 5*time.Second, 10*time.Millisecond)
 
 	require.NoError(t, s.Close())
 

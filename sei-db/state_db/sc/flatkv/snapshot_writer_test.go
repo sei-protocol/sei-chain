@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -149,6 +150,22 @@ func newTestWriter(t *testing.T, interval uint32, queueDepth uint32, db *fakeChe
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, workingDirName), 0o750))
 	return newSnapshotWriter(t.Context(), dir, 0, false, interval, queueDepth, fakeCheckpointDBs(db))
+}
+
+// newCollectorPrunedTestWriter is newTestWriter with retention handed to the StorageGarbageCollector,
+// so the only deletions in the writer's snapshot tree are the ones a cut line asks for. The prune
+// tests fix snapshots on disk and would otherwise watch the writer's own count-based pruner remove
+// them.
+func newCollectorPrunedTestWriter(
+	t *testing.T,
+	interval uint32,
+	queueDepth uint32,
+	db *fakeCheckpointDB,
+) *SnapshotWriter {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, workingDirName), 0o750))
+	return newSnapshotWriter(t.Context(), dir, 0, true, interval, queueDepth, fakeCheckpointDBs(db))
 }
 
 // requireBlocked asserts a call has not returned yet.
@@ -301,6 +318,68 @@ func TestSnapshotWriterBrickStopsWriterAndReportsToEveryCaller(t *testing.T) {
 
 	require.ErrorIs(t, w.Flush(), failure)
 	require.ErrorIs(t, w.Close(), failure, "Close reports what went wrong rather than hiding it")
+}
+
+// The collector's cut line is acted on by the writer's goroutine, not the collector's. With a
+// checkpoint in flight the writer cannot reach it, so PruneBelow returns with the snapshots still on
+// disk; they go once the writer is free. This is what makes the writer the only mutator of the
+// snapshot tree, which is the whole point of routing deletion through it.
+func TestSnapshotWriterPruneWaitsForTheWritersGoroutine(t *testing.T) {
+	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
+	w := newCollectorPrunedTestWriter(t, 1, 1, db)
+	mkSnapshots(t, w.dir, 5, 10, 20)
+
+	views, stubs := fakeViews(t, 100)
+	require.NoError(t, w.Offer(views))
+	<-db.started // the goroutine is inside the checkpoint and cannot service a cut line
+
+	require.NoError(t, w.PruneBelow(20))
+	require.Equal(t, []int64{5, 10, 20}, snapshotVersions(t, w.dir),
+		"nothing may be deleted on the collector's goroutine")
+
+	close(db.release)
+	require.Eventually(t, func() bool {
+		return slices.Equal([]int64{20, 100}, snapshotVersions(t, w.dir))
+	}, 5*time.Second, 10*time.Millisecond, "the writer deletes once it is free")
+
+	require.NoError(t, w.Close())
+	requireAllReleased(t, stubs)
+}
+
+// Cut lines only ever rise, so one still waiting carries nothing the newer one does not. The cell
+// holds exactly one, and it is the newest.
+func TestSnapshotWriterPruneCutLineIsSuperseded(t *testing.T) {
+	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
+	w := newCollectorPrunedTestWriter(t, 1, 1, db)
+
+	views, stubs := fakeViews(t, 100)
+	require.NoError(t, w.Offer(views))
+	<-db.started // nothing drains the cell while the checkpoint runs
+
+	require.NoError(t, w.PruneBelow(6))
+	require.NoError(t, w.PruneBelow(11))
+	require.Len(t, w.pruneCutLine, 1, "a waiting cut line is replaced, not queued behind")
+	require.Equal(t, uint64(11), <-w.pruneCutLine, "the newest cut line is the one kept")
+
+	close(db.release)
+	require.NoError(t, w.Close())
+	requireAllReleased(t, stubs)
+}
+
+// A deletion that fails stops the writer, as a failed checkpoint does. Here "current" is missing, so
+// there is nothing to bound the cut line by and the prune refuses rather than running blind.
+func TestSnapshotWriterPruneFailureBricks(t *testing.T) {
+	w := newCollectorPrunedTestWriter(t, 0, 1, &fakeCheckpointDB{started: make(chan struct{})})
+	mkSnapshots(t, w.dir, 5, 10)
+	require.NoError(t, os.Remove(currentPath(w.dir)))
+
+	require.NoError(t, w.PruneBelow(10), "the refusal happens on the writer, not at the hand-off")
+	require.Eventually(t, func() bool {
+		return w.errorIfBricked() != nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.ErrorContains(t, w.Close(), "resolve active snapshot")
+	require.Equal(t, []int64{5, 10}, snapshotVersions(t, w.dir), "a refused prune deletes nothing")
 }
 
 // End to end through a store with the writer running asynchronously: the snapshot appears once
