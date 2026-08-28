@@ -1360,8 +1360,8 @@ func TestBaseConfigManifestNamesEveryField(t *testing.T) {
 
 // grpcKeys covers the four [grpc] keys read as plain casts.
 //
-// The section is where the guarding in this reader is most complete, which is why only three keys
-// are rows. Eight others are read behind v.IsSet or through clampNonNegativeDuration and so resolve
+// The section is where the guarding in this reader is most complete, which is why only four keys
+// are rows. Eleven others are read behind v.IsSet or through clampNonNegativeDuration and so resolve
 // an absent key to the in-code default rather than to a zero; CheckRow would predict the wrong
 // resolution for each, so they are driven by FuzzGetConfigGRPCDurationClamps and
 // TestGetConfigGRPCAbsentReads and recorded by name below.
@@ -1395,9 +1395,9 @@ var grpcKeys = []configtest.KeySpec{
 // grpcKeysWithTargetsOfTheirOwn are the [grpc] keys whose resolution a row cannot describe, recorded
 // for their names alone.
 //
-// Six are read behind v.IsSet, so an absent key keeps the in-code default. The other two,
+// Nine are read behind v.IsSet, so an absent key keeps the in-code default. The other two,
 // max-connection-age and max-connection-age-grace, are read unconditionally through the clamp
-// (config.go:551-552), and their absent value matches the declared default only because both
+// (config.go:604-605), and their absent value matches the declared default only because both
 // defaults are 0. The clamp rescues a negative value and does nothing for an absent one, so they are
 // unguarded reads whose clobber is invisible. TestGetConfigGRPCAbsentReads holds the two groups
 // apart for that reason.
