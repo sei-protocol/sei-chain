@@ -169,6 +169,15 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 		err      error
 		fileLock FileLock
 	)
+	// A failed open hands back no DB, so nothing else can release the lock. The
+	// process usually exits either way, but a caller that recovers and retries
+	// would otherwise lock itself out.
+	defer func() {
+		if _err != nil && fileLock != nil {
+			_ = fileLock.Unlock()
+			_ = fileLock.Destroy()
+		}
+	}()
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid commit store options: %w", err)
 	}
@@ -179,12 +188,14 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 		}
 	}
 
-	if !opts.ReadOnly {
+	if !opts.ReadOnly || opts.RequireExclusive {
 		fileLock, err = LockFile(filepath.Join(opts.Dir, LockFileName))
 		if err != nil {
 			return nil, fmt.Errorf("fail to lock db: %w", err)
 		}
+	}
 
+	if !opts.ReadOnly {
 		// cleanup any temporary directories left by interrupted snapshot rewrite
 		if err := removeTmpDirs(opts.Dir); err != nil {
 			return nil, fmt.Errorf("fail to cleanup tmp directories: %w", err)

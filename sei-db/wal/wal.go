@@ -95,10 +95,14 @@ type Config struct {
 	// When false (default), at least one entry must remain after truncation.
 	AllowEmpty bool
 
-	// NoRepairOnOpen makes the open fail with ErrCorrupt instead of repairing a
-	// torn tail. A reader of a log another process is writing sets it, because
-	// there a torn tail is usually that writer mid-append rather than lasting
-	// damage, and the repair would truncate a committed record.
+	// NoRepairOnOpen makes the open fail with ErrCorrupt instead of repairing the
+	// log. It refuses a tail ending mid-record, and a directory holding the
+	// .START or .END segment an interrupted truncation left behind.
+	//
+	// The caller must already exclude a concurrent writer. Both conditions also
+	// occur transiently while a writer appends or truncates, so against a live
+	// log this reports damage that is not there, and cannot prevent the open from
+	// completing a truncation that writer is in the middle of.
 	NoRepairOnOpen bool
 }
 
@@ -550,7 +554,8 @@ func (walLog *WAL[T]) Close() error {
 
 // open opens the replay log, try to truncate the corrupted tail if there's any.
 // When noRepair is set it returns ErrCorrupt instead for both repairs the open
-// would otherwise perform, and leaves dir byte for byte as it found it.
+// would otherwise perform, leaving dir as it found it, which holds for a caller
+// that has excluded writers per Config.NoRepairOnOpen.
 func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
 	if opts == nil {
 		opts = wal.DefaultOptions
@@ -596,9 +601,11 @@ func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
 // interrupted truncation left behind, which wal.Open completes by renaming and
 // removing segments without reporting anything.
 //
-// Checking before the open is sound here where it would not be for a torn tail:
-// a marker persists until something completes that truncation, so finding none
-// means the open below will not find one either.
+// It reads dir before the open, which is sound only for a caller that has
+// excluded writers, as Config.NoRepairOnOpen requires. A writer creates the same
+// segment partway through every successful truncation, so against a live log
+// this both reports damage that is not there and misses the marker that appears
+// after it looks.
 func checkNoTruncationMarker(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

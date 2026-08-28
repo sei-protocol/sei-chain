@@ -19,10 +19,15 @@ type Options struct {
 	// ReadOnly opens the database in read-only mode
 	ReadOnly bool
 	// NoChangelogRepair makes the open fail with wal.ErrCorrupt instead of
-	// repairing a torn changelog tail. A reader of a directory another process
-	// is writing sets it, because ReadOnly alone does not stop that repair from
-	// truncating a record the writer has committed.
+	// repairing the changelog. Set it with RequireExclusive, which is what makes
+	// the refusal meaningful: without a writer excluded, the conditions it
+	// refuses also occur transiently and the repair still races the writer.
 	NoChangelogRepair bool
+	// RequireExclusive takes the directory's lock even under ReadOnly, so the
+	// open fails with ErrLocked while a writer has it. A read-only tool that
+	// must not disturb the directory sets it, because the changelog opener
+	// mutates the directory whether or not the DB API can write.
+	RequireExclusive bool
 	// InitialStores are the initial store names when initializing an empty instance
 	InitialStores []string
 	// ZeroCopy if true, get and iterator methods return slices pointing to mmaped blob files

@@ -1114,14 +1114,20 @@ func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) 
 		ReadOnly:          true,
 		ZeroCopy:          true,
 		NoChangelogRepair: true,
+		RequireExclusive:  true,
 	})
 	if err != nil {
-		// NoChangelogRepair turns the repair memiavl would otherwise perform into
-		// this error, so the source is untouched whichever case it was.
+		if errors.Is(err, memiavl.ErrLocked) {
+			return nil, fmt.Errorf("another process has %s open, and replaying the changelog of a "+
+				"directory being written would let the changelog opener truncate a record that writer "+
+				"has committed; stop seid and rerun, or use --memiavl-open-mode snapshot: %w", dbDir, err)
+		}
+		// RequireExclusive rules out a writer, so a torn tail here is damage left
+		// behind rather than an append in flight. NoChangelogRepair reported it
+		// instead of truncating it.
 		if errors.Is(err, wal.ErrCorrupt) {
-			return nil, fmt.Errorf("memiavl changelog tail is incomplete or changing; live WAL was not "+
-				"modified; rerun the command, and if the error persists after stopping seid, repair the "+
-				"WAL offline: %w", err)
+			return nil, fmt.Errorf("memiavl changelog is damaged and was left unmodified; repair it "+
+				"offline, or use --memiavl-open-mode snapshot: %w", err)
 		}
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}
