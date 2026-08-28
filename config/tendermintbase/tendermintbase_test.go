@@ -59,24 +59,20 @@ var whatVariesByNodeKind = map[string]map[registry.Mode]string{
 	},
 }
 
-// declaredSections are the section names declaredAgainst lists, for a walk that needs the names alone.
-func declaredSections() []string {
-	out := make([]string, 0, len(declaredAgainst))
-	for _, tc := range declaredAgainst {
-		out = append(out, tc.section)
-	}
-	return out
-}
+// declaredSections are the sections this package registered, recorded as each registration ran, so a walk
+// over them cannot drift from what the registry holds.
+func declaredSections() []string { return append([]string(nil), registeredHere...) }
 
 // keysFromDeclaredSections returns the keys every section this package registers declares, read out of the
-// registry rather than matched by prefix, so a section contributes whether or not its keys carry its name.
+// registry rather than matched by prefix, so a section whose keys sit at the root of the file contributes
+// too.
 func keysFromDeclaredSections(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, tc := range declaredAgainst {
-		registered, ok := registry.Lookup(tc.section)
+	for _, name := range declaredSections() {
+		registered, ok := registry.Lookup(name)
 		if !ok {
-			t.Fatalf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			t.Fatalf("%s is not registered; Defects: %v", name, registry.Defects())
 		}
 		out = append(out, registered.Keys...)
 	}
@@ -135,9 +131,8 @@ func TestWhatVariesByNodeKindIsTheRecordedSet(t *testing.T) {
 // declaredAgainst pairs each section with the struct it declares against and how many of that struct's
 // paths it leaves out.
 //
-// Every walk in this file reads it, so a section added here joins all of them.
-//
-// A section that registers and is not listed here is measured by nothing.
+// TestTheDeclaredKeysAreTheOnesTheReaderDecodes reads it and fails on a registered section with no row, so
+// a section added to this package needs a row here and one in markedIn.
 var declaredAgainst = []struct {
 	section string
 	proto   any
@@ -152,31 +147,38 @@ var declaredAgainst = []struct {
 	{InstrumentationSectionName, &tmcfg.InstrumentationConfig{}, 1},
 	{PrivValidatorSectionName, &tmcfg.PrivValidatorConfig{}, 1},
 	{SelfRemediationSectionName, &tmcfg.SelfRemediationConfig{}, 1},
+	{RootSectionName, &nodeRootSchema{}, len(notWritableInThisFile) + len(removedFromTheNode)},
 }
 
 // TestEveryExclusionByDeprecationStillHasOne holds each excluded path to a justification: its field is
 // marked deprecated, or the path is listed here with the reason it has instead.
 //
 // An excluded path whose field stops being deprecated is a setting the node honours and the key space
-// refuses, and the operator is told it reaches nothing.
+// refuses, and the operator is told it reaches nothing. Walked over the registered set, so the section
+// whose keys sit at the root of the file is covered, and three of its exclusions rest on this reason.
 func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 	justifiedOtherwise := map[string]string{
 		filledFromTheCommandLine:      "the command line carries it after the file is read",
 		derivedFromTheConnectionLimit: "unset is the setting, and a default here would be invented",
 		readByNothing:                 "nothing reads it and no generated file carries it",
 		unreadAndUnmarked:             "no code reads it, and its field carries no deprecation note",
+		statedAtTheTopOfTheFile:       "the file states it at the top under its own name",
 		reachesNoReactor:              "no reactor reads it, and its field carries no deprecation note",
 	}
 
-	for _, tc := range declaredAgainst {
-		registered, ok := registry.Lookup(tc.section)
+	for _, name := range declaredSections() {
+		registered, ok := registry.Lookup(name)
 		if !ok {
-			t.Errorf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
 			continue
 		}
-		marked := deprecatedPaths(t, reflect.TypeOf(tc.proto).Elem())
+		marked := markingsFor(t, registered)
+		if marked == nil {
+			t.Errorf("%s declares keys and no struct is named as carrying their markings", name)
+			continue
+		}
 		for _, key := range registered.Excluded {
-			rel := strings.TrimPrefix(key, tc.section+".")
+			rel := strings.TrimPrefix(key, name+".")
 			if marked[rel] {
 				continue
 			}
@@ -193,15 +195,20 @@ func TestEveryExclusionByDeprecationStillHasOne(t *testing.T) {
 // TestNoDeclaredKeyNamesADeprecatedField holds every section against its struct's own marking. A declared
 // key whose field the node marks deprecated reads as a setting that a written value cannot change.
 func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
-	for _, tc := range declaredAgainst {
-		registered, ok := registry.Lookup(tc.section)
+	for _, name := range declaredSections() {
+		registered, ok := registry.Lookup(name)
 		if !ok {
-			t.Errorf("%s is not registered; Defects: %v", tc.section, registry.Defects())
+			t.Errorf("%s is not registered; Defects: %v", name, registry.Defects())
 			continue
 		}
-		marked := deprecatedPaths(t, reflect.TypeOf(tc.proto).Elem())
+		marked := markingsFor(t, registered)
+		if marked == nil {
+			t.Errorf("%s declares keys and no struct is named as carrying their markings, so nothing "+
+				"measures whether any of them is a setting the node removed", name)
+			continue
+		}
 		for _, key := range registered.Keys {
-			rel := strings.TrimPrefix(key, tc.section+".")
+			rel := strings.TrimPrefix(key, name+".")
 			if marked[rel] {
 				t.Errorf("%s names a field the node marks deprecated, so it offers a setting a written "+
 					"value cannot change", key)
@@ -210,11 +217,108 @@ func TestNoDeclaredKeyNamesADeprecatedField(t *testing.T) {
 	}
 }
 
+// markingsFor returns every path a section's keys could be marked deprecated on, across the structs those
+// keys come from.
+//
+// Returns nil for a section nothing names, so a caller reports that rather than measuring an empty set.
+func markingsFor(t *testing.T, registered registry.Section) map[string]bool {
+	t.Helper()
+	protos, named := markedIn[registered.Name]
+	if !named {
+		return nil
+	}
+	holdThePairingToTheSection(t, registered, protos)
+
+	out := map[string]bool{}
+	for _, proto := range protos {
+		for path := range deprecatedPaths(t, reflect.TypeOf(proto).Elem()) {
+			out[path] = true
+		}
+	}
+	return out
+}
+
+// holdThePairingToTheSection fails unless markedIn's structs and the section's own paths account for each
+// other: every path the section derives names a field of a listed struct, and every listed struct is named
+// by one of those paths.
+//
+// markedIn is written by hand and the registry keeps no prototype, so these paths are the only witness to
+// what a section declared against.
+func holdThePairingToTheSection(t *testing.T, registered registry.Section, protos []any) {
+	t.Helper()
+	carriers := map[reflect.Type]bool{}
+	for _, path := range slices.Concat(registered.Keys, registered.Excluded) {
+		rel := strings.TrimPrefix(path, registered.Name+".")
+		typ, found := carrying(protos, rel)
+		if !found {
+			t.Fatalf("%s derives %s and no struct named as carrying its markings declares a field tagged "+
+				"%q, so a marking on that field is not one this reads", registered.Name, path, rel)
+		}
+		carriers[typ] = true
+	}
+	for _, proto := range protos {
+		typ := reflect.TypeOf(proto).Elem()
+		if !carriers[typ] {
+			t.Fatalf("%s is named as carrying %s's markings and no path that section derives names a "+
+				"field of it, so what it contributes here is another type's markings",
+				typ.Name(), registered.Name)
+		}
+	}
+}
+
+// carrying returns the struct among a section's marking structs whose own tag names a path.
+func carrying(protos []any, rel string) (reflect.Type, bool) {
+	for _, proto := range protos {
+		typ := reflect.TypeOf(proto).Elem()
+		// fieldTagged reads a struct's own fields and not a squashed group's, which is the rule the
+		// deprecation parse reads a tag by. A struct that reaches the path only through a group it
+		// squashes carries none of that path's markings.
+		if _, ok := fieldTagged(typ, rel); ok {
+			return typ, true
+		}
+	}
+	return nil, false
+}
+
+// markedIn pairs each section with the node's own structs whose deprecation markings apply to its keys.
+//
+// A set rather than one struct, because the root section declares against a local schema carrying no
+// markings and its keys come from more than one of the node's structs. Callers walk the registered set,
+// so a section with no row here fails rather than skipping the check.
+var markedIn = map[string][]any{
+	P2PSectionName:             {&tmcfg.P2PConfig{}},
+	RPCSectionName:             {&tmcfg.RPCConfig{}},
+	ConsensusSectionName:       {&tmcfg.ConsensusConfig{}},
+	MempoolSectionName:         {&tmcfg.MempoolConfig{}},
+	StateSyncSectionName:       {&tmcfg.StateSyncConfig{}},
+	TxIndexSectionName:         {&tmcfg.TxIndexConfig{}},
+	InstrumentationSectionName: {&tmcfg.InstrumentationConfig{}},
+	PrivValidatorSectionName:   {&tmcfg.PrivValidatorConfig{}},
+	SelfRemediationSectionName: {&tmcfg.SelfRemediationConfig{}},
+	// Two, because the root schema squashes the node's base group and restates the fields the node holds
+	// beside it. A marking on one of those lives on the top-level type, and one on a base setting lives on
+	// the group, so either name alone leaves the other unwatched.
+	RootSectionName: {&tmcfg.BaseConfig{}, &tmcfg.Config{}},
+}
+
 // TestTheDeclaredKeysAreTheOnesTheReaderDecodes holds the declaration to the struct the node decodes into.
 //
 // Derived from that struct's own tags, so this asserts the count rather than the spelling: a renamed tag
 // moves the reader and the declaration together, and there is no third statement to drift from.
 func TestTheDeclaredKeysAreTheOnesTheReaderDecodes(t *testing.T) {
+	// Walked against the registered set first, so a section added without a row fails here rather than
+	// having its key count go unmeasured.
+	counted := map[string]bool{}
+	for _, tc := range declaredAgainst {
+		counted[tc.section] = true
+	}
+	for _, name := range declaredSections() {
+		if !counted[name] {
+			t.Errorf("%s is registered and no row states how many of its struct's paths it leaves out, "+
+				"so its key count is unmeasured", name)
+		}
+	}
+
 	for _, tc := range declaredAgainst {
 		registered, ok := registry.Lookup(tc.section)
 		if !ok {
@@ -309,30 +413,41 @@ func generatedFileCarries(t *testing.T, table, rel string) bool {
 		t.Fatalf("read the rendered file: %v", err)
 	}
 	// Scoped to the table asked about, because a key name is not unique in this file: the listen address
-	// appears under three tables and the connection ceiling under two, so an unscoped match answers for
+	// and the connection ceiling each appear under more than one table, so an unscoped match answers for
 	// whichever writes the name first.
 	//
-	// A table the file does not contain is fatal rather than absent. Answering false for it would let a
+	// A region the file writes no key in is fatal rather than absent. Answering false for it would let a
 	// caller asserting a key is unwritten pass while measuring nothing, which is the shape the scoping is
-	// here to remove.
-	inTable, sawTable := table == "", table == ""
-	found := false
+	// here to remove. Counted rather than looked for by header, because the keys above the first table
+	// have no header and a missing region there would otherwise read as one holding no key.
+	inTable := table == ""
+	written, found := 0, false
 	for _, line := range strings.Split(string(body), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			inTable = trimmed == "["+table+"]"
-			sawTable = sawTable || inTable
 			continue
 		}
-		if !inTable {
+		// A commented line is the template's own prose, and that prose carries an equals sign in places,
+		// so counting one would answer that a key was written here.
+		if !inTable || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if name, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(name) == rel {
+		name, _, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		written++
+		if strings.TrimSpace(name) == rel {
 			found = true
 		}
 	}
-	if !sawTable {
-		t.Fatalf("the rendered file has no [%s] table, so nothing measures what it writes there", table)
+	if written == 0 {
+		where := "above its first table"
+		if table != "" {
+			where = "in its [" + table + "] table"
+		}
+		t.Fatalf("the rendered file writes no key %s, so nothing measures what it writes there", where)
 	}
 	return found
 }
@@ -728,7 +843,117 @@ func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
 	}
 }
 
-// TestNoSectionDeclaresTheRootDirectory covers a field several of these sections carry.
+// TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries closes the one place a spelling is restated.
+//
+// The root section declares against a schema rather than the node's top-level type, because that type
+// carries the tables as well and declaring against it would declare their keys twice. The schema squashes
+// the same base group and restates by hand the fields the node holds beside it, and each of those is held
+// here by name, tag and type, with the schema's own field count holding the set. A root field carrying no
+// mapstructure tag fails too: the reader falls back to the field's own name, so an operator writes the key
+// under that spelling and no section declares it.
+func TestTheRootSchemaCarriesWhatTheNodesOwnTypeCarries(t *testing.T) {
+	live := reflect.TypeOf(tmcfg.Config{})
+	schema := reflect.TypeOf(nodeRootSchema{})
+
+	var restated int
+	for i := 0; i < live.NumField(); i++ {
+		f := live.Field(i)
+		// An unexported field is the node's private state. Reflection cannot write one, so no written
+		// value reaches it and no key belongs to it.
+		if !f.IsExported() {
+			continue
+		}
+		tag, ok := f.Tag.Lookup("mapstructure")
+		if !ok {
+			t.Errorf("the node's type carries %s at its root with no mapstructure tag, and the reader "+
+				"falls back to the field's own name, so an operator writes that key and no section "+
+				"declares it", f.Name)
+			continue
+		}
+		// The squashed base group and the tables are not restated; everything else is.
+		if strings.Contains(tag, "squash") {
+			continue
+		}
+		if f.Type.Kind() == reflect.Pointer && f.Type.Elem().Kind() == reflect.Struct {
+			continue
+		}
+		restated++
+
+		got, found := schema.FieldByName(f.Name)
+		if !found {
+			t.Errorf("the node's type carries %s (%s) at its root and the schema does not, so the key is "+
+				"not declared at all", f.Name, tag)
+			continue
+		}
+		if want := got.Tag.Get("mapstructure"); want != tag {
+			t.Errorf("%s is tagged %q on the node's type and %q here, so the declared key is not the one "+
+				"the reader decodes", f.Name, tag, want)
+		}
+		if got.Type != f.Type {
+			t.Errorf("%s is a %s on the node's type and a %s here, so the declared value has a shape the "+
+				"reader does not read", f.Name, f.Type, got.Type)
+		}
+	}
+
+	// The schema holds the squashed group plus exactly the restated fields, so a field added here that the
+	// node's type does not carry fails too.
+	if want := restated + 1; schema.NumField() != want {
+		t.Errorf("the schema carries %d fields and the node's type has %d root fields beside the squashed "+
+			"group, so %d were expected", schema.NumField(), restated, want)
+	}
+}
+
+// TestEachRootExclusionStillHasItsReason holds every path the root section leaves out to the fact that
+// justified leaving it out.
+//
+// Two reasons, not one, which is why the name no longer claims a single one. The file settles two of
+// these elsewhere: its own location comes from the command line, and the kind of node is stated at the
+// top under its own name, so declaring either would let an operator write a second value for something
+// already decided. The other three name settings the node removed, and their reason is that a generated
+// file does not carry them, which is measured here rather than asserted in prose.
+func TestEachRootExclusionStillHasItsReason(t *testing.T) {
+	registered, ok := registry.Lookup(RootSectionName)
+	if !ok {
+		t.Fatalf("%s is not registered; Defects: %v", RootSectionName, registry.Defects())
+	}
+	declared := map[string]bool{}
+	for _, key := range registered.Keys {
+		declared[key] = true
+	}
+
+	// Settled elsewhere in the file, so neither is offered here.
+	for key, why := range map[string]string{
+		filledFromTheCommandLine: "the file's own location, which the command line carries",
+		statedAtTheTopOfTheFile:  "the kind of node, which the file states at the top under its own name",
+	} {
+		if declared[key] {
+			t.Errorf("%q is declared at the root and it is %s, so an operator can write a second value "+
+				"for something already decided", key, why)
+		}
+	}
+
+	// Removed from the node, so a generated file carries none of them. That is the half a test can hold,
+	// and the half that expires first: templating one back in makes it a key an operator writes whose
+	// value this space refuses.
+	for _, rel := range removedFromTheNode {
+		if declared[rel] {
+			t.Errorf("%q is declared at the root and names a setting the node removed", rel)
+		}
+		// The empty table name asks about the region above the first table, which is where a generated
+		// file writes the node's own root settings.
+		if generatedFileCarries(t, "", rel) {
+			t.Errorf("%q is left out because a generated file does not carry it and one now does, so it "+
+				"is a setting an operator writes and belongs declared", rel)
+		}
+	}
+
+	if want := len(notWritableInThisFile) + len(removedFromTheNode); len(registered.Excluded) != want {
+		t.Errorf("the root section excludes %v and %d paths were expected, being the ones the file "+
+			"settles elsewhere and the ones the node removed", registered.Excluded, want)
+	}
+}
+
+// TestNoSectionDeclaresTheRootDirectory covers a field six of these sections carry.
 //
 // Each holds a root directory tagged the same as the key at the top of the file, and the node fills every
 // one from the command line after the file is read. So each states the empty string, and a delivery that
@@ -740,7 +965,7 @@ func TestEverySectionThisPackageRegistersIsUsable(t *testing.T) {
 func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 	for _, s := range registry.Sections() {
 		for _, key := range s.Keys {
-			if key == "home" || strings.HasSuffix(key, ".home") {
+			if key == filledFromTheCommandLine || strings.HasSuffix(key, "."+filledFromTheCommandLine) {
 				t.Errorf("%s declares %q, and the node fills that field from the command line after the "+
 					"file is read, so what this section states for it is the empty string", s.Name, key)
 			}
@@ -762,11 +987,36 @@ func TestNoSectionDeclaresTheRootDirectory(t *testing.T) {
 // Closing that needs a reader over the command itself, which is a different mechanism from this one;
 // until it exists the list is maintained by review and this holds only what is on it.
 func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
-	// The generator's own source for each key, read from it rather than restated, so a change there
-	// moves this. A chain identifier is needed for the peer seeds because that is the input the mode
-	// rules do not carry, and the public networks are the ones an operator runs.
-	supplied := map[string]string{
-		P2PSectionName + ".bootstrap-peers": seeds.BootstrapPeers("pacific-1"),
+	// What makes each declaration something other than what a generated file carries, checked rather
+	// than described. A row that stops holding means the key no longer belongs on the list.
+	wrongBecause := map[string]func(*testing.T, any){
+		P2PSectionName + ".bootstrap-peers": func(t *testing.T, declared any) {
+			// The command fills these from the chain identifier, after the pipeline forMode mirrors.
+			// Read from the generator's own source, so a change there moves this.
+			supplied := seeds.BootstrapPeers("pacific-1")
+			if supplied == "" {
+				t.Error("the generator ships no seeds for a public network, so nothing fills this key " +
+					"and the declared empty value is what a file carries after all")
+				return
+			}
+			if fmt.Sprint(declared) == supplied {
+				t.Errorf("declared as %q, which is what the generator supplies, so this no longer "+
+					"diverges", declared)
+			}
+		},
+		"moniker": func(t *testing.T, declared any) {
+			// The command takes the node name as a required argument, so a generated file always
+			// carries an operator's own. What the declaration answers instead is a fact about the
+			// machine that asked, which is why no value keyed on mode could be right.
+			host, err := os.Hostname()
+			if err != nil {
+				t.Skipf("this host has no name to compare against: %v", err)
+			}
+			if fmt.Sprint(declared) != host {
+				t.Errorf("declared as %q where this host is %q, so the declaration no longer answers a "+
+					"host fact and this key may belong off the list", declared, host)
+			}
+		},
 	}
 
 	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
@@ -774,10 +1024,10 @@ func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	for _, key := range filledByTheGenerator {
-		want, named := supplied[key]
+		check, named := wrongBecause[key]
 		if !named {
-			t.Errorf("%s is on the list and no writer is named for it, so nothing measures that the "+
-				"generator fills it", key)
+			t.Errorf("%s is on the list and nothing says what makes its declared value wrong, so the "+
+				"row records no divergence", key)
 			continue
 		}
 		declared, declares := resolved.Values[key]
@@ -786,17 +1036,10 @@ func TestWhatTheGeneratorFillsIsNotWhatTheDeclarationStates(t *testing.T) {
 				"belongs in the key space", key)
 			continue
 		}
-		if want == "" {
-			t.Errorf("%s names a writer that supplies nothing, so the row records no divergence", key)
-			continue
-		}
-		if fmt.Sprint(declared) == want {
-			t.Errorf("%s is declared as %q and the generator supplies the same, so it no longer "+
-				"diverges. Take it off the list, and off forMode's exception", declared, want)
-		}
+		t.Run(key, func(t *testing.T) { check(t, declared) })
 	}
-	if len(supplied) != len(filledByTheGenerator) {
-		t.Errorf("%d writers are named and %d keys are listed", len(supplied), len(filledByTheGenerator))
+	if len(wrongBecause) != len(filledByTheGenerator) {
+		t.Errorf("%d reasons are stated and %d keys are listed", len(wrongBecause), len(filledByTheGenerator))
 	}
 }
 
