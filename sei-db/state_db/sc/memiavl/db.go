@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/alitto/pond"
@@ -832,25 +834,6 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 	}
 
 	if err := os.Rename(path, targetPath); err != nil {
-<<<<<<< HEAD
-		logger.Error("failed to rename snapshot directory, cleaning up",
-			"tmpDir", tmpDir,
-			"targetDir", snapshotDir,
-			"error", err,
-		)
-		// Clean up temporary directory on rename failure
-		if cleanupErr := os.RemoveAll(path); cleanupErr != nil {
-			logger.Error("failed to clean up temporary snapshot directory after rename failure",
-				"tmpDir", tmpDir,
-				"cleanup_error", cleanupErr,
-			)
-			return errorutils.Join(err, cleanupErr)
-		}
-		logger.Info("temporary snapshot directory cleaned up after rename failure",
-			"tmpDir", tmpDir,
-		)
-		return err
-=======
 		// An existing snapshot-<h> directory (from a prior atomic rename) can be
 		// used; drop our redundant temp rather than failing this rewrite. Only a
 		// directory is a valid prior snapshot -- a non-directory at the path is
@@ -890,7 +873,6 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 			return updateCurrentSymlink(db.dir, snapshotDir)
 		}
 		return fmt.Errorf("rename snapshot directory to %q: %w", targetPath, err)
->>>>>>> f28da4c (Validate snapshots before publication (#4036))
 	}
 
 	return updateCurrentSymlink(db.dir, snapshotDir)
@@ -1365,6 +1347,11 @@ func initEmptyDB(dir string, initialVersion uint32) error {
 // it could fail under concurrent usage for tmp file conflicts.
 func updateCurrentSymlink(dir, snapshot string) error {
 	tmpPath := currentTmpPath(dir)
+	// A crash between Symlink and Rename can leave current-tmp behind; remove it
+	// so a re-offered restore is idempotent rather than failing with EEXIST.
+	if err := os.Remove(tmpPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	if err := os.Symlink(snapshot, tmpPath); err != nil {
 		return err
 	}
