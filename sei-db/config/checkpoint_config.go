@@ -14,7 +14,8 @@ type CheckpointConfig struct {
 	// TimeInterval is the wall-clock gap between checkpoints, measured from the last one completing.
 	TimeInterval time.Duration
 
-	// BlockInterval is the block gap between checkpoints, measured from the last height picked.
+	// BlockInterval places checkpoints on multiples of itself: at 1000, heights 1000, 2000, 3000
+	// and so on are eligible.
 	BlockInterval int64
 }
 

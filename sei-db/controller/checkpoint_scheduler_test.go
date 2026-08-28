@@ -65,6 +65,17 @@ func TestTheFirstHeightWaitsForTheBlockInterval(t *testing.T) {
 	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
 }
 
+// Heights sit on multiples of the block interval rather than a count from the last one, so a node
+// that starts mid-grid still checkpoints at the same heights as one that did not.
+func TestBlockIntervalHeightsAreMultiplesOfTheInterval(t *testing.T) {
+	scheduler := newScheduler(0, 100)
+
+	for _, offGrid := range []int64{4001, 4050, 4099} {
+		require.False(t, scheduler.ShouldCheckpoint("sc", offGrid))
+	}
+	require.True(t, scheduler.ShouldCheckpoint("sc", 4100))
+}
+
 // With both set a height has to clear both, so the tighter one paces the cadence.
 func TestBothIntervalsMustElapseWhenBothAreSet(t *testing.T) {
 	scheduler := newScheduler(time.Hour, 10)
@@ -188,16 +199,16 @@ func walkLeaderAndLaggard(
 }
 
 // A store lagging by more than the block interval still takes every height the leader takes, since
-// the height is held until it arrives. The heights are no longer spaced by the interval alone: each
-// one waits out the lag as well, which is the cadence cost of keeping the stores together.
+// the height is held until it arrives. Waiting for it costs whole boundaries rather than shifting
+// the grid: 300 passes while 200 is still held, so the next checkpoint is 400.
 func TestEveryStoreTakesTheSameHeightsHoweverFarBehind(t *testing.T) {
 	scheduler := newScheduler(0, 100)
 
 	leaderTook, laggardTook := walkLeaderAndLaggard(scheduler, 1000, 150, 0)
 
-	require.Equal(t, []int64{100, 200, 351, 502, 653, 804, 955}, leaderTook)
-	require.Equal(t, []int64{200, 351, 502, 653, 804}, laggardTook,
-		"100 predates the laggard's first ask, and it has yet to reach 955")
+	require.Equal(t, []int64{100, 200, 400, 600, 800, 1000}, leaderTook)
+	require.Equal(t, []int64{200, 400, 600, 800}, laggardTook,
+		"100 predates the laggard's first ask, and it has yet to reach 1000")
 }
 
 func TestEveryStoreTakesTheSameHeightsOnATimeInterval(t *testing.T) {

@@ -28,9 +28,11 @@ var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 // A no is final and covers every height under it, so a version refused to one store is refused to
 // all of them; a yes holds for every store that reaches that height before it is replaced.
 //
-// A time interval, a block interval, or both may be set. With both set a height has to clear both;
-// a value of 0 or less is unused, and with neither set checkpointing is off. Both are measured from
-// the last checkpoint, and from the scheduler's creation before there is one.
+// A time interval, a block interval, or both may be set, and a value of 0 or less is unused. The
+// block interval places heights on its multiples, so they stay on the same grid however far a
+// checkpoint runs late. The time interval is measured from the last checkpoint completing, and from
+// the scheduler's creation before there is one. With both set a height has to satisfy both, which
+// makes it the first multiple reached after the time has passed. With neither, checkpointing is off.
 //
 // Every store has to ask at each version it commits. One asking at only some of them never reaches
 // the height being held, which stops the node checkpointing rather than only that store.
@@ -133,11 +135,11 @@ func (s *CheckpointScheduler) alreadyRejected(version int64) bool {
 	return version < s.nextCheckpointVersion || version <= s.rejectedVersion
 }
 
-// hasReachedNextInterval reports whether every configured interval has passed for version.
+// hasReachedNextInterval reports whether version satisfies every configured interval.
 func (s *CheckpointScheduler) hasReachedNextInterval(version int64) bool {
 	timeElapsed := s.config.TimeInterval <= 0 || time.Since(s.checkpointedAt) >= s.config.TimeInterval
-	blocksElapsed := s.config.BlockInterval <= 0 || version-s.nextCheckpointVersion >= s.config.BlockInterval
-	return timeElapsed && blocksElapsed
+	onBlockBoundary := s.config.BlockInterval <= 0 || version%s.config.BlockInterval == 0
+	return timeElapsed && onBlockBoundary
 }
 
 // pickCheckpointHeight makes version the height in hand, held for the stores registered now. One
