@@ -22,6 +22,15 @@ sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
 # Historical proof query burst size
 sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
+# Max concurrent unproven /subspace queries (SS fast path; <=0 resolves to default 2)
+sc-subspace-query-max-inflight = {{ .StateCommit.SubspaceQueryMaxInFlight }}
+
+# Max pairs a /subspace scan may return (<=0 resolves to default 1000; no unlimited setting)
+sc-subspace-max-pairs = {{ .StateCommit.SubspaceMaxPairs }}
+
+# Max key+value bytes a /subspace scan may accumulate (<=0 resolves to default 4 MiB; no unlimited setting)
+sc-subspace-max-bytes = {{ .StateCommit.SubspaceMaxBytes }}
+
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = {{ .StateCommit.MemIAVLConfig.AsyncCommitBuffer }}
@@ -154,7 +163,8 @@ ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 ss-snapshot-enable = {{ .StateStore.SnapshotEnable }}
 
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
-# If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
+# If unset, defaults to <home>/data/state_store/evm/{backend}. Nodes that
+# already have <home>/data/evm_ss keep using that path.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
 
 # EVMSplit controls whether EVM data is routed to a dedicated SS backend.

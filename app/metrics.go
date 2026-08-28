@@ -200,7 +200,6 @@ var (
 		)),
 
 		// The callback fires on every Prometheus scrape; no per-block call site is needed.
-		// TODO(PLT-327): remove metrics.GaugeSeidVersionAndCommit call in abci.go once app_build_info verified
 		versionInfo: must(meter.Int64ObservableGauge(
 			"app_build_info",
 			metric.WithDescription("Running binary build info; value is always 1"),

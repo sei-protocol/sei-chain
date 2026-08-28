@@ -11,6 +11,9 @@ const makeProvider = (url: string): ethers.JsonRpcProvider =>
         batchMaxCount: 1,
         staticNetwork: true,
         pollingInterval: POLLING_INTERVAL_MS,
+        // geth --dev mines before ethers starts waiting for the receipt and does not
+        // produce another block to correct a cached pre-transaction block number.
+        cacheTimeout: -1,
     });
 
 let seiProvider: ethers.JsonRpcProvider | undefined;

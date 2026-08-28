@@ -160,8 +160,8 @@ func TestStateStoreResolvesItsOtherValuesTheSameForEveryMode(t *testing.T) {
 
 // TestStateCommitDeclaresEveryKeyItsReaderResolves holds the schema against the read-site record.
 //
-// Twenty keys: the seventeen the record holds as rows, and three it names beside them because each has a
-// target of its own. The four keys under this section's flat key-value name that only the Cosmos server's
+// Twenty-three keys: the twenty the record holds as rows, and three it names beside them because each has
+// a target of its own. The four keys under this section's flat key-value name that only the Cosmos server's
 // reader resolves are not among them, and are not this section's to declare.
 func TestStateCommitDeclaresEveryKeyItsReaderResolves(t *testing.T) {
 	requireDeclares(t, StateCommitSectionName, manifestKeys(scKeys,
@@ -189,6 +189,9 @@ func TestStateCommitResolvesTheModuleDeclaredValues(t *testing.T) {
 			FlagSCHistoricalProofMaxInFlight: live.HistoricalProofMaxInFlight,
 			FlagSCHistoricalProofRateLimit:   live.HistoricalProofRateLimit,
 			FlagSCHistoricalProofBurst:       live.HistoricalProofBurst,
+			FlagSCSubspaceQueryMaxInFlight:   live.SubspaceQueryMaxInFlight,
+			FlagSCSubspaceMaxPairs:           live.SubspaceMaxPairs,
+			FlagSCSubspaceMaxBytes:           live.SubspaceMaxBytes,
 			FlagSCWriteMode:                  string(live.WriteMode),
 			FlagSCWriteModeEnableAuto:        live.WriteModeEnableAuto,
 			FlagSCHashLoggerEnable:           live.HashLogger.Enable,

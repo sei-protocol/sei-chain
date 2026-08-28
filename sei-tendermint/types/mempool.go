@@ -44,6 +44,9 @@ func TxHashFromProto(dp *tmproto.TxKey) (TxHash, error) {
 	if dp == nil {
 		return TxHash{}, errors.New("nil data")
 	}
+	if len(dp.TxKey) != sha256.Size {
+		return TxHash{}, fmt.Errorf("invalid tx hash length: %d, expected: %d", len(dp.TxKey), sha256.Size)
+	}
 	var txBzs [sha256.Size]byte
 	copy(txBzs[:], dp.TxKey)
 

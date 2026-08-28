@@ -18,6 +18,19 @@ var (
 	ErrInvalidBlockPartHash      = errors.New("error invalid block part hash")
 )
 
+const (
+	// MaxConsensusMsgBytes is the largest message the consensus channels accept.
+	MaxConsensusMsgBytes = 4194304 // 4MB; NOTE: keep larger than types.PartSet sizes.
+
+	// txKeyEntryBytes is the encoded size of one populated Proposal.tx_keys
+	// entry: the field tag and length prefix of the repeated field, plus a TxKey
+	// holding one crypto.HashSize digest behind its own tag and length prefix.
+	txKeyEntryBytes = 1 + 1 + 1 + 1 + crypto.HashSize
+
+	// MaxTxKeysPerProposal is the largest number of tx keys a Proposal can carry
+	MaxTxKeysPerProposal = MaxConsensusMsgBytes / txKeyEntryBytes
+)
+
 // Proposal defines a block proposal for the consensus.
 // It refers to the block by BlockID field.
 // It must be signed by the correct proposer for the given Height/Round
