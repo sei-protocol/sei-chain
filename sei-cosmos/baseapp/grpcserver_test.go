@@ -55,7 +55,7 @@ func TestRegisterGRPCServerAppliesServerInterceptor(t *testing.T) {
 
 	client := serveTestQuery(t, setupBaseApp(t), grpc.ChainUnaryInterceptor(spy))
 
-	res, err := client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	res, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.NoError(t, err)
 	require.Equal(t, "hello", res.Message)
 	require.Equal(t, int64(1), calls.Load(), "server-level interceptor never reached the query handler")
@@ -73,7 +73,7 @@ func TestRegisterGRPCServerServerInterceptorCanRejectQuery(t *testing.T) {
 
 	client := serveTestQuery(t, setupBaseApp(t), grpc.ChainUnaryInterceptor(reject, count))
 
-	_, err := client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	_, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.Error(t, err)
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Zero(t, handlerCalls.Load(), "rejected query still ran the rest of the chain")
@@ -82,7 +82,7 @@ func TestRegisterGRPCServerServerInterceptorCanRejectQuery(t *testing.T) {
 func TestRegisterGRPCServerWithoutServerInterceptor(t *testing.T) {
 	client := serveTestQuery(t, setupBaseApp(t))
 
-	res, err := client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	res, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.NoError(t, err)
 	require.Equal(t, "hello", res.Message)
 }
