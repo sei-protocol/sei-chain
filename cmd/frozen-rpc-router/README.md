@@ -30,3 +30,7 @@ the live node.
 Single-backend HTTP responses include `Sei-RPC-Route: frozen:<height>` or
 `Sei-RPC-Route: live`. A batch split across backends returns
 `Sei-RPC-Route: mixed`.
+
+JSON-RPC batches are limited to 1,000 calls by default. Use
+`--batch-request-limit` to change the limit. HTTP response writes time out after
+30 seconds by default and can be configured with `--write-timeout`.
