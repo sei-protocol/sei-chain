@@ -180,8 +180,9 @@ type RollbackValidator interface {
 
 // The interfaces above are engine capabilities. Deciding when a checkpoint runs,
 // and what version it is labeled with, is coordination rather than engine
-// behavior and lives in sei-db/management: CheckpointScheduler,
-// ScheduleCheckpoint, SetCheckpointVersion and ErrCheckpointCanceled.
+// behavior: sei-db/controller picks the height every store checkpoints at, and
+// sei-db/state_db/ss/snapshot composes these capabilities into the checkpoint an
+// SS member store performs.
 
 // ---------------------------------------------------------------------------
 // SS DB layer

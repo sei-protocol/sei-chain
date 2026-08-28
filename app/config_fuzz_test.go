@@ -33,7 +33,8 @@ import (
 // Neither reader returns an error, so nothing about the second case is visible at
 // boot. It is asserted here as behavior rather than reported as a defect: the
 // clobber is what shipped nodes resolve today, and changing it is a migration, not
-// a bug fix.
+// a bug fix. Making it executable is what lets the replacement manager prove it
+// either reproduces the clobber or diverges from it on purpose.
 
 // FuzzSCWriteMode pins the write-mode resolution, which is the one place in
 // [state-commit] that both validates and overrides.

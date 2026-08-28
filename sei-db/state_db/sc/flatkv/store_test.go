@@ -446,15 +446,15 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 }
 
 // =============================================================================
-// Lifecycle (WriteSnapshot, Rollback)
+// Lifecycle (outOfBandSnapshot, Rollback)
 // =============================================================================
 
-func TestStoreWriteSnapshotRequiresCommit(t *testing.T) {
+func TestStoreOutOfBandSnapshotRequiresCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	// Cannot snapshot at version 0 (nothing committed)
-	err := s.WriteSnapshot("")
+	err := s.outOfBandSnapshot()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "uncommitted")
 }
@@ -534,7 +534,7 @@ func TestReadOnlyAtBeyondWALFails(t *testing.T) {
 
 	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -563,7 +563,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	workDir := filepath.Join(dir, flatkvRootDir, workingDirName)
@@ -600,7 +600,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	}
 	hashAtV10 := rootHash(s1)
 
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -826,7 +826,7 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	require.ErrorIs(t, ro.ApplyChangeSets(ro.Version()+1, nil), errReadOnly)
 	_, err = ro.Commit(ro.Version() + 1)
 	require.ErrorIs(t, err, errReadOnly)
-	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
+	require.ErrorIs(t, ro.(*CommitStore).outOfBandSnapshot(), errReadOnly)
 	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
 	_, err = ro.(*CommitStore).Importer(1)
 	require.ErrorIs(t, err, errReadOnly)
@@ -1395,6 +1395,9 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 		require.NoError(t, err)
 	}
 	expectedHash := rootHash(s)
+	// Close discards whatever the snapshot writer still has queued, so wait for it here: the gap this
+	// test is about only exists once the snapshots are on disk.
+	require.NoError(t, s.FlushSnapshots())
 	require.NoError(t, s.Close())
 
 	// Reopen normally -- large WAL gap between snapshot and HEAD.
@@ -1434,7 +1437,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	expectedHash := rootHash(s)
 	expectedVersion := s.Version()
 

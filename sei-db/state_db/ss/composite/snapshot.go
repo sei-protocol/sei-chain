@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
@@ -251,7 +250,7 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 		return c.isRunning() && !canceled.Load()
 	}
 
-	report := controller.FanIn(len(c.members), func(err error) {
+	report := sssnapshot.FanIn(len(c.members), func(err error) {
 		c.startPublish(version, staged, err, start)
 	})
 	for i, member := range c.members {
@@ -295,7 +294,7 @@ func (c *snapshotCoordinator) startPublish(
 		defer c.publishing.Done()
 		defer c.finishSnapshot()
 		if checkpointErr != nil {
-			if errors.Is(checkpointErr, controller.ErrCheckpointCanceled) {
+			if errors.Is(checkpointErr, sssnapshot.ErrCheckpointCanceled) {
 				sssnapshot.RecordCompletion(start, "canceled")
 			} else {
 				sssnapshot.RecordCompletion(start, "failure")
