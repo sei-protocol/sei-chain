@@ -20,6 +20,7 @@ type Batch struct {
 	ops              []batchOp
 	descending       bool
 	operationMetrics *pebbledbmetrics.OperationMetrics
+	dbName           string
 }
 
 type batchOp struct {
@@ -29,7 +30,7 @@ type batchOp struct {
 }
 
 // NewBatch creates a new Batch using the supplied MVCC encoding mode.
-func NewBatch(storage *pebble.DB, version int64, descending bool, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*Batch, error) {
+func NewBatch(storage *pebble.DB, version int64, descending bool, dbName string, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*Batch, error) {
 	if version < 0 {
 		return nil, fmt.Errorf("version must be non-negative")
 	}
@@ -45,6 +46,7 @@ func NewBatch(storage *pebble.DB, version int64, descending bool, operationMetri
 		ops:              make([]batchOp, 0, 16),
 		descending:       descending,
 		operationMetrics: metrics,
+		dbName:           dbName,
 	}, nil
 }
 
@@ -77,7 +79,7 @@ func (b *Batch) Delete(storeKey string, key []byte) error {
 
 func (b *Batch) Write() error {
 	writeCount := int64(len(b.ops) + 1) // includes latest-version metadata.
-	err := writeBatchOps(b.storage, b.ops, func(batch *pebble.Batch) error {
+	err := writeBatchOps(b.storage, b.ops, b.dbName, func(batch *pebble.Batch) error {
 		var versionBz [VersionSize]byte
 		binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
 		if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
@@ -97,10 +99,11 @@ type RawBatch struct {
 	ops              []batchOp
 	descending       bool
 	operationMetrics *pebbledbmetrics.OperationMetrics
+	dbName           string
 }
 
 // NewRawBatch creates a new RawBatch using the supplied MVCC encoding mode.
-func NewRawBatch(storage *pebble.DB, descending bool, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*RawBatch, error) {
+func NewRawBatch(storage *pebble.DB, descending bool, dbName string, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*RawBatch, error) {
 	var metrics *pebbledbmetrics.OperationMetrics
 	if len(operationMetrics) > 0 {
 		metrics = operationMetrics[0]
@@ -111,6 +114,7 @@ func NewRawBatch(storage *pebble.DB, descending bool, operationMetrics ...*pebbl
 		ops:              make([]batchOp, 0, 16),
 		descending:       descending,
 		operationMetrics: metrics,
+		dbName:           dbName,
 	}, nil
 }
 
@@ -154,7 +158,7 @@ func (b *Batch) HardDelete(storeKey string, key []byte) error {
 
 func (b *RawBatch) Write() error {
 	writeCount := int64(len(b.ops))
-	err := writeBatchOps(b.storage, b.ops, nil)
+	err := writeBatchOps(b.storage, b.ops, b.dbName, nil)
 	if err == nil && b.operationMetrics != nil {
 		b.operationMetrics.AddWrite(writeCount)
 	}
@@ -165,7 +169,7 @@ func (b *RawBatch) Write() error {
 // otel metrics, and commits. The optional beforeCommit hook runs on the
 // pebble batch right before commit (used by Batch.Write to stamp the
 // latest-version metadata key).
-func writeBatchOps(storage *pebble.DB, ops []batchOp, beforeCommit func(*pebble.Batch) error) (err error) {
+func writeBatchOps(storage *pebble.DB, ops []batchOp, dbName string, beforeCommit func(*pebble.Batch) error) (err error) {
 	startTime := time.Now()
 	batchSize := int64(len(ops))
 	defer func() {
@@ -173,9 +177,12 @@ func writeBatchOps(storage *pebble.DB, ops []batchOp, beforeCommit func(*pebble.
 		otelMetrics.batchWriteLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", err == nil)),
+			metric.WithAttributes(
+				attribute.Bool("success", err == nil),
+				attribute.String("db", dbName),
+			),
 		)
-		otelMetrics.batchSize.Record(ctx, batchSize)
+		otelMetrics.batchSize.Record(ctx, batchSize, metric.WithAttributes(attribute.String("db", dbName)))
 	}()
 
 	batch := storage.NewBatch()
