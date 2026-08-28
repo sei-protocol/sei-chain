@@ -4,229 +4,151 @@
 package controller
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"maps"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/sei-protocol/seilog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 
-// checkpointPollInterval is how often the scheduler looks for a boundary to dispatch. It has to stay
-// well inside the time the stores take to cover an interval's worth of versions, or boundaries pass
-// undispatched.
-const checkpointPollInterval = 10 * time.Second
-
-// CheckpointConfig is the cadence a CheckpointScheduler holds every registered store to.
-type CheckpointConfig struct {
-	// CheckpointInterval is how many blocks apart checkpoints are taken. 0 turns checkpointing off.
-	CheckpointInterval int64
-
-	// MinTimeBetweenCheckpoints is the shortest wall-clock gap allowed between one checkpoint
-	// finishing and the next being scheduled, which bounds how fast a node replaying blocks
-	// checkpoints. 0 leaves CheckpointInterval as the only pacing.
-	MinTimeBetweenCheckpoints time.Duration
-}
-
-// Validate reports whether this config describes a cadence that can be scheduled.
-func (c CheckpointConfig) Validate() error {
-	if c.CheckpointInterval < 0 {
-		return fmt.Errorf("checkpoint interval must not be negative, got %d", c.CheckpointInterval)
-	}
-	if c.MinTimeBetweenCheckpoints < 0 {
-		return fmt.Errorf("minimum time between checkpoints must not be negative, got %s",
-			c.MinTimeBetweenCheckpoints)
-	}
-	return nil
-}
-
-// CheckpointScheduler drives one checkpoint cadence across every store registered with it, so that a
-// node's stores hold checkpoints of the same versions rather than of whatever version each happened to
-// be at. Each cycle picks the next interval boundary above every store's committed version and hands
-// that one version to all of them, to checkpoint when their own write paths reach it; one target is
-// outstanding at a time.
+// CheckpointScheduler picks the heights every store checkpoints at, so the stores of one node hold
+// checkpoints of the same versions rather than of whatever version each happened to reach.
 //
-// Start and Close are the owner's to call, from one goroutine: nothing here is guarded.
+// Stores ask ShouldCheckpoint at every version they commit and call MarkCheckpointComplete once
+// that version's checkpoint has finished, whether or not it succeeded: every yes obliges a report.
+// A store joins the schedule by asking, and a height is held until every store registered when it
+// was picked, along with any that took it afterwards, has reported. A store behind the others is
+// handed that same height rather than one that has moved on, and heights arrive no faster than the
+// slowest store reaches them.
+//
+// A no is final and covers every height under it, so a version refused to one store is refused to
+// all of them; a yes holds for every store that reaches that height before it is replaced.
+//
+// A time interval, a block interval, or both may be set. With both set a height has to clear both;
+// a value of 0 or less is unused, and with neither set checkpointing is off. Both are measured from
+// the last checkpoint, and from the scheduler's creation before there is one.
+//
+// Every store has to ask at each version it commits. One asking at only some of them never reaches
+// the height being held, which stops the node checkpointing rather than only that store.
 type CheckpointScheduler struct {
-	config CheckpointConfig
-	ctx    context.Context
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	mu     sync.Mutex
+	config config.CheckpointConfig
 
-	stores  map[string]CheckpointableStore
-	started bool
-	closed  bool
+	// registered holds every store that has asked, which is how a store joins the schedule.
+	registered map[string]struct{}
+	// awaiting holds the stores the current height is held for that have yet to report it. Empty
+	// means no checkpoint is outstanding.
+	awaiting map[string]struct{}
 
-	// Only the run loop touches these, through scheduleNextCheckpoint.
-	scheduledVersion int64
-	lastCheckpointAt time.Time
+	// nextCheckpointVersion is the height stores checkpoint at, 0 before the first one is picked.
+	// It stays set once complete, so a store that has yet to reach it is still given that height.
+	nextCheckpointVersion int64
+	// checkpointedAt is when the last checkpoint completed, the scheduler's creation before the first.
+	checkpointedAt time.Time
+	// rejectedVersion is the highest height answered no. A later ask at it is answered no again
+	// rather than turning yes once an interval elapses under it.
+	rejectedVersion int64
 }
 
-// NewCheckpointScheduler returns a scheduler that holds every store in stores to config, or that
-// schedules nothing when config turns checkpointing off. Call Start to begin.
-func NewCheckpointScheduler(
-	ctx context.Context,
-	config CheckpointConfig,
-	stores map[string]CheckpointableStore,
-) (*CheckpointScheduler, error) {
-	if ctx == nil {
-		return nil, errors.New("context is required")
-	}
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-	copied := make(map[string]CheckpointableStore, len(stores))
-	for name, store := range stores {
-		if name == "" {
-			return nil, errors.New("checkpoint store name is required")
-		}
-		if store == nil {
-			return nil, fmt.Errorf("checkpoint store %q is nil", name)
-		}
-		copied[name] = store
-	}
+// NewCheckpointScheduler returns a scheduler holding every store that asks it to one cadence.
+func NewCheckpointScheduler(cfg config.CheckpointConfig) *CheckpointScheduler {
+	checkpointLogger.Info("checkpoint scheduler created",
+		"timeInterval", cfg.TimeInterval, "blockInterval", cfg.BlockInterval)
 	return &CheckpointScheduler{
-		config: config,
-		ctx:    ctx,
-		stopCh: make(chan struct{}),
-		stores: copied,
-	}, nil
-}
-
-// Start begins dispatching targets until Close is called or ctx is cancelled. Starting twice is an
-// error.
-func (s *CheckpointScheduler) Start() error {
-	if s.closed {
-		return errors.New("cannot start a closed checkpoint scheduler")
-	}
-	if s.started {
-		return errors.New("checkpoint scheduler already started")
-	}
-	s.started = true
-	checkpointLogger.Info("checkpoint scheduler started",
-		"interval", s.config.CheckpointInterval,
-		"minTimeBetweenCheckpoints", s.config.MinTimeBetweenCheckpoints,
-		"stores", strings.Join(slices.Sorted(maps.Keys(s.stores)), ","),
-	)
-	s.wg.Add(1)
-	go s.run()
-	return nil
-}
-
-// Close stops dispatching and waits for the run loop to exit.
-func (s *CheckpointScheduler) Close() error {
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	close(s.stopCh)
-	s.wg.Wait()
-	return nil
-}
-
-// CheckpointInProgress reports whether any registered store is still writing a checkpoint.
-func (s *CheckpointScheduler) CheckpointInProgress() bool {
-	for _, store := range s.stores {
-		if store.CheckpointInProgress() {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *CheckpointScheduler) run() {
-	defer s.wg.Done()
-
-	if s.config.CheckpointInterval == 0 || len(s.stores) == 0 {
-		return
-	}
-
-	ticker := time.NewTicker(checkpointPollInterval)
-	defer ticker.Stop()
-
-	for {
-		// Ahead of the first wait, not after it: there is already a boundary to announce by the time
-		// Start returns, and waiting out a poll interval only delays the first checkpoint.
-		s.scheduleNextCheckpoint()
-
-		select {
-		case <-s.stopCh:
-			return
-		case <-s.ctx.Done():
-			return
-		case <-ticker.C:
-		}
+		config:         cfg,
+		registered:     make(map[string]struct{}),
+		awaiting:       make(map[string]struct{}),
+		checkpointedAt: time.Now(),
 	}
 }
 
-// scheduleNextCheckpoint runs one cycle: it hands the next boundary to every store, or does nothing
-// when a store is still writing the last checkpoint, has not committed past its scheduled version, or
-// the last one finished too recently.
-func (s *CheckpointScheduler) scheduleNextCheckpoint() {
-	if s.CheckpointInProgress() {
-		return
-	}
-	// Stores bump LatestVersion on commit before the checkpoint write, so wait for the next version.
-	if s.scheduledVersion != 0 && !s.allStoresCommitted(s.scheduledVersion+1) {
-		return
-	}
-	s.noteCheckpointFinished()
-	if s.withinMinTime() {
-		return
+// ShouldCheckpoint reports whether version is a height for store to checkpoint at, registering
+// store with the schedule when this is its first ask.
+func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool {
+	if !s.checkpointEnabled() || version <= 0 {
+		return false
 	}
 
-	targetVersion := nextCheckpointVersion(s.stores, s.config.CheckpointInterval)
-	for _, store := range s.stores {
-		store.ScheduleCheckpoint(targetVersion)
-	}
-	s.scheduledVersion = targetVersion
-	checkpointLogger.Info("checkpoint scheduled",
-		"targetVersion", targetVersion, "stores", strings.Join(slices.Sorted(maps.Keys(s.stores)), ","))
-}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.registered[store] = struct{}{}
 
-// allStoresCommitted reports whether every store has committed at least version.
-func (s *CheckpointScheduler) allStoresCommitted(version int64) bool {
-	for _, store := range s.stores {
-		if store.LatestVersion() < version {
-			return false
-		}
+	if version == s.nextCheckpointVersion {
+		s.holdFor(store)
+		return true
 	}
+	if s.alreadyRejected(version) {
+		return false
+	}
+	if s.checkpointOutstanding() || !s.hasReachedNextInterval(version) {
+		s.rejectedVersion = version
+		return false
+	}
+	s.pickCheckpointHeight(version)
 	return true
 }
 
-// noteCheckpointFinished records that the last scheduled checkpoint completed, starting the
-// minimum-time gate. scheduledVersion is what marks this as the completion: later cycles also find
-// no store writing, and treating those as completions too would push the gate forward every poll.
-func (s *CheckpointScheduler) noteCheckpointFinished() {
-	if s.scheduledVersion == 0 {
+// MarkCheckpointComplete records that store has finished the current height. Both intervals start
+// once every store the height is held for has reported it. Any other version is ignored, as is a
+// repeat from the same store.
+//
+// A store that took a height must report it on every path out of the checkpoint, a failed one
+// included, which in practice means deferring the call. No further height is picked while one store
+// is unreported, so a missed call stops the node checkpointing until it restarts.
+func (s *CheckpointScheduler) MarkCheckpointComplete(store string, version int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if version != s.nextCheckpointVersion {
 		return
 	}
-	s.scheduledVersion = 0
-	s.lastCheckpointAt = time.Now()
+	if _, outstanding := s.awaiting[store]; !outstanding {
+		return
+	}
+	delete(s.awaiting, store)
+
+	if s.checkpointOutstanding() {
+		return
+	}
+	s.checkpointedAt = time.Now()
+	checkpointLogger.Info("checkpoint complete", "version", version)
 }
 
-// withinMinTime reports whether the last checkpoint finished too recently for another to be scheduled.
-//
-// Timed from the checkpoint finishing rather than from its dispatch: dispatch runs an interval of
-// blocks ahead, so timing from there would leave the gap short by however long the stores took.
-func (s *CheckpointScheduler) withinMinTime() bool {
-	if s.config.MinTimeBetweenCheckpoints == 0 || s.lastCheckpointAt.IsZero() {
-		return false
-	}
-	return time.Since(s.lastCheckpointAt) < s.config.MinTimeBetweenCheckpoints
+func (s *CheckpointScheduler) checkpointEnabled() bool {
+	return s.config.TimeInterval > 0 || s.config.BlockInterval > 0
 }
 
-// nextCheckpointVersion returns the next interval-aligned height strictly above every store's latest version.
-func nextCheckpointVersion(stores map[string]CheckpointableStore, interval int64) int64 {
-	var latest int64
-	for _, store := range stores {
-		latest = max(latest, store.LatestVersion())
-	}
-	return (latest/interval + 1) * interval
+func (s *CheckpointScheduler) checkpointOutstanding() bool {
+	return len(s.awaiting) > 0
+}
+
+// alreadyRejected reports whether version has been turned down already, either by trailing the
+// height in hand or by being asked and refused. Standing by that no is what stops two stores asking
+// at different moments from splitting on one version.
+func (s *CheckpointScheduler) alreadyRejected(version int64) bool {
+	return version < s.nextCheckpointVersion || version <= s.rejectedVersion
+}
+
+// hasReachedNextInterval reports whether every configured interval has passed for version.
+func (s *CheckpointScheduler) hasReachedNextInterval(version int64) bool {
+	timeElapsed := s.config.TimeInterval <= 0 || time.Since(s.checkpointedAt) >= s.config.TimeInterval
+	blocksElapsed := s.config.BlockInterval <= 0 || version-s.nextCheckpointVersion >= s.config.BlockInterval
+	return timeElapsed && blocksElapsed
+}
+
+// pickCheckpointHeight makes version the height in hand, held for the stores registered now. One
+// registering later is not held for here, at a version it may already have passed, and is held for
+// from the moment it takes a height.
+func (s *CheckpointScheduler) pickCheckpointHeight(version int64) {
+	s.nextCheckpointVersion = version
+	s.awaiting = maps.Clone(s.registered)
+}
+
+// holdFor keeps the height in hand from being replaced until store has reported it.
+func (s *CheckpointScheduler) holdFor(store string) {
+	s.awaiting[store] = struct{}{}
 }

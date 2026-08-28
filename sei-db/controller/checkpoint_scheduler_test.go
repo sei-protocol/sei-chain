@@ -1,418 +1,333 @@
 package controller
 
 import (
-	"context"
-	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
-// Which target the scheduler picks, and whether it picks one at all, is decided synchronously in
-// scheduleNextCheckpoint. Those tests drive it directly and assert exactly; only the tests about the run
-// loop itself — that it dispatches, that it stops — start a goroutine.
-
-// fakeStore stands in for a store the scheduler drives. It records every target it is offered so a
-// test can assert what the stores were asked for, which is the scheduler's whole output.
-type fakeStore struct {
-	mu      sync.Mutex
-	version int64
-	pending int64
-	running bool
-	offered []int64
+// newScheduler spells the two intervals out positionally, which reads better than a config literal
+// in tests that vary nothing else.
+func newScheduler(timeInterval time.Duration, blockInterval int64) *CheckpointScheduler {
+	return NewCheckpointScheduler(config.CheckpointConfig{
+		TimeInterval:  timeInterval,
+		BlockInterval: blockInterval,
+	})
 }
 
-func newFakeStore(version int64) *fakeStore {
-	return &fakeStore{version: version}
-}
-
-func (f *fakeStore) ScheduleCheckpoint(targetVersion int64) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.offered = append(f.offered, targetVersion)
-	f.pending = targetVersion
-}
-
-func (f *fakeStore) LatestVersion() int64 {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.version
-}
-
-func (f *fakeStore) CheckpointInProgress() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.running
-}
-
-func (f *fakeStore) setRunning(running bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.running = running
-}
-
-// commitTo advances the store to version, performing an accepted checkpoint on the way past it.
-func (f *fakeStore) commitTo(version int64) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.version = version
-	if f.pending != 0 && version >= f.pending {
-		f.pending = 0
-	}
-}
-
-func (f *fakeStore) offeredTargets() []int64 {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.offered)
-}
-
-// newScheduler returns an unstarted scheduler over stores.
-func newScheduler(t *testing.T, interval int64, stores map[string]*fakeStore) *CheckpointScheduler {
-	t.Helper()
-	return newConfiguredScheduler(t, CheckpointConfig{CheckpointInterval: interval}, stores)
-}
-
-// newConfiguredScheduler is newScheduler for the tests that care about more of the cadence than the
-// block interval.
-func newConfiguredScheduler(
-	t *testing.T,
-	config CheckpointConfig,
-	stores map[string]*fakeStore,
-) *CheckpointScheduler {
-	t.Helper()
-	copied := make(map[string]CheckpointableStore, len(stores))
-	for name, store := range stores {
-		copied[name] = store
-	}
-	scheduler, err := NewCheckpointScheduler(context.Background(), config, copied)
-	require.NoError(t, err)
-	return scheduler
-}
-
-// requireLoopStopped waits, with a bound, for the run loop to have exited — or to never have started.
-// The wait is bounded rather than a bare wg.Wait because the failure it looks for is a loop that keeps
-// running, and that failure has to be a test failure rather than a test that hangs.
-func requireLoopStopped(t *testing.T, scheduler *CheckpointScheduler) {
-	t.Helper()
-	stopped := make(chan struct{})
-	go func() {
-		scheduler.wg.Wait()
-		close(stopped)
-	}()
-	select {
-	case <-stopped:
-	case <-time.After(time.Second):
-		t.Fatal("checkpoint scheduler run loop is still running")
-	}
+// elapseTimeInterval moves the interval's starting point back rather than waiting it out.
+func (s *CheckpointScheduler) elapseTimeInterval() {
+	s.checkpointedAt = time.Now().Add(-s.config.TimeInterval)
 }
 
 // ---------------------------------------------------------------------------
-// Which target a cycle picks
+// Which intervals are in use
 // ---------------------------------------------------------------------------
 
-func TestNextCheckpointVersionAlignsToInterval(t *testing.T) {
-	for _, tc := range []struct {
-		latest, interval, want int64
-	}{
-		{latest: 0, interval: 1000, want: 1000},
-		{latest: 1, interval: 1000, want: 1000},
-		{latest: 999, interval: 1000, want: 1000},
-		{latest: 1000, interval: 1000, want: 2000},
-		{latest: 2100, interval: 1000, want: 3000},
-		{latest: 3700, interval: 1000, want: 4000},
-		{latest: 4000, interval: 1000, want: 5000},
+func TestNeitherIntervalSetDisablesCheckpointing(t *testing.T) {
+	for _, scheduler := range []*CheckpointScheduler{
+		newScheduler(0, 0),
+		newScheduler(-time.Second, 0),
+		newScheduler(0, -1),
 	} {
-		stores := map[string]CheckpointableStore{"only": newFakeStore(tc.latest)}
-		require.Equal(t, tc.want, nextCheckpointVersion(stores, tc.interval),
-			"latest %d interval %d", tc.latest, tc.interval)
+		require.False(t, scheduler.ShouldCheckpoint("sc", 1))
+		require.False(t, scheduler.ShouldCheckpoint("sc", 1_000_000))
 	}
 }
 
-// The point of the scheduler: every store is asked for the same version, even when they are at
-// different versions when the target is chosen.
-func TestCycleOffersOneTargetToEveryStore(t *testing.T) {
-	fast, slow := newFakeStore(95), newFakeStore(80)
-	scheduler := newScheduler(t, 100, map[string]*fakeStore{"fast": fast, "slow": slow})
+func TestNonPositiveVersionsAreNeverCheckpointHeights(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 10)
+	scheduler.elapseTimeInterval()
 
-	scheduler.scheduleNextCheckpoint()
-
-	require.Equal(t, []int64{100}, fast.offeredTargets())
-	require.Equal(t, []int64{100}, slow.offeredTargets())
+	require.False(t, scheduler.ShouldCheckpoint("sc", 0))
+	require.False(t, scheduler.ShouldCheckpoint("sc", -1))
 }
 
-// The target has to be above every store's version, not above the laggard's: a store that is ahead can
-// no longer checkpoint at a version it has passed, and would answer with a different one.
-func TestTargetIsAboveTheMostAdvancedStore(t *testing.T) {
-	ahead, behind := newFakeStore(250), newFakeStore(10)
-	scheduler := newScheduler(t, 100, map[string]*fakeStore{"ahead": ahead, "behind": behind})
+// The first height clears the same intervals as every later one, measured from the scheduler's
+// creation. Answering yes to whichever version happens to ask first would ignore the cadence.
+func TestTheFirstHeightWaitsForTheTimeInterval(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
 
-	scheduler.scheduleNextCheckpoint()
+	require.False(t, scheduler.ShouldCheckpoint("sc", 10))
 
-	require.Equal(t, []int64{300}, ahead.offeredTargets())
-	require.Equal(t, []int64{300}, behind.offeredTargets())
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 11))
 }
 
-// A target is offered well before the stores reach it, which is what makes the shared version an
-// invariant rather than a race. Nothing about the current version gates the offer.
-func TestTargetIsOfferedAWholeIntervalAhead(t *testing.T) {
-	store := newFakeStore(1)
-	scheduler := newScheduler(t, 1000, map[string]*fakeStore{"only": store})
+func TestTheFirstHeightWaitsForTheBlockInterval(t *testing.T) {
+	scheduler := newScheduler(0, 100)
 
-	scheduler.scheduleNextCheckpoint()
-
-	require.Equal(t, []int64{1000}, store.offeredTargets(), "offered at version 1, 999 blocks early")
+	require.False(t, scheduler.ShouldCheckpoint("sc", 99))
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
 }
 
-// One target is outstanding at a time, so a store that has not committed past its target holds the
-// next boundary back rather than collecting targets it would service late.
-func TestNoNewTargetWhileOneIsOutstanding(t *testing.T) {
-	prompt, lagging := newFakeStore(0), newFakeStore(0)
-	scheduler := newScheduler(t, 10, map[string]*fakeStore{"prompt": prompt, "lagging": lagging})
+// With both set a height has to clear both, so the tighter one paces the cadence.
+func TestBothIntervalsMustElapseWhenBothAreSet(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 10)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 10))
+	scheduler.MarkCheckpointComplete("sc", 10)
 
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10}, prompt.offeredTargets())
-	prompt.commitTo(35)
+	require.False(t, scheduler.ShouldCheckpoint("sc", 15), "neither interval has elapsed")
 
-	// The laggard still holds target 10, so the boundaries at 20 and 30 pass without an offer.
-	scheduler.scheduleNextCheckpoint()
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10}, prompt.offeredTargets())
-
-	lagging.commitTo(11)
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10, 40}, prompt.offeredTargets())
-	require.Equal(t, []int64{10, 40}, lagging.offeredTargets())
-}
-
-// Stores bump LatestVersion on commit and only then start the checkpoint write. A poll in that gap
-// sees the scheduled version reached and CheckpointInProgress still false; that is not completion.
-func TestNoNewTargetWhileLatestVersionIsStillTheScheduledVersion(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": store})
-
-	scheduler.scheduleNextCheckpoint()
-	store.commitTo(10)
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10}, store.offeredTargets(),
-		"LatestVersion at the scheduled height is the commit, not a finished checkpoint")
-
-	store.commitTo(11)
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10, 20}, store.offeredTargets())
-}
-
-// A store still writing its snapshot holds the next boundary even after it has committed past the height.
-func TestNoNewTargetWhileAStoreIsWriting(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": store})
-
-	scheduler.scheduleNextCheckpoint()
-	store.commitTo(15)
-	store.setRunning(true)
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10}, store.offeredTargets())
-
-	store.setRunning(false)
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10, 20}, store.offeredTargets())
-}
-
-// CheckpointInProgress is an aggregate over the stores: true while any store is writing.
-func TestCheckpointInProgressReportsAnyStore(t *testing.T) {
-	first, second := newFakeStore(0), newFakeStore(0)
-	scheduler := newScheduler(t, 10, map[string]*fakeStore{"first": first, "second": second})
-
-	require.False(t, scheduler.CheckpointInProgress())
-	first.setRunning(true)
-	second.setRunning(true)
-	require.True(t, scheduler.CheckpointInProgress())
-
-	first.setRunning(false)
-	require.True(t, scheduler.CheckpointInProgress(), "second store is still writing")
-	second.setRunning(false)
-	require.False(t, scheduler.CheckpointInProgress())
+	scheduler.elapseTimeInterval()
+	require.False(t, scheduler.ShouldCheckpoint("sc", 19), "the block interval has not elapsed")
+	require.True(t, scheduler.ShouldCheckpoint("sc", 20))
 }
 
 // ---------------------------------------------------------------------------
-// The minimum-time gate
+// One answer per height
 // ---------------------------------------------------------------------------
 
-// pacedScheduler returns a scheduler whose minimum-time gate is wide enough that no test elapses it by
-// running. Tests that need it elapsed move lastCheckpointAt rather than waiting.
-func pacedScheduler(t *testing.T, stores map[string]*fakeStore) *CheckpointScheduler {
-	t.Helper()
-	return newConfiguredScheduler(t, CheckpointConfig{
-		CheckpointInterval:        10,
-		MinTimeBetweenCheckpoints: time.Hour,
-	}, stores)
+func TestAPickedHeightIsYesForEveryStore(t *testing.T) {
+	scheduler := newScheduler(0, 10)
+	require.True(t, scheduler.ShouldCheckpoint("sc", 10))
+
+	require.True(t, scheduler.ShouldCheckpoint("ss", 10))
+	require.True(t, scheduler.ShouldCheckpoint("receipt", 10))
 }
 
-// Nothing has been checkpointed yet, so there is no gap to enforce and the first boundary is not held.
-func TestTheMinTimeGateDoesNotDelayTheFirstCheckpoint(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := pacedScheduler(t, map[string]*fakeStore{"only": store})
+// The height stays available after it completes: a store that reaches it later than the store that
+// finished it is handed the same height rather than the next one.
+func TestAPickedHeightStaysYesForALaggingStore(t *testing.T) {
+	scheduler := newScheduler(0, 10)
+	require.True(t, scheduler.ShouldCheckpoint("sc", 10))
+	scheduler.MarkCheckpointComplete("sc", 10)
 
-	scheduler.scheduleNextCheckpoint()
-
-	require.Equal(t, []int64{10}, store.offeredTargets())
+	require.True(t, scheduler.ShouldCheckpoint("sc", 10))
 }
 
-// Once a checkpoint has been taken, the next boundary waits for the gate even though the stores have
-// long since passed it.
-func TestTheMinTimeGateHoldsBackTheNextTarget(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := pacedScheduler(t, map[string]*fakeStore{"only": store})
+// A height answered no stays no once an interval elapses under it, so two stores asking either side
+// of that moment cannot split on the same version.
+func TestARejectedHeightStaysNoForEveryStore(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 10))
+	scheduler.MarkCheckpointComplete("sc", 10)
 
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10}, store.offeredTargets())
-	store.commitTo(100)
+	require.False(t, scheduler.ShouldCheckpoint("sc", 11))
 
-	scheduler.scheduleNextCheckpoint()
-	scheduler.scheduleNextCheckpoint()
-
-	require.Equal(t, []int64{10}, store.offeredTargets(), "the gate has not elapsed")
+	scheduler.elapseTimeInterval()
+	require.False(t, scheduler.ShouldCheckpoint("ss", 11), "11 was already answered no")
+	require.True(t, scheduler.ShouldCheckpoint("sc", 12))
 }
 
-func TestTheMinTimeGateReleasesOnceItElapses(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := pacedScheduler(t, map[string]*fakeStore{"only": store})
+// The refusal covers every height at or under the one refused, not just that exact height. A store
+// that asks just short of the interval pushes the floor up to the height it was at, so a store
+// lagging behind it cannot walk in under that floor the moment the interval elapses and take a
+// height the store ahead of it was already refused.
+func TestALaggingStoreCannotTakeAHeightUnderARefusedOne(t *testing.T) {
+	scheduler := newScheduler(5*time.Minute, 0)
 
-	scheduler.scheduleNextCheckpoint()
-	store.commitTo(11)
-	scheduler.scheduleNextCheckpoint()
-	require.Equal(t, []int64{10}, store.offeredTargets())
+	require.False(t, scheduler.ShouldCheckpoint("sc", 100), "the interval has not elapsed")
 
-	scheduler.lastCheckpointAt = time.Now().Add(-2 * time.Hour)
-	scheduler.scheduleNextCheckpoint()
+	scheduler.elapseTimeInterval()
+	for _, lagging := range []int64{98, 99, 100} {
+		require.False(t, scheduler.ShouldCheckpoint("ss", lagging), "height %d is under the refused 100", lagging)
+	}
 
-	require.Equal(t, []int64{10, 20}, store.offeredTargets())
+	require.True(t, scheduler.ShouldCheckpoint("sc", 101))
+	require.True(t, scheduler.ShouldCheckpoint("ss", 101), "the lagging store reaches the same height")
 }
 
-// The gate runs from the checkpoint finishing, not from its target being dispatched. A store that is
-// slow to reach its target would otherwise spend the gate's window getting there, and the next
-// checkpoint would follow it by less than the configured gap.
-func TestTheMinTimeGateIsTimedFromCompletion(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := pacedScheduler(t, map[string]*fakeStore{"only": store})
+func TestAHeightBelowTheCurrentOneIsNo(t *testing.T) {
+	scheduler := newScheduler(0, 10)
+	require.True(t, scheduler.ShouldCheckpoint("sc", 10))
 
-	scheduler.scheduleNextCheckpoint()
-	require.True(t, scheduler.lastCheckpointAt.IsZero(), "dispatching a target does not start the gate")
-
-	store.commitTo(11)
-	scheduler.scheduleNextCheckpoint()
-	require.False(t, scheduler.lastCheckpointAt.IsZero(), "the finished checkpoint starts the gate")
+	require.False(t, scheduler.ShouldCheckpoint("ss", 9))
 }
 
-func TestAZeroMinTimeLeavesTheBlockIntervalAsTheOnlyPacing(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": store})
+func TestConcurrentAsksAtTheSameHeightAgree(t *testing.T) {
+	scheduler := newScheduler(0, 10)
 
-	scheduler.scheduleNextCheckpoint()
-	store.commitTo(11)
-	scheduler.scheduleNextCheckpoint()
+	var answers [8]bool
+	var wg sync.WaitGroup
+	for i := range answers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			answers[i] = scheduler.ShouldCheckpoint("sc", 10)
+		}(i)
+	}
+	wg.Wait()
 
-	require.Equal(t, []int64{10, 20}, store.offeredTargets())
+	for i, answer := range answers {
+		require.True(t, answer, "asker %d", i)
+	}
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle
+// Stores at different heights
 // ---------------------------------------------------------------------------
 
-// The run loop dispatches on its own, which is the one thing the direct-cycle tests above cannot show.
-//
-// The bound is well inside checkpointPollInterval on purpose: it holds the loop to running its first
-// cycle at Start, rather than after sitting out a poll interval first.
-func TestStartedSchedulerDispatchesOnItsOwn(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": store})
-	require.NoError(t, scheduler.Start())
-	t.Cleanup(func() { require.NoError(t, scheduler.Close()) })
-
-	require.Eventually(t, func() bool {
-		return slices.Equal(store.offeredTargets(), []int64{10})
-	}, 100*time.Millisecond, time.Millisecond, "the run loop never offered a target")
+// walkLeaderAndLaggard runs two stores up to a height, the second one lag blocks behind the first,
+// and returns the heights each checkpointed at. A non-zero elapseEvery elapses the time interval
+// once every that many heights, standing in for wall-clock passing as the chain advances.
+func walkLeaderAndLaggard(
+	scheduler *CheckpointScheduler, to, lag, elapseEvery int64,
+) (leaderTook, laggardTook []int64) {
+	for height := int64(1); height <= to; height++ {
+		if elapseEvery > 0 && height%elapseEvery == 0 {
+			scheduler.elapseTimeInterval()
+		}
+		if scheduler.ShouldCheckpoint("leader", height) {
+			leaderTook = append(leaderTook, height)
+			scheduler.MarkCheckpointComplete("leader", height)
+		}
+		behind := height - lag
+		if behind > 0 && scheduler.ShouldCheckpoint("laggard", behind) {
+			laggardTook = append(laggardTook, behind)
+			scheduler.MarkCheckpointComplete("laggard", behind)
+		}
+	}
+	return leaderTook, laggardTook
 }
 
-func TestNewRejectsAnEmptyStoreName(t *testing.T) {
-	_, err := NewCheckpointScheduler(context.Background(), CheckpointConfig{CheckpointInterval: 10},
-		map[string]CheckpointableStore{"": newFakeStore(0)})
-	require.ErrorContains(t, err, "store name is required")
+// A store lagging by more than the block interval still takes every height the leader takes, since
+// the height is held until it arrives. The heights are no longer spaced by the interval alone: each
+// one waits out the lag as well, which is the cadence cost of keeping the stores together.
+func TestEveryStoreTakesTheSameHeightsHoweverFarBehind(t *testing.T) {
+	scheduler := newScheduler(0, 100)
+
+	leaderTook, laggardTook := walkLeaderAndLaggard(scheduler, 1000, 150, 0)
+
+	require.Equal(t, []int64{100, 200, 351, 502, 653, 804, 955}, leaderTook)
+	require.Equal(t, []int64{200, 351, 502, 653, 804}, laggardTook,
+		"100 predates the laggard's first ask, and it has yet to reach 955")
 }
 
-func TestNewRejectsANilStore(t *testing.T) {
-	_, err := NewCheckpointScheduler(context.Background(), CheckpointConfig{CheckpointInterval: 10},
-		map[string]CheckpointableStore{"ss": nil})
-	require.ErrorContains(t, err, "is nil")
+func TestEveryStoreTakesTheSameHeightsOnATimeInterval(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+
+	leaderTook, laggardTook := walkLeaderAndLaggard(scheduler, 1000, 150, 300)
+
+	require.Equal(t, []int64{300, 600, 900}, leaderTook)
+	require.Equal(t, []int64{300, 600}, laggardTook, "the laggard has yet to reach 900")
 }
 
-func TestNewRejectsANegativeInterval(t *testing.T) {
-	_, err := NewCheckpointScheduler(context.Background(), CheckpointConfig{CheckpointInterval: -1}, nil)
-	require.ErrorContains(t, err, "interval must not be negative")
+// The height is held even once the intervals have elapsed, so the leader cannot run ahead onto a
+// height the store behind it would never be offered.
+func TestAHeightIsHeldUntilEveryStoreHasReportedIt(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+	require.True(t, scheduler.ShouldCheckpoint("ss", 100))
+	scheduler.MarkCheckpointComplete("sc", 100)
+
+	scheduler.elapseTimeInterval()
+	require.False(t, scheduler.ShouldCheckpoint("sc", 200), "ss has not reported 100")
+
+	scheduler.MarkCheckpointComplete("ss", 100)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 300))
 }
 
-func TestNewRejectsANegativeMinTime(t *testing.T) {
-	_, err := NewCheckpointScheduler(context.Background(), CheckpointConfig{
-		CheckpointInterval:        10,
-		MinTimeBetweenCheckpoints: -time.Second,
-	}, nil)
-	require.ErrorContains(t, err, "minimum time between checkpoints must not be negative")
+// A store whose first ask lands while a height is held is not one of the stores that height waits
+// for: it may already be past that version, and holding for it would wedge the schedule.
+func TestAStoreRegisteringWhileAHeightIsHeldJoinsTheNextOne(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+
+	require.False(t, scheduler.ShouldCheckpoint("ss", 150), "ss registers by asking")
+	scheduler.MarkCheckpointComplete("sc", 100)
+
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 200))
+	scheduler.MarkCheckpointComplete("sc", 200)
+	scheduler.elapseTimeInterval()
+	require.False(t, scheduler.ShouldCheckpoint("sc", 300), "200 is now held for ss as well")
 }
 
-// A scheduler with no stores has nobody to checkpoint, so run returns without a loop.
-func TestAnEmptyStoreSetRunsNoLoop(t *testing.T) {
-	scheduler := newScheduler(t, 10, nil)
+// ---------------------------------------------------------------------------
+// Completion
+// ---------------------------------------------------------------------------
 
-	require.NoError(t, scheduler.Start())
-	requireLoopStopped(t, scheduler)
-	require.False(t, scheduler.CheckpointInProgress())
-	require.NoError(t, scheduler.Close())
+// A height one store never reports stops the scheduler for good: no later height is picked however
+// long the intervals have had to elapse, and nothing recovers short of a restart. This is the cost
+// of a store skipping MarkCheckpointComplete, which its doc comment requires on every path.
+func TestAnUnreportedHeightStopsTheScheduler(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+	scheduler.MarkCheckpointComplete("sc", 100)
+
+	// ss registered before 200 was picked, then never reports it.
+	require.False(t, scheduler.ShouldCheckpoint("ss", 150))
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 200))
+	scheduler.MarkCheckpointComplete("sc", 200)
+
+	for _, height := range []int64{300, 400, 500} {
+		scheduler.elapseTimeInterval()
+		require.False(t, scheduler.ShouldCheckpoint("sc", height), "ss never reported 200")
+	}
 }
 
-// Interval 0 turns checkpointing off. run returns without a loop so a cycle never divides by zero.
-func TestAZeroIntervalRunsNoLoop(t *testing.T) {
-	store := newFakeStore(0)
-	scheduler := newScheduler(t, 0, map[string]*fakeStore{"only": store})
+// Reporting a height whose checkpoint failed is what keeps the scheduler moving, which is why the
+// call carries no success flag: a store defers it and the next height comes due as usual.
+func TestReportingAFailedHeightKeepsTheSchedulerMoving(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
 
-	require.NoError(t, scheduler.Start())
-	requireLoopStopped(t, scheduler)
-	require.Empty(t, store.offeredTargets())
-	require.False(t, scheduler.CheckpointInProgress())
-	require.NoError(t, scheduler.Close())
+	scheduler.MarkCheckpointComplete("sc", 100)
+
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 200))
 }
 
-func TestCloseIsIdempotentAndSafeBeforeStart(t *testing.T) {
-	scheduler := newScheduler(t, 10, nil)
+// The interval runs from the last store finishing rather than the first, so the gap to the next
+// checkpoint is not spent by a store that is still writing this one.
+func TestTheIntervalRunsFromTheLastStoreCompleting(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+	require.True(t, scheduler.ShouldCheckpoint("ss", 100))
 
-	require.NoError(t, scheduler.Close())
-	require.NoError(t, scheduler.Close())
-	require.ErrorContains(t, scheduler.Start(), "closed")
+	scheduler.MarkCheckpointComplete("sc", 100)
+	afterFirst := scheduler.checkpointedAt
+	scheduler.MarkCheckpointComplete("ss", 100)
+
+	require.True(t, scheduler.checkpointedAt.After(afterFirst))
 }
 
-func TestCloseStopsTheRunLoop(t *testing.T) {
-	scheduler := newScheduler(t, 10, map[string]*fakeStore{"only": newFakeStore(0)})
-	require.NoError(t, scheduler.Start())
+func TestMarkCheckpointCompleteIgnoresAnotherVersion(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
 
-	require.NoError(t, scheduler.Close())
+	scheduler.MarkCheckpointComplete("sc", 99)
+	scheduler.MarkCheckpointComplete("sc", 101)
 
-	requireLoopStopped(t, scheduler)
+	require.True(t, scheduler.checkpointOutstanding(), "neither version is the height being held")
 }
 
-// Cancelling the context ends the run loop. Asserted as the loop exiting rather than as an absence of
-// further offers: the loop selects over the ticker and the cancellation together, so a cycle already
-// runnable at the moment of cancellation may still run, and a test forbidding that fails a few runs in
-// a thousand.
-func TestCancellingTheContextStopsTheRunLoop(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	scheduler, err := NewCheckpointScheduler(ctx, CheckpointConfig{CheckpointInterval: 10},
-		map[string]CheckpointableStore{"only": newFakeStore(0)})
-	require.NoError(t, err)
-	require.NoError(t, scheduler.Start())
+func TestMarkCheckpointCompleteIgnoresAnUnregisteredStore(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+	require.True(t, scheduler.ShouldCheckpoint("ss", 100))
 
-	cancel()
+	scheduler.MarkCheckpointComplete("receipt", 100)
 
-	requireLoopStopped(t, scheduler)
-	require.NoError(t, scheduler.Close())
+	require.True(t, scheduler.checkpointOutstanding(), "the height is still held for sc and ss")
+}
+
+// A store reporting a height it already reported must not restart the intervals, which would push
+// the next checkpoint out every time a straggler that took the height late reports.
+func TestARepeatedReportDoesNotRestartTheIntervals(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+
+	scheduler.MarkCheckpointComplete("sc", 100)
+	completedAt := scheduler.checkpointedAt
+	scheduler.MarkCheckpointComplete("sc", 100)
+
+	require.Equal(t, completedAt, scheduler.checkpointedAt)
 }
