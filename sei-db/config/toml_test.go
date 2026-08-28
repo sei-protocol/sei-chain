@@ -102,6 +102,10 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "ss-enable-read-write-metrics = false", "Missing state-store read/write metrics flag")
 	require.Contains(t, output, "ss-snapshot-enable = false", "Missing or incorrect ss-snapshot-enable")
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
+	require.Contains(t, output, "<home>/data/state_store/evm/{backend}",
+		"evm-ss-db-directory comment must name the current default path")
+	require.NotContains(t, output, "<home>/data/evm_ss when EVM SS is enabled",
+		"evm-ss-db-directory comment must not name data/evm_ss as the default")
 	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
 }

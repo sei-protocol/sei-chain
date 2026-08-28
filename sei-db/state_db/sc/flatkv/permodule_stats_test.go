@@ -52,18 +52,20 @@ func fullScanModuleStats(t *testing.T, db types.KeyValueDB) map[string]lthash.Mo
 // non-zero counts.
 func verifyModuleStats(t *testing.T, s *CommitStore) {
 	t.Helper()
-	for _, ndb := range s.namedDataDBs() {
-		scanned := fullScanModuleStats(t, ndb.db)
-		working := s.perDBModuleWorkingStats[ndb.dir]
+	requireFlushedToDisk(t, s)
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
+		scanned := fullScanModuleStats(t, db)
+		working := s.perDBModuleWorkingStats[dir]
 
 		for module, want := range scanned {
 			require.Equal(t, want, working[module],
-				"per-module stats mismatch for %s/%s", ndb.dir, module)
+				"per-module stats mismatch for %s/%s", dir, module)
 		}
 		for module, got := range working {
 			if _, ok := scanned[module]; !ok {
 				require.Equal(t, lthash.ModuleStats{}, got,
-					"stale non-zero working stats for emptied module %s/%s", ndb.dir, module)
+					"stale non-zero working stats for emptied module %s/%s", dir, module)
 			}
 		}
 	}
@@ -178,10 +180,10 @@ func TestPerModuleStatsPersistenceAfterReopen(t *testing.T) {
 
 	// On-disk LocalMeta carries the same stats.
 	dbInstances := map[string]types.KeyValueDB{
-		accountDBDir: s2.accountDB,
-		codeDBDir:    s2.codeDB,
-		storageDBDir: s2.storageDB,
-		miscDBDir:    s2.miscDB,
+		accountDBDir: s2.rawDBFor(accountDBDir),
+		codeDBDir:    s2.rawDBFor(codeDBDir),
+		storageDBDir: s2.rawDBFor(storageDBDir),
+		miscDBDir:    s2.rawDBFor(miscDBDir),
 	}
 	for dir, db := range dbInstances {
 		meta, err := loadLocalMeta(db)

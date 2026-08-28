@@ -238,6 +238,12 @@ func TestFlatKVOnlySnapshotRestoreAppHashParity(t *testing.T) {
 		snapshotRecord = simulateFlatKVOnlyBlock(t, srcStore, srcKeys, block, evmData)
 	}
 
+	// The snapshot below is taken at height 8, so the source must actually be at 8. Comparing a source
+	// at one height against a restore of another compares two different moments in history, and the
+	// mismatched hashes that result look like corruption rather than a height bug.
+	require.Equal(t, int64(8), srcStore.LastCommitID().Version,
+		"eight blocks must leave the source at height 8 for the snapshot height to mean what it says")
+
 	srcLattice := findStoreInfo(srcStore.lastCommitInfo.StoreInfos, "evm_lattice")
 	require.NotNil(t, srcLattice)
 	require.NotEmpty(t, srcLattice.CommitId.Hash)
