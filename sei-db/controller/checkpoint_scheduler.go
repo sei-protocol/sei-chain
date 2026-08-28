@@ -83,7 +83,7 @@ func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool
 	if s.alreadyRejected(version) {
 		return false
 	}
-	if !(s.allStoresCheckpointed() && s.hasReachedNextInterval(version)) {
+	if !s.allStoresCheckpointed() || !s.hasReachedNextInterval(version) {
 		s.rejectedVersion = version
 		return false
 	}
