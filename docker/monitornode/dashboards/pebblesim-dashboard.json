@@ -31,8 +31,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Insertion Throughput (slots/sec)",
-      "description": "rate of pebblesim_slots_written_total — individual storage-slot writes per second, not batches.",
+      "title": "Insertion Throughput by Kind (writes/sec)",
+      "description": "rate of pebblesim_keys_written_total by kind — individual key/value writes per second (slot/balance/nonce), not batches. Confirms the configured 60/25/15 mix is landing as expected.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 2,
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
@@ -78,10 +78,10 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "rate(pebblesim_slots_written_total[$__rate_interval])",
+          "expr": "rate(pebblesim_keys_written_total[$__rate_interval])",
           "range": true,
           "refId": "A",
-          "legendFormat": "slots/s"
+          "legendFormat": "{{kind}}"
         }
       ]
     },
@@ -628,7 +628,7 @@
     {
       "type": "timeseries",
       "title": "Compaction Throughput (bytes/sec)",
-      "description": "rate(pebble_compaction_bytes_written/_read), summed across levels. Rising alongside data-dir size while insertion throughput stays flat is compaction falling behind.",
+      "description": "rate(pebble_compaction_bytes_written_total/_read_total), summed across levels and (if SeparateEVMSubDBs) DBs. Rising alongside data-dir size while insertion throughput stays flat is compaction falling behind.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 13,
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 43 },
@@ -674,7 +674,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "sum(rate(pebble_compaction_bytes_written[$__rate_interval]))",
+          "expr": "sum(rate(pebble_compaction_bytes_written_total[$__rate_interval]))",
           "range": true,
           "refId": "A",
           "legendFormat": "written"
@@ -682,7 +682,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "sum(rate(pebble_compaction_bytes_read[$__rate_interval]))",
+          "expr": "sum(rate(pebble_compaction_bytes_read_total[$__rate_interval]))",
           "range": true,
           "refId": "B",
           "legendFormat": "read"
@@ -692,7 +692,7 @@
     {
       "type": "timeseries",
       "title": "Compaction & Flush Count / sec",
-      "description": "rate(pebble_compaction_count) / rate(pebble_flush_count). A climbing compaction rate with a flat flush rate is the LSM working harder to absorb the same amount of new data — the write-amplification signal.",
+      "description": "rate(pebble_compaction_count_total) / rate(pebble_flush_count_total). A climbing compaction rate with a flat flush rate is the LSM working harder to absorb the same amount of new data — the write-amplification signal.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 14,
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 43 },
@@ -738,7 +738,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "rate(pebble_compaction_count[$__rate_interval])",
+          "expr": "rate(pebble_compaction_count_total[$__rate_interval])",
           "range": true,
           "refId": "A",
           "legendFormat": "compactions/s"
@@ -746,7 +746,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "rate(pebble_flush_count[$__rate_interval])",
+          "expr": "rate(pebble_flush_count_total[$__rate_interval])",
           "range": true,
           "refId": "B",
           "legendFormat": "flushes/s"
@@ -756,7 +756,7 @@
     {
       "type": "timeseries",
       "title": "Flush Throughput (bytes/sec)",
-      "description": "rate(pebble_flush_bytes_written) — how fast the memtable is draining to disk. Should roughly track insertion throughput; falling behind it while the memtable/WAL panel trends up is the earliest sign of trouble.",
+      "description": "rate(pebble_flush_bytes_written_total) — how fast the memtable is draining to disk. Should roughly track insertion throughput; falling behind it while the memtable/WAL panel trends up is the earliest sign of trouble.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 15,
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 43 },
@@ -802,7 +802,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "rate(pebble_flush_bytes_written[$__rate_interval])",
+          "expr": "rate(pebble_flush_bytes_written_total[$__rate_interval])",
           "range": true,
           "refId": "A",
           "legendFormat": "bytes/s"
@@ -820,6 +820,6 @@
   "timezone": "browser",
   "title": "PebbleSim",
   "uid": "pebblesim-main",
-  "version": 3,
+  "version": 5,
   "weekStart": ""
 }

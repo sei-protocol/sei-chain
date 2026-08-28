@@ -21,7 +21,7 @@ type simMetrics struct {
 	batchDuration  metric.Float64Histogram
 	writeDuration  metric.Float64Histogram
 	batchesWritten metric.Int64Counter
-	slotsWritten   metric.Int64Counter
+	keysWritten    metric.Int64Counter
 	deadlineMisses metric.Int64Counter
 }
 
@@ -42,9 +42,9 @@ func newSimMetrics() *simMetrics {
 		"pebblesim_batches_written_total",
 		metric.WithDescription("Total batches successfully written"),
 	)
-	slotsWritten, _ := meter.Int64Counter(
-		"pebblesim_slots_written_total",
-		metric.WithDescription("Total storage-slot key/value pairs successfully written"),
+	keysWritten, _ := meter.Int64Counter(
+		"pebblesim_keys_written_total",
+		metric.WithDescription("Total key/value pairs successfully written, labeled by kind (slot, balance, nonce)"),
 	)
 	deadlineMisses, _ := meter.Int64Counter(
 		"pebblesim_deadline_misses_total",
@@ -54,7 +54,7 @@ func newSimMetrics() *simMetrics {
 		batchDuration:  batchDuration,
 		writeDuration:  writeDuration,
 		batchesWritten: batchesWritten,
-		slotsWritten:   slotsWritten,
+		keysWritten:    keysWritten,
 		deadlineMisses: deadlineMisses,
 	}
 }

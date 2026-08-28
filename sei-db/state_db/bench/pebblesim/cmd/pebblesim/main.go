@@ -25,7 +25,7 @@ func run() error {
 
 	dataDir := flag.String("dir", "./pebblesim-data", "PebbleDB data directory")
 	metricsAddr := flag.String("metrics-addr", ":9099", "address to serve Prometheus-format metrics on")
-	batchSize := flag.Int("batch-size", cfg.BatchSize, "storage-slot writes per batch")
+	batchSize := flag.Int("batch-size", cfg.BatchSize, "key/value writes per batch (split 60/25/15 across slots/balances/nonces)")
 	interval := flag.Duration("interval", cfg.BatchInterval, "time between batches")
 	numContracts := flag.Int("contracts", cfg.NumContracts, "number of simulated contracts")
 	slotsPerContract := flag.Int64("slots-per-contract", cfg.SlotsPerContract, "slot index range per contract")
@@ -65,7 +65,7 @@ func run() error {
 		{Name: "data_dir", Path: cfg.DataDir, TrackAvailableSpace: true},
 	})
 
-	log.Printf("writing %d storage slots every %s to %s (metrics at http://localhost%s/metrics)",
+	log.Printf("writing %d keys (60%% slots / 25%% balances / 15%% nonces) every %s to %s (metrics at http://localhost%s/metrics)",
 		cfg.BatchSize, cfg.BatchInterval, cfg.DataDir, *metricsAddr)
 
 	ticker := time.NewTicker(cfg.BatchInterval)
@@ -77,7 +77,7 @@ func run() error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("stopping at version %d, %d slots written, %d deadline misses, in %s",
+			log.Printf("stopping at version %d, %d keys written, %d deadline misses, in %s",
 				sim.Version(), written, missed, time.Since(start).Round(time.Second))
 			return nil
 		case <-ticker.C:
@@ -95,7 +95,7 @@ func run() error {
 					generate, cfg.BatchInterval, missed)
 				continue
 			}
-			log.Printf("version %d: %d slots written in %s (write %s, generate %s) (%d total)",
+			log.Printf("version %d: %d keys written in %s (write %s, generate %s) (%d total)",
 				result.Version, cfg.BatchSize, result.Total.Round(time.Millisecond), result.Write.Round(time.Millisecond),
 				generate, written)
 		}
