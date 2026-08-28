@@ -396,6 +396,7 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 	tmpPath, err := checkpointDatabases(
 		s.ctx, s.flatkvDir(), blockView, s.checkpointables(), s.phaseTimer)
 	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("checkpoint databases at version %d: %w", version, err)
 	}
 	if err := blockView.release(); err != nil {

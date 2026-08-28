@@ -175,24 +175,29 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) err
 
 	previous, err := s.lastSealed.get()
 	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("read previous block's view: %w", err)
 	}
 
 	if err := s.hashSealedBlock(blockView, previous); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("hash sealed block: %w", err)
 	}
 	if err := previous.release(); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("release previous block's reservations: %w", err)
 	}
 
 	s.phaseTimer.SetPhase("commit_finalize_stores")
 	for _, dbView := range blockView.viewSlice {
 		if err := s.finalizeStore(dbView, version, alreadyHave); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
 			return fmt.Errorf("finalize %s: %w", dbView.Name(), err)
 		}
 	}
 
 	if err := s.lastSealed.set(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("install block %d: %w", version, err)
 	}
 	if err := blockView.release(); err != nil {
@@ -235,14 +240,17 @@ func (s *CommitStore) commitStores(version int64) (*storeView, error) {
 	}
 	code, err := commit(s.codeStore)
 	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return nil, err
 	}
 	storage, err := commit(s.storageStore)
 	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return nil, err
 	}
 	misc, err := commit(s.miscStore)
 	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return nil, err
 	}
 	return newStoreView(version, account, code, storage, misc)
@@ -377,6 +385,7 @@ func (s *CommitStore) offerToSnapshotWriter() error {
 		return fmt.Errorf("read latest sealed view: %w", err)
 	}
 	if err := s.snapshotWriter.Offer(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return err
 	}
 	if err := blockView.release(); err != nil {
@@ -391,6 +400,7 @@ func (s *CommitStore) offerToSnapshotWriter() error {
 func (s *CommitStore) replaceSealedView(blockView *storeView) error {
 	if s.lastSealed != nil {
 		if err := s.lastSealed.Close(); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
 			return fmt.Errorf("retire previous sealed view: %w", err)
 		}
 		s.lastSealed = nil
@@ -418,6 +428,7 @@ func (s *CommitStore) flushLatestVersion() error {
 		return fmt.Errorf("read latest sealed view: %w", err)
 	}
 	if err := blockView.awaitFlush(s.ctx); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("await flush: %w", err)
 	}
 	if err := blockView.release(); err != nil {
@@ -514,11 +525,13 @@ func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
 
 	for _, dbView := range blockView.viewSlice {
 		if err := s.finalizeStore(dbView, seededVersion, nil); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
 			return fmt.Errorf("%s finalize seeded version: %w", dbView.Name(), err)
 		}
 	}
 
 	if err := s.replaceSealedView(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("install seeded version: %w", err)
 	}
 	if err := blockView.release(); err != nil {
@@ -537,11 +550,13 @@ func (s *CommitStore) sealBaseline() error {
 
 	for _, dbView := range blockView.viewSlice {
 		if err := dbView.Finalize(nil); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
 			return fmt.Errorf("%s finalize baseline: %w", dbView.Name(), err)
 		}
 	}
 
 	if err := s.replaceSealedView(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("install baseline: %w", err)
 	}
 	if err := blockView.release(); err != nil {

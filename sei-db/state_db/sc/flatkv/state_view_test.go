@@ -109,6 +109,44 @@ func TestOpenViewCloseReturnsReservation(t *testing.T) {
 	requireFlushedToDisk(t, s)
 }
 
+// A store with no sealed block has no view to hand out, and says so. Teardown clears the holder, so
+// without an answer here the read path would dereference nil and report nothing about what went wrong.
+func TestOpenViewOnClosedStoreReportsTheStoreIsNotOpen(t *testing.T) {
+	s := setupTestStore(t)
+	commitNonce(t, s, 1, addrN(1), 7)
+	require.NoError(t, s.Close())
+
+	require.PanicsWithValue(t,
+		"flatkv: OpenView: no sealed block: the store is not open",
+		func() { s.OpenView() })
+}
+
+// A second Close must not hand back a reservation this view no longer owns. The damaging case is
+// silent: while the store still has the same block installed, the extra release takes that
+// reservation's count to zero with no error reported, retiring a view the store believes is live. The
+// commits below are what surface it — sealing the next block reserves the installed view, which now
+// fails as retired.
+func TestOpenViewCloseIsIdempotent(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	addr := addrN(1)
+	commitNonce(t, s, 1, addr, 7)
+
+	stateView := s.OpenView()
+	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)))
+	stateView.Close()
+	stateView.Close()
+
+	commitNonce(t, s, 2, addr, 8)
+	commitNonce(t, s, 3, addr, 9)
+	requireFlushedToDisk(t, s)
+
+	latest := s.OpenView()
+	defer latest.Close()
+	require.Equal(t, uint64(9), latest.GetNonce(gigaAddr(addr)))
+}
+
 // The EVM accessors are the read surface the executor actually uses, so each one is pinned against a
 // present account, and against an address that was never written.
 func TestStateViewEVMAccessors(t *testing.T) {
@@ -147,8 +185,8 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(eoa)
 		require.True(t, stateView.AccountExists(addr))
 		require.Equal(t, uint64(9), stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetCodeHash(addr),
-			"nothing was stored, so nothing is reported")
+		require.Equal(t, giga.EmptyCodeHash, stateView.GetCodeHash(addr),
+			"an account that exists with no code hashes as keccak256(\"\"), not as zero")
 		require.Nil(t, stateView.GetCode(addr))
 		require.Zero(t, stateView.GetCodeSize(addr))
 	})
@@ -157,7 +195,8 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(missing)
 		require.False(t, stateView.AccountExists(addr))
 		require.Zero(t, stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetCodeHash(addr))
+		require.Equal(t, giga.Hash{}, stateView.GetCodeHash(addr),
+			"an account that does not exist hashes as zero, not as keccak256(\"\")")
 		require.Nil(t, stateView.GetCode(addr))
 		require.Zero(t, stateView.GetCodeSize(addr))
 		require.Equal(t, giga.Hash{}, stateView.GetStorage(addr, giga.Hash(slot)))
@@ -165,9 +204,10 @@ func TestStateViewEVMAccessors(t *testing.T) {
 }
 
 // The view is an alternate way to read data FlatKV already serves, so every accessor must answer what
-// CommitStore.Get answers for the same key at the same height. This walks addresses covering a
-// contract, an account with no code, and one that was never written, and holds the two paths against
-// each other rather than against hand-written expectations.
+// CommitStore.Get answers for the same key at the same height, apart from the one code-hash case the
+// loop below spells out. This walks addresses covering a contract, an account with no code, and one
+// that was never written, and holds the two paths against each other rather than against hand-written
+// expectations.
 func TestStateViewAgreesWithStoreReads(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
@@ -186,6 +226,26 @@ func TestStateViewAgreesWithStoreReads(t *testing.T) {
 	stateView := s.OpenView()
 	defer stateView.Close()
 
+	// Get is the surface where the two paths must agree byte for byte, since it is the one that used to
+	// answer with the whole stored row.
+	for _, key := range [][]byte{
+		keys.BuildEVMKey(keys.EVMKeyNonce, contract[:]),
+		keys.BuildEVMKey(keys.EVMKeyCodeHash, contract[:]),
+		keys.BuildEVMKey(keys.EVMKeyCode, contract[:]),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(contract, setSlot)),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(contract, unsetSlot)),
+		keys.BuildEVMKey(keys.EVMKeyNonce, eoa[:]),
+		keys.BuildEVMKey(keys.EVMKeyCodeHash, eoa[:]),
+		keys.BuildEVMKey(keys.EVMKeyCode, eoa[:]),
+		keys.BuildEVMKey(keys.EVMKeyNonce, missing[:]),
+		keys.BuildEVMKey(keys.EVMKeyCodeHash, missing[:]),
+	} {
+		wantValue, wantFound := s.Get(keys.EVMStoreKey, key)
+		gotValue, gotFound := stateView.Get(keys.EVMStoreKey, key)
+		require.Equal(t, wantFound, gotFound, "Get found %x", key)
+		require.Equal(t, wantValue, gotValue, "Get value %x", key)
+	}
+
 	for _, addr := range []ktype.Address{contract, eoa, missing} {
 		for _, slot := range []ktype.Slot{setSlot, unsetSlot} {
 			raw, found := s.Get(keys.EVMStoreKey,
@@ -195,6 +255,7 @@ func TestStateViewAgreesWithStoreReads(t *testing.T) {
 		}
 
 		raw, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+		accountExists := found
 		var wantNonce uint64
 		if found {
 			wantNonce = binary.BigEndian.Uint64(raw)
@@ -202,7 +263,14 @@ func TestStateViewAgreesWithStoreReads(t *testing.T) {
 		require.Equal(t, wantNonce, stateView.GetNonce(gigaAddr(addr)), "nonce %x", addr)
 
 		raw, found = s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
-		require.Equal(t, hashOrZero(raw, found), stateView.GetCodeHash(gigaAddr(addr)), "code hash %x", addr)
+		wantCodeHash := hashOrZero(raw, found)
+		if !found && accountExists {
+			// The one place the view answers differently on purpose. The store reports a codeless
+			// account's hash as absent; EVM semantics require the empty-code hash there, and only an
+			// account that does not exist at all hashes as zero.
+			wantCodeHash = giga.EmptyCodeHash
+		}
+		require.Equal(t, wantCodeHash, stateView.GetCodeHash(gigaAddr(addr)), "code hash %x", addr)
 
 		raw, found = s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
 		if !found {
@@ -222,8 +290,9 @@ func hashOrZero(raw []byte, found bool) giga.Hash {
 }
 
 // Balance has no key kind yet, so nothing can write one (store_apply.go passes nil balance changes).
-// The accessor still has to answer, and zero is the answer until that lands.
-func TestStateViewBalanceIsZeroUntilWritable(t *testing.T) {
+// Refusing is the only honest answer: zero would be indistinguishable from a real zero balance, and
+// the caller has no way to tell the two apart. The account below has a nonce, so its row does exist.
+func TestStateViewBalancePanicsUntilWritable(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 
@@ -233,13 +302,16 @@ func TestStateViewBalanceIsZeroUntilWritable(t *testing.T) {
 	stateView := s.OpenView()
 	defer stateView.Close()
 
-	require.Equal(t, giga.Hash{}, stateView.GetBalance(gigaAddr(addr)))
+	require.PanicsWithValue(t,
+		"flatkv: GetBalance is unimplemented; FlatKV does not store balances",
+		func() { stateView.GetBalance(gigaAddr(addr)) })
 }
 
-// Get hands back whole rows and interprets none of them. That is the whole reason it exists alongside
-// the EVM accessors, so each row type is checked to deserialize into the record that was written —
-// not into the one field a caller happened to ask for.
-func TestStateViewGetReturnsWholeRows(t *testing.T) {
+// Get answers with the value alone. Each row is stored as version||blockHeight||value, so returning
+// the row would hand every caller the height the key was last modified at — a separate question with
+// no accessor here. Each case therefore asserts the exact bytes, length included, since a header
+// creeping back in would still deserialize.
+func TestStateViewGetReturnsValues(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 
@@ -264,56 +336,43 @@ func TestStateViewGetReturnsWholeRows(t *testing.T) {
 	stateView := s.OpenView()
 	defer stateView.Close()
 
-	t.Run("account row carries every field", func(t *testing.T) {
-		raw, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	t.Run("nonce", func(t *testing.T) {
+		value, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 		require.True(t, found)
-
-		account, err := vtype.DeserializeAccountData(raw)
-		require.NoError(t, err)
-		require.Equal(t, uint64(5), account.GetNonce())
-		require.Equal(t, codeHash, *account.GetCodeHash(),
-			"the row must arrive whole; a nonce key is not a request for the nonce field alone")
+		require.Len(t, value, vtype.NonceLen, "a nonce is 8 bytes; anything longer is row header")
+		require.Equal(t, uint64(5), binary.BigEndian.Uint64(value))
 	})
 
-	t.Run("storage row", func(t *testing.T) {
-		raw, found := stateView.Get(keys.EVMStoreKey,
+	t.Run("code hash", func(t *testing.T) {
+		value, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
+		require.True(t, found)
+		require.Equal(t, codeHash[:], value,
+			"a code-hash key reads the account row but answers with that one field")
+	})
+
+	t.Run("storage", func(t *testing.T) {
+		value, found := stateView.Get(keys.EVMStoreKey,
 			keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
 		require.True(t, found)
-
-		storage, err := vtype.DeserializeStorageData(raw)
-		require.NoError(t, err)
-		require.Equal(t, padLeft32(0xEE), storage.GetValue()[:])
+		require.Equal(t, padLeft32(0xEE), value)
 	})
 
-	t.Run("code row", func(t *testing.T) {
-		raw, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
+	t.Run("code", func(t *testing.T) {
+		value, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
 		require.True(t, found)
-
-		code, err := vtype.DeserializeCodeData(raw)
-		require.NoError(t, err)
-		require.Equal(t, bytecode, code.GetBytecode())
+		require.Equal(t, bytecode, value)
 	})
 
 	t.Run("non-EVM module", func(t *testing.T) {
-		raw, found := stateView.Get("bank", []byte("balances/x"))
+		value, found := stateView.Get("bank", []byte("balances/x"))
 		require.True(t, found)
-
-		misc, err := vtype.DeserializeMiscData(raw)
-		require.NoError(t, err)
-		require.Equal(t, []byte("v"), misc.GetValue())
+		require.Equal(t, []byte("v"), value,
+			"a one-byte value must arrive one byte long, not with a header in front of it")
 	})
 
 	t.Run("absent key", func(t *testing.T) {
 		absent := addrN(9)
 		_, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, absent[:]))
 		require.False(t, found)
-	})
-
-	t.Run("code hash key is refused", func(t *testing.T) {
-		// FlatKV keeps nonce, balance and code hash in one row, so a code hash key names a field
-		// rather than a row. Serving it would make Get a field accessor by the back door.
-		require.Panics(t, func() {
-			stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
-		})
 	})
 }

@@ -38,7 +38,16 @@ func newAtomicStoreView(initialView *storeView) (*atomicStoreView, error) {
 }
 
 // get() returns the installed view with a reservation the caller owns and must release exactly once.
+//
+// It reports an error rather than dereferencing nil when there is no atomicStoreView at all. The store
+// holds one only while its view managers exist, so this is the answer on a store that was never opened
+// or has been closed, and it is given here because every read path reaches the store's view through
+// this one call.
 func (asv *atomicStoreView) get() (*storeView, error) {
+	if asv == nil {
+		return nil, fmt.Errorf("no sealed block: the store is not open")
+	}
+
 	asv.mu.RLock()
 	defer asv.mu.RUnlock()
 

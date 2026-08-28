@@ -15,6 +15,16 @@ type Address [AddressLen]byte
 // and code hashes. Like Address, it can be freely converted to/from common.Hash or evmc.Hash.
 type Hash [HashLen]byte
 
+// EmptyCodeHash is keccak256 of the empty byte string, the code hash EVM semantics assign to an
+// account that exists and holds no code. Written out rather than imported from go-ethereum for the
+// same reason Address and Hash are declared here, and pinned against ethtypes.EmptyCodeHash by test.
+var EmptyCodeHash = Hash{
+	0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c,
+	0x92, 0x7e, 0x7d, 0xb2, 0xdc, 0xc7, 0x03, 0xc0,
+	0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b,
+	0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
+}
+
 // StateView is a read-only, point-in-time view over the store's raw
 // key/value data, plus (via the embedded EVMStateView) EVM-specific
 // accessors for account/storage/code/balance/nonce reads.
@@ -27,9 +37,11 @@ type StateView interface {
 	// GetBlockHeight returns the block height of this view.
 	GetBlockHeight() int64
 
-	// Get returns the raw value stored under key in this view, and
-	// whether it was found. It never observes writes made after the
-	// view was opened.
+	// Get returns the value stored under key in this view, and whether it
+	// was found. It never observes writes made after the view was opened.
+	//
+	// The value alone. Bookkeeping the store keeps alongside it, such as the
+	// height the key was last modified at, is not part of the answer.
 	//
 	// Get does not return an error: internal database failures are expected
 	// to panic so the process crashes rather than continuing with corrupt or incomplete state.
@@ -73,9 +85,9 @@ type EVMStateView interface {
 	GetCodeSize(addr Address) int
 
 	// GetCodeHash returns the hash of addr's contract code.
-	// Returns the empty-code hash (keccak256("")) for existing accounts
-	// with no code (e.g. EOAs with balance/nonce), and the zero Hash for
-	// accounts that do not exist. Matches EXTCODEHASH / keeper.GetCodeHash.
+	// Returns EmptyCodeHash for an account that exists with no code, and the zero
+	// Hash for an account that does not exist or has been deleted.
+	// Matches EXTCODEHASH / keeper.GetCodeHash.
 	// Panics on underlying database errors.
 	GetCodeHash(addr Address) Hash
 

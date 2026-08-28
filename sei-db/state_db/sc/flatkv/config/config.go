@@ -131,7 +131,7 @@ func DefaultConfig() *Config {
 		AsyncWriteBuffer:          0,
 		SnapshotInterval:          10000,
 		SnapshotKeepRecent:        1,
-		MaxSnapshotLagBlocks:      512,
+		MaxSnapshotLagBlocks:      64,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
 		AccountStoreConfig:        defaultStoreConfig("account"),

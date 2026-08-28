@@ -74,7 +74,7 @@ func DefaultViewManagerConfig(name string, reservedPrefix string) *ViewManagerCo
 		Name:                         name,
 		MetricsEnabled:               true,
 		MetricsScrapeIntervalSeconds: 10,
-		MaxUnflushedVersions:         1024,
+		MaxUnflushedVersions:         128,
 		TargetBytesPerFlush:          unit.MB * 4,
 		ReservedPrefix:               reservedPrefix,
 		FlushSync:                    false,
