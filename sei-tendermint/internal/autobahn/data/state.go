@@ -152,7 +152,7 @@ func (i *inner) appQCCertifiesRoad(road types.RoadIndex) bool {
 			return n < i.nextAppQC &&
 				bytes.Equal(i.appProposals[n].AppHash(), i.appQCs[n].Proposal().AppHash())
 		}
-		n = max(n+1, p.GlobalRange().Next)
+		n = p.GlobalRange().Next
 	}
 	return false
 }

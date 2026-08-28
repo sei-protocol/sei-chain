@@ -205,7 +205,7 @@ func TestActivateEpoch_IdempotentAndRefusesUnstaged(t *testing.T) {
 	require.Equal(t, ep, r.MustEpoch(2))
 }
 
-func TestPruneBefore_KeepsPending(t *testing.T) {
+func TestPruneBefore_KeepsLatestAndPending(t *testing.T) {
 	r, committee := makeRegistry(t)
 	pk := committee.Lanes().At(0).Validator
 	weights := map[types.PublicKey]uint64{pk: 1}
@@ -214,9 +214,8 @@ func TestPruneBefore_KeepsPending(t *testing.T) {
 	}
 	require.NoError(t, r.StageEpoch(4, weights))
 
-	require.NoError(t, r.PruneBefore(10)) // clamped to live.Next
-	_, err := r.EpochByIndex(5)
-	require.ErrorIs(t, err, types.ErrPruned)
+	require.NoError(t, r.PruneBefore(10)) // clamped to the latest live epoch
+	_ = r.MustEpoch(5)
 	require.Equal(t, utils.Some(types.EpochIndex(6)), r.Pending())
 	require.NoError(t, r.ActivateEpoch(6))
 }
@@ -254,9 +253,8 @@ func TestPruneBefore_DropsDerivedKeepsGenesis(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrPruned)
 	_ = r.MustEpoch(5)
 
-	require.NoError(t, r.PruneBefore(10)) // clamped to live.Next
-	_, err = r.EpochByIndex(5)
-	require.ErrorIs(t, err, types.ErrPruned)
+	require.NoError(t, r.PruneBefore(10)) // latest live epoch is retained
+	_ = r.MustEpoch(5)
 	_ = r.MustEpoch(0)
 	_ = r.MustEpoch(1)
 }
@@ -310,4 +308,25 @@ func TestNewRegistry_RestoresSnapshotPending(t *testing.T) {
 	r3 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
 	require.Equal(t, uint64(2), r3.MustEpoch(2).Committee().Weight(a))
 	require.Equal(t, utils.None[types.EpochIndex](), r3.Pending())
+}
+
+func TestNewRegistry_RestoresLatestAndPendingAfterPrune(t *testing.T) {
+	rng := utils.TestRng()
+	a := types.GenSecretKey(rng).Public()
+	genesis := utils.OrPanic1(types.NewCommittee(map[types.PublicKey]uint64{a: 1}))
+	dir := utils.Some(t.TempDir())
+	weights := map[types.PublicKey]uint64{a: 2}
+
+	r1 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
+	for endEpoch := types.EpochIndex(0); endEpoch < 4; endEpoch++ {
+		require.NoError(t, r1.StageAndActivate(endEpoch, weights))
+	}
+	require.NoError(t, r1.StageEpoch(4, weights))
+	require.NoError(t, r1.PruneBefore(10))
+
+	r2 := utils.OrPanic1(NewRegistry(genesis, 7, time.Unix(10, 0), dir))
+	_ = r2.MustEpoch(5)
+	require.Equal(t, utils.Some(types.EpochIndex(6)), r2.Pending())
+	require.NoError(t, r2.ActivateEpoch(6))
+	require.Equal(t, uint64(2), r2.MustEpoch(6).Committee().Weight(a))
 }

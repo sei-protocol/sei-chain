@@ -280,12 +280,15 @@ func (r *Registry) Pending() utils.Option[types.EpochIndex] {
 	panic("unreachable")
 }
 
-// PruneBefore drops epochs in [live.First, keep). Epochs 0 and 1 are kept.
-// keep is exclusive, clamped to live.Next, and only moves live.First forward.
-// Staged committees are not dropped.
+// PruneBefore drops epochs in [live.First, keep). Epochs 0 and 1 and the
+// latest live epoch are kept. keep is exclusive and only moves live.First
+// forward. Staged committees are not dropped.
 func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 	for s, ctrl := range r.state.Lock() {
-		keep = min(keep, s.live.Next)
+		if s.live.First == s.live.Next {
+			return nil
+		}
+		keep = min(keep, s.live.Next-1)
 		if keep <= s.live.First {
 			return nil
 		}

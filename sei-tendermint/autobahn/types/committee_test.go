@@ -37,15 +37,31 @@ func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 	}
 }
 
-func TestCommitteeEqual_IgnoresZeroWeightsAndMapOrder(t *testing.T) {
+func TestCommitteeEqual_IgnoresMapOrder(t *testing.T) {
 	rng := utils.TestRng()
 	a := GenPublicKey(rng)
 	b := GenPublicKey(rng)
 	c1 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 1}))
-	c2 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{b: 1, a: 3, GenPublicKey(rng): 0}))
+	c2 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{b: 1, a: 3}))
 	require.True(t, c1.Equal(c2))
-	c3 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 2}))
-	require.False(t, c1.Equal(c3))
+}
+
+func TestCommitteeEqual_IgnoresZeroWeights(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenPublicKey(rng)
+	b := GenPublicKey(rng)
+	c1 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3}))
+	c2 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 0}))
+	require.True(t, c1.Equal(c2))
+}
+
+func TestCommitteeEqual_RejectsDifferentWeights(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenPublicKey(rng)
+	b := GenPublicKey(rng)
+	c1 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 1}))
+	c2 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 2}))
+	require.False(t, c1.Equal(c2))
 }
 
 func TestNewCommittee_RejectsZeroTotalWeight(t *testing.T) {
@@ -329,12 +345,18 @@ func TestCommitteeConv_PreservesJoined(t *testing.T) {
 	rng := utils.TestRng()
 	a := GenPublicKey(rng)
 	b := GenPublicKey(rng)
-	src := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 1, b: 1}))
-	src = utils.OrPanic1(src.DeriveNext(map[PublicKey]uint64{a: 2, b: 3}, 4))
+	c := GenPublicKey(rng)
+	d := GenPublicKey(rng)
+	genesis := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 1, c: 3}))
+	src := utils.OrPanic1(genesis.DeriveNext(map[PublicKey]uint64{a: 2, b: 4, c: 3}, 4))
 	got, err := CommitteeConv.Decode(CommitteeConv.Encode(src))
 	require.NoError(t, err)
 	require.Equal(t, src.Lane(a).OrPanic("a"), got.Lane(a).OrPanic("a"))
 	require.Equal(t, src.Lane(b).OrPanic("b"), got.Lane(b).OrPanic("b"))
+	require.Equal(t, src.Lane(c).OrPanic("c"), got.Lane(c).OrPanic("c"))
 	require.Equal(t, uint64(2), got.Weight(a))
-	require.Equal(t, uint64(3), got.Weight(b))
+	require.Equal(t, uint64(4), got.Weight(b))
+	require.Equal(t, uint64(3), got.Weight(c))
+	require.Equal(t, EpochIndex(4), got.Lane(b).OrPanic("b").Joined)
+	require.False(t, got.HasReplica(d))
 }
