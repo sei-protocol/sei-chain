@@ -2224,20 +2224,8 @@ func (cs *State) addProposalBlockPart(
 		for m := range cs.metrics.Lock() {
 			m.MarkBlockGossipComplete()
 		}
-		block, err := cs.getBlockFromBlockParts()
+		block, err := cs.assembleCanonicalProposalBlock()
 		if err != nil {
-			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
-			return false, err
-		}
-		if err := cs.verifyCanonicalProposalParts(block); err != nil {
-			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
-			logger.Error(
-				"rejecting non-canonical proposal block parts",
-				"err", err,
-				"height", height,
-				"round", round,
-				"step", cs.roundState.Step().String(),
-			)
 			return false, err
 		}
 
@@ -2253,7 +2241,31 @@ func (cs *State) addProposalBlockPart(
 	return added, nil
 }
 
-func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
+// assembleCanonicalProposalBlock decodes ProposalBlockParts into a block and
+// reports an error unless those parts match MakePartSet(BlockPartSizeBytes).
+func (cs *State) assembleCanonicalProposalBlock() (*types.Block, error) {
+	block, err := cs.decodeProposalBlockParts()
+	if err != nil {
+		logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
+		return nil, err
+	}
+	if err := cs.verifyCanonicalProposalParts(block); err != nil {
+		Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
+		// Warn: handleMsg already Error-logs "failed to process message" for the
+		// same err; NonCanonicalProposalParts is the alertable signal.
+		logger.Warn(
+			"rejecting non-canonical proposal block parts",
+			"err", err,
+			"height", cs.roundState.Height(),
+			"round", cs.roundState.Round(),
+			"step", cs.roundState.Step().String(),
+		)
+		return nil, err
+	}
+	return block, nil
+}
+
+func (cs *State) decodeProposalBlockParts() (*types.Block, error) {
 	bz, err := io.ReadAll(cs.roundState.ProposalBlockParts().GetReader())
 	if err != nil {
 		return nil, err
@@ -2269,11 +2281,7 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 		return nil, err
 	}
 
-	block, err := types.BlockFromProto(pbb)
-	if err != nil {
-		return nil, err
-	}
-	return block, nil
+	return types.BlockFromProto(pbb)
 }
 
 func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
@@ -2296,21 +2304,8 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	}
 	// If we just have all the parts, reconstruct the block.
 	if parts.IsComplete() {
-		block, err := cs.getBlockFromBlockParts()
+		block, err := cs.assembleCanonicalProposalBlock()
 		if err != nil {
-			// This can happen if the BlockParts header is broken.
-			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
-			return false
-		}
-		if err := cs.verifyCanonicalProposalParts(block); err != nil {
-			Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
-			logger.Error(
-				"rejecting non-canonical proposal block parts",
-				"err", err,
-				"height", cs.roundState.Height(),
-				"round", cs.roundState.Round(),
-				"step", cs.roundState.Step().String(),
-			)
 			return false
 		}
 		cs.roundState.SetProposalBlock(block)
