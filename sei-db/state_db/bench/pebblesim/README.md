@@ -105,7 +105,12 @@ Three places to look, from most to least aggregated:
 
 Since `pebblesim_write_duration_seconds` and `pebblesim_data_dir_size_bytes` are both plain time
 series, "does it get worse as data grows" is a question you answer by graphing them over the same
-long time range, not a metric by itself. Plot p50 and p99 write latency together with data-dir
+long time range, not a metric by itself. The Grafana dashboard's heatmap panel plots the full
+`pebblesim_write_duration_seconds` distribution over time — a shift of the mass toward higher
+buckets is insertion time degrading, and it shows up there even when a p99 line alone would just
+look noisy. `LatencyBuckets` (10μs–5min, dense around 100ms–1s) is what makes that resolution
+possible; the OTel SDK's own default boundaries are far too coarse for a sub-second budget like
+this benchmark's. Alongside the heatmap, plot p50 and p99 write latency together with data-dir
 size:
 
 ```promql

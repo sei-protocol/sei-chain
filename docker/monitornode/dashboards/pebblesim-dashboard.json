@@ -325,12 +325,57 @@
       ]
     },
     {
+      "type": "heatmap",
+      "title": "Pebble Write (Insert) Duration — Heatmap",
+      "description": "Distribution of pebblesim_write_duration_seconds (just ApplyChangesetSync/SetLatestVersion) across LatencyBuckets. A p50/p99 line can hide a shape change; here you can see the whole distribution's mass shift toward higher buckets over time, which is what insertion time actually degrading looks like as the store grows.",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "id": 16,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 17 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "scaleDistribution": { "type": "linear" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "color": {
+          "exponent": 0.5,
+          "fill": "dark-orange",
+          "mode": "scheme",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Oranges",
+          "steps": 64
+        },
+        "exemplars": { "color": "rgba(255,0,255,0.7)" },
+        "filterValues": { "le": 1e-9 },
+        "legend": { "show": true },
+        "rowsFrame": { "layout": "auto" },
+        "tooltip": { "mode": "single", "showColorScale": false, "yHistogram": false },
+        "yAxis": { "axisPlacement": "left", "reverse": false, "unit": "s" }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "editorMode": "code",
+          "expr": "sum(rate(pebblesim_write_duration_seconds_bucket[$__rate_interval])) by (le)",
+          "format": "heatmap",
+          "legendFormat": "{{le}}",
+          "range": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "type": "row",
       "title": "Pebble — Disk Growth",
       "collapsed": false,
       "id": 7,
       "panels": [],
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 }
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 }
     },
     {
       "type": "timeseries",
@@ -338,7 +383,7 @@
       "description": "pebblesim_data_dir_size_bytes / _available_bytes — actual filesystem usage of the whole PebbleDB directory (SSTables + WAL + manifest). The single number for \"is disk growing\".",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 8,
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 18 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 26 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -402,7 +447,7 @@
       "description": "pebble_sstable_total_size{level} — Pebble's own accounting of on-disk SSTable bytes per LSM level. Growth should land mostly in the bottom level (L6) in steady state.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 9,
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 18 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 26 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -458,7 +503,7 @@
       "description": "pebble_sstable_count{level}. Watch L0 specifically — this repo triggers compaction at just 2 L0 files (L0CompactionThreshold), so a climbing L0 count is the earliest warning sign of write stalls.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 10,
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 18 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -514,7 +559,7 @@
       "description": "pebble_memtable_total_size / pebble_wal_size — the not-yet-flushed portion. Should sawtooth back down on each flush; a sustained upward trend instead of sawtoothing means flushes are falling behind.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 11,
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 26 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 34 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -578,7 +623,7 @@
       "collapsed": false,
       "id": 12,
       "panels": [],
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 }
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 }
     },
     {
       "type": "timeseries",
@@ -586,7 +631,7 @@
       "description": "rate(pebble_compaction_bytes_written/_read), summed across levels. Rising alongside data-dir size while insertion throughput stays flat is compaction falling behind.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 13,
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 35 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 43 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -650,7 +695,7 @@
       "description": "rate(pebble_compaction_count) / rate(pebble_flush_count). A climbing compaction rate with a flat flush rate is the LSM working harder to absorb the same amount of new data — the write-amplification signal.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 14,
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 35 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 43 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -714,7 +759,7 @@
       "description": "rate(pebble_flush_bytes_written) — how fast the memtable is draining to disk. Should roughly track insertion throughput; falling behind it while the memtable/WAL panel trends up is the earliest sign of trouble.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "id": 15,
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 35 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 43 },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -775,6 +820,6 @@
   "timezone": "browser",
   "title": "PebbleSim",
   "uid": "pebblesim-main",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

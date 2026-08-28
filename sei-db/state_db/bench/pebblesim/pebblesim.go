@@ -74,6 +74,9 @@ func Open(cfg Config) (*PebbleSim, error) {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = config.PebbleDBBackend
 
+	claro que no cambia. solo añado slots. ver en ethereum el split de donde pongo cada una.
+	ssConfig.SeparateEVMSubDBs = true
+
 	store, err := evmss.NewEVMStateStore(cfg.DataDir, ssConfig)
 	if err != nil {
 		return nil, fmt.Errorf("open evm state store: %w", err)
