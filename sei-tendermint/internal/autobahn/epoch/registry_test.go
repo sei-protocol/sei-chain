@@ -7,9 +7,14 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
+
+type errPersister struct{ err error }
+
+func (e errPersister) Persist(*pb.PersistedEpochRegistry) error { return e.err }
 
 func makeRegistry(t *testing.T) (*Registry, *types.Committee) {
 	t.Helper()
@@ -329,4 +334,40 @@ func TestNewRegistry_RestoresLatestAndPendingAfterPrune(t *testing.T) {
 	require.Equal(t, utils.Some(types.EpochIndex(6)), r2.Pending())
 	require.NoError(t, r2.ActivateEpoch(6))
 	require.Equal(t, uint64(2), r2.MustEpoch(6).Committee().Weight(a))
+}
+
+func TestCommit_PersistFailureLeavesMemoryUnchanged(t *testing.T) {
+	r, committee := makeRegistry(t)
+	pk := committee.Lanes().At(0).Validator
+	weights := map[types.PublicKey]uint64{pk: 1}
+	ok := r.persister
+	disk := errors.New("disk")
+
+	r.persister = errPersister{err: disk}
+	require.ErrorIs(t, r.StageEpoch(0, weights), disk)
+	require.Equal(t, utils.None[types.EpochIndex](), r.Pending())
+
+	r.persister = ok
+	require.NoError(t, r.StageEpoch(0, weights))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), r.Pending())
+
+	r.persister = errPersister{err: disk}
+	require.ErrorIs(t, r.ActivateEpoch(2), disk)
+	require.Equal(t, utils.Some(types.EpochIndex(2)), r.Pending())
+	_, err := r.EpochByIndex(2)
+	require.Error(t, err)
+
+	r.persister = ok
+	require.NoError(t, r.ActivateEpoch(2))
+	_ = r.MustEpoch(2)
+	require.NoError(t, r.StageAndActivate(1, weights))
+	require.NoError(t, r.StageAndActivate(2, weights))
+
+	r.persister = errPersister{err: disk}
+	require.ErrorIs(t, r.PruneBefore(10), disk)
+	_ = r.MustEpoch(2)
+
+	r.persister = ok
+	require.NoError(t, r.PruneBefore(10))
+	_ = r.MustEpoch(4)
 }

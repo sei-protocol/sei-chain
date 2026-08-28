@@ -480,6 +480,68 @@ func TestPushAppHash_ReplayClosingRoadStagesEpoch(t *testing.T) {
 	require.Equal(t, staged, registry.Pending())
 }
 
+func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	base, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	later := keys[1].Public()
+	endWeights := map[types.PublicKey]uint64{keeper: 9}
+	laterWeights := map[types.PublicKey]uint64{later: 4}
+
+	regDir := utils.Some(t.TempDir())
+	registry := utils.OrPanic1(epoch.NewRegistry(
+		base.MustEpoch(0).Committee(),
+		base.FirstBlock(),
+		base.GenesisTimestamp(),
+		regDir,
+	))
+	storeDir := t.TempDir()
+	store := newTestBlockStore(t, storeDir)
+	state := newTestState(t, &Config{Registry: registry}, store)
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+
+	var n1 types.GlobalBlockNumber
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+			return err
+		}
+		n0 := qc0.QC().GlobalRange().Next - 1
+		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng), endWeights); err != nil {
+			return err
+		}
+		qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), qc0.QC().GlobalRange().Next)
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		n1 = qc1.QC().GlobalRange().Next - 1
+		return state.PushAppHash(ctx, n1, types.GenAppHash(rng), laterWeights)
+	}))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+	require.NoError(t, store.Close())
+
+	registry2 := utils.OrPanic1(epoch.NewRegistry(
+		base.MustEpoch(0).Committee(),
+		base.FirstBlock(),
+		base.GenesisTimestamp(),
+		regDir,
+	))
+	store2 := newTestBlockStore(t, storeDir)
+	state2 := newTestState(t, &Config{Registry: registry2}, store2)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state2.Run(ctx)) })
+		return state2.PushAppHash(ctx, n1, types.GenAppHash(rng), laterWeights)
+	}))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry2.Pending())
+	require.NoError(t, registry2.ActivateEpoch(2))
+	got := registry2.MustEpoch(2).Committee()
+	require.Equal(t, uint64(9), got.Weight(keeper))
+	require.False(t, got.HasReplica(later))
+}
+
 func TestPushAppHash_ReplayMidRangeOfClosingRoadDoesNotStage(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

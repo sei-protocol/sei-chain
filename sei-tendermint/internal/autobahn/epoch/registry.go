@@ -3,6 +3,7 @@ package epoch
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -65,6 +66,14 @@ func (s *registryState) activate(idx types.EpochIndex, committee *types.Committe
 	return nil
 }
 
+func (s *registryState) clone() *registryState {
+	return &registryState{
+		m:       maps.Clone(s.m),
+		pending: s.pending,
+		live:    s.live,
+	}
+}
+
 func (s *registryState) snapshot() *pb.PersistedEpochRegistry {
 	snapshot := &pb.PersistedEpochRegistry{
 		Live: make([]*pb.EpochRecord, 0, utils.Clamp[int](s.live.Next-s.live.First)),
@@ -79,6 +88,9 @@ func (s *registryState) snapshot() *pb.PersistedEpochRegistry {
 }
 
 func (s *registryState) restore(snapshot *pb.PersistedEpochRegistry) error {
+	// TODO: a missing pending is restaged on restart from GetValidators() at app
+	// tip, not stake(LastRoad(E)). Use the LastRoad validator set once it is
+	// persisted in app state.
 	if snapshot == nil {
 		return fmt.Errorf("missing")
 	}
@@ -199,6 +211,16 @@ func (r *Registry) EpochAt(roadIndex types.RoadIndex) (*types.Epoch, error) {
 	panic("unreachable")
 }
 
+// commit writes next to disk, then replaces s with next.
+// s is left unchanged if Persist fails.
+func (r *Registry) commit(s, next *registryState) error {
+	if err := r.persister.Persist(next.snapshot()); err != nil {
+		return fmt.Errorf("persist epoch registry: %w", err)
+	}
+	*s = *next
+	return nil
+}
+
 // StageEpoch derives C_{endEpoch+2} from weights and persists it as pending.
 // A no-op if that epoch is already staged or live with the same committee.
 // An error if it conflicts, if the target is not live.Next, or if endEpoch+1
@@ -233,11 +255,9 @@ func (r *Registry) StageEpoch(endEpoch types.EpochIndex, weights map[types.Publi
 			}
 			return nil
 		}
-		s.pending = utils.Some(committee)
-		if err := r.persister.Persist(s.snapshot()); err != nil {
-			return fmt.Errorf("persist epoch registry: %w", err)
-		}
-		return nil
+		next := s.clone()
+		next.pending = utils.Some(committee)
+		return r.commit(s, next)
 	}
 	panic("unreachable")
 }
@@ -256,12 +276,13 @@ func (r *Registry) ActivateEpoch(idx types.EpochIndex) error {
 		if !ok {
 			return fmt.Errorf("epoch %d is not staged", idx)
 		}
-		if err := s.activate(idx, committee); err != nil {
+		next := s.clone()
+		if err := next.activate(idx, committee); err != nil {
 			return err
 		}
-		s.pending = utils.None[*types.Committee]()
-		if err := r.persister.Persist(s.snapshot()); err != nil {
-			return fmt.Errorf("persist epoch registry: %w", err)
+		next.pending = utils.None[*types.Committee]()
+		if err := r.commit(s, next); err != nil {
+			return err
 		}
 		ctrl.Updated()
 		return nil
@@ -292,12 +313,13 @@ func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 		if keep <= s.live.First {
 			return nil
 		}
-		for idx := s.live.First; idx < keep; idx++ {
-			delete(s.m, idx)
+		next := s.clone()
+		for idx := next.live.First; idx < keep; idx++ {
+			delete(next.m, idx)
 		}
-		s.live.First = keep
-		if err := r.persister.Persist(s.snapshot()); err != nil {
-			return fmt.Errorf("persist epoch registry: %w", err)
+		next.live.First = keep
+		if err := r.commit(s, next); err != nil {
+			return err
 		}
 		ctrl.Updated()
 		return nil
