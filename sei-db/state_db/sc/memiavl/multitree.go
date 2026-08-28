@@ -88,10 +88,20 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 
 	treeMap := make(map[string]*Tree, len(entries))
 	treeNames := make([]string, 0, len(entries))
+	// closeOpened releases the snapshots already opened when the load cannot
+	// complete, so a failed load does not leak their mmaps and file handles.
+	closeOpened := func() {
+		for _, tree := range treeMap {
+			if closeErr := tree.Close(); closeErr != nil {
+				logger.Error("failed to close partially loaded tree", "error", closeErr)
+			}
+		}
+	}
 	for _, e := range entries {
 		// Check for cancellation
 		select {
 		case <-ctx.Done():
+			closeOpened()
 			return nil, ctx.Err()
 		default:
 		}
@@ -102,6 +112,7 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 		treeNames = append(treeNames, name)
 		snapshot, err := OpenSnapshot(filepath.Join(dir, name), opts)
 		if err != nil {
+			closeOpened()
 			return nil, err
 		}
 		treeMap[name] = NewFromSnapshot(snapshot, opts)

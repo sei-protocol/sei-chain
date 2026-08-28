@@ -127,3 +127,127 @@ func TestPublishSnapshotRejectsCorruptCandidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(0), current)
 }
+
+// openCommittedDB opens a fresh DB with one store and one committed change,
+// which is the smallest state that exercises the snapshot rewrite paths.
+func openCommittedDB(t *testing.T) (*DB, string) {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "test",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{
+			Key:   []byte("key"),
+			Value: []byte("value"),
+		}}},
+	}}))
+	_, err = db.Commit()
+	require.NoError(t, err)
+	return db, dir
+}
+
+// writeCorruptSnapshotDir plants a directory at path that fails validation.
+func writeCorruptSnapshotDir(t *testing.T, path string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(path, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(path, MetadataFileName), []byte("garbage"), 0o600))
+}
+
+func TestRewriteSnapshotSkipsValidExistingSnapshot(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+
+	targetPath := filepath.Join(dir, snapshotName(db.Version()))
+	before, err := os.Stat(filepath.Join(targetPath, MetadataFileName))
+	require.NoError(t, err)
+
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+
+	after, err := os.Stat(filepath.Join(targetPath, MetadataFileName))
+	require.NoError(t, err)
+	require.Equal(t, before.ModTime(), after.ModTime(), "a valid existing snapshot must be adopted, not rewritten")
+	require.NoDirExists(t, targetPath+"-tmp")
+}
+
+func TestRewriteSnapshotReplacesCorruptExistingSnapshot(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	snapshotDir := snapshotName(db.Version())
+	targetPath := filepath.Join(dir, snapshotDir)
+	writeCorruptSnapshotDir(t, targetPath)
+
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+
+	require.NoError(t, db.validateSnapshot(context.Background(), targetPath))
+	current, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotDir, current)
+}
+
+func TestPublishSnapshotReplacesCorruptExistingTarget(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	snapshotDir := snapshotName(db.Version())
+	tmpPath := filepath.Join(dir, snapshotDir+"-tmp")
+	targetPath := filepath.Join(dir, snapshotDir)
+	require.NoError(t, db.MultiTree.WriteSnapshot(context.Background(), tmpPath, db.snapshotWriterPool))
+	writeCorruptSnapshotDir(t, targetPath)
+
+	require.NoError(t, db.publishSnapshot(context.Background(), tmpPath, targetPath, snapshotDir))
+
+	require.NoError(t, db.validateSnapshot(context.Background(), targetPath))
+	require.NoDirExists(t, tmpPath)
+	current, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotDir, current)
+}
+
+func TestPublishSnapshotAdoptsValidExistingTarget(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	snapshotDir := snapshotName(db.Version())
+	tmpPath := filepath.Join(dir, snapshotDir+"-tmp")
+	targetPath := filepath.Join(dir, snapshotDir)
+	require.NoError(t, db.MultiTree.WriteSnapshot(context.Background(), tmpPath, db.snapshotWriterPool))
+	require.NoError(t, db.MultiTree.WriteSnapshot(context.Background(), targetPath, db.snapshotWriterPool))
+
+	require.NoError(t, db.publishSnapshot(context.Background(), tmpPath, targetPath, snapshotDir))
+
+	require.NoDirExists(t, tmpPath, "the redundant temp must be dropped when the target is adopted")
+	current, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotDir, current)
+}
+
+func TestValidateSnapshotComparesCommitInfo(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	staleTarget := filepath.Join(dir, snapshotName(db.Version()))
+
+	// Another commit moves lastCommitInfo past the published snapshot.
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "test",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{
+			Key:   []byte("key"),
+			Value: []byte("value2"),
+		}}},
+	}}))
+	_, err := db.Commit()
+	require.NoError(t, err)
+
+	err = db.validateSnapshot(context.Background(), staleTarget)
+	require.ErrorContains(t, err, "does not match expected version")
+
+	// A snapshot at the right version but holding different content must be
+	// rejected on its root hash.
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	freshTarget := filepath.Join(dir, snapshotName(db.Version()))
+	require.NoError(t, db.validateSnapshot(context.Background(), freshTarget))
+	db.lastCommitInfo.StoreInfos[0].CommitId.Hash = []byte("not the real root hash")
+	err = db.validateSnapshot(context.Background(), freshTarget)
+	require.ErrorContains(t, err, "root hash does not match")
+}

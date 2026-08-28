@@ -1,6 +1,7 @@
 package memiavl
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -488,15 +489,18 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		db.snapshotRewriteCancelFunc = nil
 
 		if !ok {
-			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
-			logger.Error("snapshot rewrite channel closed unexpectedly; keeping current snapshot")
-			return nil
+			// channel was closed without sending a result
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
+			return errors.New("snapshot rewrite channel closed unexpectedly")
 		}
 
 		if result.mtree == nil {
+			// background snapshot rewrite failed
 			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "false")))
-			logger.Error("background snapshot rewriting failed; keeping current snapshot", "error", result.err)
-			return nil
+			// Still prune old snapshots to prevent accumulation
+			go db.pruneSnapshots()
+			return fmt.Errorf("background snapshot rewriting failed: %w", result.err)
 		} else {
 			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
@@ -765,21 +769,30 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	snapshotDir := snapshotName(db.lastCommitInfo.Version)
 	targetPath := filepath.Clean(filepath.Join(db.dir, snapshotDir))
 
-	// Check if snapshot already exists
-	if info, err := os.Stat(targetPath); err == nil {
-		if info.IsDir() {
-			if err := db.validateSnapshot(ctx, targetPath); err != nil {
-				return fmt.Errorf("existing snapshot %q is invalid: %w", snapshotDir, err)
-			}
-			logger.Info("snapshot already exists, skipping",
-				"snapshot_dir", snapshotDir,
-				"version", db.lastCommitInfo.Version)
-			return nil
-		} else {
+	// A directory left by a prior attempt at this height is adopted when it
+	// holds the state this DB would publish; an invalid one is removed so this
+	// rewrite regenerates it instead of failing every future attempt.
+	if info, statErr := os.Stat(targetPath); statErr == nil {
+		if !info.IsDir() {
 			// targetPath exists but is not a directory - this is unexpected
 			logger.Error("snapshot path exists but is not a directory",
 				"path", targetPath)
 			return fmt.Errorf("snapshot path exists but is not a directory: %s", targetPath)
+		}
+		validationErr := db.validateSnapshot(ctx, targetPath)
+		if validationErr == nil {
+			logger.Info("snapshot already exists, skipping",
+				"snapshot_dir", snapshotDir,
+				"version", db.lastCommitInfo.Version)
+			return nil
+		}
+		logger.Error("existing snapshot is invalid, removing and rewriting",
+			"path", targetPath,
+			"error", validationErr,
+		)
+		if rmErr := os.RemoveAll(targetPath); rmErr != nil {
+			return fmt.Errorf("existing snapshot %q is invalid and could not be removed: %w",
+				targetPath, errorutils.Join(validationErr, rmErr))
 		}
 	}
 
@@ -818,7 +831,20 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 				return fmt.Errorf("snapshot path %q exists but is not a usable directory: %w", targetPath, err)
 			}
 			if validationErr := db.validateSnapshot(ctx, targetPath); validationErr != nil {
-				return fmt.Errorf("existing snapshot %q is invalid: %w", targetPath, validationErr)
+				// The freshly written temp already passed validation; it
+				// replaces the invalid directory.
+				logger.Error("existing snapshot is invalid, replacing with freshly written snapshot",
+					"path", targetPath,
+					"error", validationErr,
+				)
+				if rmErr := os.RemoveAll(targetPath); rmErr != nil {
+					return fmt.Errorf("existing snapshot %q is invalid and could not be removed: %w",
+						targetPath, errorutils.Join(validationErr, rmErr))
+				}
+				if renameErr := os.Rename(path, targetPath); renameErr != nil {
+					return fmt.Errorf("rename snapshot directory to %q: %w", targetPath, renameErr)
+				}
+				return updateCurrentSymlink(db.dir, snapshotDir)
 			}
 			logger.Info("reusing existing snapshot directory, dropping redundant temp",
 				"snapshotDir", snapshotDir,
@@ -834,14 +860,44 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 	return updateCurrentSymlink(db.dir, snapshotDir)
 }
 
-func (db *DB) validateSnapshot(ctx context.Context, path string) error {
+// validateSnapshot loads the snapshot at path and verifies it holds the state
+// this DB would publish: the recorded version and every store's root hash must
+// match lastCommitInfo. File sizes and record alignment are checked by the
+// load; interior nodes and key data are not otherwise verified.
+func (db *DB) validateSnapshot(ctx context.Context, path string) (returnErr error) {
 	opts := db.opts
 	opts.SnapshotPrefetchThreshold = 0
 	mtree, err := LoadMultiTree(ctx, path, opts)
 	if err != nil {
 		return err
 	}
-	return mtree.Close()
+	defer func() {
+		returnErr = errorutils.Join(returnErr, mtree.Close())
+	}()
+
+	if mtree.Version() != db.lastCommitInfo.Version {
+		return fmt.Errorf("snapshot version %d does not match expected version %d",
+			mtree.Version(), db.lastCommitInfo.Version)
+	}
+	loaded := mtree.Trees()
+	if len(loaded) != len(db.lastCommitInfo.StoreInfos) {
+		return fmt.Errorf("snapshot has %d stores, expected %d",
+			len(loaded), len(db.lastCommitInfo.StoreInfos))
+	}
+	rootHashes := make(map[string][]byte, len(loaded))
+	for _, entry := range loaded {
+		rootHashes[entry.Name] = entry.RootHash()
+	}
+	for _, info := range db.lastCommitInfo.StoreInfos {
+		hash, ok := rootHashes[info.Name]
+		if !ok {
+			return fmt.Errorf("snapshot is missing store %q", info.Name)
+		}
+		if !bytes.Equal(hash, info.CommitId.Hash) {
+			return fmt.Errorf("snapshot store %q root hash does not match the expected commit hash", info.Name)
+		}
+	}
+	return nil
 }
 
 func cleanupFailedSnapshotRewrite(path, tmpDir, operation string, err error) error {

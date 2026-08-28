@@ -830,43 +830,6 @@ func TestFastCommit(t *testing.T) {
 	require.NoError(t, db.Close())
 }
 
-func TestCommitContinuesAfterBackgroundSnapshotFailure(t *testing.T) {
-	dir := t.TempDir()
-	db, err := OpenDB(0, Options{
-		Config: Config{
-			SnapshotInterval: 1000,
-		},
-		Dir:             dir,
-		CreateIfMissing: true,
-		InitialStores:   []string{"test"},
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	rewriteResult := make(chan snapshotResult, 1)
-	rewriteResult <- snapshotResult{err: context.Canceled}
-	close(rewriteResult)
-	db.snapshotRewriteChan = rewriteResult
-	db.snapshotRewriteCancelFunc = func() {}
-
-	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{
-		Name: "test",
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{
-			Key:   []byte("key"),
-			Value: []byte("value"),
-		}}},
-	}}))
-
-	version, err := db.Commit()
-
-	require.NoError(t, err)
-	require.EqualValues(t, 1, version)
-	require.Nil(t, db.snapshotRewriteChan)
-	current, err := os.Readlink(currentPath(dir))
-	require.NoError(t, err)
-	require.Equal(t, snapshotName(0), current)
-}
-
 func TestRepeatedApplyChangeSet(t *testing.T) {
 	db, err := OpenDB(0, Options{
 		Config: Config{
