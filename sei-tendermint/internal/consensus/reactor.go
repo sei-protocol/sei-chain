@@ -86,7 +86,7 @@ const (
 	VoteChannel        = p2p.ChannelID(0x22)
 	VoteSetBitsChannel = p2p.ChannelID(0x23)
 
-	maxMsgSize = 4194304 // 4MB; NOTE: keep larger than types.PartSet sizes.
+	maxMsgSize = types.MaxConsensusMsgBytes
 )
 
 // Reactor defines a reactor for the consensus service.
@@ -761,7 +761,7 @@ func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 		return nil
 	case *BlockPartMessage:
 		ps.SetHasProposalBlockPart(msg.Height, msg.Round, int(msg.Part.Index))
-		Global.BlockPartsAt(string(m.From)).Add(1)
+		Global.BlockPartsAt().Add(1)
 		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{msg, m.From, tmtime.Now()})
 	default:
 		return fmt.Errorf("received unknown message on DataChannel: %T", msg)

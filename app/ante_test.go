@@ -81,7 +81,6 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:       suite.App.IBCKeeper,
 			WasmConfig:      &wasmConfig,
 			WasmKeeper:      &suite.App.WasmKeeper,
 			TracingInfo:     tracingInfo,

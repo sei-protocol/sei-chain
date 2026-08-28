@@ -91,6 +91,7 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/sync/errgroup"
@@ -104,6 +105,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/retiredibc"
+	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -115,10 +118,6 @@ import (
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
-	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
-	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -214,7 +213,6 @@ var (
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
 		slashing.AppModuleBasic{},
-		ibc.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
 		vesting.AppModuleBasic{},
@@ -255,7 +253,7 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrantModuleName,
+		govtypes.StoreKey, paramstypes.StoreKey, storekeys.IBCStoreKey, upgradetypes.StoreKey, feegrantModuleName,
 		evidencetypes.StoreKey, transferModuleName, capabilityModuleName, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
@@ -390,7 +388,6 @@ type App struct {
 	GovKeeper      govkeeper.Keeper
 	UpgradeKeeper  upgradekeeper.Keeper
 	ParamsKeeper   paramskeeper.Keeper
-	IBCKeeper      *ibckeeper.Keeper
 	EvidenceKeeper evidencekeeper.Keeper
 	WasmKeeper     wasm.Keeper
 	OracleKeeper   oraclekeeper.Keeper
@@ -471,28 +468,12 @@ type App struct {
 	GigaOCCEnabled bool
 }
 
-var retiredIBCStoreNames = map[string]struct{}{
-	ibchost.StoreKey:     {},
-	transferModuleName:   {},
-	capabilityModuleName: {},
-}
-
 // Query handles ABCI queries without exposing retired IBC stores.
 func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
-	if isRetiredIBCStoreQuery(req.Path) {
-		response := sdkerrors.QueryResult(ibccoretypes.ErrIBCDeprecated)
-		return &response, nil
+	if response := retiredibc.QueryResponse(req.Path); response != nil {
+		return response, nil
 	}
 	return app.BaseApp.Query(ctx, req)
-}
-
-func isRetiredIBCStoreQuery(requestPath string) bool {
-	path := strings.Split(strings.TrimPrefix(requestPath, "/"), "/")
-	if len(path) != 3 || path[0] != "store" || (path[2] != "key" && path[2] != "subspace") {
-		return false
-	}
-	_, retired := retiredIBCStoreNames[path[1]]
-	return retired
 }
 
 type AppOption func(*App)
@@ -606,12 +587,6 @@ func New(
 
 	// ... other modules keepers
 
-	// Create IBC Keeper
-	app.IBCKeeper = ibckeeper.NewKeeper(
-		appCodec, keys[ibchost.StoreKey], app.GetSubspace(ibchost.ModuleName), app.StakingKeeper, app.UpgradeKeeper,
-	)
-
-	// Create evidence Keeper for to register the IBC light client misbehaviour evidence route
 	evidenceKeeper := evidencekeeper.NewKeeper(
 		appCodec, keys[evidencetypes.StoreKey], &app.StakingKeeper, app.SlashingKeeper,
 	)
@@ -672,8 +647,6 @@ func New(
 		app.BankKeeper,
 		app.StakingKeeper,
 		app.DistrKeeper,
-		app.IBCKeeper.ChannelKeeper,
-		app.UpgradeKeeper,
 		app.MsgServiceRouter(),
 		app.GRPCQueryRouter(),
 		wasmDir,
@@ -813,6 +786,7 @@ func New(
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
+		AddRoute(retiredibcgov.RouterKey, retiredibcgov.ProposalHandler).
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
@@ -853,7 +827,6 @@ func New(
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		upgrade.NewAppModule(app.UpgradeKeeper),
 		evidence.NewAppModule(app.EvidenceKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
@@ -871,7 +844,6 @@ func New(
 		SlashingKeeper: &app.SlashingKeeper,
 		EvidenceKeeper: &app.EvidenceKeeper,
 		StakingKeeper:  &app.StakingKeeper,
-		IBCKeeper:      app.IBCKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
@@ -883,7 +855,6 @@ func New(
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
 		AccountKeeper: app.AccountKeeper,
 		BankKeeper:    app.BankKeeper,
-		IBCKeeper:     app.IBCKeeper,
 		EvmKeeper:     &app.EvmKeeper,
 		ParamsKeeper:  app.ParamsKeeper,
 		UpgradeKeeper: &app.UpgradeKeeper,
@@ -913,7 +884,6 @@ func New(
 		govtypes.ModuleName,
 		minttypes.ModuleName,
 		vestingtypes.ModuleName,
-		ibchost.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
 		authz.ModuleName,
@@ -942,7 +912,6 @@ func New(
 		evidence.NewAppModule(app.EvidenceKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
@@ -975,7 +944,6 @@ func New(
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:         app.IBCKeeper,
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
 			WasmKeeper:        &app.WasmKeeper,
@@ -1221,7 +1189,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 
 	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
 	if err != nil {
-		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
@@ -1236,7 +1203,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Invariant: at this point nil entries in typedTxs are proto decode failures only.
 	// EVM preprocessing runs later inside ProcessBlock; do not reorder that before this check.
 	if !app.checkTotalBlockGas(checkCtx, typedTxs) {
-		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
@@ -1346,7 +1312,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.optimisticProcessingInfoMutex.RUnlock()
 
 		if !aborted && bytes.Equal(finalHash, req.Hash) {
-			utilmetrics.IncrementOptimisticProcessingCounter(true) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 			appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(attribute.Bool("enabled", true)))
 			app.SetProcessProposalStateToCommit()
@@ -1364,7 +1329,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			return &resp, nil
 		}
 	}
-	utilmetrics.IncrementOptimisticProcessingCounter(false) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 	appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 		otelmetric.WithAttributes(attribute.Bool("enabled", false)))
 	logger.Info("optimistic processing ineligible")
@@ -1400,8 +1364,6 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
-	utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-	utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
 	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
 		otelmetric.WithAttributes(attribute.String("type", "gas_used")))
 	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
@@ -1423,7 +1385,6 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}()
@@ -1433,7 +1394,6 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 		ctx = ctx.WithTxIndex(i)
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}
@@ -1443,7 +1403,6 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessGigaStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}()
@@ -1523,7 +1482,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
 		if fallbackToV2 {
-			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(
 					attribute.String("reason", gigaFallbackStoreIterator),
@@ -1538,7 +1496,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			// Abort errors (validation failure, balance migration, self-destruct,
 			// cosmos-precompile interop) re-run this tx via v2.
 			if gigautils.ShouldExecutionAbort(execErr) {
-				utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 				appMetrics.gigaFallback.Add(ctx.Context(), 1,
 					otelmetric.WithAttributes(
 						attribute.String("reason", gigaFallbackReason(execErr)),
@@ -1557,7 +1514,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		txResults[i] = result
 		ctx.GigaMultiStore().WriteGiga()
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}
@@ -1646,12 +1602,9 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for _, r := range batchResult.Results {
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OccConcurrent) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 
-		utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-		utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
 		appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
 			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
 		appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
@@ -1747,7 +1700,6 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 
 		if fallbackToV2 {
-			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(
 					attribute.String("reason", fallbackReason),
@@ -2779,7 +2731,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(evmtypes.ModuleName)

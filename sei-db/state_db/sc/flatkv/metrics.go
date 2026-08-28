@@ -27,6 +27,7 @@ var (
 		CatchupLatency            metric.Float64Histogram
 		CatchupReplayNumBlocks    metric.Int64Counter
 		SnapshotWriteLatency      metric.Float64Histogram
+		SnapshotQueueDepth        metric.Int64Gauge
 		SnapshotPruneLatency      metric.Float64Histogram
 		SnapshotPruneAttempts     metric.Int64Counter
 		CurrentSnapshotHeight     metric.Int64Gauge
@@ -98,6 +99,12 @@ var (
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
+		SnapshotQueueDepth: must(flatkvMeter.Int64Gauge(
+			"flatkv_snapshot_queue_depth",
+			metric.WithDescription(
+				"Committed blocks queued behind a FlatKV snapshot that is still being written"),
+			metric.WithUnit("{count}"),
+		)),
 		SnapshotPruneLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_snapshot_prune_latency",
 			metric.WithDescription("Time taken to prune FlatKV snapshots"),
@@ -163,10 +170,6 @@ func successAttr(err error) attribute.KeyValue {
 
 func dbAttr(db string) attribute.KeyValue {
 	return attribute.String("db", db)
-}
-
-func recordPendingWrites(ctx context.Context, db string, count int) {
-	otelMetrics.PendingWrites.Record(ctx, int64(count), metric.WithAttributes(dbAttr(db)))
 }
 
 func addKVPairs(ctx context.Context, db string, count int) {

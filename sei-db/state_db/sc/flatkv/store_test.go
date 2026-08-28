@@ -9,6 +9,7 @@ import (
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -29,8 +30,8 @@ func TestCommitStoreImplementsStore(t *testing.T) {
 
 	// Verify Store interface methods
 	require.Equal(t, int64(0), s.Version())
-	require.NotNil(t, s.RootHash())
-	require.Len(t, s.RootHash(), 32)
+	require.NotNil(t, rootHash(s))
+	require.Len(t, rootHash(s), 32)
 }
 
 // =============================================================================
@@ -47,7 +48,7 @@ func TestStoreOpenClose(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
+func TestResolveConfigPropagatesPebbleMetrics(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = t.TempDir()
 	cfg.EnablePebbleMetrics = false
@@ -56,12 +57,65 @@ func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
 	cfg.StorageDBConfig.EnableMetrics = true
 	cfg.MiscDBConfig.EnableMetrics = true
 
-	InitializeDataDirectories(cfg)
+	resolved := resolveConfig(cfg)
 
-	require.False(t, cfg.AccountDBConfig.EnableMetrics)
-	require.False(t, cfg.CodeDBConfig.EnableMetrics)
-	require.False(t, cfg.StorageDBConfig.EnableMetrics)
-	require.False(t, cfg.MiscDBConfig.EnableMetrics)
+	require.False(t, resolved.AccountDBConfig.EnableMetrics)
+	require.False(t, resolved.CodeDBConfig.EnableMetrics)
+	require.False(t, resolved.StorageDBConfig.EnableMetrics)
+	require.False(t, resolved.MiscDBConfig.EnableMetrics)
+}
+
+func TestResolveConfigPropagatesFsync(t *testing.T) {
+	for _, fsync := range []bool{true, false} {
+		cfg := config.DefaultConfig()
+		cfg.DataDir = t.TempDir()
+		cfg.Fsync = fsync
+		// Seeded opposite so the assertion cannot pass on the default alone.
+		cfg.AccountStoreConfig.FlushSync = !fsync
+		cfg.CodeStoreConfig.FlushSync = !fsync
+		cfg.StorageStoreConfig.FlushSync = !fsync
+		cfg.MiscStoreConfig.FlushSync = !fsync
+
+		resolved := resolveConfig(cfg)
+
+		require.Equal(t, fsync, resolved.AccountStoreConfig.FlushSync)
+		require.Equal(t, fsync, resolved.CodeStoreConfig.FlushSync)
+		require.Equal(t, fsync, resolved.StorageStoreConfig.FlushSync)
+		require.Equal(t, fsync, resolved.MiscStoreConfig.FlushSync)
+	}
+}
+
+func TestStoreFsyncReachesEveryStoreConfig(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.Fsync = true
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	defer s.Close()
+
+	require.True(t, s.config.AccountStoreConfig.FlushSync)
+	require.True(t, s.config.CodeStoreConfig.FlushSync)
+	require.True(t, s.config.StorageStoreConfig.FlushSync)
+	require.True(t, s.config.MiscStoreConfig.FlushSync)
+}
+
+// LoadVersionReadOnly passes NewCommitStore the config of a store that is still running on it.
+func TestNewCommitStoreLeavesCallerConfigUntouched(t *testing.T) {
+	// Seeded opposite to what the store writes, so the assertion cannot pass on the seeded value alone.
+	cfg := config.DefaultTestConfig(t)
+	cfg.Fsync = true
+	cfg.AccountDBConfig.EnableMetrics = true
+	cfg.CodeDBConfig.EnableMetrics = true
+	cfg.StorageDBConfig.EnableMetrics = true
+	cfg.MiscDBConfig.EnableMetrics = true
+
+	before := *cfg
+
+	s, err := NewCommitStore(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	defer s.Close()
+
+	require.Equal(t, before, *cfg)
 }
 
 func TestStoreClose(t *testing.T) {
@@ -228,14 +282,20 @@ func TestStoreClearsPendingAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0xCC), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Should have pending writes
-	require.Len(t, s.storageWrites, 1)
+	// The staged row is readable before the commit, and the changeset is queued for the WAL. There is
+	// no staged-row count to assert on any more: the rows live in the store's current version, which
+	// deliberately does not expose a size.
+	staged, found := s.Get(keys.EVMStoreKey, key)
+	require.True(t, found, "the staged row must be readable before commit")
+	require.Equal(t, padLeft32(0xCC), staged)
 	require.Len(t, s.pendingChangeSets, 1)
 
 	commitAndCheck(t, s)
 
-	// Should be cleared after commit
-	require.Len(t, s.storageWrites, 0)
+	// The row survives the commit, and the per-block bookkeeping is cleared.
+	committed, found := s.Get(keys.EVMStoreKey, key)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0xCC), committed)
 	require.Len(t, s.pendingChangeSets, 0)
 }
 
@@ -317,9 +377,10 @@ func TestStoreRootHashChanges(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1 := s.RootHash()
+	hash1, version1 := s.RootHash()
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
+	require.Equal(t, int64(0), version1)
 
 	// Apply changeset
 	addr := ktype.Address{0xAB}
@@ -329,23 +390,20 @@ func TestStoreRootHashChanges(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0xEF), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Working hash should change
-	hash2 := s.RootHash()
+	committed := commitAndCheck(t, s)
+
+	// Committing a block that changes state changes the hash, and the height moves with it.
+	hash2, version2 := s.RootHash()
 	require.NotEqual(t, hash1, hash2)
-
-	commitAndCheck(t, s)
-
-	// Committed hash should match working hash
-	hash3 := s.RootHash()
-	require.Equal(t, hash2, hash3)
+	require.Equal(t, committed, version2)
 }
 
-func TestStoreRootHashChangesOnApply(t *testing.T) {
+func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	// Initial hash
-	hash1 := s.RootHash()
+	hash1, version1 := s.RootHash()
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 
@@ -357,9 +415,10 @@ func TestStoreRootHashChangesOnApply(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Working hash should change
-	hash2 := s.RootHash()
-	require.NotEqual(t, hash1, hash2, "hash should change after ApplyChangeSets")
+	// A block that has not been sealed has no hash, so the store still describes the previous height.
+	hash2, version2 := s.RootHash()
+	require.Equal(t, hash1, hash2, "staging a block must not move the hash")
+	require.Equal(t, version1, version2)
 }
 
 func TestStoreRootHashStableAfterCommit(t *testing.T) {
@@ -373,26 +432,29 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
-	// Get working hash
-	workingHash := s.RootHash()
+	committed := commitAndCheck(t, s)
+	committedHash, committedVersion := s.RootHash()
+	require.Equal(t, committed, committedVersion)
 
-	commitAndCheck(t, s)
+	// Staging the next block must leave the committed hash exactly where it is.
+	next := makeChangeSet(key, padLeft32(0x78), false)
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{next}))
 
-	// Committed hash should match working hash
-	committedHash := s.RootHash()
-	require.Equal(t, workingHash, committedHash)
+	stagedHash, stagedVersion := s.RootHash()
+	require.Equal(t, committedHash, stagedHash)
+	require.Equal(t, committedVersion, stagedVersion)
 }
 
 // =============================================================================
-// Lifecycle (WriteSnapshot, Rollback)
+// Lifecycle (outOfBandSnapshot, Rollback)
 // =============================================================================
 
-func TestStoreWriteSnapshotRequiresCommit(t *testing.T) {
+func TestStoreOutOfBandSnapshotRequiresCommit(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
 	// Cannot snapshot at version 0 (nothing committed)
-	err := s.WriteSnapshot("")
+	err := s.outOfBandSnapshot()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "uncommitted")
 }
@@ -472,7 +534,7 @@ func TestReadOnlyAtBeyondWALFails(t *testing.T) {
 
 	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -501,7 +563,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	workDir := filepath.Join(dir, flatkvRootDir, workingDirName)
@@ -536,9 +598,9 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		commitStorageEntry(t, s1, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	hashAtV10 := s1.RootHash()
+	hashAtV10 := rootHash(s1)
 
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -550,7 +612,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(10), s2.Version())
-	require.Equal(t, hashAtV10, s2.RootHash())
+	require.Equal(t, hashAtV10, rootHash(s2))
 }
 
 // =============================================================================
@@ -566,7 +628,7 @@ func TestVersionStartsAtZero(t *testing.T) {
 func TestRootHashIsBlake3_256(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
-	hash := s.RootHash()
+	hash := rootHash(s)
 	require.Len(t, hash, 32)
 }
 
@@ -631,7 +693,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	require.NoError(t, s1.ApplyChangeSets(s1.Version()+1, []*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s1)
 
-	hash := s1.RootHash()
+	hash := rootHash(s1)
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -643,7 +705,7 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, hash, s2.RootHash())
+	require.Equal(t, hash, rootHash(s2))
 
 	v, ok := s2.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, ok)
@@ -684,8 +746,8 @@ func TestReadOnlyBasicLoadAndRead(t *testing.T) {
 	got, found := ro.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, value, got)
-	require.NotNil(t, ro.RootHash())
-	require.Len(t, ro.RootHash(), 32)
+	require.NotNil(t, rootHash(ro))
+	require.Len(t, rootHash(ro), 32)
 }
 
 func TestReadOnlyLoadFromUnopenedStore(t *testing.T) {
@@ -764,7 +826,7 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	require.ErrorIs(t, ro.ApplyChangeSets(ro.Version()+1, nil), errReadOnly)
 	_, err = ro.Commit(ro.Version() + 1)
 	require.ErrorIs(t, err, errReadOnly)
-	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
+	require.ErrorIs(t, ro.(*CommitStore).outOfBandSnapshot(), errReadOnly)
 	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
 	_, err = ro.(*CommitStore).Importer(1)
 	require.ErrorIs(t, err, errReadOnly)
@@ -951,14 +1013,14 @@ func TestLoadVersionReload(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	expectedHash := s.RootHash()
+	expectedHash := rootHash(s)
 
 	// Re-call LoadLatest on the same store: should close and reopen.
 	err = s.LoadLatest()
 	require.NoError(t, err)
 
 	require.Equal(t, int64(1), s.Version())
-	require.Equal(t, expectedHash, s.RootHash())
+	require.Equal(t, expectedHash, rootHash(s))
 
 	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -1028,8 +1090,8 @@ func TestLoadVersionEmptyWAL(t *testing.T) {
 
 	// Fresh store with no commits: WAL is empty.
 	require.Equal(t, int64(0), s.Version())
-	require.NotNil(t, s.RootHash())
-	require.Len(t, s.RootHash(), 32)
+	require.NotNil(t, rootHash(s))
+	require.Len(t, rootHash(s), 32)
 	require.NoError(t, s.Close())
 }
 
@@ -1120,8 +1182,8 @@ func TestRootHashAndVersionAfterClose(t *testing.T) {
 
 	// Version and RootHash access in-memory fields, should not panic.
 	require.Equal(t, int64(1), s.Version())
-	require.NotNil(t, s.RootHash())
-	require.Len(t, s.RootHash(), 32)
+	require.NotNil(t, rootHash(s))
+	require.Len(t, rootHash(s), 32)
 }
 
 func TestCatchupWithEmptyWAL(t *testing.T) {
@@ -1152,7 +1214,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
-	hashV5 := s.RootHash()
+	hashV5 := rootHash(s)
 	require.NoError(t, s.Close())
 
 	// Reopen: catchup should replay only entries after the committed version
@@ -1164,7 +1226,7 @@ func TestCatchupSkipsAlreadyCommittedEntries(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(5), s2.Version())
-	require.Equal(t, hashV5, s2.RootHash())
+	require.Equal(t, hashV5, rootHash(s2))
 }
 
 func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
@@ -1186,7 +1248,7 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 		require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
-		hashes[i] = s.RootHash()
+		hashes[i] = rootHash(s)
 	}
 	require.NoError(t, s.Close())
 
@@ -1201,7 +1263,7 @@ func TestCatchupTargetVersionMiddleOfWAL(t *testing.T) {
 	defer func() { require.NoError(t, ro.Close()) }()
 
 	require.Equal(t, int64(3), ro.Version())
-	require.Equal(t, hashes[3], ro.RootHash())
+	require.Equal(t, hashes[3], rootHash(ro))
 }
 
 func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
@@ -1235,7 +1297,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	// Skew accountDB's local meta version to 4 while keeping the correct
 	// LtHash. This simulates a crash where the version watermark wasn't
 	// persisted but the actual data and hash are intact.
-	batch := s.accountDB.NewBatch()
+	batch := s.rawDBFor(accountDBDir).NewBatch()
 	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash, s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1289,7 +1351,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	savedStorageLtHash := s.perDBWorkingLtHash[storageDBDir].Clone()
 
 	// Simulate crash: storageDB only flushed v3 (version watermark behind).
-	batch := s.storageDB.NewBatch()
+	batch := s.rawDBFor(storageDBDir).NewBatch()
 	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash, s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1332,7 +1394,10 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 		_, err := s.Commit(s.Version() + 1)
 		require.NoError(t, err)
 	}
-	expectedHash := s.RootHash()
+	expectedHash := rootHash(s)
+	// Close discards whatever the snapshot writer still has queued, so wait for it here: the gap this
+	// test is about only exists once the snapshots are on disk.
+	require.NoError(t, s.FlushSnapshots())
 	require.NoError(t, s.Close())
 
 	// Reopen normally -- large WAL gap between snapshot and HEAD.
@@ -1343,7 +1408,7 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(20), s2.Version())
-	require.Equal(t, expectedHash, s2.RootHash())
+	require.Equal(t, expectedHash, rootHash(s2))
 	verifyLtHashConsistency(t, s2)
 
 	// All 20 storage slots should be readable.
@@ -1372,8 +1437,8 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	require.NoError(t, s.WriteSnapshot(""))
-	expectedHash := s.RootHash()
+	require.NoError(t, s.outOfBandSnapshot())
+	expectedHash := rootHash(s)
 	expectedVersion := s.Version()
 
 	// Clear the WAL entirely (simulate WAL lost after snapshot).
@@ -1388,7 +1453,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, expectedVersion, s2.Version())
-	require.Equal(t, expectedHash, s2.RootHash())
+	require.Equal(t, expectedHash, rootHash(s2))
 
 	val, found := s2.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -1488,9 +1553,21 @@ func TestRollbackRetainsWALInstance(t *testing.T) {
 	require.Equal(t, int64(1), s.committedVersion)
 }
 
+// A corrupted account row must be caught when it is read back to merge a partial account update,
+// rather than silently producing a wrong account.
+//
+// The corruption is injected while the store is closed. Poking the database behind a live store is not
+// observable through it: the store mediates every read and caches what it has served, so a value
+// changed underneath it is shadowed by the cache. Closing first, then corrupting, then reopening gives
+// the reopened store a cold cache that must go to disk and meet the bad bytes.
 func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
+	dir := t.TempDir()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
 
 	addr := addrN(0x05)
 	cs := &proto.NamedChangeSet{
@@ -1500,22 +1577,36 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	_, err := s.Commit(s.Version() + 1)
-	require.NoError(t, err)
+	commitAndCheck(t, s)
+	require.NoError(t, s.Close())
 
-	// Corrupt the account value in the DB with invalid-length data.
-	batch := s.accountDB.NewBatch()
+	// Corrupt the account value on disk with invalid-length data. The store resolves its data
+	// directories on its own copy of the config, so ask for the same resolution to reach the files it
+	// opened rather than reading a path back off cfg.
+	resolved := resolveConfig(cfg)
+	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig)
+	require.NoError(t, err)
+	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
+	require.NoError(t, corrupt.Close())
 
-	// Next ApplyChangeSets touching this account should detect the corruption
-	// when deserializing the old account value (deserializeAccountOld).
+	// Reopen without a WAL. With one, replay would rewrite this account from block 1's changeset and
+	// heal the row before anything read it — correct system behavior, but it would leave this test with
+	// nothing to observe. A nil WAL leaves the corruption in place so the read path is what meets it.
+	s2, err := NewCommitStore(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	defer s2.Close()
+	require.NoError(t, s2.LoadLatest())
+
+	// Applying a partial nonce update reads the old account back to merge onto it, and must reject the
+	// corrupted row instead of merging onto garbage.
 	cs2 := &proto.NamedChangeSet{
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 99)}},
 	}
-	err = s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2})
+	err = s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs2})
 	require.Error(t, err, "should fail on corrupted AccountValue")
 	require.Contains(t, err.Error(), "unsupported serialization version")
 }
@@ -1538,7 +1629,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	hashAfterV1 := s.RootHash()
+	hashAfterV1 := rootHash(s)
 
 	// Now simulate writing v2 to WAL but "crashing" before DB commit.
 	cs2 := makeChangeSet(key, padLeft32(0x22), false)
@@ -1549,9 +1640,8 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	require.NoError(t, s.wal.SignalEndOfBlock())
 	require.NoError(t, s.wal.Flush())
 
-	// Do NOT call commitBatches: the WAL holds the block but no data DB has it.
-	// Reset in-memory state to v1 to simulate crash.
-	s.clearPendingWrites()
+	// Do NOT seal the block on the stores. Reset in-memory state to v1 to simulate a crash.
+	s.clearPendingBlock()
 	s.committedVersion = 1
 	require.NoError(t, s.Close())
 
@@ -1563,7 +1653,7 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 	defer s2.Close()
 
 	require.Equal(t, int64(2), s2.Version())
-	require.NotEqual(t, hashAfterV1, s2.RootHash(), "hash should differ after v2 replay")
+	require.NotEqual(t, hashAfterV1, rootHash(s2), "hash should differ after v2 replay")
 
 	val, found := s2.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
@@ -1655,7 +1745,11 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	require.NoError(t, err)
 
 	// Write garbage to accountDB's _meta/hash key.
-	batch := s.accountDB.NewBatch()
+	requireFlushedToDisk(t, s)
+	// Corrupt only after the sealed block has landed: otherwise the store's pending flush
+	// would overwrite the corruption. Store Close performs no final flush, so nothing
+	// touches the database after this point.
+	batch := s.rawDBFor(accountDBDir).NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaLtHashKey, []byte{0x01, 0x02, 0x03}))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1692,7 +1786,11 @@ func TestCrashRecoveryVersionRecordOverflow(t *testing.T) {
 	// Write a version value that exceeds math.MaxInt64 to accountDB's metadata.
 	overflowBytes := make([]byte, 8)
 	overflowBytes[0] = 0xFF // 0xFF00000000000000 > MaxInt64
-	batch := s.accountDB.NewBatch()
+	// Corrupt only after the sealed block has landed: otherwise the store's pending flush
+	// would overwrite the corruption. Store Close performs no final flush, so nothing
+	// touches the database after this point.
+	requireFlushedToDisk(t, s)
+	batch := s.rawDBFor(accountDBDir).NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaVersionKey, overflowBytes))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
@@ -1708,7 +1806,7 @@ func TestCrashRecoveryVersionRecordOverflow(t *testing.T) {
 	require.Contains(t, err.Error(), "overflow")
 }
 
-func TestInitializeDataDirectories(t *testing.T) {
+func TestResolveConfigFillsDataDirectories(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = "/base/flatkv"
 	cfg.AccountDBConfig.DataDir = ""
@@ -1716,23 +1814,23 @@ func TestInitializeDataDirectories(t *testing.T) {
 	cfg.StorageDBConfig.DataDir = ""
 	cfg.MiscDBConfig.DataDir = ""
 
-	InitializeDataDirectories(cfg)
+	resolved := resolveConfig(cfg)
 
-	require.Equal(t, "/base/flatkv/working/account", cfg.AccountDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/storage", cfg.StorageDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/misc", cfg.MiscDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/account", resolved.AccountDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/code", resolved.CodeDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/storage", resolved.StorageDBConfig.DataDir)
+	require.Equal(t, "/base/flatkv/working/misc", resolved.MiscDBConfig.DataDir)
 }
 
-func TestInitializeDataDirectoriesPreservesExisting(t *testing.T) {
+func TestResolveConfigPreservesExistingDataDirectories(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DataDir = "/base/flatkv"
 	cfg.AccountDBConfig.DataDir = "/custom/account"
 
-	InitializeDataDirectories(cfg)
+	resolved := resolveConfig(cfg)
 
-	require.Equal(t, "/custom/account", cfg.AccountDBConfig.DataDir,
+	require.Equal(t, "/custom/account", resolved.AccountDBConfig.DataDir,
 		"existing DataDir should not be overwritten")
-	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir,
+	require.Equal(t, "/base/flatkv/working/code", resolved.CodeDBConfig.DataDir,
 		"empty DataDir should be populated")
 }

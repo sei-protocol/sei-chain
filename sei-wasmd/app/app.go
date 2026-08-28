@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -64,10 +65,7 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
-	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
-	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
+	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
@@ -76,6 +74,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
+	"github.com/sei-protocol/sei-chain/app/retiredibc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -94,7 +93,8 @@ import (
 const (
 	appName              = "WasmApp"
 	feegrantStoreKeyName = "feegrant"
-	retiredTransferName  = "transfer" // retained store and module account for historical state
+	retiredIBCStoreName  = storekeys.IBCStoreKey
+	retiredTransferName  = storekeys.IBCTransferStoreKey
 )
 
 // We pull these out so we can set them with LDFLAGS in the Makefile
@@ -173,7 +173,6 @@ var (
 		),
 		params.AppModuleBasic{},
 		slashing.AppModuleBasic{},
-		ibc.AppModuleBasic{},
 		authzmodule.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
@@ -221,7 +220,6 @@ type WasmApp struct {
 	upgradeKeeper  upgradekeeper.Keeper
 	paramsKeeper   paramskeeper.Keeper
 	evidenceKeeper evidencekeeper.Keeper
-	ibcKeeper      *ibckeeper.Keeper
 	authzKeeper    authzkeeper.Keeper
 	wasmKeeper     wasm.Keeper
 
@@ -232,6 +230,14 @@ type WasmApp struct {
 	configurator module.Configurator
 
 	txDecoder sdk.TxDecoder
+}
+
+// Query handles ABCI queries without exposing retired IBC stores.
+func (app *WasmApp) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
+	if response := retiredibc.QueryResponse(req.Path); response != nil {
+		return response, nil
+	}
+	return app.BaseApp.Query(ctx, req)
 }
 
 // NewWasmApp returns a reference to an initialized WasmApp.
@@ -259,7 +265,7 @@ func NewWasmApp(
 	keys := sdk.NewKVStoreKeys(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, retiredIBCStoreName, upgradetypes.StoreKey,
 		evidencetypes.StoreKey, retiredTransferName,
 		feegrantStoreKeyName, authzkeeper.StoreKey, wasm.StoreKey,
 	)
@@ -349,14 +355,6 @@ func NewWasmApp(
 		stakingtypes.NewMultiStakingHooks(app.distrKeeper.Hooks(), app.slashingKeeper.Hooks()),
 	)
 
-	app.ibcKeeper = ibckeeper.NewKeeper(
-		appCodec,
-		keys[ibchost.StoreKey],
-		app.getSubspace(ibchost.ModuleName),
-		app.stakingKeeper,
-		app.upgradeKeeper,
-	)
-
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.
@@ -392,8 +390,6 @@ func NewWasmApp(
 		app.bankKeeper,
 		app.stakingKeeper,
 		app.distrKeeper,
-		app.ibcKeeper.ChannelKeeper,
-		app.upgradeKeeper,
 		app.MsgServiceRouter(),
 		app.GRPCQueryRouter(),
 		wasmDir,
@@ -437,7 +433,6 @@ func NewWasmApp(
 		upgrade.NewAppModule(app.upgradeKeeper),
 		wasm.NewAppModule(appCodec, &app.wasmKeeper, app.stakingKeeper, app.accountKeeper, app.bankKeeper),
 		evidence.NewAppModule(app.evidenceKeeper),
-		ibc.NewAppModule(app.ibcKeeper),
 		authzmodule.NewAppModule(appCodec, app.authzKeeper, app.accountKeeper, app.bankKeeper, app.interfaceRegistry),
 		params.NewAppModule(app.paramsKeeper),
 	)
@@ -461,7 +456,6 @@ func NewWasmApp(
 		upgradetypes.ModuleName,
 		vestingtypes.ModuleName,
 		// additional non simd modules
-		ibchost.ModuleName,
 		wasm.ModuleName,
 	)
 
@@ -487,7 +481,6 @@ func NewWasmApp(
 				SignModeHandler: encodingConfig.TxConfig.SignModeHandler(),
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 			},
-			IBCKeeper:         app.ibcKeeper,
 			WasmConfig:        &wasmConfig,
 			TXCounterStoreKey: keys[wasm.StoreKey],
 		},
@@ -542,7 +535,6 @@ func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBl
 	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, app.slashingKeeper)
 	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, app.evidenceKeeper)
 	staking.BeginBlocker(ctx, app.stakingKeeper)
-	ibcclient.BeginBlocker(ctx, app.ibcKeeper.ClientKeeper)
 
 	typedTxs := make([]sdk.Tx, 0, len(req.Txs))
 	for _, tx := range req.Txs {
@@ -617,7 +609,14 @@ func (app *WasmApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci
 
 	app.upgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
+	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesis.GenesisImportConfig{})
+	app.initializeRetiredTransferModuleAccount(ctx)
+	return response
+}
+
+// initializeRetiredTransferModuleAccount preserves the account identity and permissions created by the retired transfer module.
+func (app *WasmApp) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
+	app.accountKeeper.GetModuleAccount(ctx, retiredTransferName)
 }
 
 func (app *WasmApp) EndBlocker(ctx sdk.Context) []abci.ValidatorUpdate {
@@ -731,7 +730,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
 
 	return paramsKeeper

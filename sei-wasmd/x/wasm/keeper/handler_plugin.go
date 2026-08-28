@@ -8,7 +8,6 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	ibccoretypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/types"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -43,7 +42,6 @@ func NewDefaultMessageHandler(
 	}
 	return NewMessageHandlerChain(
 		NewSDKMessageHandler(router, encoders),
-		NewIBCRawPacketHandler(),
 		NewBurnCoinMessageHandler(bankKeeper),
 	)
 }
@@ -134,21 +132,6 @@ func (m MessageHandlerChain) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAd
 		}
 	}
 	return nil, nil, sdkerrors.Wrap(types.ErrUnknownMsg, "no handler found")
-}
-
-// IBCRawPacketHandler handles retired IBC.SendPacket messages.
-type IBCRawPacketHandler struct{}
-
-func NewIBCRawPacketHandler() IBCRawPacketHandler {
-	return IBCRawPacketHandler{}
-}
-
-// DispatchMsg rejects raw IBC packets with the module retirement error.
-func (h IBCRawPacketHandler) DispatchMsg(_ sdk.Context, _ sdk.AccAddress, _ string, msg wasmvmtypes.CosmosMsg, _ wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
-	if msg.IBC == nil || msg.IBC.SendPacket == nil {
-		return nil, nil, types.ErrUnknownMsg
-	}
-	return nil, nil, ibccoretypes.ErrIBCDeprecated
 }
 
 var _ Messenger = MessageHandlerFunc(nil)

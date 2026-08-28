@@ -70,6 +70,9 @@ var scKeys = []configtest.KeySpec{
 	{Key: FlagSCHistoricalProofMaxInFlight, Path: "HistoricalProofMaxInFlight", Cast: configtest.CastInt},
 	{Key: FlagSCHistoricalProofRateLimit, Path: "HistoricalProofRateLimit", Cast: configtest.CastFloat64},
 	{Key: FlagSCHistoricalProofBurst, Path: "HistoricalProofBurst", Cast: configtest.CastInt},
+	{Key: FlagSCSubspaceQueryMaxInFlight, Path: "SubspaceQueryMaxInFlight", Cast: configtest.CastInt},
+	{Key: FlagSCSubspaceMaxPairs, Path: "SubspaceMaxPairs", Cast: configtest.CastInt},
+	{Key: FlagSCSubspaceMaxBytes, Path: "SubspaceMaxBytes", Cast: configtest.CastInt},
 	{
 		Key: FlagSCHashLoggerEnable, Path: "HashLogger.Enable", Cast: configtest.CastBool,
 		Why: "default true; guarded so an absent key does not silently turn hash logging off",
@@ -167,14 +170,14 @@ var genesisKeys = []configtest.KeySpec{
 // else, so the compiler keeps this list out of CheckRow and out of the discriminating-seed check,
 // where a row that predicted a resolved value would be wrong for all three.
 //
-// The four flatkv names are here for a different reason than the three above them. Nothing in this
+// The five flatkv names are here for a different reason than the three above them. Nothing in this
 // package reads them: sei-cosmos/server/config.GetConfig is their only reader, and its guardedKeys
 // target drives them. They are recorded on this section's record rather than on a second one in that
 // package so that [state-commit] has one list of operator-facing names, which is where someone
 // checking a spelling will look.
 //
 // What that record does and does not do is worth being exact about, in both directions. Renaming one
-// of these four in GetConfig fails that package's own targets, not this record, because nothing
+// of these five in GetConfig fails that package's own targets, not this record, because nothing
 // compares this list against the read site. Verified by renaming
 // state-commit.flatkv.snapshot-interval in GetConfig, which reddens three tests in sei-cosmos and
 // none here. And deleting one of them from GetConfig leaves this record green while it names a key no
@@ -192,6 +195,7 @@ var scKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 	"state-commit.flatkv.async-write-buffer",
 	"state-commit.flatkv.snapshot-interval",
 	"state-commit.flatkv.snapshot-keep-recent",
+	"state-commit.flatkv.max-snapshot-lag-blocks",
 }
 
 // genesisKeysWithTargetsOfTheirOwn are the [genesis] names no row claims.
@@ -238,15 +242,18 @@ func FuzzParseSCConfigs(f *testing.F) {
 	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(-1), false)     // negative into an unchecked unsigned cast: resolves 0
 	seeds.AddRow(uint(7), fuzzing.KindFloat64, "", int64(2), false)    // prefetch threshold as a float
 	seeds.AddRow(uint(1), fuzzing.KindString, "/var/lib/sei/sc", int64(0), false)
-	seeds.AddRow(uint(13), fuzzing.KindString, "not-a-bool", int64(0), false) // unchecked: resolves false, no error
-	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(0), false)            // explicit 0 taken verbatim
+	seeds.AddRow(uint(16), fuzzing.KindString, "not-a-bool", int64(0), false) // unchecked: resolves false, no error
+	seeds.AddRow(uint(18), fuzzing.KindInt64, "", int64(0), false)            // explicit 0 taken verbatim
 
 	// Two rows default to their cast's zero, which is also what the malformed seed resolves
 	// to on an unchecked read, so neither of the per-row seeds above moves the field off the
 	// value an absent key produces. Each gets one value that converts to something else,
 	// which is what holds the reader to the key name rather than only to the cast.
 	seeds.AddRow(uint(9), fuzzing.KindBool, "", int64(0), true)         // flatkv read/write metrics on; the default is off
-	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(100000), false) // block-count retention on; the default is 0, meaning disabled
+	seeds.AddRow(uint(18), fuzzing.KindInt64, "", int64(100000), false) // block-count retention on; the default is 0, meaning disabled
+	seeds.AddRow(uint(13), fuzzing.KindInt64, "", int64(5), false)      // subspace max inflight above default 2
+	seeds.AddRow(uint(14), fuzzing.KindInt64, "", int64(500), false)    // subspace max pairs below default 1000
+	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(1024), false)   // subspace max bytes below default 4 MiB
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-commit", readSC, scKeys, seeds,
 		scKeysWithTargetsOfTheirOwn...)

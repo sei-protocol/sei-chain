@@ -1,6 +1,7 @@
 package params
 
 import (
+	"github.com/sei-protocol/sei-chain/config/registry"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
@@ -94,8 +95,11 @@ const (
 )
 
 // IsFullnodeType returns true if the node is a fullnode-like node (full or archive)
+//
+// The rule itself lives in the configuration registry, because a section's own package needs the same
+// fact and cannot import this one.
 func (m NodeMode) IsFullnodeType() bool {
-	return m == NodeModeFull || m == NodeModeArchive
+	return registry.IsFullnodeMode(registry.Mode(m))
 }
 
 // setValidatorTypeTendermintConfig sets common Tendermint config for validator-like nodes

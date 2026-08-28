@@ -80,7 +80,7 @@ func TestGetLatestVersionWatermarksBehindWAL(t *testing.T) {
 
 	// Pin that the two candidate sources genuinely disagree here, so this test fails for an
 	// implementation that reads a watermark rather than for an implementation detail.
-	for _, ndb := range s.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), meta.CommittedVersion, "%s watermark trails the WAL", ndb.dir)
@@ -114,7 +114,7 @@ func TestGetLatestVersionSnapshotBehindWAL(t *testing.T) {
 	for i := int64(1); i <= 2; i++ {
 		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	for i := int64(3); i <= 5; i++ {
 		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
@@ -132,7 +132,7 @@ func TestGetLatestVersionWALWipedAfterSnapshot(t *testing.T) {
 	for i := int64(1); i <= 2; i++ {
 		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	resetWALForTest(t, s)
 
 	require.Equal(t, int64(2), requireProbeMatchesOpen(t, s, cfg))

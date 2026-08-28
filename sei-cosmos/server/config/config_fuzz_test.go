@@ -316,6 +316,10 @@ var guardedKeys = []guardedKey{
 	{Key: "state-commit.flatkv.snapshot-interval", Path: "StateCommit.FlatKVConfig.SnapshotInterval", Set: 777},
 	{Key: "state-commit.flatkv.snapshot-keep-recent", Path: "StateCommit.FlatKVConfig.SnapshotKeepRecent", Set: 6},
 	{
+		Key: "state-commit.flatkv.max-snapshot-lag-blocks", Path: "StateCommit.FlatKVConfig.MaxSnapshotLagBlocks",
+		Set: 32,
+	},
+	{
 		Key: "state-commit.flatkv.enable-read-write-metrics", Path: "StateCommit.FlatKVConfig.EnableReadWriteMetrics",
 		Set: true, DefaultIsZero: true,
 	},
@@ -500,14 +504,13 @@ func TestGetConfigStateStoreReadsAreUnguarded(t *testing.T) {
 
 // stateSyncKeys is the [state-sync] manifest as GetConfig resolves it.
 //
-// The section is read three ways and this describes one of them — counted by mechanism, because
-// a count of readers goes stale: simd is a fourth call site (sei-ibc-go/testing/simapp/simd/cmd/
-// root.go:273-274) and a second instance of the first mechanism, not a fourth way. NewApp reads
-// the same three keys out of an AppOpts and hands them to a baseapp (cmd/seid/cmd/root.go:255
-// and :304-306), which no row can predict. ParseConfig (toml.go:272-277) unmarshals them by mapstructure tag
-// over a DefaultConfig base, so an absent snapshot-keep-recent keeps 2 where this reader
-// returns 0 — a second describable reader, undescribed. GetConfig reads them as literals
-// through one unguarded typed getter each, which is the shape CheckRow holds a reader to.
+// The section is read three ways and this describes one of them. NewApp reads the same
+// three keys out of an AppOpts and hands them to a baseapp (cmd/seid/cmd/root.go:255 and
+// :304-306), which no row can predict. ParseConfig (toml.go:272-277) unmarshals them by
+// mapstructure tag over a DefaultConfig base, so an absent snapshot-keep-recent keeps 2
+// where this reader returns 0 — a second describable reader, undescribed. GetConfig reads
+// them as literals through one unguarded typed getter each, which is the shape CheckRow
+// holds a reader to.
 //
 // All three reads are unguarded and one of them clobbers, which is why this section gets no
 // CheckAbsent: an empty viper does not resolve to DefaultConfig's [state-sync].
