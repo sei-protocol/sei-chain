@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
+	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 )
@@ -433,10 +434,18 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, res)
 
+			proposal, ok := app.GovKeeper.GetProposal(ctx, proposalID)
+			require.True(t, ok)
+			if tc.isExpeditedPasses {
+				// Validator votes YES before the expedited voting period expires.
+				err = app.GovKeeper.AddVote(ctx, proposal.ProposalId, addrs[0], types.NewNonSplitVoteOption(types.OptionYes))
+				require.NoError(t, err)
+			}
+
 			votingParams := app.GovKeeper.GetVotingParams(ctx)
 			newHeader = ctx.BlockHeader()
 
-			newHeader.Time = ctx.BlockHeader().Time.Add(app.GovKeeper.GetDepositParams(ctx).MaxDepositPeriod).Add(votingParams.ExpeditedVotingPeriod)
+			newHeader.Time = proposal.VotingEndTime
 			ctx = ctx.WithBlockHeader(newHeader)
 
 			inactiveQueue = app.GovKeeper.InactiveProposalQueueIterator(ctx, ctx.BlockHeader().Time)
@@ -447,17 +456,11 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			require.True(t, activeQueue.Valid())
 
 			activeProposalID := types.GetProposalIDFromBytes(activeQueue.Value())
-			proposal, ok := app.GovKeeper.GetProposal(ctx, activeProposalID)
+			proposal, ok = app.GovKeeper.GetProposal(ctx, activeProposalID)
 			require.True(t, ok)
 			require.Equal(t, types.StatusVotingPeriod, proposal.Status)
 
 			activeQueue.Close()
-
-			if tc.isExpeditedPasses {
-				// Validator votes YES, letting the expedited proposal pass.
-				err = app.GovKeeper.AddVote(ctx, proposal.ProposalId, addrs[0], types.NewNonSplitVoteOption(types.OptionYes))
-				require.NoError(t, err)
-			}
 
 			// Here the expedited proposal is converted to regular after expiry.
 			gov.EndBlocker(ctx, app.GovKeeper)
@@ -466,6 +469,7 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 
 			if tc.isExpeditedPasses {
 				require.False(t, activeQueue.Valid())
+				activeQueue.Close()
 
 				proposal, ok = app.GovKeeper.GetProposal(ctx, activeProposalID)
 				require.True(t, ok)
@@ -486,9 +490,7 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			}
 
 			// Expedited proposal should be converted to a regular proposal instead.
-			require.True(t, activeQueue.Valid())
-
-			activeProposalID = types.GetProposalIDFromBytes(activeQueue.Value())
+			require.False(t, activeQueue.Valid())
 			activeQueue.Close()
 
 			proposal, ok = app.GovKeeper.GetProposal(ctx, activeProposalID)
@@ -507,8 +509,14 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			expectedIntermediateMofuleAccCoings := initialModuleAccCoins.Add(proposalCoins...).Add(proposalCoins...)
 			require.Equal(t, expectedIntermediateMofuleAccCoings, intermediateModuleAccCoins)
 
+			if tc.isRegularEventuallyPassing {
+				// Validator votes YES before the converted regular voting period expires.
+				err = app.GovKeeper.AddVote(ctx, proposal.ProposalId, addrs[0], types.NewNonSplitVoteOption(types.OptionYes))
+				require.NoError(t, err)
+			}
+
 			// block header time at the voting period
-			newHeader.Time = ctx.BlockHeader().Time.Add(app.GovKeeper.GetDepositParams(ctx).MaxDepositPeriod).Add(votingParams.VotingPeriod)
+			newHeader.Time = proposal.VotingEndTime
 			ctx = ctx.WithBlockHeader(newHeader)
 
 			inactiveQueue = app.GovKeeper.InactiveProposalQueueIterator(ctx, ctx.BlockHeader().Time)
@@ -517,12 +525,6 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 
 			activeQueue = app.GovKeeper.ActiveProposalQueueIterator(ctx, ctx.BlockHeader().Time)
 			require.True(t, activeQueue.Valid())
-
-			if tc.isRegularEventuallyPassing {
-				// Validator votes YES, letting the converted regular proposal pass.
-				err = app.GovKeeper.AddVote(ctx, proposal.ProposalId, addrs[0], types.NewNonSplitVoteOption(types.OptionYes))
-				require.NoError(t, err)
-			}
 
 			// Here we validate the converted regular proposal
 			gov.EndBlocker(ctx, app.GovKeeper)
@@ -607,7 +609,7 @@ func TestEndBlockerProposalHandlerFailed(t *testing.T) {
 	gov.EndBlocker(ctx, app.GovKeeper)
 }
 
-func TestEndBlockerBoundsVoteTallyAndCleanupWork(t *testing.T) {
+func TestEndBlockerBoundsVoteBackfillTallyAndCleanupWork(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -649,6 +651,14 @@ func TestEndBlockerBoundsVoteTallyAndCleanupWork(t *testing.T) {
 			types.NewNonSplitVoteOption(types.OptionYes),
 		))
 	}
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	for i := 0; i < gov.MaxVotesProcessedPerBlock+1; i++ {
+		addr := make(sdk.AccAddress, 20)
+		binary.BigEndian.PutUint64(addr[12:], uint64(i+1))
+		store.Delete(types.VoteDelegationsKey(proposal.ProposalId, addr))
+		store.Delete(types.VoterProposalsKey(addr, proposal.ProposalId))
+	}
+	require.NoError(t, govkeeper.NewMigrator(app.GovKeeper).Migrate3to4(ctx))
 
 	ctx = ctx.WithBlockTime(proposal.VotingEndTime)
 	gov.EndBlocker(ctx, app.GovKeeper)
@@ -656,10 +666,20 @@ func TestEndBlockerBoundsVoteTallyAndCleanupWork(t *testing.T) {
 	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
 	require.True(t, found)
 	require.Equal(t, types.StatusVotingPeriod, proposal.Status)
-	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.False(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.True(t, app.GovKeeper.IsVoteDelegationBackfillInProgress(ctx, proposal.ProposalId))
 	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), gov.MaxVotesProcessedPerBlock+1)
-	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 900)
+	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
 	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, cleanupProposal.ProposalId, false), 1)
+	tracked := 0
+	for i := 0; i < gov.MaxVotesProcessedPerBlock+1; i++ {
+		addr := make(sdk.AccAddress, 20)
+		binary.BigEndian.PutUint64(addr[12:], uint64(i+1))
+		if store.Has(types.VoteDelegationsKey(proposal.ProposalId, addr)) {
+			tracked++
+		}
+	}
+	require.Equal(t, 900, tracked)
 
 	newVoter := make(sdk.AccAddress, 20)
 	binary.BigEndian.PutUint64(newVoter[12:], uint64(gov.MaxVotesProcessedPerBlock+2))
@@ -670,10 +690,21 @@ func TestEndBlockerBoundsVoteTallyAndCleanupWork(t *testing.T) {
 
 	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
 	require.True(t, found)
+	require.Equal(t, types.StatusVotingPeriod, proposal.Status)
+	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.False(t, app.GovKeeper.IsVoteDelegationBackfillInProgress(ctx, proposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), gov.MaxVotesProcessedPerBlock+1)
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 898)
+	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, cleanupProposal.ProposalId, false))
+
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
 	require.Equal(t, types.StatusRejected, proposal.Status)
 	require.False(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
 	require.Empty(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId))
-	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 103)
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 104)
 
 	gov.EndBlocker(ctx, app.GovKeeper)
 	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))

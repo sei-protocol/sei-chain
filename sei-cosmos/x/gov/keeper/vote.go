@@ -21,7 +21,10 @@ func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.A
 	if proposal.Status != types.StatusVotingPeriod {
 		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
-	if keeper.IsTallying(ctx, proposalID) {
+	if proposal.VotingEndTime.Before(ctx.BlockTime()) {
+		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+	}
+	if keeper.IsTallying(ctx, proposalID) || keeper.IsVoteDelegationBackfillInProgress(ctx, proposalID) {
 		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
 

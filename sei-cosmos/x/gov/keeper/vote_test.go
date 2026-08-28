@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"testing"
+	"time"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -91,4 +92,32 @@ func TestVotes(t *testing.T) {
 	require.True(t, votes[1].Options[2].Weight.Equal(sdk.NewDecWithPrec(5, 2)))
 	require.True(t, votes[1].Options[3].Weight.Equal(sdk.NewDecWithPrec(5, 2)))
 	require.Equal(t, types.OptionEmpty, vote.Option)
+}
+
+func TestAddVoteRejectsBlocksAfterVotingEnd(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrs := seiapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+
+	atVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime)
+	require.NoError(t, app.GovKeeper.AddVote(
+		atVotingEnd,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+
+	afterVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime.Add(time.Second))
+	require.ErrorIs(t, app.GovKeeper.AddVote(
+		afterVotingEnd,
+		proposal.ProposalId,
+		addrs[1],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	), types.ErrInactiveProposal)
 }
