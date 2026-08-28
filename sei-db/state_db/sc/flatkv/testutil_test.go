@@ -364,7 +364,9 @@ func stagedRow[T vtype.VType](
 	decode func([]byte) (T, error),
 ) T {
 	t.Helper()
-	row, err := getAndParse(store, physKey, decode)
+	raw, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	row, err := parseRow(raw, found, decode)
 	require.NoError(t, err)
 	return row
 }

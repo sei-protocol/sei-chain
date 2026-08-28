@@ -29,6 +29,12 @@ func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChange
 	return nil
 }
 
+// CommitStateChanges writes changeset into the store as block blockNum. It is the Giga StateDB entry
+// point; the changes are readable through OpenView() once it returns.
+func (s *CommitStore) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
+	return s.CommitBlock(blockNum, changeset)
+}
+
 // Commit persists buffered writes at the given version (block height). One Commit persists exactly one
 // block; version must equal the height the pending writes were stamped with. Consecutive commits must also
 // be contiguous: the state WAL rejects a version that skips a height, though the first block written to an
