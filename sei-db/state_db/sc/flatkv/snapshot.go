@@ -384,6 +384,10 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 
 	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
 	// tree this is about to publish into, and only one writer of that tree may run at a time.
+	//
+	// The flush does not cover a retention cut line the collector may hand the writer, which arrives on
+	// its own channel. That one is safe to overlap: it deletes strictly below the active snapshot while
+	// this publishes above it, so a publication racing it can only make it delete less.
 	if s.snapshotWriter != nil {
 		if err := s.snapshotWriter.Flush(); err != nil {
 			return fmt.Errorf("await pending snapshot before writing version %d: %w", version, err)
