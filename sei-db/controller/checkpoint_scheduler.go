@@ -4,7 +4,6 @@
 package controller
 
 import (
-	"maps"
 	"sync"
 	"time"
 
@@ -15,38 +14,36 @@ import (
 
 var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 
-// CheckpointScheduler picks the heights every store checkpoints at, so the stores of one node hold
-// checkpoints of the same versions rather than of whatever version each happened to reach.
+// CheckpointScheduler picks the heights every store on a node checkpoints at.
 //
-// Stores ask ShouldCheckpoint at every version they commit and call MarkCheckpointComplete once
-// that version's checkpoint has finished, whether or not it succeeded: every yes obliges a report.
-// A store joins the schedule by asking, and a height is held until every store registered when it
-// was picked, along with any that took it afterwards, has reported. A store behind the others is
-// handed that same height rather than one that has moved on, and heights arrive no faster than the
-// slowest store reaches them.
+// Stores ask ShouldCheckpoint at each live commit and call MarkCheckpointComplete when that
+// checkpoint finishes, success or failure. Replay, WAL catch-up, and state-sync must not ask.
+// ShouldCheckpoint will register the store.
+//
+// A height is held until every store registered when it was picked, along with any that took it
+// afterwards, has reported. A store behind the others is handed that same height rather than one
+// that has moved on, and heights arrive no faster than the slowest store reaches them.
 //
 // Answers hold across stores. Refusing a height refuses every height below it too — once 100 is
 // refused, so are 99 and 98 — which stops a lagging store from taking a lower height the moment an
 // interval elapses. An accepted height keeps its answer until it is replaced, so a store that
 // reaches it late is told the same as the store that got there first.
 //
-// A time interval, a block interval, or both may be set, and a value of 0 or less is unused. The
-// block interval places heights on its multiples, so they stay on the same grid however far a
-// checkpoint runs late. The time interval is measured from the last checkpoint completing, and from
-// the scheduler's creation before there is one. With both set a height has to satisfy both, which
-// makes it the first multiple reached after the time has passed. With neither, checkpointing is off.
+// A store that passes a held height without taking it — one whose version jumped over it — is
+// released from that height when it next asks, so it costs that store one checkpoint rather than
+// stopping the schedule. A store that stops asking altogether holds the height indefinitely.
 //
-// Every store has to ask at each version it commits. One asking at only some of them never reaches
-// the height being held, which stops the node checkpointing rather than only that store.
+// A time interval, a block interval, or both may be set.
+// Both set means both must hold; neither disables checkpointing.
 type CheckpointScheduler struct {
 	mu     sync.Mutex
 	config config.CheckpointConfig
 
 	// registered holds every store that has asked, which is how a store joins the schedule.
 	registered map[string]struct{}
-	// awaiting holds the stores the current height is held for that have yet to report it. Empty
-	// means no checkpoint is outstanding.
-	awaiting map[string]struct{}
+	// awaiting maps each store nextCheckpointVersion is held for to whether that store has taken
+	// the height yet. Empty means every store has checkpointed this height.
+	awaiting map[string]bool
 
 	// nextCheckpointVersion is the height stores checkpoint at, 0 before the first one is picked.
 	// It stays set once complete, so a store that has yet to reach it is still given that height.
@@ -65,13 +62,14 @@ func NewCheckpointScheduler(cfg config.CheckpointConfig) *CheckpointScheduler {
 	return &CheckpointScheduler{
 		config:         cfg,
 		registered:     make(map[string]struct{}),
-		awaiting:       make(map[string]struct{}),
+		awaiting:       make(map[string]bool),
 		checkpointedAt: time.Now(),
 	}
 }
 
 // ShouldCheckpoint reports whether version is a height for store to checkpoint at, registering
-// store with the schedule when this is its first ask.
+// store with the schedule when this is its first ask. Call it only from the live commit path,
+// never during replay, WAL catch-up, or state-sync forward-fill.
 func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool {
 	if !s.checkpointEnabled() || version <= 0 {
 		return false
@@ -88,17 +86,18 @@ func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool
 	if s.alreadyRejected(version) {
 		return false
 	}
-	if s.checkpointOutstanding() || !s.hasReachedNextInterval(version) {
+	s.skipPastHeight(store)
+	if !(s.allStoresCheckpointed() && s.hasReachedNextInterval(version)) {
 		s.rejectedVersion = version
 		return false
 	}
-	s.pickCheckpointHeight(version)
+	s.pickCheckpointHeight(store, version)
 	return true
 }
 
-// MarkCheckpointComplete records that store has finished the current height. Both intervals start
-// once every store the height is held for has reported it. Any other version is ignored, as is a
-// repeat from the same store.
+// MarkCheckpointComplete records that store has finished the height it was given. Both intervals
+// start once every store that height is held for has reported it. Any other version is ignored, as
+// is a repeat from the same store.
 //
 // A store that took a height must report it on every path out of the checkpoint, a failed one
 // included, which in practice means deferring the call. No further height is picked while one store
@@ -110,29 +109,24 @@ func (s *CheckpointScheduler) MarkCheckpointComplete(store string, version int64
 	if version != s.nextCheckpointVersion {
 		return
 	}
-	if _, outstanding := s.awaiting[store]; !outstanding {
+	if _, awaited := s.awaiting[store]; !awaited {
 		return
 	}
 	delete(s.awaiting, store)
-
-	if s.checkpointOutstanding() {
-		return
-	}
-	s.checkpointedAt = time.Now()
-	checkpointLogger.Info("checkpoint complete", "version", version)
+	s.updateCheckpointTime()
 }
 
 func (s *CheckpointScheduler) checkpointEnabled() bool {
 	return s.config.TimeInterval > 0 || s.config.BlockInterval > 0
 }
 
-func (s *CheckpointScheduler) checkpointOutstanding() bool {
-	return len(s.awaiting) > 0
+func (s *CheckpointScheduler) allStoresCheckpointed() bool {
+	return len(s.awaiting) == 0
 }
 
-// alreadyRejected reports whether version has been turned down already, either by trailing the
-// height in hand or by being asked and refused. Standing by that no is what stops two stores asking
-// at different moments from splitting on one version.
+// alreadyRejected reports whether version has been turned down already, either by trailing
+// nextCheckpointVersion or by being asked and refused. Standing by that no is what stops two stores
+// asking at different moments from splitting on one version.
 func (s *CheckpointScheduler) alreadyRejected(version int64) bool {
 	return version < s.nextCheckpointVersion || version <= s.rejectedVersion
 }
@@ -144,15 +138,41 @@ func (s *CheckpointScheduler) hasReachedNextInterval(version int64) bool {
 	return timeElapsed && onBlockBoundary
 }
 
-// pickCheckpointHeight makes version the height in hand, held for the stores registered now. One
-// registering later is not held for here, at a version it may already have passed, and is held for
-// from the moment it takes a height.
-func (s *CheckpointScheduler) pickCheckpointHeight(version int64) {
+// pickCheckpointHeight sets nextCheckpointVersion to version and holds it for the stores registered
+// now, of which store is the one that has taken it. One registering later is not held for here, at
+// a version it may already have passed, and is held for from the moment it takes a height.
+func (s *CheckpointScheduler) pickCheckpointHeight(store string, version int64) {
 	s.nextCheckpointVersion = version
-	s.awaiting = maps.Clone(s.registered)
+	s.awaiting = make(map[string]bool, len(s.registered))
+	for name := range s.registered {
+		s.awaiting[name] = false
+	}
+	s.awaiting[store] = true
 }
 
-// holdFor keeps the height in hand from being replaced until store has reported it.
+// holdFor records that store has taken nextCheckpointVersion, which is held until store reports it.
 func (s *CheckpointScheduler) holdFor(store string) {
-	s.awaiting[store] = struct{}{}
+	s.awaiting[store] = true
+}
+
+// skipPastHeight releases the hold store has on nextCheckpointVersion, for a store asking above
+// that height and so past it for good. A store that took the height keeps its hold: it may be
+// writing that checkpoint while it commits later versions, and the intervals wait for it.
+//
+// Callers must have ruled out versions at or under nextCheckpointVersion, which is what makes an
+// ask proof that the store has passed it.
+func (s *CheckpointScheduler) skipPastHeight(store string) {
+	if took, awaited := s.awaiting[store]; !awaited || took {
+		return
+	}
+	delete(s.awaiting, store)
+	s.updateCheckpointTime()
+}
+
+// updateCheckpointTime records when nextCheckpointVersion completed, once every store has
+// checkpointed this height.
+func (s *CheckpointScheduler) updateCheckpointTime() {
+	if s.allStoresCheckpointed() {
+		s.checkpointedAt = time.Now()
+	}
 }

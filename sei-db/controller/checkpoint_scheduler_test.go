@@ -254,20 +254,55 @@ func TestAStoreRegisteringWhileAHeightIsHeldJoinsTheNextOne(t *testing.T) {
 	require.False(t, scheduler.ShouldCheckpoint("sc", 300), "200 is now held for ss as well")
 }
 
+// A store whose version jumps over the held height would otherwise hold it forever, since it never
+// asks at that height again. Asking above it is proof it has passed, so it is released and only
+// that store misses the checkpoint.
+func TestAStoreThatPassesTheHeldHeightIsReleased(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	require.False(t, scheduler.ShouldCheckpoint("ss", 98), "ss registers before the interval elapses")
+
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+	scheduler.MarkCheckpointComplete("sc", 100)
+
+	require.False(t, scheduler.ShouldCheckpoint("ss", 101), "ss jumped from 99 to 101")
+
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 200), "100 is no longer held for ss")
+}
+
+// A store commits later versions while its own checkpoint of the held height is still running, so
+// asking above that height is not proof it skipped it. Releasing it there would start the intervals
+// while it is mid-write.
+func TestAStoreWritingTheHeldHeightIsNotReleased(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+
+	require.False(t, scheduler.ShouldCheckpoint("sc", 101), "sc is still writing 100")
+
+	scheduler.elapseTimeInterval()
+	require.False(t, scheduler.ShouldCheckpoint("sc", 200), "100 is still held for sc")
+
+	scheduler.MarkCheckpointComplete("sc", 100)
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 300))
+}
+
 // ---------------------------------------------------------------------------
 // Completion
 // ---------------------------------------------------------------------------
 
-// A height one store never reports stops the scheduler for good: no later height is picked however
-// long the intervals have had to elapse, and nothing recovers short of a restart. This is the cost
-// of a store skipping MarkCheckpointComplete, which its doc comment requires on every path.
-func TestAnUnreportedHeightStopsTheScheduler(t *testing.T) {
+// A store that stops asking holds its height for good: no later height is picked however long the
+// intervals have had to elapse, and nothing recovers short of a restart. A store still asking is
+// released once it passes the height, so this is the stalled-store case rather than the skipped one.
+func TestAStalledStoreStopsTheScheduler(t *testing.T) {
 	scheduler := newScheduler(time.Hour, 0)
 	scheduler.elapseTimeInterval()
 	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
 	scheduler.MarkCheckpointComplete("sc", 100)
 
-	// ss registered before 200 was picked, then never reports it.
+	// ss registers, is held for 200, then stops asking entirely.
 	require.False(t, scheduler.ShouldCheckpoint("ss", 150))
 	scheduler.elapseTimeInterval()
 	require.True(t, scheduler.ShouldCheckpoint("sc", 200))
@@ -315,7 +350,7 @@ func TestMarkCheckpointCompleteIgnoresAnotherVersion(t *testing.T) {
 	scheduler.MarkCheckpointComplete("sc", 99)
 	scheduler.MarkCheckpointComplete("sc", 101)
 
-	require.True(t, scheduler.checkpointOutstanding(), "neither version is the height being held")
+	require.False(t, scheduler.allStoresCheckpointed(), "neither version is the height being held")
 }
 
 func TestMarkCheckpointCompleteIgnoresAnUnregisteredStore(t *testing.T) {
@@ -326,7 +361,7 @@ func TestMarkCheckpointCompleteIgnoresAnUnregisteredStore(t *testing.T) {
 
 	scheduler.MarkCheckpointComplete("receipt", 100)
 
-	require.True(t, scheduler.checkpointOutstanding(), "the height is still held for sc and ss")
+	require.False(t, scheduler.allStoresCheckpointed(), "the height is still held for sc and ss")
 }
 
 // A store reporting a height it already reported must not restart the intervals, which would push
