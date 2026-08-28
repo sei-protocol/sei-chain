@@ -47,6 +47,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 ## v6.6
 sei-chain
+* [#4053](https://github.com/sei-protocol/sei-chain/pull/4053) Backport `release/v6.6`: Validate snapshots before publication
+* [#4050](https://github.com/sei-protocol/sei-chain/pull/4050) Backport `release/v6.6`: Fix memiavl snapshot race condition
+* [#4048](https://github.com/sei-protocol/sei-chain/pull/4048) Backport `release/v6.6`: Bound frozen RPC router batch allocations
+* [#4034](https://github.com/sei-protocol/sei-chain/pull/4034) Backport `release/v6.6`: Bound block reference parsing depth
 * [#4024](https://github.com/sei-protocol/sei-chain/pull/4024) Backport `release/v6.6`: Add frozen RPC router and Docker integration cluster (#3989)
 * [#4007](https://github.com/sei-protocol/sei-chain/pull/4007) Backport `release/v6.6`: Use iterative traversal for memiavl snapshot writes
 * [#4006](https://github.com/sei-protocol/sei-chain/pull/4006) Backport `release/v6.6`: Disable mempool traffic in freeze mode
