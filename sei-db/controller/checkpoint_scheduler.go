@@ -20,10 +20,9 @@ var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 // checkpoint finishes, success or failure. Replay, WAL catch-up, and state-sync must not ask.
 // ShouldCheckpoint will register the store.
 //
-// The goal is that every registered store either checkpoints on the given exact same height, or none of them do.
-// That is achieved by holding a yes until every store registered has taken the checkpoint later on.
-// So a lagging store is still told yes at that height; and by treating a no as a floor: once 100 is refused,
-// so are 99 and 98, so a store a few blocks behind cannot take a lower height the moment an interval elapses.
+// The goal is that every registered store either checkpoints on the exact same height, or none of them do.
+// That is achieved by holding a yes until every registered store has taken the checkpoint on the same height.
+// So a lagging store is still told yes at that height, or no if the faster stores rejected that height already.
 //
 // A store that passes a held height without taking the checkpoint — one whose version jumped over it — is
 // released from that height when it asks next time, so it costs that store one checkpoint rather than
