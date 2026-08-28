@@ -30,8 +30,8 @@ var (
 type Metrics struct {
 	// Number of peers.
 	peers prometheus.GaugeIntVec
-	// Number of bytes per channel received from a given peer.
-	peerReceiveBytesTotal prometheus.CounterIntVec `metrics_labels:"peer_id, chID, message_type"`
+	// Number of bytes per channel received.
+	peerReceiveBytesTotal prometheus.CounterIntVec `metrics_labels:"chID, message_type"`
 	// Number of newly established connections.
 	newConnections prometheus.CounterIntVec `metrics_labels:"direction, success"`
 

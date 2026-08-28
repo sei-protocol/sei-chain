@@ -1,0 +1,80 @@
+name: Release to Main Upgrade Test
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release-upgrade-test.yml
+      - .github/scripts/release-upgrade-test.sh
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: Official release branch to test (empty selects the latest)
+        required: false
+        type: string
+      upgrade_lead_seconds:
+        description: Seconds between proposal submission and upgrade
+        required: false
+        default: 60
+        type: number
+      post_upgrade_blocks:
+        description: Blocks every node must produce after the upgrade
+        required: false
+        default: 10
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release-to-main:
+    name: Latest release to main
+    runs-on: ubuntu-large
+    timeout-minutes: 90
+    env:
+      RELEASE_BRANCH: ${{ inputs.release_branch || '' }}
+      UPGRADE_LEAD_SECONDS: ${{ inputs.upgrade_lead_seconds || '60' }}
+      POST_UPGRADE_BLOCKS: ${{ inputs.post_upgrade_blocks || '10' }}
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
+
+      # See: https://github.com/actions/setup-go/releases/tag/v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.25.6'
+
+      - name: Run coordinated release upgrade
+        run: bash .github/scripts/release-upgrade-test.sh
+
+      - name: Upload upgrade diagnostics
+        if: ${{ always() }}
+        # See: https://github.com/actions/upload-artifact/releases/tag/v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-upgrade-${{ github.run_id }}
+          path: artifacts/release-upgrade
+          if-no-files-found: warn
+          retention-days: 7
