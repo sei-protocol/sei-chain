@@ -12,10 +12,8 @@ import (
 // protobuf encoding (i.e. when parts.Header() differs from MakePartSet).
 var ErrNonCanonicalProposalParts = errors.New("non-canonical proposal parts")
 
-// blockIDMatches reports whether block and parts together match the consensus
-// BlockID (header hash and PartSetHeader). Consensus identity is the full
-// BlockID; comparing only the header hash would treat different part-set
-// encodings as the same value.
+// blockIDMatches reports whether block and parts together match blockID's
+// header hash and PartSetHeader.
 func blockIDMatches(block *types.Block, parts *types.PartSet, blockID types.BlockID) bool {
 	if block == nil || parts == nil || !blockID.IsComplete() {
 		return false
@@ -35,14 +33,9 @@ func proposalMatchesLocked(proposal, locked *types.Block, proposalParts, lockedP
 	})
 }
 
-// verifyCanonicalProposalParts ensures ProposalBlockParts match
-// block.MakePartSet(BlockPartSizeBytes). Parts that carry the same logical
-// block bytes under a different chunk size produce a different PartSetHeader;
-// those must be rejected so commit/blocksync (which rebuild with
-// BlockPartSizeBytes) stay consistent. Proposal.BlockID.Hash is not checked
-// here: a mismatched proposal hash must not block later maj23/commit catch-up
-// that retargets the same PartSetHeader, and votes already commit to
-// ProposalBlock.Hash() + parts.Header().
+// verifyCanonicalProposalParts reports an error unless ProposalBlockParts
+// match block.MakePartSet(BlockPartSizeBytes).Header(). It does not compare
+// Proposal.BlockID.Hash.
 func (cs *State) verifyCanonicalProposalParts(block *types.Block) error {
 	parts := cs.roundState.ProposalBlockParts()
 	if parts == nil {

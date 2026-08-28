@@ -217,10 +217,8 @@ func TestEnterPrecommitDoesNotRelockOnPartSetMismatch(t *testing.T) {
 	cs1.validatePrecommit(ctx, t, round, round, vss[0], nil, propBlock.Hash())
 }
 
-// A proposal whose BlockID.Hash lies but whose PartSetHeader matches the
-// canonical part set must still assemble. Rejecting here would leave a
-// complete PartSet with ProposalBlock==nil and block later maj23/commit
-// catch-up that reuses the same header (votes use ProposalBlock.Hash()).
+// A proposal whose BlockID.Hash differs from the assembled block, but whose
+// PartSetHeader matches the canonical part set, must still assemble.
 func TestAssembleDespiteProposalHashMismatch(t *testing.T) {
 	config := configSetup(t)
 	chainID := tmconfig.TestLoadGenesis(config).ChainID
@@ -264,7 +262,7 @@ func TestAssembleDespiteProposalHashMismatch(t *testing.T) {
 
 	rs := cs1.GetRoundState()
 	require.NotNil(t, rs.Proposal)
-	require.NotNil(t, rs.ProposalBlock, "lying proposal hash must not block assembly of canonical parts")
+	require.NotNil(t, rs.ProposalBlock, "proposal BlockID.Hash mismatch must not block assembly of canonical parts")
 	require.True(t, rs.ProposalBlock.HashesTo(propBlock.Hash()))
 	require.False(t, bytes.Equal(rs.Proposal.BlockID.Hash, propBlock.Hash()))
 	require.True(t, rs.ProposalBlockParts.HasHeader(canonicalParts.Header()))

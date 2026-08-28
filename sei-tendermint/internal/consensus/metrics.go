@@ -92,8 +92,7 @@ type Metrics struct {
 	// NonCanonicalProposalParts counts complete proposal assemblies rejected
 	// because the assembled PartSetHeader did not equal
 	// MakePartSet(block, BlockPartSizeBytes) — non-canonical encoding or
-	// non-default chunking. Labeled by the consensus step at rejection time so
-	// post-commit stalls are alertable.
+	// non-default chunking. Labeled by consensus step.
 	//metrics:Number of non-canonical complete proposal part sets rejected, labeled by consensus step.
 	NonCanonicalProposalParts tmprometheus.CounterIntVec `metrics_labels:"step"`
 

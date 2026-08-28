@@ -1680,7 +1680,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 	}
 
 	// If we're already locked on that block, precommit it, and update the LockedRound.
-	// Match full BlockID (hash + PartSetHeader), not header hash alone.
+	// Match full BlockID (hash + PartSetHeader).
 	if blockIDMatches(cs.roundState.LockedBlock(), cs.roundState.LockedBlockParts(), blockID) {
 		logger.Info("precommit step: +2/3 prevoted locked block; relocking")
 		cs.roundState.SetLockedRound(round)
