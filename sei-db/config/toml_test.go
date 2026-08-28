@@ -49,6 +49,9 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-historical-proof-max-inflight = 1", "Missing or incorrect sc-historical-proof-max-inflight")
 	require.Contains(t, output, "sc-historical-proof-rate-limit = 1", "Missing or incorrect sc-historical-proof-rate-limit")
 	require.Contains(t, output, "sc-historical-proof-burst = 1", "Missing or incorrect sc-historical-proof-burst")
+	require.Contains(t, output, "sc-subspace-query-max-inflight = 2", "Missing or incorrect sc-subspace-query-max-inflight")
+	require.Contains(t, output, "sc-subspace-max-pairs = 1000", "Missing or incorrect sc-subspace-max-pairs")
+	require.Contains(t, output, "sc-subspace-max-bytes = 4194304", "Missing or incorrect sc-subspace-max-bytes")
 
 	// The FlatKV section header is kept, but no FlatKV configs are exposed yet.
 	require.Contains(t, output, "[state-commit.flatkv]", "Missing FlatKV section")
