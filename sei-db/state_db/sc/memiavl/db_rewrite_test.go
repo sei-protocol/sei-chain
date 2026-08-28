@@ -223,6 +223,79 @@ func TestPublishSnapshotAdoptsValidExistingTarget(t *testing.T) {
 	require.Equal(t, snapshotDir, current)
 }
 
+// TestRewriteSnapshotKeepsSnapshotOnCancelledValidation pins the boundary of
+// the self-heal: a validation failure that says nothing about the directory's
+// contents, such as a cancelled context at shutdown, must not delete a
+// published snapshot out from under the current symlink.
+func TestRewriteSnapshotKeepsSnapshotOnCancelledValidation(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	snapshotDir := snapshotName(db.Version())
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := db.RewriteSnapshot(cancelled)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.DirExists(t, filepath.Join(dir, snapshotDir))
+	current, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotDir, current)
+}
+
+// TestLoadMultiTreeRejectsMetadataWithoutCommitInfo covers the metadata shape
+// an unclean shutdown leaves behind: a file that unmarshals successfully but
+// carries no commit info. Loading it must fail as corruption, not panic.
+func TestLoadMultiTreeRejectsMetadataWithoutCommitInfo(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, MetadataFileName), []byte{}, 0o600))
+
+	_, err := LoadMultiTree(context.Background(), dir, Options{})
+
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, "no commit info")
+}
+
+func TestRewriteSnapshotReplacesSnapshotWithEmptyMetadata(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	snapshotDir := snapshotName(db.Version())
+	targetPath := filepath.Join(dir, snapshotDir)
+	require.NoError(t, os.MkdirAll(targetPath, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(targetPath, MetadataFileName), []byte{}, 0o600))
+
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+
+	require.NoError(t, db.validateSnapshot(context.Background(), targetPath))
+	current, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.Equal(t, snapshotDir, current)
+}
+
+// TestValidateSnapshotRejectsStoreVersionSkew pins the per-store version
+// comparison. An empty commit advances every version while leaving root hashes
+// unchanged, so a directory mixing an old store with a new multi-tree metadata
+// is caught only by comparing each store's own version.
+func TestValidateSnapshotRejectsStoreVersionSkew(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	oldSnapshot := filepath.Join(dir, snapshotName(db.Version()))
+
+	_, err := db.Commit()
+	require.NoError(t, err)
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
+	newSnapshot := filepath.Join(dir, snapshotName(db.Version()))
+
+	skewed := filepath.Join(dir, "skewed-snapshot")
+	require.NoError(t, os.CopyFS(skewed, os.DirFS(oldSnapshot)))
+	metadata, err := os.ReadFile(filepath.Join(newSnapshot, MetadataFileName))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(skewed, MetadataFileName), metadata, 0o600))
+
+	err = db.validateSnapshot(context.Background(), skewed)
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, "does not match expected version")
+}
+
 func TestValidateSnapshotComparesCommitInfo(t *testing.T) {
 	db, dir := openCommittedDB(t)
 	require.NoError(t, db.RewriteSnapshot(context.Background()))

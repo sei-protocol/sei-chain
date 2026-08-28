@@ -30,6 +30,12 @@ const LockFileName = "LOCK"
 
 var errReadOnly = errors.New("db is read-only")
 
+// errCorruptedSnapshot classifies snapshot data that is structurally invalid,
+// as opposed to environmental failures (cancellation, file-handle or memory
+// exhaustion) that say nothing about the data. Deleting a snapshot directory
+// is justified only for errors carrying this sentinel.
+var errCorruptedSnapshot = errors.New("corrupted snapshot")
+
 // DB implements DB-like functionalities on top of MultiTree:
 // - async snapshot rewriting
 // - Write-ahead-log
@@ -786,12 +792,18 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 				"version", db.lastCommitInfo.Version)
 			return nil
 		}
-		logger.Error("existing snapshot is invalid, removing and rewriting",
+		if !errors.Is(validationErr, errCorruptedSnapshot) {
+			// Cancellation and resource exhaustion say nothing about the
+			// directory's contents; deleting it here could strand the current
+			// symlink on a directory that was perfectly good.
+			return fmt.Errorf("validate existing snapshot %q: %w", targetPath, validationErr)
+		}
+		logger.Error("existing snapshot is corrupted, removing and rewriting",
 			"path", targetPath,
 			"error", validationErr,
 		)
 		if rmErr := os.RemoveAll(targetPath); rmErr != nil {
-			return fmt.Errorf("existing snapshot %q is invalid and could not be removed: %w",
+			return fmt.Errorf("existing snapshot %q is corrupted and could not be removed: %w",
 				targetPath, errorutils.Join(validationErr, rmErr))
 		}
 	}
@@ -831,14 +843,20 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 				return fmt.Errorf("snapshot path %q exists but is not a usable directory: %w", targetPath, err)
 			}
 			if validationErr := db.validateSnapshot(ctx, targetPath); validationErr != nil {
+				if !errors.Is(validationErr, errCorruptedSnapshot) {
+					// Cancellation and resource exhaustion say nothing about
+					// the directory's contents; deleting it here could strand
+					// the current symlink on a directory that was perfectly good.
+					return fmt.Errorf("validate existing snapshot %q: %w", targetPath, validationErr)
+				}
 				// The freshly written temp already passed validation; it
-				// replaces the invalid directory.
-				logger.Error("existing snapshot is invalid, replacing with freshly written snapshot",
+				// replaces the corrupted directory.
+				logger.Error("existing snapshot is corrupted, replacing with freshly written snapshot",
 					"path", targetPath,
 					"error", validationErr,
 				)
 				if rmErr := os.RemoveAll(targetPath); rmErr != nil {
-					return fmt.Errorf("existing snapshot %q is invalid and could not be removed: %w",
+					return fmt.Errorf("existing snapshot %q is corrupted and could not be removed: %w",
 						targetPath, errorutils.Join(validationErr, rmErr))
 				}
 				if renameErr := os.Rename(path, targetPath); renameErr != nil {
@@ -861,14 +879,21 @@ func (db *DB) publishSnapshot(ctx context.Context, path, targetPath, snapshotDir
 }
 
 // validateSnapshot loads the snapshot at path and verifies it holds the state
-// this DB would publish: the recorded version and every store's root hash must
-// match lastCommitInfo. File sizes and record alignment are checked by the
-// load; interior nodes and key data are not otherwise verified.
+// this DB would publish: the recorded multi-tree version and every store's
+// version and root hash must match lastCommitInfo. File sizes and record
+// alignment are checked by the load; interior nodes and key data are not
+// otherwise verified. Failures that prove the data is bad carry
+// errCorruptedSnapshot; environmental failures do not.
 func (db *DB) validateSnapshot(ctx context.Context, path string) (returnErr error) {
 	opts := db.opts
 	opts.SnapshotPrefetchThreshold = 0
 	mtree, err := LoadMultiTree(ctx, path, opts)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// A published snapshot contains every file it references; a missing
+			// one is an incomplete or mangled directory, not a transient failure.
+			return fmt.Errorf("%w: %w", errCorruptedSnapshot, err)
+		}
 		return err
 	}
 	defer func() {
@@ -876,25 +901,30 @@ func (db *DB) validateSnapshot(ctx context.Context, path string) (returnErr erro
 	}()
 
 	if mtree.Version() != db.lastCommitInfo.Version {
-		return fmt.Errorf("snapshot version %d does not match expected version %d",
-			mtree.Version(), db.lastCommitInfo.Version)
+		return fmt.Errorf("%w: snapshot version %d does not match expected version %d",
+			errCorruptedSnapshot, mtree.Version(), db.lastCommitInfo.Version)
 	}
 	loaded := mtree.Trees()
 	if len(loaded) != len(db.lastCommitInfo.StoreInfos) {
-		return fmt.Errorf("snapshot has %d stores, expected %d",
-			len(loaded), len(db.lastCommitInfo.StoreInfos))
+		return fmt.Errorf("%w: snapshot has %d stores, expected %d",
+			errCorruptedSnapshot, len(loaded), len(db.lastCommitInfo.StoreInfos))
 	}
-	rootHashes := make(map[string][]byte, len(loaded))
+	loadedTrees := make(map[string]*Tree, len(loaded))
 	for _, entry := range loaded {
-		rootHashes[entry.Name] = entry.RootHash()
+		loadedTrees[entry.Name] = entry.Tree
 	}
 	for _, info := range db.lastCommitInfo.StoreInfos {
-		hash, ok := rootHashes[info.Name]
+		tree, ok := loadedTrees[info.Name]
 		if !ok {
-			return fmt.Errorf("snapshot is missing store %q", info.Name)
+			return fmt.Errorf("%w: snapshot is missing store %q", errCorruptedSnapshot, info.Name)
 		}
-		if !bytes.Equal(hash, info.CommitId.Hash) {
-			return fmt.Errorf("snapshot store %q root hash does not match the expected commit hash", info.Name)
+		if tree.Version() != info.CommitId.Version {
+			return fmt.Errorf("%w: snapshot store %q version %d does not match expected version %d",
+				errCorruptedSnapshot, info.Name, tree.Version(), info.CommitId.Version)
+		}
+		if !bytes.Equal(tree.RootHash(), info.CommitId.Hash) {
+			return fmt.Errorf("%w: snapshot store %q root hash does not match the expected commit hash",
+				errCorruptedSnapshot, info.Name)
 		}
 	}
 	return nil

@@ -628,7 +628,13 @@ func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
 	}
 	var metadata proto.MultiTreeMetadata
 	if err := metadata.Unmarshal(bz); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: unmarshal metadata: %w", errCorruptedSnapshot, err)
+	}
+	if metadata.CommitInfo == nil {
+		// An empty or truncated metadata file unmarshals successfully but
+		// carries no commit info; reject it here so every load path returns a
+		// validation failure instead of dereferencing nil.
+		return nil, fmt.Errorf("%w: metadata has no commit info", errCorruptedSnapshot)
 	}
 	if metadata.CommitInfo.Version > math.MaxUint32 {
 		return nil, fmt.Errorf("commit info version overflows uint32: %d", metadata.CommitInfo.Version)

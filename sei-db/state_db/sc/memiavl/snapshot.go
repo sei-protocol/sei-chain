@@ -169,16 +169,16 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 		return nil, err
 	}
 	if len(bz) != SizeMetadata {
-		return nil, fmt.Errorf("wrong metadata file size, expcted: %d, found: %d", SizeMetadata, len(bz))
+		return nil, fmt.Errorf("%w: wrong metadata file size, expcted: %d, found: %d", errCorruptedSnapshot, SizeMetadata, len(bz))
 	}
 
 	magic := binary.LittleEndian.Uint32(bz)
 	if magic != SnapshotFileMagic {
-		return nil, fmt.Errorf("invalid metadata file magic: %d", magic)
+		return nil, fmt.Errorf("%w: invalid metadata file magic: %d", errCorruptedSnapshot, magic)
 	}
 	format := binary.LittleEndian.Uint32(bz[4:])
 	if format != SnapshotFormat {
-		return nil, fmt.Errorf("unknown snapshot format: %d", format)
+		return nil, fmt.Errorf("%w: unknown snapshot format: %d", errCorruptedSnapshot, format)
 	}
 	version := binary.LittleEndian.Uint32(bz[8:])
 
@@ -216,12 +216,12 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	// validate nodes length
 	if len(nodes)%SizeNode != 0 {
 		return nil, cleanupHandles(
-			fmt.Errorf("corrupted snapshot, nodes file size %d is not a multiple of %d", len(nodes), SizeNode),
+			fmt.Errorf("%w, nodes file size %d is not a multiple of %d", errCorruptedSnapshot, len(nodes), SizeNode),
 		)
 	}
 	if len(leaves)%SizeLeaf != 0 {
 		return nil, cleanupHandles(
-			fmt.Errorf("corrupted snapshot, leaves file size %d is not a multiple of %d", len(leaves), SizeLeaf),
+			fmt.Errorf("%w, leaves file size %d is not a multiple of %d", errCorruptedSnapshot, len(leaves), SizeLeaf),
 		)
 	}
 
@@ -229,7 +229,7 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	leavesLen := len(leaves) / SizeLeaf
 	if (leavesLen > 0 && nodesLen+1 != leavesLen) || (leavesLen == 0 && nodesLen != 0) {
 		return nil, cleanupHandles(
-			fmt.Errorf("corrupted snapshot, branch nodes size %d don't match leaves size %d", nodesLen, leavesLen),
+			fmt.Errorf("%w, branch nodes size %d don't match leaves size %d", errCorruptedSnapshot, nodesLen, leavesLen),
 		)
 	}
 
