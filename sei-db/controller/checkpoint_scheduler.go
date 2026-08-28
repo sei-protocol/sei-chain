@@ -20,21 +20,16 @@ var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 // checkpoint finishes, success or failure. Replay, WAL catch-up, and state-sync must not ask.
 // ShouldCheckpoint will register the store.
 //
-// A height is held until every store registered when it was picked, along with any that took it
-// afterwards, has reported. A store behind the others is handed that same height rather than one
-// that has moved on, and heights arrive no faster than the slowest store reaches them.
+// The goal is that every registered store either checkpoints on the given exact same height, or none of them do.
+// That is achieved by holding a yes until every store registered has taken the checkpoint later on.
+// So a lagging store is still told yes at that height; and by treating a no as a floor: once 100 is refused,
+// so are 99 and 98, so a store a few blocks behind cannot take a lower height the moment an interval elapses.
 //
-// Answers hold across stores. Refusing a height refuses every height below it too — once 100 is
-// refused, so are 99 and 98 — which stops a lagging store from taking a lower height the moment an
-// interval elapses. An accepted height keeps its answer until it is replaced, so a store that
-// reaches it late is told the same as the store that got there first.
+// A store that passes a held height without taking the checkpoint — one whose version jumped over it — is
+// released from that height when it asks next time, so it costs that store one checkpoint rather than
+// stopping the whole schedule. A store that stops asking altogether could hold the height indefinitely.
 //
-// A store that passes a held height without taking it — one whose version jumped over it — is
-// released from that height when it next asks, so it costs that store one checkpoint rather than
-// stopping the schedule. A store that stops asking altogether holds the height indefinitely.
-//
-// A time interval, a block interval, or both may be set.
-// Both set means both must hold; neither disables checkpointing.
+// A time interval, a block interval, or both may be set. Both set means both must hold; neither disables checkpointing.
 type CheckpointScheduler struct {
 	mu     sync.Mutex
 	config config.CheckpointConfig
