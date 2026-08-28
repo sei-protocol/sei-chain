@@ -271,6 +271,23 @@ func TestAStoreThatPassesTheHeldHeightIsReleased(t *testing.T) {
 	require.True(t, scheduler.ShouldCheckpoint("sc", 200), "100 is no longer held for ss")
 }
 
+// A no is recorded before the jumper asks, so skipPastHeight never runs if it sits behind
+// alreadyRejected. The jumper must still be released: otherwise it stays in awaiting forever.
+func TestAStoreThatJumpsIsReleasedAfterARefusedHeightAbove(t *testing.T) {
+	scheduler := newScheduler(time.Hour, 0)
+	require.False(t, scheduler.ShouldCheckpoint("ss", 98), "ss registers before the interval elapses")
+
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 100))
+	scheduler.MarkCheckpointComplete("sc", 100)
+
+	require.False(t, scheduler.ShouldCheckpoint("sc", 101), "sc asks above 100 first")
+	require.False(t, scheduler.ShouldCheckpoint("ss", 101), "ss lands on a height already refused")
+
+	scheduler.elapseTimeInterval()
+	require.True(t, scheduler.ShouldCheckpoint("sc", 200), "ss must have been released from 100")
+}
+
 // A store commits later versions while its own checkpoint of the held height is still running, so
 // asking above that height is not proof it skipped it. Releasing it there would start the intervals
 // while it is mid-write.

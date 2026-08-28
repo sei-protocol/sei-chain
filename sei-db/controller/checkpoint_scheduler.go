@@ -77,10 +77,12 @@ func (s *CheckpointScheduler) ShouldCheckpoint(store string, version int64) bool
 		s.holdFor(store)
 		return true
 	}
+	if version > s.nextCheckpointVersion {
+		s.skipPastHeight(store)
+	}
 	if s.alreadyRejected(version) {
 		return false
 	}
-	s.skipPastHeight(store)
 	if !(s.allStoresCheckpointed() && s.hasReachedNextInterval(version)) {
 		s.rejectedVersion = version
 		return false
@@ -152,9 +154,6 @@ func (s *CheckpointScheduler) holdFor(store string) {
 // skipPastHeight releases the hold store has on nextCheckpointVersion, for a store asking above
 // that height and so past it for good. A store that took the height keeps its hold: it may be
 // writing that checkpoint while it commits later versions, and the intervals wait for it.
-//
-// Callers must have ruled out versions at or under nextCheckpointVersion, which is what makes an
-// ask proof that the store has passed it.
 func (s *CheckpointScheduler) skipPastHeight(store string) {
 	if took, awaited := s.awaiting[store]; !awaited || took {
 		return
