@@ -18,7 +18,7 @@ import (
 func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) error {
 	// The read-only refusal belongs here rather than in applyChangeSets, which a read-only store reaches
 	// legitimately: building a view at a past height replays the primary's WAL through the same apply path.
-	// Commit and WriteSnapshot place their refusals at the same boundary, and readOnly is fixed for a store's
+	// Commit and outOfBandSnapshot place their refusals at the same boundary, and readOnly is fixed for a store's
 	// lifetime, so reading it outside the lock is safe.
 	if s.readOnly {
 		return errReadOnly

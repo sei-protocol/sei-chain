@@ -26,3 +26,4 @@
 "state-commit.flatkv.async-write-buffer"
 "state-commit.flatkv.snapshot-interval"
 "state-commit.flatkv.snapshot-keep-recent"
+"state-commit.flatkv.max-snapshot-lag-blocks"
