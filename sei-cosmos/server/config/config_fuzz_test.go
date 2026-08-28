@@ -1446,7 +1446,7 @@ func FuzzGRPCConfig(f *testing.F) {
 // TestGRPCKeyNamesMatchTheRecordedNames pins all fifteen [grpc] key names, the four rows and the
 // eleven driven elsewhere.
 //
-// The eight had no record before this, because their target carries a local struct rather than a
+// The eleven had no record before this, because their target carries a local struct rather than a
 // KeySpec table, so nothing held their spelling. That is the gap this closes.
 func TestGRPCKeyNamesMatchTheRecordedNames(t *testing.T) {
 	configtest.CheckKeyNames(t, "grpc", grpcKeys, grpcKeysWithTargetsOfTheirOwn...)
@@ -1457,6 +1457,9 @@ func TestGRPCManifestNamesEveryField(t *testing.T) {
 		// Guarded reads, so an absent key keeps the in-code default rather than clobbering it.
 		"MaxRecvMsgSize",
 		"MaxOpenConnections",
+		"IPRateLimitRPS",
+		"IPRateLimitBurst",
+		"TrustedProxyCIDRs",
 		// Clamped reads: a negative resolves to the in-code default rather than passing through.
 		"MaxConnectionIdle",
 		"MaxConnectionAge",
@@ -1464,9 +1467,6 @@ func TestGRPCManifestNamesEveryField(t *testing.T) {
 		"KeepaliveTime",
 		"KeepaliveTimeout",
 		"KeepaliveMinTime",
-		"IPRateLimitRPS",
-		"IPRateLimitBurst",
-		"TrustedProxyCIDRs",
 	)
 }
 
