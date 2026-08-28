@@ -60,12 +60,19 @@ func (keeper Keeper) TallyIncremental(
 
 	progress, found := keeper.getTallyProgress(ctx, proposal.ProposalId)
 	if !found {
+		backfillComplete, backfilled := keeper.BackfillVoteDelegationTracking(ctx, proposal.ProposalId, maxVotes)
+		processed = backfilled
+		if !backfillComplete {
+			return false, processed, false, false, types.EmptyTallyResult()
+		}
 		progress = keeper.initializeTally(ctx, proposal)
 	} else if progress.Expedited != proposal.IsExpedited {
 		panic(fmt.Sprintf("tally round for proposal %d changed", proposal.ProposalId))
 	}
 
-	complete, processed = keeper.processTallyVotes(ctx, proposal.ProposalId, &progress, maxVotes)
+	var tallied int
+	complete, tallied = keeper.processTallyVotes(ctx, proposal.ProposalId, &progress, maxVotes-processed)
+	processed += tallied
 	if !complete {
 		keeper.setTallyProgress(ctx, proposal.ProposalId, progress)
 		return false, processed, false, false, types.EmptyTallyResult()
@@ -91,6 +98,9 @@ func (keeper Keeper) InitializeTally(ctx sdk.Context, proposal types.Proposal) {
 			panic(fmt.Sprintf("tally round for proposal %d changed", proposal.ProposalId))
 		}
 		return
+	}
+	if keeper.voteNeedsDelegationBackfill(ctx, proposal.ProposalId) {
+		panic("cannot initialize tally while vote delegation backfill is in progress")
 	}
 	keeper.setTallyProgress(ctx, proposal.ProposalId, keeper.initializeTally(ctx, proposal))
 }
@@ -233,6 +243,9 @@ func (keeper Keeper) voteDelegations(
 	}
 	if bz := store.Get(types.TallyVoteDelegationsKey(proposalID, expedited, voter)); bz != nil {
 		return keeper.unmarshalVoteDelegations(bz)
+	}
+	if keeper.voteNeedsDelegationBackfill(ctx, proposalID) {
+		return keeper.snapshotVoteDelegations(ctx, proposalID, voter)
 	}
 	panic(fmt.Sprintf("missing delegation snapshot for proposal %d voter %s", proposalID, voter))
 }

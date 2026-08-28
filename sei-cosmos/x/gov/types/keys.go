@@ -50,6 +50,10 @@ const (
 // - 0x34<proposalID_Bytes><tallyRound_Byte><voterAddrLen (1 Byte)><voterAddr_Bytes>: Archived voter delegation snapshot
 //
 // - 0x35<voterAddrLen (1 Byte)><voterAddr_Bytes><proposalID_Bytes>: Active proposal voted on by address
+//
+// - 0x36: First proposal ID that does not require delegation-tracking backfill
+//
+// - 0x37<proposalID_Bytes>: Delegation-tracking backfill cursor
 var (
 	ProposalsKeyPrefix          = []byte{0x00}
 	ActiveProposalQueuePrefix   = []byte{0x01}
@@ -66,6 +70,9 @@ var (
 	VoteDelegationsKeyPrefix      = []byte{0x33}
 	TallyVoteDelegationsKeyPrefix = []byte{0x34}
 	VoterProposalsKeyPrefix       = []byte{0x35}
+
+	VoteDelegationBackfillCutoffKey         = []byte{0x36}
+	VoteDelegationBackfillProgressKeyPrefix = []byte{0x37}
 )
 
 var lenTime = len(sdk.FormatTimeBytes(time.Now()))
@@ -145,6 +152,11 @@ func VoterProposalsKeyPrefixForAddress(voterAddr sdk.AccAddress) []byte {
 // TallyProgressKey returns the key for a proposal's incremental tally state.
 func TallyProgressKey(proposalID uint64) []byte {
 	return append(TallyProgressKeyPrefix, GetProposalIDBytes(proposalID)...)
+}
+
+// VoteDelegationBackfillProgressKey returns the key for a proposal's delegation-tracking backfill cursor.
+func VoteDelegationBackfillProgressKey(proposalID uint64) []byte {
+	return append(VoteDelegationBackfillProgressKeyPrefix, GetProposalIDBytes(proposalID)...)
 }
 
 // TallyVotesKey returns the prefix for votes archived during a proposal tally round.

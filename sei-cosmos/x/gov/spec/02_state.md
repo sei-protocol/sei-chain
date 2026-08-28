@@ -232,9 +232,15 @@ vote-record order. Completed tally archives and their delegation snapshots are
 removed incrementally under the same per-block vote-record budget, with part of that
 budget reserved so cleanup cannot be starved by unfinished tallies.
 
-The version 4 governance store migration creates delegation snapshots and active-vote
-index entries for votes that predate this state. Tally processing treats a missing
-snapshot as an invariant failure rather than reading delegations from a later block.
+The version 4 governance store migration records the first proposal ID that does not
+need delegation-tracking backfill. When an older proposal reaches tallying, its
+delegation snapshots and active-vote index entries are created incrementally with a
+per-proposal cursor under the same per-block vote-record budget as tallying and
+cleanup. New votes are rejected once that backfill starts, and tally accumulation
+cannot start until it completes. Votes and proposals created after the upgrade
+already have the required tracking data and skip backfill. Read-only tally and export
+operations derive a missing snapshot while a proposal still needs backfill; after it
+completes, tally processing treats a missing snapshot as an invariant failure.
 
 Application-state export serializes all archived and pending votes together with their
 delegation snapshots, but not the in-progress accumulator. On import, an expired voting

@@ -13,7 +13,7 @@ import (
 
 var logger = seilog.NewLogger("cosmos", "x", "gov")
 
-// MaxVotesProcessedPerBlock is the governance vote-record budget shared by tallying and cleanup.
+// MaxVotesProcessedPerBlock is the governance vote-record budget shared by backfill, tallying, and cleanup.
 const MaxVotesProcessedPerBlock = 1000
 
 // minTallyCleanupVotesPerBlock reserves part of the budget for completed tally archives.
