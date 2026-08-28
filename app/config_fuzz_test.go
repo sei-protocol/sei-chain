@@ -167,14 +167,14 @@ var genesisKeys = []configtest.KeySpec{
 // else, so the compiler keeps this list out of CheckRow and out of the discriminating-seed check,
 // where a row that predicted a resolved value would be wrong for all three.
 //
-// The four flatkv names are here for a different reason than the three above them. Nothing in this
+// The five flatkv names are here for a different reason than the three above them. Nothing in this
 // package reads them: sei-cosmos/server/config.GetConfig is their only reader, and its guardedKeys
 // target drives them. They are recorded on this section's record rather than on a second one in that
 // package so that [state-commit] has one list of operator-facing names, which is where someone
 // checking a spelling will look.
 //
 // What that record does and does not do is worth being exact about, in both directions. Renaming one
-// of these four in GetConfig fails that package's own targets, not this record, because nothing
+// of these five in GetConfig fails that package's own targets, not this record, because nothing
 // compares this list against the read site. Verified by renaming
 // state-commit.flatkv.snapshot-interval in GetConfig, which reddens three tests in sei-cosmos and
 // none here. And deleting one of them from GetConfig leaves this record green while it names a key no
@@ -192,6 +192,7 @@ var scKeysWithTargetsOfTheirOwn = []configtest.KeyName{
 	"state-commit.flatkv.async-write-buffer",
 	"state-commit.flatkv.snapshot-interval",
 	"state-commit.flatkv.snapshot-keep-recent",
+	"state-commit.flatkv.max-snapshot-lag-blocks",
 }
 
 // genesisKeysWithTargetsOfTheirOwn are the [genesis] names no row claims.

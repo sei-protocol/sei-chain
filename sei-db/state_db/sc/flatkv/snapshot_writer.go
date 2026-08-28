@@ -175,10 +175,8 @@ func (w *SnapshotWriter) Flush() error {
 	}
 }
 
-// Close stops the writer and waits for its goroutine to exit. A snapshot still being written runs to
-// completion first, because it is reading databases the caller is about to close; whatever is still
-// queued behind it is discarded and its reservations handed back. Reports the latched error if the
-// writer failed. Idempotent.
+// Close stops the writer and waits for its goroutine to exit, which may include finishing blocks that
+// are still queued. Reports the latched error if the writer failed. Idempotent.
 func (w *SnapshotWriter) Close() error {
 	w.stop()
 	// The goroutine closes exited from a deferred call on every exit path, so this cannot strand.
