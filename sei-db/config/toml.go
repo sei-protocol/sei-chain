@@ -154,7 +154,8 @@ ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 ss-snapshot-enable = {{ .StateStore.SnapshotEnable }}
 
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
-# If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
+# If unset, defaults to <home>/data/state_store/evm/{backend}. Nodes that
+# already have <home>/data/evm_ss keep using that path.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
 
 # EVMSplit controls whether EVM data is routed to a dedicated SS backend.

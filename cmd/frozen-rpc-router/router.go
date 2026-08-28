@@ -48,12 +48,15 @@ var blockParameterIndexes = map[string]int{
 	"eth_getUncleCountByBlockNumber":             0,
 }
 
+var errBatchTooLarge = errors.New("batch too large")
+
 type router struct {
 	live                   *upstream
 	frozen                 []*upstream
 	client                 *http.Client
 	maxRequestBodySize     int64
 	maxBlockReferenceDepth int
+	batchRequestLimit      int
 	liveProxy              *httputil.ReverseProxy
 }
 
@@ -95,7 +98,7 @@ type batchGroup struct {
 	err       error
 }
 
-func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *http.Client, maxRequestBodySize int64, maxBlockReferenceDepth int) (*router, error) {
+func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *http.Client, maxRequestBodySize int64, maxBlockReferenceDepth, batchRequestLimit int) (*router, error) {
 	liveURL, err := parseEndpoint(liveAddress)
 	if err != nil {
 		return nil, fmt.Errorf("invalid live node: %w", err)
@@ -108,6 +111,9 @@ func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *htt
 	}
 	if maxBlockReferenceDepth <= 0 {
 		return nil, errors.New("maximum block reference depth must be positive")
+	}
+	if batchRequestLimit <= 0 {
+		return nil, errors.New("batch request limit must be positive")
 	}
 
 	live := &upstream{endpoint: liveURL}
@@ -139,6 +145,7 @@ func newRouter(liveAddress string, frozenConfigs []frozenNodeConfig, client *htt
 		client:                 client,
 		maxRequestBodySize:     maxRequestBodySize,
 		maxBlockReferenceDepth: maxBlockReferenceDepth,
+		batchRequestLimit:      batchRequestLimit,
 		liveProxy:              liveProxy,
 	}, nil
 }
@@ -219,23 +226,18 @@ func (r *router) serveSingle(w http.ResponseWriter, request *http.Request, body 
 }
 
 func (r *router) serveBatch(w http.ResponseWriter, request *http.Request, body []byte) {
-	var rawCalls []json.RawMessage
-	if err := json.Unmarshal(body, &rawCalls); err != nil {
+	calls, err := decodeBatchCalls(body, r.batchRequestLimit)
+	if errors.Is(err, errBatchTooLarge) {
+		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "batch too large"})
+		return
+	}
+	if err != nil {
 		writeRPCError(w, nil, rpcError{Code: jsonRPCParseError, Message: "parse error"})
 		return
 	}
-	if len(rawCalls) == 0 {
+	if len(calls) == 0 {
 		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"})
 		return
-	}
-
-	calls := make([]rpcCall, 0, len(rawCalls))
-	for _, raw := range rawCalls {
-		call, err := decodeCall(raw)
-		if err != nil {
-			call = rpcCall{raw: raw}
-		}
-		calls = append(calls, call)
 	}
 
 	if target, ok := r.singleBatchTarget(calls); ok {
@@ -257,6 +259,44 @@ func (r *router) serveBatch(w http.ResponseWriter, request *http.Request, body [
 	}
 	w.Header().Set(rpcRouteHeader, "mixed")
 	writeBatchResponses(w, responses)
+}
+
+func decodeBatchCalls(body []byte, limit int) ([]rpcCall, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	opening, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if opening != json.Delim('[') {
+		return nil, errors.New("batch must be an array")
+	}
+
+	var calls []rpcCall
+	for decoder.More() {
+		if len(calls) == limit {
+			return nil, errBatchTooLarge
+		}
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return nil, err
+		}
+		call, err := decodeCall(raw)
+		if err != nil {
+			call = rpcCall{raw: raw}
+		}
+		calls = append(calls, call)
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("batch has trailing JSON")
+		}
+		return nil, err
+	}
+	return calls, nil
 }
 
 func decodeCall(raw json.RawMessage) (rpcCall, error) {

@@ -501,21 +501,23 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 // WriteSnapshotWithRateLimit writes snapshot with optional rate limiting.
 // limiter is a shared rate limiter. nil means unlimited.
 func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir string, limiter *rate.Limiter) error {
+	root, version := t.snapshotSource()
+
 	// Estimate tree size: root.Size() returns leaf count, total = leaves + branches ≈ 2x
 	treeSize := int64(0)
-	if t.root != nil {
-		treeSize = t.root.Size() * 2 // Total nodes (leaves + branches)
+	if root != nil {
+		treeSize = root.Size() * 2 // Total nodes (leaves + branches)
 	}
 
 	// Use 128MB buffer for all trees (large buffer for better performance)
 	bufSize := bufIOSize
 
-	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, limiter, func(w *snapshotWriter) (uint32, error) {
-		if t.root == nil {
+	err := writeSnapshotWithBuffer(ctx, snapshotDir, version, bufSize, treeSize, limiter, func(w *snapshotWriter) (uint32, error) {
+		if root == nil {
 			return 0, nil
 		}
 
-		if err := w.writePostOrder(t.root); err != nil {
+		if err := w.writePostOrder(root); err != nil {
 			return 0, err
 		}
 		return w.leafCounter, nil
@@ -526,6 +528,20 @@ func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir strin
 	}
 
 	return nil
+}
+
+// snapshotSource returns the root to serialize together with the version to
+// record for it, read as a pair so a concurrent SaveVersion cannot land between
+// them and pair a root with the wrong version.
+//
+// The version returned is the last saved one. It describes the root only when
+// the tree has no unsaved writes, which holds for every snapshot writer today
+// because DB.Commit copies after SaveVersion. A snapshot written from a
+// mid-version copy would record a version its nodes are one ahead of.
+func (t *Tree) snapshotSource() (Node, uint32) {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+	return t.root, t.version
 }
 
 // writeSnapshotWithBuffer writes snapshot with specified buffer size and optional rate limiting.
