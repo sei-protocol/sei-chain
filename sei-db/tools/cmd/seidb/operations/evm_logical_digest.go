@@ -14,7 +14,6 @@ import (
 	"sort"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -1110,23 +1109,20 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization 
 }
 
 func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) {
-	// memiavl.OpenDB repairs a torn changelog tail by truncating it, even under
-	// ReadOnly. On a live node that tail is usually a write in progress, so
-	// refuse the run instead of letting the open damage the source.
-	if err := wal.VerifyIntact(utils.GetChangelogPath(dbDir)); err != nil {
+	db, err := memiavl.OpenDB(height, memiavl.Options{
+		Dir:               dbDir,
+		ReadOnly:          true,
+		ZeroCopy:          true,
+		NoChangelogRepair: true,
+	})
+	if err != nil {
+		// NoChangelogRepair turns the repair memiavl would otherwise perform into
+		// this error, so the source is untouched whichever case it was.
 		if errors.Is(err, wal.ErrCorrupt) {
 			return nil, fmt.Errorf("memiavl changelog tail is incomplete or changing; live WAL was not "+
 				"modified; rerun the command, and if the error persists after stopping seid, repair the "+
 				"WAL offline: %w", err)
 		}
-		return nil, fmt.Errorf("verify memiavl changelog: %w", err)
-	}
-	db, err := memiavl.OpenDB(height, memiavl.Options{
-		Dir:      dbDir,
-		ReadOnly: true,
-		ZeroCopy: true,
-	})
-	if err != nil {
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}
 	return db, nil

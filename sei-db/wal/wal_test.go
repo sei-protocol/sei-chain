@@ -58,7 +58,7 @@ func TestOpenAndCorruptedTail(t *testing.T) {
 			_, err = wal.Open(dir, opts)
 			require.Equal(t, wal.ErrCorrupt, err)
 
-			log, err := open(dir, opts)
+			log, err := open(dir, opts, false)
 			require.NoError(t, err)
 
 			lastIndex, err := log.LastIndex()
@@ -68,76 +68,93 @@ func TestOpenAndCorruptedTail(t *testing.T) {
 	}
 }
 
-func TestVerifyIntactAcceptsCompleteLog(t *testing.T) {
-	dir := writeTestSegment(t, appendBinaryEntry(appendBinaryEntry(nil, []byte("one")), []byte("two")))
+// TestOpenNoRepairRefusesTheTornTailOpenWouldTruncate pins both halves of the
+// option: the tail it refuses is one the repairing open truncates in place.
+func TestOpenNoRepairRefusesTheTornTailOpenWouldTruncate(t *testing.T) {
+	dir := writeTornTestLog(t)
 	before := snapshotDir(t, dir)
 
-	require.NoError(t, VerifyIntact(dir))
-	require.Equal(t, before, snapshotDir(t, dir))
-}
-
-func TestVerifyIntactRejectsTornTail(t *testing.T) {
-	torn := appendBinaryEntry(appendBinaryEntry(nil, []byte("complete")), []byte("torn"))
-	dir := writeTestSegment(t, torn[:len(torn)-1])
-	before := snapshotDir(t, dir)
-
-	err := VerifyIntact(dir)
+	log, err := open(dir, nil, true)
+	require.Nil(t, log)
 	require.ErrorIs(t, err, ErrCorrupt)
-	require.Contains(t, err.Error(), "ends mid-record")
-	require.Equal(t, before, snapshotDir(t, dir))
-}
-
-func TestVerifyIntactRejectsInterruptedTruncation(t *testing.T) {
-	dir := writeTestSegment(t, appendBinaryEntry(nil, []byte("complete")))
-	marker := filepath.Join(dir, "00000000000000000002.START")
-	require.NoError(t, os.WriteFile(marker, appendBinaryEntry(nil, []byte("moved")), 0o600))
-	before := snapshotDir(t, dir)
-
-	err := VerifyIntact(dir)
-	require.ErrorIs(t, err, ErrCorrupt)
-	require.Contains(t, err.Error(), "truncation marker")
-	require.Equal(t, before, snapshotDir(t, dir))
-}
-
-func TestVerifyIntactAcceptsMissingOrEmptyLog(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "changelog")
-	require.NoError(t, VerifyIntact(missing))
-	require.NoFileExists(t, missing)
-
-	require.NoError(t, VerifyIntact(t.TempDir()))
-}
-
-// TestVerifyIntactRejectsWhatOpenTruncates pins the reason VerifyIntact exists:
-// the tail it rejects is one open repairs in place.
-func TestVerifyIntactRejectsWhatOpenTruncates(t *testing.T) {
-	dir := t.TempDir()
-	log, err := open(dir, nil)
-	require.NoError(t, err)
-	require.NoError(t, log.Write(1, []byte("entry")))
-	require.NoError(t, log.Close())
-	require.NoError(t, VerifyIntact(dir))
-
-	segment := filepath.Join(dir, "00000000000000000001")
-	data, err := os.ReadFile(filepath.Clean(segment))
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(segment, append(data, 0x08), 0o600))
-	before := snapshotDir(t, dir)
-
-	require.ErrorIs(t, VerifyIntact(dir), ErrCorrupt)
 	require.Equal(t, before, snapshotDir(t, dir))
 
-	log, err = open(dir, nil)
+	log, err = open(dir, nil, false)
 	require.NoError(t, err)
 	require.NoError(t, log.Close())
 	require.NotEqual(t, before, snapshotDir(t, dir))
 }
 
-// writeTestSegment creates a log directory holding data as its only segment,
-// and returns the directory.
-func writeTestSegment(t *testing.T, data []byte) string {
+// TestOpenNoRepairRefusesTheTruncationMarkerOpenCompletes covers the second
+// repair, which wal.Open performs without reporting an error.
+func TestOpenNoRepairRefusesTheTruncationMarkerOpenCompletes(t *testing.T) {
+	dir := t.TempDir()
+	log, err := open(dir, nil, false)
+	require.NoError(t, err)
+	require.NoError(t, log.Write(1, []byte("entry")))
+	require.NoError(t, log.Close())
+	marker := filepath.Join(dir, "00000000000000000002.START")
+	require.NoError(t, os.WriteFile(marker, appendBinaryEntry(nil, []byte("moved")), 0o600))
+	before := snapshotDir(t, dir)
+
+	log, err = open(dir, nil, true)
+	require.Nil(t, log)
+	require.ErrorIs(t, err, ErrCorrupt)
+	require.Contains(t, err.Error(), "truncation marker")
+	require.Equal(t, before, snapshotDir(t, dir))
+
+	log, err = open(dir, nil, false)
+	require.NoError(t, err)
+	require.NoError(t, log.Close())
+	require.NotEqual(t, before, snapshotDir(t, dir))
+}
+
+// TestOpenNoRepairAcceptsACompleteLog is the positive control: the option only
+// refuses a log the open would have repaired.
+func TestOpenNoRepairAcceptsACompleteLog(t *testing.T) {
+	dir := t.TempDir()
+	log, err := open(dir, nil, false)
+	require.NoError(t, err)
+	require.NoError(t, log.Write(1, []byte("entry")))
+	require.NoError(t, log.Close())
+	before := snapshotDir(t, dir)
+
+	log, err = open(dir, nil, true)
+	require.NoError(t, err)
+	last, err := log.LastIndex()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), last)
+	require.NoError(t, log.Close())
+	require.Equal(t, before, snapshotDir(t, dir))
+}
+
+// TestNewWALNoRepairOnOpenReachesTheOpen pins that the config field is wired
+// through, since only the digest tool sets it today.
+func TestNewWALNoRepairOnOpenReachesTheOpen(t *testing.T) {
+	dir := writeTornTestLog(t)
+	before := snapshotDir(t, dir)
+
+	changelog, err := NewChangelogWAL(dir, Config{NoRepairOnOpen: true})
+	require.Nil(t, changelog)
+	require.ErrorIs(t, err, ErrCorrupt)
+	require.Equal(t, before, snapshotDir(t, dir))
+}
+
+// writeTornTestLog creates a log directory whose only segment ends mid-record,
+// the way a reader sees a writer mid-append, and returns the directory.
+func writeTornTestLog(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "00000000000000000001"), data, 0o600))
+	log, err := open(dir, nil, false)
+	require.NoError(t, err)
+	require.NoError(t, log.Write(1, []byte("entry")))
+	require.NoError(t, log.Close())
+
+	segment := filepath.Join(dir, "00000000000000000001")
+	data, err := os.ReadFile(filepath.Clean(segment))
+	require.NoError(t, err)
+	torn := appendBinaryEntry(data, []byte("torn"))
+	require.NoError(t, os.WriteFile(segment, torn[:len(torn)-1], 0o600))
 	return dir
 }
 
@@ -271,7 +288,7 @@ func TestOpenWithNilOptions(t *testing.T) {
 	dir := t.TempDir()
 
 	// Test that open function handles nil options correctly
-	log, err := open(dir, nil)
+	log, err := open(dir, nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, log)
 

@@ -94,6 +94,12 @@ type Config struct {
 	// AllowEmpty permits removing all entries via TruncateAll.
 	// When false (default), at least one entry must remain after truncation.
 	AllowEmpty bool
+
+	// NoRepairOnOpen makes the open fail with ErrCorrupt instead of repairing a
+	// torn tail. A reader of a log another process is writing sets it, because
+	// there a torn tail is usually that writer mid-append rather than lasting
+	// damage, and the repair would truncate a committed record.
+	NoRepairOnOpen bool
 }
 
 // NewWAL creates a new generic write-ahead log that persists entries.
@@ -120,7 +126,7 @@ func NewWAL[T any](
 		NoSync:     !config.FsyncEnabled,
 		NoCopy:     !config.DeepCopyEnabled,
 		AllowEmpty: config.AllowEmpty,
-	})
+	}, config.NoRepairOnOpen)
 	if err != nil {
 		return nil, err
 	}
@@ -542,12 +548,22 @@ func (walLog *WAL[T]) Close() error {
 	return nil
 }
 
-// open opens the replay log, try to truncate the corrupted tail if there's any
-func open(dir string, opts *wal.Options) (*wal.Log, error) {
+// open opens the replay log, try to truncate the corrupted tail if there's any.
+// When noRepair is set it returns ErrCorrupt instead for both repairs the open
+// would otherwise perform, and leaves dir byte for byte as it found it.
+func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
 	if opts == nil {
 		opts = wal.DefaultOptions
 	}
+	if noRepair {
+		if err := checkNoTruncationMarker(dir); err != nil {
+			return nil, err
+		}
+	}
 	rlog, err := wal.Open(dir, opts)
+	if errors.Is(err, wal.ErrCorrupt) && noRepair {
+		return nil, err
+	}
 	if errors.Is(err, wal.ErrCorrupt) {
 		// try to truncate corrupted tail
 		var fis []os.DirEntry
@@ -574,6 +590,30 @@ func open(dir string, opts *wal.Options) (*wal.Log, error) {
 		return wal.Open(dir, opts)
 	}
 	return rlog, err
+}
+
+// checkNoTruncationMarker returns ErrCorrupt when dir holds a segment an
+// interrupted truncation left behind, which wal.Open completes by renaming and
+// removing segments without reporting anything.
+//
+// Checking before the open is sound here where it would not be for a torn tail:
+// a marker persists until something completes that truncation, so finding none
+// means the open below will not find one either.
+func checkNoTruncationMarker(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read wal dir %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasSuffix(name, ".START") || strings.HasSuffix(name, ".END") {
+			return fmt.Errorf("%w: truncation marker %s is present in %s", ErrCorrupt, name, dir)
+		}
+	}
+	return nil
 }
 
 // The main loop doing work in the background.

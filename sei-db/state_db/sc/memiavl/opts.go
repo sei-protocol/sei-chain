@@ -18,6 +18,11 @@ type Options struct {
 	InitialVersion uint32
 	// ReadOnly opens the database in read-only mode
 	ReadOnly bool
+	// NoChangelogRepair makes the open fail with wal.ErrCorrupt instead of
+	// repairing a torn changelog tail. A reader of a directory another process
+	// is writing sets it, because ReadOnly alone does not stop that repair from
+	// truncating a record the writer has committed.
+	NoChangelogRepair bool
 	// InitialStores are the initial store names when initializing an empty instance
 	InitialStores []string
 	// ZeroCopy if true, get and iterator methods return slices pointing to mmaped blob files
