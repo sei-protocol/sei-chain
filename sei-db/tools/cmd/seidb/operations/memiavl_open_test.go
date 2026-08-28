@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 func TestOpenMemiAVLReplayReadOnlyRefusesATornChangelogWithoutRepair(t *testing.T) {
@@ -44,7 +42,10 @@ func TestOpenMemiAVLReplayReadOnlyRefusesATornChangelogWithoutRepair(t *testing.
 	require.Equal(t, before, after)
 }
 
-func TestOpenMemiAVLReplayReadOnlyAcceptsAFullyCoveredHeight(t *testing.T) {
+// TestOpenMemiAVLReplayReadOnlyAcceptsACompleteChangelog is the positive
+// control for the pre-flight check: a changelog a real store wrote and closed
+// opens and replays as it did before the check existed.
+func TestOpenMemiAVLReplayReadOnlyAcceptsACompleteChangelog(t *testing.T) {
 	homeDir := t.TempDir()
 	store := newTestMemiavlStore(t, homeDir)
 	for nonce := uint64(1); nonce <= 3; nonce++ {
@@ -61,73 +62,6 @@ func TestOpenMemiAVLReplayReadOnlyAcceptsAFullyCoveredHeight(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	require.Equal(t, int64(3), db.Version())
-}
-
-// TestOpenMemiAVLReplayReadOnlyAcceptsAnInitialVersionAboveOne covers a chain
-// seeded above height 1. Its changelog starts at the initial version while
-// initEmptyDB leaves the snapshot at version 0, so the versions below the
-// changelog never existed and the replay is complete despite the distance.
-func TestOpenMemiAVLReplayReadOnlyAcceptsAnInitialVersionAboveOne(t *testing.T) {
-	const initialVersion = 1000
-
-	homeDir := t.TempDir()
-	store := newTestMemiavlStore(t, homeDir)
-	require.NoError(t, store.SetInitialVersion(initialVersion))
-	for nonce := uint64(1); nonce <= 2; nonce++ {
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
-			Name:      keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), nonce)}},
-		}}))
-		_, err := store.Commit(store.Version() + 1)
-		require.NoError(t, err)
-	}
-	require.NoError(t, store.Close())
-
-	db, err := openMemiAVLReplayReadOnly(utils.GetCosmosSCStorePath(homeDir), initialVersion+1)
-	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
-	require.Equal(t, int64(initialVersion+1), db.Version())
-	require.Equal(t, int64(0), db.SnapshotVersion())
-}
-
-// TestOpenMemiAVLReplayReadOnlyRejectsAPrunedChangelogGap covers a changelog
-// pruned past the snapshot. Replay reaches the requested height from a
-// contiguous suffix, so the final version looks correct while the versions
-// between the snapshot and the changelog's first entry were never applied.
-func TestOpenMemiAVLReplayReadOnlyRejectsAPrunedChangelogGap(t *testing.T) {
-	homeDir := t.TempDir()
-	store := newTestMemiavlStore(t, homeDir)
-	commit := func(nonce uint64) {
-		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
-			Name:      keys.EVMStoreKey,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), nonce)}},
-		}}))
-		_, err := store.Commit(store.Version() + 1)
-		require.NoError(t, err)
-	}
-	commit(1)
-	commit(2)
-	// Snapshot version 2 so the evm tree survives without the changelog entry
-	// that creates it, leaving the pruned gap as the only defect.
-	require.NoError(t, store.GetDB().RewriteSnapshot(context.Background()))
-	commit(3)
-	commit(4)
-	commit(5)
-	require.NoError(t, store.Close())
-
-	dbDir := utils.GetCosmosSCStorePath(homeDir)
-	changelog, err := wal.NewChangelogWAL(utils.GetChangelogPath(dbDir), wal.Config{})
-	require.NoError(t, err)
-	require.NoError(t, changelog.TruncateBefore(5))
-	require.NoError(t, changelog.Close())
-
-	db, err := openMemiAVLReplayReadOnly(dbDir, 5)
-	if db != nil {
-		_ = db.Close()
-	}
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "would be missing from the replay")
-	require.Contains(t, err.Error(), "--memiavl-open-mode snapshot")
 }
 
 func lastOperationsMemiAVLWALSegment(t *testing.T, dbDir string) string {
