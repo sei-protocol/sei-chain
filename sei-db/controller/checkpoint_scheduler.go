@@ -25,8 +25,10 @@ var checkpointLogger = seilog.NewLogger("db", "checkpoint")
 // handed that same height rather than one that has moved on, and heights arrive no faster than the
 // slowest store reaches them.
 //
-// A no is final and covers every height under it, so a version refused to one store is refused to
-// all of them; a yes holds for every store that reaches that height before it is replaced.
+// Answers hold across stores. Refusing a height refuses every height below it too — once 100 is
+// refused, so are 99 and 98 — which stops a lagging store from taking a lower height the moment an
+// interval elapses. An accepted height keeps its answer until it is replaced, so a store that
+// reaches it late is told the same as the store that got there first.
 //
 // A time interval, a block interval, or both may be set, and a value of 0 or less is unused. The
 // block interval places heights on its multiples, so they stay on the same grid however far a
