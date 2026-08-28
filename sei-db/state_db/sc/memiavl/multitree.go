@@ -636,11 +636,14 @@ func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
 		// validation failure instead of dereferencing nil.
 		return nil, fmt.Errorf("%w: metadata has no commit info", errCorruptedSnapshot)
 	}
-	if metadata.CommitInfo.Version > math.MaxUint32 {
-		return nil, fmt.Errorf("commit info version overflows uint32: %d", metadata.CommitInfo.Version)
+	// Both fields are int64 varints on disk, so corrupted metadata can carry
+	// negative values as easily as oversized ones; setInitialVersion panics on
+	// a negative initial version if it gets that far.
+	if metadata.CommitInfo.Version < 0 || metadata.CommitInfo.Version > math.MaxUint32 {
+		return nil, fmt.Errorf("%w: commit info version %d out of uint32 range", errCorruptedSnapshot, metadata.CommitInfo.Version)
 	}
-	if metadata.InitialVersion > math.MaxUint32 {
-		return nil, fmt.Errorf("initial version overflows uint32: %d", metadata.InitialVersion)
+	if metadata.InitialVersion < 0 || metadata.InitialVersion > math.MaxUint32 {
+		return nil, fmt.Errorf("%w: initial version %d out of uint32 range", errCorruptedSnapshot, metadata.InitialVersion)
 	}
 
 	return &metadata, nil

@@ -243,6 +243,98 @@ func TestRewriteSnapshotKeepsSnapshotOnCancelledValidation(t *testing.T) {
 	require.Equal(t, snapshotDir, current)
 }
 
+// TestRewriteSnapshotKeepsCorruptTargetUntilReplacementExists pins the
+// replacement ordering: a corrupted directory — possibly what current points
+// at — must survive until a freshly written, validated temp exists to take its
+// place. A write that fails after corruption was detected must leave it alone.
+func TestRewriteSnapshotKeepsCorruptTargetUntilReplacementExists(t *testing.T) {
+	db, dir := openCommittedDB(t)
+	snapshotDir := snapshotName(db.Version())
+	targetPath := filepath.Join(dir, snapshotDir)
+	writeCorruptSnapshotDir(t, targetPath)
+
+	// Corruption detection reads the planted metadata before any context
+	// check, so the cancelled context fails the snapshot write that follows,
+	// not the validation.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := db.RewriteSnapshot(cancelled)
+
+	require.Error(t, err)
+	require.DirExists(t, targetPath, "the corrupt directory must survive until a validated replacement exists")
+}
+
+// TestPublishSnapshotKeepsTargetOnEnvironmentalValidationFailure mirrors
+// TestRewriteSnapshotKeepsSnapshotOnCancelledValidation for the rename-conflict
+// branch: an existing target whose validation fails for a reason that says
+// nothing about its contents must be kept, not replaced.
+func TestPublishSnapshotKeepsTargetOnEnvironmentalValidationFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions, so an unreadable target cannot be simulated")
+	}
+	db, dir := openCommittedDB(t)
+	snapshotDir := snapshotName(db.Version())
+	tmpPath := filepath.Join(dir, snapshotDir+"-tmp")
+	targetPath := filepath.Join(dir, snapshotDir)
+	require.NoError(t, db.MultiTree.WriteSnapshot(context.Background(), tmpPath, db.snapshotWriterPool))
+	require.NoError(t, db.MultiTree.WriteSnapshot(context.Background(), targetPath, db.snapshotWriterPool))
+	// An unreadable target fails validation with permission denied, which is
+	// environmental, not proof of corruption.
+	require.NoError(t, os.Chmod(targetPath, 0))
+	t.Cleanup(func() { _ = os.Chmod(targetPath, 0o750) })
+
+	err := db.publishSnapshot(context.Background(), tmpPath, targetPath, snapshotDir)
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, errCorruptedSnapshot)
+	require.DirExists(t, targetPath)
+}
+
+// TestOpenDBRefusesDanglingCurrentLink pins startup behavior when the current
+// link's snapshot has gone missing: that is evidence of data loss, and opening
+// with CreateIfMissing must fail loudly rather than silently reinitialize an
+// empty store at version 0.
+func TestOpenDBRefusesDanglingCurrentLink(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	target, err := os.Readlink(currentPath(dir))
+	require.NoError(t, err)
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, target)))
+
+	_, err = OpenDB(0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test"},
+	})
+	require.ErrorContains(t, err, "refusing to initialize")
+}
+
+// TestLoadMultiTreeRejectsNegativeInitialVersion covers corrupted metadata
+// carrying a negative initial version, which panics in setInitialVersion if it
+// survives the load. It must fail as corruption instead.
+func TestLoadMultiTreeRejectsNegativeInitialVersion(t *testing.T) {
+	dir := t.TempDir()
+	metadata := proto.MultiTreeMetadata{
+		CommitInfo:     &proto.CommitInfo{Version: 1},
+		InitialVersion: -1,
+	}
+	bz, err := metadata.Marshal()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, MetadataFileName), bz, 0o600))
+
+	_, err = LoadMultiTree(context.Background(), dir, Options{})
+
+	require.ErrorIs(t, err, errCorruptedSnapshot)
+	require.ErrorContains(t, err, "out of uint32 range")
+}
+
 // TestLoadMultiTreeRejectsMetadataWithoutCommitInfo covers the metadata shape
 // an unclean shutdown leaves behind: a file that unmarshals successfully but
 // carries no commit info. Loading it must fail as corruption, not panic.

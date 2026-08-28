@@ -32,8 +32,9 @@ var errReadOnly = errors.New("db is read-only")
 
 // errCorruptedSnapshot classifies snapshot data that is structurally invalid,
 // as opposed to environmental failures (cancellation, file-handle or memory
-// exhaustion) that say nothing about the data. Deleting a snapshot directory
-// is justified only for errors carrying this sentinel.
+// exhaustion) that say nothing about the data. Replacing a snapshot directory
+// is justified only for errors carrying this sentinel, so every structural
+// check on the snapshot load path must wrap it.
 var errCorruptedSnapshot = errors.New("corrupted snapshot")
 
 // DB implements DB-like functionalities on top of MultiTree:
@@ -776,8 +777,7 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	targetPath := filepath.Clean(filepath.Join(db.dir, snapshotDir))
 
 	// A directory left by a prior attempt at this height is adopted when it
-	// holds the state this DB would publish; an invalid one is removed so this
-	// rewrite regenerates it instead of failing every future attempt.
+	// holds the state this DB would publish; a corrupted one is rewritten.
 	if info, statErr := os.Stat(targetPath); statErr == nil {
 		if !info.IsDir() {
 			// targetPath exists but is not a directory - this is unexpected
@@ -798,14 +798,14 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 			// symlink on a directory that was perfectly good.
 			return fmt.Errorf("validate existing snapshot %q: %w", targetPath, validationErr)
 		}
-		logger.Error("existing snapshot is corrupted, removing and rewriting",
+		// Fall through and rewrite. The corrupted directory — possibly what the
+		// current symlink points at — is not deleted here: publishSnapshot
+		// replaces it only after a freshly written, validated temp exists, so a
+		// failed write or a crash in the window cannot leave current dangling.
+		logger.Error("existing snapshot is corrupted, rewriting",
 			"path", targetPath,
 			"error", validationErr,
 		)
-		if rmErr := os.RemoveAll(targetPath); rmErr != nil {
-			return fmt.Errorf("existing snapshot %q is corrupted and could not be removed: %w",
-				targetPath, errorutils.Join(validationErr, rmErr))
-		}
 	}
 
 	tmpDir := snapshotDir + "-tmp"
@@ -1411,10 +1411,19 @@ func atomicRemoveDir(path string) error {
 // createDBIfNotExist detects if db does not exist and try to initialize an empty one.
 func createDBIfNotExist(dir string, initialVersion uint32) error {
 	_, err := os.Stat(filepath.Join(dir, "current", MetadataFileName))
-	if err != nil && os.IsNotExist(err) {
-		return initEmptyDB(dir, initialVersion)
+	if err == nil || !os.IsNotExist(err) {
+		return nil
 	}
-	return nil
+	// Stat through a dangling symlink reports not-exist, which is
+	// indistinguishable from a directory that was never initialized. A current
+	// link pointing at a missing snapshot is evidence of data loss; initializing
+	// here would silently reset the store to an empty version 0.
+	if _, lstatErr := os.Lstat(currentPath(dir)); lstatErr == nil {
+		return fmt.Errorf("current link at %q points to a missing snapshot; refusing to initialize an empty db over it", currentPath(dir))
+	} else if !os.IsNotExist(lstatErr) {
+		return lstatErr
+	}
+	return initEmptyDB(dir, initialVersion)
 }
 
 func isSnapshotName(name string) bool {
