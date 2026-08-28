@@ -70,6 +70,9 @@ var scKeys = []configtest.KeySpec{
 	{Key: FlagSCHistoricalProofMaxInFlight, Path: "HistoricalProofMaxInFlight", Cast: configtest.CastInt},
 	{Key: FlagSCHistoricalProofRateLimit, Path: "HistoricalProofRateLimit", Cast: configtest.CastFloat64},
 	{Key: FlagSCHistoricalProofBurst, Path: "HistoricalProofBurst", Cast: configtest.CastInt},
+	{Key: FlagSCSubspaceQueryMaxInFlight, Path: "SubspaceQueryMaxInFlight", Cast: configtest.CastInt},
+	{Key: FlagSCSubspaceMaxPairs, Path: "SubspaceMaxPairs", Cast: configtest.CastInt},
+	{Key: FlagSCSubspaceMaxBytes, Path: "SubspaceMaxBytes", Cast: configtest.CastInt},
 	{
 		Key: FlagSCHashLoggerEnable, Path: "HashLogger.Enable", Cast: configtest.CastBool,
 		Why: "default true; guarded so an absent key does not silently turn hash logging off",
@@ -238,15 +241,18 @@ func FuzzParseSCConfigs(f *testing.F) {
 	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(-1), false)     // negative into an unchecked unsigned cast: resolves 0
 	seeds.AddRow(uint(7), fuzzing.KindFloat64, "", int64(2), false)    // prefetch threshold as a float
 	seeds.AddRow(uint(1), fuzzing.KindString, "/var/lib/sei/sc", int64(0), false)
-	seeds.AddRow(uint(13), fuzzing.KindString, "not-a-bool", int64(0), false) // unchecked: resolves false, no error
-	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(0), false)            // explicit 0 taken verbatim
+	seeds.AddRow(uint(16), fuzzing.KindString, "not-a-bool", int64(0), false) // unchecked: resolves false, no error
+	seeds.AddRow(uint(18), fuzzing.KindInt64, "", int64(0), false)            // explicit 0 taken verbatim
 
 	// Two rows default to their cast's zero, which is also what the malformed seed resolves
 	// to on an unchecked read, so neither of the per-row seeds above moves the field off the
 	// value an absent key produces. Each gets one value that converts to something else,
 	// which is what holds the reader to the key name rather than only to the cast.
 	seeds.AddRow(uint(9), fuzzing.KindBool, "", int64(0), true)         // flatkv read/write metrics on; the default is off
-	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(100000), false) // block-count retention on; the default is 0, meaning disabled
+	seeds.AddRow(uint(18), fuzzing.KindInt64, "", int64(100000), false) // block-count retention on; the default is 0, meaning disabled
+	seeds.AddRow(uint(13), fuzzing.KindInt64, "", int64(5), false)      // subspace max inflight above default 2
+	seeds.AddRow(uint(14), fuzzing.KindInt64, "", int64(500), false)    // subspace max pairs below default 1000
+	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(1024), false)   // subspace max bytes below default 4 MiB
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-commit", readSC, scKeys, seeds,
 		scKeysWithTargetsOfTheirOwn...)
