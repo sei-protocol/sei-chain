@@ -92,8 +92,13 @@ nodes onto disk.
 tarball taken from a Giga SS node contains `data/state_store/evm/` (and
 `data/state_store/cosmos/`) instead of a single mixed Cosmos SS directory. You can
 enable Giga SS Store by restoring such a snapshot and setting `evm-ss-split = true`;
-you do not need to P2P state sync again. A tarball from a non-Giga node cannot be
-used this way — convert those nodes with the state sync flow below.
+you do not need to P2P state sync again. The restoring node's `ss-backend`,
+`evm-ss-separate-dbs`, and any `ss-db-directory` / `evm-ss-db-directory` overrides
+must match the node the snapshot was taken from: both SS paths are backend-qualified
+(`data/state_store/{cosmos,evm}/{backend}`), so a backend mismatch opens empty
+directories and the node starts against restored SC with empty SS instead of
+refusing to launch. A tarball from a non-Giga node cannot be used this way —
+convert those nodes with the state sync flow below.
 
 Snapshot hosts that publish `data/` tarballs may offer both Giga SS and non-Giga
 copies while the fleet migrates. Use a Giga SS snapshot only when you intend to run
@@ -240,8 +245,13 @@ EVM into per-type sub-DBs (`evm-ss-separate-dbs = true`) is experimental.
 
 ### Can I enable Giga SS Store from a data-directory snapshot instead of P2P state sync?
 Yes, if the snapshot is a `data/` tarball taken from a node that already has Giga SS
-Store enabled. Restore it, set `evm-ss-split = true`, and start. P2P state-sync
-snapshots are unaffected either way — they do not embed the on-disk SS layout.
+Store enabled. Restore it, set `evm-ss-split = true`, and match the source node's
+`ss-backend`, `evm-ss-separate-dbs`, and any `ss-db-directory` / `evm-ss-db-directory`
+overrides. Both SS paths are backend-qualified
+(`data/state_store/{cosmos,evm}/{backend}`), so a backend mismatch opens empty
+directories and the node starts against restored SC with empty SS instead of
+refusing to launch. P2P state-sync snapshots are unaffected either way — they do
+not embed the on-disk SS layout.
 
 ### Does Giga SS Store support historical proofs?
 No, same as SeiDB. SS stores raw KVs and does not reconstruct IAVL-style proofs.
