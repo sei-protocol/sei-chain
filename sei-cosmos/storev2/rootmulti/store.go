@@ -77,6 +77,9 @@ type Store struct {
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
+	// subspaceQuerySem bounds concurrent /subspace scans on the SS fast path only.
+	// The commitment path is reached with SS disabled or a proof requested, where
+	// the pair/byte caps are the only bound.
 	subspaceQuerySem chan struct{}
 	subspaceLimits   query.Limits
 

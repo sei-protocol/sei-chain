@@ -116,3 +116,46 @@ func TestIsCapExceededResponse(t *testing.T) {
 	res := sdkerrors.QueryResult(err)
 	require.True(t, IsCapExceededResponse(res))
 }
+
+// abortingIterator yields a fixed number of pairs and then goes invalid with an
+// error set, the way an SS iterator reports a scan it gave up on mid-prefix.
+type abortingIterator struct {
+	storetypes.Iterator
+	remaining int
+	err       error
+}
+
+func (it *abortingIterator) Valid() bool {
+	return it.err == nil && it.Iterator.Valid()
+}
+
+func (it *abortingIterator) Next() {
+	it.remaining--
+	if it.remaining <= 0 {
+		it.err = context.Canceled
+		return
+	}
+	it.Iterator.Next()
+}
+
+func (it *abortingIterator) Error() error {
+	return it.err
+}
+
+type abortingStore struct {
+	*mem.Store
+	pairsBeforeAbort int
+}
+
+func (s *abortingStore) Iterator(start, end []byte) storetypes.Iterator {
+	return &abortingIterator{Iterator: s.Store.Iterator(start, end), remaining: s.pairsBeforeAbort}
+}
+
+func TestScanSubspace_AbortedIterationIsNotSuccess(t *testing.T) {
+	store := &abortingStore{Store: seedStore(t, 10, 8), pairsBeforeAbort: 3}
+
+	_, err := ScanSubspace(t.Context(), store, []byte("p"), Limits{MaxPairs: 1000, MaxBytes: DefaultMaxSubspaceBytes})
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, storetypes.ErrSubspaceCapExceeded.Is(err))
+}

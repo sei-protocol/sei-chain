@@ -70,11 +70,26 @@ func ScanSubspace(ctx context.Context, st storetypes.KVStore, prefix []byte, lim
 		totalBytes += pairBytes
 	}
 
+	if err := abortedScan(ctx, iterator); err != nil {
+		return nil, err
+	}
+
 	bz, err := pairs.Marshal()
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal KV pairs: %w", err))
 	}
 	return bz, nil
+}
+
+// abortedScan returns why iteration stopped before the prefix was exhausted, or
+// nil when it was. An SS iterator that gives up inside an MVCC skip loop goes
+// invalid and reports the reason on Error(), which is otherwise indistinguishable
+// from a complete scan and would be marshaled as a successful truncated result.
+func abortedScan(ctx context.Context, iterator storetypes.Iterator) error {
+	if err := iterator.Error(); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
 
 // IsCapExceeded reports whether err is a subspace scan cap rejection.
