@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
@@ -31,7 +30,7 @@ func (s *controlledSnapshotScheduler) ScheduleCheckpoint(
 ) {
 	s.pending <- func() {
 		if !shouldRun() {
-			done(controller.ErrCheckpointCanceled)
+			done(sssnapshot.ErrCheckpointCanceled)
 			return
 		}
 		if s.fail {
@@ -328,13 +327,13 @@ func openTestManagerWithRetention(
 	t.Helper()
 	source := t.TempDir()
 	manager, err := sssnapshot.Open(sssnapshot.Config{
-		Name:       name,
-		Root:       root,
-		SourceDirs: []string{source},
-		Backend:    config.PebbleDBBackend,
-		KeepRecent: keepRecent,
-		Scheduler:  scheduler,
-		Floor:      floor,
+		Name:         name,
+		Root:         root,
+		SourceDirs:   []string{source},
+		Backend:      config.PebbleDBBackend,
+		KeepRecent:   keepRecent,
+		Checkpointer: scheduler,
+		Floor:        floor,
 	})
 	require.NoError(t, err)
 	return manager
