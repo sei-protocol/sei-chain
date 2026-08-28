@@ -30,18 +30,20 @@ type Tree struct {
 	// when true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	zeroCopy bool
 
+	// unsavedWrites reports whether Set or Remove has stamped nodes at
+	// version+1 since the last SaveVersion, so maxNodeVersion knows whether the
+	// tree currently holds nodes above version.
+	unsavedWrites bool
+
 	// mtx guards concurrent access to this tree's mutable state (root, version,
 	// cowVersion, snapshot) AND the lazily-populated MemNode.hash caches reachable
 	// from root. Operations that fill those caches in place — RootHash and the
 	// proof builders (GetProof/GetMembership/GetNonMembership) — take the write
 	// lock; pure reads (Get/Has/Iterator) take the read lock. This serialization
 	// only protects a single tree instance: a tree produced by Copy() gets its
-	// own mtx and shares the underlying nodes copy-on-write. Cross-copy hash
-	// consistency therefore relies on (a) the shared nodes already being fully
-	// hashed before the copy is used for hashing/proofs (Copy is taken between
-	// commits, and the commit path hashes via SaveVersion(true)/RootHash), and
-	// (b) cowVersion cloning any shared MemNode before it is structurally mutated,
-	// so a live-tree write never mutates a node another copy is still reading.
+	// own mtx and shares the underlying nodes copy-on-write. Copy is what makes
+	// that safe across instances, by freezing the shared nodes before handing
+	// them over; see its doc comment.
 	mtx *sync.RWMutex
 
 	pendingChanges chan proto.ChangeSet
@@ -108,22 +110,60 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 	return nil
 }
 
-// Copy returns a concurrent-safe snapshot. Acquires the underlying *Snapshot
-// so background rewrites can't unmap it while the copy is live; callers must
-// call Close on the returned tree to release the ref.
+// Copy returns a concurrent-safe snapshot of the tree. Acquires the underlying
+// *Snapshot so background rewrites can't unmap it while the copy is live;
+// callers must call Close on the returned tree to release the ref.
+//
+// The copy shares its nodes with the live tree, so it is only safe to read
+// concurrently if those nodes are frozen: every reachable MemNode is already
+// hashed, and sits at or below cowVersion so a live write clones it rather than
+// mutating it in place. Copy establishes both under the write lock.
 func (t *Tree) Copy() *Tree {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	return t.copyNoLock()
+}
+
+// copyNoLock is Copy without acquiring t.mtx; the caller must already hold the
+// write lock.
+func (t *Tree) copyNoLock() *Tree {
+	// Hash every reachable node now, while we hold the write lock. Otherwise the
+	// copy's reader fills MemNode.hash in place on nodes the live tree also
+	// holds, and the two trees have separate mutexes to serialize with.
+	_ = t.rootHashNoLock()
+
 	if _, ok := t.root.(*MemNode); ok {
-		// protect the existing `MemNode`s from get modified in-place
-		t.cowVersion = t.version
+		// Freeze the shared MemNodes against in-place mutation. The floor is the
+		// highest version present in the tree, not t.version: Set and Remove
+		// stamp nodes at t.version+1, so between a changeset and SaveVersion the
+		// tree holds nodes a t.version floor would leave mutable.
+		t.cowVersion = t.maxNodeVersion()
 	}
+
 	newTree := *t
 	newTree.mtx = &sync.RWMutex{}
+	// The copy is read-only and must not share the live tree's background-write
+	// plumbing: Close would otherwise close the live tree's pendingChanges.
+	newTree.pendingChanges = nil
+	newTree.pendingWg = &sync.WaitGroup{}
 	if newTree.snapshot != nil {
 		newTree.snapshot.Acquire()
 	}
 	return &newTree
+}
+
+// writeVersion returns the version Set and Remove stamp onto the nodes they
+// create or mutate, which is one ahead of the last saved version.
+func (t *Tree) writeVersion() uint32 {
+	return t.version + 1
+}
+
+// maxNodeVersion returns the highest version carried by any node in the tree.
+func (t *Tree) maxNodeVersion() uint32 {
+	if t.unsavedWrites {
+		return t.writeVersion()
+	}
+	return t.version
 }
 
 // ApplyChangeSet apply the change set of a whole version, and update hashes.
@@ -172,27 +212,37 @@ func (t *Tree) Set(key, value []byte) {
 		// the value could be nil when replaying changes from write-ahead-log because of protobuf decoding
 		value = []byte{}
 	}
-	t.root, _ = setRecursive(t.root, key, value, t.version+1, t.cowVersion)
+	t.root, _ = setRecursive(t.root, key, value, t.writeVersion(), t.cowVersion)
+	t.unsavedWrites = true
 }
 
 func (t *Tree) Remove(key []byte) {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
-	_, t.root, _ = removeRecursive(t.root, key, t.version+1, t.cowVersion)
+	_, t.root, _ = removeRecursive(t.root, key, t.writeVersion(), t.cowVersion)
+	t.unsavedWrites = true
 }
 
-// SaveVersion increases the version number and optionally updates the hashes
+// SaveVersion increases the version number and optionally updates the hashes.
+//
+// It holds the write lock across both, so a concurrent Copy cannot observe the
+// bumped version before the nodes stamped at the old write version are hashed,
+// which would let it derive a cowVersion that leaves them mutable.
 func (t *Tree) SaveVersion(updateHash bool) ([]byte, int64, error) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+
 	if t.version >= uint32(math.MaxUint32) {
 		return nil, 0, errors.New("version overflows uint32")
 	}
 
 	var hash []byte
 	if updateHash {
-		hash = t.RootHash()
+		hash = t.rootHashNoLock()
 	}
 
 	t.version = nextVersionU32(t.version, t.initialVersion)
+	t.unsavedWrites = false
 	return hash, int64(t.version), nil
 }
 
@@ -376,6 +426,7 @@ func (t *Tree) ReplaceWith(other *Tree) error {
 	t.initialVersion = other.initialVersion
 	t.cowVersion = other.cowVersion
 	t.zeroCopy = other.zeroCopy
+	t.unsavedWrites = other.unsavedWrites
 
 	if snapshot != nil {
 		return snapshot.Close()
