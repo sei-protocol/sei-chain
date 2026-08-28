@@ -200,6 +200,23 @@ func removeTmpDirs(dir string) error {
 	return nil
 }
 
+// resolveSnapshotToClone returns the directory of the snapshot a read-only view of targetVersion
+// opens against: the newest snapshot at or below it, or the active snapshot when targetVersion is 0.
+func resolveSnapshotToClone(root string, targetVersion int64) (string, error) {
+	if targetVersion <= 0 {
+		snapDir, _, err := currentSnapshotDir(root)
+		if err != nil {
+			return "", fmt.Errorf("resolve current snapshot for readonly: %w", err)
+		}
+		return snapDir, nil
+	}
+	baseVersion, err := seekSnapshot(root, targetVersion)
+	if err != nil {
+		return "", fmt.Errorf("seek snapshot for readonly: %w", err)
+	}
+	return filepath.Join(root, snapshotName(baseVersion)), nil
+}
+
 // createWorkingDir ensures a mutable working directory exists, cloned from
 // snapDir. If the working dir already exists and was cloned from the same
 // snapshot (recorded in SNAPSHOT_BASE), the expensive re-clone is skipped

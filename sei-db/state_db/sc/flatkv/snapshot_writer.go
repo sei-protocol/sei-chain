@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -155,6 +156,25 @@ func (w *SnapshotWriter) PruneBelow(cutLine uint64) error {
 	return nil
 }
 
+// CloneSnapshot materializes the snapshot at or below targetVersion into destDir, and does not
+// return until it is there. A targetVersion of 0 names the active snapshot.
+//
+// The copy runs on the writer's goroutine, which is also the goroutine that prunes. That is what
+// makes the snapshot it resolves still be there when the copy reaches it: done on the caller's
+// thread, a prune can delete the directory between the two.
+func (w *SnapshotWriter) CloneSnapshot(targetVersion int64, destDir string) error {
+	request := newCloneRequest(targetVersion, destDir)
+	if err := w.enqueue(request); err != nil {
+		return fmt.Errorf("clone snapshot for version %d: %w", targetVersion, err)
+	}
+	select {
+	case err := <-request.responseChan:
+		return err
+	case <-w.ctx.Done():
+		return fmt.Errorf("clone snapshot for version %d: %w", targetVersion, w.stoppedError())
+	}
+}
+
 // Flush blocks until the writer has dealt with every block offered so far, including a snapshot it is
 // part way through. It reports the latched error if the writer has failed.
 //
@@ -262,12 +282,33 @@ func (w *SnapshotWriter) handleMessage(message any) error {
 	switch request := message.(type) {
 	case *snapshotRequest:
 		return w.maybeCheckpointBlock(request)
+	case *cloneRequest:
+		// Answered rather than returned: a clone that fails describes one caller's read, not the
+		// writer's ability to keep snapshotting, so it must not stop the writer the way a failed
+		// checkpoint does.
+		request.responseChan <- w.cloneSnapshot(request)
+		return nil
 	case *flushRequest:
 		request.responseChan <- struct{}{}
 		return nil
 	default:
 		return fmt.Errorf("unknown snapshot writer message type %T", message)
 	}
+}
+
+// cloneSnapshot resolves the snapshot a clone request names and copies it into the request's
+// destination directory.
+func (w *SnapshotWriter) cloneSnapshot(request *cloneRequest) error {
+	w.phaseTimer.SetPhase("clone_snapshot")
+
+	snapDir, err := resolveSnapshotToClone(w.dir, request.targetVersion)
+	if err != nil {
+		return err
+	}
+	if err := createWorkingDir(snapDir, request.destDir); err != nil {
+		return fmt.Errorf("clone snapshot %s: %w", filepath.Base(snapDir), err)
+	}
+	return nil
 }
 
 // handlePruneCutLine deletes the snapshots a retention cut line from the StorageGarbageCollector has
@@ -319,6 +360,9 @@ func (w *SnapshotWriter) discardQueued() {
 					logger.Error("failed to hand back reservations of a discarded snapshot",
 						"version", request.version, "err", err)
 				}
+			case *cloneRequest:
+				request.responseChan <- fmt.Errorf("clone snapshot for version %d: %w",
+					request.targetVersion, w.stoppedError())
 			case *flushRequest:
 				request.responseChan <- struct{}{}
 			}

@@ -38,6 +38,28 @@ func (r *snapshotRequest) release() error {
 	return errors.Join(errs...)
 }
 
+// cloneRequest asks the writer to materialize a snapshot into a destination directory.
+type cloneRequest struct {
+	// targetVersion is the height to clone at or below. 0 names the active snapshot.
+	targetVersion int64
+
+	// destDir is the directory the snapshot is materialized into.
+	destDir string
+
+	// responseChan produces the outcome of the clone. Buffered, so the writer answering it cannot
+	// block on a caller that has already given up.
+	responseChan chan error
+}
+
+// newCloneRequest describes a clone of the snapshot at or below targetVersion into destDir.
+func newCloneRequest(targetVersion int64, destDir string) *cloneRequest {
+	return &cloneRequest{
+		targetVersion: targetVersion,
+		destDir:       destDir,
+		responseChan:  make(chan error, 1),
+	}
+}
+
 // flushRequest asks the writer to report once it has dealt with everything enqueued ahead of it.
 type flushRequest struct {
 	// responseChan produces a value once every message enqueued ahead of this one has been dealt with.

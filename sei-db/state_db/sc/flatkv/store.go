@@ -471,7 +471,9 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	// marking it here does not block the catch-up that follows.
 	ro.readOnly = true
 
-	if err := ro.openReadOnly(targetVersion); err != nil {
+	// The clone shares this store's flatkv root, so the writer that owns that root — and prunes it —
+	// is this store's, not the clone's. The clone never has one of its own.
+	if err := ro.openReadOnly(targetVersion, s.currentSnapshotWriter()); err != nil {
 		return nil, fmt.Errorf("readonly open: %w", err)
 	}
 
@@ -493,31 +495,17 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 // openReadOnly opens PebbleDBs in readOnlyWorkDir at the snapshot boundary at or below targetVersion,
 // leaving committedVersion at that snapshot version. It never modifies the global "current" symlink.
 //
+// owner is the snapshot writer of the store that owns the snapshot tree being read, which is the
+// primary rather than this clone. Nil means no writer is running against that tree.
+//
 // This clone has a nil WAL of its own, so it does NOT replay: advancing from the snapshot boundary up to
 // targetVersion — and marking the store read-only — is driven by the primary via LoadVersionReadOnly /
 // replayIntoReadOnlyCopy, which feeds the primary's WAL into this clone.
-func (s *CommitStore) openReadOnly(targetVersion int64) (retErr error) {
+func (s *CommitStore) openReadOnly(targetVersion int64, owner *SnapshotWriter) (retErr error) {
 	s.clearPendingBlock()
 
-	dir := s.flatkvDir()
-
-	var snapDir string
-	if targetVersion > 0 {
-		baseVer, err := seekSnapshot(dir, targetVersion)
-		if err != nil {
-			return fmt.Errorf("seek snapshot for readonly: %w", err)
-		}
-		snapDir = filepath.Join(dir, snapshotName(baseVer))
-	} else {
-		var err error
-		snapDir, _, err = currentSnapshotDir(dir)
-		if err != nil {
-			return fmt.Errorf("resolve current snapshot for readonly: %w", err)
-		}
-	}
-
-	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
-		return fmt.Errorf("create readonly working dir: %w", err)
+	if err := s.cloneSnapshotToWorkDir(targetVersion, owner); err != nil {
+		return err
 	}
 
 	dbs, err := s.openRawDBs()
@@ -546,6 +534,31 @@ func (s *CommitStore) openReadOnly(targetVersion int64) (retErr error) {
 
 	logger.Info("FlatKV readonly base opened", "version", s.committedVersion,
 		"dir", s.readOnlyWorkDir)
+	return nil
+}
+
+// cloneSnapshotToWorkDir materializes the snapshot this read-only clone opens against into its
+// working directory.
+//
+// It goes through owner rather than copying here, because the copy has to be serialized against the
+// pruning that owner also performs: a snapshot resolved on this goroutine can be deleted before the
+// copy has finished reading it. A nil owner means no writer is running against that tree, so there
+// is nothing to serialize against and the copy is done inline.
+func (s *CommitStore) cloneSnapshotToWorkDir(targetVersion int64, owner *SnapshotWriter) error {
+	if owner != nil {
+		if err := owner.CloneSnapshot(targetVersion, s.readOnlyWorkDir); err != nil {
+			return fmt.Errorf("create readonly working dir: %w", err)
+		}
+		return nil
+	}
+
+	snapDir, err := resolveSnapshotToClone(s.flatkvDir(), targetVersion)
+	if err != nil {
+		return err
+	}
+	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
+		return fmt.Errorf("create readonly working dir: %w", err)
+	}
 	return nil
 }
 
