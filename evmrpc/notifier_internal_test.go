@@ -144,7 +144,10 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	hash := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111").Bytes()
 	proposer := common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()
 	appHash := common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333").Bytes()
-	ts := time.Unix(1_700_000_000, 0).UTC()
+	// Fractional second on purpose: it is the part "timestamp" drops and
+	// "milliTimestamp" keeps, so a whole-second fixture would pass even if
+	// milliTimestamp were derived as timestamp*1000.
+	ts := time.Unix(1_700_000_000, 750_000_000).UTC()
 	evt := blockHeaderEvent{
 		hash: hash,
 		header: &tmproto.Header{
@@ -168,6 +171,7 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	require.Equal(t, common.BytesToAddress(proposer), out["miner"])
 	require.Equal(t, common.BytesToHash(appHash), out["stateRoot"])
 	require.Equal(t, hexutil.Uint64(ts.Unix()), out["timestamp"])
+	require.Equal(t, hexutil.Uint64(ts.UnixMilli()), out["milliTimestamp"])
 	require.Equal(t, hexutil.Uint64(121000), out["gasUsed"])
 	require.Equal(t, hexutil.Uint64(10_000_000), out["gasLimit"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(42)), out["baseFeePerGas"])
