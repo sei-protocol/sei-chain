@@ -99,7 +99,7 @@ func TestRouteRanges(t *testing.T) {
 func TestRouterForwardsSingleRequest(t *testing.T) {
 	live := newRPCBackend(t, "live")
 	frozen := newRPCBackend(t, "frozen")
-	r, err := newRouter(live.server.URL, []frozenNodeConfig{{freezeHeight: 100, address: frozen.server.URL}}, live.server.Client(), defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth)
+	r, err := newRouter(live.server.URL, []frozenNodeConfig{{freezeHeight: 100, address: frozen.server.URL}}, live.server.Client(), defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth, defaultBatchRequestLimit)
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func TestRouterSplitsMixedBatch(t *testing.T) {
 	r, err := newRouter(live.server.URL, []frozenNodeConfig{
 		{freezeHeight: 200, address: frozen200.server.URL},
 		{freezeHeight: 100, address: frozen100.server.URL},
-	}, live.server.Client(), defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth)
+	}, live.server.Client(), defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth, defaultBatchRequestLimit)
 	require.NoError(t, err)
 
 	body := `[
@@ -173,8 +173,29 @@ func TestRouterOmitsErrorForUnsupportedNotification(t *testing.T) {
 	require.Empty(t, recorder.Body.String())
 }
 
+func TestRouterRejectsOversizedBatchWithSingleError(t *testing.T) {
+	r, err := newRouter("live:8545", nil, nil, defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth, defaultBatchRequestLimit)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	body := "[" + strings.Repeat("{},", defaultBatchRequestLimit) + "{}]"
+	request := httptest.NewRequest(http.MethodPost, "http://router/", strings.NewReader(body))
+	r.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"batch too large"}}`, recorder.Body.String())
+}
+
+func TestDecodeBatchCallsAcceptsLimit(t *testing.T) {
+	calls, err := decodeBatchCalls([]byte(`[{}, {}]`), 2)
+	require.NoError(t, err)
+	require.Len(t, calls, 2)
+
+	_, err = decodeBatchCalls([]byte(`[{}, {}, {}]`), 2)
+	require.ErrorIs(t, err, errBatchTooLarge)
+}
+
 func TestRouterRejectsOversizedRequest(t *testing.T) {
-	r, err := newRouter("live:8545", nil, nil, 8, defaultMaxBlockReferenceDepth)
+	r, err := newRouter("live:8545", nil, nil, 8, defaultMaxBlockReferenceDepth, defaultBatchRequestLimit)
 	require.NoError(t, err)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://router/", bytes.NewReader([]byte("123456789")))
@@ -190,11 +211,14 @@ func TestNewRouterSortsAndValidatesFrozenNodes(t *testing.T) {
 	_, err := newRouter("live:8545", []frozenNodeConfig{
 		{freezeHeight: 100, address: "one:8545"},
 		{freezeHeight: 100, address: "two:8545"},
-	}, nil, defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth)
+	}, nil, defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth, defaultBatchRequestLimit)
 	require.EqualError(t, err, "duplicate freeze height 100")
 
-	_, err = newRouter("live:8545", nil, nil, defaultMaxRequestBodySize, 0)
+	_, err = newRouter("live:8545", nil, nil, defaultMaxRequestBodySize, 0, defaultBatchRequestLimit)
 	require.EqualError(t, err, "maximum block reference depth must be positive")
+
+	_, err = newRouter("live:8545", nil, nil, defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth, 0)
+	require.EqualError(t, err, "batch request limit must be positive")
 }
 
 func newTestRouter(t *testing.T) *router {
@@ -202,7 +226,7 @@ func newTestRouter(t *testing.T) *router {
 	r, err := newRouter("live:8545", []frozenNodeConfig{
 		{freezeHeight: 200, address: "frozen-200:8545"},
 		{freezeHeight: 100, address: "frozen-100:8545"},
-	}, nil, defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth)
+	}, nil, defaultMaxRequestBodySize, defaultMaxBlockReferenceDepth, defaultBatchRequestLimit)
 	require.NoError(t, err)
 	return r
 }
