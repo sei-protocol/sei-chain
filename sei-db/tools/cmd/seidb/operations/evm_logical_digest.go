@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
-	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/spf13/cobra"
 )
 
@@ -85,12 +84,11 @@ const (
 //   - replay (SLOW): opens a read-only DB, replays the changelog up to
 //     --height, then walks the in-memory/mmap tree. Roughly an order of
 //     magnitude slower than snapshot (changelog replay + per-leaf tree walk
-//     instead of a sequential file read). It refuses to run on a changelog whose
-//     tail a live writer is still filling, and asks the operator to rerun,
-//     because opening such a changelog would truncate that tail. Use it only
-//     when no snapshot exists at the target height — e.g. nodes whose snapshot
-//     rewrite lags the tip, so an arbitrary comparison height has no
-//     snapshot-<height> on disk.
+//     instead of a sequential file read). It requires the node stopped, because
+//     opening a changelog its writer still holds lets the opener repair, and
+//     therefore damage, that changelog. Use it only when no snapshot exists at
+//     the target height — e.g. nodes whose snapshot rewrite lags the tip, so an
+//     arbitrary comparison height has no snapshot-<height> on disk.
 //
 // The flatkv side is always a pebble WAL-replay-to-height and is fast
 // regardless. So when comparing across nodes, pick a height that is an existing
@@ -1110,24 +1108,16 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization 
 
 func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) {
 	db, err := memiavl.OpenDB(height, memiavl.Options{
-		Dir:               dbDir,
-		ReadOnly:          true,
-		ZeroCopy:          true,
-		NoChangelogRepair: true,
-		RequireExclusive:  true,
+		Dir:              dbDir,
+		ReadOnly:         true,
+		ZeroCopy:         true,
+		RequireExclusive: true,
 	})
 	if err != nil {
 		if errors.Is(err, memiavl.ErrLocked) {
 			return nil, fmt.Errorf("another process has %s open, and replaying the changelog of a "+
-				"directory being written would let the changelog opener truncate a record that writer "+
-				"has committed; stop seid and rerun, or use --memiavl-open-mode snapshot: %w", dbDir, err)
-		}
-		// RequireExclusive rules out a writer, so a torn tail here is damage left
-		// behind rather than an append in flight. NoChangelogRepair reported it
-		// instead of truncating it.
-		if errors.Is(err, wal.ErrCorrupt) {
-			return nil, fmt.Errorf("memiavl changelog is damaged and was left unmodified; repair it "+
-				"offline, or use --memiavl-open-mode snapshot: %w", err)
+				"directory being written lets the changelog opener truncate a record that writer has "+
+				"committed; stop seid and rerun, or use --memiavl-open-mode snapshot: %w", dbDir, err)
 		}
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}

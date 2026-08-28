@@ -1,7 +1,6 @@
 package wal
 
 import (
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,7 +57,7 @@ func TestOpenAndCorruptedTail(t *testing.T) {
 			_, err = wal.Open(dir, opts)
 			require.Equal(t, wal.ErrCorrupt, err)
 
-			log, err := open(dir, opts, false)
+			log, err := open(dir, opts)
 			require.NoError(t, err)
 
 			lastIndex, err := log.LastIndex()
@@ -66,122 +65,6 @@ func TestOpenAndCorruptedTail(t *testing.T) {
 			require.Equal(t, tc.lastIndex, lastIndex)
 		})
 	}
-}
-
-// TestOpenNoRepairRefusesTheTornTailOpenWouldTruncate pins both halves of the
-// option: the tail it refuses is one the repairing open truncates in place.
-func TestOpenNoRepairRefusesTheTornTailOpenWouldTruncate(t *testing.T) {
-	dir := writeTornTestLog(t)
-	before := snapshotDir(t, dir)
-
-	log, err := open(dir, nil, true)
-	require.Nil(t, log)
-	require.ErrorIs(t, err, ErrCorrupt)
-	require.Equal(t, before, snapshotDir(t, dir))
-
-	log, err = open(dir, nil, false)
-	require.NoError(t, err)
-	require.NoError(t, log.Close())
-	require.NotEqual(t, before, snapshotDir(t, dir))
-}
-
-// TestOpenNoRepairRefusesTheTruncationMarkerOpenCompletes covers the second
-// repair, which wal.Open performs without reporting an error.
-func TestOpenNoRepairRefusesTheTruncationMarkerOpenCompletes(t *testing.T) {
-	dir := t.TempDir()
-	log, err := open(dir, nil, false)
-	require.NoError(t, err)
-	require.NoError(t, log.Write(1, []byte("entry")))
-	require.NoError(t, log.Close())
-	marker := filepath.Join(dir, "00000000000000000002.START")
-	require.NoError(t, os.WriteFile(marker, appendBinaryEntry(nil, []byte("moved")), 0o600))
-	before := snapshotDir(t, dir)
-
-	log, err = open(dir, nil, true)
-	require.Nil(t, log)
-	require.ErrorIs(t, err, ErrCorrupt)
-	require.Contains(t, err.Error(), "truncation marker")
-	require.Equal(t, before, snapshotDir(t, dir))
-
-	log, err = open(dir, nil, false)
-	require.NoError(t, err)
-	require.NoError(t, log.Close())
-	require.NotEqual(t, before, snapshotDir(t, dir))
-}
-
-// TestOpenNoRepairAcceptsACompleteLog is the positive control: the option only
-// refuses a log the open would have repaired.
-func TestOpenNoRepairAcceptsACompleteLog(t *testing.T) {
-	dir := t.TempDir()
-	log, err := open(dir, nil, false)
-	require.NoError(t, err)
-	require.NoError(t, log.Write(1, []byte("entry")))
-	require.NoError(t, log.Close())
-	before := snapshotDir(t, dir)
-
-	log, err = open(dir, nil, true)
-	require.NoError(t, err)
-	last, err := log.LastIndex()
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), last)
-	require.NoError(t, log.Close())
-	require.Equal(t, before, snapshotDir(t, dir))
-}
-
-// TestNewWALNoRepairOnOpenReachesTheOpen pins that the config field is wired
-// through, since only the digest tool sets it today.
-func TestNewWALNoRepairOnOpenReachesTheOpen(t *testing.T) {
-	dir := writeTornTestLog(t)
-	before := snapshotDir(t, dir)
-
-	changelog, err := NewChangelogWAL(dir, Config{NoRepairOnOpen: true})
-	require.Nil(t, changelog)
-	require.ErrorIs(t, err, ErrCorrupt)
-	require.Equal(t, before, snapshotDir(t, dir))
-}
-
-// writeTornTestLog creates a log directory whose only segment ends mid-record,
-// the way a reader sees a writer mid-append, and returns the directory.
-func writeTornTestLog(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	log, err := open(dir, nil, false)
-	require.NoError(t, err)
-	require.NoError(t, log.Write(1, []byte("entry")))
-	require.NoError(t, log.Close())
-
-	segment := filepath.Join(dir, "00000000000000000001")
-	data, err := os.ReadFile(filepath.Clean(segment))
-	require.NoError(t, err)
-	torn := appendBinaryEntry(data, []byte("torn"))
-	require.NoError(t, os.WriteFile(segment, torn[:len(torn)-1], 0o600))
-	return dir
-}
-
-// snapshotDir returns the contents of every file in dir, keyed by name.
-func snapshotDir(t *testing.T, dir string) map[string][]byte {
-	t.Helper()
-	entries, err := os.ReadDir(dir)
-	require.NoError(t, err)
-	files := make(map[string][]byte, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		data, readErr := os.ReadFile(filepath.Clean(filepath.Join(dir, entry.Name())))
-		require.NoError(t, readErr)
-		files[entry.Name()] = data
-	}
-	return files
-}
-
-// appendBinaryEntry appends payload to data in the binary log framing of a size
-// varint followed by the payload.
-func appendBinaryEntry(data []byte, payload []byte) []byte {
-	var size [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(size[:], uint64(len(payload)))
-	data = append(data, size[:n]...)
-	return append(data, payload...)
 }
 
 func TestReplay(t *testing.T) {
@@ -288,7 +171,7 @@ func TestOpenWithNilOptions(t *testing.T) {
 	dir := t.TempDir()
 
 	// Test that open function handles nil options correctly
-	log, err := open(dir, nil, false)
+	log, err := open(dir, nil)
 	require.NoError(t, err)
 	require.NotNil(t, log)
 

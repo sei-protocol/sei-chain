@@ -94,16 +94,6 @@ type Config struct {
 	// AllowEmpty permits removing all entries via TruncateAll.
 	// When false (default), at least one entry must remain after truncation.
 	AllowEmpty bool
-
-	// NoRepairOnOpen makes the open fail with ErrCorrupt instead of repairing the
-	// log. It refuses a tail ending mid-record, and a directory holding the
-	// .START or .END segment an interrupted truncation left behind.
-	//
-	// The caller must already exclude a concurrent writer. Both conditions also
-	// occur transiently while a writer appends or truncates, so against a live
-	// log this reports damage that is not there, and cannot prevent the open from
-	// completing a truncation that writer is in the middle of.
-	NoRepairOnOpen bool
 }
 
 // NewWAL creates a new generic write-ahead log that persists entries.
@@ -130,7 +120,7 @@ func NewWAL[T any](
 		NoSync:     !config.FsyncEnabled,
 		NoCopy:     !config.DeepCopyEnabled,
 		AllowEmpty: config.AllowEmpty,
-	}, config.NoRepairOnOpen)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -552,23 +542,12 @@ func (walLog *WAL[T]) Close() error {
 	return nil
 }
 
-// open opens the replay log, try to truncate the corrupted tail if there's any.
-// When noRepair is set it returns ErrCorrupt instead for both repairs the open
-// would otherwise perform, leaving dir as it found it, which holds for a caller
-// that has excluded writers per Config.NoRepairOnOpen.
-func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
+// open opens the replay log, try to truncate the corrupted tail if there's any
+func open(dir string, opts *wal.Options) (*wal.Log, error) {
 	if opts == nil {
 		opts = wal.DefaultOptions
 	}
-	if noRepair {
-		if err := checkNoTruncationMarker(dir); err != nil {
-			return nil, err
-		}
-	}
 	rlog, err := wal.Open(dir, opts)
-	if errors.Is(err, wal.ErrCorrupt) && noRepair {
-		return nil, err
-	}
 	if errors.Is(err, wal.ErrCorrupt) {
 		// try to truncate corrupted tail
 		var fis []os.DirEntry
@@ -595,32 +574,6 @@ func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
 		return wal.Open(dir, opts)
 	}
 	return rlog, err
-}
-
-// checkNoTruncationMarker returns ErrCorrupt when dir holds a segment an
-// interrupted truncation left behind, which wal.Open completes by renaming and
-// removing segments without reporting anything.
-//
-// It reads dir before the open, which is sound only for a caller that has
-// excluded writers, as Config.NoRepairOnOpen requires. A writer creates the same
-// segment partway through every successful truncation, so against a live log
-// this both reports damage that is not there and misses the marker that appears
-// after it looks.
-func checkNoTruncationMarker(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read wal dir %s: %w", dir, err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasSuffix(name, ".START") || strings.HasSuffix(name, ".END") {
-			return fmt.Errorf("%w: truncation marker %s is present in %s", ErrCorrupt, name, dir)
-		}
-	}
-	return nil
 }
 
 // The main loop doing work in the background.

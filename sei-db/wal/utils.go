@@ -24,17 +24,13 @@ func GetLastIndex(dir string) (index uint64, err error) {
 	rlog, err := open(dir, &wal.Options{
 		NoSync: true,
 		NoCopy: true,
-	}, false)
+	})
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = rlog.Close() }()
 	return rlog.LastIndex()
 }
-
-// ErrCorrupt reports a log that cannot be read without repair. A caller that
-// opened with Config.NoRepairOnOpen classifies the failure with it.
-var ErrCorrupt = wal.ErrCorrupt
 
 // truncateCorruptedTail truncates the corrupted tail
 func truncateCorruptedTail(path string, format wal.LogFormat) error {

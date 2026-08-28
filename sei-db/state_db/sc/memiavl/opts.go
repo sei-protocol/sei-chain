@@ -18,11 +18,6 @@ type Options struct {
 	InitialVersion uint32
 	// ReadOnly opens the database in read-only mode
 	ReadOnly bool
-	// NoChangelogRepair makes the open fail with wal.ErrCorrupt instead of
-	// repairing the changelog. Set it with RequireExclusive, which is what makes
-	// the refusal meaningful: without a writer excluded, the conditions it
-	// refuses also occur transiently and the repair still races the writer.
-	NoChangelogRepair bool
 	// RequireExclusive takes the directory's lock even under ReadOnly, so the
 	// open fails with ErrLocked while a writer has it. A read-only tool that
 	// must not disturb the directory sets it, because the changelog opener
