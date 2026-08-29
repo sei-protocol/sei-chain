@@ -149,7 +149,6 @@ func TestNewInnerEmpty(t *testing.T) {
 func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(0))
 
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
@@ -180,7 +179,6 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(0))
 
 	ds := newTestDataState(registry)
 	av, err := avail.NewState(keys[0], ds, utils.None[string]())
