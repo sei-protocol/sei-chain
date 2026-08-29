@@ -138,22 +138,21 @@ func (n *BlockHeaderNotifier) subscribe(fn func(blockHeaderEvent)) {
 func (n *BlockHeaderNotifier) publish(evt blockHeaderEvent) {
 	select {
 	case n.ch <- evt:
-		return
 	default:
-	}
-	// Buffer full: drain one stale event to make room for the new one.
-	// With a single producer, draining one slot is sufficient and the
-	// second send always succeeds. With multiple producers a racing
-	// publisher could refill the slot between the drain and the send,
-	// in which case the default branch drops the new event — that is
-	// still consistent with overwrite-on-full (some recent head wins).
-	select {
-	case <-n.ch:
-	default:
-	}
-	select {
-	case n.ch <- evt:
-	default:
+		// Buffer full: drain one stale event to make room for the new one.
+		// With a single producer, draining one slot is sufficient and the
+		// second send always succeeds. With multiple producers a racing
+		// publisher could refill the slot between the drain and the send,
+		// in which case the default branch drops the new event — that is
+		// still consistent with overwrite-on-full (some recent head wins).
+		select {
+		case <-n.ch:
+		default:
+		}
+		select {
+		case n.ch <- evt:
+		default:
+		}
 	}
 
 	n.mu.Lock()
@@ -161,8 +160,7 @@ func (n *BlockHeaderNotifier) publish(evt blockHeaderEvent) {
 	copy(listeners, n.listeners)
 	n.mu.Unlock()
 	for _, fn := range listeners {
-		defer recoverAndLog()
-		fn(evt)
+		runWithRecovery(func() { fn(evt) })
 	}
 }
 
