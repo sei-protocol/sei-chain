@@ -10,6 +10,12 @@ const StateCommitConfigTemplate = `
 # Enable defines if the SeiDB state-commit should be enabled.
 sc-enable = {{ .StateCommit.Enable }}
 
+# IngressProfile selects FlatKV-only current-state storage with bounded caches and write backlogs.
+# State must come from after migration version 3, via state sync or a restored FlatKV snapshot;
+# building it from genesis is refused. A state-sync peer must itself be past migration version 3,
+# since a memiavl snapshot carries IAVL tree nodes that FlatKV cannot accept.
+sc-ingress-profile = {{ .StateCommit.IngressProfile }}
+
 # Defines the SC store directory, if not explicitly set, default to application home directory
 sc-directory = "{{ .StateCommit.Directory }}"
 

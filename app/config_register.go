@@ -151,6 +151,7 @@ type stateCommitFlatKVSchema struct {
 // over and nothing here needs.
 type stateCommitSchema struct {
 	Enable                     bool                    `mapstructure:"sc-enable"`
+	IngressProfile             bool                    `mapstructure:"sc-ingress-profile"`
 	Directory                  string                  `mapstructure:"sc-directory"`
 	AsyncCommitBuffer          int                     `mapstructure:"sc-async-commit-buffer"`
 	SnapshotKeepRecent         uint32                  `mapstructure:"sc-keep-recent"`
@@ -187,6 +188,7 @@ func stateCommitDefaults(registry.Mode) any {
 	live := config.DefaultStateCommitConfig()
 	return stateCommitSchema{
 		Enable:                     live.Enable,
+		IngressProfile:             live.IngressProfile,
 		Directory:                  live.Directory,
 		AsyncCommitBuffer:          live.MemIAVLConfig.AsyncCommitBuffer,
 		SnapshotKeepRecent:         live.MemIAVLConfig.SnapshotKeepRecent,

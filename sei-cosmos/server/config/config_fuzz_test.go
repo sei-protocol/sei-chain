@@ -676,6 +676,7 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"occ-enabled", cfg.OccEnabled, def.OccEnabled, true},
 		{"halt-height", cfg.HaltHeight, def.HaltHeight, false},
 		{"freeze-height", cfg.FreezeHeight, def.FreezeHeight, false},
+		{"ingress", cfg.Ingress, def.Ingress, false},
 		{"halt-time", cfg.HaltTime, def.HaltTime, false},
 		{"min-retain-blocks", cfg.MinRetainBlocks, def.MinRetainBlocks, false},
 		{"compaction-interval", cfg.CompactionInterval, def.CompactionInterval, false},

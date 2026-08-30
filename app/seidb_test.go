@@ -118,6 +118,19 @@ func TestParseSCConfigs_FlatKVReadWriteMetrics(t *testing.T) {
 	assert.True(t, scConfig.FlatKVConfig.EnableReadWriteMetrics)
 }
 
+func TestParseSCConfigs_IngressProfile(t *testing.T) {
+	scConfig := parseSCConfigs(mapAppOpts{
+		FlagSCEnable:         true,
+		FlagSCIngressProfile: true,
+	})
+
+	assert.True(t, scConfig.IngressProfile)
+	assert.Equal(t, sctypes.FlatKVOnly, scConfig.WriteMode)
+	assert.False(t, scConfig.WriteModeEnableAuto)
+	assert.False(t, scConfig.HashLogger.Enable)
+	assert.True(t, scConfig.FlatKVConfig.LowMemory)
+}
+
 func TestParseSCConfigs_DoesNotAlignFlatKV(t *testing.T) {
 	// parseSCConfigs is a raw parse: memIAVL takes the flag values while FlatKV
 	// keeps its own in-code defaults. The FlatKV<-memIAVL alignment happens later

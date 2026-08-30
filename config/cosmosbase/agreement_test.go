@@ -86,6 +86,7 @@ func readerValues(t *testing.T) map[string]string {
 		"halt-height":                          fmt.Sprint(cfg.HaltHeight),
 		"halt-time":                            fmt.Sprint(cfg.HaltTime),
 		"freeze-height":                        fmt.Sprint(cfg.FreezeHeight),
+		"ingress":                              fmt.Sprint(cfg.Ingress),
 		"min-retain-blocks":                    fmt.Sprint(cfg.MinRetainBlocks),
 		"inter-block-cache":                    fmt.Sprint(cfg.InterBlockCache),
 		"compaction-interval":                  fmt.Sprint(cfg.CompactionInterval),

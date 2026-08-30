@@ -13,6 +13,8 @@ type Config struct {
 	// DataDir is the root directory for the FlatKV data files.
 	// Must be set before calling Validate().
 	DataDir string
+	// LowMemory applies bounded cache and write-backlog settings for ingress nodes.
+	LowMemory bool `mapstructure:"low-memory"`
 
 	// Fsync controls whether every view manager's flush is fsync'd. It overwrites each store
 	// config's FlushSync, so the four databases are always synced alike. The state WAL is
@@ -153,6 +155,36 @@ func DefaultConfig() *Config {
 	cfg.StorageStoreConfig.MaxSize = unit.GB * 4
 
 	return cfg
+}
+
+// ApplyLowMemoryProfile bounds FlatKV's standing caches and write backlogs.
+func (c *Config) ApplyLowMemoryProfile() {
+	c.LowMemory = true
+	c.AccountStoreConfig.MaxSize = 256 * unit.MB
+	c.CodeStoreConfig.MaxSize = 64 * unit.MB
+	c.StorageStoreConfig.MaxSize = 512 * unit.MB
+	c.MiscStoreConfig.MaxSize = 128 * unit.MB
+	c.MaxSnapshotLagBlocks = 8
+	c.MiscPoolThreadsPerCore = 1
+
+	for _, cfg := range []*view.ViewManagerConfig{
+		&c.AccountStoreConfig,
+		&c.CodeStoreConfig,
+		&c.StorageStoreConfig,
+		&c.MiscStoreConfig,
+	} {
+		cfg.MaxUnflushedVersions = 8
+	}
+	for _, cfg := range []*pebbledb.PebbleDBConfig{
+		&c.AccountDBConfig,
+		&c.CodeDBConfig,
+		&c.StorageDBConfig,
+		&c.MiscDBConfig,
+	} {
+		cfg.CacheSize = int64(64 * unit.MB)
+		cfg.MemTableSize = 32 * unit.MB
+		cfg.MemTableStopWritesThreshold = 2
+	}
 }
 
 // Copy returns a deep copy of the Config.

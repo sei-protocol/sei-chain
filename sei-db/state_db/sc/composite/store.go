@@ -154,6 +154,7 @@ func NewCompositeCommitStore(
 	homeDir string,
 	cfg config.StateCommitConfig,
 ) (*CompositeCommitStore, error) {
+	cfg.ApplyIngressProfile()
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
@@ -303,6 +304,11 @@ func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
 // produces initialVersion. Called from cosmos-sdk BaseApp.InitChain on
 // fresh genesis.
 func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
+	if cs.config.IngressProfile {
+		return errors.New(
+			"ingress profile cannot build state from genesis: bootstrap it with state sync " +
+				"(set [statesync] enable in config.toml) or restore a post-migration FlatKV snapshot")
+	}
 	if cs.memIAVL != nil {
 		if err := cs.memIAVL.SetInitialVersion(initialVersion); err != nil {
 			return fmt.Errorf("memiavl SetInitialVersion: %w", err)
@@ -368,6 +374,9 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 			return fmt.Errorf("failed to load FlatKV: %w", err)
 		}
 	}
+	if err := cs.validateIngressProfile(); err != nil {
+		return err
+	}
 
 	if cs.memIAVL != nil && cs.flatKV != nil {
 		// Migration-entry seeding: turning on a non-MemiavlOnly mode on a chain that has been running on
@@ -402,11 +411,51 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 	return nil
 }
 
+func (cs *CompositeCommitStore) validateIngressProfile() error {
+	if !cs.config.IngressProfile {
+		return nil
+	}
+	if cs.memIAVL != nil || cs.flatKV == nil {
+		return errors.New("ingress profile requires FlatKV without MemIAVL")
+	}
+	if cs.flatKV.Version() == 0 {
+		// An unversioned store is the pre-bootstrap state, which is what state
+		// sync restores into: the node holds nothing to validate yet, and the
+		// migration metadata this function checks below only arrives with the
+		// snapshot. Initializing from genesis instead is refused in
+		// SetInitialVersion, so an empty store cannot become a served one by
+		// any route other than a restore.
+		return nil
+	}
+	memIAVLVersion, err := memiavl.GetLatestVersion(utils.GetCosmosSCStorePath(cs.homeDir))
+	if err != nil {
+		return fmt.Errorf("probe MemIAVL version for ingress profile: %w", err)
+	}
+	if memIAVLVersion != 0 && memIAVLVersion != cs.flatKV.Version() {
+		return fmt.Errorf(
+			"ingress profile found mismatched FlatKV and MemIAVL versions: %d != %d",
+			cs.flatKV.Version(),
+			memIAVLVersion,
+		)
+	}
+	mode, err := migration.DeriveWriteMode(cs.flatKV)
+	if err != nil {
+		return fmt.Errorf("validate ingress FlatKV migration: %w", err)
+	}
+	if mode != types.FlatKVOnly {
+		return fmt.Errorf("ingress profile requires migration version 3, got write mode %q", mode)
+	}
+	return nil
+}
+
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
 // is left untouched and must stay open while the view is in use; the caller owns the view and must Close it.
 func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ types.Committer, retErr error) {
 	if cs.derived {
 		return nil, errDerivedStore
+	}
+	if cs.config.IngressProfile && targetVersion != 0 && targetVersion != cs.Version() {
+		return nil, errors.New("ingress profile only supports the current state version")
 	}
 
 	var memIAVLCommitter *memiavl.CommitStore
@@ -1510,15 +1559,10 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	if memIAVLImporter == nil && flatKVImporter == nil && flatKVFactory == nil {
 		return nil, fmt.Errorf("no importer created")
 	}
-	if memIAVLImporter == nil && flatKVFactory == nil {
-		// flatkv_only: the FlatKV importer consumes its own
-		// self-describing section directly.
-		return flatKVImporter, nil
-	}
-	// Wrapped even when only memiavl is active: with no flatkv importer
-	// and no factory, a flatkv section in the stream is a configuration
-	// mismatch that SnapshotImporter rejects loudly (previously it was
-	// fed into the memiavl importer as a bogus tree).
+	// Always wrapped, including when only one backend is active: a section the
+	// active backends cannot accept is a configuration mismatch, and
+	// SnapshotImporter is the one place that rejects it loudly rather than
+	// restoring a store the snapshot's AppHash does not describe.
 	return NewImporter(memIAVLImporter, flatKVImporter, flatKVFactory), nil
 }
 

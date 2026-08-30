@@ -14,7 +14,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -32,12 +31,14 @@ func Open(
 	ctx context.Context,
 	config *PebbleDBConfig,
 ) (_ types.KeyValueDB, err error) {
+	resolved := config.withDefaults()
+	config = &resolved
 
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	pebbleCache := pebble.NewCache(int64(512 * unit.MB))
+	pebbleCache := pebble.NewCache(config.CacheSize)
 	defer pebbleCache.Unref()
 
 	popts := &pebble.Options{
@@ -52,8 +53,8 @@ func Open(
 		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
 		LBaseMaxBytes:               64 << 20, // 64 MB
-		MemTableSize:                64 << 20,
-		MemTableStopWritesThreshold: 4,
+		MemTableSize:                config.MemTableSize,
+		MemTableStopWritesThreshold: config.MemTableStopWritesThreshold,
 		DisableWAL:                  false,
 	}
 

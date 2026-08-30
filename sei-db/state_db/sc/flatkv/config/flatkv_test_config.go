@@ -10,9 +10,12 @@ import (
 )
 
 func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
-	return pebbledb.PebbleDBConfig{
-		EnableMetrics: false,
-	}
+	cfg := pebbledb.DefaultConfig()
+	cfg.CacheSize = int64(16 * unit.MB)
+	cfg.MemTableSize = 4 * unit.MB
+	cfg.MemTableStopWritesThreshold = 2
+	cfg.EnableMetrics = false
+	return cfg
 }
 
 func smallTestViewManagerConfig(name string) view.ViewManagerConfig {

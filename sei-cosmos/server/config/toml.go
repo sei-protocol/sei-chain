@@ -46,6 +46,14 @@ halt-height = {{ .BaseConfig.HaltHeight }}
 # mempool gossip, and state sync are disabled from startup.
 freeze-height = {{ .BaseConfig.FreezeHeight }}
 
+# Ingress runs a full node with FlatKV-only current state and the EVM
+# HTTP/WebSocket surface as its only query API. Historical state, the Cosmos
+# API, and the transaction index are off; P2P and transaction submission are not.
+# An ingress node cannot build state from genesis. Bootstrap it either by
+# enabling [statesync] in config.toml, or by restoring a post-migration FlatKV
+# snapshot before the first start.
+ingress = {{ .BaseConfig.Ingress }}
+
 # HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 # a node will gracefully halt and shutdown that can be used to assist upgrades
 # and testing.
