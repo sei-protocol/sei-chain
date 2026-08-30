@@ -38,6 +38,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	// Verify key config values are present in output
 	require.Contains(t, output, "[state-commit]", "Missing state-commit section")
 	require.Contains(t, output, "sc-enable =", "Missing sc-enable")
+	require.Contains(t, output, "sc-ingress-profile =", "Missing sc-ingress-profile")
 
 	// Verify MemIAVLConfig fields are accessible
 	require.Contains(t, output, "sc-async-commit-buffer =", "Missing sc-async-commit-buffer")

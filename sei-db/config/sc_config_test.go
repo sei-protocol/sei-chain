@@ -40,6 +40,24 @@ func TestDefaultStateCommitConfigWriteMode(t *testing.T) {
 	require.True(t, cfg.WriteModeEnableAuto)
 }
 
+func TestApplyIngressProfile(t *testing.T) {
+	cfg := DefaultStateCommitConfig()
+	cfg.IngressProfile = true
+	cfg.ApplyIngressProfile()
+
+	require.Equal(t, types.FlatKVOnly, cfg.WriteMode)
+	require.False(t, cfg.WriteModeEnableAuto)
+	require.False(t, cfg.HashLogger.Enable)
+	require.True(t, cfg.FlatKVConfig.LowMemory)
+	require.NoError(t, cfg.Validate())
+}
+
+func TestIngressProfileRejectsNonFlatKVConfig(t *testing.T) {
+	cfg := DefaultStateCommitConfig()
+	cfg.IngressProfile = true
+	require.Error(t, cfg.Validate())
+}
+
 func TestParseSCWriteMode(t *testing.T) {
 	parsed, err := ParseSCWriteMode("cosmos_only")
 	require.NoError(t, err)

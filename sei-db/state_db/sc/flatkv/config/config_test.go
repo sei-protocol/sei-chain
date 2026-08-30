@@ -3,6 +3,7 @@ package config
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -128,4 +129,40 @@ func TestValidateNestedEngineConfigError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "storage store config is invalid")
 	require.Contains(t, err.Error(), "ShardCount must be a power of two and greater than 0")
+}
+
+func TestApplyLowMemoryProfile(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ApplyLowMemoryProfile()
+
+	require.True(t, cfg.LowMemory)
+	require.Equal(t, uint64(256*unit.MB), cfg.AccountStoreConfig.MaxSize)
+	require.Equal(t, uint64(64*unit.MB), cfg.CodeStoreConfig.MaxSize)
+	require.Equal(t, uint64(512*unit.MB), cfg.StorageStoreConfig.MaxSize)
+	require.Equal(t, uint64(128*unit.MB), cfg.MiscStoreConfig.MaxSize)
+	require.Equal(t, uint32(8), cfg.MaxSnapshotLagBlocks)
+	require.Equal(t, 1.0, cfg.MiscPoolThreadsPerCore)
+
+	for _, viewCfg := range []uint64{
+		cfg.AccountStoreConfig.MaxUnflushedVersions,
+		cfg.CodeStoreConfig.MaxUnflushedVersions,
+		cfg.StorageStoreConfig.MaxUnflushedVersions,
+		cfg.MiscStoreConfig.MaxUnflushedVersions,
+	} {
+		require.Equal(t, uint64(8), viewCfg)
+	}
+	for _, dbCfg := range []struct {
+		cacheSize    int64
+		memTableSize uint64
+		stopWrites   int
+	}{
+		{cfg.AccountDBConfig.CacheSize, cfg.AccountDBConfig.MemTableSize, cfg.AccountDBConfig.MemTableStopWritesThreshold},
+		{cfg.CodeDBConfig.CacheSize, cfg.CodeDBConfig.MemTableSize, cfg.CodeDBConfig.MemTableStopWritesThreshold},
+		{cfg.StorageDBConfig.CacheSize, cfg.StorageDBConfig.MemTableSize, cfg.StorageDBConfig.MemTableStopWritesThreshold},
+		{cfg.MiscDBConfig.CacheSize, cfg.MiscDBConfig.MemTableSize, cfg.MiscDBConfig.MemTableStopWritesThreshold},
+	} {
+		require.Equal(t, int64(64*unit.MB), dbCfg.cacheSize)
+		require.Equal(t, uint64(32*unit.MB), dbCfg.memTableSize)
+		require.Equal(t, 2, dbCfg.stopWrites)
+	}
 }

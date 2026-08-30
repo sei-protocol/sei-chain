@@ -55,10 +55,19 @@ func (si *SnapshotImporter) AddModule(name string) error {
 				name)
 		}
 		return si.flatkvImporter.AddModule(name)
-	} else if si.cosmosImporter != nil {
-		return si.cosmosImporter.AddModule(name)
 	}
-	return nil
+	if si.cosmosImporter == nil {
+		// Refused for the same reason as the flatkv branch above, and it is the
+		// more dangerous direction: the flatkv importer accepts any module name
+		// and then discards cosmos nodes as wrong-height or wrong-version
+		// leaves, so letting this through restores an empty store and reports
+		// success.
+		return fmt.Errorf(
+			"snapshot contains a %q section but this store has no memiavl backend "+
+				"(restoring a memiavl-bearing snapshot onto a flatkv-only configuration?)",
+			name)
+	}
+	return si.cosmosImporter.AddModule(name)
 }
 
 func (si *SnapshotImporter) AddNode(node *types.SnapshotNode) {

@@ -149,6 +149,9 @@ type BaseConfig struct {
 	// mempool gossip, and state sync are disabled from startup.
 	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
+	// Ingress runs a full node with FlatKV-only state and EVM ingress services.
+	Ingress bool `mapstructure:"ingress"`
+
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 	// a node will gracefully halt and shutdown that can be used to assist
 	// upgrades and testing.
@@ -553,6 +556,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		scWriteModeEnableAuto = v.GetBool("state-commit.sc-write-mode-enable-auto")
 	}
 	scWriteMode = config.ApplyWriteModeAuto(scWriteModeEnableAuto, scWriteMode)
+	scIngressProfile := v.GetBool("state-commit.sc-ingress-profile")
 
 	// FlatKV knobs are not rendered in the default app.toml template. GetConfig
 	// is a faithful parse of app.toml/flags: it only reads the explicit
@@ -693,6 +697,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			PruningInterval:    v.GetString("pruning-interval"),
 			HaltHeight:         v.GetUint64("halt-height"),
 			FreezeHeight:       freezeHeight,
+			Ingress:            v.GetBool("ingress"),
 			HaltTime:           v.GetUint64("halt-time"),
 			IndexEvents:        v.GetStringSlice("index-events"),
 			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),
@@ -760,6 +765,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		},
 		StateCommit: config.StateCommitConfig{
 			Enable:              v.GetBool("state-commit.sc-enable"),
+			IngressProfile:      scIngressProfile,
 			Directory:           v.GetString("state-commit.sc-directory"),
 			WriteMode:           scWriteMode,
 			WriteModeEnableAuto: scWriteModeEnableAuto,
@@ -788,6 +794,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		},
 		Query: DefaultQueryConfig(),
 	}
+	cfg.StateCommit.ApplyIngressProfile()
 
 	return cfg, nil
 }

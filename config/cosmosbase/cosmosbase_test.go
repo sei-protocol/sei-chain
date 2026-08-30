@@ -30,14 +30,14 @@ func requireDeclares(t *testing.T, section string, reads []string) registry.Sect
 
 // TestTheNodeWideKeysAreTheOnesTheirReaderResolves holds the root section against the server's constants.
 //
-// Fourteen keys and not one of them carries a segment in front. The reader looks these up by the constants
-// below, so a prefix here would declare fourteen keys no operator writes and leave the real ones
+// Fifteen keys and not one of them carries a segment in front. The reader looks these up by the constants
+// below, so a prefix here would declare fifteen keys no operator writes and leave the real ones
 // undeclared.
 func TestTheNodeWideKeysAreTheOnesTheirReaderResolves(t *testing.T) {
 	section := requireDeclares(t, BaseSectionName, []string{
 		server.FlagMinGasPrices, server.FlagPruning, server.FlagPruningKeepRecent,
 		server.FlagPruningKeepEvery, server.FlagPruningInterval, server.FlagHaltHeight,
-		server.FlagFreezeHeight, server.FlagHaltTime, server.FlagMinRetainBlocks,
+		server.FlagFreezeHeight, server.FlagIngress, server.FlagHaltTime, server.FlagMinRetainBlocks,
 		server.FlagInterBlockCache, server.FlagIndexEvents, server.FlagCompactionInterval,
 		server.FlagConcurrencyWorkers, baseapp.FlagOccEnabled,
 	})

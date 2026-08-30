@@ -31,6 +31,7 @@ func readerValues(t *testing.T) map[string]string {
 		FlagEVMSSSeparateDBs:             fmt.Sprint(ss.SeparateEVMSubDBs),
 		FlagEVMSSSplit:                   fmt.Sprint(ss.EVMSplit),
 		FlagSCEnable:                     fmt.Sprint(sc.Enable),
+		FlagSCIngressProfile:             fmt.Sprint(sc.IngressProfile),
 		FlagSCDirectory:                  fmt.Sprint(sc.Directory),
 		FlagSCAsyncCommitBuffer:          fmt.Sprint(sc.MemIAVLConfig.AsyncCommitBuffer),
 		FlagSCSnapshotKeepRecent:         fmt.Sprint(sc.MemIAVLConfig.SnapshotKeepRecent),

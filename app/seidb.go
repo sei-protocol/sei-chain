@@ -17,6 +17,7 @@ import (
 const (
 	// SC Store configs
 	FlagSCEnable                     = "state-commit.sc-enable"
+	FlagSCIngressProfile             = "state-commit.sc-ingress-profile"
 	FlagSCDirectory                  = "state-commit.sc-directory"
 	FlagSCAsyncCommitBuffer          = "state-commit.sc-async-commit-buffer"
 	FlagSCSnapshotKeepRecent         = "state-commit.sc-keep-recent"
@@ -104,6 +105,9 @@ func SetupSeiDB(
 func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig := config.DefaultStateCommitConfig()
 	scConfig.Enable = cast.ToBool(appOpts.Get(FlagSCEnable))
+	if v := appOpts.Get(FlagSCIngressProfile); v != nil {
+		scConfig.IngressProfile = cast.ToBool(v)
+	}
 	scConfig.Directory = cast.ToString(appOpts.Get(FlagSCDirectory))
 	// Guard every read with a presence check: an absent app.toml key must
 	// preserve the in-code default from DefaultStateCommitConfig above rather
@@ -202,6 +206,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	// The software version is embedded in hash log file names so archives from different builds are
 	// distinguishable. Sourced from the node build version, not from app.toml.
 	scConfig.HashLogger.Version = version.Version
+	scConfig.ApplyIngressProfile()
 
 	return scConfig
 }

@@ -36,6 +36,13 @@ func openUncachedPebbleDB(t *testing.T, cfg *PebbleDBConfig) *pebbleDB {
 	return pdb
 }
 
+func TestOpenAppliesLegacyZeroDefaults(t *testing.T) {
+	cfg := PebbleDBConfig{DataDir: t.TempDir()}
+	db, err := Open(t.Context(), &cfg)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+}
+
 // ---------------------------------------------------------------------------
 // Cache-sensitive tests — run in both cached and uncached modes
 // ---------------------------------------------------------------------------

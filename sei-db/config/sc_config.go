@@ -55,6 +55,9 @@ type StateCommitConfig struct {
 	// defaults to true.
 	Enable bool `mapstructure:"enable"`
 
+	// IngressProfile selects FlatKV-only current-state storage with bounded memory.
+	IngressProfile bool `mapstructure:"ingress-profile"`
+
 	// Directory defines the state-commit store directory
 	// If not explicitly set, default to application home directory
 	Directory string `mapstructure:"directory"`
@@ -138,6 +141,17 @@ func DefaultStateCommitConfig() StateCommitConfig {
 	}
 }
 
+// ApplyIngressProfile configures current-state storage for an ingress node.
+func (c *StateCommitConfig) ApplyIngressProfile() {
+	if !c.IngressProfile {
+		return
+	}
+	c.WriteMode = types.FlatKVOnly
+	c.WriteModeEnableAuto = false
+	c.HashLogger.Enable = false
+	c.FlatKVConfig.ApplyLowMemoryProfile()
+}
+
 // ApplyWriteModeAuto resolves the effective write mode from the
 // sc-write-mode-enable-auto flag and the explicitly configured sc-write-mode.
 //
@@ -167,6 +181,9 @@ func ParseSCWriteMode(wm string) (types.WriteMode, error) {
 func (c StateCommitConfig) Validate() error {
 	if !c.WriteMode.IsValid() {
 		return fmt.Errorf("invalid write-mode: %s", c.WriteMode)
+	}
+	if c.IngressProfile && (c.WriteMode != types.FlatKVOnly || c.WriteModeEnableAuto) {
+		return fmt.Errorf("ingress profile requires fixed flatkv_only write mode")
 	}
 	return nil
 }

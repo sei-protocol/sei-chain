@@ -114,6 +114,7 @@ func TestStateCommitResolvesTheModuleDeclaredValues(t *testing.T) {
 	for _, mode := range registry.Modes() {
 		requireResolves(t, mode, StateCommitSectionName, map[string]any{
 			FlagSCEnable:                     live.Enable,
+			FlagSCIngressProfile:             live.IngressProfile,
 			FlagSCDirectory:                  live.Directory,
 			FlagSCAsyncCommitBuffer:          live.MemIAVLConfig.AsyncCommitBuffer,
 			FlagSCSnapshotKeepRecent:         live.MemIAVLConfig.SnapshotKeepRecent,

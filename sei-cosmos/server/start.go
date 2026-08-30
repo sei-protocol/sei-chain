@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clientconfig "github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
@@ -29,6 +30,7 @@ import (
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
+	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -45,6 +47,7 @@ const (
 	FlagMinGasPrices       = "minimum-gas-prices"
 	FlagHaltHeight         = "halt-height"
 	FlagFreezeHeight       = "freeze-height"
+	FlagIngress            = "ingress"
 	FlagHaltTime           = "halt-time"
 	FlagInterBlockCache    = "inter-block-cache"
 	FlagUnsafeSkipUpgrades = "unsafe-skip-upgrades"
@@ -213,6 +216,7 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
 	cmd.Flags().Uint64(FlagHaltHeight, 0, "Block height at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Uint64(FlagFreezeHeight, 0, "Block height at which a full node stops executing while continuing to serve query RPC")
+	cmd.Flags().Bool(FlagIngress, false, "Run a full node with post-migration FlatKV-only state and the EVM HTTP/WebSocket surface as its only query API; bootstrap it with state sync or a restored FlatKV snapshot, not from genesis")
 	cmd.Flags().Uint64(FlagHaltTime, 0, "Minimum block time (in Unix seconds) at which to gracefully halt the chain and shutdown the node")
 	cmd.Flags().Bool(FlagInterBlockCache, true, "Enable inter-block caching")
 	cmd.Flags().String(flagCPUProfile, "", "Enable CPU profiling and write to the provided file")
@@ -305,9 +309,16 @@ func startInProcess(
 		return err
 	}
 
+	if err := configureIngressProfile(ctx); err != nil {
+		return err
+	}
 	config, err := config.GetConfig(ctx.Viper)
 	if err != nil {
 		return err
+	}
+	evmConfig, err := evmrpcconfig.ReadConfig(ctx.Viper)
+	if err != nil {
+		return fmt.Errorf("read EVM RPC config: %w", err)
 	}
 	if err := config.ValidateFreeze(); err != nil {
 		return err
@@ -385,7 +396,7 @@ func startInProcess(
 		// Add the tx service to the gRPC router. We only need to register this
 		// service if API or gRPC is enabled, and avoid doing so in the general
 		// case, because it spawns a new local tendermint RPC client.
-		if config.API.Enable || config.GRPC.Enable {
+		if localServicesEnabled(config, evmConfig) {
 			localClient, err := local.New(tmNode)
 			if err != nil {
 				return err
@@ -485,4 +496,57 @@ func startInProcess(
 
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
+}
+
+func localServicesEnabled(appConfig config.Config, evmConfig evmrpcconfig.Config) bool {
+	ingressEVM := appConfig.Ingress && (evmConfig.HTTPEnabled || evmConfig.WSEnabled)
+	return appConfig.API.Enable || appConfig.GRPC.Enable || ingressEVM
+}
+
+// configureIngressProfile narrows a full node to current-state EVM serving:
+// FlatKV-only state with bounded caches, EVM HTTP/WebSocket as the only query
+// API, and no historical state, Cosmos API, or transaction index. P2P, the
+// mempool, and transaction broadcast are untouched, so an ingress node peers
+// and submits like any other full node.
+//
+// TODO(autobahn-ingress): under Autobahn a fullnode has no local mempool and
+// forwards EVM submissions to the sender's shard owner, so this profile also
+// needs to opt into a local CheckTx before that forward, and the ordering-final
+// CommitQC subscription belongs on the WebSocket surface it turns on. Both are
+// additive here; neither can be enabled while Autobahn is off.
+func configureIngressProfile(ctx *Context) error {
+	if !ctx.Viper.GetBool(FlagIngress) {
+		return nil
+	}
+	if ctx.Config.Mode != tmconfig.ModeFull {
+		return fmt.Errorf("--%s requires Tendermint mode %q", FlagIngress, tmconfig.ModeFull)
+	}
+	if ctx.Viper.GetUint64(FlagFreezeHeight) > 0 {
+		return fmt.Errorf("--%s cannot be combined with --%s", FlagIngress, FlagFreezeHeight)
+	}
+	if ctx.Viper.GetBool(flagGRPCOnly) {
+		return fmt.Errorf("--%s cannot be combined with --%s", FlagIngress, flagGRPCOnly)
+	}
+
+	ctx.Config.TxIndex.Indexer = []string{"null"}
+	ctx.Config.RPC.ListenAddress = "tcp://127.0.0.1:26657"
+	for key, value := range map[string]any{
+		"api.enable":                      false,
+		"grpc.enable":                     false,
+		"grpc-web.enable":                 false,
+		"rosetta.enable":                  false,
+		"state-store.ss-enable":           false,
+		"state-sync.snapshot-interval":    uint64(0),
+		"state-commit.sc-ingress-profile": true,
+		"evm.http_enabled":                true,
+		"evm.ws_enabled":                  true,
+		"evm.enable_simulation":           false,
+		"evm.trace_bake_enabled":          false,
+		"wasm.memory_cache_size":          uint32(16),
+		"light_invariance.supply_enabled": false,
+		"min-retain-blocks":               uint64(1000),
+	} {
+		ctx.Viper.Set(key, value)
+	}
+	return nil
 }
