@@ -24,7 +24,7 @@ func GetLastIndex(dir string) (index uint64, err error) {
 	rlog, err := open(dir, &wal.Options{
 		NoSync: true,
 		NoCopy: true,
-	})
+	}, false)
 	if err != nil {
 		return 0, err
 	}

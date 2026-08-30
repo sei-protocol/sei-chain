@@ -11,10 +11,6 @@ type FileLock interface {
 	Destroy() error
 }
 
-// ErrLocked reports that another process holds the lock, which for a database
-// directory means a writer has it open.
-var ErrLocked = filelock.ErrLocked
-
 func LockFile(fname string) (FileLock, error) {
 	path, err := filepath.Abs(fname)
 	if err != nil {
