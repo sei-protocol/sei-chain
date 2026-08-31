@@ -44,10 +44,10 @@ type MemoryStore struct {
 	currentHeight    int64
 	committedHeights map[int64]struct{}
 
-	balances     map[common.Address]*memoryStoreValue[gigastore.Hash]
+	balances     map[common.Address]*memoryStoreValue[common.Hash]
 	nonces       map[common.Address]*memoryStoreValue[uint64]
 	code         map[common.Address]*memoryStoreValue[[]byte]
-	storage      map[memoryStoreStorageKey]*memoryStoreValue[gigastore.Hash]
+	storage      map[memoryStoreStorageKey]*memoryStoreValue[common.Hash]
 	storageClear map[common.Address]*memoryStoreValue[struct{}]
 	storageTouch map[common.Address]int64
 }
@@ -74,10 +74,10 @@ func NewMemoryStore(source StateReader) *MemoryStore {
 	return &MemoryStore{
 		base:             source,
 		committedHeights: map[int64]struct{}{},
-		balances:         map[common.Address]*memoryStoreValue[gigastore.Hash]{},
+		balances:         map[common.Address]*memoryStoreValue[common.Hash]{},
 		nonces:           map[common.Address]*memoryStoreValue[uint64]{},
 		code:             map[common.Address]*memoryStoreValue[[]byte]{},
-		storage:          map[memoryStoreStorageKey]*memoryStoreValue[gigastore.Hash]{},
+		storage:          map[memoryStoreStorageKey]*memoryStoreValue[common.Hash]{},
 		storageClear:     map[common.Address]*memoryStoreValue[struct{}]{},
 		storageTouch:     map[common.Address]int64{},
 	}
@@ -266,11 +266,11 @@ func (c *memoryStorePairCounts) add(kind byte) {
 }
 
 type memoryStoreCommitBuffers struct {
-	balances     []memoryStoreValue[gigastore.Hash]
+	balances     []memoryStoreValue[common.Hash]
 	nonces       []memoryStoreValue[uint64]
 	code         []memoryStoreValue[[]byte]
 	storageClear []memoryStoreValue[struct{}]
-	storage      []memoryStoreValue[gigastore.Hash]
+	storage      []memoryStoreValue[common.Hash]
 
 	balanceOffset      int
 	nonceOffset        int
@@ -281,11 +281,11 @@ type memoryStoreCommitBuffers struct {
 
 func newMemoryStoreCommitBuffers(counts memoryStorePairCounts) memoryStoreCommitBuffers {
 	return memoryStoreCommitBuffers{
-		balances:     make([]memoryStoreValue[gigastore.Hash], counts.balances),
+		balances:     make([]memoryStoreValue[common.Hash], counts.balances),
 		nonces:       make([]memoryStoreValue[uint64], counts.nonces),
 		code:         make([]memoryStoreValue[[]byte], counts.code),
 		storageClear: make([]memoryStoreValue[struct{}], counts.storageClear),
-		storage:      make([]memoryStoreValue[gigastore.Hash], counts.storage),
+		storage:      make([]memoryStoreValue[common.Hash], counts.storage),
 	}
 }
 
@@ -296,7 +296,7 @@ func (s *MemoryStore) applyPairLocked(height int64, pair *proto.KVPair, buffers 
 		node := &buffers.balances[buffers.balanceOffset]
 		buffers.balanceOffset++
 		node.height = height
-		node.value = gigastore.Hash(pair.Value)
+		node.value = common.Hash(pair.Value)
 		node.previous = s.balances[address]
 		s.balances[address] = node
 	case memoryStoreNonceKey:
@@ -331,7 +331,7 @@ func (s *MemoryStore) applyPairLocked(height int64, pair *proto.KVPair, buffers 
 		node.height = height
 		node.delete = pair.Delete
 		if !pair.Delete {
-			node.value = gigastore.Hash(pair.Value)
+			node.value = common.Hash(pair.Value)
 		}
 		node.previous = s.storage[key]
 		s.storage[key] = node
@@ -373,9 +373,9 @@ type memoryStoreSnapshot struct {
 
 var _ gigastore.StateView = (*memoryStoreSnapshot)(nil)
 
-func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
+func (s *memoryStoreSnapshot) AccountExists(address common.Address) bool {
 	s.requireOpen()
-	addr := common.Address(address)
+	addr := address
 	s.store.mu.RLock()
 	_, balanceTouched := latestMemoryStoreValue(s.store.balances[addr], s.height)
 	_, nonceTouched := latestMemoryStoreValue(s.store.nonces[addr], s.height)
@@ -392,36 +392,36 @@ func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
 	return balance != nil && balance.Sign() != 0 || s.store.base.GetNonce(addr) != 0 || len(s.store.base.GetCode(addr)) != 0
 }
 
-func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetStorage(address common.Address, slot common.Hash) common.Hash {
 	s.requireOpen()
-	addr := common.Address(address)
-	key := memoryStoreStorageKey{address: addr, slot: common.Hash(slot)}
+	addr := address
+	key := memoryStoreStorageKey{address: addr, slot: slot}
 	s.store.mu.RLock()
 	value, valueOK := latestMemoryStoreValue(s.store.storage[key], s.height)
 	clearHeight, clearOK := latestHeightAt(s.store.storageClear[addr], s.height)
 	s.store.mu.RUnlock()
 	if valueOK && (!clearOK || value.height >= clearHeight) {
 		if value.delete {
-			return gigastore.Hash{}
+			return common.Hash{}
 		}
 		return value.value
 	}
 	if clearOK {
-		return gigastore.Hash{}
+		return common.Hash{}
 	}
-	return gigastore.Hash(s.store.base.GetState(addr, common.Hash(slot)))
+	return s.store.base.GetState(addr, slot)
 }
 
-func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetBalance(address common.Address) common.Hash {
 	s.requireOpen()
-	addr := common.Address(address)
+	addr := address
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.balances[addr], s.height)
 	s.store.mu.RUnlock()
 	if ok {
 		return value.value
 	}
-	var balance gigastore.Hash
+	var balance common.Hash
 	baseBalance := s.store.base.GetBalance(addr)
 	if baseBalance != nil {
 		if err := validateMemoryStoreBalance(baseBalance); err != nil {
@@ -432,9 +432,9 @@ func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Ha
 	return balance
 }
 
-func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) uint64 {
+func (s *memoryStoreSnapshot) GetNonce(address common.Address) uint64 {
 	s.requireOpen()
-	addr := common.Address(address)
+	addr := address
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.nonces[addr], s.height)
 	s.store.mu.RUnlock()
@@ -444,21 +444,21 @@ func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) uint64 {
 	return s.store.base.GetNonce(addr)
 }
 
-func (s *memoryStoreSnapshot) GetCodeSize(address gigastore.Address) int {
+func (s *memoryStoreSnapshot) GetCodeSize(address common.Address) int {
 	return len(s.GetCode(address))
 }
 
-func (s *memoryStoreSnapshot) GetCodeHash(address gigastore.Address) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetCodeHash(address common.Address) common.Hash {
 	s.requireOpen()
 	if !s.AccountExists(address) {
-		return gigastore.Hash{}
+		return common.Hash{}
 	}
-	return gigastore.Hash(crypto.Keccak256Hash(s.GetCode(address)))
+	return crypto.Keccak256Hash(s.GetCode(address))
 }
 
-func (s *memoryStoreSnapshot) GetCode(address gigastore.Address) []byte {
+func (s *memoryStoreSnapshot) GetCode(address common.Address) []byte {
 	s.requireOpen()
-	addr := common.Address(address)
+	addr := address
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.code[addr], s.height)
 	s.store.mu.RUnlock()

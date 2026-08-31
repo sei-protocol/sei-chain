@@ -39,30 +39,30 @@ func (s *recordingGigaStore) OpenViewAt(int64) (gigastore.StateView, bool) {
 
 type memoryGigaSnapshot struct {
 	height     int64
-	balances   map[gigastore.Address]gigastore.Hash
-	nonces     map[gigastore.Address]uint64
-	code       map[gigastore.Address][]byte
-	storage    map[gigaStorageKey]gigastore.Hash
+	balances   map[common.Address]common.Hash
+	nonces     map[common.Address]uint64
+	code       map[common.Address][]byte
+	storage    map[gigaStorageKey]common.Hash
 	closeCount int
 }
 
 type gigaStorageKey struct {
-	address gigastore.Address
-	key     gigastore.Hash
+	address common.Address
+	key     common.Hash
 }
 
 func newMemoryGigaSnapshot(height int64) *memoryGigaSnapshot {
 	return &memoryGigaSnapshot{
 		height:   height,
-		balances: map[gigastore.Address]gigastore.Hash{},
-		nonces:   map[gigastore.Address]uint64{},
-		code:     map[gigastore.Address][]byte{},
-		storage:  map[gigaStorageKey]gigastore.Hash{},
+		balances: map[common.Address]common.Hash{},
+		nonces:   map[common.Address]uint64{},
+		code:     map[common.Address][]byte{},
+		storage:  map[gigaStorageKey]common.Hash{},
 	}
 }
 
-func (s *memoryGigaSnapshot) AccountExists(addr gigastore.Address) bool {
-	if s.balances[addr] != (gigastore.Hash{}) || s.nonces[addr] != 0 || len(s.code[addr]) != 0 {
+func (s *memoryGigaSnapshot) AccountExists(addr common.Address) bool {
+	if s.balances[addr] != (common.Hash{}) || s.nonces[addr] != 0 || len(s.code[addr]) != 0 {
 		return true
 	}
 	for key := range s.storage {
@@ -73,30 +73,30 @@ func (s *memoryGigaSnapshot) AccountExists(addr gigastore.Address) bool {
 	return false
 }
 
-func (s *memoryGigaSnapshot) GetStorage(addr gigastore.Address, key gigastore.Hash) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetStorage(addr common.Address, key common.Hash) common.Hash {
 	return s.storage[gigaStorageKey{address: addr, key: key}]
 }
 
-func (s *memoryGigaSnapshot) GetBalance(addr gigastore.Address) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetBalance(addr common.Address) common.Hash {
 	return s.balances[addr]
 }
 
-func (s *memoryGigaSnapshot) GetNonce(addr gigastore.Address) uint64 {
+func (s *memoryGigaSnapshot) GetNonce(addr common.Address) uint64 {
 	return s.nonces[addr]
 }
 
-func (s *memoryGigaSnapshot) GetCodeSize(addr gigastore.Address) int {
+func (s *memoryGigaSnapshot) GetCodeSize(addr common.Address) int {
 	return len(s.code[addr])
 }
 
-func (s *memoryGigaSnapshot) GetCodeHash(addr gigastore.Address) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetCodeHash(addr common.Address) common.Hash {
 	if !s.AccountExists(addr) {
-		return gigastore.Hash{}
+		return common.Hash{}
 	}
-	return gigastore.Hash(crypto.Keccak256Hash(s.code[addr]))
+	return common.Hash(crypto.Keccak256Hash(s.code[addr]))
 }
 
-func (s *memoryGigaSnapshot) GetCode(addr gigastore.Address) []byte {
+func (s *memoryGigaSnapshot) GetCode(addr common.Address) []byte {
 	return s.code[addr]
 }
 
@@ -113,9 +113,9 @@ func (s *memoryGigaSnapshot) Close() {
 }
 
 func (s *memoryGigaSnapshot) setBalance(addr common.Address, balance *big.Int) {
-	var encoded gigastore.Hash
+	var encoded common.Hash
 	balance.FillBytes(encoded[:])
-	s.balances[gigastore.Address(addr)] = encoded
+	s.balances[common.Address(addr)] = encoded
 }
 
 func TestGigaSnapshotStateReader(t *testing.T) {
@@ -125,12 +125,12 @@ func TestGigaSnapshotStateReader(t *testing.T) {
 	code := []byte{0x60, 0x00}
 	snapshot := newMemoryGigaSnapshot(3)
 	snapshot.setBalance(addr, big.NewInt(123))
-	snapshot.nonces[gigastore.Address(addr)] = 9
-	snapshot.code[gigastore.Address(addr)] = code
+	snapshot.nonces[common.Address(addr)] = 9
+	snapshot.code[common.Address(addr)] = code
 	snapshot.storage[gigaStorageKey{
-		address: gigastore.Address(addr),
-		key:     gigastore.Hash(slot),
-	}] = gigastore.Hash(value)
+		address: common.Address(addr),
+		key:     common.Hash(slot),
+	}] = common.Hash(value)
 	reader := gigaSnapshotStateReader{snapshot: snapshot}
 
 	require.Equal(t, big.NewInt(123), reader.GetBalance(addr))
@@ -139,7 +139,7 @@ func TestGigaSnapshotStateReader(t *testing.T) {
 	gotCode := reader.GetCode(addr)
 	require.Equal(t, code, gotCode)
 	gotCode[0] = 0xff
-	require.Equal(t, byte(0x60), snapshot.code[gigastore.Address(addr)][0])
+	require.Equal(t, byte(0x60), snapshot.code[common.Address(addr)][0])
 }
 
 func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
