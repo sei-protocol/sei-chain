@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"math"
 	"math/big"
 	"runtime"
 
@@ -155,13 +154,13 @@ func (a *evmOnlyInMemoryApplication) parseTx(raw []byte) (*ethtypes.Transaction,
 		return nil, common.Address{}, fmt.Errorf("unprotected Ethereum transaction")
 	}
 	if tx.ChainId().Cmp(a.chainID) != 0 {
-		return nil, common.Address{}, fmt.Errorf("Ethereum transaction chain ID does not match %s", a.chainID)
+		return nil, common.Address{}, fmt.Errorf("ethereum transaction chain ID does not match %s", a.chainID)
 	}
 	if tx.Type() == ethtypes.BlobTxType {
 		return nil, common.Address{}, fmt.Errorf("blob transactions are not supported")
 	}
 	if tx.GasPrice().Cmp(big.NewInt(evmOnlyInMemoryMinGasPrice)) < 0 {
-		return nil, common.Address{}, fmt.Errorf("Ethereum transaction gas price is below %d", evmOnlyInMemoryMinGasPrice)
+		return nil, common.Address{}, fmt.Errorf("ethereum transaction gas price is below %d", evmOnlyInMemoryMinGasPrice)
 	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
@@ -258,11 +257,11 @@ func (a *evmOnlyInMemoryApplication) Commit(context.Context) (*abci.ResponseComm
 func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	txResults := make([]*abci.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
-		gasUsed := min(tx.GasUsed, math.MaxInt64)
+		gasUsed := utils.Clamp[int64](tx.GasUsed)
 		txResults[i] = &abci.ExecTxResult{
 			Code:      abci.CodeTypeOK,
-			GasWanted: int64(gasUsed),
-			GasUsed:   int64(gasUsed),
+			GasWanted: gasUsed,
+			GasUsed:   gasUsed,
 		}
 	}
 	return txResults
