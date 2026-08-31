@@ -1,15 +1,13 @@
-package gigadb
+package giga
 
 import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
-var _ giga.StateDB = (*stateDB)(nil)
+var _ StateDB = (*stateDB)(nil)
 
 // stateDB fans a committed block out to the state WAL and the live state DB, and serves current-block
 // reads from the live state DB.
@@ -18,7 +16,7 @@ type stateDB struct {
 	wal statewal.StateWAL
 
 	// The live state DB, which both receives writes and serves current-block reads.
-	liveStateDB *flatkv.CommitStore
+	liveStateDB LiveStateStore
 }
 
 // NewStateDB returns a StateDB backed by wal and liveStateDB.
@@ -27,7 +25,7 @@ type stateDB struct {
 // behalf; one holding a WAL would record every block twice.
 //
 // The caller retains ownership of wal and liveStateDB: a StateDB has no Close.
-func NewStateDB(wal statewal.StateWAL, liveStateDB *flatkv.CommitStore) giga.StateDB {
+func NewStateDB(wal statewal.StateWAL, liveStateDB LiveStateStore) StateDB {
 	return &stateDB{
 		wal:         wal,
 		liveStateDB: liveStateDB,
@@ -56,13 +54,13 @@ func (s *stateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 	return nil
 }
 
-func (s *stateDB) OpenView() giga.StateView {
+func (s *stateDB) OpenView() StateView {
 	return s.liveStateDB.OpenView()
 }
 
 // OpenViewAt panics. Serving a past height requires the historical state DB, which is not wired into
 // StateDB.
-func (s *stateDB) OpenViewAt(blockNum int64) (giga.StateView, bool) {
+func (s *stateDB) OpenViewAt(blockNum int64) (StateView, bool) {
 	panic(fmt.Sprintf(
-		"gigadb: OpenViewAt(%d) is not implemented: the historical state DB is not wired in", blockNum))
+		"giga: OpenViewAt(%d) is not implemented: the historical state DB is not wired in", blockNum))
 }

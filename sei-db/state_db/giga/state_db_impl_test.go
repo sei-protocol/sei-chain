@@ -1,4 +1,4 @@
-package gigadb
+package giga_test
 
 import (
 	"errors"
@@ -68,7 +68,7 @@ func newTestStateDB(t *testing.T) (giga.StateDB, *fakeStateWAL, *flatkv.CommitSt
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })
 
 	wal := &fakeStateWAL{}
-	return NewStateDB(wal, liveStateDB), wal, liveStateDB
+	return giga.NewStateDB(wal, liveStateDB), wal, liveStateDB
 }
 
 // changeset builds a changeset setting key to value in the test module.
@@ -195,6 +195,6 @@ func TestOpenViewAtPanicsUntilTheHistoricalStateDBIsWired(t *testing.T) {
 	stateDB, _, _ := newTestStateDB(t)
 
 	require.PanicsWithValue(t,
-		"gigadb: OpenViewAt(5) is not implemented: the historical state DB is not wired in",
+		"giga: OpenViewAt(5) is not implemented: the historical state DB is not wired in",
 		func() { stateDB.OpenViewAt(5) })
 }

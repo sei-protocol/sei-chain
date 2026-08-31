@@ -21,6 +21,7 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -31,9 +32,9 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
-var _ Store = (*CommitStore)(nil)
+var _ giga.LiveStateStore = (*CommitStore)(nil)
 
-// CommitStore implements flatkv.Store for EVM state.
+// CommitStore implements giga.LiveStateStore for EVM state.
 //
 // Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
 // (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller.
@@ -400,7 +401,7 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened giga.LiveStateStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
