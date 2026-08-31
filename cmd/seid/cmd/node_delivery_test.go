@@ -469,3 +469,22 @@ func keysADecodeDelivers() []string {
 	_, keys := registry.SuppliedAndOwnedByDecodedSections(registry.Resolved{})
 	return keys
 }
+
+// TestASectionLandsOnANodeAlreadyFailingItsOwnRules covers a node the boot never validated.
+//
+// The node's rules answer for the whole configuration, and a boot does not apply them to an existing
+// config.toml, so a node can already hold a value they reject. Refusing on that blames the section being
+// delivered for a failure it did not cause, and leaves every later change unable to land on that node.
+func TestASectionLandsOnANodeAlreadyFailingItsOwnRules(t *testing.T) {
+	configtest.Isolate(t)
+
+	// A node whose own file already holds a value its rules reject, in a section nobody is changing.
+	alreadyInvalid := func(c *tmcfg.Config) { c.Mempool.MaxTxBytes = -1 }
+
+	ctx := bootWithNodeFile(t, nodeFileHeader+"\n[p2p]\nmax-incoming-connection-attempts = 7\n", alreadyInvalid)
+	if got := ctx.Config.P2P.MaxIncomingConnectionAttempts; got != 7 {
+		t.Errorf("the written value is %d on a node that already failed its own rules, want 7. A section "+
+			"cannot be held to rules the node was already breaking, or nothing can ever be delivered to "+
+			"it again", got)
+	}
+}

@@ -105,11 +105,21 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	//
 	// Cheap here and nowhere else, because this is the one place a copy exists to test. It also inherits
 	// the section-scoped refusal, so a bad value costs its own section and not the whole file.
+	// Against what the node already holds, not against the rules alone. ValidateBasic answers for the whole
+	// configuration, and the boot never applies it to an existing config.toml, so a node can already be in
+	// a state these rules reject. Refusing on that would blame this section for a failure it did not cause
+	// and leave every later change unable to land.
 	if err := candidate.ValidateBasic(); err != nil {
-		log.Error("this section's written values leave the node's configuration invalid, so none of the "+
-			"section is applied and every one of its keys reads as it always has",
-			"section", name, "keys", strings.Join(keys, ","), "err", err)
-		return
+		if already := ctx.Config.ValidateBasic(); already != nil {
+			log.Warn("this node's configuration already fails its own rules, so this section cannot be "+
+				"held to them; it is applied as written",
+				"section", name, "keys", strings.Join(keys, ","), "already", already)
+		} else {
+			log.Error("this section's written values leave the node's configuration invalid, so none of "+
+				"the section is applied and every one of its keys reads as it always has",
+				"section", name, "keys", strings.Join(keys, ","), "err", err)
+			return
+		}
 	}
 
 	if err := publishNodeConfig(ctx.Config, candidate); err != nil {
@@ -128,13 +138,15 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	}
 	// The same hazard one key at a time. A key absent from both answers compares equal, so it would be
 	// reported as a setting that did not move, which is what a key an operator wrote and got looks like.
-	if unread := append(unreadBefore, unreadAfter...); len(unread) > 0 {
-		shown, omitted := capLoggedItems(sortedKeys(asSet(unread)))
+	unread := asSet(append(unreadBefore, unreadAfter...))
+	if len(unread) > 0 {
+		shown, omitted := capLoggedItems(sortedKeys(unread))
 		log.Error("this section was applied and some of its keys cannot be read back, so nothing here "+
 			"says whether those moved", "section", name, "count", len(shown)+omitted,
 			"keys", strings.Join(shown, ","), "omitted", omitted)
 	}
-	reportWhatMoved(name, keys, before, after, log)
+
+	reportWhatMoved(name, whatBothSidesCouldBeReadFor(keys, unread), before, after, log)
 }
 
 // copyNodeConfig returns a configuration that holds what this one holds and shares nothing with it.
@@ -156,6 +168,22 @@ func copyNodeConfig(from *tmcfg.Config) (*tmcfg.Config, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// whatBothSidesCouldBeReadFor drops the keys neither side could be read for.
+//
+// A key missing from both answers compares equal, so leaving it in makes the report say the section matches
+// the node's own file, which is the statement the line above it exists to withhold. Dropped here rather
+// than inside the comparison, because the comparison's job is to say what moved and this one's is to say
+// which keys it can speak for.
+func whatBothSidesCouldBeReadFor(keys []string, unread map[string]struct{}) []string {
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if _, missing := unread[key]; !missing {
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 // reportWhatMoved names every key whose value the delivery changed, and what it changed from.
