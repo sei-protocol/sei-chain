@@ -7,7 +7,9 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/creachadair/tomledit"
 )
@@ -237,4 +239,37 @@ func allocatedReading(t *testing.T, body string) (uint64, error) {
 	runtime.ReadMemStats(&after)
 	// Cumulative rather than resident, so a collection between the two reads cannot hide the work.
 	return after.TotalAlloc - before.TotalAlloc, err
+}
+
+// TestSomethingThatIsNotARegularFileIsRefused covers the shape the size bound cannot describe.
+//
+// The bound is a number of bytes, and only a regular file has a size that means anything. A FIFO reports
+// zero, so a check against the reported size passes and the read that follows then blocks with nothing to
+// stop it. That is a node that hangs on start rather than one told its file was refused, which is the
+// outcome this whole const block exists to avoid.
+func TestSomethingThatIsNotARegularFileIsRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sei.toml")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Skipf("cannot create a FIFO here: %v", err)
+	}
+
+	// Nothing ever writes to it, so a read without a bound would not return.
+	done := make(chan error, 1)
+	go func() {
+		_, err := Load(path)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a FIFO was accepted as this node's configuration file")
+		}
+		if !strings.Contains(err.Error(), "regular file") {
+			t.Errorf("the refusal says %q, and it has to say the path is not a regular file", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reading a FIFO did not return, so the bound describes a read that is not the one " +
+			"happening and a node would hang on start")
+	}
 }

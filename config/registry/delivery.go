@@ -68,9 +68,20 @@ func DecodedSections() map[string]string {
 // an operator writing the default value explicitly, because what is recorded is which layer answered and
 // not whether the answer differs from the default: writing false where the file says true has to arrive.
 func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
-	// One read for the sections and the declarations together. Asking for each on its own leaves a window a
-	// registration fits through, and a section arriving in it is declared by one answer and absent from the
-	// other, so its keys are silently left undelivered.
+	bySection, _ := SuppliedAndOwnedByDecodedSections(resolved)
+	return bySection
+}
+
+// SuppliedAndOwnedByDecodedSections answers both halves of the decoded-delivery question from one read.
+//
+// The values each decoded section was supplied, and every key those sections own whether supplied or not. A
+// caller needs both: the first to deliver or report, the second to know what to leave out of a delivery that
+// cannot carry it.
+//
+// Together rather than from two calls, because a section arriving between two reads is absent from one
+// answer and present in the other, so its keys are dropped from the install by the second and not reported
+// by the first. Silently undelivered and unreported is the outcome one read exists to prevent.
+func SuppliedAndOwnedByDecodedSections(resolved Resolved) (map[string]map[string]any, []string) {
 	registered, _, owning := snapshot()
 
 	supplied := make(map[string]bool, len(resolved.Overrides))
@@ -79,10 +90,12 @@ func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
 	}
 
 	out := map[string]map[string]any{}
+	var everyKey []string
 	for _, section := range registered {
 		if _, owned := owning[section.Name]; !owned {
 			continue
 		}
+		everyKey = append(everyKey, section.Keys...)
 		for _, key := range section.Keys {
 			if !supplied[key] {
 				continue
@@ -93,7 +106,8 @@ func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
 			out[section.Name][key] = resolved.Values[key]
 		}
 	}
-	return out
+	sort.Strings(everyKey)
+	return out, everyKey
 }
 
 // KeysADecodeDelivers returns the keys of every section whose values reach their reader by a decode, sorted.
@@ -102,14 +116,6 @@ func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
 // one: asked separately, a section arriving between the two reads is named by one answer and absent from
 // the other, so its keys are attributed to the wrong delivery.
 func KeysADecodeDelivers() []string {
-	registered, _, decoded := snapshot()
-	var out []string
-	for _, section := range registered {
-		if _, owned := decoded[section.Name]; !owned {
-			continue
-		}
-		out = append(out, section.Keys...)
-	}
-	sort.Strings(out)
-	return out
+	_, keys := SuppliedAndOwnedByDecodedSections(Resolved{})
+	return keys
 }

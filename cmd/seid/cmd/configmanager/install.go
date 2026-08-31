@@ -100,14 +100,21 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 		said = log.Debug
 	}
 
-	heldForADecode := registry.SuppliedByDecodedSection(resolved)
-	reportWhatThisInstallHoldsBack(heldForADecode, log)
+	// One read for both halves. A section arriving between two reads would be absent from what is
+	// reported and present in what is dropped, which is undelivered and unreported at once.
+	forADecode, ownedByADecode := registry.SuppliedAndOwnedByDecodedSections(resolved)
 
-	supplied := onlyWhatALookupSourceSupplied(resolved)
+	// Only what the file itself wrote. The supplied set is filled by every channel, and a flag or a
+	// variable answering one of these keys does reach the node, so reporting it as read-as-it-always-has
+	// would be false as well as pointed at the wrong file.
+	heldFromTheFile := whatTheFileWroteForADecode(forADecode, written)
+	reportWhatThisInstallHoldsBack(heldFromTheFile, log)
+
+	supplied := onlyWhatALookupSourceSupplied(resolved, ownedByADecode)
 	if len(supplied.Values) == 0 {
-		// Only when nothing at all was supplied. A file whose every key belongs to a decoded section
-		// supplies plenty, and saying otherwise names the operator's file for something it did not do.
-		if len(heldForADecode) == 0 {
+		// Only when the file supplied nothing a delivery could carry. A file whose every key belongs to a
+		// decoded section supplies plenty, and saying otherwise names it for something it did not do.
+		if len(heldFromTheFile) == 0 {
 			said("sei.toml supplies no declared value; every key reads as it always has", "mode", mode)
 		}
 		return
@@ -167,9 +174,9 @@ func everyChannelAnOperatorCanUse(written map[string]any, typed map[string]strin
 //
 // It also means a declared default never reaches a running node, which is what lets a default state what
 // the provisioning command writes rather than having to state what each node already runs.
-func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved {
-	owning := map[string]bool{}
-	for _, key := range registry.KeysADecodeDelivers() {
+func onlyWhatALookupSourceSupplied(resolved registry.Resolved, ownedByADecode []string) registry.Resolved {
+	owning := make(map[string]bool, len(ownedByADecode))
+	for _, key := range ownedByADecode {
 		owning[key] = true
 	}
 
@@ -186,6 +193,32 @@ func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved
 	return out
 }
 
+// whatTheFileWroteForADecode narrows the decoded sections' supplied values to the keys the file itself
+// wrote, sorted.
+//
+// The supplied set is filled by the file, the environment and the flags alike, and only the file's keys are
+// ones this install holds back in a way an operator can act on. A flag answering one of these keys reaches
+// the node through the flag, so reporting it as reading the way it always has would be untrue, and naming
+// the file for it would be untrue twice.
+//
+// Matched lower-cased, which is how the resolution matches a file's keys.
+func whatTheFileWroteForADecode(bySection map[string]map[string]any, written map[string]any) []string {
+	inTheFile := make(map[string]bool, len(written))
+	for key := range written {
+		inTheFile[strings.ToLower(key)] = true
+	}
+	var keys []string
+	for _, values := range bySection {
+		for key := range values {
+			if inTheFile[strings.ToLower(key)] {
+				keys = append(keys, key)
+			}
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // reportWhatThisInstallHoldsBack names the supplied keys this install cannot deliver.
 //
 // A section whose reader decodes its file whole was read before this ran, so putting a value into the
@@ -199,20 +232,13 @@ func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved
 // No source is named, because the resolution does not record which one answered. A file, a variable and a
 // flag all arrive here as an override, and naming the file for a value an environment variable supplied is
 // the same misattribution the undeclared-key report was split apart to end.
-func reportWhatThisInstallHoldsBack(bySection map[string]map[string]any, log *slog.Logger) {
-	if len(bySection) == 0 {
+func reportWhatThisInstallHoldsBack(keys []string, log *slog.Logger) {
+	if len(keys) == 0 {
 		return
 	}
-	var keys []string
-	for _, values := range bySection {
-		for key := range values {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
 	shown, omitted := capLoggedItems(keys)
-	log.Warn("a source supplies keys whose reader decodes its file whole; this install cannot deliver "+
-		"them and they read as they always have",
+	log.Warn("sei.toml writes keys whose reader decodes its file whole; this install cannot deliver them "+
+		"and they read as they always have",
 		"count", len(keys), "keys", strings.Join(shown, ","), "omitted", omitted)
 }
 
@@ -231,8 +257,8 @@ func reportWhatThisBinaryCouldNotUse(resolved registry.Resolved, log *slog.Logge
 	}
 	sort.Strings(said)
 	shown, omitted := capLoggedItems(said)
-	log.Error("this binary registered a configuration section it cannot use, so the keys that section "+
-		"declares are missing from what any file can supply",
+	log.Error("this binary's own configuration registration carries a defect, so some declared keys do "+
+		"not reach the node as declared; each line below says which and how",
 		"count", len(said), "refused", strings.Join(shown, "; "), "omitted", omitted)
 }
 

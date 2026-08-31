@@ -253,7 +253,8 @@ func valueIsAddressableWithin(key parser.Key, v parser.Value, depth int) error {
 // downstream of reading can refuse a boot, so a file whose cost grows faster than its size has to be
 // refused before it is parsed rather than after it has taken the memory.
 const (
-	// maxFileBytes bounds what Load reads. A file stating every declared key is a few tens of kilobytes.
+	// maxFileBytes bounds the bytes Load will read. A file stating every declared key is a few tens
+	// of kilobytes.
 	maxFileBytes = 1 << 20
 	// maxKeyDepth bounds the segments in one key. A setting is a section and a key inside it.
 	maxKeyDepth = 8
@@ -278,18 +279,36 @@ func shortKey(key parser.Key) string {
 // A path with no file there reports fs.ErrNotExist, which errors.Is matches. That is the one outcome a
 // caller acts on rather than reports, since a node with no sei.toml yet needs New instead.
 func Load(path string) (*File, error) {
-	info, err := os.Stat(path)
+	// The kind of thing this is, before opening it. Opening a FIFO blocks until something writes, so a
+	// check made on the open file never runs: the node hangs on start with nothing to say. A device node
+	// reports a size of zero and then reads without end. The write path in this file refuses a
+	// non-regular destination for the same reason.
+	//
+	// Lstat rather than Stat, so a symlink to one of those is refused as what it points at rather than
+	// followed.
+	if lst, err := os.Lstat(path); err != nil {
+		return nil, err
+	} else if !lst.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is a %s rather than a regular file, and this file is read as one",
+			path, lst.Mode().Type())
+	}
+
+	fh, err := os.Open(path) //nolint:gosec // the caller's configured path is the subject
 	if err != nil {
 		return nil, err
 	}
-	if info.Size() > maxFileBytes {
-		return nil, fmt.Errorf("%s holds %d bytes and this file is read up to %d. A file stating every "+
-			"key this binary declares is a small fraction of that, so one this large is not that file",
-			path, info.Size(), maxFileBytes)
-	}
-	raw, err := os.ReadFile(path) //nolint:gosec // the caller's configured path is the subject
+	defer func() { _ = fh.Close() }()
+
+	// Read through the bound rather than against the size reported a moment ago, so the guard applies to
+	// the bytes that actually arrive. One byte past the limit is enough to know it was exceeded.
+	raw, err := io.ReadAll(io.LimitReader(fh, maxFileBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(raw)) > maxFileBytes {
+		return nil, fmt.Errorf("%s holds more than %d bytes, which is what this file is read up to. A "+
+			"file stating every key this binary declares is a small fraction of that, so one this large "+
+			"is not that file", path, maxFileBytes)
 	}
 	f, err := Parse(bytes.NewReader(raw))
 	if err != nil {
