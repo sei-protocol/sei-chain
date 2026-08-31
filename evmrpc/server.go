@@ -43,6 +43,7 @@ func NewEVMHTTPServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	autobahnEnabled bool,
 	blockHeaderNotifier *BlockHeaderNotifier,
 	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
@@ -91,7 +92,7 @@ func NewEVMHTTPServer(
 
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
-	sendAPI := NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, blockHeaderNotifier != nil), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
+	sendAPI := NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, autobahnEnabled), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
 
 	ctx := ctxProvider(LatestCtxHeight)
 	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
@@ -236,6 +237,7 @@ func NewEVMWebSocketServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	autobahnEnabled bool,
 	blockHeaderNotifier *BlockHeaderNotifier,
 ) (EVMServer, error) {
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
@@ -293,7 +295,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, blockHeaderNotifier != nil), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
+			Service:   NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, autobahnEnabled), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "eth",

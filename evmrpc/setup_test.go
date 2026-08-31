@@ -689,7 +689,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -701,7 +701,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -726,6 +726,7 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
+		false,
 		nil,
 	)
 	if err != nil {
@@ -751,6 +752,7 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
+		false,
 		nil,
 	)
 	if err != nil {
@@ -761,7 +763,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, false, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -773,7 +775,7 @@ func init() {
 	// Setup: Autobahn HTTP FilterAPI on its own notifier so parallel newHeads tests do not mix hashes.
 	notifierHTTPConfig := goodConfig
 	notifierHTTPConfig.HTTPPort = TestNotifierHTTPPort
-	notifierHTTPServer, err := evmrpc.NewEVMHTTPServer(notifierHTTPConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, BlockFilterNotifierForTest)
+	notifierHTTPServer, err := evmrpc.NewEVMHTTPServer(notifierHTTPConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, true, BlockFilterNotifierForTest)
 	if err != nil {
 		panic(err)
 	}
@@ -783,7 +785,7 @@ func init() {
 	// Setup: Autobahn WS newHeads on NotifierForTest.
 	notifierWSConfig := goodConfig
 	notifierWSConfig.WSPort = TestNotifierWSPort
-	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierWSConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierWSConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, true, NotifierForTest)
 	if err != nil {
 		panic(err)
 	}
