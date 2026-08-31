@@ -91,12 +91,19 @@ func indexOf(s string, c byte) int {
 // fail, it stops applying: a value an operator supplied through it loses to a lower layer and nothing
 // reports it. So each one is supplied a value and the declared order has to hold.
 func TestEachChannelWinsOverTheOneBelowIt(t *testing.T) {
-	t.Run("nothing written leaves the key as it was", func(t *testing.T) {
+	t.Run("nothing written leaves the key at what this binary declares", func(t *testing.T) {
+		// Not at whatever app.toml said. This manager is where a node's configuration comes from, so a key
+		// sei.toml does not mention is answered by a declaration rather than by what happened to be on
+		// disk.
 		configtest.Isolate(t)
 		ctx := bootWith(t, "schema_version = 1\nnode_mode = \"validator\"\n", nil)
-		if got := ctx.Viper.Get(bootProbeKey); got != nil {
-			t.Errorf("%s reads %#v with nothing written. A file that supplies no value installs nothing, "+
-				"so this key should read as it did before the manager ran", bootProbeKey, got)
+		declared, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if got, want := ctx.Viper.Get(bootProbeKey), declared.Values[bootProbeKey]; !sameSetting(got, want) {
+			t.Errorf("%s reads %#v with nothing written, want the declared %#v. A key the file leaves out "+
+				"is answered by this binary's declaration for the kind of node it is", bootProbeKey, got, want)
 		}
 	})
 
@@ -130,42 +137,41 @@ func TestEachChannelWinsOverTheOneBelowIt(t *testing.T) {
 	})
 }
 
-// TestOnlyWhatASourceSuppliedIsInstalled is the property that makes this safe to enable.
+// TestEveryDeclaredKeyIsInstalled is what makes sei.toml the node's configuration rather than a patch on it.
 //
-// A resolution answers for every declared key. Installing all of it would write a default over whatever a
-// node's app.toml holds for every key its sei.toml does not mention, so moving one setting would replace a
-// hundred and fifty. This installs only what a source supplied, so a key reaches a node exactly when
-// somebody asked for it.
+// A resolution answers for every declared key, and every one of those answers is installed. So a key an
+// operator did not write is answered by this binary's declaration for the kind of node it is, and app.toml
+// is not consulted for a declared key at all.
 //
-// Measured as an absence rather than against a value read back from a second boot. A baseline taken through
-// this same install would carry whatever the install wrote, so an install that wrote a default over every
-// key would write the same one twice and the two runs would agree. The assertion is that the key is not
-// there at all, which no install can satisfy by being wrong the same way twice.
-func TestOnlyWhatASourceSuppliedIsInstalled(t *testing.T) {
+// The cost is deliberate and it is large: on a node whose app.toml was hand-tuned, every declared key
+// absent from sei.toml moves to its declared value. That is why a path rendering sei.toml from a node's
+// existing files has to land before this is switched on anywhere.
+//
+// The key measured is one the file never mentions, so it can only be there because the install put it
+// there. Its declared value is read out first, because a key whose declaration answers nothing would pass
+// this whichever way the install behaved.
+func TestEveryDeclaredKeyIsInstalled(t *testing.T) {
 	configtest.Isolate(t)
 
-	// The declared value is read out first, because a key whose declaration answers nothing would pass
-	// this whether the install was contained or not.
 	const untouched = bootUntouchedKey
 	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if resolved.Values[untouched] == nil {
-		t.Fatalf("%s declares no value, so an install that wrote every declared default would leave it "+
-			"absent too and this would measure nothing", untouched)
+		t.Fatalf("%s declares no value, so this would measure nothing", untouched)
 	}
 
 	ctx := bootWith(t, seiTomlWriting(bootProbeKey, "111"), nil)
 
-	if got := ctx.Viper.Get(untouched); got != nil {
-		t.Errorf("%s reads %#v after a file that never mentions it, and %s declares %#v. Installing a "+
-			"declared default over a key nobody wrote replaces an operator's configuration rather than "+
-			"moving one setting of it", untouched, got, untouched, resolved.Values[untouched])
+	if got := ctx.Viper.Get(untouched); !sameSetting(got, resolved.Values[untouched]) {
+		t.Errorf("%s reads %#v after a file that never mentions it, want the declared %#v. A key the "+
+			"file leaves out is answered by the declaration, not by whatever app.toml held",
+			untouched, got, resolved.Values[untouched])
 	}
 	if got := ctx.Viper.Get(bootProbeKey); !sameSetting(got, int64(111)) {
-		t.Errorf("%s reads %#v, so nothing was installed at all and the check above holds for an install "+
-			"that does nothing", bootProbeKey, got)
+		t.Errorf("%s reads %#v, so the written value did not arrive and the check above would hold for "+
+			"an install that wrote defaults over everything and nothing else", bootProbeKey, got)
 	}
 }
 

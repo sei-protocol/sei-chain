@@ -132,21 +132,9 @@ func TestAFileHoldingOnlyDecodedKeysIsNotReportedAsSupplyingNothing(t *testing.T
 	// mempool is read by a decode, so its keys are held back by this install.
 	out := installWithSeiToml(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[mempool]\nsize = 4321\n")
 
-	if strings.Contains(out, "supplies no declared value") {
-		t.Errorf("a file supplying mempool.size is reported as supplying no declared value:\n%s", out)
-	}
 	if !strings.Contains(out, "mempool.size") {
 		t.Errorf("the held-back key is not named anywhere, so an operator has no way to learn their "+
 			"value did not arrive:\n%s", out)
-	}
-}
-
-// TestAFileSupplyingNothingStillSaysSo keeps the fix above from silencing the case it was scoped around.
-func TestAFileSupplyingNothingStillSaysSo(t *testing.T) {
-	out := installWithSeiToml(t, "schema_version = 1\nnode_mode = \"validator\"\n")
-
-	if !strings.Contains(out, "supplies no declared value") {
-		t.Errorf("a file that really supplies nothing no longer says so:\n%s", out)
 	}
 }
 
@@ -173,17 +161,6 @@ func TestOnlyTheBootReportsTheRoutineLine(t *testing.T) {
 			said := strings.Contains(out, "configuration installed")
 			if said != tc.routine {
 				t.Errorf("`seid %s` reports the routine line at info: %v, want %v.\n%s",
-					tc.command, said, tc.routine, out)
-			}
-		})
-
-		// The sibling line is routine for the same reason and sits at the same floor.
-		t.Run(tc.command+" with a file supplying nothing", func(t *testing.T) {
-			out := installOnCommand(t, tc.command, "schema_version = 1\nnode_mode = \"validator\"\n",
-				slog.LevelInfo)
-			said := strings.Contains(out, "supplies no declared value")
-			if said != tc.routine {
-				t.Errorf("`seid %s` reports the empty-file line at info: %v, want %v.\n%s",
 					tc.command, said, tc.routine, out)
 			}
 		})
@@ -218,9 +195,6 @@ func installOnCommand(t *testing.T, name, body string, level slog.Level) string 
 // by a decode, reporting that set names the file for a key it does not contain, and says the value reads as
 // it always has when the flag does in fact apply. `seid start --log_level=info` on any node with a sei.toml
 // hits it, because log-level is a declared root key of a decoded section.
-//
-// It also inverts the line beside it: a typed flag filling that set suppressed the report for a file that
-// genuinely supplied nothing.
 func TestAFlagIsNotReportedAsSomethingTheFileWrote(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
@@ -245,9 +219,5 @@ func TestAFlagIsNotReportedAsSomethingTheFileWrote(t *testing.T) {
 	if strings.Contains(out.String(), "sei.toml writes keys whose reader decodes") {
 		t.Errorf("a key only a flag supplied is reported as something sei.toml writes, and as reading the "+
 			"way it always has when the flag applies:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "supplies no declared value") {
-		t.Errorf("a file that supplies nothing no longer says so, because a typed flag filled the set "+
-			"that line is scoped against:\n%s", out.String())
 	}
 }

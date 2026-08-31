@@ -118,19 +118,12 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	heldFromTheFile := whatTheFileWroteForADecode(forADecode, written)
 	reportWhatThisInstallHoldsBack(heldFromTheFile, warned)
 
-	supplied := onlyWhatALookupSourceSupplied(resolved, ownedByADecode)
-	if len(supplied.Values) == 0 {
-		// Only when the file supplied nothing a delivery could carry. A file whose every key belongs to a
-		// decoded section supplies plenty, and saying otherwise names it for something it did not do.
-		if len(heldFromTheFile) == 0 {
-			said("sei.toml supplies no declared value; every key reads as it always has", "mode", mode)
-		}
-		return
-	}
-	report, err := appopts.Install(ctx.Viper, supplied)
+	// Every declared key a lookup reads, whether sei.toml mentioned it or not. There is no case where this
+	// is empty for a reason an operator caused: the paths above already returned for a file that could not
+	// be read or used, so reaching here means the resolution answered.
+	report, err := appopts.Install(ctx.Viper, everyKeyALookupReads(resolved, ownedByADecode))
 	if err != nil {
-		log.Warn("cannot install the values sei.toml supplies; every key reads as it always has",
-			"err", err)
+		log.Warn("cannot install this node's configuration; every key reads as it always has", "err", err)
 		return
 	}
 	// Added names the keys the source did not already carry, so a node reads them from the registry for
@@ -171,32 +164,32 @@ func everyChannelAnOperatorCanUse(written map[string]any, typed map[string]strin
 	}
 }
 
-// onlyWhatALookupSourceSupplied narrows a resolution to the keys something other than the defaults
-// answered, for the sections whose readers look a key up rather than decoding one.
+// everyKeyALookupReads narrows a resolution to the declared keys whose readers look a key up rather than
+// decoding one.
 //
-// This is the whole difference between moving a setting and replacing a file. A resolution answers for
-// every declared key, so installing all of it would write a default over whatever an operator's app.toml
-// holds for every key their sei.toml does not mention: a hundred and fifty settings replaced because they
-// moved one. Installing only what a source supplied means a key reaches the node exactly when somebody
-// asked for it, and every other key reads as it always has.
+// Every one of them, not only the ones a source wrote. This manager is where a node's configuration comes
+// from, so a key sei.toml does not mention takes the value this binary declares for the kind of node it is,
+// and app.toml is not consulted for a declared key at all. One file answers, and what it leaves out is
+// answered by a declaration rather than by whatever happened to be on disk.
 //
-// It also means a declared default never reaches a running node, which is what lets a default state what
-// the provisioning command writes rather than having to state what each node already runs.
-func onlyWhatALookupSourceSupplied(resolved registry.Resolved, ownedByADecode []string) registry.Resolved {
+// The cost is worth stating plainly, because it is large: on a node whose app.toml was hand-tuned, every
+// declared key absent from sei.toml moves to its declared value. A path that renders sei.toml from a node's
+// existing files is what makes that safe, and it has to exist before anybody turns this on.
+func everyKeyALookupReads(resolved registry.Resolved, ownedByADecode []string) registry.Resolved {
 	owning := make(map[string]bool, len(ownedByADecode))
 	for _, key := range ownedByADecode {
 		owning[key] = true
 	}
 
-	out := registry.Resolved{Values: make(map[string]any, len(resolved.Overrides))}
-	for _, key := range resolved.Overrides {
+	out := registry.Resolved{Values: make(map[string]any, len(resolved.Values))}
+	for key, value := range resolved.Values {
 		// A key both deliveries carried would be installed into the source as well as decoded, and the
 		// install refuses a key its own contract does not cover, which would take the whole install down
 		// and with it every key of every other section.
 		if owning[key] {
 			continue
 		}
-		out.Values[key] = resolved.Values[key]
+		out.Values[key] = value
 	}
 	return out
 }
