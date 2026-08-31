@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
@@ -30,7 +31,7 @@ func TestBroadcastTxCommitUnderAutobahnFailsFast(t *testing.T) {
 	// Setup: Giga validator RPC env with a real mempool and an empty KV indexer.
 	env := newAutobahnBroadcastEnv(t)
 
-	// Test: BroadcastTxCommit with TimeoutBroadcastTxCommit=0 (hangs on a wait regression).
+	// Test: BroadcastTxCommit with the live RPC defaults.
 	res, err := env.BroadcastTxCommit(t.Context(), &coretypes.RequestBroadcastTx{Tx: []byte("tx")})
 
 	// Verify: Autobahn sentinel and no result.
@@ -125,9 +126,11 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	)
 	require.NoError(t, err)
 
-	// Setup: empty KV indexer; TimeoutBroadcastTxCommit stays 0 so a wait regression hangs.
+	// Setup: empty KV indexer and the live RPC defaults so a wait regression
+	// returns the configured broadcast timeout.
 	return &Environment{
 		Router:     router,
 		EventSinks: []indexer.EventSink{kvsink.NewEventSink(dbm.NewMemDB(), nil)},
+		Config:     *config.DefaultRPCConfig(),
 	}
 }
