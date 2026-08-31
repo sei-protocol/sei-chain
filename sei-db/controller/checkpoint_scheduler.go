@@ -113,7 +113,7 @@ func (s *CheckpointScheduler) MarkCheckpointComplete(store string, version int64
 }
 
 func (s *CheckpointScheduler) checkpointEnabled() bool {
-	return s.config.TimeInterval > 0 || s.config.BlockInterval > 0
+	return s.config.Enabled()
 }
 
 func (s *CheckpointScheduler) allStoresCheckpointed() bool {

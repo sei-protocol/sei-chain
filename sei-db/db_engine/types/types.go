@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -171,6 +172,9 @@ type SnapshotWALReader interface {
 type Rollbackable interface {
 	Rollback(target int64) error
 }
+
+// ErrRollbackUnsupported reports that a store does not implement Rollbackable.
+var ErrRollbackUnsupported = errors.New("store has no rollback")
 
 // RollbackValidator is an optional companion to Rollbackable. It checks whether
 // a rollback can be performed without changing store state.

@@ -14,6 +14,7 @@ type AppOptions interface {
 }
 
 const (
+	flagRSEnable               = "receipt-store.rs-enable"
 	flagRSDBDirectory          = "receipt-store.db-directory"
 	flagRSBackend              = "receipt-store.rs-backend"
 	flagRSMisnamedBackend      = "receipt-store.backend"
@@ -29,13 +30,10 @@ const DefaultReceiptLogFilterParallelism = 16
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
-	// Enable reports whether the receipt store is opened at all. A node with it off
-	// serves no receipt or log query and keeps no receipt history.
-	//
-	// Not read from app.toml: the legacy path always opens the store, so the only
-	// caller that can turn it off is one composing the stores in process
-	// (GigaStorageConfig).
-	Enable bool `mapstructure:"-"`
+	// Enable reports whether the receipt store is opened. A node with it off serves no
+	// receipt or log query and keeps no receipt history.
+	// defaults to true
+	Enable bool `mapstructure:"rs-enable"`
 
 	// DBDirectory defines the directory to store the receipt store db files
 	// If not explicitly set, default to application home directory
@@ -104,6 +102,13 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 	cfg := DefaultReceiptStoreConfig()
 	if v := opts.Get(flagRSMisnamedBackend); v != nil {
 		return cfg, fmt.Errorf("unsupported receipt-store config key %q; use %q instead", flagRSMisnamedBackend, flagRSBackend)
+	}
+	if v := opts.Get(flagRSEnable); v != nil {
+		enable, err := cast.ToBoolE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Enable = enable
 	}
 	if v := opts.Get(flagRSDBDirectory); v != nil {
 		dbDirectory, err := cast.ToStringE(v)

@@ -659,7 +659,9 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading receipt store config: %s", err))
 	}
-	if app.receiptStore == nil {
+	// A nil store is the seam tests inject their own through, and it is also what a disabled
+	// receipt store leaves behind: the EVM keeper reads nil as a node that keeps no receipts.
+	if app.receiptStore == nil && receiptConfig.Enable {
 		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))

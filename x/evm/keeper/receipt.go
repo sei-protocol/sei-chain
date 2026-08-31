@@ -140,6 +140,11 @@ func isLegacyReceipt(ctx sdk.Context, receipt *types.Receipt) bool {
 }
 
 func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
+	// An absent receipt store means the node keeps no receipts, so there is nothing to flush. This
+	// runs from the pre-commit handler, where a returned error panics the node, so it must not be one.
+	if k.receiptStore == nil {
+		return nil
+	}
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
 	defer func() { _ = iter.Close() }()
@@ -163,9 +168,6 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 
 		txHash := types.TransientReceiptKey(iter.Key()).TransactionHash()
 		records = append(records, receipt.ReceiptRecord{TxHash: txHash, Receipt: rcpt})
-	}
-	if k.receiptStore == nil {
-		return receipt.ErrNotConfigured
 	}
 	return k.receiptStore.SetReceipts(ctx, records)
 }

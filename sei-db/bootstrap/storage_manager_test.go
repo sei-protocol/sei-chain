@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,33 +32,96 @@ func openManager(t *testing.T, tweak func(*config.GigaStorageConfig)) (*GigaStor
 func TestOpenFreshHome(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NotNil(t, manager.BlockDB())
+	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.ReceiptDB())
 	require.NotNil(t, manager.StateWAL())
 	require.NotNil(t, manager.SC())
 	require.NotNil(t, manager.SS())
 
-	heights, err := manager.readHeights()
+	scVersion, err := manager.SC().GetLatestVersion()
 	require.NoError(t, err)
-	require.Equal(t, StoreHeights{ReceiptEnabled: true}, heights)
+	require.Zero(t, scVersion)
+	require.Zero(t, manager.SS().GetLatestVersion())
+	require.Zero(t, manager.ReceiptDB().LatestVersion())
 
-	require.NoError(t, manager.RecoverFromCrash())
+	// Recovery already ran inside the constructor, and running it again must find the same nothing to
+	// do: it is the only step here a restart repeats.
+	require.NoError(t, manager.CrashRecover())
+}
+
+// TestOpenLoadsTheCommitStore pins that SC is opened rather than merely constructed.
+//
+// NewCommitStore returns a store that reports no version until it is loaded, so a manager that
+// skipped the load would hand recovery a state height of 0 and roll every other store back to
+// genesis. A loaded store also holds the file lock, which is what TestReopenAfterClose relies on.
+func TestOpenLoadsTheCommitStore(t *testing.T) {
+	manager, _ := openManager(t, nil)
+
+	version, err := manager.SC().GetLatestVersion()
+	require.NoError(t, err)
+	require.Zero(t, version, "a fresh home is at genesis, but the version must be readable")
+	require.NotNil(t, manager.SC().Name(), "a loaded store answers as a prunable store")
+}
+
+// TestCheckpointScheduleCoversBothHalvesOfState pins that the schedule is started and that SS can act
+// on a height it picks. SC and SS restore from their own snapshots, so a rollback can only target a
+// height both of them hold — which is what one shared schedule delivers and two intervals do not.
+func TestCheckpointScheduleCoversBothHalvesOfState(t *testing.T) {
+	manager, _ := openManager(t, nil)
+
+	require.NotNil(t, manager.checkpointer)
+	require.NotNil(t, manager.SS().Snapshots(),
+		"SS takes no snapshot at all without a snapshot manager, so a height the schedule picks would be dropped")
 }
 
 // TestReceiptsDisabled pins that Enable is what decides whether the receipt store is opened at
-// all, and that a manager without one still recovers.
+// all, and that a manager without one still opens, recovers and closes.
 func TestReceiptsDisabled(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.ReceiptDBConfig.Enable = false
 	})
 
 	require.Nil(t, manager.ReceiptDB())
+	require.NotNil(t, manager.SC())
+	require.NotNil(t, manager.SS())
 
-	heights, err := manager.readHeights()
-	require.NoError(t, err)
-	require.False(t, heights.ReceiptEnabled)
+	require.NoError(t, manager.CrashRecover())
+}
 
-	require.NoError(t, manager.RecoverFromCrash())
+// TestStateStoreDisabled pins that SS has an Enable of its own, and that every step after the open
+// tolerates its absence: the checkpoint schedule, the prune cycle, recovery, and Close.
+func TestStateStoreDisabled(t *testing.T) {
+	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
+		cfg.SSConfig.Enable = false
+	})
+
+	require.Nil(t, manager.SS())
+	require.NotNil(t, manager.SC())
+	require.NotNil(t, manager.BlockStore())
+	require.NotNil(t, manager.ReceiptDB())
+
+	require.NotNil(t, manager.checkpointer, "SC still needs the schedule that replaces its own interval")
+	require.True(t, manager.SC().ExternalPruning())
+
+	names := make([]string, 0, 4)
+	for _, store := range manager.prunableStores() {
+		names = append(names, store.Name())
+	}
+	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "BlockDB"}, names,
+		"a store this node never opened must not be offered to the collector")
+
+	require.NoError(t, manager.CrashRecover())
+}
+
+// TestStateStoreDisabledNeedsNoEVMDirectory pins that the path SS would have opened under is not
+// required by a node that opens no SS. Validate rejects an empty one only when SS is enabled.
+func TestStateStoreDisabledNeedsNoEVMDirectory(t *testing.T) {
+	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
+		cfg.SSConfig.Enable = false
+		cfg.SSConfig.EVMDBDirectory = ""
+	})
+
+	require.Nil(t, manager.SS())
 }
 
 // TestReopenAfterClose proves Close releases what the next open needs. SC holds a file lock and
@@ -69,23 +133,43 @@ func TestReopenAfterClose(t *testing.T) {
 
 	first, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
-	require.NoError(t, first.RecoverFromCrash())
+	require.NoError(t, first.CrashRecover())
 	require.NoError(t, first.Close())
 
 	second, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
-	require.NoError(t, second.RecoverFromCrash())
+	require.NoError(t, second.CrashRecover())
 	require.NoError(t, second.Close())
 }
 
 // TestCloseOnAPartialOpen covers the constructor's own cleanup: a config that fails partway must
 // leave nothing holding the home directory, which the successful reopen afterwards is the proof
 // of.
+//
+// The receipt store is opened second, so a broken one fails with the block ledger already open and
+// nothing else. That is the case worth pinning: a store opened before the failure is one Close has to
+// reach, where a failure on the first store leaves nothing to clean up.
 func TestCloseOnAPartialOpen(t *testing.T) {
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
 
-	// The block ledger is opened last, so an invalid one fails after every other store is open.
+	broken := cfg
+	broken.ReceiptDBConfig.DBDirectory = "" // NewReceiptStore refuses an unset directory
+	_, err = NewGigaStorageManager(context.Background(), broken)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "open receipt store")
+
+	manager, err := NewGigaStorageManager(context.Background(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, manager.Close())
+}
+
+// TestCloseOnAFailureBeforeAnyStoreOpens covers the other end of the same cleanup: the block ledger is
+// opened first, so a broken one fails with nothing open at all.
+func TestCloseOnAFailureBeforeAnyStoreOpens(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+
 	broken := cfg
 	broken.BlockDBConfig = brokenBlockDBConfig(cfg)
 	_, err = NewGigaStorageManager(context.Background(), broken)
@@ -97,35 +181,56 @@ func TestCloseOnAPartialOpen(t *testing.T) {
 	require.NoError(t, manager.Close())
 }
 
-// TestNoPruningConfigStartsNoCollector pins that pruning is opt-in: without a config the stores
-// keep their own retention, and SC in particular is not left with its pruner stood down and
-// nothing in its place.
+// TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens pins that config validation runs first, using a
+// config GigaStorageConfig.Validate rejects — external pruning with no collector to perform it. An
+// untouched home directory afterwards is the proof: a config no store will accept costs no files.
+func TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens(t *testing.T) {
+	home := t.TempDir()
+	cfg, err := config.DefaultGigaStorageConfig(home)
+	require.NoError(t, err)
+	cfg.PruningConfig = nil
+
+	_, err = NewGigaStorageManager(context.Background(), cfg)
+	require.ErrorContains(t, err, "cannot open storage")
+
+	entries, err := os.ReadDir(home)
+	require.NoError(t, err)
+	require.Empty(t, entries, "validation must reject the config before a store creates its directory")
+}
+
+// TestNoPruningConfigStartsNoCollector pins that pruning is opt-in: with every store keeping its own
+// retention, no collector is started and SC prunes itself.
 func TestNoPruningConfigStartsNoCollector(t *testing.T) {
-	manager, cfg := openManager(t, func(cfg *config.GigaStorageConfig) {
+	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.PruningConfig = nil
+		cfg.FlatKVConfig.ExternalPruning = false
+		cfg.SSConfig.ExternalPruning = false
+		cfg.ReceiptDBConfig.ExternalPruning = false
 	})
 
 	require.Nil(t, manager.gc)
-	require.False(t, cfg.FlatKVConfig.ExternalPruning)
 	require.False(t, manager.SC().ExternalPruning())
+	require.False(t, manager.SS().ExternalPruning())
 }
 
-// TestPruningConfigHandsSCRetentionToTheCollector pins the other half: with a collector running,
-// SC stops pruning its own snapshots and truncating the WAL, and it is registered with the
-// collector that takes both over. The caller's config is left untouched.
-func TestPruningConfigHandsSCRetentionToTheCollector(t *testing.T) {
-	manager, cfg := openManager(t, nil)
+// TestEveryStoreJoinsThePruneCycle pins which stores the shared cut line covers.
+//
+// The cut line is a minimum over the floors the collector is handed, so a store left out cannot hold
+// that line down to the height it can still restore to: a rollback inside the configured window can
+// find that store already pruned past the target. Every store a Giga node runs is in, which is why
+// prunableStores warns about any that is not.
+func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
+	manager, _ := openManager(t, nil)
 
 	require.NotNil(t, manager.gc)
-	require.False(t, cfg.FlatKVConfig.ExternalPruning, "the caller's config must not be mutated")
 	require.True(t, manager.SC().ExternalPruning())
+	require.True(t, manager.SS().ExternalPruning())
 
-	names := make([]string, 0, 3)
+	names := make([]string, 0, 5)
 	for _, store := range manager.prunableStores() {
 		names = append(names, store.Name())
 	}
-	require.Equal(t, []string{"FlatKV", "StateWAL"}, names,
-		"the EVM state store, the pebbledb receipt store and the block ledger are not PrunableStores yet")
+	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "EVM SS", "BlockDB"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered

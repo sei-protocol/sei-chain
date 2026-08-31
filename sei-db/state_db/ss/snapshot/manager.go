@@ -366,6 +366,62 @@ func (m *Manager) ModTime(version int64) time.Time {
 	return info.ModTime()
 }
 
+// RollbackFloor returns the oldest snapshot this member must keep to serve a rollback of
+// rollbackWindow blocks behind head, bounded by the snapshot a restore currently resolves through:
+//
+//	a snapshot at or below head - rollbackWindow → the newest such snapshot
+//	every snapshot above that height             → the oldest snapshot, the deepest this member can
+//	                                               restore to
+//	no snapshot, or a window deeper than head    → 0, nothing here is eligible for pruning
+//
+// It also returns 0 when the snapshot root cannot be read. Answering high is the damaging direction:
+// nothing above clamps this, and a caller derives its cut line from it.
+func (m *Manager) RollbackFloor(head uint64, rollbackWindow uint64) uint64 {
+	if m == nil || head <= rollbackWindow {
+		return 0
+	}
+	versions, err := m.Versions()
+	if err != nil {
+		logger.Error("failed to list state store snapshots for the rollback floor; holding it at 0",
+			"store", m.name, "rollbackWindow", rollbackWindow, "error", err)
+		return 0
+	}
+
+	target := head - rollbackWindow
+	var oldest, newestPastWindow uint64
+	for _, version := range versions {
+		if version <= 0 {
+			continue // version 0 restores to no committed height
+		}
+		block := uint64(version)
+		if oldest == 0 || block < oldest {
+			oldest = block
+		}
+		if block <= target && block > newestPastWindow {
+			newestPastWindow = block
+		}
+	}
+	if oldest == 0 {
+		return 0
+	}
+
+	floor := newestPastWindow
+	if floor == 0 {
+		floor = oldest
+	}
+
+	current, exists, err := m.currentSnapshotVersion()
+	if err != nil {
+		logger.Error("failed to resolve the current state store snapshot for the rollback floor; holding it at 0",
+			"store", m.name, "rollbackWindow", rollbackWindow, "error", err)
+		return 0
+	}
+	if !exists || current <= 0 {
+		return 0
+	}
+	return min(floor, uint64(current))
+}
+
 // PruneSnapshots deletes every snapshot below cutLine, never the current one. It acts whether or not
 // retention is external: an external collector prunes this store through here, and it is the internal
 // count-based retention that stands down instead.

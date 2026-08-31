@@ -186,6 +186,12 @@ const ReceiptStoreConfigTemplate = `
 ###############################################################################
 
 [receipt-store]
+# Enable defines whether the receipt store should be enabled.
+# A node with this set to false serves no receipt or log query and keeps no
+# receipt history.
+# defaults to true
+rs-enable = {{ .ReceiptStore.Enable }}
+
 # Backend defines the receipt store backend.
 # Supported backends: pebble (aka pebbledb)
 # defaults to pebbledb
@@ -204,11 +210,6 @@ async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 # Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
-
-# EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed
-# receipt storage.
-# Default: false.
-enable-read-write-metrics = {{ .ReceiptStore.EnableReadWriteMetrics }}
 
 # LogFilterParallelism bounds how many blocks a single eth_getLogs query scans
 # concurrently. Applies only when rs-backend = "littidx".

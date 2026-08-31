@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -147,7 +149,7 @@ func newTestWriter(t *testing.T, interval uint32, queueDepth uint32, db *fakeChe
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, workingDirName), 0o750))
-	return newSnapshotWriter(t.Context(), dir, 0, false, interval, queueDepth, fakeCheckpointDBs(db))
+	return newSnapshotWriter(t.Context(), dir, 0, false, interval, queueDepth, fakeCheckpointDBs(db), nil)
 }
 
 // newCollectorPrunedTestWriter is newTestWriter with retention handed to the StorageGarbageCollector,
@@ -163,7 +165,7 @@ func newCollectorPrunedTestWriter(
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, workingDirName), 0o750))
-	return newSnapshotWriter(t.Context(), dir, 0, true, interval, queueDepth, fakeCheckpointDBs(db))
+	return newSnapshotWriter(t.Context(), dir, 0, true, interval, queueDepth, fakeCheckpointDBs(db), nil)
 }
 
 // requireBlocked asserts a call has not returned yet.
@@ -398,6 +400,47 @@ func TestSnapshotWriterPruneFailureBricks(t *testing.T) {
 
 	require.ErrorContains(t, w.Close(), "resolve active snapshot")
 	require.Equal(t, []int64{5, 10}, snapshotVersions(t, w.dir), "a refused prune deletes nothing")
+}
+
+// A store on a schedule takes its heights from the schedule instead of from its own interval, and is
+// asked about every committed block rather than only about the ones the interval would have offered.
+// Being asked about every block is what lets one schedule hold several stores to the same height: a
+// height picked for another store is a height this one is asked about.
+func TestSnapshotWriterTakesHeightsFromTheSchedule(t *testing.T) {
+	w := newTestWriter(t, 10, 8, &fakeCheckpointDB{started: make(chan struct{})})
+	// An interval of 10 declines every version below it, so a snapshot here came from the schedule.
+	w.setCheckpointScheduler(controller.NewCheckpointScheduler(dbconfig.CheckpointConfig{BlockInterval: 3}))
+
+	for version := int64(1); version <= 3; version++ {
+		views, _ := fakeViews()
+		require.NoError(t, w.Offer(version, views))
+	}
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []int64{3}, snapshotVersions(t, w.dir),
+		"the schedule's height must be taken and the interval's ignored")
+	require.NoError(t, w.Close())
+}
+
+// A height the schedule handed out has to be reported back on the failure path too. The schedule picks
+// no further height while one store is unreported, so a writer that reported only on success would
+// stop the whole node checkpointing until it restarted.
+func TestSnapshotWriterReportsAFailedCheckpointToTheSchedule(t *testing.T) {
+	failure := errors.New("checkpoint exploded")
+	w := newTestWriter(t, 0, 1, &fakeCheckpointDB{started: make(chan struct{}), err: failure})
+	scheduler := controller.NewCheckpointScheduler(dbconfig.CheckpointConfig{BlockInterval: 1})
+	w.setCheckpointScheduler(scheduler)
+
+	views, stubs := fakeViews()
+	require.NoError(t, w.Offer(1, views))
+	require.Eventually(t, func() bool {
+		return errors.Is(w.Flush(), failure)
+	}, 5*time.Second, 5*time.Millisecond, "the failed checkpoint must be latched")
+	requireAllReleased(t, stubs)
+
+	require.True(t, scheduler.ShouldCheckpoint("probe", 2),
+		"the schedule must be free to pick another height, which it is not while a store is unreported")
+	require.ErrorIs(t, w.Close(), failure)
 }
 
 // End to end through a store with the writer running asynchronously: the snapshot appears once

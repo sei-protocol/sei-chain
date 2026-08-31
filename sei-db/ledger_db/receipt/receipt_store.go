@@ -14,6 +14,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -48,6 +49,8 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
 type ReceiptStore interface {
+	controller.PrunableStore
+
 	LatestVersion() int64
 	EarliestVersion() int64
 	SetLatestVersion(version int64) error
@@ -88,6 +91,8 @@ type ReceiptReadMetrics interface {
 	RecordCacheFilterScanDuration(seconds float64)
 	RecordCacheGetDuration(seconds float64)
 }
+
+var _ ReceiptStore = (*receiptStore)(nil)
 
 type receiptStore struct {
 	db          seidbtypes.StateStore
@@ -149,8 +154,8 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	case receiptBackendLittIdx:
 		return newLittReceiptStore(config, storeKey)
 	case receiptBackendPebble:
-		// This backend is not a gc.PrunableStore, so honoring ExternalPruning would stop its own
-		// pruner and put nothing in its place.
+		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
+		// pruner with nothing in its place.
 		if config.ExternalPruning {
 			return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q", receiptBackendPebble, receiptBackendLittIdx)
 		}
