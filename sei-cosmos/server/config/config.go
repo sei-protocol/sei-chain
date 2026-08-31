@@ -75,6 +75,14 @@ const (
 	// keepalive pings even when there are no active streams.
 	DefaultGRPCKeepalivePermitWithoutStream = false
 
+	// DefaultGRPCIPRateLimitRPS is the default per-IP sustained request rate in
+	// requests/second for the gRPC plane.
+	DefaultGRPCIPRateLimitRPS = 10.0
+
+	// DefaultGRPCIPRateLimitBurst is the default maximum per-IP burst size for
+	// the gRPC plane.
+	DefaultGRPCIPRateLimitBurst = 20
+
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
 )
@@ -416,8 +424,8 @@ func DefaultConfig() *Config {
 			KeepaliveTimeout:             DefaultGRPCKeepaliveTimeout,
 			KeepaliveMinTime:             DefaultGRPCKeepaliveMinTime,
 			KeepalivePermitWithoutStream: DefaultGRPCKeepalivePermitWithoutStream,
-			IPRateLimitRPS:               ratelimiter.DefaultRPS,
-			IPRateLimitBurst:             ratelimiter.DefaultBurst,
+			IPRateLimitRPS:               DefaultGRPCIPRateLimitRPS,
+			IPRateLimitBurst:             DefaultGRPCIPRateLimitBurst,
 			RateLimitingEnabled:          false,
 			TrustedProxyCIDRs:            nil,
 		},
@@ -609,11 +617,11 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
-	grpcIPRateLimitRPS := ratelimiter.DefaultRPS
+	grpcIPRateLimitRPS := DefaultGRPCIPRateLimitRPS
 	if v.IsSet("grpc.ip-rate-limit-rps") {
 		grpcIPRateLimitRPS = v.GetFloat64("grpc.ip-rate-limit-rps")
 	}
-	grpcIPRateLimitBurst := ratelimiter.DefaultBurst
+	grpcIPRateLimitBurst := DefaultGRPCIPRateLimitBurst
 	if v.IsSet("grpc.ip-rate-limit-burst") {
 		grpcIPRateLimitBurst = v.GetInt("grpc.ip-rate-limit-burst")
 	}

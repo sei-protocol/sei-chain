@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/ratelimiter"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -82,8 +81,8 @@ func TestDefaultGRPCConfig(t *testing.T) {
 	require.Equal(t, DefaultGRPCKeepaliveTimeout, cfg.GRPC.KeepaliveTimeout)
 	require.Equal(t, DefaultGRPCKeepaliveMinTime, cfg.GRPC.KeepaliveMinTime)
 	require.Equal(t, DefaultGRPCKeepalivePermitWithoutStream, cfg.GRPC.KeepalivePermitWithoutStream)
-	require.Equal(t, ratelimiter.DefaultRPS, cfg.GRPC.IPRateLimitRPS)
-	require.Equal(t, ratelimiter.DefaultBurst, cfg.GRPC.IPRateLimitBurst)
+	require.Equal(t, DefaultGRPCIPRateLimitRPS, cfg.GRPC.IPRateLimitRPS)
+	require.Equal(t, DefaultGRPCIPRateLimitBurst, cfg.GRPC.IPRateLimitBurst)
 	require.False(t, cfg.GRPC.RateLimitingEnabled)
 	require.Nil(t, cfg.GRPC.TrustedProxyCIDRs)
 }
