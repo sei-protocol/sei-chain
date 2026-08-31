@@ -1,109 +1,67 @@
 package keeper
 
 import (
+	"fmt"
 	"time"
-
-	"golang.org/x/mod/semver"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
-// DelegationByValIndexUpgrade is the upgrade at which SetDelegation and
-// RemoveDelegation begin maintaining the validator-indexed delegation store.
-const DelegationByValIndexUpgrade = "v6.7"
+// MigrateDelegationByValIndexResult reports the outcome of populating the
+// validator-indexed delegation store.
+type MigrateDelegationByValIndexResult struct {
+	TotalDelegations int
+	IndexWritten     int
+	AlreadyReady     bool
+	Elapsed          time.Duration
+}
 
-// delegationByValIndexActive reports whether SetDelegation and RemoveDelegation
-// should maintain the validator-indexed delegation store.
+// DelegationByValIndexReady reports whether the validator-indexed delegation store
+// is populated at the version this context reads.
 //
-// Live execution always does: the current binary only ever executes at/after
-// the upgrade that ships this behavior, so a non-tracing block is never a
-// pre-upgrade block. The only place pre-upgrade behavior must be reproduced is
-// when re-tracing a historical block, where the era is signaled through
-// ClosestUpgradeName (see app.RPCContextProvider).
-func delegationByValIndexActive(ctx sdk.Context) bool {
-	if !ctx.IsTracing() {
-		return true
-	}
-	return semver.Compare(ctx.ClosestUpgradeName(), DelegationByValIndexUpgrade) >= 0
+// The marker is versioned state written by MigrateDelegationByValIndex, so a context
+// reading a height before that migration observes it absent. That makes the answer
+// correct for historical queries and re-traced blocks without the caller supplying
+// an upgrade name or height.
+func (k Keeper) DelegationByValIndexReady(ctx sdk.Context) bool {
+	return ctx.KVStore(k.storeKey).Has(types.DelegationByValIndexReadyKey)
 }
 
-// BackfillDelegationByValIndexResult reports the outcome of a delegation index backfill.
-type BackfillDelegationByValIndexResult struct {
-	TotalDelegations int
-	IndexWritten     int
-	AlreadyIndexed   int
-	DryRun           bool
-	Elapsed          time.Duration
-}
-
-// BackfillDelegationByValIndexProgress is a progress snapshot during backfill.
-type BackfillDelegationByValIndexProgress struct {
-	TotalDelegations int
-	IndexWritten     int
-	AlreadyIndexed   int
-	Elapsed          time.Duration
-}
-
-// BackfillProgress reports incremental backfill progress. Nil disables callbacks.
-type BackfillProgress func(BackfillDelegationByValIndexProgress)
-
-const (
-	backfillProgressDelegationInterval = 100_000
-	backfillProgressMinInterval        = 10 * time.Second
-)
-
-// BackfillDelegationByValIndex writes validator-indexed delegation keys for existing
-// delegations. When dryRun is true, delegations are counted but no store writes occur.
-func (k Keeper) BackfillDelegationByValIndex(ctx sdk.Context, dryRun bool, progress BackfillProgress) BackfillDelegationByValIndexResult {
+// MigrateDelegationByValIndex writes a validator-indexed key for every existing
+// delegation and then marks the index ready. It is a no-op once the marker is set.
+func (k Keeper) MigrateDelegationByValIndex(ctx sdk.Context) (MigrateDelegationByValIndexResult, error) {
 	start := time.Now()
-	result := BackfillDelegationByValIndexResult{DryRun: dryRun}
-	lastProgressReport := start
+	store := ctx.KVStore(k.storeKey)
 
-	reportProgress := func() {
-		if progress == nil {
-			return
-		}
-		progress(BackfillDelegationByValIndexProgress{
-			TotalDelegations: result.TotalDelegations,
-			IndexWritten:     result.IndexWritten,
-			AlreadyIndexed:   result.AlreadyIndexed,
-			Elapsed:          time.Since(start),
-		})
-		lastProgressReport = time.Now()
+	if store.Has(types.DelegationByValIndexReadyKey) {
+		return MigrateDelegationByValIndexResult{AlreadyReady: true, Elapsed: time.Since(start)}, nil
 	}
 
-	store := ctx.KVStore(k.storeKey)
+	result := MigrateDelegationByValIndexResult{}
 	iterator := sdk.KVStorePrefixIterator(store, types.DelegationKey)
 	defer func() { _ = iterator.Close() }()
 
 	for ; iterator.Valid(); iterator.Next() {
-		delegation := types.MustUnmarshalDelegation(k.cdc, iterator.Value())
-		result.TotalDelegations++
-
-		delegatorAddress := sdk.MustAccAddressFromBech32(delegation.DelegatorAddress)
-		valAddr := delegation.GetValidatorAddr()
-		indexKey := types.GetDelegationByValIndexKey(delegatorAddress, valAddr)
-		if store.Has(indexKey) {
-			result.AlreadyIndexed++
-		} else {
-			if !dryRun {
-				store.Set(indexKey, []byte{})
-			}
-			result.IndexWritten++
+		delegation, err := types.UnmarshalDelegation(k.cdc, iterator.Value())
+		if err != nil {
+			return result, fmt.Errorf("unmarshal delegation at key %X: %w", iterator.Key(), err)
+		}
+		delAddr, err := sdk.AccAddressFromBech32(delegation.DelegatorAddress)
+		if err != nil {
+			return result, fmt.Errorf("parse delegator address %q: %w", delegation.DelegatorAddress, err)
 		}
 
-		if progress == nil {
+		result.TotalDelegations++
+		indexKey := types.GetDelegationByValIndexKey(delAddr, delegation.GetValidatorAddr())
+		if store.Has(indexKey) {
 			continue
 		}
-		now := time.Now()
-		if result.TotalDelegations == 1 ||
-			result.TotalDelegations%backfillProgressDelegationInterval == 0 ||
-			now.Sub(lastProgressReport) >= backfillProgressMinInterval {
-			reportProgress()
-		}
+		store.Set(indexKey, []byte{})
+		result.IndexWritten++
 	}
 
+	store.Set(types.DelegationByValIndexReadyKey, []byte{})
 	result.Elapsed = time.Since(start)
-	return result
+	return result, nil
 }

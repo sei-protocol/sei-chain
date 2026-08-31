@@ -103,7 +103,7 @@ func (k Keeper) SetDelegation(ctx sdk.Context, delegation types.Delegation) {
 	store := ctx.KVStore(k.storeKey)
 	b := types.MustMarshalDelegation(k.cdc, delegation)
 	store.Set(types.GetDelegationKey(delegatorAddress, valAddr), b)
-	if delegationByValIndexActive(ctx) {
+	if k.DelegationByValIndexReady(ctx) {
 		store.Set(types.GetDelegationByValIndexKey(delegatorAddress, valAddr), []byte{}) // index, store empty bytes
 	}
 }
@@ -116,7 +116,7 @@ func (k Keeper) RemoveDelegation(ctx sdk.Context, delegation types.Delegation) {
 	k.BeforeDelegationRemoved(ctx, delegatorAddress, valAddr)
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetDelegationKey(delegatorAddress, valAddr))
-	if delegationByValIndexActive(ctx) {
+	if k.DelegationByValIndexReady(ctx) {
 		store.Delete(types.GetDelegationByValIndexKey(delegatorAddress, valAddr))
 	}
 }
