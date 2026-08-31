@@ -143,6 +143,7 @@ type nodeImpl struct {
 	indexerService    *indexer.Service
 	services          []service.Service
 	rpcListeners      []net.Listener // rpc servers
+	evmOnlyRPC        *evmOnlyRPCServer
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
 	prometheusSrv     utils.Option[*http.Server]
@@ -686,7 +687,13 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.NodeInfo = n.nodeInfo
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
-	if n.config.RPC.ListenAddress != "" {
+	if n.config.EVMOnlyInMemory {
+		n.evmOnlyRPC, err = startEVMOnlyRPC(n.rpcEnv)
+		if err != nil {
+			return err
+		}
+		n.SpawnCritical("evm-only-rpc", n.evmOnlyRPC.Serve)
+	} else if n.config.RPC.ListenAddress != "" {
 		n.rpcListeners, err = n.rpcEnv.StartService(ctx, n.config)
 		if err != nil {
 			return err
@@ -700,6 +707,9 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 func (n *nodeImpl) OnStop() {
 	logger.Info("Stopping Node")
 	// stop the listeners / external services first
+	if n.evmOnlyRPC != nil {
+		n.evmOnlyRPC.Stop()
+	}
 	for _, l := range n.rpcListeners {
 		logger.Info("Closing rpc listener", "listener", l.Addr())
 		if err := l.Close(); err != nil {

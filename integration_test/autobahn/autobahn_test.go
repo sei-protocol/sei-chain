@@ -23,19 +23,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
-	tmhttp "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/http"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/testutil/evmtest"
 )
 
@@ -89,6 +91,9 @@ const (
 	evmOnlyInMemoryEnv = "AUTOBAHN_EVMONLY_IN_MEMORY"
 	evmOnlyLoadTxs     = 4_000
 	evmOnlyLoadTimeout = 3 * time.Minute
+	evmOnlyMetricsURL  = "http://127.0.0.1:26660/metrics"
+	evmOnlyNextBlock   = "tendermint_internal_autobahn_data_next_block"
+	evmOnlyTxLatency   = "tendermint_internal_autobahn_data_latency_count"
 )
 
 var (
@@ -616,6 +621,7 @@ func (evmOnlyLoadState) SetState(common.Address, common.Hash, common.Hash) {}
 func testEVMOnlyLoad(t *testing.T) {
 	assertAutobahnEnabled(t)
 	assertEVMOnlyInMemoryEnabled(t)
+	assertEVMOnlyTendermintRPCDisabled(t)
 	if clusterSize != 4 {
 		t.Fatalf("EVM-only Docker load test requires four validators, got %d", clusterSize)
 	}
@@ -638,13 +644,14 @@ func testEVMOnlyLoad(t *testing.T) {
 		t.Fatalf("build EVM-only transfer workload: %v", err)
 	}
 
-	clients := make([]*tmhttp.HTTP, clusterSize)
+	clients := make([]*ethrpc.Client, clusterSize)
 	for i := range clients {
-		client, err := tmhttp.New(fmt.Sprintf("http://localhost:%d", 26657+3*i))
+		client, err := ethrpc.DialContext(ctx, fmt.Sprintf("http://localhost:%d", 8545+2*i))
 		if err != nil {
-			t.Fatalf("create node %d RPC client: %v", i, err)
+			t.Fatalf("create node %d EVM RPC client: %v", i, err)
 		}
 		clients[i] = client
+		t.Cleanup(client.Close)
 	}
 	started := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
@@ -652,12 +659,12 @@ func testEVMOnlyLoad(t *testing.T) {
 		nodeIndex, client := nodeIndex, client
 		group.Go(func() error {
 			for txIndex := nodeIndex; txIndex < len(block.Txs); txIndex += len(clients) {
-				response, err := client.BroadcastTxSync(groupCtx, tmtypes.Tx(block.Txs[txIndex]))
-				if err != nil {
-					return fmt.Errorf("broadcast tx %d through node %d: %w", txIndex, nodeIndex, err)
+				var hash common.Hash
+				if err := client.CallContext(groupCtx, &hash, "eth_sendRawTransaction", hexutil.Bytes(block.Txs[txIndex])); err != nil {
+					return fmt.Errorf("send raw transaction %d through node %d: %w", txIndex, nodeIndex, err)
 				}
-				if response.Code != 0 {
-					return fmt.Errorf("broadcast tx %d through node %d: code=%d log=%s", txIndex, nodeIndex, response.Code, response.Log)
+				if want := crypto.Keccak256Hash(block.Txs[txIndex]); hash != want {
+					return fmt.Errorf("send raw transaction %d through node %d: hash %s, want %s", txIndex, nodeIndex, hash, want)
 				}
 			}
 			return nil
@@ -667,53 +674,95 @@ func testEVMOnlyLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lastHeight, included := waitForEVMOnlyTxs(t, ctx, clients[0], len(block.Txs))
-	waitForEVMOnlyHeight(t, ctx, clients, lastHeight)
+	lastHeight, included := waitForEVMOnlyTxs(t, ctx, listRunningNodes(t), len(block.Txs))
 	elapsed := time.Since(started)
 	t.Logf("Autobahn finalized %d raw EVM transfers through %d validators in %s (%.0f tx/s)",
 		included, clusterSize, elapsed.Round(time.Millisecond), float64(included)/elapsed.Seconds())
+	t.Logf("all validators executed through at least height %d", lastHeight)
 }
 
-func waitForEVMOnlyTxs(t *testing.T, ctx context.Context, client *tmhttp.HTTP, target int) (int64, int) {
+func assertEVMOnlyTendermintRPCDisabled(t *testing.T) {
 	t.Helper()
-	nextHeight := int64(1)
-	included := 0
-	for included < target {
-		if err := ctx.Err(); err != nil {
-			t.Fatalf("waiting for %d EVM-only transactions: finalized %d: %v", target, included, err)
-		}
-		latest, err := client.Block(ctx, nil)
-		if err != nil || latest.Block == nil || latest.Block.Height < nextHeight {
-			time.Sleep(100 * time.Millisecond)
+	client := &http.Client{Timeout: time.Second}
+	for i := range clusterSize {
+		response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", 26657+3*i))
+		if err != nil {
 			continue
 		}
-		for nextHeight <= latest.Block.Height {
-			height := nextHeight
-			block, err := client.Block(ctx, &height)
-			if err != nil || block.Block == nil {
-				break
-			}
-			included += len(block.Block.Data.Txs)
-			nextHeight++
-		}
+		_ = response.Body.Close()
+		t.Fatalf("node %d unexpectedly serves Tendermint RPC with HTTP status %s", i, response.Status)
 	}
-	return nextHeight - 1, included
 }
 
-func waitForEVMOnlyHeight(t *testing.T, ctx context.Context, clients []*tmhttp.HTTP, target int64) {
+func waitForEVMOnlyTxs(t *testing.T, ctx context.Context, containers []string, target int) (int64, int) {
 	t.Helper()
-	for i, client := range clients {
-		for {
-			if err := ctx.Err(); err != nil {
-				t.Fatalf("waiting for node %d to execute EVM-only height %d: %v", i, target, err)
-			}
-			block, err := client.Block(ctx, nil)
-			if err == nil && block.Block != nil && block.Block.Height >= target {
+	for {
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("waiting for %d EVM-only transactions on every validator: %v", target, err)
+		}
+		minHeight := int64(^uint64(0) >> 1)
+		minExecuted := target
+		allExecuted := true
+		for _, container := range containers {
+			height, executed, err := evmOnlyExecutionProgress(ctx, container)
+			if err != nil || executed < target {
+				allExecuted = false
 				break
 			}
-			time.Sleep(100 * time.Millisecond)
+			minHeight = min(minHeight, height)
+			minExecuted = min(minExecuted, executed)
 		}
+		if allExecuted {
+			return minHeight, minExecuted
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+func evmOnlyExecutionProgress(ctx context.Context, container string) (int64, int, error) {
+	out, err := exec.CommandContext(ctx, "docker", "exec", container, "curl", "-fsS", evmOnlyMetricsURL).Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	nextBlock, ok := prometheusSample(out, evmOnlyNextBlock, `stage="execute"`)
+	if !ok || nextBlock < 1 {
+		return 0, 0, fmt.Errorf("missing EVM-only execution height metric")
+	}
+	executed, ok := prometheusSample(out, evmOnlyTxLatency, `resource="txs"`, `stage="execute"`)
+	if !ok {
+		return 0, 0, fmt.Errorf("missing EVM-only executed transaction metric")
+	}
+	return int64(nextBlock) - 1, int(executed), nil
+}
+
+func prometheusSample(metrics []byte, name string, labels ...string) (float64, bool) {
+	scanner := bufio.NewScanner(strings.NewReader(string(metrics)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, name+"{") {
+			continue
+		}
+		matches := true
+		for _, label := range labels {
+			if !strings.Contains(line, label) {
+				matches = false
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0, false
+		}
+		value, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			return 0, false
+		}
+		return value, true
+	}
+	return 0, false
 }
 
 // restartNode re-invokes the container's seid-start script inside sei-node-<i>.

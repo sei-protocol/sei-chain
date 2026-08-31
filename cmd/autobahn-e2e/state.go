@@ -30,7 +30,6 @@ type node struct {
 	Name        string `json:"name"`
 	Container   string `json:"container"`
 	EVMHostPort int    `json:"evm_host_port"`
-	RPCHostPort int    `json:"rpc_host_port"`
 }
 
 type awsState struct {
@@ -184,7 +183,6 @@ func clusterNodes(count int) []node {
 			Name:        fmt.Sprintf("node-%d", i),
 			Container:   fmt.Sprintf("sei-node-%d", i),
 			EVMHostPort: 8545 + 2*i,
-			RPCHostPort: 26657 + 3*i,
 		}
 	}
 	return nodes

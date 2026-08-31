@@ -1,14 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -25,21 +24,11 @@ type nodeReport struct {
 	Status     string `json:"status"`
 	Height     string `json:"height"`
 	EVMTarget  string `json:"evm_target"`
-	RPCTarget  string `json:"rpc_target"`
 	InstanceID string `json:"instance_id,omitempty"`
 	PublicIP   string `json:"public_ip,omitempty"`
 }
 
-type statusPayload struct {
-	SyncInfo statusSyncInfo `json:"sync_info"`
-	Result   struct {
-		SyncInfo statusSyncInfo `json:"sync_info"`
-	} `json:"result"`
-}
-
-type statusSyncInfo struct {
-	LatestBlockHeight any `json:"latest_block_height"`
-}
+const autobahnNextExecutedBlockMetric = "tendermint_internal_autobahn_data_next_block"
 
 func (a *application) newListCommand() *cobra.Command {
 	options := listOptions{}
@@ -89,16 +78,15 @@ func (a *application) list(ctx context.Context, options listOptions) error {
 		return encoder.Encode(reports)
 	}
 	writer := tabwriter.NewWriter(a.stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "CLUSTER\tTARGET\tNODE\tSTATUS\tHEIGHT\tEVM TARGET\tRPC TARGET\tPUBLIC IP\tINSTANCE")
+	_, _ = fmt.Fprintln(writer, "CLUSTER\tTARGET\tNODE\tSTATUS\tHEIGHT\tEVM TARGET\tPUBLIC IP\tINSTANCE")
 	for _, report := range reports {
-		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			report.Cluster,
 			report.Target,
 			report.Node,
 			report.Status,
 			report.Height,
 			report.EVMTarget,
-			report.RPCTarget,
 			report.PublicIP,
 			report.InstanceID,
 		)
@@ -127,14 +115,24 @@ func (a *application) inspectLocalCluster(ctx context.Context, state clusterStat
 		if err != nil {
 			status = "missing"
 		}
+		status = strings.TrimSpace(status)
+		height := "-"
+		if status == "running" {
+			metrics, metricsErr := a.runner.output(ctx, commandSpec{
+				name: "docker",
+				args: []string{"exec", node.Container, "curl", "-fsS", "http://127.0.0.1:26660/metrics"},
+			})
+			if metricsErr == nil {
+				height = parseAutobahnExecutedHeight(metrics)
+			}
+		}
 		reports[i] = nodeReport{
 			Cluster:   state.Name,
 			Target:    state.Target,
 			Node:      node.Name,
-			Status:    strings.TrimSpace(status),
-			Height:    queryHeight(ctx, fmt.Sprintf("http://127.0.0.1:%d/status", node.RPCHostPort)),
+			Status:    status,
+			Height:    height,
 			EVMTarget: fmt.Sprintf("127.0.0.1:%d", node.EVMHostPort),
-			RPCTarget: fmt.Sprintf("127.0.0.1:%d", node.RPCHostPort),
 		}
 	}
 	return reports
@@ -154,7 +152,6 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 				Status:    state.Status,
 				Height:    "-",
 				EVMTarget: fmt.Sprintf("SSH→127.0.0.1:%d", node.EVMHostPort),
-				RPCTarget: fmt.Sprintf("SSH→127.0.0.1:%d", node.RPCHostPort),
 			}
 		}
 		return reports, nil
@@ -184,9 +181,9 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 				status = strings.TrimSpace(value)
 			}
 			value, heightErr := a.runner.output(ctx, sshCommand(state,
-				"curl -fsS "+shellQuote(fmt.Sprintf("http://127.0.0.1:%d/status", node.RPCHostPort))))
+				"docker exec "+shellQuote(node.Container)+" curl -fsS http://127.0.0.1:26660/metrics"))
 			if heightErr == nil {
-				height = parseHeight([]byte(value))
+				height = parseAutobahnExecutedHeight(value)
 			}
 		}
 		reports[i] = nodeReport{
@@ -196,7 +193,6 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 			Status:     status,
 			Height:     height,
 			EVMTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", node.EVMHostPort),
-			RPCTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", node.RPCHostPort),
 			InstanceID: state.AWS.InstanceID,
 			PublicIP:   state.AWS.PublicIP,
 		}
@@ -204,50 +200,22 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 	return reports, nil
 }
 
-func queryHeight(ctx context.Context, url string) string {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "-"
-	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return "-"
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return "-"
-	}
-	var payload statusPayload
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return "-"
-	}
-	return statusHeight(payload)
-}
-
-func parseHeight(value []byte) string {
-	var payload statusPayload
-	if err := json.Unmarshal(value, &payload); err != nil {
-		return "-"
-	}
-	return statusHeight(payload)
-}
-
-func statusHeight(payload statusPayload) string {
-	if height := normalizeHeight(payload.Result.SyncInfo.LatestBlockHeight); height != "-" {
-		return height
-	}
-	return normalizeHeight(payload.SyncInfo.LatestBlockHeight)
-}
-
-func normalizeHeight(value any) string {
-	switch typed := value.(type) {
-	case string:
-		if typed != "" {
-			return typed
+func parseAutobahnExecutedHeight(metrics string) string {
+	scanner := bufio.NewScanner(strings.NewReader(metrics))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, autobahnNextExecutedBlockMetric+"{") || !strings.Contains(line, `stage="execute"`) {
+			continue
 		}
-	case float64:
-		return strconv.FormatFloat(typed, 'f', -1, 64)
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return "-"
+		}
+		next, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil || next < 1 {
+			return "-"
+		}
+		return strconv.FormatInt(int64(next)-1, 10)
 	}
 	return "-"
 }

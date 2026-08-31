@@ -71,10 +71,10 @@ func TestStateStoreRoundTrip(t *testing.T) {
 
 func TestClusterNodesMatchDockerComposePorts(t *testing.T) {
 	require.Equal(t, []node{
-		{Index: 0, Name: "node-0", Container: "sei-node-0", EVMHostPort: 8545, RPCHostPort: 26657},
-		{Index: 1, Name: "node-1", Container: "sei-node-1", EVMHostPort: 8547, RPCHostPort: 26660},
-		{Index: 2, Name: "node-2", Container: "sei-node-2", EVMHostPort: 8549, RPCHostPort: 26663},
-		{Index: 3, Name: "node-3", Container: "sei-node-3", EVMHostPort: 8551, RPCHostPort: 26666},
+		{Index: 0, Name: "node-0", Container: "sei-node-0", EVMHostPort: 8545},
+		{Index: 1, Name: "node-1", Container: "sei-node-1", EVMHostPort: 8547},
+		{Index: 2, Name: "node-2", Container: "sei-node-2", EVMHostPort: 8549},
+		{Index: 3, Name: "node-3", Container: "sei-node-3", EVMHostPort: 8551},
 	}, clusterNodes(4))
 }
 
@@ -304,10 +304,11 @@ func TestLocalTeardownRemovesState(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestParseHeight(t *testing.T) {
-	require.Equal(t, "42", parseHeight([]byte(`{"result":{"sync_info":{"latest_block_height":"42"}}}`)))
-	require.Equal(t, "43", parseHeight([]byte(`{"sync_info":{"latest_block_height":"43"}}`)))
-	require.Equal(t, "-", parseHeight([]byte(`not-json`)))
+func TestParseAutobahnExecutedHeight(t *testing.T) {
+	metrics := "# HELP tendermint_internal_autobahn_data_next_block Next block\n" +
+		"tendermint_internal_autobahn_data_next_block{stage=\"execute\"} 43\n"
+	require.Equal(t, "42", parseAutobahnExecutedHeight(metrics))
+	require.Equal(t, "-", parseAutobahnExecutedHeight("not-prometheus"))
 }
 
 func TestWriteUserDataUsesSelectedSSHUser(t *testing.T) {

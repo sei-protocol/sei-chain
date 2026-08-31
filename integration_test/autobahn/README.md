@@ -30,6 +30,12 @@ The existing Compose topology publishes each container's port 8545 on a unique
 host port. `list` shows those ports. `forward` starts a TCP relay when the
 requested port differs from the existing mapping.
 
+The EVM-only network does not start Tendermint RPC, the Cosmos REST API, or
+gRPC. Port 8545 exposes a deliberately minimal JSON-RPC service with only
+`eth_sendRawTransaction`; other EVM methods currently return method-not-found.
+`list` reads execution height from the node's internal Prometheus endpoint
+inside its container, so cluster inspection does not require Tendermint RPC.
+
 ## AWS EC2
 
 The AWS target provisions one Ubuntu EC2 host and runs the identical four-node

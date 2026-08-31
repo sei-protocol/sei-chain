@@ -172,7 +172,11 @@ if [ "$AUTOBAHN" = "true" ]; then
   if [ "$AUTOBAHN_EVMONLY_IN_MEMORY" = "true" ]; then
     seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG" --persistent-state-dir=
     sed -i 's/^evm-only-in-memory = .*/evm-only-in-memory = true/' ~/.sei/config/config.toml
-    echo "Enabled Autobahn EVM-only execution with in-memory consensus state for node $NODE_ID"
+    sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
+    sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+    sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+    sed -i '/^\[grpc-web\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+    echo "Enabled Autobahn EVM-only execution with only eth_sendRawTransaction RPC for node $NODE_ID"
   else
     seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
   fi
