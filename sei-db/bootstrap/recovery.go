@@ -12,8 +12,8 @@ type RecoverableStore struct {
 	targetVersion int64
 }
 
-// CrashRecover brings the opened stores onto one height after an unclean shutdown.
-// After recovery:
+// CrashRecover recovers the data for opened stores on startup.
+// After the recovery we guarantee:
 //  1. Every store is at or below the block store's height.
 //  2. Every store other than the block store is on the same height.
 func (m *GigaStorageManager) CrashRecover() error {
