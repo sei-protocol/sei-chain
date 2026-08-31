@@ -38,9 +38,8 @@ const (
 	KindNestedAnySlice
 	KindEmptyStringSlice
 
-	// kindCount bounds the block, the same shape as castKindCount in configtest.
-	// ConfigValueKinds derives from it, so the count cannot drift from the set of
-	// named selectors.
+	// kindCount bounds the block. ConfigValueKinds derives from it, so the count
+	// cannot drift from the set of named selectors.
 	kindCount
 )
 

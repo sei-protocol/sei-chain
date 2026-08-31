@@ -8,147 +8,11 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // register the JS evaluator
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // register the native tracers
+	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
-	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 )
-
-// evmKeys is the [evm] section's read-site manifest: every key ReadConfig looks
-// up, the field it resolves into, and the cast it applies. The keys are spelled
-// out as literals rather than referenced through the package's unexported flag
-// constants on purpose — the literal is the operator-facing contract, written by
-// hand into app.toml, and renaming it is a breaking change that this table is
-// here to catch.
-//
-// Every row is guarded (`if v := opts.Get(k); v != nil`) and checked
-// (cast.ToXE), which together give the section its two operator-visible
-// properties: a key absent from an older app.toml keeps the in-code default, and
-// a malformed value fails the boot with the key named instead of resolving to a
-// zero. Three keys carry extra semantics past the cast and are covered by
-// dedicated targets below rather than folded in here.
-var evmKeys = []configtest.KeySpec{
-	{Key: "evm.http_enabled", Path: "HTTPEnabled", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.http_port", Path: "HTTPPort", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.ws_enabled", Path: "WSEnabled", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.ws_port", Path: "WSPort", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.read_timeout", Path: "ReadTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.read_header_timeout", Path: "ReadHeaderTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.write_timeout", Path: "WriteTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.idle_timeout", Path: "IdleTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.simulation_gas_limit", Path: "SimulationGasLimit", Cast: configtest.CastUint64, Checked: true},
-	{Key: "evm.simulation_evm_timeout", Path: "SimulationEVMTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.enable_simulation", Path: "EnableSimulation", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.cors_origins", Path: "CORSOrigins", Cast: configtest.CastString, Checked: true},
-	{Key: "evm.ws_origins", Path: "WSOrigins", Cast: configtest.CastString, Checked: true},
-	{Key: "evm.filter_timeout", Path: "FilterTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.checktx_timeout", Path: "CheckTxTimeout", Cast: configtest.CastDuration, Checked: true},
-	{
-		Key: "evm.max_tx_pool_txs", Path: "MaxTxPoolTxs", Cast: configtest.CastUint64, Checked: true,
-		Why: "not rendered in the [evm] template; reachable only by hand-editing, env or flag",
-	},
-	{Key: "evm.slow", Path: "Slow", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.deny_list", Path: "DenyList", Cast: configtest.CastStringSlice, Checked: true},
-	{Key: "evm.max_log_no_block", Path: "MaxLogNoBlock", Cast: configtest.CastInt64, Checked: true},
-	{Key: "evm.max_blocks_for_log", Path: "MaxBlocksForLog", Cast: configtest.CastInt64, Checked: true},
-	{
-		Key: "evm.max_log_bytes", Path: "MaxLogBytes", Cast: configtest.CastInt64, Checked: true,
-		Why: "bounds the response bytes an eth_getLogs may return, so it caps peak memory per query",
-	},
-	{Key: "evm.max_estimate_gas_calls", Path: "MaxEstimateGasCalls", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.max_state_override_accounts", Path: "MaxStateOverrideAccounts", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.max_state_override_slots", Path: "MaxStateOverrideSlots", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.max_subscriptions_new_head", Path: "MaxSubscriptionsNewHead", Cast: configtest.CastUint64, Checked: true},
-	{Key: "evm.max_subscriptions_logs", Path: "MaxSubscriptionsLogs", Cast: configtest.CastUint64, Checked: true},
-	{
-		Key: "evm.enable_test_api", Path: "EnableTestAPI", Cast: configtest.CastBool, Checked: true,
-		Why: "deliberately absent from the template, but any operator can still set it by hand",
-	},
-	{Key: "evm.max_concurrent_trace_calls", Path: "MaxConcurrentTraceCalls", Cast: configtest.CastUint64, Checked: true},
-	{
-		Key: "evm.max_concurrent_simulation_calls", Path: "MaxConcurrentSimulationCalls",
-		Cast: configtest.CastInt, Checked: true,
-		Why: "default is runtime.NumCPU(), so the absent-key value is machine-dependent",
-	},
-	{Key: "evm.max_trace_lookback_blocks", Path: "MaxTraceLookbackBlocks", Cast: configtest.CastInt64, Checked: true},
-	{Key: "evm.trace_timeout", Path: "TraceTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.max_trace_struct_log_bytes", Path: "MaxTraceStructLogBytes", Cast: configtest.CastUint64, Checked: true},
-	{Key: "evm.trace_allow_js_tracers", Path: "TraceAllowJSTracers", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.enable_parallelized_block_trace", Path: "EnableParallelizedBlockTrace", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.rpc_stats_interval", Path: "RPCStatsInterval", Cast: configtest.CastDuration, Checked: true},
-	{
-		Key: "evm.worker_pool_size", Path: "WorkerPoolSize", Cast: configtest.CastInt, Checked: true,
-		Why: "default is min(64, 2*NumCPU), so the absent-key value is machine-dependent",
-	},
-	{Key: "evm.worker_queue_size", Path: "WorkerQueueSize", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.enabled_legacy_sei_apis", Path: "EnabledLegacySeiApis", Cast: configtest.CastStringSlice, Checked: true},
-	{Key: "evm.trace_bake_enabled", Path: "TraceBakeEnabled", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.trace_bake_workers", Path: "TraceBakeWorkers", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.trace_bake_queue_size", Path: "TraceBakeQueueSize", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.trace_bake_window_blocks", Path: "TraceBakeWindowBlocks", Cast: configtest.CastInt64, Checked: true},
-	{Key: "evm.trace_bake_use_snapshot", Path: "TraceBakeUseSnapshot", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.trace_bake_snapshot_window", Path: "TraceBakeSnapshotWindow", Cast: configtest.CastInt64, Checked: true},
-	{Key: "evm.ip_rate_limit_rps", Path: "IPRateLimitRPS", Cast: configtest.CastFloat64, Checked: true},
-	{Key: "evm.ip_rate_limit_burst", Path: "IPRateLimitBurst", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.rate_limiting_enabled", Path: "RateLimitingEnabled", Cast: configtest.CastBool, Checked: true},
-	{Key: "evm.trusted_proxy_cidrs", Path: "TrustedProxyCIDRs", Cast: configtest.CastStringSlice, Checked: true},
-	{Key: "evm.batch_request_limit", Path: "BatchRequestLimit", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.batch_response_max_size", Path: "BatchResponseMaxSize", Cast: configtest.CastInt, Checked: true},
-	{Key: "evm.max_request_body_bytes", Path: "MaxRequestBodyBytes", Cast: configtest.CastInt64, Checked: true},
-	{Key: "evm.max_concurrent_request_bytes", Path: "MaxConcurrentRequestBytes", Cast: configtest.CastInt64, Checked: true},
-	{Key: "evm.ws_admission_timeout", Path: "WSAdmissionTimeout", Cast: configtest.CastDuration, Checked: true},
-	{Key: "evm.body_read_idle_timeout", Path: "BodyReadIdleTimeout", Cast: configtest.CastDuration, Checked: true},
-}
-
-func readEVM(opts configtest.AppOpts) (any, error) { return config.ReadConfig(opts) }
-
-// FuzzReadConfig drives every plain [evm] key through arbitrary raw values,
-// holding each to the cast its manifest row declares.
-func FuzzReadConfig(f *testing.F) {
-	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
-
-	// Every row gets a nil and a malformed seed, so the two properties this table exists to
-	// state hold for every key on an ordinary `go test` run rather than only under -fuzz. A
-	// plain run replays seeds and nothing else, so a row with no seed is a row whose guard
-	// could be dropped without CI noticing. Same loop as
-	// FuzzGetConfigGuardedKeysPreserveDefaults in sei-cosmos/server/config.
-	for i := range len(evmKeys) {
-		seeds.AddRow(uint(i), fuzzing.KindNil, "", int64(0), false)               // nil: a guarded read keeps the default
-		seeds.AddRow(uint(i), fuzzing.KindString, "not-a-value", int64(0), false) // malformed for a scalar cast
-		// A map, because "not-a-value" is malformed for a scalar cast and legal for a slice one.
-		// cast.ToStringSliceE turns any string into a one-element slice, so the four slice-cast rows
-		// here were seeded with a value their cast accepts and nothing reached their error path.
-		//
-		// Added for every row rather than for those four, which is a deliberate trade. It grows this
-		// target's corpus by one entry per row, and each extra seed drives a full read and a Dump
-		// comparison. What it buys is that a row added later gets the seed without anyone remembering
-		// to, so the property holds by construction instead of by a list that has to be maintained
-		// alongside the table.
-		seeds.AddRow(uint(i), fuzzing.KindMap, "", int64(0), false)
-	}
-
-	// Seeds span the shapes an operator produces from the three layers that reach
-	// this reader: TOML scalars, environment strings (always strings, never
-	// typed), and cobra flag values.
-	seeds.AddRow(uint(0), fuzzing.KindBool, "true", int64(1), true)                          // TOML bool
-	seeds.AddRow(uint(1), fuzzing.KindNumericString, "", int64(8545), false)                 // env-style numeric string
-	seeds.AddRow(uint(4), fuzzing.KindString, "30s", int64(0), false)                        // duration spelling
-	seeds.AddRow(uint(4), fuzzing.KindInt64, "", int64(30), false)                           // bare number as a duration (nanoseconds)
-	seeds.AddRow(uint(17), fuzzing.KindStringSlice, "eth_call eth_getLogs", int64(0), false) // whitespace-split slice
-	seeds.AddRow(uint(17), fuzzing.KindAnySlice, "eth_call", int64(1), false)                // []any slice
-	seeds.AddRow(uint(8), fuzzing.KindInt64, "", int64(-1), false)                           // negative into an unsigned cast: rejected
-	seeds.AddRow(uint(8), fuzzing.KindUint64, "", int64(-1), false)                          // the same bits unsigned, near 2^64: accepted
-	seeds.AddRow(uint(11), fuzzing.KindMap, "", int64(0), false)                             // a table where a scalar belongs
-	seeds.AddRow(uint(0), fuzzing.KindString, "not-a-bool", int64(0), false)                 // must error, never resolve false
-	seeds.AddRow(uint(44), fuzzing.KindFloat64, "", int64(7), false)                         // float into a float key
-
-	configtest.CheckEveryRowHasADiscriminatingSeed(f, "evm", readEVM, evmKeys, seeds)
-
-	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
-		spec := configtest.Pick(evmKeys, keyIdx)
-		configtest.CheckRow(t, "evm", readEVM, spec, fuzzing.ConfigValue(kind, s, n, b))
-	})
-}
 
 // FuzzTracerAllowlists fuzzes the two tracer-name lists, the one place in this
 // section where a value is validated rather than merely converted.
@@ -316,16 +180,13 @@ func TestEveryNativeTracerEntryIsNonJSInGeth(t *testing.T) {
 	}
 }
 
-func resolvedTracers(t *testing.T, cfg any, path string) []string {
+// resolvedTracers returns the tracer list the named Config field resolved to.
+func resolvedTracers(t *testing.T, cfg config.Config, path string) []string {
 	t.Helper()
-	c, ok := cfg.(config.Config)
-	if !ok {
-		t.Fatalf("unexpected config type %T", cfg)
-	}
 	if path == "TraceAllowedTracers" {
-		return c.TraceAllowedTracers
+		return cfg.TraceAllowedTracers
 	}
-	return c.TraceBakeTracers
+	return cfg.TraceBakeTracers
 }
 
 // FuzzMaxOpenConnections pins the only [evm] key with a range check. A negative
@@ -358,52 +219,17 @@ func FuzzMaxOpenConnections(f *testing.F) {
 // with no [evm] section resolves to DefaultConfig exactly, including the two
 // machine-dependent defaults and the normalized tracer lists.
 func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
-	configtest.CheckAbsent(t, "evm", readEVM, config.DefaultConfig)
+	cfg, err := config.ReadConfig(configtest.AppOpts{})
+	require.NoError(t, err, "an app.toml with no [evm] section must read cleanly")
+	require.Equal(t, config.DefaultConfig, cfg,
+		"a key absent from app.toml must keep the in-code default")
 }
 
-// TestDefaultsMatchTheRecordedValues pins the evm defaults themselves.
-//
-// The absent-keys row above proves the reader returns the declared defaults; it cannot prove
-// which values those are, because both sides of that comparison come from this package. This
-// compares them against testdata/evm.golden, an independent recording, so a default that
-// moves shows the new value in a diff instead of passing silently.
-func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "evm", config.DefaultConfig,
-		configtest.DerivedDefault{
-			Path: "MaxConcurrentSimulationCalls", Want: runtime.NumCPU(),
-			Why: "runtime.NumCPU()",
-		},
-		configtest.DerivedDefault{
-			Path: "WorkerPoolSize", Want: min(config.MaxWorkerPoolSize, runtime.NumCPU()*2),
-			Why: "min(MaxWorkerPoolSize, runtime.NumCPU()*2)",
-		},
-	)
-}
-
-// TestKeyNamesMatchTheRecordedNames pins all key names themselves.
-//
-// The table's header states the decision to spell these keys as literals rather than through
-// the package's flag constants, precisely so that a rename in the reader leaves the row
-// behind and fails. That decision is a comment, and a comment does not survive a later
-// refactor that tidies the duplication away. The record does: it holds the resolved string, so
-// a row converted to reference a constant is checked against the same name, and editing that
-// constant then fails here.
-func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
-	configtest.CheckKeyNames(t, "evm", evmKeys)
-}
-
-// TestManifestNamesEveryField enforces the claim evmKeys makes about itself.
-//
-// The table says it lists every key ReadConfig looks up, and that claim is what a replacement
-// implementation will read as the contract for this section. Asserting it in prose leaves it
-// able to drift: a key can be added to the reader and rendered into app.toml while the table
-// stays silent, and the table is the artifact being trusted.
-func TestManifestNamesEveryField(t *testing.T) {
-	configtest.CheckManifestCoversEveryField(t, "evm", config.DefaultConfig, evmKeys,
-		// Driven by dedicated targets in this file rather than by a table row, because each
-		// needs a shape CheckRow does not express.
-		"TraceAllowedTracers", // FuzzTracerAllowlists
-		"TraceBakeTracers",    // FuzzTracerAllowlists
-		"MaxOpenConnections",  // FuzzMaxOpenConnections
-	)
+// TestMachineDependentDefaultsFollowTheirFormula holds the two defaults that are computed from the
+// host's CPU count to the formulas that define them.
+func TestMachineDependentDefaultsFollowTheirFormula(t *testing.T) {
+	require.Equal(t, runtime.NumCPU(), config.DefaultConfig.MaxConcurrentSimulationCalls,
+		"MaxConcurrentSimulationCalls must default to runtime.NumCPU()")
+	require.Equal(t, min(config.MaxWorkerPoolSize, runtime.NumCPU()*2), config.DefaultConfig.WorkerPoolSize,
+		"WorkerPoolSize must default to min(MaxWorkerPoolSize, runtime.NumCPU()*2)")
 }

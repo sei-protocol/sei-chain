@@ -375,7 +375,7 @@ func TestRunPersistSeedsFromRecoveryFloor(t *testing.T) {
 			i++
 		}
 		for n := gr2.First; n < gr2.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return err
 			}
 		}
@@ -424,35 +424,10 @@ func TestRecoveryBlockGap(t *testing.T) {
 	require.Equal(t, mid, state.NextBlock(), "replay must resume at the first unfilled number")
 }
 
-func TestNewState_SetupInitialEpochsFromCommitQCSpan(t *testing.T) {
-	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 4)
-	qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
-
-	store := newMemoryBlockStore(t)
-	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
-
-	_, err := registry.EpochAt(epoch.FirstRoad(1))
-	require.NoError(t, err, "precondition: genesis epochs 0 and 1 are registered")
-	_, err = registry.EpochAt(epoch.FirstRoad(2))
-	require.Error(t, err, "precondition: epoch 2 absent before NewState")
-
-	_, err = NewState(&Config{Registry: registry}, store)
-	require.NoError(t, err)
-
-	for _, idx := range []types.EpochIndex{0, 1} {
-		if _, err := registry.EpochAt(epoch.FirstRoad(idx)); err != nil {
-			t.Fatalf("EpochAt(epoch %d) after NewState: %v", idx, err)
-		}
-	}
-	if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
-		t.Fatal("epoch 2 should not be seeded from a single epoch-0 CommitQC")
-	}
-}
-
 func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
+	ep2 := registry.MustEpoch(2)
 	ep1 := registry.MustEpoch(1)
 
 	qc, blocks := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), ep1.FirstBlock())
@@ -461,7 +436,181 @@ func TestNewState_NextCommitEpochAtBoundaryTip(t *testing.T) {
 	writeAppDataToBlockStore(t, rng, db, keys, qc)
 
 	state := newTestState(t, &Config{Registry: registry}, db)
-	ep2, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.NoError(t, err)
 	require.Equal(t, ep2, state.NextCommitEpoch().Load())
+}
+
+// writeExecutedTip writes a one-block CommitQC and its AppProposal at road.
+func writeExecutedTip(
+	t *testing.T,
+	store types.BlockStore,
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	road types.RoadIndex,
+	appHash types.AppHash,
+) types.GlobalBlockNumber {
+	t.Helper()
+	qc, blocks := commitQCAtRoad(ep, keys, road, ep.FirstBlock())
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().Proposal(), appHash)))
+	utils.OrPanic(store.Flush())
+	return qc.QC().GlobalRange().Next - 1
+}
+
+func TestPushAppHash_ReplayClosingRoadStagesEpoch(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	appHash := types.GenAppHash(rng)
+	store := newMemoryBlockStore(t)
+	n := writeExecutedTip(t, store, registry.MustEpoch(0), keys, epoch.LastRoad(0), appHash)
+	state := newTestState(t, &Config{Registry: registry}, store)
+	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err)
+
+	staged := utils.Some(types.EpochIndex(2))
+	require.NoError(t, state.PushAppHash(ctx, n, appHash, map[types.PublicKey]uint64{keeper: 9}))
+	require.Equal(t, staged, registry.Pending())
+	_, err = registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err)
+
+	require.NoError(t, state.PushAppHash(ctx, n, appHash, map[types.PublicKey]uint64{keeper: 9}))
+	require.Equal(t, staged, registry.Pending())
+	require.Error(t, state.PushAppHash(ctx, n, appHash, map[types.PublicKey]uint64{keys[1].Public(): 1}))
+	require.Equal(t, staged, registry.Pending())
+}
+
+func TestPushAppHash_RestartAtEpoch1KeepsLastRoadStake(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	base, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	later := keys[1].Public()
+	endWeights := map[types.PublicKey]uint64{keeper: 9}
+	laterWeights := map[types.PublicKey]uint64{later: 4}
+
+	regDir := utils.Some(t.TempDir())
+	registry := utils.OrPanic1(epoch.NewRegistry(
+		base.MustEpoch(0).Committee(),
+		base.FirstBlock(),
+		base.GenesisTimestamp(),
+		regDir,
+	))
+	storeDir := t.TempDir()
+	store := newTestBlockStore(t, storeDir)
+	state := newTestState(t, &Config{Registry: registry}, store)
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+
+	var n1 types.GlobalBlockNumber
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+			return err
+		}
+		n0 := qc0.QC().GlobalRange().Next - 1
+		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng), endWeights); err != nil {
+			return err
+		}
+		qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), qc0.QC().GlobalRange().Next)
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		n1 = qc1.QC().GlobalRange().Next - 1
+		return state.PushAppHash(ctx, n1, types.GenAppHash(rng), laterWeights)
+	}))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+	require.NoError(t, store.Close())
+
+	registry2 := utils.OrPanic1(epoch.NewRegistry(
+		base.MustEpoch(0).Committee(),
+		base.FirstBlock(),
+		base.GenesisTimestamp(),
+		regDir,
+	))
+	store2 := newTestBlockStore(t, storeDir)
+	state2 := newTestState(t, &Config{Registry: registry2}, store2)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state2.Run(ctx)) })
+		return state2.PushAppHash(ctx, n1, types.GenAppHash(rng), laterWeights)
+	}))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry2.Pending())
+	require.NoError(t, registry2.ActivateEpoch(2))
+	got := registry2.MustEpoch(2).Committee()
+	require.Equal(t, uint64(9), got.Weight(keeper))
+	require.False(t, got.HasReplica(later))
+}
+
+func TestPushAppHash_ReplayMidRangeOfClosingRoadDoesNotStage(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	appHash := types.GenAppHash(rng)
+	store := newMemoryBlockStore(t)
+	ep := registry.MustEpoch(0)
+	qc, blocks := commitQCAtRoadBlocks(ep, keys, epoch.LastRoad(0), ep.FirstBlock(), 2)
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	utils.OrPanic(store.WriteAppProposal(types.NewAppProposal(qc.QC().Proposal(), appHash)))
+	utils.OrPanic(store.Flush())
+	state := newTestState(t, &Config{Registry: registry}, store)
+
+	gr := qc.QC().GlobalRange()
+	require.Equal(t, uint64(2), gr.Len())
+	mid, last := gr.First, gr.Next-1
+	require.NoError(t, state.PushAppHash(ctx, mid, appHash, map[types.PublicKey]uint64{keeper: 9}))
+	require.Equal(t, utils.None[types.EpochIndex](), registry.Pending())
+
+	require.NoError(t, state.PushAppHash(ctx, last, appHash, map[types.PublicKey]uint64{keeper: 9}))
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+}
+
+func TestPushAppHash_ReplayMidEpochDoesNotStage(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	appHash := types.GenAppHash(rng)
+	store := newMemoryBlockStore(t)
+	n := writeExecutedTip(t, store, registry.MustEpoch(0), keys, epoch.FirstRoad(0), appHash)
+	state := newTestState(t, &Config{Registry: registry}, store)
+
+	require.NoError(t, state.PushAppHash(ctx, n, appHash, map[types.PublicKey]uint64{keys[0].Public(): 9}))
+	require.Equal(t, utils.None[types.EpochIndex](), registry.Pending())
+	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err)
+}
+
+func TestNewState_ActivatesStagedEpochFromPersistedAppQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	ep := registry.MustEpoch(0)
+	store := newMemoryBlockStore(t)
+	qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
+	writeToBlockStore(t, store, []*types.FullCommitQC{qc}, [][]*types.Block{blocks})
+	writeAppDataToBlockStore(t, rng, store, keys, qc)
+
+	require.NoError(t, registry.StageEpoch(0, map[types.PublicKey]uint64{keeper: 9}))
+	_, err := registry.EpochByIndex(2)
+	require.Error(t, err)
+
+	_ = newTestState(t, &Config{Registry: registry}, store)
+	require.Equal(t, uint64(9), registry.MustEpoch(2).Committee().Weight(keeper))
+	require.Equal(t, utils.None[types.EpochIndex](), registry.Pending())
+}
+
+func TestNewState_LeavesStagedEpochWithoutAppQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	appHash := types.GenAppHash(rng)
+	store := newMemoryBlockStore(t)
+	_ = writeExecutedTip(t, store, registry.MustEpoch(0), keys, epoch.LastRoad(0), appHash)
+	require.NoError(t, registry.StageEpoch(0, map[types.PublicKey]uint64{keeper: 9}))
+
+	_ = newTestState(t, &Config{Registry: registry}, store)
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+	_, err := registry.EpochByIndex(2)
+	require.Error(t, err)
 }

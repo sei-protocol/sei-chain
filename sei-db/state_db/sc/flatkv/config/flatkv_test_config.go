@@ -28,8 +28,8 @@ func DefaultTestConfig(t *testing.T) *Config {
 	t.Helper()
 	return &Config{
 		DataDir:                filepath.Join(t.TempDir(), "flatkv"),
-		SnapshotInterval:       DefaultSnapshotInterval,
-		SnapshotKeepRecent:     DefaultSnapshotKeepRecent,
+		SnapshotInterval:       10000,
+		SnapshotKeepRecent:     1,
 		AccountDBConfig:        smallTestPebbleConfig(),
 		AccountStoreConfig:     smallTestViewManagerConfig("account"),
 		CodeDBConfig:           smallTestPebbleConfig(),
