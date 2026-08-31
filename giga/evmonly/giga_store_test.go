@@ -61,7 +61,8 @@ func newMemoryGigaSnapshot(height int64) *memoryGigaSnapshot {
 	}
 }
 
-func (s *memoryGigaSnapshot) AccountExists(addr common.Address) bool {
+func (s *memoryGigaSnapshot) AccountExists(address gigastore.Address) bool {
+	addr := common.Address(address)
 	if s.balances[addr] != (common.Hash{}) || s.nonces[addr] != 0 || len(s.code[addr]) != 0 {
 		return true
 	}
@@ -73,31 +74,32 @@ func (s *memoryGigaSnapshot) AccountExists(addr common.Address) bool {
 	return false
 }
 
-func (s *memoryGigaSnapshot) GetStorage(addr common.Address, key common.Hash) common.Hash {
-	return s.storage[gigaStorageKey{address: addr, key: key}]
+func (s *memoryGigaSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
+	addr := common.Address(address)
+	return gigastore.Hash(s.storage[gigaStorageKey{address: addr, key: common.Hash(slot)}])
 }
 
-func (s *memoryGigaSnapshot) GetBalance(addr common.Address) common.Hash {
-	return s.balances[addr]
+func (s *memoryGigaSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
+	return gigastore.Hash(s.balances[common.Address(address)])
 }
 
-func (s *memoryGigaSnapshot) GetNonce(addr common.Address) uint64 {
-	return s.nonces[addr]
+func (s *memoryGigaSnapshot) GetNonce(address gigastore.Address) uint64 {
+	return s.nonces[common.Address(address)]
 }
 
-func (s *memoryGigaSnapshot) GetCodeSize(addr common.Address) int {
-	return len(s.code[addr])
+func (s *memoryGigaSnapshot) GetCodeSize(address gigastore.Address) int {
+	return len(s.code[common.Address(address)])
 }
 
-func (s *memoryGigaSnapshot) GetCodeHash(addr common.Address) common.Hash {
-	if !s.AccountExists(addr) {
-		return common.Hash{}
+func (s *memoryGigaSnapshot) GetCodeHash(address gigastore.Address) gigastore.Hash {
+	if !s.AccountExists(address) {
+		return gigastore.Hash{}
 	}
-	return common.Hash(crypto.Keccak256Hash(s.code[addr]))
+	return gigastore.Hash(crypto.Keccak256Hash(s.code[common.Address(address)]))
 }
 
-func (s *memoryGigaSnapshot) GetCode(addr common.Address) []byte {
-	return s.code[addr]
+func (s *memoryGigaSnapshot) GetCode(address gigastore.Address) []byte {
+	return s.code[common.Address(address)]
 }
 
 func (s *memoryGigaSnapshot) GetBlockHeight() int64 {

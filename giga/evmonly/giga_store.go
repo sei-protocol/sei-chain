@@ -87,18 +87,18 @@ type gigaSnapshotStateReader struct {
 }
 
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {
-	balance := r.snapshot.GetBalance(addr)
+	balance := r.snapshot.GetBalance(gigastore.Address(addr))
 	return new(big.Int).SetBytes(balance[:])
 }
 
 func (r gigaSnapshotStateReader) GetNonce(addr common.Address) uint64 {
-	return r.snapshot.GetNonce(addr)
+	return r.snapshot.GetNonce(gigastore.Address(addr))
 }
 
 func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
-	return cloneBytes(r.snapshot.GetCode(addr))
+	return cloneBytes(r.snapshot.GetCode(gigastore.Address(addr)))
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
-	return r.snapshot.GetStorage(addr, key)
+	return common.Hash(r.snapshot.GetStorage(gigastore.Address(addr), gigastore.Hash(key)))
 }
