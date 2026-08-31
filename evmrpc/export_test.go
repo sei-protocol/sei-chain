@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"sync"
 
@@ -17,6 +18,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
+
+// HoldSimulationSlotsForTest occupies simulation request slots until the returned function is called.
+func (s *SimulationAPI) HoldSimulationSlotsForTest(ctx context.Context, slots int64) (func(), error) {
+	if s.requestLimiter == nil {
+		return nil, errors.New("simulation request limiter is disabled")
+	}
+	if slots <= 0 {
+		return nil, errors.New("simulation slot count must be positive")
+	}
+	if err := s.requestLimiter.Acquire(ctx, slots); err != nil {
+		return nil, err
+	}
+
+	return func() { s.requestLimiter.Release(slots) }, nil
+}
 
 // RangeQueryWindowBlocksForTest exposes rangeQueryWindowBlocks so integration
 // tests can assert tryFilterLogsRange's window boundaries without hardcoding

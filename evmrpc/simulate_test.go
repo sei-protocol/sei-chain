@@ -606,6 +606,7 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {
+	const maxConcurrentSimulationCalls = 2
 
 	type testEnv struct {
 		simAPI *evmrpc.SimulationAPI
@@ -632,7 +633,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		config := &evmrpc.SimulateConfig{
 			GasCap:                       1000000,
 			EVMTimeout:                   5 * time.Second,
-			MaxConcurrentSimulationCalls: 2, // Small limit to easily trigger rate limiting
+			MaxConcurrentSimulationCalls: maxConcurrentSimulationCalls,
 		}
 
 		// Use the existing test app from the global setup
@@ -678,9 +679,21 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			args:   args,
 		}
 	}
+	assertRateLimited := func(t *testing.T, tEnv *testEnv, expected string, invoke func() error) {
+		t.Helper()
+		release, err := tEnv.simAPI.HoldSimulationSlotsForTest(t.Context(), maxConcurrentSimulationCalls)
+		require.NoError(t, err)
+		defer release()
+		require.EqualError(t, invoke(), expected)
+	}
 
 	t.Run("TestEthCallRateLimiting", func(t *testing.T) {
 		tEnv := newTestEnv(t)
+		assertRateLimited(t, tEnv, "eth_call rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
+			return err
+		})
+
 		// Test eth_call rate limiting with concurrent requests
 		numRequests := 10 // Much more than the limit of 2
 		runBurst := func() []error {
@@ -721,8 +734,9 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 			}
 		}
 
-		// With only 2 concurrent slots and 10 requests, we should have rejections
-		require.Greater(t, rejectedCount, 0, "Should have rejected requests due to rate limiting")
+		// Calls can serialize before another goroutine holds a slot. The saturated
+		// call above covers rejection deterministically; this burst covers the
+		// concurrent response outcomes.
 		require.Greater(t, successCount, 0, "Should have some successful requests")
 		require.Equal(t, numRequests, successCount+rejectedCount, "All requests should be accounted for")
 
@@ -893,122 +907,23 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
-		// Test that different simulation methods share the same rate limiter.
-		// A single burst can occasionally avoid contention on overloaded CI workers,
-		// so retry a synchronized burst a few times.
-		const (
-			numCallRequests     = 20
-			numEstimateRequests = 20
-			maxAttempts         = 5
-		)
-		totalRequests := numCallRequests + numEstimateRequests
-
-		runMixedBurst := func(tEnv *testEnv) (int, int) {
-			results := make(chan error, totalRequests)
-			start := make(chan struct{})
-			var wg sync.WaitGroup
-
-			// Start mixed requests and release them at once to maximize contention.
-			for range numCallRequests {
-				wg.Go(func() {
-					<-start
-					_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
-					results <- err
-				})
-			}
-			for range numEstimateRequests {
-				wg.Go(func() {
-					<-start
-					_, err := tEnv.simAPI.EstimateGas(t.Context(), tEnv.args, nil, nil)
-					results <- err
-				})
-			}
-
-			close(start)
-			wg.Wait()
-			close(results)
-
-			successCount := 0
-			rejectedCount := 0
-			for err := range results {
-				if err == nil {
-					successCount++
-				} else if strings.Contains(err.Error(), "rejected due to rate limit: server busy") {
-					rejectedCount++
-				}
-			}
-			return successCount, rejectedCount
-		}
-
-		var (
-			lastSuccess       int
-			lastRejected      int
-			attemptsUsed      int
-			observedRejection bool
-		)
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			attemptsUsed = attempt
-			lastSuccess, lastRejected = runMixedBurst(newTestEnv(t))
-			require.Equalf(t, totalRequests, lastSuccess+lastRejected, "All mixed method requests should be accounted for (attempt %d)", attempt)
-			if lastRejected > 0 {
-				observedRejection = true
-				break
-			}
-		}
-
-		require.Truef(
-			t,
-			observedRejection,
-			"Different methods should share the same rate limiter (last burst: %d successful, %d rejected)",
-			lastSuccess,
-			lastRejected,
-		)
-		t.Logf(
-			"Mixed methods rate limiting (attempt %d/%d): %d successful, %d rejected out of %d total",
-			attemptsUsed,
-			maxAttempts,
-			lastSuccess,
-			lastRejected,
-			totalRequests,
-		)
+		tEnv := newTestEnv(t)
+		assertRateLimited(t, tEnv, "eth_call rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
+			return err
+		})
+		assertRateLimited(t, tEnv, "eth_estimateGas rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.EstimateGas(t.Context(), tEnv.args, nil, nil)
+			return err
+		})
 	})
 
 	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {
 		tEnv := newTestEnv(t)
-		// Test the error message format by overwhelming the rate limiter
-		const numRequests = 20
-		results := make(chan error, numRequests)
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-
-		// Release all requests at once to reliably saturate the limiter.
-		for range numRequests {
-			wg.Go(func() {
-				<-start
-				_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
-				results <- err
-			})
-		}
-		close(start)
-		wg.Wait()
-		close(results)
-
-		var rateLimitErrors []error
-		for err := range results {
-			if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
-				rateLimitErrors = append(rateLimitErrors, err)
-			}
-		}
-
-		require.Greater(t, len(rateLimitErrors), 0, "Should have at least one rate limit error")
-
-		// Verify error message format
-		for _, err := range rateLimitErrors {
-			require.Contains(t, err.Error(), "eth_call rejected due to rate limit: server busy")
-			require.Contains(t, err.Error(), "server busy")
-		}
-
-		t.Logf("Found %d rate limit errors with correct format", len(rateLimitErrors))
+		assertRateLimited(t, tEnv, "eth_createAccessList rejected due to rate limit: server busy", func() error {
+			_, err := tEnv.simAPI.CreateAccessList(t.Context(), tEnv.args, nil)
+			return err
+		})
 	})
 }
 
