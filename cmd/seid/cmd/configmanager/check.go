@@ -200,8 +200,11 @@ func theModeTheNodesOwnFileRecords(home string) (string, error) {
 	case err != nil:
 		return "", err
 	}
-	if mode := v.GetString("mode"); mode != "" {
-		return mode, nil
+	// A key that is present answers with what it holds, empty included. A boot unmarshals that empty
+	// string over the default, so the running kind really is empty and the comparison beside this reports
+	// it. Substituting the default here would pass a node the boot goes on to report.
+	if v.IsSet("mode") {
+		return v.GetString("mode"), nil
 	}
 	return tmcfg.DefaultConfig().Mode, nil
 }
@@ -236,7 +239,7 @@ func whatTheResolutionAlreadyKnows(resolved registry.Resolved) []string {
 // be refused at boot if the field it lands on holds something this cannot see. It is why this reports what
 // it can answer and the boot still reports what it finds.
 func whatADecodeWouldRefuse(resolved registry.Resolved) []string {
-	bySection := registry.SuppliedByDecodedSection(resolved)
+	bySection, _ := registry.SuppliedAndOwnedByDecodedSections(resolved)
 	var problems []string
 	for _, name := range sortedKeys(bySection) {
 		values := bySection[name]

@@ -347,6 +347,19 @@ func TestTheCheckFindsADisagreementAboutWhatKindOfNodeThisIs(t *testing.T) {
 		}
 	})
 
+	t.Run("a present but empty kind is what a boot gets, not the default", func(t *testing.T) {
+		// sei.toml names the kind this binary defaults to, which is the case that separates the two
+		// answers: substituting the default makes the two sides agree and the check pass, while a boot
+		// unmarshals the empty string over its default, runs with no kind at all, and reports it.
+		naming := "schema_version = 1\nnode_mode = \"" + tmcfg.DefaultConfig().Mode +
+			"\"\n\n[mempool]\nsize = 4321\n"
+		out, err := runCheckWithNodeFile(t, naming, "mode = \"\"\n")
+		if err == nil {
+			t.Errorf("the node's own file records no kind at all and the check passed, so it answered "+
+				"with a default the boot does not use:\n%s", out)
+		}
+	})
+
 	t.Run("a configuration file it cannot read is a problem, not an absence", func(t *testing.T) {
 		// A boot does not start on one of these at all, so answering with a default would pass a node
 		// that cannot boot. It is the same rule this command already applies to sei.toml.
