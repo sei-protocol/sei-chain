@@ -2,6 +2,7 @@ package configmanager
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -9,7 +10,7 @@ import (
 
 // TestTheCopyShareNothingWithWhatItCopied is the property the rollback rests on.
 //
-// The delivery decodes into a copy and publishes by replacing, so a refused value leaves the node's
+// The delivery decodes into a copy and publishes into the live one, so a refused value leaves the node's
 // configuration untouched. That holds only if the copy shares nothing the decode can write through, and a
 // decoder writes a list into the array its target already holds. One shared section, list or map and the
 // rehearsal edits the original.
@@ -138,16 +139,16 @@ func TestPublishingKeepsThePointerEverySectionIsHeldBy(t *testing.T) {
 	}
 
 	held := map[string]uintptr{}
-	held4321 := reflect.ValueOf(target).Elem()
-	for i := 0; i < held4321.NumField(); i++ {
-		f := held4321.Type().Field(i)
+	live := reflect.ValueOf(target).Elem()
+	for i := 0; i < live.NumField(); i++ {
+		f := live.Type().Field(i)
 		if f.Type.Kind() != reflect.Pointer || f.Type.Elem().Kind() != reflect.Struct {
 			continue
 		}
-		if held4321.Field(i).IsNil() {
+		if live.Field(i).IsNil() {
 			continue
 		}
-		held[f.Name] = held4321.Field(i).Pointer()
+		held[f.Name] = live.Field(i).Pointer()
 	}
 	if len(held) == 0 {
 		t.Fatal("this configuration holds no section behind a pointer of its own, so there is no identity " +
@@ -170,4 +171,39 @@ func TestPublishingKeepsThePointerEverySectionIsHeldBy(t *testing.T) {
 		t.Errorf("the delivered value reads %d, want 4321. Keeping the pointer is only worth anything if "+
 			"the value arrives through it", got)
 	}
+}
+
+// referencePathsIn returns every path in a type that a copy has to detach, for the test that holds the
+// detach to the type it walks.
+func referencePathsIn(t reflect.Type, path string, seen map[reflect.Type]bool) []string {
+	if seen[t] {
+		return nil
+	}
+	seen[t] = true
+	defer delete(seen, t)
+
+	var out []string
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
+		if path != "" {
+			out = append(out, path)
+		}
+		if t.Kind() != reflect.Interface {
+			out = append(out, referencePathsIn(t.Elem(), path, seen)...)
+		}
+	case reflect.Array:
+		// The array itself is not a reference, so it is not a path of its own. What it holds can be, and
+		// leaving this case out gives this walk the same blind spot as the copy it holds to account.
+		out = append(out, referencePathsIn(t.Elem(), path, seen)...)
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if f.PkgPath != "" {
+				continue
+			}
+			out = append(out, referencePathsIn(f.Type, join(path, f.Name), seen)...)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

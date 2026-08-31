@@ -66,27 +66,35 @@ func asUint(t *testing.T, v any) uint64 {
 // The report cannot be turned down either: this package holds its own logger at a floor so a quiet fleet
 // still sees what a delivery changed.
 func TestAPasswordInASettingDoesNotReachTheReport(t *testing.T) {
-	const password = "sup3rs3cret"
-
-	// Every form PostgreSQL accepts a password in. The userinfo of a URL is the one that comes to mind;
-	// the other three are just as writable and were the ones that leaked.
-	for _, dsn := range []string{
-		"postgres://seid:" + password + "@10.0.0.9:5432/idx",
-		"postgres://seid@10.0.0.9:5432/idx?password=" + password,
-		"postgres://seid@10.0.0.9:5432/idx?sslpassword=" + password,
-		"host=10.0.0.9 port=5432 user=seid password=" + password + " dbname=idx",
-		"postgresql://seid@10.0.0.9/idx?password=" + password + "&sslmode=require",
+	// Each case carries its own secret, and the whole secret has to be gone. A shared one-word secret
+	// hides the failure that matters here: a run that stops at the first space redacts the first word and
+	// leaves the rest, and the rest is still the password.
+	for _, tc := range []struct{ secret, dsn string }{
+		{"sup3rs3cret", "postgres://seid:sup3rs3cret@10.0.0.9:5432/idx"},
+		{"sup3rs3cret", "postgres://seid@10.0.0.9:5432/idx?password=sup3rs3cret"},
+		{"sup3rs3cret", "postgres://seid@10.0.0.9:5432/idx?sslpassword=sup3rs3cret"},
+		{"sup3rs3cret", "host=10.0.0.9 port=5432 user=seid password=sup3rs3cret dbname=idx"},
+		{"sup3rs3cret", "postgresql://seid@10.0.0.9/idx?password=sup3rs3cret&sslmode=require"},
+		// PostgreSQL accepts a quoted keyword value, and a password may hold spaces.
+		{"alpha bravo charlie", "host=10.0.0.9 user=seid password='alpha bravo charlie' dbname=idx"},
+		{"alpha bravo charlie", `host=10.0.0.9 user=seid password="alpha bravo charlie" dbname=idx`},
 	} {
 		var out bytes.Buffer
 		log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
 		reportWhatMoved("tx-index",
 			[]string{"tx-index.psql-conn"},
 			map[string]string{"tx-index.psql-conn": ""},
-			map[string]string{"tx-index.psql-conn": dsn},
+			map[string]string{"tx-index.psql-conn": tc.dsn},
 			log)
 
-		if strings.Contains(out.String(), password) {
-			t.Errorf("the report carries the password from %q:\n%s", dsn, out.String())
+		// Every word of the secret, not the whole string. A run that stops at the first space redacts the
+		// first word and leaves the rest, and the rest is still the password: checking only for the whole
+		// secret cannot see that, because the first word is genuinely gone.
+		for _, word := range strings.Fields(tc.secret) {
+			if strings.Contains(out.String(), word) {
+				t.Errorf("the report carries %q, part of the password in %q:\n%s",
+					word, tc.dsn, out.String())
+			}
 		}
 		if !strings.Contains(out.String(), "10.0.0.9") {
 			t.Errorf("the report no longer says where the index writes, so an operator cannot tell what "+
