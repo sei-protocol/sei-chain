@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -51,8 +50,7 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want0.Msg().Block().Header().Hash(), got0.Msg().Block().Header().Hash())
 
-	// Stay: epoch 1 is already seeded at genesis with the same committee; advance
-	// into it without ActivateEpoch (which must not rewrite existing epochs).
+	// Stay: epoch 1 is already seeded at genesis with the same committee.
 	var want1, got1 *types.Signed[*types.LaneProposal]
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
@@ -80,13 +78,8 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 
 	// Leave: peer drops from committee at epoch 2 (first vacant after genesis seeds).
 	// Anchor-epoch prune drops closed lane maps (same path as runEvict) and ends the subscribe.
-	epLeave, err := registry.ActivateEpoch(
-		0,
-		map[types.PublicKey]uint64{b.Public(): 1},
-		time.Time{}, registry.FirstBlock(),
-	)
-	require.NoError(t, err)
-	require.Equal(t, types.EpochIndex(2), epLeave.EpochIndex())
+	require.NoError(t, registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}))
+	epLeave := registry.MustEpoch(2)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBgNamed("runEpochAdvance", func() error {
 			return utils.IgnoreCancel(state.runEpochAdvance(ctx))
@@ -126,14 +119,10 @@ func TestSubscribeLaneProposals_StayLeaveRejoin(t *testing.T) {
 			gotLane = lane
 			return nil
 		})
-		epJoin, err := registry.ActivateEpoch(
-			epLeave.EpochIndex(),
-			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
-			time.Time{}, registry.FirstBlock(),
-		)
-		if err != nil {
+		if err := registry.StageAndActivate(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
 			return err
 		}
+		epJoin := registry.MustEpoch(3)
 		return TestDriveAdvance(ctx, state, keys, epJoin.EpochIndex())
 	}))
 	lane1 := state.LocalLane().OrPanic("rejoin")
@@ -171,10 +160,9 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		stateB := utils.OrPanic1(NewState(b, ds, utils.None[string]()))
 		laneA := stateA.LocalLane().OrPanic("genesis")
 
-		activate := func(parent types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
-			ep, err := registry.ActivateEpoch(parent, weights, time.Time{}, registry.FirstBlock())
-			require.NoError(t, err)
-			return ep
+		register := func(end types.EpochIndex, weights map[types.PublicKey]uint64) *types.Epoch {
+			require.NoError(t, registry.StageAndActivate(end, weights))
+			return registry.MustEpoch(end + 2)
 		}
 		advance := func(want types.EpochIndex) {
 			require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
@@ -195,7 +183,7 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		onlyA := map[types.PublicKey]uint64{a.Public(): 1}
 
 		block0 := produce(0)
-		epJoin := activate(0, both)
+		epJoin := register(0, both)
 		advance(epJoin.EpochIndex())
 		require.Equal(t, types.EpochIndex(2), stateB.LocalLane().OrPanic("joiner").Joined)
 
@@ -206,11 +194,11 @@ func TestJoinerCatchup_LaneVotes(t *testing.T) {
 		require.Equal(t, block0.Msg().Block().Header().Hash(), batch[0].Msg().Header().Hash())
 		require.Equal(t, b.Public(), batch[0].Key())
 
-		epLeave := activate(epJoin.EpochIndex(), onlyA)
+		epLeave := register(1, onlyA)
 		advance(epLeave.EpochIndex())
 		block1 := produce(1) // while out; skip RecvBatch so the cursor stays behind block1
 
-		epRejoin := activate(epLeave.EpochIndex(), both)
+		epRejoin := register(2, both)
 		advance(epRejoin.EpochIndex())
 		require.Equal(t, types.EpochIndex(4), stateB.LocalLane().OrPanic("rejoiner").Joined)
 

@@ -9,14 +9,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
-	"github.com/sei-protocol/sei-chain/utils/datastructures"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -210,10 +208,6 @@ func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, 
 		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), int64(missCount), otelmetric.WithAttributes(valLabel, missTypeAttribute))       //nolint:gosec
 		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), int64(abstainCount), otelmetric.WithAttributes(valLabel, abstainTypeAttribute)) //nolint:gosec
 		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), int64(successCount), otelmetric.WithAttributes(valLabel, successTypeAttribute)) //nolint:gosec
-		// TODO(PLT-336): remove once oracle_vote_penalty_count verified
-		metrics.SetOracleVotePenaltyCount(missCount, operator.String(), "miss")
-		metrics.SetOracleVotePenaltyCount(abstainCount, operator.String(), "abstain")
-		metrics.SetOracleVotePenaltyCount(successCount, operator.String(), "success")
 	}()
 
 	store := ctx.KVStore(k.storeKey)
@@ -258,10 +252,6 @@ func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddres
 		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), 0, otelmetric.WithAttributes(valLabel, missTypeAttribute))
 		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), 0, otelmetric.WithAttributes(valLabel, abstainTypeAttribute))
 		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), 0, otelmetric.WithAttributes(valLabel, successTypeAttribute))
-		// TODO(PLT-336): remove once oracle_vote_penalty_count verified
-		metrics.SetOracleVotePenaltyCount(0, operator.String(), "miss")
-		metrics.SetOracleVotePenaltyCount(0, operator.String(), "abstain")
-		metrics.SetOracleVotePenaltyCount(0, operator.String(), "success")
 	}()
 
 	store := ctx.KVStore(k.storeKey)
