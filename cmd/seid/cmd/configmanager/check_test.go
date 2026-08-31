@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -21,6 +22,10 @@ import (
 // whether it failed.
 func runCheck(t *testing.T, body string) (string, error) {
 	t.Helper()
+	// Isolated because this resolves through the real environment and reads the gate out of it. A stray
+	// SEID_* or SEI_CONFIG_MANAGER on a developer's machine or a runner would change a resolved value and
+	// flip these assertions.
+	configtest.Isolate(t)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -29,6 +34,13 @@ func runCheck(t *testing.T, body string) (string, error) {
 		if err := os.WriteFile(filepath.Join(home, "config", seiTomlName), []byte(body), 0o600); err != nil {
 			t.Fatalf("write sei.toml: %v", err)
 		}
+	}
+	// A node's own configuration file, recording the same kind of node the header below writes. Without it
+	// every case here also carries a disagreement about what kind of node this is, which is a different
+	// test's subject.
+	if err := os.WriteFile(filepath.Join(home, "config", "config.toml"),
+		[]byte("mode = \"validator\"\n"), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
 	}
 
 	cmd := CheckCmd()
@@ -175,6 +187,7 @@ func TestApplyReportsADisagreementAboutTheKindOfNode(t *testing.T) {
 // schema this binary does not know, or names no node kind, is the case where the answer matters most, and
 // answering that the node has no file is both wrong and the answer least likely to make anyone look.
 func TestCheckReportsAFileItCannotRead(t *testing.T) {
+	configtest.Isolate(t)
 	for _, tc := range []struct {
 		name string
 		body string
@@ -226,12 +239,16 @@ func TestTheCheckSaysWhetherABootWouldReadTheFileAtAll(t *testing.T) {
 		{"v2", "v2", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var out bytes.Buffer
-			reportWhetherABootWouldReadThisFile(&out, func(string) string { return tc.value })
-			said := strings.Contains(out.String(), "reads none of this file")
+			problems, notes := whatTheGateSays(func(string) string { return tc.value })
+			said := strings.Contains(strings.Join(notes, "\n"), "reads none of this file")
 			if said != tc.says {
-				t.Errorf("with %s=%q the command says a boot reads none of the file: %v, want %v.\n%s",
-					EnvVar, tc.value, said, tc.says, out.String())
+				t.Errorf("with %s=%q the command says a boot reads none of the file: %v, want %v.\n%v",
+					EnvVar, tc.value, said, tc.says, notes)
+			}
+			// A gate that is off is not a problem: the file is still worth checking, and the exit status
+			// has to stay usable on every node that has not switched yet.
+			if len(problems) != 0 {
+				t.Errorf("with %s=%q the gate is reported as a problem: %v", EnvVar, tc.value, problems)
 			}
 		})
 	}
@@ -242,17 +259,23 @@ func TestTheCheckSaysWhetherABootWouldReadTheFileAtAll(t *testing.T) {
 // The gate is matched exactly and never falls back, so a misspelling stops the node before it reaches any
 // file. A check that reported only on the file would pass, and the node would not start.
 func TestTheCheckSaysWhenTheGateItselfIsWrong(t *testing.T) {
-	var out bytes.Buffer
-	reportWhetherABootWouldReadThisFile(&out, func(string) string { return "V2" })
-	if !strings.Contains(out.String(), "does not accept") {
-		t.Errorf("a gate value this binary refuses is not reported, so the check passes for a node that "+
-			"would not start:\n%s", out.String())
+	problems, _ := whatTheGateSays(func(string) string { return "V2" })
+	if len(problems) == 0 {
+		t.Fatal("a gate value this binary refuses is not reported as a problem, so the command exits " +
+			"zero for a node that cannot start")
+	}
+	if !strings.Contains(strings.Join(problems, "\n"), "does not accept") {
+		t.Errorf("the problem does not say the value was refused: %v", problems)
 	}
 }
 
 // runCheckWithNodeFile runs the command against a home holding both files.
 func runCheckWithNodeFile(t *testing.T, seiToml, configToml string) (string, error) {
 	t.Helper()
+	// Isolated because this resolves through the real environment and reads the gate out of it. A stray
+	// SEID_* or SEI_CONFIG_MANAGER on a developer's machine or a runner would change a resolved value and
+	// flip these assertions.
+	configtest.Isolate(t)
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -308,12 +331,26 @@ func TestTheCheckFindsADisagreementAboutWhatKindOfNodeThisIs(t *testing.T) {
 		}
 	})
 
-	t.Run("a node with no configuration file of its own has nothing to disagree with", func(t *testing.T) {
-		// Every node is in this state before it is initialised, and answering that it disagrees with a file
-		// it does not have would fail the check on a correct sei.toml.
+	t.Run("no configuration file of its own is compared against what a boot would compute", func(t *testing.T) {
+		// A boot does not see an absent mode. It starts from this binary's defaults and writes the file
+		// itself, so a node with sei.toml naming a different kind reports the disagreement at its loudest
+		// level on the next start. Answering "nothing to disagree with" here would pass that node.
 		out, err := runCheckWithNodeFile(t, seiToml, "")
+		if err == nil {
+			t.Errorf("sei.toml says validator, a boot would compute a different kind for a node with no "+
+				"configuration file, and the check passed:\n%s", out)
+		}
+		if !strings.Contains(out, "node's own") {
+			t.Errorf("the report does not name the disagreement:\n%s", out)
+		}
+	})
+
+	t.Run("no configuration file of its own and a matching kind passes", func(t *testing.T) {
+		matching := "schema_version = 1\nnode_mode = \"" + tmcfg.DefaultConfig().Mode +
+			"\"\n\n[mempool]\nsize = 4321\n"
+		out, err := runCheckWithNodeFile(t, matching, "")
 		if err != nil {
-			t.Errorf("a node with no configuration file of its own failed the check: %v\n%s", err, out)
+			t.Errorf("sei.toml names the kind a boot would compute and the check failed: %v\n%s", err, out)
 		}
 	})
 }

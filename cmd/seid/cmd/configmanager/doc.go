@@ -39,4 +39,15 @@
 //
 // The cost is that an unusable value is reported rather than refused. These reports are the only signal an
 // operator has.
+//
+// # Asking before a restart
+//
+// This package also owns `seid config check`. It answers what a node's sei.toml reaches without starting
+// the node. It resolves the file the way a boot resolves it. Then it reports every value a delivery would
+// refuse, every key no section declares, a disagreement about what kind of node this is, and whether the
+// gate would make a boot read the file at all. Its exit status is the answer: anything that would stop the
+// node exits non-zero.
+//
+// It exists because a boot cannot refuse a file. Every failure there is a report on a node that has already
+// restarted, and the same questions have exact answers beforehand.
 package configmanager

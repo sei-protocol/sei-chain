@@ -2,16 +2,12 @@ package cmd
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
-	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	svrcmd "github.com/sei-protocol/sei-chain/sei-cosmos/server/cmd"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
@@ -30,19 +26,28 @@ func runCheckThroughRoot(t *testing.T, home string, extraArgs ...string) (string
 	root.SetErr(&out)
 	root.SilenceUsage = true
 	root.SilenceErrors = true
-
-	// The same wiring the binary uses. --home is registered by PrepareBaseCmd rather than by the root
-	// command itself, so a root built without it is not the command an operator runs.
-	srvCtx := server.NewDefaultContext()
-	ctx := context.WithValue(context.Background(), client.ClientContextKey, &client.Context{})
-	ctx = context.WithValue(ctx, server.ServerContextKey, srvCtx)
-	root.PersistentFlags().String(flags.FlagLogLevel, "", "")
-	root.PersistentFlags().String(flags.FlagLogFormat, "", "")
-	executor := tmcli.PrepareBaseCmd(root, "", home)
-
 	root.SetArgs(append([]string{"sei-config", "check", "--home", home}, extraArgs...))
-	err := executor.ExecuteContext(ctx)
+
+	// The binary's own entry point rather than a copy of it. It registers the two logging flags, seeds the
+	// client and server contexts, and runs PrepareBaseCmd, which is what registers --home. Re-implementing
+	// that here would drift the moment any of it changes, and the claim this helper rests on is that the
+	// command runs the way an operator runs it.
+	err := svrcmd.Execute(root, home)
 	return out.String(), err
+}
+
+// writeNodeHome puts a sei.toml in a home that also records what kind of node this is.
+//
+// A real node has a configuration file of its own. Without one, every case here would also carry a
+// disagreement about what kind of node it is, which is a different test's subject.
+func writeNodeHome(t *testing.T, body string) string {
+	t.Helper()
+	home := writeSeiToml(t, body)
+	if err := os.WriteFile(filepath.Join(home, "config", "config.toml"),
+		[]byte("mode = \"validator\"\n"), 0o600); err != nil {
+		t.Fatalf("write config.toml: %v", err)
+	}
+	return home
 }
 
 // writeSeiToml puts a sei.toml in a home that holds nothing else.
@@ -67,7 +72,7 @@ func writeSeiToml(t *testing.T, body string) string {
 // control for a boot that may not refuse a file.
 func TestTheCheckPassesACorrectFileWhenRunAsAnOperatorRunsIt(t *testing.T) {
 	configtest.Isolate(t)
-	home := writeSeiToml(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[mempool]\nsize = 4321\n")
+	home := writeNodeHome(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[mempool]\nsize = 4321\n")
 
 	out, err := runCheckThroughRoot(t, home)
 	if err != nil {
@@ -130,7 +135,7 @@ func TestTheCheckStillFailsAFileWithSomethingWrongInIt(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := runCheckThroughRoot(t, writeSeiToml(t, tc.body))
+			out, err := runCheckThroughRoot(t, writeNodeHome(t, tc.body))
 			if err == nil {
 				t.Fatalf("the file was accepted, so a boot would apply what it could and the operator "+
 					"would find out afterwards\n%s", out)

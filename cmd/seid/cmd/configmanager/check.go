@@ -46,48 +46,62 @@ func CheckCmd() *cobra.Command {
 			"first is how a mistyped value costs a failed check rather than a restart.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			problems, found, err := checkSeiToml(cmd)
+			out := cmd.OutOrStdout()
+
+			// The gate is answered first and whether or not there is a file, because a value this binary
+			// refuses stops the node before it reaches one. Reported as a problem for the same reason: the
+			// exit status is this command's answer, and a node that cannot start is not a pass.
+			problems, notes := whatTheGateSays(os.Getenv)
+
+			inTheFile, found, err := checkSeiToml(cmd)
 			if err != nil {
 				return err
 			}
-			if !found {
-				report(cmd.OutOrStdout(), "this node has no sei.toml, so every key reads as it always "+
-					"has and there is nothing here to be wrong")
-				return nil
+			problems = append(problems, inTheFile...)
+
+			switch {
+			case !found:
+				notes = append(notes, "this node has no sei.toml, so every key reads as it always has "+
+					"and there is nothing in it to be wrong")
+			case len(problems) == 0:
+				notes = append(notes, "every value this file supplies is one this binary can use")
 			}
-			out := cmd.OutOrStdout()
-			reportWhetherABootWouldReadThisFile(out, os.Getenv)
-			for _, line := range problems {
+
+			for _, line := range append(notes, problems...) {
 				report(out, line)
 			}
 			if len(problems) > 0 {
 				return fmt.Errorf("%d problem(s); a boot would apply what it could and report the rest",
 					len(problems))
 			}
-			report(out, "every value this file supplies is one this binary can use")
 			return nil
 		},
 	}
 	return cmd
 }
 
-// reportWhetherABootWouldReadThisFile says whether this node is set up to use the file at all.
+// whatTheGateSays answers what the gate means for this node, split into problems and notes.
 //
-// Without it, a passing check reads as "this file is in use and correct" on a node where a boot ignores it
-// completely, which is the state every node is in until an operator switches the gate. That is the wrong
-// conclusion in the more dangerous direction: it invites somebody to trust a file nothing reads.
+// A value this binary does not accept is a problem rather than a note. A boot refuses on it before reaching
+// any file, so the node will not start, and this command's answer is its exit status: reporting that as a
+// passing run tells a runbook the node is fine when it cannot boot.
+//
+// A gate that is simply off is a note. Without it a passing check reads as "this file is in use and
+// correct" on a node where a boot ignores the file completely, which is every node until an operator
+// switches it. That is the wrong conclusion in the more dangerous direction, because it invites somebody to
+// trust a file nothing reads.
 //
 // Answered from the environment this command runs in, which is the same limitation the resolution has.
-func reportWhetherABootWouldReadThisFile(out io.Writer, getenv func(string) string) {
+func whatTheGateSays(getenv func(string) string) (problems, notes []string) {
 	if _, err := Select(getenv); err != nil {
-		report(out, fmt.Sprintf("%s is set to something this binary does not accept, so a boot would "+
-			"refuse before reaching this file: %v", EnvVar, err))
-		return
+		return []string{fmt.Sprintf("%s is set to something this binary does not accept, so a boot "+
+			"would refuse before reaching this file: %v", EnvVar, err)}, nil
 	}
 	if getenv(EnvVar) != "v2" {
-		report(out, fmt.Sprintf("%s is not set to v2 for this command, so a boot in the same environment "+
-			"reads none of this file. What follows is what it would reach if it were", EnvVar))
+		return nil, []string{fmt.Sprintf("%s is not set to v2 for this command, so a boot in the same "+
+			"environment reads none of this file. What follows is what it would reach if it were", EnvVar)}
 	}
+	return nil, nil
 }
 
 // report writes one line of the answer.
@@ -154,16 +168,23 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 
 // theModeTheNodesOwnFileRecords reads what kind of node the node's own configuration file says this is.
 //
-// Read from the file here rather than taken from a running node, because nothing is running. An absent file
-// or an absent key answers empty, which is not a disagreement: a node that was never initialised has
-// nothing to disagree with.
+// Read from the file here rather than taken from a running node, because nothing is running.
+//
+// An absent file, or one with no mode in it, answers what a boot would compute rather than empty. A boot
+// starts from this binary's defaults and writes the file itself when it is missing, so the running mode is
+// never empty on that path. Answering empty here would pass a node whose sei.toml names a different kind,
+// and then that node reports the disagreement at its loudest level on the next start: a pass in exactly
+// the case with the largest consequence.
 func theModeTheNodesOwnFileRecords(home string) string {
 	v := viper.New()
 	v.SetConfigFile(filepath.Join(home, "config", "config.toml"))
 	if err := v.ReadInConfig(); err != nil {
-		return ""
+		return tmcfg.DefaultConfig().Mode
 	}
-	return v.GetString("mode")
+	if mode := v.GetString("mode"); mode != "" {
+		return mode
+	}
+	return tmcfg.DefaultConfig().Mode
 }
 
 // whatADecodeWouldRefuse rehearses each decoded section the way the boot's delivery does.
