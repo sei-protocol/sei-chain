@@ -399,3 +399,31 @@ func TestTheCheckReportsWhatTheResolutionAlreadyKnows(t *testing.T) {
 		}
 	})
 }
+
+// TestTheCauseIsReportedBeforeTheSymptom holds the order the two reports are read in.
+//
+// A refused registration leaves its section's keys out of the declared set, so an operator's valid key for
+// one of them reads as a key nothing declares. Printed after that line, the registration defect explains
+// something the reader has already concluded was their own typo. The boot reports the cause first for the
+// same reason.
+func TestTheCauseIsReportedBeforeTheSymptom(t *testing.T) {
+	var out bytes.Buffer
+	problems := append(
+		whatTheResolutionAlreadyKnows(registry.Resolved{
+			Refused: []registry.Defect{{Section: "mempool", Err: errors.New("two keys share a spelling")}},
+		}),
+		"mempool.size: sei.toml writes this and no section declares it, so it has no effect")
+	for _, line := range problems {
+		report(&out, line)
+	}
+
+	cause := strings.Index(out.String(), "carries a defect")
+	symptom := strings.Index(out.String(), "no section declares it")
+	if cause == -1 || symptom == -1 {
+		t.Fatalf("both lines have to be present for the order to mean anything:\n%s", out.String())
+	}
+	if cause > symptom {
+		t.Errorf("the registration defect is printed after the key it explains, so an operator reading "+
+			"in order treats a valid key as their own typo:\n%s", out.String())
+	}
+}

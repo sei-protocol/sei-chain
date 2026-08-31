@@ -154,6 +154,11 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 		return []string{fmt.Sprintf("this node's configuration cannot be resolved: %v", err)}, true, nil
 	}
 
+	// First, because a refused registration is what makes the report below name the wrong file: the
+	// section's keys are absent from the declared set, so an operator's valid key for one of them reads as
+	// a key nothing declares. Whoever reads this output in order has to meet the cause first.
+	problems = append(problems, whatTheResolutionAlreadyKnows(resolved)...)
+
 	// Only the file's own keys. A flag matching no declared key arrives in the same resolution and is not
 	// a mistake: every command carries flags that name no setting, so reporting those would fail this
 	// check on every invocation that types one, including a correct file.
@@ -171,7 +176,6 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 			"configuration file says %s. Every value resolved here is the answer for the first and the "+
 			"node would run as the second", mode, running))
 	}
-	problems = append(problems, whatTheResolutionAlreadyKnows(resolved)...)
 	problems = append(problems, whatADecodeWouldRefuse(resolved)...)
 	return problems, true, nil
 }
