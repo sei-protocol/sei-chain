@@ -115,26 +115,6 @@ func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []met
 	telemetry.IncrCounterWithLabels(keys, val, labels)
 }
 
-// sei_oracle_vote_penalty_count
-func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
-	metrics.SetGaugeWithLabels(
-		[]string{"sei", "oracle", "vote", "penalty", "count"},
-		float32(count),
-		[]metrics.Label{
-			telemetry.NewLabel("type", penaltyType),
-			telemetry.NewLabel("validator", valAddr),
-		},
-	)
-}
-
-// sei_epoch_new
-func SetEpochNew(epochNum uint64) {
-	metrics.SetGauge(
-		[]string{"sei", "epoch", "new"},
-		float32(epochNum),
-	)
-}
-
 // sei_evm_zero_storage_pruned_keys
 func IncrEvmZeroStoragePrunedKeys(count uint64) {
 	SafeTelemetryIncrCounter(
@@ -156,30 +136,6 @@ func IncrEvmZeroStoragePrunedBytes(bytes uint64) {
 	SafeTelemetryIncrCounter(
 		float32(bytes),
 		"sei", "evm", "zero", "storage", "pruned", "bytes",
-	)
-}
-
-// Measures number of times a denom's price is updated
-// Metric Name:
-//
-//	sei_oracle_price_update_count
-func IncrPriceUpdateDenom(denom string) {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "oracle", "price", "update"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("denom", denom)},
-	)
-}
-
-// Measures number of times a denom's price is updated
-// Metric Name:
-//
-//	sei_oracle_price_update_count
-func SetCoinsMinted(amount uint64, denom string) {
-	telemetry.SetGaugeWithLabels(
-		[]string{"sei", "mint", "coins"},
-		float32(amount),
-		[]metrics.Label{telemetry.NewLabel("denom", denom)},
 	)
 }
 
