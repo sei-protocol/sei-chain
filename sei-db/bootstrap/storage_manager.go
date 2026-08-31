@@ -60,7 +60,7 @@ type GigaStorageManager struct {
 	// ss is nil when SSConfig.Enable is false.
 	ss *evm.EVMStateStore
 
-	// gc prunes every store that hands it their retention. Nil when no pruning config was given.
+	// gc is the shared prune cycle. Nil until startGarbageCollector succeeds.
 	gc *controller.StorageGarbageCollector
 
 	// checkpointer holds the halves of state this node opened to the same checkpoint heights. It has
@@ -196,13 +196,8 @@ func (m *GigaStorageManager) startCheckpointSchedule(cfg config.CheckpointConfig
 	}
 }
 
-// startGarbageCollector runs the prune cycle over the opened stores that can join it. A nil
-// pruningConfig leaves every store on its own retention and starts no collector.
+// startGarbageCollector runs the prune cycle over the opened stores.
 func (m *GigaStorageManager) startGarbageCollector(ctx context.Context, pruningConfig *config.StorageGarbageCollectorConfig) error {
-	if pruningConfig == nil {
-		logger.Info("no pruning config; every store keeps its own retention")
-		return nil
-	}
 	gc, err := controller.NewStorageGarbageCollector(ctx, pruningConfig, m.prunableStores())
 	if err != nil {
 		return fmt.Errorf("start storage garbage collector: %w", err)

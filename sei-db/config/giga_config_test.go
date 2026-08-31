@@ -45,8 +45,8 @@ func TestTheDefaultConfigValidates(t *testing.T) {
 	require.NoError(t, defaultGigaConfig(t).Validate())
 }
 
-// TestTheStoreConfigsAStoreCannotSupplyAreRequired covers the two configs the manager passes straight
-// to a constructor that dereferences them: a nil one panics rather than failing.
+// TestTheStoreConfigsAStoreCannotSupplyAreRequired covers the configs the manager
+// dereferences: a nil one panics rather than failing.
 func TestTheStoreConfigsAStoreCannotSupplyAreRequired(t *testing.T) {
 	cfg := defaultGigaConfig(t)
 	cfg.FlatKVConfig = nil
@@ -55,6 +55,10 @@ func TestTheStoreConfigsAStoreCannotSupplyAreRequired(t *testing.T) {
 	cfg = defaultGigaConfig(t)
 	cfg.BlockDBConfig = nil
 	require.ErrorContains(t, cfg.Validate(), "block db config is required")
+
+	cfg = defaultGigaConfig(t)
+	cfg.PruningConfig = nil
+	require.ErrorContains(t, cfg.Validate(), "pruning config is required")
 }
 
 func TestAnInvalidStoreConfigIsReportedByItsOwnValidate(t *testing.T) {
@@ -89,27 +93,21 @@ func TestTheDefaultFlatKVConfigIsNotValidatedAsWritten(t *testing.T) {
 	require.Error(t, cfg.FlatKVConfig.Validate())
 }
 
-func TestExternalPruningWithoutACollectorIsRefused(t *testing.T) {
+func TestExternalPruningMustBeTrue(t *testing.T) {
 	cfg := defaultGigaConfig(t)
-	cfg.PruningConfig = nil
-
-	err := cfg.Validate()
-	require.Error(t, err)
-	require.ErrorContains(t, err, "state commit")
-	require.ErrorContains(t, err, "EVM state store")
-	require.ErrorContains(t, err, "receipt store")
-}
-
-// TestADisabledReceiptStoreStrandsNoRetention pins that receipts left external-pruned in a config that
-// disables them is not the stranded case: a store that never opens grows nothing.
-func TestADisabledReceiptStoreStrandsNoRetention(t *testing.T) {
-	cfg := defaultGigaConfig(t)
-	cfg.PruningConfig = nil
 	cfg.FlatKVConfig.ExternalPruning = false
-	cfg.SSConfig.ExternalPruning = false
-	cfg.ReceiptDBConfig.Enable = false
+	require.ErrorContains(t, cfg.Validate(), "flatkv ExternalPruning must be true")
 
-	require.True(t, cfg.ReceiptDBConfig.ExternalPruning)
+	cfg = defaultGigaConfig(t)
+	cfg.SSConfig.ExternalPruning = false
+	require.ErrorContains(t, cfg.Validate(), "state store ExternalPruning must be true")
+	cfg.SSConfig.Enable = false
+	require.NoError(t, cfg.Validate())
+
+	cfg = defaultGigaConfig(t)
+	cfg.ReceiptDBConfig.ExternalPruning = false
+	require.ErrorContains(t, cfg.Validate(), "receipt store ExternalPruning must be true")
+	cfg.ReceiptDBConfig.Enable = false
 	require.NoError(t, cfg.Validate())
 }
 

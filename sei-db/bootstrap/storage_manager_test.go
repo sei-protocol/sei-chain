@@ -182,8 +182,8 @@ func TestCloseOnAFailureBeforeAnyStoreOpens(t *testing.T) {
 }
 
 // TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens pins that config validation runs first, using a
-// config GigaStorageConfig.Validate rejects — external pruning with no collector to perform it. An
-// untouched home directory afterwards is the proof: a config no store will accept costs no files.
+// config GigaStorageConfig.Validate rejects. An untouched home directory afterwards is the
+// proof: a config no store will accept costs no files.
 func TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens(t *testing.T) {
 	home := t.TempDir()
 	cfg, err := config.DefaultGigaStorageConfig(home)
@@ -196,21 +196,6 @@ func TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens(t *testing.T) {
 	entries, err := os.ReadDir(home)
 	require.NoError(t, err)
 	require.Empty(t, entries, "validation must reject the config before a store creates its directory")
-}
-
-// TestNoPruningConfigStartsNoCollector pins that pruning is opt-in: with every store keeping its own
-// retention, no collector is started and SC prunes itself.
-func TestNoPruningConfigStartsNoCollector(t *testing.T) {
-	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
-		cfg.PruningConfig = nil
-		cfg.FlatKVConfig.ExternalPruning = false
-		cfg.SSConfig.ExternalPruning = false
-		cfg.ReceiptDBConfig.ExternalPruning = false
-	})
-
-	require.Nil(t, manager.gc)
-	require.False(t, manager.SC().ExternalPruning())
-	require.False(t, manager.SS().ExternalPruning())
 }
 
 // TestEveryStoreJoinsThePruneCycle pins which stores the shared cut line covers.
