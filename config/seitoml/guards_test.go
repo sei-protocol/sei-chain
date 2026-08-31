@@ -1,7 +1,9 @@
 package seitoml
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -322,5 +324,36 @@ func TestASymlinkToSomethingThatIsNotAFileIsRefused(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("reading a symlink to a FIFO did not return, so a node would hang on start")
+	}
+}
+
+// TestADanglingSymlinkIsNotAnAbsentFile covers the one answer a caller acts on by staying silent.
+//
+// An absent file is the ordinary state and reported quietly. A link to a file that is not there is somebody
+// having placed it, so answering the same for both leaves them with no signal that what they wrote does
+// nothing. A ConfigMap mid-update looks exactly like this.
+func TestADanglingSymlinkIsNotAnAbsentFile(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "sei.toml")
+	if err := os.Symlink(filepath.Join(dir, "gone.toml"), link); err != nil {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
+
+	_, err := Load(link)
+	if err == nil {
+		t.Fatal("a link to a file that is not there was accepted")
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a link to a file that is not there answers the same as no file at all (%v), and a "+
+			"caller acts on that by staying quiet", err)
+	}
+}
+
+// TestAnAbsentFileStillAnswersAsAbsent keeps the change above from making every missing file loud.
+func TestAnAbsentFileStillAnswersAsAbsent(t *testing.T) {
+	_, err := Load(filepath.Join(t.TempDir(), "sei.toml"))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a node with no sei.toml answers %v, and the one caller reads that as the ordinary "+
+			"state rather than a mistake", err)
 	}
 }

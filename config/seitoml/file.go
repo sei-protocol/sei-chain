@@ -286,9 +286,19 @@ func Load(path string) (*File, error) {
 	// from a Kubernetes ConfigMap is a symlink, and so is any layout that keeps the real file elsewhere
 	// and links it in, and all of those are ordinary. A symlink to a FIFO is still refused, because Stat
 	// reports the FIFO.
-	if info, err := os.Stat(path); err != nil {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		// A path that exists as a link to nothing. Stat answers the same as for no path at all, and a
+		// caller acts on that one answer by staying quiet, so somebody who placed the link would get no
+		// signal that the file they wrote is doing nothing.
+		if _, linked := os.Lstat(path); linked == nil {
+			return nil, fmt.Errorf("%s is a link to something that is not there", path)
+		}
+	}
+	if err != nil {
 		return nil, err
-	} else if !info.Mode().IsRegular() {
+	}
+	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s is a %s rather than a regular file, and this file is read as one",
 			path, info.Mode().Type())
 	}
