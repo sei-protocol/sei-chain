@@ -848,6 +848,7 @@ func New(
 		DistrKeeper:    &app.DistrKeeper,
 		SlashingKeeper: &app.SlashingKeeper,
 		EvidenceKeeper: &app.EvidenceKeeper,
+		GovKeeper:      &app.GovKeeper,
 		StakingKeeper:  &app.StakingKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 	}

@@ -34,9 +34,32 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 		return err
 	}
 
-	store := ctx.KVStore(m.keeper.storeKey)
-	store.Set(types.VoteDelegationBackfillCutoffKey, types.GetProposalIDBytes(nextProposalID))
+	m.keeper.SetVoteDelegationBackfillCutoff(ctx, nextProposalID)
+	m.keeper.EnableIncrementalTally(ctx)
+	m.keeper.InitializeDeadlineBoundaryClock(ctx)
 	return nil
+}
+
+// EnableIncrementalTally records that bounded governance tallying is active.
+func (keeper Keeper) EnableIncrementalTally(ctx sdk.Context) {
+	ctx.KVStore(keeper.storeKey).Set(types.IncrementalTallyEnabledKey, []byte{1})
+}
+
+// SetVoteDelegationBackfillCutoff records the first proposal that does not require delegation-tracking backfill.
+func (keeper Keeper) SetVoteDelegationBackfillCutoff(ctx sdk.Context, proposalID uint64) {
+	ctx.KVStore(keeper.storeKey).Set(types.VoteDelegationBackfillCutoffKey, types.GetProposalIDBytes(proposalID))
+}
+
+// GetVoteDelegationBackfillCutoff returns the first proposal that does not require delegation-tracking backfill.
+func (keeper Keeper) GetVoteDelegationBackfillCutoff(ctx sdk.Context) (uint64, bool) {
+	cutoff := ctx.KVStore(keeper.storeKey).Get(types.VoteDelegationBackfillCutoffKey)
+	if cutoff == nil {
+		return 0, false
+	}
+	if len(cutoff) != 8 {
+		panic("invalid vote delegation backfill cutoff")
+	}
+	return types.GetProposalIDFromBytes(cutoff), true
 }
 
 // BackfillVoteDelegationTracking initializes tracking for at most maxVotes of a proposal's votes.
@@ -87,20 +110,50 @@ func (keeper Keeper) IsVoteDelegationBackfillInProgress(ctx sdk.Context, proposa
 	return progress != nil && !voteDelegationBackfillIsComplete(progress)
 }
 
+// VoteDelegationBackfillRequired reports whether a proposal's votes require delegation-tracking backfill.
+func (keeper Keeper) VoteDelegationBackfillRequired(ctx sdk.Context, proposalID uint64) bool {
+	return keeper.voteNeedsDelegationBackfill(ctx, proposalID)
+}
+
+// CompleteVoteDelegationBackfill marks a legacy proposal's delegation tracking complete.
+func (keeper Keeper) CompleteVoteDelegationBackfill(ctx sdk.Context, proposalID uint64) {
+	if !keeper.isLegacyProposal(ctx, proposalID) || keeper.IsModernTallyRound(ctx, proposalID) {
+		return
+	}
+	ctx.KVStore(keeper.storeKey).Set(
+		types.VoteDelegationBackfillProgressKey(proposalID),
+		[]byte{voteDelegationBackfillComplete},
+	)
+}
+
 func (keeper Keeper) voteNeedsDelegationBackfill(ctx sdk.Context, proposalID uint64) bool {
-	store := ctx.KVStore(keeper.storeKey)
-	cutoff := store.Get(types.VoteDelegationBackfillCutoffKey)
-	if cutoff == nil {
+	if !keeper.isLegacyProposal(ctx, proposalID) || keeper.IsModernTallyRound(ctx, proposalID) {
 		return false
 	}
-	if len(cutoff) != 8 {
-		panic("invalid vote delegation backfill cutoff")
-	}
-	if proposalID >= types.GetProposalIDFromBytes(cutoff) {
-		return false
-	}
-	progress := store.Get(types.VoteDelegationBackfillProgressKey(proposalID))
+	progress := ctx.KVStore(keeper.storeKey).Get(types.VoteDelegationBackfillProgressKey(proposalID))
 	return !voteDelegationBackfillIsComplete(progress)
+}
+
+func (keeper Keeper) isLegacyProposal(ctx sdk.Context, proposalID uint64) bool {
+	cutoff, found := keeper.GetVoteDelegationBackfillCutoff(ctx)
+	if !found {
+		return false
+	}
+	return proposalID < cutoff
+}
+
+func (keeper Keeper) usesLegacyTallySemantics(ctx sdk.Context, proposal types.Proposal) bool {
+	return keeper.isLegacyProposal(ctx, proposal.ProposalId) && !keeper.IsModernTallyRound(ctx, proposal.ProposalId)
+}
+
+// SetModernTallyRound marks a legacy proposal's converted regular round for deadline-based tallying.
+func (keeper Keeper) SetModernTallyRound(ctx sdk.Context, proposalID uint64) {
+	ctx.KVStore(keeper.storeKey).Set(types.ModernTallyRoundKey(proposalID), []byte{1})
+}
+
+// IsModernTallyRound reports whether a legacy proposal's current round uses deadline-based tallying.
+func (keeper Keeper) IsModernTallyRound(ctx sdk.Context, proposalID uint64) bool {
+	return ctx.KVStore(keeper.storeKey).Has(types.ModernTallyRoundKey(proposalID))
 }
 
 func voteDelegationBackfillIsComplete(progress []byte) bool {

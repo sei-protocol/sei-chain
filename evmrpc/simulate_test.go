@@ -14,8 +14,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -26,6 +28,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -1056,6 +1059,92 @@ func (c *fixedBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, e
 			EarliestBlockHeight: 1,
 		},
 	}, nil
+}
+
+func (c *fixedBlockClient) Validators(context.Context, *int64, *int, *int) (*coretypes.ResultValidators, error) {
+	return &coretypes.ResultValidators{}, nil
+}
+
+func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.T) {
+	const activationHeight = int64(200)
+
+	testApp := app.Setup(t, false, false, false)
+	activationTime := time.Now().UTC().Add(time.Minute)
+	nextBlockTime := activationTime.Add(10 * time.Second)
+	baseCtx := testApp.BaseApp.NewContext(false, tenderminttypes.Header{
+		Height: activationHeight - 1,
+		Time:   activationTime.Add(-time.Second),
+	}).WithIsTracing(true).WithClosestUpgradeName("v6.7")
+	govStore := baseCtx.KVStore(testApp.GetKey(govtypes.StoreKey))
+	govStore.Delete(govtypes.IncrementalTallyEnabledKey)
+	govStore.Delete(govtypes.VoteDelegationBackfillCutoffKey)
+	govStore.Delete(govtypes.DeadlineBoundaryBlockTimeKey)
+
+	latestCtx := baseCtx.WithIsTracing(false).WithBlockHeight(activationHeight + 1).WithBlockTime(nextBlockTime)
+	testApp.UpgradeKeeper.SetDone(latestCtx.WithBlockHeight(activationHeight), "v6.7")
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), activationHeight+1)
+	parentCtx := baseCtx
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return latestCtx
+		}
+		return parentCtx.WithBlockHeight(height)
+	}
+
+	stateAtBlock := func(height int64, blockTime time.Time) *state.DBImpl {
+		tmClient := &fixedBlockClient{block: &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header:     tmtypes.Header{Height: height, Time: blockTime},
+				LastCommit: &tmtypes.Commit{Height: height - 1},
+			},
+		}}
+		watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+		backend := evmrpc.NewBackend(
+			ctxProvider,
+			&testApp.EvmKeeper,
+			testApp.BeginBlockKeepers,
+			func(int64) client.TxConfig { return TxConfig },
+			tmClient,
+			&SConfig,
+			testApp.BaseApp,
+			testApp.TracerAnteHandler,
+			evmrpc.NewBlockCache(3000),
+			&sync.Mutex{},
+			watermarks,
+		)
+		block := ethtypes.NewBlock(
+			&ethtypes.Header{Number: big.NewInt(height), Time: uint64(blockTime.Unix()), Difficulty: big.NewInt(0)}, //nolint:gosec
+			&ethtypes.Body{},
+			nil,
+			trie.NewStackTrie(nil),
+		)
+		stateDB, release, err := backend.StateAtBlock(t.Context(), block, 0, nil, true, false)
+		require.NoError(t, err)
+		t.Cleanup(release)
+		return stateDB.(*state.DBImpl)
+	}
+
+	activationState := stateAtBlock(activationHeight, activationTime)
+	activationCtx := activationState.Ctx()
+	require.True(t, testApp.GovKeeper.IncrementalTallyEnabled(activationCtx))
+	require.Equal(t, sdk.FormatTimeBytes(activationTime), activationCtx.KVStore(testApp.GetKey(govtypes.StoreKey)).Get(govtypes.DeadlineBoundaryBlockTimeKey))
+	cutoff, found := testApp.GovKeeper.GetVoteDelegationBackfillCutoff(activationCtx)
+	require.True(t, found)
+	require.Equal(t, uint64(1), cutoff)
+
+	proposal, err := testApp.GovKeeper.SubmitProposal(activationCtx, govtypes.NewTextProposal("trace", "gap", false))
+	require.NoError(t, err)
+	testApp.GovKeeper.RemoveFromInactiveProposalQueue(activationCtx, proposal.ProposalId, proposal.DepositEndTime)
+	proposal.Status = govtypes.StatusVotingPeriod
+	proposal.VotingStartTime = activationTime
+	proposal.VotingEndTime = activationTime.Add(5 * time.Second)
+	testApp.GovKeeper.SetProposal(activationCtx, proposal)
+	testApp.GovKeeper.InsertActiveProposalQueue(activationCtx, proposal.ProposalId, proposal.VotingEndTime)
+	parentCtx = activationCtx
+
+	nextState := stateAtBlock(activationHeight+1, nextBlockTime)
+	nextStore := nextState.Ctx().KVStore(testApp.GetKey(govtypes.StoreKey))
+	require.True(t, nextStore.Has(govtypes.GapTallyBoundaryKey(nextBlockTime)))
 }
 
 func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) {

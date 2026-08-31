@@ -694,8 +694,17 @@ func TestEndBlockerBoundsVoteBackfillTallyAndCleanupWork(t *testing.T) {
 	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
 	require.False(t, app.GovKeeper.IsVoteDelegationBackfillInProgress(ctx, proposal.ProposalId))
 	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), gov.MaxVotesProcessedPerBlock+1)
-	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 898)
+	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
 	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, cleanupProposal.ProposalId, false))
+
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusVotingPeriod, proposal.Status)
+	require.True(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId), gov.MaxVotesProcessedPerBlock+1)
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), gov.MaxVotesProcessedPerBlock)
 
 	gov.EndBlocker(ctx, app.GovKeeper)
 
@@ -704,10 +713,79 @@ func TestEndBlockerBoundsVoteBackfillTallyAndCleanupWork(t *testing.T) {
 	require.Equal(t, types.StatusRejected, proposal.Status)
 	require.False(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
 	require.Empty(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId))
-	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 104)
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 2)
 
 	gov.EndBlocker(ctx, app.GovKeeper)
 	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
+}
+
+func TestEndBlockerSharesVoteBudgetAcrossExpiredProposals(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	firstProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	app.GovKeeper.ActivateVotingPeriod(ctx, firstProposal)
+	firstProposal, found := app.GovKeeper.GetProposal(ctx, firstProposal.ProposalId)
+	require.True(t, found)
+
+	secondProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	app.GovKeeper.ActivateVotingPeriod(ctx, secondProposal)
+	secondProposal, found = app.GovKeeper.GetProposal(ctx, secondProposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, firstProposal.VotingEndTime, secondProposal.VotingEndTime)
+
+	addVotes := func(proposalID uint64, count int) {
+		for i := 0; i < count; i++ {
+			addr := make(sdk.AccAddress, 20)
+			voterID := proposalID*uint64(gov.MaxVotesProcessedPerBlock+1) + uint64(i+1)
+			binary.BigEndian.PutUint64(addr[12:], voterID)
+			require.NoError(t, app.GovKeeper.AddVote(
+				ctx,
+				proposalID,
+				addr,
+				types.NewNonSplitVoteOption(types.OptionYes),
+			))
+		}
+	}
+	addVotes(firstProposal.ProposalId, gov.MaxVotesProcessedPerBlock+1)
+	addVotes(secondProposal.ProposalId, gov.MaxVotesProcessedPerBlock)
+
+	ctx = ctx.WithBlockTime(firstProposal.VotingEndTime)
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	firstProposal, found = app.GovKeeper.GetProposal(ctx, firstProposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusVotingPeriod, firstProposal.Status)
+	require.True(t, app.GovKeeper.IsTallying(ctx, firstProposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, firstProposal.ProposalId, false), gov.MaxVotesProcessedPerBlock)
+
+	secondProposal, found = app.GovKeeper.GetProposal(ctx, secondProposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusVotingPeriod, secondProposal.Status)
+	require.False(t, app.GovKeeper.IsTallying(ctx, secondProposal.ProposalId))
+	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, secondProposal.ProposalId, false))
+
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	firstProposal, found = app.GovKeeper.GetProposal(ctx, firstProposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusRejected, firstProposal.Status)
+	require.False(t, app.GovKeeper.IsTallying(ctx, firstProposal.ProposalId))
+
+	secondProposal, found = app.GovKeeper.GetProposal(ctx, secondProposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusVotingPeriod, secondProposal.Status)
+	require.True(t, app.GovKeeper.IsTallying(ctx, secondProposal.ProposalId))
+	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, secondProposal.ProposalId, false), gov.MaxVotesProcessedPerBlock-1)
+
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	secondProposal, found = app.GovKeeper.GetProposal(ctx, secondProposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusRejected, secondProposal.Status)
+	require.False(t, app.GovKeeper.IsTallying(ctx, secondProposal.ProposalId))
 }
 
 func TestEndBlockerKeepsExpeditedAndRegularTallyArchivesSeparate(t *testing.T) {
@@ -734,12 +812,17 @@ func TestEndBlockerKeepsExpeditedAndRegularTallyArchivesSeparate(t *testing.T) {
 	ctx = ctx.WithBlockTime(proposal.VotingEndTime)
 	gov.EndBlocker(ctx, app.GovKeeper)
 	gov.EndBlocker(ctx, app.GovKeeper)
+	votingParams := app.GovKeeper.GetVotingParams(ctx)
+	conversionTime := proposal.VotingStartTime.Add(votingParams.VotingPeriod).Add(time.Second)
+	ctx = ctx.WithBlockTime(conversionTime)
 	gov.EndBlocker(ctx, app.GovKeeper)
 
 	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
 	require.True(t, found)
 	require.Equal(t, types.StatusVotingPeriod, proposal.Status)
 	require.False(t, proposal.IsExpedited)
+	require.Equal(t, conversionTime.Add(votingParams.VotingPeriod-votingParams.ExpeditedVotingPeriod), proposal.VotingEndTime)
+	require.True(t, proposal.VotingEndTime.After(conversionTime))
 	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, true), 1002)
 
 	regularVoter := make(sdk.AccAddress, 20)
@@ -759,6 +842,87 @@ func TestEndBlockerKeepsExpeditedAndRegularTallyArchivesSeparate(t *testing.T) {
 	require.Equal(t, types.StatusRejected, proposal.Status)
 	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, true), 3)
 	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
+}
+
+func TestConvertedLegacyExpeditedProposalUsesDeadlineTally(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	addrs := seiapp.AddTestAddrs(app, ctx, 2, valTokens)
+
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	store.Delete(types.IncrementalTallyEnabledKey)
+	store.Delete(types.VoteDelegationBackfillCutoffKey)
+	store.Delete(types.DeadlineBoundaryBlockTimeKey)
+
+	proposal, err := app.GovKeeper.SubmitProposalWithExpedite(ctx, TestExpeditedProposal, true)
+	require.NoError(t, err)
+	app.GovKeeper.ActivateVotingPeriod(ctx, proposal)
+	proposal, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+
+	require.NoError(t, govkeeper.NewMigrator(app.GovKeeper).Migrate3to4(ctx))
+	ctx = ctx.WithBlockTime(proposal.VotingEndTime)
+	gov.EndBlocker(ctx, app.GovKeeper)
+	gov.EndBlocker(ctx, app.GovKeeper)
+
+	proposal, found = app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	require.False(t, proposal.IsExpedited)
+	require.True(t, app.GovKeeper.IsModernTallyRound(ctx, proposal.ProposalId))
+	require.True(t, store.Has(types.ProposalDeadlineKey(proposal.ProposalId, proposal.VotingEndTime)))
+
+	require.NoError(t, app.GovKeeper.AddVote(
+		ctx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+
+	deadlineCtx := ctx.WithBlockTime(proposal.VotingEndTime)
+	app.GovKeeper.CaptureExactTallyBoundary(deadlineCtx)
+	require.ErrorIs(t, app.GovKeeper.AddVote(
+		deadlineCtx,
+		proposal.ProposalId,
+		addrs[1],
+		types.NewNonSplitVoteOption(types.OptionNo),
+	), types.ErrInactiveProposal)
+}
+
+func TestEndBlockerPreservesLegacyTallyBeforeActivation(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	store.Delete(types.IncrementalTallyEnabledKey)
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	proposal.VotingEndTime = ctx.BlockTime()
+	app.GovKeeper.SetProposal(ctx, proposal)
+	app.GovKeeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+
+	for i := 0; i < gov.MaxVotesProcessedPerBlock+1; i++ {
+		voter := make(sdk.AccAddress, 20)
+		binary.BigEndian.PutUint64(voter[12:], uint64(i+1))
+		require.NoError(t, app.GovKeeper.AddVote(
+			ctx,
+			proposal.ProposalId,
+			voter,
+			types.NewNonSplitVoteOption(types.OptionYes),
+		))
+	}
+
+	require.NotPanics(t, func() {
+		gov.EndBlocker(ctx, app.GovKeeper)
+	})
+	proposal, found := app.GovKeeper.GetProposal(ctx, proposal.ProposalId)
+	require.True(t, found)
+	require.Equal(t, types.StatusRejected, proposal.Status)
+	require.Empty(t, app.GovKeeper.GetVotes(ctx, proposal.ProposalId))
+	require.False(t, store.Has(types.TallyProgressKey(proposal.ProposalId)))
+	archivedVotes := sdk.KVStorePrefixIterator(store, types.TallyVotesKey(proposal.ProposalId, false))
+	require.False(t, archivedVotes.Valid())
+	require.NoError(t, archivedVotes.Close())
 }
 
 // With expedited proposal's minimum deposit set higher than the default deposit, we must

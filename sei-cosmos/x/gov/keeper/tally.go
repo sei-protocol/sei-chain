@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
@@ -39,43 +40,176 @@ type tallyValidator struct {
 
 // Tally calculates a proposal's result without changing its tally state.
 func (keeper Keeper) Tally(ctx sdk.Context, proposal types.Proposal) (passes bool, burnDeposits bool, tallyResults types.TallyResult) {
-	progress := keeper.initializeTally(ctx, proposal)
+	progress, found := tallyProgress{}, false
+	if keeper.IncrementalTallyEnabled(ctx) {
+		progress, found = keeper.getTallyProgress(ctx, proposal.ProposalId)
+	}
+	if !found {
+		progress = keeper.initializeTally(ctx, proposal)
+	}
+
 	validators := progress.validatorMap()
-	keeper.IterateVotes(ctx, proposal.ProposalId, func(vote types.Vote) bool {
+	store := ctx.KVStore(keeper.storeKey)
+	votes := prefix.NewStore(store, types.VotesKey(proposal.ProposalId))
+	keeper.iterateVoteStore(votes, func(vote types.Vote) bool {
 		keeper.addVoteToTally(validators, vote, keeper.voteDelegations(ctx, proposal.ProposalId, progress.Expedited, vote))
 		return false
 	})
 	return keeper.finishTally(progress)
 }
 
-// TallyIncremental processes at most maxVotes vote records and persists an unfinished tally.
+// TallyLegacy calculates a proposal's result and removes its votes using the legacy tally transition.
+func (keeper Keeper) TallyLegacy(ctx sdk.Context, proposal types.Proposal) (passes bool, burnDeposits bool, tallyResults types.TallyResult) {
+	results := map[types.VoteOption]sdk.Dec{
+		types.OptionYes:        sdk.ZeroDec(),
+		types.OptionAbstain:    sdk.ZeroDec(),
+		types.OptionNo:         sdk.ZeroDec(),
+		types.OptionNoWithVeto: sdk.ZeroDec(),
+	}
+	totalVotingPower := sdk.ZeroDec()
+	validators := make(map[string]types.ValidatorGovInfo)
+
+	keeper.sk.IterateBondedValidatorsByPower(ctx, func(_ int64, validator stakingtypes.ValidatorI) bool {
+		validators[validator.GetOperator().String()] = types.NewValidatorGovInfo(
+			validator.GetOperator(),
+			validator.GetBondedTokens(),
+			validator.GetDelegatorShares(),
+			sdk.ZeroDec(),
+			types.WeightedVoteOptions{},
+		)
+		return false
+	})
+
+	keeper.IterateVotes(ctx, proposal.ProposalId, func(vote types.Vote) bool {
+		voter := sdk.MustAccAddressFromBech32(vote.Voter)
+		validatorAddress := sdk.ValAddress(voter.Bytes()).String()
+		if validator, found := validators[validatorAddress]; found {
+			validator.Vote = vote.Options
+			validators[validatorAddress] = validator
+		}
+
+		keeper.sk.IterateDelegations(ctx, voter, func(_ int64, delegation stakingtypes.DelegationI) bool {
+			validatorAddress := delegation.GetValidatorAddr().String()
+			validator, found := validators[validatorAddress]
+			if !found {
+				return false
+			}
+
+			validator.DelegatorDeductions = validator.DelegatorDeductions.Add(delegation.GetShares())
+			validators[validatorAddress] = validator
+			votingPower := delegation.GetShares().MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
+			for _, option := range vote.Options {
+				results[option.Option] = results[option.Option].Add(votingPower.Mul(option.Weight))
+			}
+			totalVotingPower = totalVotingPower.Add(votingPower)
+			return false
+		})
+
+		ctx.KVStore(keeper.storeKey).Delete(types.VoteKey(vote.ProposalId, voter))
+		return false
+	})
+
+	for _, validator := range validators {
+		if len(validator.Vote) == 0 {
+			continue
+		}
+
+		sharesAfterDeductions := validator.DelegatorShares.Sub(validator.DelegatorDeductions)
+		votingPower := sharesAfterDeductions.MulInt(validator.BondedTokens).Quo(validator.DelegatorShares)
+		for _, option := range validator.Vote {
+			results[option.Option] = results[option.Option].Add(votingPower.Mul(option.Weight))
+		}
+		totalVotingPower = totalVotingPower.Add(votingPower)
+	}
+
+	tallyParams := keeper.GetTallyParams(ctx)
+	tallyResults = types.NewTallyResultFromMap(results)
+	if keeper.sk.TotalBondedTokens(ctx).IsZero() {
+		return false, false, tallyResults
+	}
+
+	percentVoting := totalVotingPower.Quo(keeper.sk.TotalBondedTokens(ctx).ToDec())
+	if percentVoting.LT(tallyParams.GetQuorum(proposal.IsExpedited)) {
+		return false, true, tallyResults
+	}
+
+	if totalVotingPower.Sub(results[types.OptionAbstain]).Equal(sdk.ZeroDec()) {
+		return false, false, tallyResults
+	}
+
+	if results[types.OptionNoWithVeto].Quo(totalVotingPower).GT(tallyParams.VetoThreshold) {
+		return false, true, tallyResults
+	}
+
+	if results[types.OptionYes].Quo(totalVotingPower.Sub(results[types.OptionAbstain])).GT(tallyParams.GetThreshold(proposal.IsExpedited)) {
+		return true, false, tallyResults
+	}
+
+	return false, false, tallyResults
+}
+
+// TallyIncremental processes at most maxRecords governance work records after incremental tallying is active.
 func (keeper Keeper) TallyIncremental(
 	ctx sdk.Context,
 	proposal types.Proposal,
-	maxVotes int,
+	maxRecords int,
 ) (complete bool, processed int, passes bool, burnDeposits bool, tallyResults types.TallyResult) {
-	if maxVotes < 0 {
-		panic("maximum votes to tally cannot be negative")
+	if !keeper.IncrementalTallyEnabled(ctx) {
+		passes, burnDeposits, tallyResults = keeper.TallyLegacy(ctx, proposal)
+		return true, 0, passes, burnDeposits, tallyResults
 	}
-
+	if maxRecords < 0 {
+		panic("maximum governance records to process cannot be negative")
+	}
 	progress, found := keeper.getTallyProgress(ctx, proposal.ProposalId)
-	if !found {
-		backfillComplete, backfilled := keeper.BackfillVoteDelegationTracking(ctx, proposal.ProposalId, maxVotes)
-		processed = backfilled
+	boundary, _, boundaryFound := keeper.getSelectedTallyBoundary(ctx, proposal.ProposalId)
+	if !found && !boundaryFound && keeper.usesLegacyTallySemantics(ctx, proposal) {
+		backfillComplete, backfilled := keeper.BackfillVoteDelegationTracking(ctx, proposal.ProposalId, maxRecords-processed)
+		processed += backfilled
 		if !backfillComplete {
 			return false, processed, false, false, types.EmptyTallyResult()
 		}
-		progress = keeper.initializeTally(ctx, proposal)
+	}
+	if !boundaryFound {
+		if maxRecords == 0 {
+			return false, processed, false, false, types.EmptyTallyResult()
+		}
+		boundary, _ = keeper.selectTallyBoundary(ctx, proposal)
+		if keeper.usesLegacyTallySemantics(ctx, proposal) {
+			progress = initializeTallyFromElectorate(boundary.Electorate, proposal.IsExpedited)
+			keeper.setTallyProgress(ctx, proposal.ProposalId, progress)
+			return false, maxRecords, false, false, types.EmptyTallyResult()
+		}
+	}
+	updatesComplete, updatesProcessed := keeper.ProcessVoteDelegationUpdatesThrough(
+		ctx,
+		maxRecords-processed,
+		boundary.UpdateSequence,
+	)
+	processed += updatesProcessed
+	if !updatesComplete {
+		return false, processed, false, false, types.EmptyTallyResult()
+	}
+
+	if !found {
+		progress = initializeTallyFromElectorate(boundary.Electorate, proposal.IsExpedited)
 	} else if progress.Expedited != proposal.IsExpedited {
 		panic(fmt.Sprintf("tally round for proposal %d changed", proposal.ProposalId))
 	}
+	if processed == maxRecords {
+		keeper.setTallyProgress(ctx, proposal.ProposalId, progress)
+		return false, processed, false, false, types.EmptyTallyResult()
+	}
 
 	var tallied int
-	complete, tallied = keeper.processTallyVotes(ctx, proposal.ProposalId, &progress, maxVotes-processed)
+	complete, tallied = keeper.processTallyVotes(ctx, proposal.ProposalId, &progress, maxRecords-processed)
 	processed += tallied
 	if !complete {
 		keeper.setTallyProgress(ctx, proposal.ProposalId, progress)
 		return false, processed, false, false, types.EmptyTallyResult()
+	}
+	if processed == 0 {
+		processed = 1
 	}
 
 	passes, burnDeposits, tallyResults = keeper.finishTally(progress)
@@ -92,6 +226,9 @@ func (keeper Keeper) IsTallying(ctx sdk.Context, proposalID uint64) bool {
 
 // InitializeTally persists a proposal's tally accumulator when one does not exist.
 func (keeper Keeper) InitializeTally(ctx sdk.Context, proposal types.Proposal) {
+	if !keeper.IncrementalTallyEnabled(ctx) {
+		return
+	}
 	progress, found := keeper.getTallyProgress(ctx, proposal.ProposalId)
 	if found {
 		if progress.Expedited != proposal.IsExpedited {
@@ -102,7 +239,8 @@ func (keeper Keeper) InitializeTally(ctx sdk.Context, proposal types.Proposal) {
 	if keeper.voteNeedsDelegationBackfill(ctx, proposal.ProposalId) {
 		panic("cannot initialize tally while vote delegation backfill is in progress")
 	}
-	keeper.setTallyProgress(ctx, proposal.ProposalId, keeper.initializeTally(ctx, proposal))
+	boundary, _ := keeper.selectTallyBoundary(ctx, proposal)
+	keeper.setTallyProgress(ctx, proposal.ProposalId, initializeTallyFromElectorate(boundary.Electorate, proposal.IsExpedited))
 }
 
 // CleanupTallyVotes deletes at most maxVotes vote records archived by completed tallies.
@@ -139,26 +277,28 @@ func (keeper Keeper) CleanupTallyVotes(ctx sdk.Context, maxVotes int) (deleted i
 }
 
 func (keeper Keeper) initializeTally(ctx sdk.Context, proposal types.Proposal) tallyProgress {
-	progress := tallyProgress{
+	if keeper.IncrementalTallyEnabled(ctx) {
+		if boundary, _, found := keeper.getSelectedTallyBoundary(ctx, proposal.ProposalId); found {
+			return initializeTallyFromElectorate(boundary.Electorate, proposal.IsExpedited)
+		}
+		if !keeper.usesLegacyTallySemantics(ctx, proposal) {
+			if boundary, _, found := keeper.getDeadlineTallyBoundary(ctx, proposal.VotingEndTime); found {
+				return initializeTallyFromElectorate(boundary.Electorate, proposal.IsExpedited)
+			}
+		}
+	}
+	return initializeTallyFromElectorate(keeper.snapshotTallyElectorate(ctx), proposal.IsExpedited)
+}
+
+func initializeTallyFromElectorate(electorate tallyElectorate, expedited bool) tallyProgress {
+	return tallyProgress{
 		Results:           newTallyOptionResults(),
 		TotalVotingPower:  sdk.ZeroDec(),
-		TotalBondedTokens: keeper.sk.TotalBondedTokens(ctx),
-		TallyParams:       keeper.GetTallyParams(ctx),
-		Expedited:         proposal.IsExpedited,
+		TotalBondedTokens: electorate.TotalBondedTokens,
+		TallyParams:       electorate.TallyParams,
+		Validators:        electorate.Validators,
+		Expedited:         expedited,
 	}
-
-	keeper.sk.IterateBondedValidatorsByPower(ctx, func(_ int64, validator stakingtypes.ValidatorI) bool {
-		progress.Validators = append(progress.Validators, tallyValidator{
-			Address:                 validator.GetOperator().String(),
-			BondedTokens:            validator.GetBondedTokens(),
-			DelegatorShares:         validator.GetDelegatorShares(),
-			ObservedDelegatorShares: sdk.ZeroDec(),
-			DelegatorResults:        newTallyOptionResults(),
-		})
-		return false
-	})
-
-	return progress
 }
 
 func (keeper Keeper) processTallyVotes(
@@ -200,6 +340,7 @@ func (keeper Keeper) processTallyVotes(
 		store.Delete(key)
 		store.Delete(snapshotKey)
 		store.Delete(types.VoterProposalsKey(voter, proposalID))
+		keeper.deleteVoteDelegationSnapshotRevision(ctx, proposalID, voter)
 		progress.Cursor = key
 		processed++
 	}
@@ -237,12 +378,13 @@ func (keeper Keeper) voteDelegations(
 	vote types.Vote,
 ) types.VoteDelegationSnapshot {
 	voter := sdk.MustAccAddressFromBech32(vote.Voter)
-	if !incrementalTallyEnabled(ctx) {
+	if !keeper.IncrementalTallyEnabled(ctx) {
 		return keeper.snapshotVoteDelegations(ctx, proposalID, voter)
 	}
 	store := ctx.KVStore(keeper.storeKey)
 	if bz := store.Get(types.VoteDelegationsKey(proposalID, voter)); bz != nil {
-		return keeper.unmarshalVoteDelegations(bz)
+		snapshot := keeper.unmarshalVoteDelegations(bz)
+		return keeper.applyVoteDelegationSnapshotUpdates(ctx, proposalID, voter, snapshot)
 	}
 	if bz := store.Get(types.TallyVoteDelegationsKey(proposalID, expedited, voter)); bz != nil {
 		return keeper.unmarshalVoteDelegations(bz)

@@ -531,6 +531,7 @@ func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestPro
 }
 
 func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	gov.BeginBlocker(ctx, app.govKeeper)
 	distr.BeginBlocker(ctx, []abci.VoteInfo{}, app.distrKeeper)
 	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, app.slashingKeeper)
 	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, app.evidenceKeeper)

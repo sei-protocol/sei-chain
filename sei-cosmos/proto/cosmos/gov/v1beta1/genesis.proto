@@ -43,6 +43,13 @@ message GenesisState {
   ];
   // vote_delegation_snapshots defines the delegation shares maintained for each vote.
   repeated VoteDelegationSnapshot vote_delegation_snapshots = 8 [(gogoproto.nullable) = false];
+  // tally_electorates defines the frozen electorate for unresolved proposals.
+  repeated TallyElectorate tally_electorates = 9 [(gogoproto.nullable) = false];
+  // vote_delegation_backfill_cutoff defines the first proposal ID created after vote delegation tracking began.
+  uint64 vote_delegation_backfill_cutoff = 10 [(gogoproto.moretags) = "yaml:\"vote_delegation_backfill_cutoff\""];
+
+  // modern_tally_round_proposal_ids defines legacy proposals whose converted regular round uses deadline tallying.
+  repeated uint64 modern_tally_round_proposal_ids = 11 [(gogoproto.moretags) = "yaml:\"modern_tally_round_proposal_ids\""];
 }
 
 // VoteDelegationSnapshot defines the per-validator delegation shares maintained for a vote.
@@ -56,6 +63,30 @@ message VoteDelegationSnapshot {
 message VoteDelegation {
   string validator = 1;
   string shares = 2 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// TallyElectorate defines the validator and parameter state used to tally one proposal.
+message TallyElectorate {
+  uint64 proposal_id = 1 [(gogoproto.moretags) = "yaml:\"proposal_id\""];
+  string total_bonded_tokens = 2 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+    (gogoproto.nullable) = false
+  ];
+  TallyParams tally_params = 3 [(gogoproto.nullable) = false];
+  repeated TallyValidator tally_validators = 4 [(gogoproto.nullable) = false];
+}
+
+// TallyValidator defines a validator's frozen state in a proposal electorate.
+message TallyValidator {
+  string address = 1;
+  string bonded_tokens = 2 [
+    (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
+    (gogoproto.nullable) = false
+  ];
+  string delegator_shares = 3 [
     (gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec",
     (gogoproto.nullable) = false
   ];

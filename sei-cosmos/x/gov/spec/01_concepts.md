@@ -58,7 +58,7 @@ arbitrary state changes.
 
 A proposal can be expedited, making the proposal use shorter voting duration and a higher tally quorum and tally threshold by default. 
 
-If an expedited proposal fails to meet the threshold within the scope of shorter voting duration, the expedited proposal is then converted to a regular proposal and resume voting under regular voting conditions.
+If an expedited proposal fails to meet the threshold within the shorter voting duration, it is converted to a regular proposal and resumes voting under regular conditions. The regular round receives the remaining configured duration after the expedited tally completes, so tally processing does not consume its voting window.
 
 ## Deposit
 
@@ -108,8 +108,8 @@ the moment the vote closes. `Voting period` should always be shorter than
 ### Expedited Voting period
 
 Expedited Proposal will have a shorter `Expedited Voting Period` compared to a regular `Voting Period`. 
-If the proposal has not passed after the `Expedited Voting Period`, it will be automatically 
-converted back to a regular proposal and fall back to use `Voting Period` unless the proposal is vetoed.
+If the proposal has not passed after the `Expedited Voting Period`, it will be automatically
+converted back to a regular proposal and resume for the difference between the regular and expedited voting periods unless the proposal is vetoed. That duration starts after the expedited tally completes.
 
 ### Option set
 

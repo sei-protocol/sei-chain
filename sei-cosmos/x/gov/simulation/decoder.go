@@ -54,7 +54,19 @@ func NewDecodeStore(cdc codec.Codec) func(kvA, kvB kv.Pair) string {
 			bytes.Equal(kvA.Key[:1], types.TallyVoteDelegationsKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.VoterProposalsKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.VoteDelegationBackfillCutoffKey),
-			bytes.Equal(kvA.Key[:1], types.VoteDelegationBackfillProgressKeyPrefix):
+			bytes.Equal(kvA.Key[:1], types.VoteDelegationBackfillProgressKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.VoteDelegationUpdateSequenceKey),
+			bytes.Equal(kvA.Key[:1], types.VoteDelegationUpdatesKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.VoterVoteDelegationUpdatesKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.VoteDelegationSnapshotRevisionKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.ProposalDeadlineKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.DeadlineBoundaryBlockTimeKey),
+			bytes.Equal(kvA.Key[:1], types.TallyBoundaryMetaKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.GapTallyBoundaryKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.ExactTallyBoundaryKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.ProposalTallyBoundaryKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.IncrementalTallyEnabledKey),
+			bytes.Equal(kvA.Key[:1], types.ModernTallyRoundKeyPrefix):
 			return fmt.Sprintf("%X\n%X", kvA.Value, kvB.Value)
 
 		default:

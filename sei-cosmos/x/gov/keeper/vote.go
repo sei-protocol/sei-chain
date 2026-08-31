@@ -3,8 +3,6 @@ package keeper
 import (
 	"fmt"
 
-	"golang.org/x/mod/semver"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
@@ -13,8 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
-
-const incrementalTallyUpgrade = "v6.7"
 
 // AddVote adds a vote on a specific proposal
 func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress, options types.WeightedVoteOptions) error {
@@ -25,11 +21,11 @@ func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.A
 	if proposal.Status != types.StatusVotingPeriod {
 		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
-	if incrementalTallyEnabled(ctx) {
+	if keeper.IncrementalTallyEnabled(ctx) {
 		if proposal.VotingEndTime.Before(ctx.BlockTime()) {
 			return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 		}
-		if keeper.IsTallying(ctx, proposalID) || keeper.IsVoteDelegationBackfillInProgress(ctx, proposalID) {
+		if keeper.voteDelegationSnapshotFrozen(ctx, proposal) || keeper.IsVoteDelegationBackfillInProgress(ctx, proposalID) {
 			return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 		}
 	}
@@ -124,7 +120,7 @@ func (keeper Keeper) SetVote(ctx sdk.Context, vote types.Vote) {
 }
 
 func (keeper Keeper) initializeVoteDelegationTracking(ctx sdk.Context, proposalID uint64, voter sdk.AccAddress) {
-	if !incrementalTallyEnabled(ctx) {
+	if !keeper.IncrementalTallyEnabled(ctx) {
 		return
 	}
 	ctx.KVStore(keeper.storeKey).Set(types.VoterProposalsKey(voter, proposalID), []byte{1})
@@ -132,8 +128,10 @@ func (keeper Keeper) initializeVoteDelegationTracking(ctx sdk.Context, proposalI
 	keeper.setVoteDelegationSnapshot(ctx, snapshot)
 }
 
-func incrementalTallyEnabled(ctx sdk.Context) bool {
-	return !ctx.IsTracing() || semver.Compare(ctx.ClosestUpgradeName(), incrementalTallyUpgrade) >= 0
+// IncrementalTallyEnabled reports whether bounded governance tallying is active.
+func (keeper Keeper) IncrementalTallyEnabled(ctx sdk.Context) bool {
+	activationCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithTraceMode(ctx.IsTracing())
+	return activationCtx.KVStore(keeper.storeKey).Has(types.IncrementalTallyEnabledKey)
 }
 
 func (keeper Keeper) snapshotVoteDelegations(
@@ -173,7 +171,7 @@ func (keeper Keeper) refreshVoteDelegationSnapshots(
 	voter sdk.AccAddress,
 	excludedValidator sdk.ValAddress,
 ) {
-	if !incrementalTallyEnabled(ctx) {
+	if !keeper.IncrementalTallyEnabled(ctx) {
 		return
 	}
 	store := ctx.KVStore(keeper.storeKey)
@@ -187,7 +185,8 @@ func (keeper Keeper) refreshVoteDelegationSnapshots(
 	snapshot := keeper.snapshotVoteDelegationsExcept(ctx, 0, voter, excludedValidator)
 	for ; iterator.Valid(); iterator.Next() {
 		proposalID := types.GetProposalIDFromBytes(iterator.Key()[len(prefix):])
-		if keeper.IsTallying(ctx, proposalID) {
+		proposal, found := keeper.GetProposal(ctx, proposalID)
+		if !found || keeper.voteDelegationSnapshotFrozen(ctx, proposal) {
 			continue
 		}
 		snapshot.ProposalId = proposalID
@@ -195,10 +194,29 @@ func (keeper Keeper) refreshVoteDelegationSnapshots(
 	}
 }
 
+func (keeper Keeper) voteDelegationSnapshotFrozen(ctx sdk.Context, proposal types.Proposal) bool {
+	if _, found := keeper.proposalTallyBoundarySequence(ctx, proposal); found {
+		return true
+	}
+	if keeper.usesLegacyTallySemantics(ctx, proposal) {
+		return keeper.IsTallying(ctx, proposal.ProposalId)
+	}
+	return proposal.VotingEndTime.Before(ctx.BlockTime()) || keeper.IsTallying(ctx, proposal.ProposalId)
+}
+
 func (keeper Keeper) setVoteDelegationSnapshot(ctx sdk.Context, snapshot types.VoteDelegationSnapshot) {
+	keeper.storeVoteDelegationSnapshot(ctx, snapshot, keeper.voteDelegationUpdateSequence(ctx))
+}
+
+func (keeper Keeper) storeVoteDelegationSnapshot(
+	ctx sdk.Context,
+	snapshot types.VoteDelegationSnapshot,
+	revision uint64,
+) {
 	voter := sdk.MustAccAddressFromBech32(snapshot.Voter)
 	bz := keeper.cdc.MustMarshal(&snapshot)
 	ctx.KVStore(keeper.storeKey).Set(types.VoteDelegationsKey(snapshot.ProposalId, voter), bz)
+	keeper.setVoteDelegationSnapshotRevision(ctx, snapshot.ProposalId, voter, revision)
 }
 
 // SetVoteDelegationSnapshot stores a vote's exported delegation snapshot.
@@ -228,7 +246,7 @@ func (keeper Keeper) unmarshalVoteDelegations(bz []byte) types.VoteDelegationSna
 // IterateAllVotes iterates over the all the stored votes and performs a callback function
 func (keeper Keeper) IterateAllVotes(ctx sdk.Context, cb func(vote types.Vote) (stop bool)) {
 	store := ctx.KVStore(keeper.storeKey)
-	if incrementalTallyEnabled(ctx) {
+	if keeper.IncrementalTallyEnabled(ctx) {
 		progressIterator := sdk.KVStorePrefixIterator(store, types.TallyProgressKeyPrefix)
 		for ; progressIterator.Valid(); progressIterator.Next() {
 			proposalID := types.GetProposalIDFromBytes(progressIterator.Key()[len(types.TallyProgressKeyPrefix):])
@@ -282,7 +300,7 @@ func (keeper Keeper) iterateVoteStore(store storetypes.KVStore, cb func(vote typ
 func (keeper Keeper) visibleVotesStore(ctx sdk.Context, proposalID uint64) storetypes.KVStore {
 	store := ctx.KVStore(keeper.storeKey)
 	pending := prefix.NewStore(store, types.VotesKey(proposalID))
-	if !incrementalTallyEnabled(ctx) {
+	if !keeper.IncrementalTallyEnabled(ctx) {
 		return pending
 	}
 	progress, found := keeper.getTallyProgress(ctx, proposalID)
