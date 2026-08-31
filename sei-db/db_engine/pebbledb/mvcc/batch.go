@@ -30,7 +30,13 @@ type batchOp struct {
 }
 
 // NewBatch creates a new Batch using the supplied MVCC encoding mode.
-func NewBatch(storage *pebble.DB, version int64, descending bool, dbName string, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*Batch, error) {
+func NewBatch(
+	storage *pebble.DB,
+	version int64,
+	descending bool,
+	dbName string,
+	operationMetrics ...*pebbledbmetrics.OperationMetrics,
+) (*Batch, error) {
 	if version < 0 {
 		return nil, fmt.Errorf("version must be non-negative")
 	}
@@ -81,7 +87,10 @@ func (b *Batch) Write() error {
 	writeCount := int64(len(b.ops) + 1) // includes latest-version metadata.
 	err := writeBatchOps(b.storage, b.ops, b.dbName, func(batch *pebble.Batch) error {
 		var versionBz [VersionSize]byte
-		binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
+		binary.LittleEndian.PutUint64(
+			versionBz[:],
+			uint64(b.version),
+		) //nolint:gosec // block heights are non-negative and fit in int64
 		if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
 			return fmt.Errorf("failed to set latest version in batch: %w", err)
 		}
@@ -103,7 +112,12 @@ type RawBatch struct {
 }
 
 // NewRawBatch creates a new RawBatch using the supplied MVCC encoding mode.
-func NewRawBatch(storage *pebble.DB, descending bool, dbName string, operationMetrics ...*pebbledbmetrics.OperationMetrics) (*RawBatch, error) {
+func NewRawBatch(
+	storage *pebble.DB,
+	descending bool,
+	dbName string,
+	operationMetrics ...*pebbledbmetrics.OperationMetrics,
+) (*RawBatch, error) {
 	var metrics *pebbledbmetrics.OperationMetrics
 	if len(operationMetrics) > 0 {
 		metrics = operationMetrics[0]
@@ -169,7 +183,12 @@ func (b *RawBatch) Write() error {
 // otel metrics, and commits. The optional beforeCommit hook runs on the
 // pebble batch right before commit (used by Batch.Write to stamp the
 // latest-version metadata key).
-func writeBatchOps(storage *pebble.DB, ops []batchOp, dbName string, beforeCommit func(*pebble.Batch) error) (err error) {
+func writeBatchOps(
+	storage *pebble.DB,
+	ops []batchOp,
+	dbName string,
+	beforeCommit func(*pebble.Batch) error,
+) (err error) {
 	startTime := time.Now()
 	batchSize := int64(len(ops))
 	defer func() {

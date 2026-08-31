@@ -62,7 +62,18 @@ func finishMVCCIterator(itr dbm.Iterator) (dbm.Iterator, error) {
 	return itr, nil
 }
 
-func newPebbleDBIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics, dbName string) *iterator {
+func newPebbleDBIterator(
+	ctx context.Context,
+	src *pebble.Iterator,
+	prefix, mvccStart, mvccEnd []byte,
+	version int64,
+	earliestVersion int64,
+	reverse bool,
+	useDefaultComparer bool,
+	storeKey string,
+	operationMetrics *pebbledbmetrics.OperationMetrics,
+	dbName string,
+) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{

@@ -813,7 +813,12 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return db.IteratorWithContext(context.Background(), storeKey, version, start, end)
 }
 
-func (db *Database) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) IteratorWithContext(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if db.descending {
 		return db.iteratorDescending(ctx, storeKey, version, start, end)
 	}
@@ -824,7 +829,12 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return db.ReverseIteratorWithContext(context.Background(), storeKey, version, start, end)
 }
 
-func (db *Database) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) ReverseIteratorWithContext(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if db.descending {
 		return db.reverseIteratorDescending(ctx, storeKey, version, start, end)
 	}
@@ -1039,7 +1049,12 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
-func (db *Database) iteratorDescending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) iteratorDescending(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -1062,10 +1077,30 @@ func (db *Database) iteratorDescending(ctx context.Context, storeKey string, ver
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey, db.operationMetrics, db.dbName))
+	return finishMVCCIterator(
+		newPebbleDBIterator(
+			ctx,
+			itr,
+			storePrefix(storeKey),
+			start,
+			end,
+			version,
+			db.GetEarliestVersion(),
+			false,
+			db.config.UseDefaultComparer,
+			storeKey,
+			db.operationMetrics,
+			db.dbName,
+		),
+	)
 }
 
-func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) reverseIteratorDescending(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -1088,7 +1123,22 @@ func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey stri
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey, db.operationMetrics, db.dbName))
+	return finishMVCCIterator(
+		newPebbleDBIterator(
+			ctx,
+			itr,
+			storePrefix(storeKey),
+			start,
+			end,
+			version,
+			db.GetEarliestVersion(),
+			true,
+			db.config.UseDefaultComparer,
+			storeKey,
+			db.operationMetrics,
+			db.dbName,
+		),
+	)
 }
 
 func getMVCCSliceDescending(db *pebble.DB, storeKey string, key []byte, version int64) (_ []byte, err error) {
