@@ -43,8 +43,10 @@ const (
 	MaxDBReadConcurrency = 16
 
 	// Default request limits (used as fallback values)
-	DefaultMaxBlockRange = 2000
-	DefaultMaxLogLimit   = 10000
+	DefaultMaxBlockRange        = 2000
+	DefaultMaxLogLimit          = 10000
+	DefaultMaxFilters           = 1000
+	DefaultMaxBlockFilterHashes = 1000
 
 	// global request rate limit, only applies to queries > RPSLimitThreshold
 	GlobalRPSLimit    = 30
@@ -278,10 +280,12 @@ type FilterAPI struct {
 }
 
 type FilterConfig struct {
-	timeout     time.Duration
-	maxLog      int64
-	maxLogBytes int64
-	maxBlock    int64
+	timeout              time.Duration
+	maxLog               int64
+	maxLogBytes          int64
+	maxBlock             int64
+	maxFilters           uint64
+	maxBlockFilterHashes uint64
 }
 
 type EventItemDataWrapper struct {
@@ -312,6 +316,12 @@ func NewFilterAPI(
 	}
 	if filterConfig.maxLogBytes <= 0 {
 		filterConfig.maxLogBytes = receipt.DefaultMaxLogBytes
+	}
+	if filterConfig.maxFilters == 0 {
+		filterConfig.maxFilters = DefaultMaxFilters
+	}
+	if filterConfig.maxBlockFilterHashes == 0 {
+		filterConfig.maxBlockFilterHashes = DefaultMaxBlockFilterHashes
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
@@ -351,8 +361,8 @@ func NewFilterAPI(
 	return api
 }
 
-// appendBlockHash records the committed Autobahn block hash on every
-// live BlocksSubscription.
+// appendBlockHash records the committed Autobahn block hash on each live
+// BlocksSubscription and invalidates filters whose backlog is full.
 func (a *FilterAPI) appendBlockHash(evt blockHeaderEvent) {
 	hash := common.BytesToHash(evt.hash)
 	a.filtersMu.Lock()
@@ -361,9 +371,29 @@ func (a *FilterAPI) appendBlockHash(evt blockHeaderEvent) {
 		if f.typ != BlocksSubscription {
 			continue
 		}
+		if uint64(len(f.blockHashes)) >= a.filterConfig.maxBlockFilterHashes {
+			delete(a.filters, id)
+			if f.cancelFunc != nil {
+				f.cancelFunc()
+			}
+			continue
+		}
 		f.blockHashes = append(f.blockHashes, hash)
 		a.filters[id] = f
 	}
+}
+
+// addFilter installs a polling filter when capacity is available.
+func (a *FilterAPI) addFilter(f filter) (ethrpc.ID, error) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+
+	if uint64(len(a.filters)) >= a.filterConfig.maxFilters {
+		return "", fmt.Errorf("too many filters: maximum allowed is %d", a.filterConfig.maxFilters)
+	}
+	id := ethrpc.NewID()
+	a.filters[id] = f
+	return id, nil
 }
 
 // takeBlockHashes returns and clears hashes accumulated for a
@@ -469,16 +499,16 @@ func (a *FilterAPI) NewFilter(
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
-	a.filtersMu.Lock()
-	defer a.filtersMu.Unlock()
-
-	curFilterID := ethrpc.NewID()
-	a.filters[curFilterID] = filter{
+	curFilterID, err := a.addFilter(filter{
 		typ:          LogsSubscription,
 		fc:           crit,
 		cancelFunc:   cancel,
 		lastAccess:   time.Now(),
 		lastToHeight: 0,
+	})
+	if err != nil {
+		cancel()
+		return "", err
 	}
 	return curFilterID, nil
 }
@@ -493,15 +523,15 @@ func (a *FilterAPI) NewBlockFilter(
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
-	a.filtersMu.Lock()
-	defer a.filtersMu.Unlock()
-
-	curFilterID := ethrpc.NewID()
-	a.filters[curFilterID] = filter{
+	curFilterID, err := a.addFilter(filter{
 		typ:         BlocksSubscription,
 		cancelFunc:  cancel,
 		lastAccess:  time.Now(),
 		blockCursor: "",
+	})
+	if err != nil {
+		cancel()
+		return "", err
 	}
 	return curFilterID, nil
 }

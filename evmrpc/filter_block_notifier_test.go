@@ -2,11 +2,13 @@ package evmrpc
 
 import (
 	"context"
+	"math/big"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -15,6 +17,17 @@ import (
 )
 
 func newTestFilterAPI(t *testing.T, notifier *BlockHeaderNotifier) *FilterAPI {
+	return newTestFilterAPIWithConfig(t, notifier, &FilterConfig{
+		timeout:              time.Hour,
+		maxLog:               1,
+		maxLogBytes:          1,
+		maxBlock:             1,
+		maxFilters:           DefaultMaxFilters,
+		maxBlockFilterHashes: DefaultMaxBlockFilterHashes,
+	})
+}
+
+func newTestFilterAPIWithConfig(t *testing.T, notifier *BlockHeaderNotifier, filterConfig *FilterConfig) *FilterAPI {
 	t.Helper()
 	// Setup: FilterAPI with unused log/store deps; only the notifier path is exercised.
 	api := NewFilterAPI(
@@ -22,7 +35,7 @@ func newTestFilterAPI(t *testing.T, notifier *BlockHeaderNotifier) *FilterAPI {
 		nil,
 		func(int64) sdk.Context { return sdk.Context{} },
 		nil,
-		&FilterConfig{timeout: time.Hour, maxLog: 1, maxLogBytes: 1, maxBlock: 1},
+		filterConfig,
 		ConnectionTypeHTTP,
 		"eth",
 		make(chan struct{}, 1),
@@ -34,6 +47,39 @@ func newTestFilterAPI(t *testing.T, notifier *BlockHeaderNotifier) *FilterAPI {
 	)
 	t.Cleanup(api.shutdown)
 	return api
+}
+
+func TestFilterAPI_RejectsFilterAboveCapacity(t *testing.T) {
+	n := NewBlockHeaderNotifier(4)
+	api := newTestFilterAPIWithConfig(t, n, &FilterConfig{timeout: time.Hour, maxFilters: 2})
+	ctx := context.Background()
+
+	_, err := api.NewFilter(ctx, filters.FilterCriteria{})
+	require.NoError(t, err)
+	_, err = api.NewBlockFilter(ctx)
+	require.NoError(t, err)
+	_, err = api.NewBlockFilter(ctx)
+	require.EqualError(t, err, "too many filters: maximum allowed is 2")
+}
+
+func TestFilterAPI_InvalidatesBlockFilterWhenHashBacklogIsFull(t *testing.T) {
+	n := NewBlockHeaderNotifier(4)
+	api := newTestFilterAPIWithConfig(t, n, &FilterConfig{
+		timeout:              time.Hour,
+		maxFilters:           1,
+		maxBlockFilterHashes: 2,
+	})
+	ctx := context.Background()
+	id, err := api.NewBlockFilter(ctx)
+	require.NoError(t, err)
+
+	for height := int64(1); height <= 3; height++ {
+		hash := common.BigToHash(big.NewInt(height))
+		n.OnBlockCommitted(hash.Bytes(), &tmproto.Header{Height: height}, &abci.ResponseFinalizeBlock{})
+	}
+
+	_, err = api.GetFilterChanges(ctx, id)
+	require.EqualError(t, err, "filter does not exist")
 }
 
 func TestFilterAPI_NewBlockFilterUsesNotifierHash(t *testing.T) {
