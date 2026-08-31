@@ -460,3 +460,12 @@ func TestAValueTheNodesOwnRulesRejectIsRefused(t *testing.T) {
 		t.Error("the value beside the refused one was applied, so the section was published in part")
 	}
 }
+
+// keysADecodeDelivers returns every key the decoded sections own, sorted.
+//
+// Through the one accessor that answers both halves from a single read of the registry, so a test cannot
+// see a registry the boot did not.
+func keysADecodeDelivers() []string {
+	_, keys := registry.SuppliedAndOwnedByDecodedSections(registry.Resolved{})
+	return keys
+}
