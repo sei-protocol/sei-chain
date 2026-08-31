@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	evmss "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
@@ -67,6 +68,12 @@ type Config struct {
 	// generation batch can be absorbed by batches already queued instead of stalling the write.
 	QueueDepth int
 
+	// Presort orders each batch with mvcc.SortChangesetPairs in buildBatch, on the generator
+	// goroutine, before it reaches WriteBatch. The write path then only scans to confirm the
+	// order rather than sorting the generator's unsorted slot/balance/nonce runs, which moves
+	// that cost off the write's critical path.
+	Presort bool
+
 	// Seed makes the synthetic contract pool and slot/value data deterministic.
 	Seed int64
 }
@@ -79,6 +86,7 @@ func DefaultConfig() Config {
 		BatchSize:        1000,
 		BatchInterval:    500 * time.Millisecond,
 		QueueDepth:       4,
+		Presort:          false,
 		Seed:             1,
 	}
 }
@@ -103,6 +111,7 @@ type PebbleSim struct {
 type batch struct {
 	pairs                    []*proto.KVPair
 	nSlots, nBalance, nNonce int
+	sortElapsed              time.Duration
 }
 
 // Open creates (or resumes) the EVM state store at cfg.DataDir, PebbleDB-backed, the same store
@@ -162,7 +171,8 @@ func (p *PebbleSim) Generate(ctx context.Context) {
 }
 
 // buildBatch generates one batch of cfg.BatchSize random key/value updates, split 60/25/15
-// across storage slots, balances, and nonces.
+// across storage slots, balances, and nonces. If cfg.Presort is set, pairs are handed to
+// WriteBatch already in the store's write order.
 func (p *PebbleSim) buildBatch() batch {
 	nBalance := p.cfg.BatchSize * balancePct / 100
 	nNonce := p.cfg.BatchSize * noncePct / 100
@@ -178,17 +188,29 @@ func (p *PebbleSim) buildBatch() batch {
 	for i := 0; i < nNonce; i++ {
 		pairs = append(pairs, &proto.KVPair{Key: p.randomNonceKey(), Value: p.rng.Bytes(nonceValueLen)})
 	}
-	return batch{pairs: pairs, nSlots: nSlots, nBalance: nBalance, nNonce: nNonce}
+
+	var sortElapsed time.Duration
+	if p.cfg.Presort {
+		sortStart := time.Now()
+		mvcc.SortChangesetPairs(pairs)
+		sortElapsed = time.Since(sortStart)
+	}
+
+	return batch{pairs: pairs, nSlots: nSlots, nBalance: nBalance, nNonce: nNonce, sortElapsed: sortElapsed}
 }
 
 // BatchResult reports what one WriteBatch call did: the version it wrote, the full wall-clock
-// time, the Pebble-write-only portion of that time, and how long the call stalled waiting for
-// the generator to hand over a batch.
+// time, the Pebble-write-only portion of that time, how long the call stalled waiting for the
+// generator to hand over a batch, and — if cfg.Presort is set — how long that batch spent being
+// sorted on the generator goroutine. Sort happened earlier, concurrently with a previous
+// WriteBatch call, so it is not part of Total; it is reported separately to keep that cost
+// visible rather than hidden by the pipeline.
 type BatchResult struct {
 	Version int64
 	Total   time.Duration
 	Write   time.Duration
 	Stall   time.Duration
+	Sort    time.Duration
 }
 
 // WriteBatch takes the next pre-generated batch of cfg.BatchSize key/value updates and writes it
@@ -197,7 +219,8 @@ type BatchResult struct {
 // isolates just the ApplyChangesetSync/SetLatestVersion call, and Stall isolates the wait for the
 // generator goroutine, so a miss can be attributed to Pebble itself rather than to this
 // benchmark's own key/value generation falling behind. All three are also recorded as
-// pebblesim_batch_duration_seconds / pebblesim_write_duration_seconds / pebblesim_stall_duration_seconds.
+// pebblesim_batch_duration_seconds / pebblesim_write_duration_seconds / pebblesim_stall_duration_seconds,
+// alongside pebblesim_sort_duration_seconds for Sort.
 func (p *PebbleSim) WriteBatch(ctx context.Context) (BatchResult, error) {
 	batchStart := time.Now()
 
@@ -216,7 +239,6 @@ func (p *PebbleSim) WriteBatch(ctx context.Context) (BatchResult, error) {
 		Changeset: proto.ChangeSet{Pairs: b.pairs},
 	}}
 
-	// TODO: pre sort based on key.
 	writeStart := time.Now()
 	if err := p.store.ApplyChangesetSync(p.version, changesets); err != nil {
 		return BatchResult{}, fmt.Errorf("apply changeset at version %d: %w", p.version, err)
@@ -230,6 +252,7 @@ func (p *PebbleSim) WriteBatch(ctx context.Context) (BatchResult, error) {
 	p.metrics.batchDuration.Record(ctx, totalElapsed.Seconds())
 	p.metrics.writeDuration.Record(ctx, writeElapsed.Seconds())
 	p.metrics.stallDuration.Record(ctx, stallElapsed.Seconds())
+	p.metrics.sortDuration.Record(ctx, b.sortElapsed.Seconds())
 	p.metrics.batchesWritten.Add(ctx, 1)
 	p.metrics.keysWritten.Add(ctx, int64(b.nSlots), metric.WithAttributes(attribute.String("kind", "slot")))
 	p.metrics.keysWritten.Add(ctx, int64(b.nBalance), metric.WithAttributes(attribute.String("kind", "balance")))
@@ -238,7 +261,7 @@ func (p *PebbleSim) WriteBatch(ctx context.Context) (BatchResult, error) {
 		p.metrics.deadlineMisses.Add(ctx, 1)
 	}
 
-	return BatchResult{Version: p.version, Total: totalElapsed, Write: writeElapsed, Stall: stallElapsed}, nil
+	return BatchResult{Version: p.version, Total: totalElapsed, Write: writeElapsed, Stall: stallElapsed, Sort: b.sortElapsed}, nil
 }
 
 // randomStorageKey builds a real EVM storage-slot key (0x03 || address || slot) for a random

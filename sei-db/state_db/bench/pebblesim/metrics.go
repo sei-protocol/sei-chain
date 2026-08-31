@@ -22,6 +22,7 @@ type simMetrics struct {
 	batchDuration  metric.Float64Histogram
 	writeDuration  metric.Float64Histogram
 	stallDuration  metric.Float64Histogram
+	sortDuration   metric.Float64Histogram
 	batchesWritten metric.Int64Counter
 	keysWritten    metric.Int64Counter
 	deadlineMisses metric.Int64Counter
@@ -46,6 +47,12 @@ func newSimMetrics() *simMetrics {
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(batchLatencyBuckets...),
 	)
+	sortDuration, _ := meter.Float64Histogram(
+		"pebblesim_sort_duration_seconds",
+		metric.WithDescription("Wall-clock time buildBatch spent sorting the batch by key on the generator goroutine; always 0 unless -presort is set"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(batchLatencyBuckets...),
+	)
 	batchesWritten, _ := meter.Int64Counter(
 		"pebblesim_batches_written_total",
 		metric.WithDescription("Total batches successfully written"),
@@ -62,6 +69,7 @@ func newSimMetrics() *simMetrics {
 		batchDuration:  batchDuration,
 		writeDuration:  writeDuration,
 		stallDuration:  stallDuration,
+		sortDuration:   sortDuration,
 		batchesWritten: batchesWritten,
 		keysWritten:    keysWritten,
 		deadlineMisses: deadlineMisses,

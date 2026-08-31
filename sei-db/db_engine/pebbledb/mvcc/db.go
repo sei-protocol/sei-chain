@@ -151,6 +151,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		MemTableStopWritesThreshold: 4,
 		// Let Pebble run several compactions in parallel so it can keep up with
 		// the tombstone churn produced by pruning. See maxConcurrentCompactions.
+		DisableWAL:                 true, // TODO: it breaks tests.
 		CompactionConcurrencyRange: func() (int, int) { return 1, maxConcurrentCompactions },
 	}
 
@@ -670,11 +671,16 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 		version = 1
 	}
 
-	// Create batch and persist latest version in the batch
+	n := 0
+	for _, cs := range changeset {
+		n += len(cs.Changeset.Pairs)
+	}
+
 	b, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return err
 	}
+	b.grow(n)
 
 	for _, cs := range changeset {
 		for _, kvPair := range cs.Changeset.Pairs {
@@ -1200,6 +1206,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 		if err != nil {
 			panic(err)
 		}
+		batch.grow(ImportCommitBatchSize)
 
 		var counter int
 		for entry := range ch {
@@ -1221,6 +1228,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 				if err != nil {
 					panic(err)
 				}
+				batch.grow(ImportCommitBatchSize)
 			}
 		}
 
@@ -1306,6 +1314,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
+	batch.grow(DeleteCommitBatchSize)
 
 	deleteCounter := 0
 
@@ -1327,6 +1336,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
 					return true
 				}
+				batch.grow(DeleteCommitBatchSize)
 			}
 		}
 		return false
@@ -1348,15 +1358,27 @@ func isMetadataKey(key []byte) bool {
 	return bytes.HasPrefix(key, []byte("s/_"))
 }
 
+func storePrefixLen(storeKey string) int {
+	return len(PrefixStore) + len(storeKey) + 1
+}
+
+func appendStorePrefix(dst []byte, storeKey string) []byte {
+	dst = append(dst, PrefixStore...)
+	dst = append(dst, storeKey...)
+	return append(dst, '/')
+}
+
 func storePrefix(storeKey string) []byte {
-	return []byte(fmt.Sprintf(StorePrefixTpl, storeKey))
+	return appendStorePrefix(make([]byte, 0, storePrefixLen(storeKey)), storeKey)
 }
 
 func prependStoreKey(storeKey string, key []byte) []byte {
 	if storeKey == "" {
 		return key
 	}
-	return append(storePrefix(storeKey), key...)
+	dst := make([]byte, 0, storePrefixLen(storeKey)+len(key))
+	dst = appendStorePrefix(dst, storeKey)
+	return append(dst, key...)
 }
 
 // Parses store from key with format "s/k:{store}/..."

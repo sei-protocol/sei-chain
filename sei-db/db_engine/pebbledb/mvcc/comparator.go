@@ -208,6 +208,62 @@ func MVCCKeyCompare(a, b []byte) int {
 	return bytes.Compare(aTS, bTS)
 }
 
+// mvccSuffixLen is the number of bytes writeMVCCSuffix writes for version.
+func mvccSuffixLen(version int64) int {
+	if version > 0 {
+		return 1 + VersionSize + 1 // sentinel, version, length byte
+	}
+	return 1 // sentinel only
+}
+
+func writeMVCCSuffix(dst []byte, version int64, descending bool) {
+	dst[0] = 0
+	if version > 0 {
+		v := uint64(version) //nolint:gosec // versions are non-negative
+		if descending {
+			v = ^v
+		}
+		binary.BigEndian.PutUint64(dst[1:9], v)
+		dst[9] = byte(1 + VersionSize)
+	}
+}
+
+func mvccStoreKeyLen(storeKey string, key []byte, version int64) int {
+	n := len(key) + mvccSuffixLen(version)
+	if storeKey != "" {
+		n += storePrefixLen(storeKey)
+	}
+	return n
+}
+
+func mvccValueLen(value []byte, tombstone int64) int {
+	return len(value) + mvccSuffixLen(tombstone)
+}
+
+func encodeMVCCStoreKeyInto(dst []byte, storeKey string, key []byte, version int64, descending bool) {
+	off := 0
+	if storeKey != "" {
+		off += copy(dst[off:], PrefixStore)
+		off += copy(dst[off:], storeKey)
+		dst[off] = '/'
+		off++
+	}
+	off += copy(dst[off:], key)
+	writeMVCCSuffix(dst[off:], version, descending)
+}
+
+func encodeMVCCValueInto(dst []byte, value []byte, tombstone int64, descending bool) {
+	n := copy(dst, value)
+	writeMVCCSuffix(dst[n:], tombstone, descending)
+}
+
+// encodeMVCCStoreKey returns a store-prefixed user key with an MVCC version suffix.
+func encodeMVCCStoreKey(storeKey string, key []byte, version int64, descending bool) []byte {
+	dst := make([]byte, mvccStoreKeyLen(storeKey, key, version))
+	encodeMVCCStoreKeyInto(dst, storeKey, key, version, descending)
+	return dst
+}
+
 // MVCCEncode dispatches between the descending and ascending encoders based on
 // the mode flag. Descending-mode is used for fresh DBs created by this build;
 // ascending-mode preserves compatibility with legacy DBs written by the
@@ -224,16 +280,10 @@ func MVCCEncode(key []byte, version int64, descending bool) []byte {
 // logical key.
 //
 // <key>\x00[<version>]<#version-bytes>
-func MVCCEncodeDescending(key []byte, version int64) (dst []byte) {
-	dst = append(dst, key...)
-	dst = append(dst, 0)
-
-	if version > 0 {
-		extra := byte(1 + 8)
-		dst = encodeUint64Descending(dst, uint64(version))
-		dst = append(dst, extra)
-	}
-
+func MVCCEncodeDescending(key []byte, version int64) []byte {
+	dst := make([]byte, len(key)+mvccSuffixLen(version))
+	n := copy(dst, key)
+	writeMVCCSuffix(dst[n:], version, true)
 	return dst
 }
 
@@ -241,28 +291,11 @@ func MVCCEncodeDescending(key []byte, version int64) (dst []byte) {
 // ascending byte order. This matches the legacy on-disk format used by main.
 //
 // <key>\x00[<version>]<#version-bytes>
-func MVCCEncodeAscending(key []byte, version int64) (dst []byte) {
-	dst = append(dst, key...)
-	dst = append(dst, 0)
-
-	if version > 0 {
-		extra := byte(1 + 8)
-		dst = encodeUint64Ascending(dst, uint64(version))
-		dst = append(dst, extra)
-	}
-
+func MVCCEncodeAscending(key []byte, version int64) []byte {
+	dst := make([]byte, len(key)+mvccSuffixLen(version))
+	n := copy(dst, key)
+	writeMVCCSuffix(dst[n:], version, false)
 	return dst
-}
-
-// encodeUint64Descending encodes the uint64 value in descending order so newer
-// versions sort before older versions for the same logical key.
-func encodeUint64Descending(dst []byte, v uint64) []byte {
-	v = ^v
-	return append(
-		dst,
-		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
-		byte(v>>24), byte(v>>16), byte(v>>8), byte(v),
-	)
 }
 
 // decodeUint64Descending decodes a descending-encoded int64 from the input
@@ -279,17 +312,6 @@ func decodeUint64Descending(b []byte) (int64, error) {
 	}
 	v := int64(uv)
 	return v, nil
-}
-
-// encodeUint64Ascending encodes the uint64 value using a big-endian 8 byte
-// representation. The bytes are appended to the supplied buffer and
-// the final buffer is returned.
-func encodeUint64Ascending(dst []byte, v uint64) []byte {
-	return append(
-		dst,
-		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
-		byte(v>>24), byte(v>>16), byte(v>>8), byte(v),
-	)
 }
 
 // decodeUint64Ascending decodes a int64 from the input buffer, treating

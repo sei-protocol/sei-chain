@@ -30,6 +30,7 @@ func run() error {
 	numContracts := flag.Int("contracts", cfg.NumContracts, "number of simulated contracts")
 	slotsPerContract := flag.Int64("slots-per-contract", cfg.SlotsPerContract, "slot index range per contract")
 	queueDepth := flag.Int("queue-depth", cfg.QueueDepth, "batches to buffer ahead of the writer")
+	presort := flag.Bool("presort", cfg.Presort, "sort each batch by key on the generator goroutine before it reaches the writer")
 	seed := flag.Int64("seed", cfg.Seed, "random seed")
 	flag.Parse()
 
@@ -39,6 +40,7 @@ func run() error {
 	cfg.NumContracts = *numContracts
 	cfg.SlotsPerContract = *slotsPerContract
 	cfg.QueueDepth = *queueDepth
+	cfg.Presort = *presort
 	cfg.Seed = *seed
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -98,14 +100,14 @@ func run() error {
 
 			if result.Total > cfg.BatchInterval {
 				missed++
-				log.Printf("version %d: MISSED DEADLINE - total %s (write %s, stall %s), budget %s (%d misses so far)",
+				log.Printf("version %d: MISSED DEADLINE - total %s (write %s, stall %s, sort %s), budget %s (%d misses so far)",
 					result.Version, result.Total.Round(time.Millisecond), result.Write.Round(time.Millisecond),
-					result.Stall.Round(time.Millisecond), cfg.BatchInterval, missed)
+					result.Stall.Round(time.Millisecond), result.Sort.Round(time.Millisecond), cfg.BatchInterval, missed)
 				continue
 			}
-			log.Printf("version %d: %d keys written in %s (write %s, stall %s) (%d total)",
+			log.Printf("version %d: %d keys written in %s (write %s, stall %s, sort %s) (%d total)",
 				result.Version, cfg.BatchSize, result.Total.Round(time.Millisecond), result.Write.Round(time.Millisecond),
-				result.Stall.Round(time.Millisecond), written)
+				result.Stall.Round(time.Millisecond), result.Sort.Round(time.Millisecond), written)
 		}
 	}
 }
