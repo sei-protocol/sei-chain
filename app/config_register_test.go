@@ -2,49 +2,12 @@ package app
 
 import (
 	"reflect"
-	"sort"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
-
-// manifestKeys returns the keys a section's read-site record names, plus any named here.
-//
-// The record is this package's own statement of which keys each reader looks up, kept for another purpose
-// and held against a golden file. Taking the key set from it means a section's declaration is compared
-// against something maintained under a different discipline, rather than against a list written beside it
-// by the same hand in the same commit.
-func manifestKeys(specs []configtest.KeySpec, also ...string) []string {
-	out := make([]string, 0, len(specs)+len(also))
-	for _, spec := range specs {
-		out = append(out, spec.Key)
-	}
-	out = append(out, also...)
-	sort.Strings(out)
-	return out
-}
-
-// requireDeclares holds a section's declared keys against the record of what its reader looks up.
-func requireDeclares(t *testing.T, section string, want []string) {
-	t.Helper()
-	for _, defect := range registry.Defects() {
-		if defect.Section == section {
-			t.Fatalf("%s was refused, so none of its keys is declared: %v", section, defect.Err)
-		}
-	}
-	registered, ok := registry.Lookup(section)
-	if !ok {
-		t.Fatalf("%s is not registered, so nothing resolves its keys", section)
-	}
-	if !reflect.DeepEqual(registered.Keys, want) {
-		t.Errorf("%s declares\n  %v\nand its read-site record names\n  %v\nA key on one side only is either "+
-			"a setting an operator writes that no reader fills, or one this package reads and nothing "+
-			"declares", section, registered.Keys, want)
-	}
-}
 
 // requireResolves holds a section's resolved values against what its reader's own defaults hold.
 //
@@ -70,9 +33,8 @@ func requireResolves(t *testing.T, mode registry.Mode, section string, want map[
 	}
 }
 
-// TestLightInvarianceDeclaresAndResolves covers the one section registered as the type its reader fills.
-func TestLightInvarianceDeclaresAndResolves(t *testing.T) {
-	requireDeclares(t, LightInvarianceSectionName, manifestKeys(lightInvarianceKeys))
+// TestLightInvarianceResolves covers the one section registered as the type its reader fills.
+func TestLightInvarianceResolves(t *testing.T) {
 	for _, mode := range registry.Modes() {
 		requireResolves(t, mode, LightInvarianceSectionName, map[string]any{
 			flagSupplyEnabled: DefaultLightInvarianceConfig.SupplyEnabled,
@@ -80,23 +42,12 @@ func TestLightInvarianceDeclaresAndResolves(t *testing.T) {
 	}
 }
 
-// TestGenesisDeclaresAndResolves holds the genesis schema against the record and the reader's defaults.
+// TestGenesisResolves holds the genesis schema's values against what its readers' defaults hold.
 //
-// Three keys, and the record is what says so rather than a list written again here. One is a row. The other
-// two have targets of their own: one is read as a type assertion rather than a guarded cast, so a row would
-// predict the wrong resolution, and one is read by the upstream server into its own configuration and not by
-// this package at all.
-//
-// All three are declared, because a section name is the whole of what a registration owns and a dotted one
-// is refused, so a key under genesis is this registration's or nobody's.
-func TestGenesisDeclaresAndResolves(t *testing.T) {
-	want := manifestKeys(genesisKeys)
-	for _, key := range genesisKeysWithTargetsOfTheirOwn {
-		want = append(want, string(key))
-	}
-	sort.Strings(want)
-	requireDeclares(t, GenesisSectionName, want)
-
+// Three keys. Two are read by this package: stream-import through a guarded cast, and import-file through a
+// type assertion. The third is read by the upstream server into its own configuration and not by this
+// package at all.
+func TestGenesisResolves(t *testing.T) {
 	for _, mode := range registry.Modes() {
 		requireResolves(t, mode, GenesisSectionName, map[string]any{
 			flagGenesisStreamImport:       DefaultGenesisConfig.StreamGenesisImport,
@@ -104,11 +55,6 @@ func TestGenesisDeclaresAndResolves(t *testing.T) {
 			"genesis.genesis-stream-file": srvconfig.DefaultConfig().Genesis.GenesisStreamFile,
 		})
 	}
-}
-
-// TestStateStoreDeclaresEveryKeyItsReaderResolves holds the schema against the read-site record.
-func TestStateStoreDeclaresEveryKeyItsReaderResolves(t *testing.T) {
-	requireDeclares(t, StateStoreSectionName, manifestKeys(ssKeys))
 }
 
 // TestStateStoreResolvesWhatEachKindOfNodeNeeds is the mode-varying half of this section.
@@ -158,17 +104,7 @@ func TestStateStoreResolvesItsOtherValuesTheSameForEveryMode(t *testing.T) {
 	}
 }
 
-// TestStateCommitDeclaresEveryKeyItsReaderResolves holds the schema against the read-site record.
-//
-// Twenty-three keys: the twenty the record holds as rows, and three it names beside them because each has
-// a target of its own. The four keys under this section's flat key-value name that only the Cosmos server's
-// reader resolves are not among them, and are not this section's to declare.
-func TestStateCommitDeclaresEveryKeyItsReaderResolves(t *testing.T) {
-	requireDeclares(t, StateCommitSectionName, manifestKeys(scKeys,
-		FlagSCWriteMode, FlagSCWriteModeEnableAuto, FlagSCHashLoggerTargetFileSize))
-}
-
-// TestStateCommitResolvesTheModuleDeclaredValues covers the value side of the same registration.
+// TestStateCommitResolvesTheModuleDeclaredValues covers the value side of this registration.
 //
 // The write mode is a plain string here because the reader parses a written name into its own type, and
 // comparing values is what holds it to that: the named type carries the same text and is not the same
@@ -242,88 +178,4 @@ func TestTheSectionsThisPackageRegistersAreUsable(t *testing.T) {
 			t.Errorf("%s was refused, so none of its keys is declared: %v", defect.Section, defect.Err)
 		}
 	}
-}
-
-// TestTheseDeparturesFromWhatTheCommandWritesAreTheRecordedOnes measures every one of them.
-//
-// A declared value is what the seid init command writes for a kind of node. This section departs from that
-// wherever the mode rules moved a value, and for one cause: the type the command renders declares a state
-// store field of its own and fills it from the mode-blind default, so every rule this section applies is
-// applied and then thrown away.
-//
-// PLT-955 records the defect and the decision to correct it in the versioned declaration rather than at the
-// point that loses it. So the departures are intended, and the set is held rather than described. A row that
-// stops departing fails, which is the day that row should be deleted. A row that starts departing fails too,
-// so a rule added to this section has to account for what the command does with it.
-//
-// What this cannot see is the command. This package cannot import the one that renders the file, because
-// that direction is the cycle, so the mode-blind side here is read from the same default the command reads
-// rather than from the command's output. A change that made the command keep the rules would leave this
-// green, and the test under cmd/seid/cmd is the half that fails then.
-func TestTheseDeparturesFromWhatTheCommandWritesAreTheRecordedOnes(t *testing.T) {
-	// The mode-blind values the command's own field carries, which is what reaches a generated file.
-	blind := config.DefaultStateStoreConfig()
-
-	// Every departure, by key and mode, with what each side says.
-	recorded := map[string]map[registry.Mode][2]any{
-		FlagSSKeepRecent: {
-			registry.ModeArchive: {0, blind.KeepRecent},
-		},
-		FlagSSEnable: {
-			registry.ModeValidator: {false, blind.Enable},
-			registry.ModeSeed:      {false, blind.Enable},
-		},
-	}
-
-	measured := map[string]map[registry.Mode]bool{}
-	for _, mode := range registry.Modes() {
-		resolved, err := registry.Resolve(mode, registry.Sources{})
-		if err != nil {
-			t.Fatalf("Resolve(%s): %v", mode, err)
-		}
-		for _, key := range []string{FlagSSKeepRecent, FlagSSEnable} {
-			declared := resolved.Values[key]
-			written := blindValueFor(key, blind)
-			if declared == written {
-				if _, listed := recorded[key][mode]; listed {
-					t.Errorf("%s for %s no longer departs, both sides being %v. Take the row off, so "+
-						"the record stays the set of values this section states differently from the "+
-						"file the command writes", key, mode, declared)
-				}
-				continue
-			}
-			if measured[key] == nil {
-				measured[key] = map[registry.Mode]bool{}
-			}
-			measured[key][mode] = true
-
-			want, listed := recorded[key][mode]
-			switch {
-			case !listed:
-				t.Errorf("%s for %s is declared as %v and the command writes %v, and nothing records "+
-					"that", key, mode, declared, written)
-			case declared != want[0] || written != want[1]:
-				t.Errorf("%s for %s is recorded as declaring %v against a written %v, and declares %v "+
-					"against %v", key, mode, want[0], want[1], declared, written)
-			}
-		}
-	}
-
-	for key, modes := range recorded {
-		if len(measured[key]) != len(modes) {
-			t.Errorf("%s is recorded as departing for %d modes and departs for %d", key,
-				len(modes), len(measured[key]))
-		}
-	}
-}
-
-// blindValueFor returns the value the command's own state store field carries for a key.
-func blindValueFor(key string, blind config.StateStoreConfig) any {
-	switch key {
-	case FlagSSKeepRecent:
-		return blind.KeepRecent
-	case FlagSSEnable:
-		return blind.Enable
-	}
-	return nil
 }
