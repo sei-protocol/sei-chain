@@ -171,8 +171,29 @@ func flatten(prefix string, in map[string]any, out map[string]any) {
 			flatten(path, inner, out)
 			continue
 		}
-		out[path] = value
+		out[path] = whatAPointerHolds(value)
 	}
+}
+
+// whatAPointerHolds returns the value behind a pointer, or the value itself.
+//
+// The decoder flattens a pointer to a struct by following it and leaves a pointer to anything else as a
+// pointer. Rendering one of those gives an address, and an address is a different one on each side of a
+// delivery, because publishing assigns a fresh pointer for a leaf that is not a struct. So the report would
+// name the key as moved on every boot and print two addresses for it.
+//
+// Nothing reaches this today: every pointer leaf the node's configuration carries is deliberately left
+// undeclared. The walk around it is driven from the type so that a field added later is covered, and this
+// keeps that true for one more shape.
+func whatAPointerHolds(value any) any {
+	v := reflect.ValueOf(value)
+	if v.Kind() != reflect.Pointer {
+		return value
+	}
+	if v.IsNil() {
+		return nil
+	}
+	return v.Elem().Interface()
 }
 
 // TestReporter is the part of a test's own type this file needs.

@@ -78,6 +78,12 @@ func TestAPasswordInASettingDoesNotReachTheReport(t *testing.T) {
 		// PostgreSQL accepts a quoted keyword value, and a password may hold spaces.
 		{"alpha bravo charlie", "host=10.0.0.9 user=seid password='alpha bravo charlie' dbname=idx"},
 		{"alpha bravo charlie", `host=10.0.0.9 user=seid password="alpha bravo charlie" dbname=idx`},
+		// A backslash escape inside a quoted value. Ending the match at the escaped quote leaks the tail.
+		{`alpha' bravo charlie`, `host=10.0.0.9 user=seid password='alpha\' bravo charlie' dbname=idx`},
+		// The same unquoted, where the space itself is escaped.
+		{`alpha bravo`, `host=10.0.0.9 user=seid password=alpha\ bravo dbname=idx`},
+		// A password a URL parser refuses in userinfo, so the parse fails and no named field exists.
+		{"alpha bravo", "postgres://seid:alpha bravo@10.0.0.9:5432/idx"},
 	} {
 		var out bytes.Buffer
 		log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))

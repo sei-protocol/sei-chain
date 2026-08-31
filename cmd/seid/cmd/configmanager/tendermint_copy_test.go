@@ -1,6 +1,7 @@
 package configmanager
 
 import (
+	"fmt"
 	"reflect"
 	"sort"
 	"testing"
@@ -206,4 +207,36 @@ func referencePathsIn(t reflect.Type, path string, seen map[reflect.Type]bool) [
 	}
 	sort.Strings(out)
 	return out
+}
+
+// TestAPointerLeafRendersWhatItHolds covers a shape the report would name as moved on every boot.
+//
+// The decoder follows a pointer to a struct and leaves a pointer to anything else alone. Rendered, that is
+// an address, and publishing assigns a fresh pointer for a leaf that is not a struct, so the two sides of a
+// delivery hold different addresses for a value nobody changed. The report would say the key moved and
+// print two of them.
+//
+// No pointer leaf is declared today. This holds the rendering to being right for one anyway, because the
+// walk around it is driven from the type so that a field added later is covered.
+func TestAPointerLeafRendersWhatItHolds(t *testing.T) {
+	seven := uint(7)
+	for _, tc := range []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{"a pointer to a number", &seven, "7"},
+		{"a nil pointer", (*uint)(nil), "<nil>"},
+		{"a plain number", uint(7), "7"},
+		{"a string", "kv", "kv"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := map[string]any{}
+			flatten("", map[string]any{"probe": tc.value}, out)
+			if got := fmt.Sprint(out["probe"]); got != tc.want {
+				t.Errorf("%s renders as %q, want %q. An address differs on each side of a delivery, so "+
+					"the report would name the key as moved every boot", tc.name, got, tc.want)
+			}
+		})
+	}
 }
