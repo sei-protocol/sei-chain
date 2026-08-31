@@ -18,7 +18,7 @@ jobs:
       id-token: write
     secrets: inherit
     with:
-      # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.220
+      # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.20
       uci-ref: 68010d0ab76554da91c320511fb14a7af1af4245
       allowed-team: 'sei-protocol/sei-core'
       allowed-bots: '["seidroid[bot]"]' # To allow AI review on automatically backported PRs.
