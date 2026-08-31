@@ -71,9 +71,9 @@ type ReceiptStoreConfig struct {
 	// Only the littidx backend supports it; newReceiptBackend rejects it on pebbledb.
 	ExternalPruning bool `mapstructure:"-"`
 
-	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
-	// defaults to false
-	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+	// EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed receipt storage.
+	// Not written to app.toml; ReadReceiptConfig still honors receipt-store.enable-read-write-metrics.
+	EnableReadWriteMetrics bool `mapstructure:"-"`
 
 	// LogFilterParallelism bounds how many blocks a single eth_getLogs query
 	// scans concurrently in the littidx backend; per-block tag scans and litt
