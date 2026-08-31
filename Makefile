@@ -623,10 +623,10 @@ giga-mixed-integration-test:
 
 # Create the tagged app file in which a minor upgrade test is defined.
 #
-#   make new-upgrade-test FROM=v6.7 TO=v6.8
+#   make new-upgrade-test FROM=v6.6 TO=v6.7
 new-upgrade-test:
 	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then \
-		echo "usage: make new-upgrade-test FROM=v6.7 TO=v6.8" >&2; \
+		echo "usage: make new-upgrade-test FROM=v6.6 TO=v6.7" >&2; \
 		exit 2; \
 	fi
 	@go run ./upgradetest/cmd/new -from "$(FROM)" -to "$(TO)"
@@ -652,6 +652,16 @@ upgrade-test:
 		go test -tags "$$tag" -run "^($$tests)$$" -count=1 -timeout=10m ./app
 .PHONY: upgrade-test
 
+# Compile the current boundary's source phase against one ref, persist its app
+# database, then compile the target phase against another ref and reopen it.
+#
+#   make upgrade-test-offline \
+#     FROM_REF=release/v6.6 TO_REF=release/v6.7
+upgrade-test-offline:
+	@FROM_REF="$(FROM_REF)" TO_REF="$(TO_REF)" \
+		bash .github/scripts/offline-upgrade-test.sh
+.PHONY: upgrade-test-offline
+
 # Build two refs, create state with the source binary, coordinate the on-chain
 # upgrade, and run the current build tag's CrossVersion test before and after.
 #
@@ -668,6 +678,7 @@ upgrade-test-vet:
 	@set -e; \
 		for file in app/upgrade_v*_test.go; do \
 			[ -f "$$file" ] || continue; \
+			case "$$file" in *_offline_source_test.go|*_offline_target_test.go) continue ;; esac; \
 			tag=$$(basename "$$file" _test.go); \
 			echo "=== Compiling $$file (-tags $$tag) ==="; \
 			go test -tags "$$tag" -run '^$$' ./app; \

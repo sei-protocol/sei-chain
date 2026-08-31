@@ -15,15 +15,18 @@ small amount of automation needed to select, validate and scaffold those files.
 Run:
 
 ```bash
-make new-upgrade-test FROM=v6.7 TO=v6.8
+make new-upgrade-test FROM=v6.6 TO=v6.7
 ```
 
-The command creates `app/upgrade_v68_test.go` with a matching `upgrade_v68`
-constraint, the same `newV68Chain` / `applyV68` shape as the current test, and
-`TestV68CrossVersion` callbacks for the two-binary path. Its TODOs fail in the
-layer that reaches them until real assertions replace them.
+The command creates `app/upgrade_v67_test.go` plus separately compiled
+`upgrade_v67_offline_source_test.go` and
+`upgrade_v67_offline_target_test.go`. The main file has the matching
+`upgrade_v67` constraint, the `newV67Chain` / `applyV67` shape, and
+`TestV67CrossVersion` callbacks for the live two-binary path.
+Its TODOs fail in the layer that reaches them until real assertions replace
+them.
 
-Appending `v6.8` to `app/tags` makes that pair the current boundary.
+Appending `v6.7` to `app/tags` makes that pair the current boundary.
 `make upgrade-test` derives the build tag from the embedded list and runs the
 app package with the file enabled. The workflow must not name a version.
 
@@ -34,16 +37,20 @@ implied by its filename. This is required because ordinary untagged tests and
 Run a real branch boundary with:
 
 ```bash
+make upgrade-test-offline \
+  FROM_REF=release/v6.6 TO_REF=release/v6.7
+
 make upgrade-test-cross-version \
-  FROM_REF=release/v6.7 TO_REF=release/v6.8
+  FROM_REF=release/v6.6 TO_REF=release/v6.7
 ```
 
-The runner builds both refs in detached worktrees. It starts the validators on
-the source binary, runs the tagged test's `before` callback, executes the
-governance halt and binary replacement, then runs its `after` callback against
-the same database. The JSON artifact carried between callbacks is the only
-state the test process may carry; application state must travel through the
-chain.
+Both runners build from detached worktrees pinned to resolved commits.
+`upgrade-test-offline` injects the tagged source test into the disposable old
+worktree, writes a committed application database, and injects the target test
+into the new worktree to reopen it. `upgrade-test-cross-version` starts
+validators on the source binary, runs the tagged test's `before` callback,
+executes the governance halt and binary replacement, then runs its `after`
+callback against the same node homes.
 
 ## Scope
 
@@ -52,7 +59,9 @@ Keep the checks in the same direct style as the existing v6.7 file. Use
 `ApplyUpgrade` through a version-specific helper.
 
 `make upgrade-test` is the fast, in-process layer and uses the current checkout
-on both sides. `make upgrade-test-cross-version` owns the persistent,
-two-binary layer. Keep its version-specific setup and assertions in the same
-tagged app test; `upgradetest.CrossVersion` only provides process coordination,
-validator commands and the phase artifact.
+on both sides. `make upgrade-test-offline` is the persisted, two-process Go
+layer: it reaches no consensus or node lifecycle code. Its source and target
+files may use APIs available only on their respective branch because each is
+compiled separately. `make upgrade-test-cross-version` owns the full node
+lifecycle. Keep all version-specific definitions in tagged app test files;
+`upgradetest` only provides selection and coordination.

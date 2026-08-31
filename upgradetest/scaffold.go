@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// Scaffold creates a version-specific upgrade test in the app package. Root is
-// the app directory; the returned path is the new Go test file.
+// Scaffold creates the in-process, offline, and live definitions for one
+// version-specific app upgrade test. It returns the main tagged test path.
 func Scaffold(root, from, to string) (string, error) {
 	boundary, err := NewMinorBoundary(from, to)
 	if err != nil {
@@ -23,6 +23,14 @@ func Scaffold(root, from, to string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	offlineSourceName, err := boundary.OfflineSourceTestFile()
+	if err != nil {
+		return "", err
+	}
+	offlineTargetName, err := boundary.OfflineTargetTestFile()
+	if err != nil {
+		return "", err
+	}
 	suffix, err := versionSuffix(to)
 	if err != nil {
 		return "", err
@@ -30,10 +38,17 @@ func Scaffold(root, from, to string) (string, error) {
 	exportedSuffix := strings.ToUpper(suffix[:1]) + suffix[1:]
 
 	testPath := filepath.Join(root, fileName)
-	if _, err := os.Stat(testPath); err == nil {
-		return "", fmt.Errorf("upgrade test %s already exists", testPath)
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("inspect upgrade test %s: %w", testPath, err)
+	paths := []string{
+		testPath,
+		filepath.Join(root, offlineSourceName),
+		filepath.Join(root, offlineTargetName),
+	}
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			return "", fmt.Errorf("upgrade test %s already exists", path)
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("inspect upgrade test %s: %w", path, err)
+		}
 	}
 
 	source := []byte(fmt.Sprintf(`//go:build %[1]s
@@ -84,13 +99,43 @@ func Test%[4]sCrossVersion(t *testing.T) {
 	)
 }
 `, tag, suffix, to, exportedSuffix, boundary))
-	source, err = format.Source(source)
-	if err != nil {
-		return "", fmt.Errorf("format generated upgrade test: %w", err)
+	offlineSource := []byte(fmt.Sprintf(`//go:build %[1]s && offline_upgrade && upgrade_source
+
+package app
+
+import "testing"
+
+func Test%[2]sOfflineUpgradeSource(t *testing.T) {
+	_ = requireOfflineUpgradePhase(t, "source")
+	t.Fatal("TODO: create committed %[3]s source state")
+}
+`, tag, exportedSuffix, to))
+	offlineTarget := []byte(fmt.Sprintf(`//go:build %[1]s && offline_upgrade && upgrade_target
+
+package app
+
+import "testing"
+
+func Test%[2]sOfflineUpgradeTarget(t *testing.T) {
+	_ = requireOfflineUpgradePhase(t, "target")
+	t.Fatal("TODO: reopen and verify committed %[3]s target state")
+}
+`, tag, exportedSuffix, to))
+
+	sources := [][]byte{source, offlineSource, offlineTarget}
+	for i := range sources {
+		sources[i], err = format.Source(sources[i])
+		if err != nil {
+			return "", fmt.Errorf("format generated upgrade test %s: %w", paths[i], err)
+		}
 	}
-	if err := os.WriteFile(testPath, source, 0o644); err != nil { //nolint:gosec // generated Go source uses repository file permissions
-		_ = os.Remove(testPath)
-		return "", fmt.Errorf("write upgrade test %s: %w", testPath, err)
+	for i, path := range paths {
+		if err := os.WriteFile(path, sources[i], 0o644); err != nil { //nolint:gosec // generated Go source uses repository file permissions
+			for _, written := range paths[:i+1] {
+				_ = os.Remove(written)
+			}
+			return "", fmt.Errorf("write upgrade test %s: %w", path, err)
+		}
 	}
 	return testPath, nil
 }

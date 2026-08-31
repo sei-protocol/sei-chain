@@ -10,13 +10,27 @@ import (
 
 func TestTagAndFileSpelling(t *testing.T) {
 	for _, tc := range []struct {
-		upgrade string
-		tag     string
-		file    string
+		upgrade       string
+		tag           string
+		file          string
+		offlineSource string
+		offlineTarget string
 	}{
-		{upgrade: "v6.6", tag: "upgrade_v66", file: "upgrade_v66_test.go"},
-		{upgrade: "v6.7", tag: "upgrade_v67", file: "upgrade_v67_test.go"},
-		{upgrade: "v7.0", tag: "upgrade_v70", file: "upgrade_v70_test.go"},
+		{
+			upgrade: "v6.6", tag: "upgrade_v66", file: "upgrade_v66_test.go",
+			offlineSource: "upgrade_v66_offline_source_test.go",
+			offlineTarget: "upgrade_v66_offline_target_test.go",
+		},
+		{
+			upgrade: "v6.7", tag: "upgrade_v67", file: "upgrade_v67_test.go",
+			offlineSource: "upgrade_v67_offline_source_test.go",
+			offlineTarget: "upgrade_v67_offline_target_test.go",
+		},
+		{
+			upgrade: "v7.0", tag: "upgrade_v70", file: "upgrade_v70_test.go",
+			offlineSource: "upgrade_v70_offline_source_test.go",
+			offlineTarget: "upgrade_v70_offline_target_test.go",
+		},
 	} {
 		t.Run(tc.upgrade, func(t *testing.T) {
 			tag, err := upgradetest.TagFor(tc.upgrade)
@@ -26,6 +40,14 @@ func TestTagAndFileSpelling(t *testing.T) {
 			file, err := upgradetest.TestFileFor(tc.upgrade)
 			require.NoError(t, err)
 			require.Equal(t, tc.file, file)
+
+			source, err := upgradetest.OfflineSourceTestFileFor(tc.upgrade)
+			require.NoError(t, err)
+			require.Equal(t, tc.offlineSource, source)
+
+			target, err := upgradetest.OfflineTargetTestFileFor(tc.upgrade)
+			require.NoError(t, err)
+			require.Equal(t, tc.offlineTarget, target)
 		})
 	}
 }

@@ -46,6 +46,16 @@ func (b Boundary) TestFile() (string, error) {
 	return TestFileFor(b.To)
 }
 
+// OfflineSourceTestFile returns the source-phase Go test for this boundary.
+func (b Boundary) OfflineSourceTestFile() (string, error) {
+	return OfflineSourceTestFileFor(b.To)
+}
+
+// OfflineTargetTestFile returns the target-phase Go test for this boundary.
+func (b Boundary) OfflineTargetTestFile() (string, error) {
+	return OfflineTargetTestFileFor(b.To)
+}
+
 // TagFor returns the build tag compiling the test set for an upgrade name:
 // v6.7 gives upgrade_v67, matching app/upgrade_v67_test.go.
 func TagFor(upgrade string) (string, error) {
@@ -63,6 +73,24 @@ func TestFileFor(upgrade string) (string, error) {
 		return "", err
 	}
 	return "upgrade_" + suffix + "_test.go", nil
+}
+
+// OfflineSourceTestFileFor returns the persisted source-phase app test.
+func OfflineSourceTestFileFor(upgrade string) (string, error) {
+	suffix, err := versionSuffix(upgrade)
+	if err != nil {
+		return "", err
+	}
+	return "upgrade_" + suffix + "_offline_source_test.go", nil
+}
+
+// OfflineTargetTestFileFor returns the persisted target-phase app test.
+func OfflineTargetTestFileFor(upgrade string) (string, error) {
+	suffix, err := versionSuffix(upgrade)
+	if err != nil {
+		return "", err
+	}
+	return "upgrade_" + suffix + "_offline_target_test.go", nil
 }
 
 // NewMinorBoundary returns a boundary between two minor versions of the same

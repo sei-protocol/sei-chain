@@ -39,10 +39,12 @@ not, rather than carrying the previous release's cases forward or deleting them.
 Read [`upgradetest/AGENTS.md`](upgradetest/AGENTS.md) before adding an upgrade
 name, and before changing an upgrade handler.
 
-Create the next definition with
-`make new-upgrade-test FROM=v6.7 TO=v6.8`; do not hand-name its build tag.
-Exercise that definition across real release binaries with
-`make upgrade-test-cross-version FROM_REF=release/v6.7 TO_REF=release/v6.8`.
+Create the v6.7 definition with
+`make new-upgrade-test FROM=v6.6 TO=v6.7`; do not hand-name its build tag.
+Exercise its persisted Go boundary with
+`make upgrade-test-offline FROM_REF=release/v6.6 TO_REF=release/v6.7`, and its
+real node boundary with
+`make upgrade-test-cross-version FROM_REF=release/v6.6 TO_REF=release/v6.7`.
 
 ## Code style
 

@@ -1,6 +1,6 @@
 // Command new scaffolds the tagged app test file for a minor upgrade.
 //
-//	go run ./upgradetest/cmd/new -from v6.7 -to v6.8
+//	go run ./upgradetest/cmd/new -from v6.6 -to v6.7
 package main
 
 import (
@@ -23,8 +23,8 @@ func run(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("new", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var from, to, root string
-	flags.StringVar(&from, "from", "", "source minor version, for example v6.7")
-	flags.StringVar(&to, "to", "", "target minor version, for example v6.8")
+	flags.StringVar(&from, "from", "", "source minor version, for example v6.6")
+	flags.StringVar(&to, "to", "", "target minor version, for example v6.7")
 	flags.StringVar(&root, "root", "app", "app directory")
 	if err := flags.Parse(args); err != nil {
 		return err

@@ -1,6 +1,8 @@
 package upgradetest_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/upgradetest"
@@ -25,6 +27,22 @@ func TestCurrentBoundaryHasATestFile(t *testing.T) {
 		boundary, fileName, boundary.From, boundary.To)
 	require.Equal(t, tag, file.Tag,
 		"app/%s has build tag %q; want %q", fileName, file.Tag, tag)
+}
+
+func TestCurrentBoundaryHasOfflinePhaseFiles(t *testing.T) {
+	boundary, err := upgradetest.Current()
+	require.NoError(t, err)
+	source, err := boundary.OfflineSourceTestFile()
+	require.NoError(t, err)
+	target, err := boundary.OfflineTargetTestFile()
+	require.NoError(t, err)
+
+	for _, file := range []string{source, target} {
+		_, err := os.Stat(filepath.Join(appDir, file))
+		require.NoError(t, err,
+			"the %s boundary has no app/%s; create it with make new-upgrade-test FROM=%s TO=%s",
+			boundary, file, boundary.From, boundary.To)
+	}
 }
 
 // Each version-specific file carries the tag implied by its existing app file
