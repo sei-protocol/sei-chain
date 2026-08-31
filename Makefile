@@ -205,6 +205,10 @@ build-frozen-rpc-router:
 	go build -o ./build/frozen-rpc-router ./cmd/frozen-rpc-router
 .PHONY: build-frozen-rpc-router
 
+build-autobahn-e2e:
+	go build -o ./autobahn-e2e ./cmd/autobahn-e2e
+.PHONY: build-autobahn-e2e
+
 build-verbose:
 	mkdir -p ./build
 	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
