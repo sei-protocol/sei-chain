@@ -57,11 +57,12 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 
 // deliverOneSection decodes one section's resolved values into the node's configuration.
 //
-// Decoded into a copy of that configuration first, and published by replacing it. A decoder gathers errors
-// and keeps going, so a value it refuses partway leaves its target holding some of the new values and some
-// of the old, with nothing to compare against and no way back. Rehearsing into a copy of the configuration
-// the node already has, rather than into a fresh one, is what makes the rehearsal answer the same question:
-// what a decoder writes can depend on what the target already holds, and only a copy holds the same things.
+// Decoded into a copy of that configuration first, and published into the live one only once the whole
+// section has decoded. A decoder gathers errors and keeps going, so a value it refuses partway leaves its
+// target holding some of the new values and some of the old, with nothing to compare against and no way
+// back. Rehearsing into a copy of the configuration the node already has, rather than into a fresh one, is
+// what makes the rehearsal answer the same question: what a decoder writes can depend on what the target
+// already holds, and only a copy holds the same things.
 func deliverOneSection(ctx *server.Context, name string, values map[string]any, log *slog.Logger) {
 	keys := sortedKeys(values)
 
@@ -93,6 +94,20 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	if err := source.Unmarshal(candidate); err != nil {
 		log.Error("a written value in this section was refused, so none of the section is applied and "+
 			"every one of its keys reads as it always has",
+			"section", name, "keys", strings.Join(keys, ","), "err", err)
+		return
+	}
+
+	// The node's own rules, on the copy, before anything is published. A value can decode cleanly, mean
+	// what it says, and still be one the node refuses: a negative transaction-size ceiling decodes to
+	// minus one and then every transaction measures larger than it, so the node accepts none. Around
+	// thirty such checks live here and nothing above this can see any of them.
+	//
+	// Cheap here and nowhere else, because this is the one place a copy exists to test. It also inherits
+	// the section-scoped refusal, so a bad value costs its own section and not the whole file.
+	if err := candidate.ValidateBasic(); err != nil {
+		log.Error("this section's written values leave the node's configuration invalid, so none of the "+
+			"section is applied and every one of its keys reads as it always has",
 			"section", name, "keys", strings.Join(keys, ","), "err", err)
 		return
 	}
@@ -204,8 +219,11 @@ const redacted = "xxxxx"
 // "?password=", and one keyword of a space-separated list, as in "password=". PostgreSQL accepts both,
 // and it accepts prefixed spellings such as "sslpassword", which the leading group keeps intact.
 //
-// The value runs to the next separator or the end, so nothing after it is swallowed.
-var passwordAssignment = regexp.MustCompile(`(?i)(password|passwd|pwd)(\s*=\s*)[^&\s]*`)
+// The value runs to the next separator or the end, so nothing after it is swallowed. A quoted value is
+// taken whole, because PostgreSQL accepts a keyword value in quotes and a password may hold spaces:
+// stopping at the first one leaves the rest of it in the line.
+var passwordAssignment = regexp.MustCompile(
+	`(?i)(password|passwd|pwd)(\s*=\s*)('[^']*'|"[^"]*"|[^&\s]*)`)
 
 // withoutCredentials removes a password from a value that carries one.
 //

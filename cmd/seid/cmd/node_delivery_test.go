@@ -111,7 +111,8 @@ func TestAnUnwrittenKeyTakesTheDeclaredValue(t *testing.T) {
 //
 // A decoder gathers errors and keeps going, so a value it refuses partway leaves its target holding some
 // new values and some old, with nothing to compare against. The delivery decodes into a copy and publishes
-// by replacing, so a refused value leaves the section exactly as the node had it.
+// into the live one only once the whole section decodes, so a refused value leaves the section exactly as
+// the node had it.
 func TestARefusedValueLeavesItsSectionAlone(t *testing.T) {
 	configtest.Isolate(t)
 	ctx := bootWithNodeFile(t, nodeFileHeader+
@@ -436,4 +437,26 @@ func TestAFractionWhereTheSettingHoldsWholeNumbersIsRefused(t *testing.T) {
 func keysADecodeDelivers() []string {
 	_, keys := registry.ResolvedAndOwnedByDecodedSections(registry.Resolved{})
 	return keys
+}
+
+// TestAValueTheNodesOwnRulesRejectIsRefused covers what decodes cleanly, means what it says, and still
+// breaks the node.
+//
+// A negative transaction-size ceiling is a valid int, so nothing about its shape is wrong. The node then
+// measures every transaction against it and finds all of them larger, so it accepts none. The node's own
+// rules refuse exactly this, and they are checked on the rehearsal copy because that is the one place a
+// copy exists to check.
+func TestAValueTheNodesOwnRulesRejectIsRefused(t *testing.T) {
+	configtest.Isolate(t)
+	was := tmcfg.DefaultConfig().Mempool.MaxTxBytes
+
+	ctx := bootWithNodeFile(t, nodeFileHeader+"\n[mempool]\nmax-tx-bytes = -1\nsize = 4321\n", nil)
+	if got := ctx.Config.Mempool.MaxTxBytes; got != was {
+		t.Errorf("the node runs a transaction-size ceiling of %d after -1 was written, want the %d it "+
+			"had. Every transaction measures larger than a negative ceiling, so the node would accept "+
+			"none of them", got, was)
+	}
+	if got := ctx.Config.Mempool.Size; got == 4321 {
+		t.Error("the value beside the refused one was applied, so the section was published in part")
+	}
 }

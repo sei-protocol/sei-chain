@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -176,6 +175,16 @@ func flatten(prefix string, in map[string]any, out map[string]any) {
 	}
 }
 
+// TestReporter is the part of a test's own type this file needs.
+//
+// Named as an interface rather than taking *testing.T, so this file does not pull the testing package into
+// a binary the boot path links. The behaviour is the point: the helper below has to be able to end the
+// test, because a caller that could carry on would compare two answers produced by reading nothing.
+type TestReporter interface {
+	Helper()
+	Fatalf(format string, args ...any)
+}
+
 // DescribeForTest reads what a node's configuration holds for each key, as text.
 //
 // Exported for the tests that measure a booted node's configuration, which live beside the boot because
@@ -184,7 +193,7 @@ func flatten(prefix string, in map[string]any, out map[string]any) {
 // It fails the test rather than answering partially. A caller comparing two of these answers over a hundred
 // keys finds every value equal when both are empty, so an answer produced by reading nothing is
 // indistinguishable from a node where nothing moved.
-func DescribeForTest(t *testing.T, cfg *tmcfg.Config, keys []string) map[string]string {
+func DescribeForTest(t TestReporter, cfg *tmcfg.Config, keys []string) map[string]string {
 	t.Helper()
 	values, unread, err := describe(cfg, keys)
 	if err != nil {
@@ -366,41 +375,6 @@ func reachesTheFieldAsItself(n float64, ft reflect.Type) bool {
 		return !v.OverflowUint(uint64(n))
 	}
 	return true
-}
-
-// referencePathsIn returns every path in a type that a copy has to detach, for the test that holds the
-// detach to the type it walks.
-func referencePathsIn(t reflect.Type, path string, seen map[reflect.Type]bool) []string {
-	if seen[t] {
-		return nil
-	}
-	seen[t] = true
-	defer delete(seen, t)
-
-	var out []string
-	switch t.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
-		if path != "" {
-			out = append(out, path)
-		}
-		if t.Kind() != reflect.Interface {
-			out = append(out, referencePathsIn(t.Elem(), path, seen)...)
-		}
-	case reflect.Array:
-		// The array itself is not a reference, so it is not a path of its own. What it holds can be, and
-		// leaving this case out gives this walk the same blind spot as the copy it holds to account.
-		out = append(out, referencePathsIn(t.Elem(), path, seen)...)
-	case reflect.Struct:
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			if f.PkgPath != "" {
-				continue
-			}
-			out = append(out, referencePathsIn(f.Type, join(path, f.Name), seen)...)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // publishNodeConfig makes a node's configuration hold what the candidate holds, without replacing it.
