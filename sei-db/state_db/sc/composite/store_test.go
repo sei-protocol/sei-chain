@@ -54,7 +54,6 @@ func (f *failingEVMStore) RootHash() ([]byte, int64)                     { retur
 func (f *failingEVMStore) Version() int64                                { return 0 }
 func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)              { return 0, nil }
-func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }
 func (f *failingEVMStore) Rollback(int64) error                          { return nil }
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
 func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }

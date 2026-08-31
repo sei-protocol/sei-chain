@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -42,7 +41,7 @@ type Config struct {
 	Backend         string
 	KeepRecent      int
 	ExternalPruning bool
-	Scheduler       controller.CheckpointScheduler
+	Checkpointer    Checkpointer
 	// Floor names a height this member's retention must keep. Leave it nil when the member is the only
 	// one that has to hold the height a restore starts from.
 	Floor *Floor
@@ -115,7 +114,7 @@ type Manager struct {
 	backend         string
 	keepRecent      int
 	externalPruning bool
-	scheduler       controller.CheckpointScheduler
+	checkpointer    Checkpointer
 	floor           *Floor
 	snapshotSizes   map[int64]int64
 
@@ -187,10 +186,10 @@ func ListSnapshotVersions(root string) ([]int64, error) {
 
 // Open prepares a snapshot root and returns a Manager for one SS member.
 func Open(cfg Config) (*Manager, error) {
-	if cfg.Scheduler == nil {
-		return nil, fmt.Errorf("%s snapshot scheduler is nil", cfg.Name)
+	if cfg.Checkpointer == nil {
+		return nil, fmt.Errorf("%s snapshot checkpointer is nil", cfg.Name)
 	}
-	if !cfg.Scheduler.SupportsCheckpoint() {
+	if !cfg.Checkpointer.SupportsCheckpoint() {
 		return nil, fmt.Errorf("%s backend %q does not support checkpoints", cfg.Name, cfg.Backend)
 	}
 	if err := verifyHardlinks(cfg.Root, cfg.SourceDirs); err != nil {
@@ -202,7 +201,7 @@ func Open(cfg Config) (*Manager, error) {
 		backend:         cfg.Backend,
 		keepRecent:      cfg.KeepRecent,
 		externalPruning: cfg.ExternalPruning,
-		scheduler:       cfg.Scheduler,
+		checkpointer:    cfg.Checkpointer,
 		floor:           cfg.Floor,
 		snapshotSizes:   map[int64]int64{},
 	}
@@ -276,7 +275,7 @@ func (m *Manager) Schedule(staged *Staged, shouldRun func() bool, done func(erro
 		done(fmt.Errorf("%s staged snapshot belongs to a different manager", m.name))
 		return
 	}
-	m.scheduler.ScheduleCheckpoint(staged.tmpDir, shouldRun, done)
+	m.checkpointer.ScheduleCheckpoint(staged.tmpDir, shouldRun, done)
 }
 
 func (m *Manager) Commit(staged *Staged) error {
@@ -297,7 +296,7 @@ func (m *Manager) Commit(staged *Staged) error {
 	defer m.publishMu.Unlock()
 	defer m.prune()
 
-	if err := m.scheduler.SetCheckpointVersion(staged.tmpDir, staged.version); err != nil {
+	if err := m.checkpointer.SetCheckpointVersion(staged.tmpDir, staged.version); err != nil {
 		_ = os.RemoveAll(staged.tmpDir)
 		return fmt.Errorf("set %s snapshot version: %w", m.name, err)
 	}
@@ -484,7 +483,7 @@ func (m *Manager) prune() {
 }
 
 func (m *Manager) pruneWALToOldestSnapshot() {
-	pruner, ok := m.scheduler.(snapshotWALPruner)
+	pruner, ok := m.checkpointer.(snapshotWALPruner)
 	if !ok {
 		return
 	}

@@ -45,7 +45,7 @@ func TestSnapshotCreatesDir(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 
@@ -75,8 +75,8 @@ func TestSnapshotIdempotent(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 
-	require.NoError(t, s.WriteSnapshot(""))
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	target, err := os.Readlink(currentPath(flatkvDir))
@@ -98,7 +98,7 @@ func TestOpenFromSnapshot(t *testing.T) {
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x02}, []byte{0x02})
 
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.Equal(t, int64(2), s1.Version())
 
 	commitStorageEntry(t, s1, ktype.Address{0x10}, ktype.Slot{0x03}, []byte{0x03})
@@ -143,7 +143,7 @@ func TestCatchupUpdatesLtHash(t *testing.T) {
 	// Commit 5 versions, snapshot at v2
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x01}, []byte{0x10})
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x02}, []byte{0x20})
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	commitStorageEntry(t, s1, ktype.Address{0x20}, ktype.Slot{0x03}, []byte{0x30})
 	hashAtV3 := rootHash(s1)
@@ -179,7 +179,7 @@ func TestRollbackRewindsState(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x02}, []byte{0x02})
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x03}, []byte{0x03})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, ktype.Address{0x30}, ktype.Slot{0x04}, []byte{0x04})
 	hashAtV4 := rootHash(s)
@@ -215,7 +215,7 @@ func TestRollbackToSnapshotExact(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x02}, []byte{0x02})
 	hashAtV2 := rootHash(s)
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, ktype.Address{0x40}, ktype.Slot{0x03}, []byte{0x03})
 	require.Equal(t, int64(3), s.Version())
@@ -239,7 +239,7 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x50}, ktype.Slot{0x01}, []byte{0x01})
 
 	// Take a valid snapshot first
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	prevTarget, err := os.Readlink(currentPath(flatkvDir))
@@ -252,8 +252,8 @@ func TestPartialSnapshotCleanup(t *testing.T) {
 	// and the Close below simply reports the already-closed database.
 	require.NoError(t, s.rawDBFor(codeDBDir).Close())
 
-	err = s.WriteSnapshot("")
-	require.Error(t, err, "WriteSnapshot should fail when a DB is closed")
+	err = s.outOfBandSnapshot()
+	require.Error(t, err, "outOfBandSnapshot should fail when a DB is closed")
 
 	// Current should still point to the previous snapshot
 	target, err := os.Readlink(currentPath(flatkvDir))
@@ -373,7 +373,7 @@ func TestReadOnlyAtTargetVersion(t *testing.T) {
 
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x03}, []byte{0x03})
 	hashAtV3 := rootHash(s1)
 	commitStorageEntry(t, s1, ktype.Address{0x70}, ktype.Slot{0x04}, []byte{0x04})
@@ -414,7 +414,7 @@ func TestSnapshotThenCatchupThenVerifyCorrectness(t *testing.T) {
 
 	commitStorageEntry(t, s1, addr, slot, []byte{0x01})                            // v1
 	commitStorageEntry(t, s1, ktype.Address{0x7A}, ktype.Slot{0x7C}, []byte{0xAA}) // v2
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	// Record baseline value at v2 for the same key.
 	vAtV2, ok := s1.Get(keys.EVMStoreKey, key)
@@ -476,7 +476,7 @@ func TestReadOnlyAtIsUnaffectedByLoadLatest(t *testing.T) {
 	commitStorageEntry(t, s, addr, slot, []byte{0x01})
 	commitStorageEntry(t, s, addr, slot, []byte{0x02})
 	hashAtV2 := rootHash(s)
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, addr, slot, []byte{0x03})
 	commitStorageEntry(t, s, addr, slot, []byte{0x04})
@@ -531,7 +531,7 @@ func TestRollbackToSnapshotVersion(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x02}, []byte{0x02})
 	hashAtV2 := rootHash(s)
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x03}, []byte{0x03})
 	commitStorageEntry(t, s, ktype.Address{0x90}, ktype.Slot{0x04}, []byte{0x04})
@@ -580,7 +580,7 @@ func rollbackFixture(t *testing.T) *CommitStore {
 	for i := byte(1); i <= 5; i++ {
 		commitStorageEntry(t, s, ktype.Address{0x91}, ktype.Slot{i}, []byte{i})
 		if i == 2 {
-			require.NoError(t, s.WriteSnapshot(""))
+			require.NoError(t, s.outOfBandSnapshot())
 		}
 	}
 	return s
@@ -642,7 +642,7 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 
 	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0x92}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	resetWALForTest(t, s)
 	return s
 }
@@ -958,7 +958,7 @@ func TestPruneSnapshotsKeepsRecent(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
-		require.NoError(t, s.WriteSnapshot(""))
+		require.NoError(t, s.outOfBandSnapshot())
 	}
 
 	var snapshots []int64
@@ -984,7 +984,7 @@ func TestPruneSnapshotsKeepAll(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
-		require.NoError(t, s.WriteSnapshot(""))
+		require.NoError(t, s.outOfBandSnapshot())
 	}
 
 	var count int
@@ -1013,7 +1013,8 @@ func TestPruneSnapshotsIgnoresSnapshotsAboveCurrent(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(dir, snapshotName(v)), 0750))
 	}
 
-	require.Equal(t, 0, s.pruneSnapshotsByCount(dir, 30),
+	require.Equal(t, 0,
+		pruneSnapshotsByCount(s.ctx, dir, s.config.SnapshotKeepRecent, s.config.ExternalPruning, 30),
 		"only 10 and 20 sit below the current version, and KeepRecent=2 covers both")
 
 	var remaining []int64
@@ -1116,12 +1117,12 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	for i := 3; i < 6; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	for i := 6; i < 8; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
@@ -1209,11 +1210,11 @@ func TestRollbackReportsUnremovableSnapshotWithoutRewinding(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	for i := 3; i < 6; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
 	}
-	require.NoError(t, s.WriteSnapshot("")) // snapshot-6, above the rollback target below
+	require.NoError(t, s.outOfBandSnapshot()) // snapshot-6, above the rollback target below
 
 	// atomicRemoveDir renames snapshot-6 onto this trash name before unlinking it, so an undeletable
 	// directory already sitting there fails that rename. Restore permissions before t.TempDir's own cleanup,
@@ -1299,7 +1300,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 	var hashes [][]byte
 	for i := 0; i < 3; i++ {
 		commitStorageEntry(t, s, ktype.Address{byte(i + 1)}, ktype.Slot{byte(i + 1)}, []byte{byte(i + 1)})
-		require.NoError(t, s.WriteSnapshot(""))
+		require.NoError(t, s.outOfBandSnapshot())
 		hashes = append(hashes, rootHash(s))
 	}
 	require.NoError(t, s.Close())
@@ -1326,7 +1327,7 @@ func TestMultipleSnapshotsAndReopen(t *testing.T) {
 // Snapshot with all key types
 // =============================================================================
 
-func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
+func TestOutOfBandSnapshotUpdatesSnapshotBase(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
@@ -1337,7 +1338,7 @@ func TestWriteSnapshotUpdatesSnapshotBase(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s, ktype.Address{0xF0}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	flatkvDir := filepath.Join(dir, flatkvRootDir)
 	workDir := filepath.Join(flatkvDir, workingDirName)
@@ -1392,7 +1393,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 	require.NoError(t, err)
 
 	hash := rootHash(s)
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -1634,7 +1635,7 @@ func TestSingleDBOpenFailure(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	workingStorage := filepath.Join(dbDir, "working", storageDBDir)
@@ -1674,7 +1675,7 @@ func TestWALDirectoryDeleted(t *testing.T) {
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	walDir := filepath.Join(dbDir, changelogDir)
@@ -1710,7 +1711,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	err = s.LoadLatest()
 	require.NoError(t, err)
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	// Corrupt accountDB meta version in working dir: write 3 garbage bytes (expected 8).
@@ -2141,7 +2142,7 @@ func TestRollbackPreservesWALContinuity(t *testing.T) {
 	require.Equal(t, hashAfterNewCommits, rootHash(s2))
 }
 
-func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {
+func TestOutOfBandSnapshotOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
@@ -2155,22 +2156,22 @@ func TestWriteSnapshotOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	err = ro.WriteSnapshot("")
+	err = ro.(*CommitStore).outOfBandSnapshot()
 	require.Error(t, err)
 	require.ErrorIs(t, err, errReadOnly)
 	require.NoError(t, s.Close())
 }
 
-func TestWriteSnapshotAtVersion0(t *testing.T) {
+func TestOutOfBandSnapshotAtVersion0(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	err := s.WriteSnapshot("")
+	err := s.outOfBandSnapshot()
 	require.Error(t, err, "snapshot at version 0 should fail")
 	require.Contains(t, err.Error(), "cannot snapshot uncommitted store")
 }
 
-func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
+func TestOutOfBandSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
@@ -2184,32 +2185,12 @@ func TestWriteSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 	require.NoError(t, err)
 	defer ro.Close()
 
-	// WriteSnapshot should succeed even with active RO clone.
-	require.NoError(t, s.WriteSnapshot(""))
+	// outOfBandSnapshot should succeed even with active RO clone.
+	require.NoError(t, s.outOfBandSnapshot())
 
 	// RO clone should still work.
 	val, found := ro.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x07), slotN(0x01))))
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x77), val)
 	require.NoError(t, s.Close())
-}
-
-func TestWriteSnapshotDirParameterIgnored(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	cs := makeChangeSet(
-		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))),
-		padLeft32(0x88), false,
-	)
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
-
-	// Pass a non-empty dir parameter. The implementation should ignore it.
-	require.NoError(t, s.WriteSnapshot("/tmp/this-should-be-ignored"))
-
-	// Verify snapshot was created in the correct location (not the passed dir).
-	val, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x08), slotN(0x01))))
-	require.True(t, found)
-	require.Equal(t, padLeft32(0x88), val)
 }
