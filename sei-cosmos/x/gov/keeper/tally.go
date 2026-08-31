@@ -237,6 +237,9 @@ func (keeper Keeper) voteDelegations(
 	vote types.Vote,
 ) types.VoteDelegationSnapshot {
 	voter := sdk.MustAccAddressFromBech32(vote.Voter)
+	if !incrementalTallyEnabled(ctx) {
+		return keeper.snapshotVoteDelegations(ctx, proposalID, voter)
+	}
 	store := ctx.KVStore(keeper.storeKey)
 	if bz := store.Get(types.VoteDelegationsKey(proposalID, voter)); bz != nil {
 		return keeper.unmarshalVoteDelegations(bz)

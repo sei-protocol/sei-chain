@@ -121,3 +121,46 @@ func TestAddVoteRejectsBlocksAfterVotingEnd(t *testing.T) {
 		types.NewNonSplitVoteOption(types.OptionYes),
 	), types.ErrInactiveProposal)
 }
+
+func TestVoteDelegationTrackingPreservesHistoricalTraces(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(time.Unix(100, 0))
+	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	proposal.VotingEndTime = ctx.BlockTime().Add(-time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+
+	legacyCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.6")
+	require.NoError(t, app.GovKeeper.AddVote(
+		legacyCtx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+	store := legacyCtx.KVStore(app.GetKey(types.StoreKey))
+	require.False(t, store.Has(types.VoterProposalsKey(addrs[0], proposal.ProposalId)))
+	require.False(t, store.Has(types.VoteDelegationsKey(proposal.ProposalId, addrs[0])))
+	require.Len(t, app.GovKeeper.GetAllVotes(legacyCtx), 1)
+	require.NotPanics(t, func() {
+		_, _, _ = app.GovKeeper.Tally(legacyCtx, proposal)
+	})
+
+	gasBeforeHook := legacyCtx.GasMeter().GasConsumed()
+	app.GovKeeper.StakingHooks().AfterDelegationModified(legacyCtx, addrs[0], valAddrs[0])
+	require.Equal(t, gasBeforeHook, legacyCtx.GasMeter().GasConsumed())
+
+	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, proposal)
+	currentCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.7")
+	require.NoError(t, app.GovKeeper.AddVote(
+		currentCtx,
+		proposal.ProposalId,
+		addrs[0],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	))
+	require.True(t, store.Has(types.VoterProposalsKey(addrs[0], proposal.ProposalId)))
+	require.True(t, store.Has(types.VoteDelegationsKey(proposal.ProposalId, addrs[0])))
+}
