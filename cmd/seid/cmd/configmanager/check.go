@@ -219,6 +219,14 @@ func whatADecodeWouldRefuse(resolved registry.Resolved) []string {
 		if err := source.Unmarshal(candidate); err != nil {
 			problems = append(problems, fmt.Sprintf("[%s]: %v, so none of this section would apply "+
 				"(keys: %s)", name, err, strings.Join(sortedKeys(values), ",")))
+			continue
+		}
+
+		// The node's own rules, the same step the delivery takes after a clean decode. Without it this
+		// command passes a file the boot drops, which is the divergence it exists to prevent.
+		if err := candidate.ValidateBasic(); err != nil {
+			problems = append(problems, fmt.Sprintf("[%s]: %v, so none of this section would apply "+
+				"(keys: %s)", name, err, strings.Join(sortedKeys(values), ",")))
 		}
 	}
 	sort.Strings(problems)

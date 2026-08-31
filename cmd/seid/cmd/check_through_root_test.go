@@ -147,3 +147,22 @@ func TestTheCheckStillFailsAFileWithSomethingWrongInIt(t *testing.T) {
 		})
 	}
 }
+
+// TestTheCheckRefusesWhatTheDeliveryWouldRefuse holds the two paths to the same answer.
+//
+// A value can decode cleanly and still be one the node's own rules reject, and the delivery refuses a
+// section on exactly that. A check that rehearses only the decode passes a file the boot drops, which is
+// the divergence this command exists to prevent rather than produce.
+func TestTheCheckRefusesWhatTheDeliveryWouldRefuse(t *testing.T) {
+	configtest.Isolate(t)
+	home := writeNodeHome(t,
+		"schema_version = 1\nnode_mode = \"validator\"\n\n[mempool]\nmax-tx-bytes = -1\n")
+
+	out, err := runCheckThroughRoot(t, home)
+	if err == nil {
+		t.Fatalf("a negative transaction-size ceiling passed the check, and a boot refuses it:\n%s", out)
+	}
+	if !strings.Contains(out, "max-tx-bytes") {
+		t.Errorf("the report does not name the value the node's rules reject:\n%s", out)
+	}
+}
