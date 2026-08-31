@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/protobuf/proto"
 
+	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -143,7 +144,7 @@ type nodeImpl struct {
 	indexerService    *indexer.Service
 	services          []service.Service
 	rpcListeners      []net.Listener // rpc servers
-	evmOnlyRPC        *evmOnlyRPCServer
+	evmOnlyRPC        *evmonlyrpc.Server
 	shutdownOps       closer
 	rpcEnv            *rpccore.Environment
 	prometheusSrv     utils.Option[*http.Server]
@@ -688,7 +689,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
 	if n.config.EVMOnlyInMemory {
-		n.evmOnlyRPC, err = startEVMOnlyRPC(n.rpcEnv)
+		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv)
 		if err != nil {
 			return err
 		}

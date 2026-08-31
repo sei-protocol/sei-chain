@@ -1,4 +1,4 @@
-package node
+package rpc
 
 import (
 	"context"
@@ -17,30 +17,30 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-type testEVMOnlyRPCBackend struct {
+type testBackend struct {
 	broadcast func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	proxy     utils.Option[*ethrpc.Client]
 }
 
-func (b *testEVMOnlyRPCBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 	return b.broadcast(ctx, req)
 }
 
-func (b *testEVMOnlyRPCBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
+func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	return b.proxy
 }
 
-func TestEVMOnlyRPCSendRawTransaction(t *testing.T) {
-	tx, raw := testEVMOnlySignedTransaction(t)
+func TestSendRawTransaction(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
 	var broadcastRaw []byte
-	backend := &testEVMOnlyRPCBackend{
+	backend := &testBackend{
 		broadcast: func(_ context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 			broadcastRaw = append([]byte(nil), req.Tx...)
 			return &coretypes.ResultBroadcastTx{}, nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	handler, err := newEVMOnlyRPCHandler(backend)
+	handler, err := newHandler(backend)
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
@@ -61,32 +61,32 @@ func TestEVMOnlyRPCSendRawTransaction(t *testing.T) {
 	require.ErrorContains(t, err, "method status does not exist")
 }
 
-func TestEVMOnlyRPCRejectsInvalidTransaction(t *testing.T) {
-	backend := &testEVMOnlyRPCBackend{
+func TestRejectsInvalidTransaction(t *testing.T) {
+	backend := &testBackend{
 		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 			t.Fatal("invalid transaction reached broadcaster")
 			return nil, nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	_, err := (&evmOnlySendAPI{backend: backend}).SendRawTransaction(t.Context(), hexutil.Bytes{0x01, 0x02})
+	_, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), hexutil.Bytes{0x01, 0x02})
 	require.Error(t, err)
 }
 
-func TestEVMOnlyRPCReturnsCheckTxRejection(t *testing.T) {
-	_, raw := testEVMOnlySignedTransaction(t)
-	backend := &testEVMOnlyRPCBackend{
+func TestReturnsCheckTxRejection(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	backend := &testBackend{
 		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 			return &coretypes.ResultBroadcastTx{Code: 1, Log: "bad nonce"}, nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
 	}
-	_, err := (&evmOnlySendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+	_, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
 	require.EqualError(t, err, "bad nonce")
 }
 
-func TestEVMOnlyRPCProxiesTransactionToShardOwner(t *testing.T) {
-	tx, raw := testEVMOnlySignedTransaction(t)
+func TestProxiesTransactionToShardOwner(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
 	var proxiedRaw hexutil.Bytes
 	remoteHandler := ethrpc.NewServer()
 	require.NoError(t, remoteHandler.RegisterName("eth", &testRemoteSendAPI{
@@ -102,14 +102,14 @@ func TestEVMOnlyRPCProxiesTransactionToShardOwner(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(remoteClient.Close)
 
-	backend := &testEVMOnlyRPCBackend{
+	backend := &testBackend{
 		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 			t.Fatal("proxied transaction reached local broadcaster")
 			return nil, nil
 		},
 		proxy: utils.Some(remoteClient),
 	}
-	got, err := (&evmOnlySendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+	got, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, hexutil.Bytes(raw), proxiedRaw)
@@ -123,7 +123,7 @@ func (api *testRemoteSendAPI) SendRawTransaction(input hexutil.Bytes) common.Has
 	return api.send(input)
 }
 
-func testEVMOnlySignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
+func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 	t.Helper()
 	key, err := crypto.HexToECDSA("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	require.NoError(t, err)

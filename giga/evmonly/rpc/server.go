@@ -1,4 +1,5 @@
-package node
+// Package rpc serves the minimal JSON-RPC surface for the EVM-only executor.
+package rpc
 
 import (
 	"context"
@@ -14,29 +15,33 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
 
 const (
-	evmOnlyRPCListenAddress = "0.0.0.0:8545"
-	evmOnlyRPCShutdownWait  = 5 * time.Second
+	listenAddress = "0.0.0.0:8545"
+	shutdownWait  = 5 * time.Second
 )
 
-type evmOnlyRPCBackend interface {
+var logger = seilog.NewLogger("giga", "evmonly", "rpc")
+
+// Backend submits transactions locally or returns the RPC client for their
+// Autobahn shard owner.
+type Backend interface {
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 }
 
-type evmOnlySendAPI struct {
-	backend evmOnlyRPCBackend
+type sendAPI struct {
+	backend Backend
 }
 
 // SendRawTransaction submits a signed raw Ethereum transaction to Autobahn and
 // returns its Ethereum transaction hash.
-func (api *evmOnlySendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (common.Hash, error) {
+func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (common.Hash, error) {
 	tx := new(ethtypes.Transaction)
 	if err := tx.UnmarshalBinary(input); err != nil {
 		return common.Hash{}, err
@@ -71,23 +76,25 @@ func (api *evmOnlySendAPI) SendRawTransaction(ctx context.Context, input hexutil
 	return hash, nil
 }
 
-type evmOnlyRPCServer struct {
+// Server serves the EVM-only JSON-RPC API on port 8545.
+type Server struct {
 	listener net.Listener
 	http     *http.Server
 	rpc      *ethrpc.Server
 }
 
-func startEVMOnlyRPC(backend *rpccore.Environment) (*evmOnlyRPCServer, error) {
-	rpcServer, err := newEVMOnlyRPCHandler(backend)
+// Start binds the EVM-only JSON-RPC listener and returns its server.
+func Start(backend Backend) (*Server, error) {
+	rpcServer, err := newHandler(backend)
 	if err != nil {
 		return nil, err
 	}
-	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", evmOnlyRPCListenAddress)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", listenAddress)
 	if err != nil {
 		rpcServer.Stop()
-		return nil, fmt.Errorf("listen for EVM-only RPC on %s: %w", evmOnlyRPCListenAddress, err)
+		return nil, fmt.Errorf("listen for EVM-only RPC on %s: %w", listenAddress, err)
 	}
-	return &evmOnlyRPCServer{
+	return &Server{
 		listener: listener,
 		http: &http.Server{
 			Handler:           rpcServer,
@@ -97,15 +104,16 @@ func startEVMOnlyRPC(backend *rpccore.Environment) (*evmOnlyRPCServer, error) {
 	}, nil
 }
 
-func newEVMOnlyRPCHandler(backend evmOnlyRPCBackend) (*ethrpc.Server, error) {
+func newHandler(backend Backend) (*ethrpc.Server, error) {
 	rpcServer := ethrpc.NewServer()
-	if err := rpcServer.RegisterName("eth", &evmOnlySendAPI{backend: backend}); err != nil {
+	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only RPC: %w", err)
 	}
 	return rpcServer, nil
 }
 
-func (s *evmOnlyRPCServer) Serve(ctx context.Context) error {
+// Serve handles requests until the server stops or ctx is canceled.
+func (s *Server) Serve(ctx context.Context) error {
 	logger.Info("Starting Autobahn EVM-only RPC server", "laddr", s.listener.Addr())
 	err := s.http.Serve(s.listener)
 	if errors.Is(err, http.ErrServerClosed) && ctx.Err() != nil {
@@ -114,9 +122,10 @@ func (s *evmOnlyRPCServer) Serve(ctx context.Context) error {
 	return err
 }
 
-func (s *evmOnlyRPCServer) Stop() {
+// Stop closes the EVM-only JSON-RPC listener and active server.
+func (s *Server) Stop() {
 	s.rpc.Stop()
-	ctx, cancel := context.WithTimeout(context.Background(), evmOnlyRPCShutdownWait)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownWait)
 	defer cancel()
 	if err := s.http.Shutdown(ctx); err != nil {
 		logger.Error("EVM-only RPC graceful shutdown failed", "err", err)
