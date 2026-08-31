@@ -197,7 +197,7 @@ func DescribeForTest(t *testing.T, cfg *tmcfg.Config, keys []string) map[string]
 	return values
 }
 
-// refuseWhatDecodesToSomethingElse reports written values the decoder accepts and turns into something the
+// whatDecodesToSomethingElse reports written values the decoder accepts and turns into something the
 // operator did not mean, with what they should have written.
 //
 // Four shapes, and every one of them decodes cleanly, which is why nothing later objects.
