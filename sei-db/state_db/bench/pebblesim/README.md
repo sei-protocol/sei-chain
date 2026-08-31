@@ -12,6 +12,12 @@ prefix.
 
 ## Run
 
+```
+../../../../docker/monitornode/scripts/start-prometheus.sh
+../../../../docker/monitornode/scripts/start-grafana.sh
+
+```
+
 ```bash
 go run ./cmd/pebblesim \
 -dir ./pebblesim-data \

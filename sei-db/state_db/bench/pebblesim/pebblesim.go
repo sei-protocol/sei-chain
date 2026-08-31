@@ -95,6 +95,16 @@ func Open(cfg Config) (*PebbleSim, error) {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = config.PebbleDBBackend
 
+	// TODO: check if fsync is enabled or not.
+	// TODO: check memtables size. increase it.
+	// TODO: give more threads to the garbage collector. and checkl related metrics. tableGarbagePointDeletionsEstimate: tableGarbagePointDeletionsEstimate,
+	// tableGarbageRangeDeletionsEstimate: tableGarbageRangeDeletionsEstimate,
+
+	// TODO: check ec2 memory speed
+
+	// TODO: 1 thread generates data. the other takes it an inserts it.
+	// TODO: check this https://github.com/sei-protocol/sei-chain/tree/cjl/snapshot-experiments
+
 	ssConfig.SeparateEVMSubDBs = true
 
 	store, err := evmss.NewEVMStateStore(cfg.DataDir, ssConfig)
@@ -157,6 +167,7 @@ func (p *PebbleSim) WriteBatch() (BatchResult, error) {
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}}
 
+	// TODO: pre sort based on key. pipeline it.
 	writeStart := time.Now()
 	if err := p.store.ApplyChangesetSync(p.version, changesets); err != nil {
 		return BatchResult{}, fmt.Errorf("apply changeset at version %d: %w", p.version, err)
