@@ -35,6 +35,35 @@ func (s *generatedState) Freeze() {
 	s.frozen.Store(true)
 }
 
+func (s *generatedState) AccountExists(addr common.Address) bool {
+	if s.frozen.Load() {
+		if _, ok := s.balances[addr]; ok {
+			return true
+		}
+		if _, ok := s.nonces[addr]; ok {
+			return true
+		}
+		if _, ok := s.code[addr]; ok {
+			return true
+		}
+		_, ok := s.storage[addr]
+		return ok
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.balances[addr]; ok {
+		return true
+	}
+	if _, ok := s.nonces[addr]; ok {
+		return true
+	}
+	if _, ok := s.code[addr]; ok {
+		return true
+	}
+	_, ok := s.storage[addr]
+	return ok
+}
+
 func (s *generatedState) GetBalance(addr common.Address) *big.Int {
 	if s.frozen.Load() {
 		// Frozen reads return shared, non-owned pointers; StateReader consumers

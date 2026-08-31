@@ -1,2 +1,0 @@
-Enabled = bool(false)
-TestDataPath = string("~/testdata/")

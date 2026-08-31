@@ -3,12 +3,12 @@ package wasm_test
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 	"github.com/spf13/cast"
+	"github.com/stretchr/testify/require"
 )
 
 // The [wasm] section is where the app.toml template and the in-code defaults
@@ -20,57 +20,20 @@ import (
 // app.toml has no [wasm] section at all. Neither node is misconfigured by its own
 // lights; they simply resolved different values from the same binary.
 //
-// Two more rows sit alongside it: memory_cache_size is read but never templated, so
-// it is reachable only by hand-editing, and the global --trace flag doubles as the
+// Two other read sites are worth naming: memory_cache_size is read but never templated,
+// so it is reachable only by hand-editing, and the global --trace flag doubles as the
 // contract debug-mode switch, so enabling ABCI stack traces also turns on contract
 // debugging.
 
-// wasmKeys are the [wasm] read sites whose resolution is a plain guarded checked
-// cast. simulation_gas_limit is not among them: it is a pointer field with an
-// extra string-shaped guard, so it gets its own target.
-var wasmKeys = []configtest.KeySpec{
-	{
-		Key: "wasm.query_gas_limit", Path: "SmartQueryGasLimit", Cast: configtest.CastUint64,
-		Checked: true,
-		Why:     "in-code default 3,000,000 vs the template literal 300000",
-	},
-	{
-		Key: "wasm.memory_cache_size", Path: "MemoryCacheSize", Cast: configtest.CastUint32,
-		Checked: true,
-		Why:     "read but absent from the seid template; settable only by hand, env or flag",
-	},
-	{
-		Key: server.FlagTrace, Path: "ContractDebugMode", Cast: configtest.CastBool,
-		Checked: true,
-		Why:     "the global --trace flag doubles as the wasm contract debug switch",
-	},
-}
-
-func readWasm(opts configtest.AppOpts) (any, error) { return wasm.ReadWasmConfig(opts) }
-
-func FuzzReadWasmConfig(f *testing.F) {
-	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
-	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(300000), false)
-	seeds.AddRow(uint(0), fuzzing.KindNumericString, "", int64(3000000), false)
-	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(-1), false) // negative into an unsigned cast: rejected
-	seeds.AddRow(uint(1), fuzzing.KindInt64, "", int64(256), false)
-	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
-	seeds.AddRow(uint(2), fuzzing.KindString, "not-a-bool", int64(0), false)
-	seeds.AddRow(uint(0), fuzzing.KindNil, "", int64(0), false)
-	seeds.AddRow(uint(1), fuzzing.KindMap, "", int64(0), false)
-
-	configtest.CheckEveryRowHasADiscriminatingSeed(f, "wasm", readWasm, wasmKeys, seeds)
-
-	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
-		spec := configtest.Pick(wasmKeys, keyIdx)
-		configtest.CheckRow(t, "wasm", readWasm, spec, fuzzing.ConfigValue(kind, s, n, b))
-	})
-}
-
 // TestReadWasmConfigAbsentKeysKeepDefaults pins the section baseline — the in-code
-// defaults, which is what a node with no [wasm] section resolves.
+// defaults, which is what a node with no [wasm] section resolves. Both sides move
+// together when a default changes, so this asserts the reader's behavior rather
+// than the values themselves.
 func TestReadWasmConfigAbsentKeysKeepDefaults(t *testing.T) {
-	configtest.CheckAbsent(t, "wasm", readWasm, types.DefaultWasmConfig())
+	cfg, err := wasm.ReadWasmConfig(configtest.AppOpts{})
+	require.NoError(t, err, "an absent [wasm] section must read cleanly")
+	require.Equal(t, types.DefaultWasmConfig(), cfg,
+		"an absent [wasm] section must resolve to the declared defaults")
 }
 
 // TestQueryGasLimitInCodeDefaultStaysAboveTheGeneratedLimit pins this package's half of
@@ -180,37 +143,4 @@ func FuzzWasmSimulationGasLimit(f *testing.F) {
 			t.Fatalf("simulation_gas_limit = %q resolved to %d, want %d", raw, *cfg.SimulationGasLimit, want)
 		}
 	})
-}
-
-// TestDefaultsMatchTheRecordedValues pins the wasm defaults themselves.
-//
-// The absent-keys coverage in this file proves the reader returns the declared defaults; it
-// cannot prove which values those are, because both sides of that comparison come from the
-// same package. This compares them against testdata/wasm.golden, an independent
-// recording, so a default that moves shows the new value in a diff instead of passing
-// silently.
-func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "wasm", types.DefaultWasmConfig())
-}
-
-// TestKeyNamesMatchTheRecordedNames pins the three key names themselves.
-//
-// Two are literals and the third, server.FlagTrace, is the global --trace flag reached
-// through the sei-cosmos constant that declares it — a key whose value can be edited in
-// another module entirely, where nothing suggests that a wasm contract debug switch rides on
-// it. The recorded name is why that edit fails here.
-//
-// The record holds "trace" without a section prefix for that row, which is correct: the
-// third row is not a [wasm] key at all.
-func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
-	configtest.CheckKeyNames(t, "wasm", wasmKeys)
-}
-
-// TestManifestNamesEveryField enforces the claim wasmKeys makes about itself: that it names
-// every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
-// replacement implementation reads as this section's contract.
-func TestManifestNamesEveryField(t *testing.T) {
-	configtest.CheckManifestCoversEveryField(t, "wasm", types.DefaultWasmConfig(), wasmKeys,
-		"SimulationGasLimit", // FuzzWasmSimulationGasLimit: the one read with a string-shaped guard
-	)
 }

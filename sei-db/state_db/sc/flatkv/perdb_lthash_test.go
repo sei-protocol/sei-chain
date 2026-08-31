@@ -275,7 +275,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 
 	commitMixedState(t, s1, 1)
 	commitMixedState(t, s1, 2)
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	commitMixedState(t, s1, 3)
 	commitMixedState(t, s1, 4)
@@ -385,7 +385,7 @@ func TestPerDBLtHashRollback(t *testing.T) {
 	commitMixedState(t, s, 1)
 	commitMixedState(t, s, 2)
 	commitMixedState(t, s, 3)
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitMixedState(t, s, 4)
 	commitMixedState(t, s, 5)
