@@ -45,6 +45,10 @@ func CheckCmd() *cobra.Command {
 			"A boot cannot refuse a file, so it applies what it can and reports the rest. Running this " +
 			"first is how a mistyped value costs a failed check rather than a restart.",
 		Args: cobra.NoArgs,
+		// A mistyped value is not a usage error, and nothing in the production wiring silences usage, so
+		// cobra would follow this command's error with the whole usage block into the same stdout the
+		// report was just written to.
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 
@@ -157,11 +161,17 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 		problems = append(problems, fmt.Sprintf("%s: sei.toml writes this and no section declares it, "+
 			"so it has no effect", key))
 	}
-	if running := theModeTheNodesOwnFileRecords(home); modesDisagree(mode, running) {
+	running, err := theModeTheNodesOwnFileRecords(home)
+	switch {
+	case err != nil:
+		problems = append(problems, fmt.Sprintf("the node's own configuration file cannot be read, so a "+
+			"boot would not start: %v", err))
+	case modesDisagree(mode, running):
 		problems = append(problems, fmt.Sprintf("sei.toml says this is a %s and the node's own "+
 			"configuration file says %s. Every value resolved here is the answer for the first and the "+
 			"node would run as the second", mode, running))
 	}
+	problems = append(problems, whatTheResolutionAlreadyKnows(resolved)...)
 	problems = append(problems, whatADecodeWouldRefuse(resolved)...)
 	return problems, true, nil
 }
@@ -175,16 +185,44 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 // never empty on that path. Answering empty here would pass a node whose sei.toml names a different kind,
 // and then that node reports the disagreement at its loudest level on the next start: a pass in exactly
 // the case with the largest consequence.
-func theModeTheNodesOwnFileRecords(home string) string {
+func theModeTheNodesOwnFileRecords(home string) (string, error) {
 	v := viper.New()
 	v.SetConfigFile(filepath.Join(home, "config", "config.toml"))
-	if err := v.ReadInConfig(); err != nil {
-		return tmcfg.DefaultConfig().Mode
+	switch err := v.ReadInConfig(); {
+	case errors.Is(err, fs.ErrNotExist):
+		// The only case that is an absence. Every other failure is a file somebody wrote that this
+		// binary cannot read, and a boot does not start at all on one of those, so answering with a
+		// default would pass a node that cannot boot.
+	case err != nil:
+		return "", err
 	}
 	if mode := v.GetString("mode"); mode != "" {
-		return mode
+		return mode, nil
 	}
-	return tmcfg.DefaultConfig().Mode
+	return tmcfg.DefaultConfig().Mode, nil
+}
+
+// whatTheResolutionAlreadyKnows returns the problems a resolution reports without any rehearsal.
+//
+// Two of them, and the boot reports both. A refused registration leaves its section's keys out of the
+// declared set, so an operator's valid key lands among the undeclared ones and this command would tell them
+// their file is wrong about a key it was right about. Reported first for that reason, so whoever reads the
+// output in order meets the cause before the symptom.
+//
+// The other is a variable set for a key the environment cannot carry. The boot warns about it and this
+// command was silent, so an operator was not told that the channel they reached for did nothing.
+func whatTheResolutionAlreadyKnows(resolved registry.Resolved) []string {
+	problems := make([]string, 0, len(resolved.Refused)+len(resolved.Ignored))
+	for _, d := range resolved.Refused {
+		problems = append(problems, fmt.Sprintf("this binary's own registration of [%s] carries a defect, "+
+			"so some declared keys do not reach the node as declared: %v", d.Section, d.Err))
+	}
+	for _, key := range sortedKeys(resolved.Ignored) {
+		problems = append(problems, fmt.Sprintf("%s: an environment variable is set for this and the "+
+			"environment cannot supply it, so it has no effect and the file's value applies (%s)",
+			key, resolved.Ignored[key]))
+	}
+	return problems
 }
 
 // whatADecodeWouldRefuse rehearses each decoded section the way the boot's delivery does.

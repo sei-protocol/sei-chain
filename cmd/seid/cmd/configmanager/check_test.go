@@ -3,12 +3,14 @@ package configmanager
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
@@ -345,12 +347,55 @@ func TestTheCheckFindsADisagreementAboutWhatKindOfNodeThisIs(t *testing.T) {
 		}
 	})
 
+	t.Run("a configuration file it cannot read is a problem, not an absence", func(t *testing.T) {
+		// A boot does not start on one of these at all, so answering with a default would pass a node
+		// that cannot boot. It is the same rule this command already applies to sei.toml.
+		out, err := runCheckWithNodeFile(t, seiToml, "mode = \"validator\"\n[[[ not toml\n")
+		if err == nil {
+			t.Errorf("an unparseable configuration file passed the check, and a boot would not start:\n%s",
+				out)
+		}
+		if !strings.Contains(out, "cannot be read") {
+			t.Errorf("the report does not say the node's own file cannot be read:\n%s", out)
+		}
+	})
+
 	t.Run("no configuration file of its own and a matching kind passes", func(t *testing.T) {
 		matching := "schema_version = 1\nnode_mode = \"" + tmcfg.DefaultConfig().Mode +
 			"\"\n\n[mempool]\nsize = 4321\n"
 		out, err := runCheckWithNodeFile(t, matching, "")
 		if err != nil {
 			t.Errorf("sei.toml names the kind a boot would compute and the check failed: %v\n%s", err, out)
+		}
+	})
+}
+
+// TestTheCheckReportsWhatTheResolutionAlreadyKnows covers the two problems that need no rehearsal.
+//
+// A refused registration is the one that matters most, because of what it does to the report beside it: the
+// section's keys are absent from the declared set, so an operator's valid key for one of them lands among
+// the keys nothing declares. Reported without the cause, this command tells them their file is wrong about
+// a key it was right about. The boot reports the cause first for exactly this reason.
+func TestTheCheckReportsWhatTheResolutionAlreadyKnows(t *testing.T) {
+	t.Run("a refused registration is named, before anything else", func(t *testing.T) {
+		got := whatTheResolutionAlreadyKnows(registry.Resolved{
+			Refused: []registry.Defect{{Section: "mempool", Err: errors.New("two keys share a spelling")}},
+			Ignored: map[string]string{"telemetry.global-labels": "a variable holds one string"},
+		})
+		if len(got) != 2 {
+			t.Fatalf("got %d problems, want the refusal and the ignored variable: %v", len(got), got)
+		}
+		if !strings.Contains(got[0], "mempool") || !strings.Contains(got[0], "carries a defect") {
+			t.Errorf("the first problem does not name the refused registration: %q", got[0])
+		}
+		if !strings.Contains(got[1], "telemetry.global-labels") {
+			t.Errorf("the second problem does not name the ignored variable: %q", got[1])
+		}
+	})
+
+	t.Run("a clean resolution reports nothing", func(t *testing.T) {
+		if got := whatTheResolutionAlreadyKnows(registry.Resolved{}); len(got) != 0 {
+			t.Errorf("a resolution with no defect and no ignored variable reports %v", got)
 		}
 	})
 }
