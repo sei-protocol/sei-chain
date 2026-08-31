@@ -12,17 +12,15 @@ type RecoverableStore struct {
 	targetVersion int64
 }
 
-// CrashRecover brings the opened stores onto one height after an unclean shutdown. It assumes the
-// BlockDB is always ahead of other state DBs and will make sure all other DBs are reconciled to the same height.
-//
-// NewGigaStorageManager calls it once every store is open and before either the checkpoint schedule
-// or the prune cycle starts. It is a no-op on a node that shut down cleanly, and idempotent, so a run
-// interrupted partway is completed by the next open.
+// CrashRecover brings the opened stores onto one height after an unclean shutdown.
+// After recovery:
+//  1. Every store is at or below the block store's height.
+//  2. Every store other than the block store is on the same height.
 func (m *GigaStorageManager) CrashRecover() error {
 	// TODO: implement later
 	// Step 1: Check if BlockStore is ahead of other stores
 	// Step 2: for each store, collect its latest height
-	// Step 3: Calculate the height each store should rollback
+	// Step 3: Calculate the height each store should rollback to
 	// Step 4: call recoverStores to rollback
 	return nil
 }

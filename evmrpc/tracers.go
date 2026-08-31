@@ -110,6 +110,9 @@ func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endp
 	if api.keeper == nil {
 		return nil
 	}
+	if err := requireReceiptStore(api.keeper); err != nil {
+		return err
+	}
 	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
 	if err != nil || receipt == nil {
 		return nil

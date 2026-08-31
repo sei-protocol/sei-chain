@@ -20,8 +20,7 @@ type GigaStorageConfig struct {
 	CheckpointConfig CheckpointConfig
 }
 
-// gigaReceiptBackend is the receipt backend Giga opens (littidx). Named here to
-// avoid an import cycle with the receipt package.
+// gigaReceiptBackend is the receipt backend Giga opens (littidx).
 const gigaReceiptBackend = "littidx"
 
 // DefaultGigaStorageConfig returns a config rooted at homePath:
@@ -31,8 +30,7 @@ const gigaReceiptBackend = "littidx"
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
 //
-// SS is opened at EVMDBDirectory, not through the composite store. Every store
-// sets ExternalPruning so PruningConfig owns retention.
+// SS is opened at EVMDBDirectory. Every store sets ExternalPruning so PruningConfig owns retention.
 func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 	blockDBConfig, err := littblock.DefaultConfig(utils.GetBlockStorePath(homePath))
 	if err != nil {
