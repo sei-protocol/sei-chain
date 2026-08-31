@@ -168,9 +168,11 @@ func copyNodeConfig(from *tmcfg.Config) (*tmcfg.Config, error) {
 // Keys that did not move are not reported. An operator who writes the value their file already held has
 // changed nothing, and a line saying so buries the ones that did.
 //
-// A value carrying a password has the password taken out. This is the only place the running configuration
-// is written down, so it is also the only place one would reach a log file, a journal, and whatever ships
-// them onward. The node's own configuration file holds the same string and nothing reads it out to a log.
+// A value carrying a password has the password taken out, in the forms a connection string writes one: the
+// userinfo of a URL, a named field, quoted or not, with or without backslash escapes. This is the only
+// place the running configuration is written down, so it is also the only place one would reach a log file,
+// a journal, and whatever ships them onward. The node's own configuration file holds the same string and
+// nothing reads it out to a log.
 //
 // The rendered list is capped for the reason every other one here is: the count is what an operator alerts
 // on, and one line per key of a large section buries whichever of them mattered.
@@ -220,10 +222,21 @@ const redacted = "xxxxx"
 // and it accepts prefixed spellings such as "sslpassword", which the leading group keeps intact.
 //
 // The value runs to the next separator or the end, so nothing after it is swallowed. A quoted value is
-// taken whole, because PostgreSQL accepts a keyword value in quotes and a password may hold spaces:
-// stopping at the first one leaves the rest of it in the line.
+// taken whole, because a keyword value may be quoted and a password may hold spaces: stopping at the first
+// one leaves the rest of it in the line.
+//
+// A backslash escape is consumed with what follows it. Quoted and unquoted keyword values both escape a
+// quote and a backslash that way, so a password holding one ends the match early and leaks its tail.
 var passwordAssignment = regexp.MustCompile(
-	`(?i)(password|passwd|pwd)(\s*=\s*)('[^']*'|"[^"]*"|[^&\s]*)`)
+	`(?i)(password|passwd|pwd)(\s*=\s*)('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|(?:\\.|[^&\s\\])*)`)
+
+// credentialsInAURI matches the userinfo of a connection string that does not parse as a URL.
+//
+// A password holding a raw space, or any other byte a URL parser rejects in userinfo, makes the parse fail,
+// and a connection string in that form carries no named field for the pattern above to find. Failing open
+// there logs the whole credential, so this is the fallback: whatever sits between the scheme and the host,
+// after the first colon, is removed.
+var credentialsInAURI = regexp.MustCompile(`(://[^/@\s]*:)[^@\n]*(@)`)
 
 // withoutCredentials removes a password from a value that carries one.
 //
@@ -240,6 +253,11 @@ func withoutCredentials(value string) string {
 			u.User = url.UserPassword(u.User.Username(), redacted)
 			value = u.String()
 		}
+	} else {
+		// The parse failed, so the userinfo above was never reached and a string in that form carries no
+		// named field either. Failing open here would log the whole credential, which is the one outcome
+		// this function exists to prevent.
+		value = credentialsInAURI.ReplaceAllString(value, "${1}"+redacted+"${2}")
 	}
 	return passwordAssignment.ReplaceAllString(value, "${1}${2}"+redacted)
 }
