@@ -269,10 +269,13 @@ ip-rate-limit-rps = {{ .GRPC.IPRateLimitRPS }}
 ip-rate-limit-burst = {{ .GRPC.IPRateLimitBurst }}
 
 # rate-limiting-enabled is the master switch for gRPC rate-limit admission interceptors.
+# These interceptors also govern gRPC-Web (:9091), which wraps the same server, and its
+# traffic draws from the same per-IP buckets as native gRPC (:9090).
 rate-limiting-enabled = {{ .GRPC.RateLimitingEnabled }}
 
 # trusted-proxy-cidrs lists CIDRs whose x-forwarded-for metadata is trusted when
-# resolving the client IP for rate limiting. Empty means trust no proxy.
+# resolving the client IP for rate limiting, on both :9090 and gRPC-Web (:9091).
+# Empty means trust no proxy.
 trusted-proxy-cidrs = [{{- range $i, $c := .GRPC.TrustedProxyCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
 
 ###############################################################################

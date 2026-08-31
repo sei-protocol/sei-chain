@@ -272,10 +272,13 @@ type GRPCConfig struct {
 	IPRateLimitBurst int `mapstructure:"ip-rate-limit-burst"`
 
 	// RateLimitingEnabled is the master switch for gRPC rate-limit admission.
+	// The interceptors it installs also govern gRPC-Web (:9091), which wraps the
+	// same *grpc.Server, and its traffic draws from the same per-IP buckets.
 	RateLimitingEnabled bool `mapstructure:"rate-limiting-enabled"`
 
 	// TrustedProxyCIDRs lists CIDRs whose x-forwarded-for metadata is trusted
 	// when resolving the client IP for rate limiting. Empty means trust no proxy.
+	// It applies to gRPC-Web (:9091) as well as native gRPC (:9090).
 	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
 }
 

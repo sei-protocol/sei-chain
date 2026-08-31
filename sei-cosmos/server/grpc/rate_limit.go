@@ -25,8 +25,13 @@ func UnaryRateLimitInterceptor(registry *ratelimiter.Registry) grpc.UnaryServerI
 }
 
 // StreamRateLimitInterceptor returns a server interceptor that applies per-IP
-// token-bucket rate limiting when a client stream is established. registry must
-// be non-nil.
+// token-bucket rate limiting at stream establishment. registry must be non-nil.
+//
+// Admission is per stream, not per message: one token is spent when the stream
+// opens and messages sent on an admitted stream are not accounted. The only
+// streaming surface on :9090 is server reflection, whose bidirectional
+// ServerReflectionInfo can therefore serve unbounded descriptor lookups over a
+// single admitted stream.
 func StreamRateLimitInterceptor(registry *ratelimiter.Registry) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := ss.Context()

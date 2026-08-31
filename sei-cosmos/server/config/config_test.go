@@ -175,6 +175,10 @@ func TestGetConfigGRPCOverrides(t *testing.T) {
 	v.Set("grpc.keepalive-timeout", "10s")
 	v.Set("grpc.keepalive-min-time", "30s")
 	v.Set("grpc.keepalive-permit-without-stream", true)
+	v.Set("grpc.ip-rate-limit-rps", 42.5)
+	v.Set("grpc.ip-rate-limit-burst", 99)
+	v.Set("grpc.rate-limiting-enabled", true)
+	v.Set("grpc.trusted-proxy-cidrs", []string{"10.1.0.0/16", "192.168.0.0/16"})
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
@@ -187,6 +191,10 @@ func TestGetConfigGRPCOverrides(t *testing.T) {
 	require.Equal(t, 10*time.Second, cfg.GRPC.KeepaliveTimeout)
 	require.Equal(t, 30*time.Second, cfg.GRPC.KeepaliveMinTime)
 	require.True(t, cfg.GRPC.KeepalivePermitWithoutStream)
+	require.Equal(t, 42.5, cfg.GRPC.IPRateLimitRPS)
+	require.Equal(t, 99, cfg.GRPC.IPRateLimitBurst)
+	require.True(t, cfg.GRPC.RateLimitingEnabled)
+	require.Equal(t, []string{"10.1.0.0/16", "192.168.0.0/16"}, cfg.GRPC.TrustedProxyCIDRs)
 }
 
 func TestDefaultGRPCWebConfig(t *testing.T) {
