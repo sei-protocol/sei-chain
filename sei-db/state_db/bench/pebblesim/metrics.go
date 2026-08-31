@@ -15,11 +15,13 @@ var batchLatencyBuckets = []float64{
 }
 
 // simMetrics tracks how each batch performs against its block deadline, split into the full
-// batch (key/value generation plus the Pebble write) and the Pebble write alone — so a slow
-// batch can be attributed to the benchmark's own data generation versus Pebble itself.
+// batch, the Pebble write alone, and the stall waiting on the generator goroutine — so a slow
+// batch can be attributed to Pebble itself versus the benchmark's own data generation falling
+// behind.
 type simMetrics struct {
 	batchDuration  metric.Float64Histogram
 	writeDuration  metric.Float64Histogram
+	stallDuration  metric.Float64Histogram
 	batchesWritten metric.Int64Counter
 	keysWritten    metric.Int64Counter
 	deadlineMisses metric.Int64Counter
@@ -38,6 +40,12 @@ func newSimMetrics() *simMetrics {
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(batchLatencyBuckets...),
 	)
+	stallDuration, _ := meter.Float64Histogram(
+		"pebblesim_stall_duration_seconds",
+		metric.WithDescription("Wall-clock time WriteBatch spent waiting for the generator goroutine to hand over the next batch; non-zero means generation, not Pebble, is the bottleneck"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(batchLatencyBuckets...),
+	)
 	batchesWritten, _ := meter.Int64Counter(
 		"pebblesim_batches_written_total",
 		metric.WithDescription("Total batches successfully written"),
@@ -53,6 +61,7 @@ func newSimMetrics() *simMetrics {
 	return &simMetrics{
 		batchDuration:  batchDuration,
 		writeDuration:  writeDuration,
+		stallDuration:  stallDuration,
 		batchesWritten: batchesWritten,
 		keysWritten:    keysWritten,
 		deadlineMisses: deadlineMisses,

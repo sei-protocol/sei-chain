@@ -10,13 +10,19 @@ tendermint/IAVL store, not this SS layer) — `randomBalanceKey` in `pebblesim.g
 `evmss.StoreBalance`, the sub-DB type the codebase already reserves for them, as the placeholder
 prefix.
 
+Key/value generation runs on its own goroutine, feeding pre-built batches to the writer through a
+channel (`-queue-depth` batches deep) so Pebble's write throughput isn't gated by generation cost.
+`pebblesim_stall_duration_seconds` (and the `stall` figure in each log line) reports how long the
+writer waited for a batch — non-zero means generation, not Pebble, is the bottleneck.
+
 ## Run
 
 ```
 ../../../../docker/monitornode/scripts/start-prometheus.sh
 ../../../../docker/monitornode/scripts/start-grafana.sh
-
+../../../../docker/monitornode/scripts/start-node-exporter.sh   # Linux only; host CPU/disk/memory
 ```
+
 
 ```bash
 go run ./cmd/pebblesim \
@@ -25,6 +31,7 @@ go run ./cmd/pebblesim \
 -interval 1000ms \
 -metrics-addr :9099 \
 -contracts 10000 \
--slots-per-contract 100000000
+-slots-per-contract 100000000 \
+-queue-depth 4
 ```
 

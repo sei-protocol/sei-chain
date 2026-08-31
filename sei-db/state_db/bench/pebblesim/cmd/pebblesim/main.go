@@ -29,6 +29,7 @@ func run() error {
 	interval := flag.Duration("interval", cfg.BatchInterval, "time between batches")
 	numContracts := flag.Int("contracts", cfg.NumContracts, "number of simulated contracts")
 	slotsPerContract := flag.Int64("slots-per-contract", cfg.SlotsPerContract, "slot index range per contract")
+	queueDepth := flag.Int("queue-depth", cfg.QueueDepth, "batches to buffer ahead of the writer")
 	seed := flag.Int64("seed", cfg.Seed, "random seed")
 	flag.Parse()
 
@@ -37,6 +38,7 @@ func run() error {
 	cfg.BatchInterval = *interval
 	cfg.NumContracts = *numContracts
 	cfg.SlotsPerContract = *slotsPerContract
+	cfg.QueueDepth = *queueDepth
 	cfg.Seed = *seed
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -60,6 +62,8 @@ func run() error {
 		}
 	}()
 
+	sim.Generate(ctx)
+
 	metrics.StartMetricsServer(ctx, reg, *metricsAddr)
 	metrics.StartSystemMetrics(ctx, "pebblesim", 5, []metrics.MonitoredDir{
 		{Name: "data_dir", Path: cfg.DataDir, TrackAvailableSpace: true},
@@ -81,23 +85,27 @@ func run() error {
 				sim.Version(), written, missed, time.Since(start).Round(time.Second))
 			return nil
 		case <-ticker.C:
-			result, err := sim.WriteBatch()
+			result, err := sim.WriteBatch(ctx)
 			if err != nil {
+				if ctx.Err() != nil {
+					// Shutting down: the ticker case won the race against ctx.Done() above, but
+					// there's nothing left to report that the next loop iteration won't.
+					continue
+				}
 				return fmt.Errorf("write batch: %w", err)
 			}
 			written += cfg.BatchSize
-			generate := (result.Total - result.Write).Round(time.Millisecond)
 
 			if result.Total > cfg.BatchInterval {
 				missed++
-				log.Printf("version %d: MISSED DEADLINE - total %s (write %s, generate %s), budget %s (%d misses so far)",
+				log.Printf("version %d: MISSED DEADLINE - total %s (write %s, stall %s), budget %s (%d misses so far)",
 					result.Version, result.Total.Round(time.Millisecond), result.Write.Round(time.Millisecond),
-					generate, cfg.BatchInterval, missed)
+					result.Stall.Round(time.Millisecond), cfg.BatchInterval, missed)
 				continue
 			}
-			log.Printf("version %d: %d keys written in %s (write %s, generate %s) (%d total)",
+			log.Printf("version %d: %d keys written in %s (write %s, stall %s) (%d total)",
 				result.Version, cfg.BatchSize, result.Total.Round(time.Millisecond), result.Write.Round(time.Millisecond),
-				generate, written)
+				result.Stall.Round(time.Millisecond), written)
 		}
 	}
 }
