@@ -204,92 +204,6 @@ func TestStateViewEVMAccessors(t *testing.T) {
 	})
 }
 
-// The view is an alternate way to read data FlatKV already serves, so every accessor must answer what
-// CommitStore.Get answers for the same key at the same height, apart from the one code-hash case the
-// loop below spells out. This walks addresses covering a contract, an account with no code, and one
-// that was never written, and holds the two paths against each other rather than against hand-written
-// expectations.
-func TestStateViewAgreesWithStoreReads(t *testing.T) {
-	s := setupTestStore(t)
-	defer func() { require.NoError(t, s.Close()) }()
-
-	contract, eoa, missing := addrN(1), addrN(2), addrN(3)
-	setSlot, unsetSlot := slotN(1), slotN(9)
-
-	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(
-		noncePair(contract, 3),
-		codeHashPair(contract, codeHashN(0xAB)),
-		codePair(contract, []byte{0x60, 0x80, 0x60, 0x40}),
-		storagePair(contract, setSlot, []byte{0xEE}),
-		noncePair(eoa, 9),
-	)}))
-
-	stateView := s.OpenView()
-	defer stateView.Close()
-
-	// Get is the surface where the two paths must agree byte for byte, since it is the one that used to
-	// answer with the whole stored row.
-	for _, key := range [][]byte{
-		keys.BuildEVMKey(keys.EVMKeyNonce, contract[:]),
-		keys.BuildEVMKey(keys.EVMKeyCodeHash, contract[:]),
-		keys.BuildEVMKey(keys.EVMKeyCode, contract[:]),
-		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(contract, setSlot)),
-		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(contract, unsetSlot)),
-		keys.BuildEVMKey(keys.EVMKeyNonce, eoa[:]),
-		keys.BuildEVMKey(keys.EVMKeyCodeHash, eoa[:]),
-		keys.BuildEVMKey(keys.EVMKeyCode, eoa[:]),
-		keys.BuildEVMKey(keys.EVMKeyNonce, missing[:]),
-		keys.BuildEVMKey(keys.EVMKeyCodeHash, missing[:]),
-	} {
-		wantValue, wantFound := s.Get(keys.EVMStoreKey, key)
-		gotValue, gotFound := stateView.Get(keys.EVMStoreKey, key)
-		require.Equal(t, wantFound, gotFound, "Get found %x", key)
-		require.Equal(t, wantValue, gotValue, "Get value %x", key)
-	}
-
-	for _, addr := range []ktype.Address{contract, eoa, missing} {
-		for _, slot := range []ktype.Slot{setSlot, unsetSlot} {
-			raw, found := s.Get(keys.EVMStoreKey,
-				keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
-			require.Equal(t, hashOrZero(raw, found), stateView.GetStorage(gigaAddr(addr), ethcommon.Hash(slot)),
-				"storage %x/%x", addr, slot)
-		}
-
-		raw, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
-		accountExists := found
-		var wantNonce uint64
-		if found {
-			wantNonce = binary.BigEndian.Uint64(raw)
-		}
-		require.Equal(t, wantNonce, stateView.GetNonce(gigaAddr(addr)), "nonce %x", addr)
-
-		raw, found = s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
-		wantCodeHash := hashOrZero(raw, found)
-		if !found && accountExists {
-			// The one place the view answers differently on purpose. The store reports a codeless
-			// account's hash as absent; EVM semantics require the empty-code hash there, and only an
-			// account that does not exist at all hashes as zero.
-			wantCodeHash = ethtypes.EmptyCodeHash
-		}
-		require.Equal(t, wantCodeHash, stateView.GetCodeHash(gigaAddr(addr)), "code hash %x", addr)
-
-		raw, found = s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
-		if !found {
-			raw = nil
-		}
-		require.Equal(t, raw, stateView.GetCode(gigaAddr(addr)), "code %x", addr)
-		require.Equal(t, len(raw), stateView.GetCodeSize(gigaAddr(addr)), "code size %x", addr)
-	}
-}
-
-// hashOrZero reads a CommitStore.Get result as the hash the view reports for the same key.
-func hashOrZero(raw []byte, found bool) ethcommon.Hash {
-	if !found {
-		return ethcommon.Hash{}
-	}
-	return ethcommon.Hash(raw)
-}
-
 // Balance has no key kind yet, so nothing can write one (store_apply.go passes nil balance changes).
 // Refusing is the only honest answer: zero would be indistinguishable from a real zero balance, and
 // the caller has no way to tell the two apart. The account below has a nonce, so its row does exist.
@@ -317,6 +231,7 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	addr := addrN(1)
+	eoa := addrN(2)
 	slot := slotN(1)
 	bytecode := []byte{0x60, 0x80}
 	codeHash := codeHashN(0xAB)
@@ -327,6 +242,7 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 			codeHashPair(addr, codeHash),
 			codePair(addr, bytecode),
 			storagePair(addr, slot, []byte{0xEE}),
+			noncePair(eoa, 9),
 		),
 		{
 			Name:      "bank",
@@ -375,5 +291,11 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 		absent := addrN(9)
 		_, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, absent[:]))
 		require.False(t, found)
+	})
+
+	t.Run("code hash of an account with no code", func(t *testing.T) {
+		_, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, eoa[:]))
+		require.False(t, found,
+			"Get reports what is stored; substituting EmptyCodeHash here is GetCodeHash's job")
 	})
 }

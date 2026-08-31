@@ -18,9 +18,6 @@ import (
 var _ giga.StateView = (*flatKVStateView)(nil)
 
 // flatKVStateView serves the Giga read API from one committed block.
-//
-// None of its methods return an error, so a read that fails panics. The alternative is answering a
-// caller that has no way to tell a real value from a failed read.
 type flatKVStateView struct {
 	// The block being read. Close() hands back the reservation it carries.
 	blockView *storeView
@@ -44,14 +41,6 @@ func (v *flatKVStateView) Close() {
 	})
 }
 
-// Get returns the value stored under key in the named module, and whether it was found. It answers
-// exactly as CommitStore.Get does for the same key.
-//
-// The value alone: the row holding it also records the height the key was last modified at, which is
-// a separate question and has no accessor here.
-//
-// A nonce key and a code-hash key both read the account row, since FlatKV stores the account as one
-// record, but each answers with its own field.
 func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 	if module != keys.EVMStoreKey {
 		return v.miscValue(module, key)

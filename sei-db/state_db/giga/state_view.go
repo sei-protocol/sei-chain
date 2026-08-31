@@ -24,6 +24,9 @@ type StateView interface {
 
 	// Get returns the value stored under key in this view, and whether it
 	// was found. It never observes writes made after the view was opened.
+	//
+	// Get reports what is stored, not what EVM semantics substitute for it: a code-hash key for an
+	// account that exists with no code is not found, where GetCodeHash reports EmptyCodeHash.
 	Get(module string, key []byte) ([]byte, bool)
 
 	// Close releases the view's underlying ref counting.
