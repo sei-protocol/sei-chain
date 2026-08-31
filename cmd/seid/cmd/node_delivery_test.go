@@ -461,15 +461,6 @@ func TestAValueTheNodesOwnRulesRejectIsRefused(t *testing.T) {
 	}
 }
 
-// keysADecodeDelivers returns every key the decoded sections own, sorted.
-//
-// Through the one accessor that answers both halves from a single read of the registry, so a test cannot
-// see a registry the boot did not.
-func keysADecodeDelivers() []string {
-	_, keys := registry.SuppliedAndOwnedByDecodedSections(registry.Resolved{})
-	return keys
-}
-
 // TestASectionLandsOnANodeAlreadyFailingItsOwnRules covers a node the boot never validated.
 //
 // The node's rules answer for the whole configuration, and a boot does not apply them to an existing
