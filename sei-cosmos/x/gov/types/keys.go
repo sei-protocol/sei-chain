@@ -54,6 +54,30 @@ const (
 // - 0x36: First proposal ID that does not require delegation-tracking backfill
 //
 // - 0x37<proposalID_Bytes>: Delegation-tracking backfill cursor
+//
+// - 0x38: Latest deferred vote-delegation update sequence
+//
+// - 0x39<sequence_Bytes>: Deferred vote-delegation update
+//
+// - 0x3A<voterAddrLen (1 Byte)><voterAddr_Bytes><sequence_Bytes>: Deferred update index by voter
+//
+// - 0x3B<proposalID_Bytes><voterAddrLen (1 Byte)><voterAddr_Bytes>: Last applied delegation update sequence
+//
+// - 0x3C<endTime_Bytes><proposalID_Bytes>: Proposal deadline awaiting tally completion
+//
+// - 0x3D: Last block time checked for proposal deadlines
+//
+// - 0x3E<boundaryID_Bytes>: Frozen tally electorate
+//
+// - 0x3F<upperTime_Bytes>: Frozen electorate for deadlines between block times
+//
+// - 0x40<endTime_Bytes>: Frozen electorate for deadlines equal to a block time
+//
+// - 0x41<proposalID_Bytes>: Frozen electorate selected for a proposal tally round
+//
+// - 0x42: Incremental tally activation marker
+
+// - 0x43<proposalID_Bytes>: Legacy proposal's post-expedited modern tally round
 var (
 	ProposalsKeyPrefix          = []byte{0x00}
 	ActiveProposalQueuePrefix   = []byte{0x01}
@@ -73,6 +97,20 @@ var (
 
 	VoteDelegationBackfillCutoffKey         = []byte{0x36}
 	VoteDelegationBackfillProgressKeyPrefix = []byte{0x37}
+
+	VoteDelegationUpdateSequenceKey         = []byte{0x38}
+	VoteDelegationUpdatesKeyPrefix          = []byte{0x39}
+	VoterVoteDelegationUpdatesKeyPrefix     = []byte{0x3A}
+	VoteDelegationSnapshotRevisionKeyPrefix = []byte{0x3B}
+
+	ProposalDeadlineKeyPrefix      = []byte{0x3C}
+	DeadlineBoundaryBlockTimeKey   = []byte{0x3D}
+	TallyBoundaryMetaKeyPrefix     = []byte{0x3E}
+	GapTallyBoundaryKeyPrefix      = []byte{0x3F}
+	ExactTallyBoundaryKeyPrefix    = []byte{0x40}
+	ProposalTallyBoundaryKeyPrefix = []byte{0x41}
+	IncrementalTallyEnabledKey     = []byte{0x42}
+	ModernTallyRoundKeyPrefix      = []byte{0x43}
 )
 
 var lenTime = len(sdk.FormatTimeBytes(time.Now()))
@@ -157,6 +195,61 @@ func TallyProgressKey(proposalID uint64) []byte {
 // VoteDelegationBackfillProgressKey returns the key for a proposal's delegation-tracking backfill cursor.
 func VoteDelegationBackfillProgressKey(proposalID uint64) []byte {
 	return append(VoteDelegationBackfillProgressKeyPrefix, GetProposalIDBytes(proposalID)...)
+}
+
+// VoteDelegationUpdateKey returns the key for a deferred delegation snapshot update.
+func VoteDelegationUpdateKey(sequence uint64) []byte {
+	return append(VoteDelegationUpdatesKeyPrefix, GetProposalIDBytes(sequence)...)
+}
+
+// VoterVoteDelegationUpdatesKeyPrefixForAddress returns a voter's deferred-update index prefix.
+func VoterVoteDelegationUpdatesKeyPrefixForAddress(voterAddr sdk.AccAddress) []byte {
+	return append(VoterVoteDelegationUpdatesKeyPrefix, address.MustLengthPrefix(voterAddr.Bytes())...)
+}
+
+// VoterVoteDelegationUpdateKey returns a voter's deferred-update index key.
+func VoterVoteDelegationUpdateKey(voterAddr sdk.AccAddress, sequence uint64) []byte {
+	return append(VoterVoteDelegationUpdatesKeyPrefixForAddress(voterAddr), GetProposalIDBytes(sequence)...)
+}
+
+// VoteDelegationSnapshotRevisionKey returns a vote snapshot's applied-update sequence key.
+func VoteDelegationSnapshotRevisionKey(proposalID uint64, voterAddr sdk.AccAddress) []byte {
+	return append(append(VoteDelegationSnapshotRevisionKeyPrefix, GetProposalIDBytes(proposalID)...), address.MustLengthPrefix(voterAddr.Bytes())...)
+}
+
+// ProposalDeadlineByTimeKey returns the proposal-deadline prefix for an end time.
+func ProposalDeadlineByTimeKey(endTime time.Time) []byte {
+	return append(ProposalDeadlineKeyPrefix, sdk.FormatTimeBytes(endTime)...)
+}
+
+// ProposalDeadlineKey returns the deadline key for one proposal tally round.
+func ProposalDeadlineKey(proposalID uint64, endTime time.Time) []byte {
+	return append(ProposalDeadlineByTimeKey(endTime), GetProposalIDBytes(proposalID)...)
+}
+
+// TallyBoundaryMetaKey returns the frozen electorate key for a boundary identifier.
+func TallyBoundaryMetaKey(boundaryID []byte) []byte {
+	return append(TallyBoundaryMetaKeyPrefix, boundaryID...)
+}
+
+// GapTallyBoundaryKey returns the boundary index for deadlines before a block time.
+func GapTallyBoundaryKey(upperTime time.Time) []byte {
+	return append(GapTallyBoundaryKeyPrefix, sdk.FormatTimeBytes(upperTime)...)
+}
+
+// ExactTallyBoundaryKey returns the boundary index for deadlines equal to a block time.
+func ExactTallyBoundaryKey(endTime time.Time) []byte {
+	return append(ExactTallyBoundaryKeyPrefix, sdk.FormatTimeBytes(endTime)...)
+}
+
+// ProposalTallyBoundaryKey returns the selected-boundary key for a proposal.
+func ProposalTallyBoundaryKey(proposalID uint64) []byte {
+	return append(ProposalTallyBoundaryKeyPrefix, GetProposalIDBytes(proposalID)...)
+}
+
+// ModernTallyRoundKey returns the marker for a post-expedited tally round using deadline semantics.
+func ModernTallyRoundKey(proposalID uint64) []byte {
+	return append(ModernTallyRoundKeyPrefix, GetProposalIDBytes(proposalID)...)
 }
 
 // TallyVotesKey returns the prefix for votes archived during a proposal tally round.

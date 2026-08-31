@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"testing"
+	"time"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -595,10 +596,14 @@ func TestTallyIncrementalIgnoresDelegationsAddedAfterTallyStarts(t *testing.T) {
 	delegatedTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 20)
 	_, err = app.StakingKeeper.Delegate(ctx, addrs[3], delegatedTokens, stakingtypes.Unbonded, validator, true)
 	require.NoError(t, err)
+	_, _, queryResult := app.GovKeeper.Tally(ctx, proposal)
+	require.True(t, queryResult.Yes.Equal(snapshotValidatorTokens))
+	require.True(t, queryResult.No.IsZero())
 
 	complete, processed, _, _, tallyResult := app.GovKeeper.TallyIncremental(ctx, proposal, 2)
 	require.True(t, complete)
 	require.Equal(t, 2, processed)
+	require.True(t, queryResult.Equals(tallyResult))
 	require.True(t, tallyResult.Yes.Equal(snapshotValidatorTokens))
 	require.True(t, tallyResult.No.IsZero())
 	totalVotingPower := tallyResult.Yes.Add(tallyResult.Abstain).Add(tallyResult.No).Add(tallyResult.NoWithVeto)
@@ -700,7 +705,10 @@ func TestTallyArchivesExpeditedAndRegularRoundsSeparately(t *testing.T) {
 	complete, _, _, _, _ := app.GovKeeper.TallyIncremental(ctx, proposal, 1)
 	require.True(t, complete)
 
+	app.GovKeeper.RemoveFromActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
 	proposal.IsExpedited = false
+	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
 	app.GovKeeper.SetProposal(ctx, proposal)
 	require.NoError(t, app.GovKeeper.AddVote(
 		ctx,

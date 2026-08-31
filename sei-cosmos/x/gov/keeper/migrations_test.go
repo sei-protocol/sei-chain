@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 
@@ -36,6 +37,8 @@ func TestMigrate3to4SchedulesBoundedVoteDelegationBackfill(t *testing.T) {
 	))
 
 	store := ctx.KVStore(app.GetKey(govtypes.StoreKey))
+	store.Delete(govtypes.IncrementalTallyEnabledKey)
+	store.Delete(govtypes.DeadlineBoundaryBlockTimeKey)
 	for _, voter := range []int{0, 3} {
 		store.Delete(govtypes.VoteDelegationsKey(proposal.ProposalId, addrs[voter]))
 		store.Delete(govtypes.VoterProposalsKey(addrs[voter], proposal.ProposalId))
@@ -43,6 +46,11 @@ func TestMigrate3to4SchedulesBoundedVoteDelegationBackfill(t *testing.T) {
 
 	migrator := govkeeper.NewMigrator(app.GovKeeper)
 	require.NoError(t, migrator.Migrate3to4(ctx))
+	require.True(t, store.Has(govtypes.IncrementalTallyEnabledKey))
+	require.Equal(t, sdk.FormatTimeBytes(ctx.BlockTime()), store.Get(govtypes.DeadlineBoundaryBlockTimeKey))
+	cutoff, found := app.GovKeeper.GetVoteDelegationBackfillCutoff(ctx)
+	require.True(t, found)
+	require.Equal(t, uint64(2), cutoff)
 	require.False(t, app.GovKeeper.IsVoteDelegationBackfillInProgress(ctx, proposal.ProposalId))
 	for _, voter := range []int{0, 3} {
 		require.False(t, store.Has(govtypes.VoteDelegationsKey(proposal.ProposalId, addrs[voter])))
@@ -104,6 +112,13 @@ func TestMigrate3to4SchedulesBoundedVoteDelegationBackfill(t *testing.T) {
 	genesis := gov.ExportGenesis(ctx, app.GovKeeper)
 	require.Len(t, genesis.Votes, 3)
 	require.Len(t, genesis.VoteDelegationSnapshots, 3)
+	require.Equal(t, cutoff, genesis.VoteDelegationBackfillCutoff)
+
+	lateDelegatedTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 10)
+	validator, found = app.StakingKeeper.GetValidator(ctx, valAddrs[0])
+	require.True(t, found)
+	_, err = app.StakingKeeper.Delegate(ctx, addrs[3], lateDelegatedTokens, stakingtypes.Unbonded, validator, true)
+	require.NoError(t, err)
 
 	complete, processed, _, _, _ = app.GovKeeper.TallyIncremental(ctx, proposal, 1)
 	require.False(t, complete)
@@ -115,12 +130,14 @@ func TestMigrate3to4SchedulesBoundedVoteDelegationBackfill(t *testing.T) {
 		require.True(t, store.Has(govtypes.VoterProposalsKey(addrs[voter], proposal.ProposalId)))
 	}
 
+	validator, found = app.StakingKeeper.GetValidator(ctx, valAddrs[0])
+	require.True(t, found)
 	_, err = app.StakingKeeper.Delegate(ctx, addrs[3], delegatedTokens, stakingtypes.Unbonded, validator, true)
 	require.NoError(t, err)
 
 	complete, processed, _, _, tallyResult := app.GovKeeper.TallyIncremental(ctx, proposal, 2)
 	require.True(t, complete)
 	require.Equal(t, 2, processed)
-	require.True(t, tallyResult.Yes.Equal(app.StakingKeeper.TokensFromConsensusPower(ctx, 25)))
-	require.True(t, tallyResult.No.IsZero())
+	require.Equal(t, app.StakingKeeper.TokensFromConsensusPower(ctx, 25).String(), tallyResult.Yes.String())
+	require.Equal(t, lateDelegatedTokens.String(), tallyResult.No.String())
 }

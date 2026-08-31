@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
 func TestVotes(t *testing.T) {
@@ -104,6 +106,7 @@ func TestAddVoteRejectsBlocksAfterVotingEnd(t *testing.T) {
 	proposal.Status = types.StatusVotingPeriod
 	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
 	app.GovKeeper.SetProposal(ctx, proposal)
+	app.GovKeeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
 
 	atVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime)
 	require.NoError(t, app.GovKeeper.AddVote(
@@ -112,6 +115,13 @@ func TestAddVoteRejectsBlocksAfterVotingEnd(t *testing.T) {
 		addrs[0],
 		types.NewNonSplitVoteOption(types.OptionYes),
 	))
+	app.GovKeeper.CaptureExactTallyBoundary(atVotingEnd)
+	require.ErrorIs(t, app.GovKeeper.AddVote(
+		atVotingEnd,
+		proposal.ProposalId,
+		addrs[1],
+		types.NewNonSplitVoteOption(types.OptionYes),
+	), types.ErrInactiveProposal)
 
 	afterVotingEnd := ctx.WithBlockTime(proposal.VotingEndTime.Add(time.Second))
 	require.ErrorIs(t, app.GovKeeper.AddVote(
@@ -133,14 +143,15 @@ func TestVoteDelegationTrackingPreservesHistoricalTraces(t *testing.T) {
 	proposal.VotingEndTime = ctx.BlockTime().Add(-time.Second)
 	app.GovKeeper.SetProposal(ctx, proposal)
 
-	legacyCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.6")
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	store.Delete(types.IncrementalTallyEnabledKey)
+	legacyCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.7")
 	require.NoError(t, app.GovKeeper.AddVote(
 		legacyCtx,
 		proposal.ProposalId,
 		addrs[0],
 		types.NewNonSplitVoteOption(types.OptionYes),
 	))
-	store := legacyCtx.KVStore(app.GetKey(types.StoreKey))
 	require.False(t, store.Has(types.VoterProposalsKey(addrs[0], proposal.ProposalId)))
 	require.False(t, store.Has(types.VoteDelegationsKey(proposal.ProposalId, addrs[0])))
 	require.Len(t, app.GovKeeper.GetAllVotes(legacyCtx), 1)
@@ -151,10 +162,15 @@ func TestVoteDelegationTrackingPreservesHistoricalTraces(t *testing.T) {
 	gasBeforeHook := legacyCtx.GasMeter().GasConsumed()
 	app.GovKeeper.StakingHooks().AfterDelegationModified(legacyCtx, addrs[0], valAddrs[0])
 	require.Equal(t, gasBeforeHook, legacyCtx.GasMeter().GasConsumed())
+	tracer, ok := legacyCtx.StoreTracer().(interface{ Dump() sdk.StoreTraceDump })
+	require.True(t, ok)
+	trace := tracer.Dump()
+	require.NotContains(t, trace.Modules[types.ModuleName].Has, hex.EncodeToString(types.IncrementalTallyEnabledKey))
 
 	proposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
 	app.GovKeeper.SetProposal(ctx, proposal)
-	currentCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.7")
+	app.GovKeeper.EnableIncrementalTally(ctx)
+	currentCtx := ctx.WithIsTracing(true).WithClosestUpgradeName("v6.6")
 	require.NoError(t, app.GovKeeper.AddVote(
 		currentCtx,
 		proposal.ProposalId,
@@ -163,4 +179,68 @@ func TestVoteDelegationTrackingPreservesHistoricalTraces(t *testing.T) {
 	))
 	require.True(t, store.Has(types.VoterProposalsKey(addrs[0], proposal.ProposalId)))
 	require.True(t, store.Has(types.VoteDelegationsKey(proposal.ProposalId, addrs[0])))
+
+	store.Delete(types.IncrementalTallyEnabledKey)
+	emptyProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	emptyProposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, emptyProposal)
+	complete, _, _, _, _ := app.GovKeeper.TallyIncremental(legacyCtx, emptyProposal, 1)
+	require.True(t, complete)
+	require.False(t, store.Has(types.ProposalTallyBoundaryKey(emptyProposal.ProposalId)))
+
+	initializedProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	initializedProposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, initializedProposal)
+	app.GovKeeper.InitializeTally(legacyCtx, initializedProposal)
+	require.False(t, store.Has(types.ProposalTallyBoundaryKey(initializedProposal.ProposalId)))
+
+	boundaryIterator := sdk.KVStorePrefixIterator(store, types.TallyBoundaryMetaKeyPrefix)
+	require.False(t, boundaryIterator.Valid())
+	require.NoError(t, boundaryIterator.Close())
+}
+
+func TestVoteDelegationSnapshotsFreezeAfterVotingEnd(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{}).WithBlockTime(time.Unix(100, 0))
+	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
+
+	expiredProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	expiredProposal.Status = types.StatusVotingPeriod
+	expiredProposal.VotingEndTime = ctx.BlockTime().Add(-time.Second)
+	app.GovKeeper.SetProposal(ctx, expiredProposal)
+
+	activeProposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	activeProposal.Status = types.StatusVotingPeriod
+	activeProposal.VotingEndTime = ctx.BlockTime().Add(time.Second)
+	app.GovKeeper.SetProposal(ctx, activeProposal)
+
+	voteCtx := ctx.WithBlockTime(ctx.BlockTime().Add(-2 * time.Second))
+	for _, proposal := range []types.Proposal{expiredProposal, activeProposal} {
+		require.NoError(t, app.GovKeeper.AddVote(
+			voteCtx,
+			proposal.ProposalId,
+			addrs[3],
+			types.NewNonSplitVoteOption(types.OptionYes),
+		))
+		require.False(t, app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	}
+
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	expiredSnapshotKey := types.VoteDelegationsKey(expiredProposal.ProposalId, addrs[3])
+	activeSnapshotKey := types.VoteDelegationsKey(activeProposal.ProposalId, addrs[3])
+	expiredSnapshot := append([]byte(nil), store.Get(expiredSnapshotKey)...)
+	activeSnapshot := append([]byte(nil), store.Get(activeSnapshotKey)...)
+
+	validator, found := app.StakingKeeper.GetValidator(ctx, valAddrs[0])
+	require.True(t, found)
+	delegatedTokens := app.StakingKeeper.TokensFromConsensusPower(ctx, 20)
+	_, err = app.StakingKeeper.Delegate(ctx, addrs[3], delegatedTokens, stakingtypes.Unbonded, validator, true)
+	require.NoError(t, err)
+
+	require.Equal(t, expiredSnapshot, store.Get(expiredSnapshotKey))
+	require.NotEqual(t, activeSnapshot, store.Get(activeSnapshotKey))
 }

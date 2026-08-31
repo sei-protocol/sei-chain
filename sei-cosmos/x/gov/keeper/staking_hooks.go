@@ -37,6 +37,13 @@ func (hooks StakingHooks) BeforeDelegationRemoved(
 	delegator sdk.AccAddress,
 	validator sdk.ValAddress,
 ) {
+	if !hooks.keeper.IncrementalTallyEnabled(ctx) {
+		return
+	}
+	if stakingtypes.IsSlashDelegationModification(ctx) {
+		hooks.keeper.QueueVoteDelegationUpdate(ctx, delegator, validator, sdk.ZeroDec())
+		return
+	}
 	hooks.keeper.refreshVoteDelegationSnapshots(ctx, delegator, validator)
 }
 
@@ -44,8 +51,20 @@ func (hooks StakingHooks) BeforeDelegationRemoved(
 func (hooks StakingHooks) AfterDelegationModified(
 	ctx sdk.Context,
 	delegator sdk.AccAddress,
-	_ sdk.ValAddress,
+	validator sdk.ValAddress,
 ) {
+	if !hooks.keeper.IncrementalTallyEnabled(ctx) {
+		return
+	}
+	if stakingtypes.IsSlashDelegationModification(ctx) {
+		delegation, found := hooks.keeper.sk.GetDelegation(ctx, delegator, validator)
+		if !found {
+			hooks.keeper.QueueVoteDelegationUpdate(ctx, delegator, validator, sdk.ZeroDec())
+			return
+		}
+		hooks.keeper.QueueVoteDelegationUpdate(ctx, delegator, validator, delegation.Shares)
+		return
+	}
 	hooks.keeper.refreshVoteDelegationSnapshots(ctx, delegator, nil)
 }
 
