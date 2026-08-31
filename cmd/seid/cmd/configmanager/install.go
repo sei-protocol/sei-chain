@@ -274,7 +274,9 @@ func reportWhatThisBinaryCouldNotUse(resolved registry.Resolved, log *slog.Logge
 //
 // Two things, and neither is visible anywhere else. A key this file writes that no section declares reads
 // as a setting and changes nothing. And a variable set for a key the environment cannot carry is skipped on
-// purpose, so whatever the operator wrote elsewhere is what applies.
+// purpose, so whatever the operator wrote elsewhere is what applies. Which file that was, if any, is not
+// something the resolution records: an operator who reached for the variable because they had written the
+// key nowhere else gets no value at all for it, and naming a file would be wrong twice.
 //
 // Only the file's own keys are named. The same resolution reports flag names that match no declared key,
 // and those are not a mistake: a command carries flags that name no setting at all, so reporting them would
@@ -291,8 +293,8 @@ func reportWhatTheFileDidNotReach(resolved registry.Resolved, log *slog.Logger) 
 	// Sorted, so a log line does not vary between runs for a configuration that did not change.
 	for _, key := range sortedKeys(resolved.Ignored) {
 		log.Warn("an environment variable is set for a key the environment cannot supply; it has no "+
-			"effect and the file's value applies", "key", key, "variable", registry.EnvName(key),
-			"why", resolved.Ignored[key])
+			"effect and whatever was written elsewhere applies", "key", key,
+			"variable", registry.EnvName(key), "why", resolved.Ignored[key])
 	}
 }
 

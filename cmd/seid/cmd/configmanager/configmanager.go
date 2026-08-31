@@ -81,6 +81,13 @@ type SeiConfigManager struct {
 // So this one logger keeps a floor, and only this one. Raising the level for the rest of the process is
 // still the operator's to choose.
 func keepOwnReportingVisible() {
+	// A floor, so a node an operator has deliberately turned up is left alone. SetLevel assigns rather
+	// than raises, and the lines this manager emits below the floor are exactly what somebody turns the
+	// level up to see: that there is no file, and what an ordinary invocation held back or installed.
+	if at, known := seilog.GetLevel(loggerName); known && at <= ownReportingFloor {
+		return
+	}
+
 	// A count of zero means the name matched no registered logger, so the floor was not applied and every
 	// report this manager makes is left at whatever level the process is running. Reported rather than
 	// ignored, because a silenced manager is one that changes what a node runs and says nothing about it.

@@ -517,6 +517,29 @@ func TestTheReportingFloorSurvivesALevelSetAcrossEveryLogger(t *testing.T) {
 	}
 }
 
+// TestTheFloorDoesNotLowerALevelAnOperatorRaised is the other direction of the same property.
+//
+// It is a floor, not a level. On a node run at debug, the lines this manager emits below the floor are
+// exactly the ones somebody turned the level up to see: that there is no file, and what an ordinary
+// invocation held back or installed. Assigning the floor would drop all of them.
+func TestTheFloorDoesNotLowerALevelAnOperatorRaised(t *testing.T) {
+	// What a node whose file says log_level = "debug" produces.
+	seilog.SetDefaultLevel(slog.LevelDebug, true)
+	t.Cleanup(func() { seilog.SetDefaultLevel(slog.LevelInfo, true) })
+
+	if !logger.Enabled(context.Background(), slog.LevelDebug) {
+		t.Fatal("this package is not emitting at debug after a level was set across every logger, so " +
+			"this test cannot show the floor leaving it alone")
+	}
+
+	keepOwnReportingVisible()
+
+	if !logger.Enabled(context.Background(), slog.LevelDebug) {
+		t.Error("this package stopped emitting at debug after the floor was applied, so an operator who " +
+			"raised the level to work out why their file does nothing lost the lines that would say")
+	}
+}
+
 // TestTheFloorAddressesALoggerThatExists holds the derived name to matching what was registered.
 //
 // The floor is applied by name. A name that matches no registered logger applies nothing and returns zero,

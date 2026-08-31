@@ -50,28 +50,6 @@ func DecodedSections() map[string]string {
 	return out
 }
 
-// SuppliedByDecodedSection splits a resolution into the values each decoded section has to deliver
-// itself, keyed by section name and then by dotted key.
-//
-// Split per section rather than pooled, because a decode is all or nothing for whatever it is handed. One
-// value a decoder refuses would otherwise cost every key in the file rather than the keys of the one
-// section it appeared in, and an operator who fixed one setting and mistyped another would boot with
-// neither applied and no way to tell which.
-//
-// The defaults are deliberately left out, and this is the difference between delivering a value and
-// overwriting one. A section read by a lookup can be delivered whole, because its reader has nowhere else
-// to get a value from. A section read by a decode already holds what its own file said, put there before
-// any of this ran. Delivering a default over that replaces the operator's file with one nobody chose, on
-// every boot, for every key their file does not mention.
-//
-// So a key that took its default is skipped and a key any other layer answered is delivered. That includes
-// an operator writing the default value explicitly, because what is recorded is which layer answered and
-// not whether the answer differs from the default: writing false where the file says true has to arrive.
-func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
-	bySection, _ := SuppliedAndOwnedByDecodedSections(resolved)
-	return bySection
-}
-
 // SuppliedAndOwnedByDecodedSections answers both halves of the decoded-delivery question from one read.
 //
 // The values each decoded section was supplied, and every key those sections own whether supplied or not. A

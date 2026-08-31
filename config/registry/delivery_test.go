@@ -137,7 +137,7 @@ func TestOnlyASuppliedValueReachesADecodedSection(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	got := registry.SuppliedByDecodedSection(resolved)
+	got, _ := registry.SuppliedAndOwnedByDecodedSections(resolved)
 	want := map[string]map[string]any{"mempool": {"mempool.a": "from the file"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("the decoded sections are handed %v, want %v. A key nobody wrote arriving here replaces "+
