@@ -25,12 +25,20 @@ var EmptyCodeHash = Hash{
 	0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
 }
 
-// StateView is a read-only, point-in-time view over the store's raw
-// key/value data, plus (via the embedded EVMStateView) EVM-specific
-// accessors for account/storage/code/balance/nonce reads.
+// StateView is a read-only, point-in-time view over the store's raw key/value data, plus (via the
+// embedded EVMStateView) EVM-specific accessors for account/storage/code/balance/nonce reads.
 //
-// Until Close, the underlying resources (e.g. an ephemeral SC snapshot or a
-// pinned SS version) stay alive, even concurrently with later writes/commits.
+// Until Close, the view's underlying resources stay alive, even as later blocks are written. A view is
+// thread safe with respect to updates to the store it came from, and with respect to other views.
+// Close is the exception: it drops the view's reference, so a read racing it races the reclamation of
+// the resource being read.
+//
+// There are no recoverable errors. Any error or panic from a view is fatal, and halting is the
+// caller's responsibility: on the first one the caller must stop rather than proceed on state the view
+// cannot vouch for.
+//
+// Every byte slice passed into or received from a view method must be treated as immutable: safe to
+// read, never safe to modify in place.
 type StateView interface {
 	EVMStateView
 
@@ -39,12 +47,6 @@ type StateView interface {
 
 	// Get returns the value stored under key in this view, and whether it
 	// was found. It never observes writes made after the view was opened.
-	//
-	// The value alone. Bookkeeping the store keeps alongside it, such as the
-	// height the key was last modified at, is not part of the answer.
-	//
-	// Get does not return an error: internal database failures are expected
-	// to panic so the process crashes rather than continuing with corrupt or incomplete state.
 	Get(module string, key []byte) ([]byte, bool)
 
 	// Close releases the view's underlying ref counting.
@@ -53,46 +55,35 @@ type StateView interface {
 	Close()
 }
 
-// EVMStateView is the EVM-specific read surface embedded by StateView.
-//
-// None of these methods return an error: any underlying database failure
-// is expected to panic so the process crashes rather than continuing with
-// corrupt or incomplete state.
+// EVMStateView is the EVM-specific read surface embedded by StateView, and carries the same contract.
 type EVMStateView interface {
 
 	// AccountExists reports whether addr has an account in state,
 	// including accounts that have self-destructed in the current block.
-	// Panics on underlying database errors.
 	AccountExists(addr Address) bool
 
 	// GetStorage returns the value stored at key in addr's storage.
 	// Returns the zero Hash if the slot is unset.
-	// Panics on underlying database errors.
 	GetStorage(addr Address, key Hash) Hash
 
 	// GetBalance returns addr's balance, as a 256-bit big-endian value.
-	// Panics on underlying database errors.
 	GetBalance(addr Address) Hash
 
 	// GetNonce returns addr's account nonce. Returns 0 if unset / the
 	// account does not exist.
-	// Panics on underlying database errors.
 	GetNonce(addr Address) uint64
 
 	// GetCodeSize returns the length in bytes of addr's contract code.
 	// Returns 0 for accounts with no code.
-	// Panics on underlying database errors.
 	GetCodeSize(addr Address) int
 
 	// GetCodeHash returns the hash of addr's contract code.
 	// Returns EmptyCodeHash for an account that exists with no code, and the zero
 	// Hash for an account that does not exist or has been deleted.
 	// Matches EXTCODEHASH / keeper.GetCodeHash.
-	// Panics on underlying database errors.
 	GetCodeHash(addr Address) Hash
 
 	// GetCode returns addr's contract code. Returns nil/empty for
 	// accounts with no code.
-	// Panics on underlying database errors.
 	GetCode(addr Address) []byte
 }
