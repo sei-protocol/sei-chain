@@ -57,11 +57,12 @@ func CheckCmd() *cobra.Command {
 			// exit status is this command's answer, and a node that cannot start is not a pass.
 			problems, notes := whatTheGateSays(os.Getenv)
 
-			inTheFile, found, err := checkSeiToml(cmd)
+			inTheFile, fromTheFile, found, err := checkSeiToml(cmd)
 			if err != nil {
 				return err
 			}
 			problems = append(problems, inTheFile...)
+			notes = append(notes, fromTheFile...)
 
 			switch {
 			case !found:
@@ -119,30 +120,30 @@ func report(out io.Writer, line string) { _, _ = fmt.Fprintln(out, line) }
 // The absence of a file is not a problem to report: a node without one reads exactly as it always has, so
 // there is nothing here that could be wrong. A file that exists and will not read is the opposite, and is
 // reported as a problem of a file that was found.
-func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error) {
+func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err error) {
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
-		return nil, false, fmt.Errorf("resolve the home directory: %w", err)
+		return nil, nil, false, fmt.Errorf("resolve the home directory: %w", err)
 	}
 	file, err := readSeiTomlAt(home)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		// The absence of a file is the one case with nothing to report.
-		return nil, false, nil
+		return nil, nil, false, nil
 	case err != nil:
 		// A file that exists and will not read is the case this command exists for. Reported as a problem
 		// of a file that was found, so the command exits non-zero: an operator running this before a
 		// restart is asking whether their file is right, and answering that they have no file is both
 		// wrong and the answer least likely to make them look.
-		return []string{fmt.Sprintf("sei.toml cannot be read: %v", err)}, true, nil
+		return []string{fmt.Sprintf("sei.toml cannot be read: %v", err)}, nil, true, nil
 	}
 	mode, err := file.Mode()
 	if err != nil {
-		return []string{fmt.Sprintf("sei.toml records no usable node mode: %v", err)}, true, nil
+		return []string{fmt.Sprintf("sei.toml records no usable node mode: %v", err)}, nil, true, nil
 	}
 	written, err := file.Values()
 	if err != nil {
-		return []string{fmt.Sprintf("sei.toml cannot be read: %v", err)}, true, nil
+		return []string{fmt.Sprintf("sei.toml cannot be read: %v", err)}, nil, true, nil
 	}
 
 	resolved, err := registry.Resolve(registry.Mode(mode), registry.Sources{
@@ -151,7 +152,7 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 		Flags:     flagValues(TypedFlags(cmd)),
 	})
 	if err != nil {
-		return []string{fmt.Sprintf("this node's configuration cannot be resolved: %v", err)}, true, nil
+		return []string{fmt.Sprintf("this node's configuration cannot be resolved: %v", err)}, nil, true, nil
 	}
 
 	// First, because a refused registration is what makes the report below name the wrong file: the
@@ -177,7 +178,8 @@ func checkSeiToml(cmd *cobra.Command) (problems []string, found bool, err error)
 			"node would run as the second", mode, running))
 	}
 	problems = append(problems, whatADecodeWouldRefuse(resolved)...)
-	return problems, true, nil
+	notes = append(notes, whatTheFileLeavesToTheDeclaration(resolved, written, mode))
+	return problems, notes, true, nil
 }
 
 // theModeTheNodesOwnFileRecords reads what kind of node the node's own configuration file says this is.
@@ -207,6 +209,31 @@ func theModeTheNodesOwnFileRecords(home string) (string, error) {
 		return v.GetString("mode"), nil
 	}
 	return tmcfg.DefaultConfig().Mode, nil
+}
+
+// whatTheFileLeavesToTheDeclaration says how much of this node's configuration the file does not state.
+//
+// Every declared key the file leaves out takes the value this binary declares for the kind of node this is,
+// so a sparse file is not a small change to a node that has been running: it is most of its configuration.
+// An operator running this before a restart is owed the count, because it is the difference between moving
+// one setting and replacing everything around it.
+//
+// A note rather than a problem. It is the design working, and there is no file for which it is absent.
+func whatTheFileLeavesToTheDeclaration(resolved registry.Resolved, written map[string]any,
+	mode string) string {
+	inTheFile := make(map[string]bool, len(written))
+	for key := range written {
+		inTheFile[strings.ToLower(key)] = true
+	}
+	left := 0
+	for key := range resolved.Values {
+		if !inTheFile[strings.ToLower(key)] {
+			left++
+		}
+	}
+	return fmt.Sprintf("this file states %d of %d declared keys; the other %d take the value this binary "+
+		"declares for a %s, whatever app.toml and config.toml currently say",
+		len(resolved.Values)-left, len(resolved.Values), left, mode)
 }
 
 // whatTheResolutionAlreadyKnows returns the problems a resolution reports without any rehearsal.
@@ -239,7 +266,7 @@ func whatTheResolutionAlreadyKnows(resolved registry.Resolved) []string {
 // be refused at boot if the field it lands on holds something this cannot see. It is why this reports what
 // it can answer and the boot still reports what it finds.
 func whatADecodeWouldRefuse(resolved registry.Resolved) []string {
-	bySection, _ := registry.SuppliedAndOwnedByDecodedSections(resolved)
+	bySection, _ := registry.ResolvedAndOwnedByDecodedSections(resolved)
 	var problems []string
 	for _, name := range sortedKeys(bySection) {
 		values := bySection[name]

@@ -210,7 +210,7 @@ func TestCheckReportsAFileItCannotRead(t *testing.T) {
 
 			cmd := &cobra.Command{}
 			cmd.Flags().String(flags.FlagHome, home, "")
-			problems, found, err := checkSeiToml(cmd)
+			problems, _, found, err := checkSeiToml(cmd)
 			if err != nil {
 				t.Fatalf("checkSeiToml: %v", err)
 			}
