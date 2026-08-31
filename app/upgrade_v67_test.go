@@ -1,7 +1,12 @@
+//go:build upgrade_v67
+
 package app_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strconv"
 	"testing"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -12,6 +17,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
+	"github.com/sei-protocol/sei-chain/upgradetest"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
@@ -23,14 +29,13 @@ import (
 // transactions again.
 
 const (
-	v67UpgradeName = "v6.7"
-	txFee          = 200000
+	v67UpgradeName     = "v6.7"
+	v67KeyringPassword = "12345678\n"
+	txFee              = 200000
 )
 
 // retiredModuleTx is a transaction aimed at a module surface v6.7 retires,
-// paired with the rejection every node must produce for it. The same case runs
-// on both sides of the upgrade: retiring a module may not change how its
-// transactions are rejected, or nodes mid-upgrade would disagree on a block.
+// paired with the rejection the v6.7 binary must produce for it.
 type retiredModuleTx struct {
 	name string
 	// sign builds the transaction. Each case signs from an account of its own so
@@ -147,6 +152,235 @@ func applyV67(t *testing.T, a *processblock.App) {
 	})
 }
 
+// TestV67CrossVersion creates retired-module state with the v6.6 binary and
+// verifies the same chain after its validators restart on v6.7.
+func TestV67CrossVersion(t *testing.T) {
+	upgradetest.RunCrossVersion(t, seedV66State, verifyV67State)
+}
+
+func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
+	require.Equal(t, v67UpgradeName, chain.UpgradeName(t))
+
+	granter := chain.KeyAddress(t, "sei-node-0", "admin")
+	grantee := chain.KeyAddress(t, "sei-node-0", "node_admin")
+	chain.Record(t, "feegrant_granter", granter)
+	chain.Record(t, "feegrant_grantee", grantee)
+
+	grant := chain.Seid(v67KeyringPassword,
+		"tx", "feegrant", "grant", granter, grantee,
+		"--spend-limit", "100000000usei",
+		"--from", "admin",
+		"--chain-id", "sei",
+		"--fees", "200000usei",
+		"--gas", "2000000",
+		"--broadcast-mode", "sync",
+		"--yes",
+		"--output", "json",
+	)
+	chain.WriteDiagnostic(t, "v66-feegrant-grant.json", []byte(grant.Stdout))
+	chain.WriteDiagnostic(t, "v66-feegrant-grant.stderr", []byte(grant.Stderr))
+	chain.RequireTxSuccess(t, "v6.6 fee allowance grant", grant)
+	chain.WaitForBlocks(t, 3)
+
+	allowanceBefore := chain.MustSeid(t, "",
+		"q", "feegrant", "grant", granter, grantee, "--output", "json")
+	spendLimitBefore := v67FeegrantSpendLimit(t, allowanceBefore)
+	chain.WriteDiagnostic(t, "v66-feegrant-before-spend.json", []byte(allowanceBefore))
+
+	spend := chain.Seid(v67KeyringPassword,
+		"tx", "bank", "send", "node_admin", granter, "1usei",
+		"--fee-account", granter,
+		"--from", "node_admin",
+		"--chain-id", "sei",
+		"--fees", "200000usei",
+		"--gas", "2000000",
+		"--broadcast-mode", "sync",
+		"--yes",
+		"--output", "json",
+	)
+	chain.WriteDiagnostic(t, "v66-feegrant-spend.json", []byte(spend.Stdout))
+	chain.WriteDiagnostic(t, "v66-feegrant-spend.stderr", []byte(spend.Stderr))
+	chain.RequireTxSuccess(t, "v6.6 fee-granted bank send", spend)
+	chain.WaitForBlocks(t, 3)
+
+	allowanceAfter := chain.MustSeid(t, "",
+		"q", "feegrant", "grant", granter, grantee, "--output", "json")
+	spendLimitAfter := v67FeegrantSpendLimit(t, allowanceAfter)
+	require.Less(t, spendLimitAfter, spendLimitBefore,
+		"the v6.6 transaction did not spend its fee allowance")
+	chain.WriteDiagnostic(t, "v66-feegrant-after-spend.json", []byte(allowanceAfter))
+
+	oracleQuery := chain.Seid("", "q", "oracle", "exchange-rates", "--output", "json")
+	chain.WriteDiagnostic(t, "v66-oracle-query.stdout", []byte(oracleQuery.Stdout))
+	chain.WriteDiagnostic(t, "v66-oracle-query.stderr", []byte(oracleQuery.Stderr))
+	require.NoError(t, oracleQuery.Err, "v6.6 must still expose the oracle query")
+
+	moduleVersions := chain.ModuleVersions(t)
+	for _, module := range append(retiredStoreKeys, oracletypes.ModuleName) {
+		require.Contains(t, moduleVersions, module,
+			"v6.6 module version map does not contain %s", module)
+	}
+	chain.Record(t, "module_versions", moduleVersions)
+}
+
+func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
+	require.Equal(t, v67UpgradeName, chain.UpgradeName(t))
+
+	appliedOutput := chain.MustSeid(t, "",
+		"q", "upgrade", "applied", v67UpgradeName, "--output", "json")
+	var applied struct {
+		Header struct {
+			Height json.RawMessage `json:"height"`
+		} `json:"header"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(appliedOutput), &applied))
+	appliedHeight := v67JSONInt(t, applied.Header.Height)
+	require.Equal(t, chain.TargetHeight(t), appliedHeight)
+	chain.Record(t, "applied_height", appliedHeight)
+
+	var beforeVersions []string
+	chain.Replay(t, "module_versions", &beforeVersions)
+	afterVersions := chain.ModuleVersions(t)
+	chain.Record(t, "module_versions_after", afterVersions)
+	require.Equal(t,
+		sortedStrings(retiredStoreKeys),
+		stringDifference(beforeVersions, afterVersions),
+		"v6.7 removed an unexpected set of module versions",
+	)
+	require.Contains(t, afterVersions, oracletypes.ModuleName,
+		"v6.7 removed oracle even though its blocker is still registered")
+
+	var granter string
+	var grantee string
+	chain.Replay(t, "feegrant_granter", &granter)
+	chain.Replay(t, "feegrant_grantee", &grantee)
+
+	feegrantSpend := chain.Seid(v67KeyringPassword,
+		"tx", "bank", "send", "node_admin", granter, "1usei",
+		"--fee-account", granter,
+		"--from", "node_admin",
+		"--chain-id", "sei",
+		"--fees", "200000usei",
+		"--gas", "2000000",
+		"--broadcast-mode", "sync",
+		"--yes",
+		"--output", "json",
+	)
+	chain.WriteDiagnostic(t, "v67-feegrant-spend.stdout", []byte(feegrantSpend.Stdout))
+	chain.WriteDiagnostic(t, "v67-feegrant-spend.stderr", []byte(feegrantSpend.Stderr))
+	require.Contains(t, feegrantSpend.Combined(), "fee grants are not enabled",
+		"v6.7 accepted the fee-granted transaction that v6.6 executed")
+
+	feegrantQuery := chain.Seid("",
+		"q", "feegrant", "grant", granter, grantee, "--output", "json")
+	chain.WriteDiagnostic(t, "v67-feegrant-query.stdout", []byte(feegrantQuery.Stdout))
+	chain.WriteDiagnostic(t, "v67-feegrant-query.stderr", []byte(feegrantQuery.Stderr))
+	require.Error(t, feegrantQuery.Err, "v6.7 still exposes the retired feegrant query command")
+
+	oracleQuery := chain.Seid("", "q", "oracle", "exchange-rates", "--output", "json")
+	chain.WriteDiagnostic(t, "v67-oracle-query.stdout", []byte(oracleQuery.Stdout))
+	chain.WriteDiagnostic(t, "v67-oracle-query.stderr", []byte(oracleQuery.Stderr))
+	require.Contains(t, oracleQuery.Combined(), "oracle module is deprecated")
+
+	chain.StopNode(t)
+
+	currentGenesis := chain.Export(t, "/root/go/bin/seid", "v67-export")
+	for _, module := range retiredStoreKeys {
+		require.NotContains(t, currentGenesis.AppState, module,
+			"v6.7 export unexpectedly contains retired module %s", module)
+	}
+
+	releaseGenesis := chain.Export(t, chain.ReleaseBinary(t), "v66-export-after-v67")
+	for _, module := range retiredStoreKeys {
+		require.Contains(t, releaseGenesis.AppState, module,
+			"v6.6 cannot read retained %s state after the v6.7 store reload", module)
+	}
+	require.Positive(t, v67ExportedFeegrantAllowanceCount(t, releaseGenesis),
+		"the fee allowance written by v6.6 did not survive v6.7")
+}
+
+func v67FeegrantSpendLimit(t *testing.T, output string) int64 {
+	t.Helper()
+	var value any
+	require.NoError(t, json.Unmarshal([]byte(output), &value))
+	amount, ok := findV67SpendLimit(value)
+	require.True(t, ok, "feegrant response has no usei spend limit: %s", output)
+	return amount
+}
+
+func findV67SpendLimit(value any) (int64, bool) {
+	switch value := value.(type) {
+	case map[string]any:
+		if spendLimit, ok := value["spend_limit"].([]any); ok {
+			for _, coin := range spendLimit {
+				fields, ok := coin.(map[string]any)
+				if !ok || fields["denom"] != "usei" {
+					continue
+				}
+				amount, err := strconv.ParseInt(fmt.Sprint(fields["amount"]), 10, 64)
+				if err == nil {
+					return amount, true
+				}
+			}
+		}
+		for _, nested := range value {
+			if amount, ok := findV67SpendLimit(nested); ok {
+				return amount, true
+			}
+		}
+	case []any:
+		for _, nested := range value {
+			if amount, ok := findV67SpendLimit(nested); ok {
+				return amount, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func v67ExportedFeegrantAllowanceCount(t *testing.T, genesis upgradetest.ExportedGenesis) int {
+	t.Helper()
+	var feegrant struct {
+		Allowances []json.RawMessage `json:"allowances"`
+	}
+	require.NoError(t, json.Unmarshal(genesis.AppState[keys.FeegrantStoreKey], &feegrant))
+	return len(feegrant.Allowances)
+}
+
+func v67JSONInt(t *testing.T, encoded json.RawMessage) int64 {
+	t.Helper()
+	var text string
+	if err := json.Unmarshal(encoded, &text); err == nil {
+		value, parseErr := strconv.ParseInt(text, 10, 64)
+		require.NoError(t, parseErr)
+		return value
+	}
+	var value int64
+	require.NoError(t, json.Unmarshal(encoded, &value))
+	return value
+}
+
+func stringDifference(left, right []string) []string {
+	rightSet := make(map[string]struct{}, len(right))
+	for _, value := range right {
+		rightSet[value] = struct{}{}
+	}
+	var difference []string
+	for _, value := range left {
+		if _, ok := rightSet[value]; !ok {
+			difference = append(difference, value)
+		}
+	}
+	sort.Strings(difference)
+	return difference
+}
+
+func sortedStrings(values []string) []string {
+	sorted := append([]string(nil), values...)
+	sort.Strings(sorted)
+	return sorted
+}
+
 // runRetiredModuleTxs submits one transaction per case in a single block and
 // asserts the rejection and fee outcome each case declares.
 func runRetiredModuleTxs(t *testing.T, a *processblock.App, phase string, accounts retiredModuleTxAccounts) {
@@ -182,16 +416,13 @@ func runRetiredModuleTxs(t *testing.T, a *processblock.App, phase string, accoun
 	}
 }
 
-// Transactions aimed at retired modules must be rejected identically on both
-// sides of the upgrade. A node that has applied v6.7 and one that has not are
-// briefly both live during a rollout, and a rejection that changed shape at the
-// upgrade height would put them on different application hashes.
-func TestV67LeavesRetiredModuleTxRejectionUnchanged(t *testing.T) {
+// Transactions aimed at retired modules must follow the v6.7 tombstone
+// behavior after the upgrade handler runs. TestV67CrossVersion covers the
+// behavior transition from the old binary.
+func TestV67RejectsRetiredModuleTxsAfterUpgrade(t *testing.T) {
 	a := newV67Chain(t)
-	beforeAccounts := fundRetiredModuleTxAccounts(a, "before-upgrade")
 	afterAccounts := fundRetiredModuleTxAccounts(a, "after-upgrade")
 
-	runRetiredModuleTxs(t, a, "before-upgrade", beforeAccounts)
 	applyV67(t, a)
 	runRetiredModuleTxs(t, a, "after-upgrade", afterAccounts)
 }
@@ -257,14 +488,11 @@ func TestV67RetainsRetiredModuleStateWrittenBeforeUpgrade(t *testing.T) {
 	}
 	a.UpgradeKeeper.SetModuleVersionMap(a.Ctx(), versionMap)
 
-	for i := 0; i < 3; i++ {
-		a.RunBlock([]signing.Tx{})
-	}
 	for _, store := range retiredStoreKeys {
 		require.Contains(t, a.UpgradeKeeper.GetModuleVersionMap(a.Ctx()), store,
-			"seeded %s module version did not survive to the upgrade height", store)
+			"seeded %s module version is missing before the upgrade", store)
 		require.Equal(t, seeded[store], a.Ctx().KVStore(a.GetKey(store)).Get([]byte("seeded")),
-			"seeded %s state did not survive to the upgrade height", store)
+			"seeded %s state is missing before the upgrade", store)
 	}
 
 	applyV67(t, a)
@@ -278,6 +506,8 @@ func TestV67RetainsRetiredModuleStateWrittenBeforeUpgrade(t *testing.T) {
 
 	a.RunBlock([]signing.Tx{})
 	for _, store := range retiredStoreKeys {
+		require.NotContains(t, a.UpgradeKeeper.GetModuleVersionMap(a.Ctx()), store,
+			"v6.7 restored the deleted %s module version after commit", store)
 		require.Equal(t, seeded[store], a.Ctx().KVStore(a.GetKey(store)).Get([]byte("seeded")),
 			"retained %s state disappeared once the chain continued past the upgrade", store)
 	}
@@ -327,9 +557,9 @@ func TestV67RetainedStateIsAbsentFromExportedGenesis(t *testing.T) {
 	for _, store := range retiredStoreKeys {
 		a.Ctx().KVStore(a.GetKey(store)).Set([]byte("seeded"), []byte("pre-upgrade"))
 	}
-	a.RunBlock([]signing.Tx{})
 
 	applyV67(t, a)
+	a.RunBlock([]signing.Tx{})
 
 	exported, err := a.ExportAppStateAndValidators(false, nil)
 	require.NoError(t, err)

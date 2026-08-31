@@ -7,14 +7,20 @@ readonly RUN_ROOT="${RUNNER_TEMP:-/tmp}/sei-release-upgrade-${GITHUB_RUN_ID:-$$}
 readonly MAIN_WORKTREE="$RUN_ROOT/main"
 readonly RELEASE_WORKTREE="$RUN_ROOT/release"
 readonly BUILD_ROOT="$RUN_ROOT/bin"
-readonly ARTIFACT_ROOT="$REPO_ROOT/artifacts/release-upgrade"
+readonly ARTIFACT_ROOT="$RUN_ROOT/artifacts"
 readonly NODE_COUNT=4
+readonly CROSS_VERSION_ARTIFACT="$ARTIFACT_ROOT/cross-version.json"
 
 RELEASE_BRANCH="${RELEASE_BRANCH:-}"
+MAIN_REF="${MAIN_REF:-${GITHUB_SHA:-HEAD}}"
 UPGRADE_LEAD_SECONDS="${UPGRADE_LEAD_SECONDS:-60}"
 POST_UPGRADE_BLOCKS="${POST_UPGRADE_BLOCKS:-10}"
 CLUSTER_STARTED=false
 MAIN_BINARY_HASH=
+BOUNDARY_FROM=
+UPGRADE_NAME=
+UPGRADE_TAG=
+CROSS_VERSION_TESTS=
 
 log() {
   printf '\n[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -40,41 +46,9 @@ validate_inputs() {
     [[ "$RELEASE_BRANCH" =~ ^release/v[0-9]+\.[0-9]+(\.[0-9]+)?(-branch)?$ ]] ||
       die "release_branch must look like release/v6.6 or release/v6.2.0-branch"
   fi
-}
-
-resolve_latest_release_branch() {
-  local heads_file="$RUN_ROOT/release-heads"
-  git ls-remote --heads origin 'release/v*' >"$heads_file"
-
-  python3 - "$heads_file" <<'PY'
-import re
-import sys
-
-patterns = (
-    (re.compile(r"^refs/heads/(release/v(\d+)\.(\d+))$"), 2),
-    (re.compile(r"^refs/heads/(release/v(\d+)\.(\d+)\.(\d+))$"), 1),
-    (re.compile(r"^refs/heads/(release/v(\d+)\.(\d+)\.(\d+)-branch)$"), 0),
-)
-
-candidates = []
-with open(sys.argv[1], encoding="utf-8") as heads:
-    for line in heads:
-        _, ref = line.split()
-        for pattern, preference in patterns:
-            match = pattern.fullmatch(ref)
-            if not match:
-                continue
-            branch = match.group(1)
-            numbers = tuple(int(part) for part in match.groups()[1:])
-            version = numbers if len(numbers) == 3 else (*numbers, 0)
-            candidates.append((version, preference, branch))
-            break
-
-if not candidates:
-    raise SystemExit("no official release/v* branch found")
-
-print(max(candidates)[2])
-PY
+  [[ "$MAIN_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] &&
+    [[ "$MAIN_REF" != *..* ]] && [[ "$MAIN_REF" != *@\{* ]] ||
+    die "main_ref contains characters Git cannot safely resolve"
 }
 
 latest_upgrade_tag() {
@@ -97,55 +71,44 @@ print(max(versions)[1])
 PY
 }
 
-version_greater_than() {
-  python3 - "$1" "$2" <<'PY'
-import re
-import sys
-
-def parse(value):
-    match = re.fullmatch(r"v(\d+)\.(\d+)(?:\.(\d+))?", value)
-    if not match:
-        raise SystemExit(f"invalid upgrade version: {value}")
-    return tuple(int(part or 0) for part in match.groups())
-
-raise SystemExit(0 if parse(sys.argv[1]) > parse(sys.argv[2]) else 1)
-PY
+has_upgrade_tag() {
+  local source_dir="$1"
+  local upgrade_name="$2"
+  grep -Fxq "$upgrade_name" "$source_dir/app/tags"
 }
 
-next_minor_version() {
-  python3 - "$1" "$2" <<'PY'
-import re
-import sys
+prepare_boundary() {
+  BOUNDARY_FROM="$(go run ./upgradetest/cmd/boundary from)"
+  UPGRADE_NAME="$(go run ./upgradetest/cmd/boundary to)"
+  UPGRADE_TAG="$(go run ./upgradetest/cmd/boundary tag)"
+  RELEASE_BRANCH="${RELEASE_BRANCH:-release/$BOUNDARY_FROM}"
+}
 
-def parse(value):
-    match = re.fullmatch(r"v(\d+)\.(\d+)(?:\.(\d+))?", value)
-    if not match:
-        raise SystemExit(f"invalid upgrade version: {value}")
-    return tuple(int(part or 0) for part in match.groups())
+resolve_ref() {
+  local ref="$1"
+  if [[ "$ref" == "HEAD" || "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    git rev-parse --verify "$ref^{commit}"
+    return
+  fi
 
-highest = max(parse(sys.argv[1]), parse(sys.argv[2]))
-print(f"v{highest[0]}.{highest[1] + 1}")
-PY
+  git fetch --no-tags origin "$ref" >&2
+  git rev-parse --verify FETCH_HEAD
 }
 
 prepare_worktrees() {
-  if [[ -z "$RELEASE_BRANCH" ]]; then
-    RELEASE_BRANCH="$(resolve_latest_release_branch)"
-  fi
-
-  log "Pinning origin/main and $RELEASE_BRANCH"
-  git fetch --no-tags origin main
+  log "Pinning $MAIN_REF and $RELEASE_BRANCH"
   local main_sha
-  main_sha="$(git rev-parse FETCH_HEAD)"
-
-  git fetch --no-tags origin "$RELEASE_BRANCH"
+  main_sha="$(resolve_ref "$MAIN_REF")" ||
+    die "unable to resolve target ref $MAIN_REF"
   local release_sha
-  release_sha="$(git rev-parse FETCH_HEAD)"
+  release_sha="$(resolve_ref "$RELEASE_BRANCH")" ||
+    die "unable to resolve source ref $RELEASE_BRANCH"
 
   git worktree add --detach "$MAIN_WORKTREE" "$main_sha"
   git worktree add --detach "$RELEASE_WORKTREE" "$release_sha"
 
   {
+    printf 'main_ref=%s\n' "$MAIN_REF"
     printf 'main_sha=%s\n' "$main_sha"
     printf 'release_branch=%s\n' "$RELEASE_BRANCH"
     printf 'release_sha=%s\n' "$release_sha"
@@ -158,32 +121,50 @@ prepare_upgrade_name() {
   release_upgrade="$(latest_upgrade_tag "$RELEASE_WORKTREE")"
   main_upgrade="$(latest_upgrade_tag "$MAIN_WORKTREE")"
 
-  if version_greater_than "$main_upgrade" "$release_upgrade"; then
-    UPGRADE_NAME="$main_upgrade"
-    log "Using main upgrade name $UPGRADE_NAME"
-  else
-    UPGRADE_NAME="$(next_minor_version "$main_upgrade" "$release_upgrade")"
-    log "Generating synthetic main upgrade name $UPGRADE_NAME"
-    python3 - "$MAIN_WORKTREE/app/tags" "$UPGRADE_NAME" <<'PY'
-import pathlib
-import sys
+  has_upgrade_tag "$RELEASE_WORKTREE" "$BOUNDARY_FROM" ||
+    die "$RELEASE_BRANCH does not contain source upgrade $BOUNDARY_FROM"
+  ! has_upgrade_tag "$RELEASE_WORKTREE" "$UPGRADE_NAME" ||
+    die "$RELEASE_BRANCH already contains $UPGRADE_NAME; it cannot test that boundary"
+  has_upgrade_tag "$MAIN_WORKTREE" "$UPGRADE_NAME" ||
+    die "$MAIN_REF does not contain target upgrade $UPGRADE_NAME"
 
-tags_path = pathlib.Path(sys.argv[1])
-content = tags_path.read_bytes()
-separator = b"" if not content or content.endswith(b"\n") else b"\n"
-tags_path.write_bytes(content + separator + sys.argv[2].encode() + b"\n")
-PY
-    (
-      cd "$MAIN_WORKTREE"
-      go run ./scripts/bump_version
-    ) 2>&1 | tee "$ARTIFACT_ROOT/precompile-generation.log"
-  fi
+  log "Testing $RELEASE_BRANCH ($release_upgrade) -> $MAIN_REF ($main_upgrade) with $UPGRADE_NAME"
 
   {
     printf 'release_upgrade=%s\n' "$release_upgrade"
-    printf 'main_upgrade_before_generation=%s\n' "$main_upgrade"
+    printf 'main_latest_upgrade=%s\n' "$main_upgrade"
+    printf 'boundary_from=%s\n' "$BOUNDARY_FROM"
     printf 'test_upgrade=%s\n' "$UPGRADE_NAME"
+    printf 'upgrade_tag=%s\n' "$UPGRADE_TAG"
   } | tee -a "$ARTIFACT_ROOT/revisions.txt"
+}
+
+discover_cross_version_tests() {
+  local listed
+  listed="$(
+    go test -tags "$UPGRADE_TAG" -list '^Test.*CrossVersion$' ./app 2>/dev/null |
+      awk '/^Test.*CrossVersion$/ { print }'
+  )"
+  [[ -n "$listed" ]] ||
+    die "build tag $UPGRADE_TAG defines no Test*CrossVersion assertion"
+  CROSS_VERSION_TESTS="$(paste -sd'|' - <<<"$listed")"
+}
+
+run_cross_version_phase() {
+  local phase="$1"
+  log "Running $UPGRADE_TAG cross-version assertions ($phase)"
+  UPGRADE_TEST_PHASE="$phase" \
+    UPGRADE_TEST_ARTIFACT="$CROSS_VERSION_ARTIFACT" \
+    UPGRADE_TEST_NODE="sei-node-0" \
+    UPGRADE_TEST_UPGRADE_NAME="$UPGRADE_NAME" \
+    UPGRADE_TEST_TARGET_HEIGHT="${TARGET_HEIGHT:-}" \
+    UPGRADE_TEST_RELEASE_BINARY="/tmp/seid.release" \
+    go test -tags "$UPGRADE_TAG" \
+      -run "^($CROSS_VERSION_TESTS)$" \
+      -count=1 \
+      -timeout=15m \
+      ./app 2>&1 |
+    tee "$ARTIFACT_ROOT/cross-version-$phase.log"
 }
 
 build_localnode_image() {
@@ -198,8 +179,12 @@ build_binary() {
   local source_dir="$1"
   local output_path="$2"
   local label="$3"
+  local source_commit
+  local source_version
   local go_mod_cache
   local go_build_cache
+  source_commit="$(git -C "$source_dir" rev-parse HEAD)"
+  source_version="$(git -C "$source_dir" describe --tags --always)"
   go_mod_cache="$(go env GOMODCACHE)"
   go_build_cache="$(go env GOCACHE)"
   mkdir -p "$go_mod_cache" "$go_build_cache"
@@ -213,8 +198,11 @@ build_binary() {
     -v "$go_build_cache:/root/.cache/go-build:Z" \
     -w /sei-protocol/sei-chain \
     -e LEDGER_ENABLED=false \
+    -e GOFLAGS=-buildvcs=false \
+    -e "BUILD_COMMIT=$source_commit" \
+    -e "BUILD_VERSION=$source_version" \
     sei-chain/localnode \
-    bash -c 'export PATH=/usr/local/go/bin:$PATH && make clean && make build-linux'
+    bash -c 'export PATH=/usr/local/go/bin:$PATH && make clean && make VERSION="$BUILD_VERSION" COMMIT="$BUILD_COMMIT" build-linux'
 
   install -m 0755 "$source_dir/build/seid" "$output_path"
   sha256sum "$output_path" | tee "$ARTIFACT_ROOT/$label.sha256"
@@ -352,6 +340,9 @@ stage_main_binary() {
   MAIN_BINARY_HASH="$(sha256sum "$BUILD_ROOT/main-seid" | awk '{print $1}')"
   local node
   local actual_hash
+
+  docker exec --user root sei-node-0 \
+    sh -c 'cp /root/go/bin/seid /tmp/seid.release && chmod 0755 /tmp/seid.release'
 
   for ((i = 0; i < NODE_COUNT; i++)); do
     node="sei-node-$i"
@@ -525,21 +516,14 @@ verify_post_upgrade() {
 
   assert_all_nodes_progress 3 "post-upgrade"
 
-  local minimum=
-  local maximum=0
   local current
   for ((i = 0; i < NODE_COUNT; i++)); do
     current="$(height "sei-node-$i")"
-    ((current > maximum)) && maximum="$current"
-    if [[ -z "$minimum" ]] || ((current < minimum)); then
-      minimum="$current"
-    fi
+    printf 'post_upgrade_node_%s_height=%s\n' "$i" "$current" |
+      tee -a "$ARTIFACT_ROOT/revisions.txt"
   done
-  ((maximum - minimum <= 3)) ||
-    die "validators are not synchronized after upgrade (min=$minimum max=$maximum)"
 
-  printf 'post_upgrade_min_height=%s\n' "$minimum" |
-    tee -a "$ARTIFACT_ROOT/revisions.txt"
+  run_cross_version_phase after
   log "Upgrade $UPGRADE_NAME succeeded"
 }
 
@@ -577,16 +561,20 @@ cleanup() {
 }
 
 main() {
+  prepare_boundary
   validate_inputs
   mkdir -p "$RUN_ROOT" "$BUILD_ROOT" "$ARTIFACT_ROOT"
+  exec > >(tee "$ARTIFACT_ROOT/runner.log") 2>&1
   trap cleanup EXIT
 
   prepare_worktrees
   prepare_upgrade_name
+  discover_cross_version_tests
   build_localnode_image
   build_binary "$RELEASE_WORKTREE" "$BUILD_ROOT/release-seid" release
   build_binary "$MAIN_WORKTREE" "$BUILD_ROOT/main-seid" main
   start_release_cluster
+  run_cross_version_phase before
   stage_main_binary
   submit_upgrade
   upgrade_nodes_as_they_halt

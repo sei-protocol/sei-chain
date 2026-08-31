@@ -621,6 +621,60 @@ giga-mixed-integration-test:
 .PHONY: giga-mixed-integration-test
 
 
+# Create the tagged app file in which a minor upgrade test is defined.
+#
+#   make new-upgrade-test FROM=v6.7 TO=v6.8
+new-upgrade-test:
+	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then \
+		echo "usage: make new-upgrade-test FROM=v6.7 TO=v6.8" >&2; \
+		exit 2; \
+	fi
+	@go run ./upgradetest/cmd/new -from "$(FROM)" -to "$(TO)"
+.PHONY: new-upgrade-test
+
+# Run only the tests added by the version-specific file for the minor upgrade
+# this build ships. Both the build tag and test names are discovered, so this
+# target keeps selecting the right file without naming a version.
+upgrade-test:
+	@set -e; \
+		boundary=$$(go run ./upgradetest/cmd/boundary); \
+		tag=$$(go run ./upgradetest/cmd/boundary tag) && \
+		tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' 0; \
+		go test -list '^Test' ./app 2>/dev/null | awk '/^Test/ { print }' | sort > "$$tmp/base"; \
+		go test -tags "$$tag" -list '^Test' ./app 2>/dev/null | awk '/^Test/ { print }' | sort > "$$tmp/tagged"; \
+		comm -13 "$$tmp/base" "$$tmp/tagged" > "$$tmp/selected"; \
+		if [ ! -s "$$tmp/selected" ]; then \
+			echo "no tests were added by build tag $$tag" >&2; \
+			exit 1; \
+		fi; \
+		tests=$$(paste -sd'|' "$$tmp/selected"); \
+		echo "=== Upgrade boundary $$boundary (-tags $$tag) ==="; \
+		go test -tags "$$tag" -run "^($$tests)$$" -count=1 -timeout=10m ./app
+.PHONY: upgrade-test
+
+# Build two refs, create state with the source binary, coordinate the on-chain
+# upgrade, and run the current build tag's CrossVersion test before and after.
+#
+#   make upgrade-test-cross-version \
+#     FROM_REF=release/v6.6 TO_REF=release/v6.7
+upgrade-test-cross-version:
+	@RELEASE_BRANCH="$(FROM_REF)" MAIN_REF="$(TO_REF)" \
+		bash .github/scripts/release-upgrade-test.sh
+.PHONY: upgrade-test-cross-version
+
+# Compile every version-specific app upgrade test, including versions that have
+# already shipped. Untagged type-checking cannot see these files.
+upgrade-test-vet:
+	@set -e; \
+		for file in app/upgrade_v*_test.go; do \
+			[ -f "$$file" ] || continue; \
+			tag=$$(basename "$$file" _test.go); \
+			echo "=== Compiling $$file (-tags $$tag) ==="; \
+			go test -tags "$$tag" -run '^$$' ./app; \
+		done
+.PHONY: upgrade-test-vet
+
+
 # Implements test splitting and running. This is pulled directly from
 # the github action workflows for better local reproducibility.
 

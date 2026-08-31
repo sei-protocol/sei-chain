@@ -56,6 +56,18 @@ jobs:
           echo "$PKGS" | xargs go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }}
 
+      # The file describing the upgrade being shipped sits behind a build tag,
+      # so the run above compiles none of it. The target derives the tag from
+      # app/tags rather than taking one from here, which is what stops this step
+      # from going on running an upgrade that already shipped.
+      - name: Minor upgrade test
+        run: make upgrade-test
+
+      # Files for upgrades that already shipped are no longer run, but they have
+      # to keep compiling. The run above and golangci-lint both skip them.
+      - name: Minor upgrade tests compile
+        run: make upgrade-test-vet
+
   coverage:
     name: Coverage
     runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-latest' || 'uci-default' }}
