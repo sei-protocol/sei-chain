@@ -21,23 +21,19 @@ type stateDB struct {
 	liveStateDB *flatkv.CommitStore
 }
 
-// New returns a StateDB backed by wal and liveStateDB. Reads at a past height are unavailable, so
-// OpenViewAt panics.
+// NewStateDB returns a StateDB backed by wal and liveStateDB.
 //
 // liveStateDB must have been constructed with no WAL of its own, since this StateDB writes wal on its
 // behalf; one holding a WAL would record every block twice.
 //
-// The caller retains ownership of wal and liveStateDB, including closing them: a StateDB acquires no
-// resources of its own and has no Close.
-func New(wal statewal.StateWAL, liveStateDB *flatkv.CommitStore) giga.StateDB {
+// The caller retains ownership of wal and liveStateDB: a StateDB has no Close.
+func NewStateDB(wal statewal.StateWAL, liveStateDB *flatkv.CommitStore) giga.StateDB {
 	return &stateDB{
 		wal:         wal,
 		liveStateDB: liveStateDB,
 	}
 }
 
-// CommitStateChanges writes changeset into the state WAL and the live state DB as block blockNum. A
-// step that fails stops the commit, leaving the steps after it unperformed.
 func (s *stateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
 	if blockNum < 0 {
 		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
@@ -60,7 +56,6 @@ func (s *stateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 	return nil
 }
 
-// OpenView returns a read-only view of the current block. The caller must Close the returned view.
 func (s *stateDB) OpenView() giga.StateView {
 	return s.liveStateDB.OpenView()
 }

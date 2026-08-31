@@ -2024,7 +2024,7 @@ func TestApplyChangeSetsAllowsSameHeightRepeatsOnly(t *testing.T) {
 	}
 }
 
-func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
+func TestCommitStateChangesStampsRowBlockHeight(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -2034,7 +2034,7 @@ func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
 
 	// Start at block 10 the legal way: seed the store so its history begins there.
 	require.NoError(t, s.SetInitialVersion(10))
-	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 
 	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)

@@ -68,7 +68,7 @@ func newTestStateDB(t *testing.T) (giga.StateDB, *fakeStateWAL, *flatkv.CommitSt
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })
 
 	wal := &fakeStateWAL{}
-	return New(wal, liveStateDB), wal, liveStateDB
+	return NewStateDB(wal, liveStateDB), wal, liveStateDB
 }
 
 // changeset builds a changeset setting key to value in the test module.

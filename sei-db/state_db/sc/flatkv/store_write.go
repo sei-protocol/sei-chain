@@ -16,23 +16,14 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// CommitBlock applies changesets and commits them at version in one call.
-// Giga-only helper for committing all state changes of a block.
-// TODO: make this async and pipelined
-func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
-	if err := s.ApplyChangeSets(version, changesets); err != nil {
-		return fmt.Errorf("CommitBlock: apply version %d: %w", version, err)
+func (s *CommitStore) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
+	if err := s.ApplyChangeSets(blockNum, changeset); err != nil {
+		return fmt.Errorf("CommitStateChanges: apply version %d: %w", blockNum, err)
 	}
-	if _, err := s.Commit(version); err != nil {
-		return fmt.Errorf("CommitBlock: commit version %d: %w", version, err)
+	if _, err := s.Commit(blockNum); err != nil {
+		return fmt.Errorf("CommitStateChanges: commit version %d: %w", blockNum, err)
 	}
 	return nil
-}
-
-// CommitStateChanges writes changeset into the store as block blockNum. It is the Giga StateDB entry
-// point; the changes are readable through OpenView() once it returns.
-func (s *CommitStore) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
-	return s.CommitBlock(blockNum, changeset)
 }
 
 // Commit persists buffered writes at the given version (block height). One Commit persists exactly one

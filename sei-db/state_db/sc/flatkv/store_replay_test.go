@@ -56,7 +56,7 @@ func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	// History legally begins at 10, so this is a lagging watermark rather than a store that skipped
 	// blocks 1-9.
 	require.NoError(t, s.SetInitialVersion(10))
-	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 	hashAfterCommit := append([]byte(nil), rootHash(s)...)
 
@@ -94,7 +94,7 @@ func gappedWALStore(t *testing.T, firstBlock int64) *CommitStore {
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.CommitBlock(firstBlock, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(firstBlock, []*proto.NamedChangeSet{cs}))
 	return s
 }
 
@@ -137,7 +137,7 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	require.NoError(t, s.SetInitialVersion(10))
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
 
 	// Rewind the persisted watermark so the reopened store needs blocks 6-9, which this WAL never held.
 	rewindVersionRecords(t, s, 5)
@@ -167,7 +167,7 @@ func TestReadOnlyServesSeededMidChainStore(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	for _, v := range []int64{10, 11, 12} {
 		cs := makeChangeSet(key, padLeft32(byte(v)), false)
-		require.NoError(t, s.CommitBlock(v, []*proto.NamedChangeSet{cs}))
+		require.NoError(t, s.CommitStateChanges(v, []*proto.NamedChangeSet{cs}))
 	}
 
 	// The clone opens at the seeded snapshot (version 9) and replays 10-12 from the WAL.
@@ -193,13 +193,13 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	commit := func(v int64, val byte) {
-		require.NoError(t, s.CommitBlock(v, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(val), false)}))
+		require.NoError(t, s.CommitStateChanges(v, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(val), false)}))
 	}
 	for v := int64(1); v <= 4; v++ {
 		commit(v, byte(v))
 	}
 
-	// CommitBlock offers snapshots to the writer without waiting, so wait here: the snapshots this test
+	// CommitStateChanges offers snapshots to the writer without waiting, so wait here: the snapshots this
 	// falls back to have to be on disk before the WAL is wiped.
 	require.NoError(t, s.FlushSnapshots())
 
@@ -418,18 +418,18 @@ func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
 
 	addr := ktype.Address{0xAB}
 	// Block 1 sets the nonce, block 2 is unrelated, block 3 sets only the codehash.
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{{
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{{
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 7)}},
 	}}))
-	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{{
+	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, ktype.Slot{0x01})),
 				Value: padLeft32(0x22)},
 		}},
 	}}))
-	require.NoError(t, s.CommitBlock(3, []*proto.NamedChangeSet{{
+	require.NoError(t, s.CommitStateChanges(3, []*proto.NamedChangeSet{{
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{codePair(addr, []byte{0x60, 0x0A})}},
 	}}))

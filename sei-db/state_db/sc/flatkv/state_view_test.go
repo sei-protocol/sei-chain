@@ -4,18 +4,19 @@ import (
 	"encoding/binary"
 	"testing"
 
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // gigaAddr converts a test address to the Giga API's address type. Both are [20]byte.
-func gigaAddr(addr ktype.Address) giga.Address {
-	return giga.Address(addr)
+func gigaAddr(addr ktype.Address) ethcommon.Address {
+	return ethcommon.Address(addr)
 }
 
 // commitNonce writes addr's nonce as a whole block through the Giga write entry point.
@@ -173,11 +174,11 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(contract)
 		require.True(t, stateView.AccountExists(addr))
 		require.Equal(t, uint64(3), stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash(codeHash), stateView.GetCodeHash(addr))
+		require.Equal(t, ethcommon.Hash(codeHash), stateView.GetCodeHash(addr))
 		require.Equal(t, bytecode, stateView.GetCode(addr))
 		require.Equal(t, len(bytecode), stateView.GetCodeSize(addr))
-		require.Equal(t, giga.Hash(padLeft32(0xEE)[0:32]), stateView.GetStorage(addr, giga.Hash(slot)))
-		require.Equal(t, giga.Hash{}, stateView.GetStorage(addr, giga.Hash(slotN(9))),
+		require.Equal(t, ethcommon.Hash(padLeft32(0xEE)[0:32]), stateView.GetStorage(addr, ethcommon.Hash(slot)))
+		require.Equal(t, ethcommon.Hash{}, stateView.GetStorage(addr, ethcommon.Hash(slotN(9))),
 			"an unset slot reads as zero, not as missing")
 	})
 
@@ -185,7 +186,7 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(eoa)
 		require.True(t, stateView.AccountExists(addr))
 		require.Equal(t, uint64(9), stateView.GetNonce(addr))
-		require.Equal(t, giga.EmptyCodeHash, stateView.GetCodeHash(addr),
+		require.Equal(t, ethtypes.EmptyCodeHash, stateView.GetCodeHash(addr),
 			"an account that exists with no code hashes as keccak256(\"\"), not as zero")
 		require.Nil(t, stateView.GetCode(addr))
 		require.Zero(t, stateView.GetCodeSize(addr))
@@ -195,11 +196,11 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(missing)
 		require.False(t, stateView.AccountExists(addr))
 		require.Zero(t, stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetCodeHash(addr),
+		require.Equal(t, ethcommon.Hash{}, stateView.GetCodeHash(addr),
 			"an account that does not exist hashes as zero, not as keccak256(\"\")")
 		require.Nil(t, stateView.GetCode(addr))
 		require.Zero(t, stateView.GetCodeSize(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetStorage(addr, giga.Hash(slot)))
+		require.Equal(t, ethcommon.Hash{}, stateView.GetStorage(addr, ethcommon.Hash(slot)))
 	})
 }
 
@@ -250,7 +251,7 @@ func TestStateViewAgreesWithStoreReads(t *testing.T) {
 		for _, slot := range []ktype.Slot{setSlot, unsetSlot} {
 			raw, found := s.Get(keys.EVMStoreKey,
 				keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
-			require.Equal(t, hashOrZero(raw, found), stateView.GetStorage(gigaAddr(addr), giga.Hash(slot)),
+			require.Equal(t, hashOrZero(raw, found), stateView.GetStorage(gigaAddr(addr), ethcommon.Hash(slot)),
 				"storage %x/%x", addr, slot)
 		}
 
@@ -268,7 +269,7 @@ func TestStateViewAgreesWithStoreReads(t *testing.T) {
 			// The one place the view answers differently on purpose. The store reports a codeless
 			// account's hash as absent; EVM semantics require the empty-code hash there, and only an
 			// account that does not exist at all hashes as zero.
-			wantCodeHash = giga.EmptyCodeHash
+			wantCodeHash = ethtypes.EmptyCodeHash
 		}
 		require.Equal(t, wantCodeHash, stateView.GetCodeHash(gigaAddr(addr)), "code hash %x", addr)
 
@@ -282,11 +283,11 @@ func TestStateViewAgreesWithStoreReads(t *testing.T) {
 }
 
 // hashOrZero reads a CommitStore.Get result as the hash the view reports for the same key.
-func hashOrZero(raw []byte, found bool) giga.Hash {
+func hashOrZero(raw []byte, found bool) ethcommon.Hash {
 	if !found {
-		return giga.Hash{}
+		return ethcommon.Hash{}
 	}
-	return giga.Hash(raw)
+	return ethcommon.Hash(raw)
 }
 
 // Balance has no key kind yet, so nothing can write one (store_apply.go passes nil balance changes).

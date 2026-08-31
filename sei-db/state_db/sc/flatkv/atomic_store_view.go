@@ -5,18 +5,14 @@ import (
 	"sync"
 )
 
-// atomicStoreView holds the store view of the most recently committed block and hands it out to
-// readers on any thread.
+// atomicStoreView holds one storeView and hands it out to readers on any thread. It owns exactly one
+// reservation on the view it holds, from construction until Close().
 //
-// The execution thread advances it with set() as it commits, and it is the only thread that may. get()
-// may be called from any thread, and promises a committed block that stays readable for as long as
-// the caller holds the reservation get() took. It does not promise the latest block, and places no
-// bound on how far behind the block it returns may be.
+// All methods are safe to call concurrently. set() rejects a view that does not advance the installed
+// height, so that height strictly increases.
 //
-// The height only ever moves forward. Installing an earlier block means building a new
-// atomicStoreView rather than reusing this one.
-//
-// It owns exactly one reservation on the view it holds, from construction until Close().
+// The view get() returns stays readable for as long as its caller holds the reservation get() took,
+// and is unaffected by views installed afterwards.
 type atomicStoreView struct {
 	// Guards currentView.
 	mu sync.RWMutex
@@ -25,8 +21,7 @@ type atomicStoreView struct {
 	currentView *storeView
 }
 
-// newAtomicStoreView() installs initialView. A non-nil initial view is required to simplify
-// downstream logic (so it doesn't have to check for nil views).
+// newAtomicStoreView() installs initialView, which must be non-nil.
 func newAtomicStoreView(initialView *storeView) (*atomicStoreView, error) {
 	if initialView == nil {
 		return nil, fmt.Errorf("initial view is nil")
@@ -39,10 +34,7 @@ func newAtomicStoreView(initialView *storeView) (*atomicStoreView, error) {
 
 // get() returns the installed view with a reservation the caller owns and must release exactly once.
 //
-// It reports an error rather than dereferencing nil when there is no atomicStoreView at all. The store
-// holds one only while its view managers exist, so this is the answer on a store that was never opened
-// or has been closed, and it is given here because every read path reaches the store's view through
-// this one call.
+// Safe to call on a nil receiver, which reports an error rather than panicking.
 func (asv *atomicStoreView) get() (*storeView, error) {
 	if asv == nil {
 		return nil, fmt.Errorf("no sealed block: the store is not open")

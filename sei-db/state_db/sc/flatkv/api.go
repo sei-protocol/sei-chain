@@ -61,13 +61,13 @@ type Store interface {
 	// (see PendingVersion).
 	Commit(version int64) (int64, error)
 
-	// CommitBlock is a Giga-only helper that applies changesets and commits
-	// them at version in one call.
-	// Callers must use either ApplyChangeSets+Commit or CommitBlock
+	// CommitStateChanges is a Giga-only helper that applies changesets and commits
+	// them at blockNum in one call.
+	// Callers must use either ApplyChangeSets+Commit or CommitStateChanges
 	// exclusively, never mixing the two on the same store.
 	// ApplyChangeSets+Commit is expected to be deprecated once all callers
-	// move to CommitBlock.
-	CommitBlock(version int64, cs []*proto.NamedChangeSet) error
+	// move to CommitStateChanges.
+	CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is
 	// accepted as the first commit. Must be called after LoadLatest, on a
