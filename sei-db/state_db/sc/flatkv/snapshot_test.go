@@ -2162,15 +2162,6 @@ func TestOutOfBandSnapshotOnReadOnlyStore(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-func TestOutOfBandSnapshotAtVersion0(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	err := s.outOfBandSnapshot()
-	require.Error(t, err, "snapshot at version 0 should fail")
-	require.Contains(t, err.Error(), "cannot snapshot uncommitted store")
-}
-
 func TestOutOfBandSnapshotWhileReadOnlyCloneActive(t *testing.T) {
 	s := setupTestStore(t)
 

@@ -496,6 +496,13 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 	s.workingLtHash = globalHash
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
+
+	// Imported data goes straight to Pebble, so no view describes it and the sealed view is still the
+	// one open() installed. Sealing here is what leaves the store's committed version and its sealed
+	// view naming the same block.
+	if err := s.sealBaseline(); err != nil {
+		return fmt.Errorf("seal imported version: %w", err)
+	}
 	return nil
 }
 
@@ -531,8 +538,8 @@ func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
 	return nil
 }
 
-// sealBaseline seals an empty version on every store. Called at startup so that we always have a view
-// of the "previous" block (simplifies logic significantly).
+// sealBaseline seals a data-free version on every store at the store's committed version and installs
+// it as the sealed view, so that a view of the current block always exists.
 func (s *CommitStore) sealBaseline() error {
 	blockView, err := s.commitStores(s.committedVersion)
 	if err != nil {

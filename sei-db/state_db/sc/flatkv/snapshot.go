@@ -385,17 +385,8 @@ func (s *CommitStore) resolveSnapshotDir(flatkvDir string) (string, error) {
 // bootstrap paths that need a snapshot at a height the cadence would decline — the end of an import,
 // and a seeded initial version — and it must not grow a third caller that is merely "convenient".
 func (s *CommitStore) outOfBandSnapshot() (err error) {
-	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", s.committedVersion)
-	defer obs.done(&err, func() {
-		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, s.committedVersion)
-	})
-
 	if s.readOnly {
 		return errReadOnly
-	}
-	version := s.committedVersion
-	if version <= 0 {
-		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
 	}
 
 	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
@@ -406,7 +397,7 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 	// this publishes above it, so a publication racing it can only make it delete less.
 	if s.snapshotWriter != nil {
 		if err := s.snapshotWriter.Flush(); err != nil {
-			return fmt.Errorf("await pending snapshot before writing version %d: %w", version, err)
+			return fmt.Errorf("await pending snapshot: %w", err)
 		}
 	}
 
@@ -414,6 +405,13 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 	if err != nil {
 		return fmt.Errorf("read latest sealed view: %w", err)
 	}
+	version := blockView.blockHeight
+
+	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", version)
+	defer obs.done(&err, func() {
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, version)
+	})
+
 	tmpPath, err := checkpointDatabases(
 		s.ctx, s.flatkvDir(), blockView, s.checkpointables(), s.phaseTimer)
 	if err != nil {

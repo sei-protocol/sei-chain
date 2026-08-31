@@ -449,16 +449,6 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 // Lifecycle (outOfBandSnapshot, Rollback)
 // =============================================================================
 
-func TestStoreOutOfBandSnapshotRequiresCommit(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	// Cannot snapshot at version 0 (nothing committed)
-	err := s.outOfBandSnapshot()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "uncommitted")
-}
-
 func TestStoreRollbackNoSnapshot(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
