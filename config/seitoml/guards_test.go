@@ -1,9 +1,11 @@
 package seitoml
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -178,4 +180,61 @@ func TestAFileWhoseCostOutgrowsItsSizeIsRefusedBeforeItIsRead(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestADeepHeadingIsRefusedBeforeTheExpensiveStep pins the ordering the bounds depend on.
+//
+// The depth bound is load-bearing only because keyIsAddressable runs before the decode, where the cost that
+// grows faster than the file actually lives. The test above proves the refusal happens and says the right
+// thing; it would still pass with the check moved after the decode, which is the arrangement the bound
+// exists to prevent.
+//
+// So this compares two files of the same size: one deep heading, and ordinary shallow keys. Refused at the
+// door, the deep one costs about what reading the bytes costs, so the two are comparable. Decoded first, it
+// costs orders of magnitude more.
+//
+// A ratio rather than a ceiling, because the race detector and the allocator's own overhead move the
+// absolute numbers and apply equally to both sides.
+func TestADeepHeadingIsRefusedBeforeTheExpensiveStep(t *testing.T) {
+	const header = "schema_version = 1\nnode_mode = \"validator\"\n"
+	const segments = 100_000
+
+	deep := header + "[" + strings.Repeat("a.", segments) + "a]\nx = 1\n"
+	// The same bytes spent on keys nothing objects to, as the comparison.
+	var shallow strings.Builder
+	shallow.WriteString(header)
+	for i := 0; shallow.Len() < len(deep); i++ {
+		fmt.Fprintf(&shallow, "k%06d = 1\n", i)
+	}
+
+	deepCost, err := allocatedReading(t, deep)
+	if err == nil {
+		t.Fatal("the deep heading was accepted, so its cost reaches the node")
+	}
+	shallowCost, _ := allocatedReading(t, shallow.String())
+
+	// Generous: the refusal path should be within a small factor of simply reading the bytes. Decoding
+	// first put this in the thousands.
+	const factor = 20
+	if shallowCost > 0 && deepCost > shallowCost*factor {
+		t.Errorf("refusing a %d-byte deep heading allocated %d bytes against %d for the same bytes of "+
+			"ordinary keys, over %dx. The refusal is no longer happening before the step whose cost grows "+
+			"with depth", len(deep), deepCost, shallowCost, factor)
+	}
+}
+
+// allocatedReading reports the bytes Load allocates for a body, and what it answered.
+func allocatedReading(t *testing.T, body string) (uint64, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "sei.toml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write the probe file: %v", err)
+	}
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := Load(path)
+	runtime.ReadMemStats(&after)
+	// Cumulative rather than resident, so a collection between the two reads cannot hide the work.
+	return after.TotalAlloc - before.TotalAlloc, err
 }

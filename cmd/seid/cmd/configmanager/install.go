@@ -3,6 +3,7 @@ package configmanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -81,15 +82,26 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 			"mode", mode, "err", err)
 		return
 	}
+	// Before the report below, because a refused registration is what makes that one point at the wrong
+	// file, and an operator reading in order should meet the cause first.
+	reportWhatThisBinaryCouldNotUse(resolved, log)
+
 	// A key nothing declares is the most common thing an operator gets wrong and the only signal they
 	// have for it.
 	reportWhatTheFileDidNotReach(resolved, log)
 
 	reportWhatTheFileSaysTheNodeIs(ctx, mode, log)
 
+	heldForADecode := registry.SuppliedByDecodedSection(resolved)
+	reportWhatThisInstallHoldsBack(heldForADecode, log)
+
 	supplied := onlyWhatALookupSourceSupplied(resolved)
 	if len(supplied.Values) == 0 {
-		log.Info("sei.toml supplies no declared value; every key reads as it always has", "mode", mode)
+		// Only when the file supplied nothing at all. A file whose every key belongs to a decoded section
+		// supplies plenty, and saying otherwise names the operator's file for something it did not do.
+		if len(heldForADecode) == 0 {
+			log.Info("sei.toml supplies no declared value; every key reads as it always has", "mode", mode)
+		}
 		return
 	}
 	report, err := appopts.Install(ctx.Viper, supplied)
@@ -103,11 +115,30 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// away.
 	installed, omittedInstalled := capLoggedItems(report.Installed)
 	added, omittedAdded := capLoggedItems(report.Added)
-	log.Info("configuration installed", "mode", mode,
+	// Every subcommand installs, and only one of them runs a node. `seid keys list` on a node with a
+	// sei.toml should not print a configuration line, least of all at a level held above the operator's
+	// own. What was refused or held back still reports on any command, because those are problems.
+	said := log.Info
+	if !runsANode(cmd) {
+		said = log.Debug
+	}
+	said("configuration installed", "mode", mode,
 		"count", len(report.Installed), "installed", strings.Join(installed, ","),
 		"omitted", omittedInstalled,
 		"read_here_first_count", len(report.Added), "read_here_first", strings.Join(added, ","),
 		"read_here_first_omitted", omittedAdded)
+}
+
+// runsANode reports whether this command is the one that goes on to run a node.
+//
+// Every subcommand passes through the same pre-run, so every one of them installs, and that is deliberate:
+// a command answering a question about configuration has to read the values the node would run. What
+// differs is whether an operator wants telling about it.
+//
+// Matched by name because nothing else on the command distinguishes them. A command added later that runs a
+// node reports at the quieter level until it is named here, which is the safe direction to be wrong in.
+func runsANode(cmd *cobra.Command) bool {
+	return cmd != nil && cmd.Name() == "start"
 }
 
 // everyChannelAnOperatorCanUse names the sources a resolution for this node reads.
@@ -136,15 +167,9 @@ func everyChannelAnOperatorCanUse(written map[string]any, typed map[string]strin
 // It also means a declared default never reaches a running node, which is what lets a default state what
 // the provisioning command writes rather than having to state what each node already runs.
 func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved {
-	decoded := registry.DecodedSections()
 	owning := map[string]bool{}
-	for _, section := range registry.Sections() {
-		if _, ok := decoded[section.Name]; !ok {
-			continue
-		}
-		for _, key := range section.Keys {
-			owning[key] = true
-		}
+	for _, key := range registry.KeysADecodeDelivers() {
+		owning[key] = true
 	}
 
 	out := registry.Resolved{Values: make(map[string]any, len(resolved.Overrides))}
@@ -158,6 +183,52 @@ func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved
 		out.Values[key] = resolved.Values[key]
 	}
 	return out
+}
+
+// reportWhatThisInstallHoldsBack names the keys an operator supplied that this install cannot deliver.
+//
+// A section whose reader decodes its file whole was read before this ran, so putting a value into the
+// source reaches nothing for it. Those keys are left out on purpose.
+//
+// Left unreported they are invisible. They are absent from what was installed, and they are declared, so
+// they are absent from the undeclared keys too. An operator whose file holds only such keys would be told
+// it supplied nothing while their node ran the old values, which is the failure this whole surface exists
+// to remove.
+func reportWhatThisInstallHoldsBack(bySection map[string]map[string]any, log *slog.Logger) {
+	if len(bySection) == 0 {
+		return
+	}
+	var keys []string
+	for _, values := range bySection {
+		for key := range values {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	shown, omitted := capLoggedItems(keys)
+	log.Warn("sei.toml supplies keys whose reader decodes its file whole; this install cannot deliver "+
+		"them and they read as they always have",
+		"count", len(keys), "keys", strings.Join(shown, ","), "omitted", omitted)
+}
+
+// reportWhatThisBinaryCouldNotUse names a registration this binary's own source got wrong.
+//
+// Not the operator's mistake and nothing they can fix. It reaches them anyway: a refused registration
+// leaves its keys out of the declared set, so a valid value they wrote for one of those keys is reported as
+// a key nothing declares, which points at their file for a defect in this binary.
+func reportWhatThisBinaryCouldNotUse(resolved registry.Resolved, log *slog.Logger) {
+	if len(resolved.Refused) == 0 {
+		return
+	}
+	said := make([]string, 0, len(resolved.Refused))
+	for _, d := range resolved.Refused {
+		said = append(said, fmt.Sprintf("%s: %v", d.Section, d.Err))
+	}
+	sort.Strings(said)
+	shown, omitted := capLoggedItems(said)
+	log.Error("this binary registered a configuration section it cannot use, so the keys that section "+
+		"declares are missing from what any file can supply",
+		"count", len(said), "refused", strings.Join(shown, "; "), "omitted", omitted)
 }
 
 // reportWhatTheFileDidNotReach says what an operator asked for that had no effect.

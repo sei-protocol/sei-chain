@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	seiconfig "github.com/sei-protocol/sei-config"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -487,4 +488,41 @@ func renderRecord(r slog.Record) string {
 		return true
 	})
 	return b.String()
+}
+
+// TestTheReportingFloorSurvivesALevelSetAcrossEveryLogger is what keeps this manager audible.
+//
+// The handler this manager re-enters sets one level across every logger in the process, from a key an
+// operator writes. A fleet that runs its nodes quiet sets it above the level these reports use, and every
+// outcome here is a report: what was applied, what was held back, what was refused and what had no effect.
+// Silenced, the manager changes what a node runs and says nothing about it.
+//
+// The level is asserted rather than a message, because a message can be absent for reasons that have
+// nothing to do with whether it would have been printed.
+func TestTheReportingFloorSurvivesALevelSetAcrossEveryLogger(t *testing.T) {
+	// What a node whose file says log_level = "error" produces.
+	seilog.SetDefaultLevel(slog.LevelError, true)
+	t.Cleanup(func() { seilog.SetDefaultLevel(slog.LevelInfo, true) })
+
+	if OwnReportingEnabledForTest() {
+		t.Fatal("this package's reporting is still on after a level was set across every logger, so " +
+			"this test cannot show the floor being restored")
+	}
+
+	keepOwnReportingVisible()
+
+	if !OwnReportingEnabledForTest() {
+		t.Error("this package's reporting is off after the floor was applied. Every outcome here is a " +
+			"report, so the manager would change what a node runs and say nothing about it")
+	}
+}
+
+// TestTheFloorAddressesALoggerThatExists holds the derived name to matching what was registered.
+//
+// The floor is applied by name. A name that matches no registered logger applies nothing and returns zero,
+// and the only symptom is this package going quiet exactly when an operator raised the level to see it.
+func TestTheFloorAddressesALoggerThatExists(t *testing.T) {
+	if got := seilog.SetLevel(loggerName, ownReportingFloor); got == 0 {
+		t.Errorf("%q matches no registered logger, so the floor is applied to nothing", loggerName)
+	}
 }

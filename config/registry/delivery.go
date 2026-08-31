@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"sort"
 )
 
 // decodedNotLookedUp holds the sections whose values reach their reader by a decode, and why.
@@ -92,5 +93,23 @@ func SuppliedByDecodedSection(resolved Resolved) map[string]map[string]any {
 			out[section.Name][key] = resolved.Values[key]
 		}
 	}
+	return out
+}
+
+// KeysADecodeDelivers returns the keys of every section whose values reach their reader by a decode, sorted.
+//
+// One read for the sections and the declarations together, for the reason SuppliedByDecodedSection takes
+// one: asked separately, a section arriving between the two reads is named by one answer and absent from
+// the other, so its keys are attributed to the wrong delivery.
+func KeysADecodeDelivers() []string {
+	registered, _, decoded := snapshot()
+	var out []string
+	for _, section := range registered {
+		if _, owned := decoded[section.Name]; !owned {
+			continue
+		}
+		out = append(out, section.Keys...)
+	}
+	sort.Strings(out)
 	return out
 }

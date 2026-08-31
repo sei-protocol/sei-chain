@@ -69,9 +69,8 @@ type SeiConfigManager struct {
 
 // keepOwnReportingVisible holds this package's own logger at a level its reports survive.
 //
-// Called after anything that may have set a level, and it is called more than once for that reason: the
-// handler sets one, and a level this manager resolves sets another. Both set every logger in the process, so
-// a floor applied before either is simply overwritten.
+// Called after the handler, because the handler sets one level across every logger in the process and a
+// floor applied before it is simply overwritten.
 //
 // The handler this manager re-enters sets one level across every logger in the process, from a key an
 // operator writes, and a fleet that runs its nodes quiet sets it above the level these reports use. Every
