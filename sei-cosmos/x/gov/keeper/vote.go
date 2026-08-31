@@ -3,6 +3,8 @@ package keeper
 import (
 	"fmt"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
@@ -11,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
+
+const incrementalTallyUpgrade = "v6.7"
 
 // AddVote adds a vote on a specific proposal
 func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress, options types.WeightedVoteOptions) error {
@@ -21,11 +25,13 @@ func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.A
 	if proposal.Status != types.StatusVotingPeriod {
 		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
-	if proposal.VotingEndTime.Before(ctx.BlockTime()) {
-		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
-	}
-	if keeper.IsTallying(ctx, proposalID) || keeper.IsVoteDelegationBackfillInProgress(ctx, proposalID) {
-		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+	if incrementalTallyEnabled(ctx) {
+		if proposal.VotingEndTime.Before(ctx.BlockTime()) {
+			return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+		}
+		if keeper.IsTallying(ctx, proposalID) || keeper.IsVoteDelegationBackfillInProgress(ctx, proposalID) {
+			return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+		}
 	}
 
 	for _, option := range options {
@@ -118,9 +124,16 @@ func (keeper Keeper) SetVote(ctx sdk.Context, vote types.Vote) {
 }
 
 func (keeper Keeper) initializeVoteDelegationTracking(ctx sdk.Context, proposalID uint64, voter sdk.AccAddress) {
+	if !incrementalTallyEnabled(ctx) {
+		return
+	}
 	ctx.KVStore(keeper.storeKey).Set(types.VoterProposalsKey(voter, proposalID), []byte{1})
 	snapshot := keeper.snapshotVoteDelegations(ctx, proposalID, voter)
 	keeper.setVoteDelegationSnapshot(ctx, snapshot)
+}
+
+func incrementalTallyEnabled(ctx sdk.Context) bool {
+	return !ctx.IsTracing() || semver.Compare(ctx.ClosestUpgradeName(), incrementalTallyUpgrade) >= 0
 }
 
 func (keeper Keeper) snapshotVoteDelegations(
@@ -160,6 +173,9 @@ func (keeper Keeper) refreshVoteDelegationSnapshots(
 	voter sdk.AccAddress,
 	excludedValidator sdk.ValAddress,
 ) {
+	if !incrementalTallyEnabled(ctx) {
+		return
+	}
 	store := ctx.KVStore(keeper.storeKey)
 	prefix := types.VoterProposalsKeyPrefixForAddress(voter)
 	iterator := sdk.KVStorePrefixIterator(store, prefix)
@@ -212,19 +228,21 @@ func (keeper Keeper) unmarshalVoteDelegations(bz []byte) types.VoteDelegationSna
 // IterateAllVotes iterates over the all the stored votes and performs a callback function
 func (keeper Keeper) IterateAllVotes(ctx sdk.Context, cb func(vote types.Vote) (stop bool)) {
 	store := ctx.KVStore(keeper.storeKey)
-	progressIterator := sdk.KVStorePrefixIterator(store, types.TallyProgressKeyPrefix)
-	for ; progressIterator.Valid(); progressIterator.Next() {
-		proposalID := types.GetProposalIDFromBytes(progressIterator.Key()[len(types.TallyProgressKeyPrefix):])
-		progress, found := keeper.getTallyProgress(ctx, proposalID)
-		if !found {
-			continue
+	if incrementalTallyEnabled(ctx) {
+		progressIterator := sdk.KVStorePrefixIterator(store, types.TallyProgressKeyPrefix)
+		for ; progressIterator.Valid(); progressIterator.Next() {
+			proposalID := types.GetProposalIDFromBytes(progressIterator.Key()[len(types.TallyProgressKeyPrefix):])
+			progress, found := keeper.getTallyProgress(ctx, proposalID)
+			if !found {
+				continue
+			}
+			if keeper.iterateVoteStore(prefix.NewStore(store, types.TallyVotesKey(proposalID, progress.Expedited)), cb) {
+				_ = progressIterator.Close()
+				return
+			}
 		}
-		if keeper.iterateVoteStore(prefix.NewStore(store, types.TallyVotesKey(proposalID, progress.Expedited)), cb) {
-			_ = progressIterator.Close()
-			return
-		}
+		_ = progressIterator.Close()
 	}
-	_ = progressIterator.Close()
 
 	iterator := sdk.KVStorePrefixIterator(store, types.VotesKeyPrefix)
 
@@ -264,6 +282,9 @@ func (keeper Keeper) iterateVoteStore(store storetypes.KVStore, cb func(vote typ
 func (keeper Keeper) visibleVotesStore(ctx sdk.Context, proposalID uint64) storetypes.KVStore {
 	store := ctx.KVStore(keeper.storeKey)
 	pending := prefix.NewStore(store, types.VotesKey(proposalID))
+	if !incrementalTallyEnabled(ctx) {
+		return pending
+	}
 	progress, found := keeper.getTallyProgress(ctx, proposalID)
 	if !found {
 		return pending
