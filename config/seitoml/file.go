@@ -280,17 +280,17 @@ func shortKey(key parser.Key) string {
 // caller acts on rather than reports, since a node with no sei.toml yet needs New instead.
 func Load(path string) (*File, error) {
 	// The kind of thing this is, before opening it. Opening a FIFO blocks until something writes, so a
-	// check made on the open file never runs: the node hangs on start with nothing to say. A device node
-	// reports a size of zero and then reads without end. The write path in this file refuses a
-	// non-regular destination for the same reason.
+	// check made on the open file never runs and the node hangs on start with nothing to say.
 	//
-	// Lstat rather than Stat, so a symlink to one of those is refused as what it points at rather than
-	// followed.
-	if lst, err := os.Lstat(path); err != nil {
+	// Stat rather than Lstat, so a symlink is judged by what it points at. A configuration file mounted
+	// from a Kubernetes ConfigMap is a symlink, and so is any layout that keeps the real file elsewhere
+	// and links it in, and all of those are ordinary. A symlink to a FIFO is still refused, because Stat
+	// reports the FIFO.
+	if info, err := os.Stat(path); err != nil {
 		return nil, err
-	} else if !lst.Mode().IsRegular() {
+	} else if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s is a %s rather than a regular file, and this file is read as one",
-			path, lst.Mode().Type())
+			path, info.Mode().Type())
 	}
 
 	fh, err := os.Open(path) //nolint:gosec // the caller's configured path is the subject

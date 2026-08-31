@@ -92,12 +92,20 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 
 	reportWhatTheFileSaysTheNodeIs(ctx, mode, log)
 
-	// Every subcommand installs, and only one of them runs a node. The routine lines below say what an
-	// ordinary boot did, and on `seid keys list` nobody asked. What was refused or held back still reports
-	// on any command, because those are problems.
-	said := log.Info
+	// Every subcommand installs, and only one of them runs a node, so the lines describing an ordinary
+	// boot drop to debug everywhere else. On `seid keys list` nobody asked, and a line held above the
+	// operator's own level buries the reports beside it that are actionable.
+	//
+	// Holding keys back joins them. It is a problem, but not one an operator can act on, and its trigger
+	// is any sei.toml carrying a [p2p], [mempool] or root key, which is nearly every file somebody would
+	// write. It keeps its own level on the boot, because that is the one place holding them back changes
+	// what the node runs.
+	//
+	// What a refused registration says, and what a key nothing declares says, report everywhere. Both are
+	// things to fix.
+	said, warned := log.Info, log.Warn
 	if !runsANode(cmd) {
-		said = log.Debug
+		said, warned = log.Debug, log.Debug
 	}
 
 	// One read for both halves. A section arriving between two reads would be absent from what is
@@ -108,7 +116,7 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// variable answering one of these keys does reach the node, so reporting it as read-as-it-always-has
 	// would be false as well as pointed at the wrong file.
 	heldFromTheFile := whatTheFileWroteForADecode(forADecode, written)
-	reportWhatThisInstallHoldsBack(heldFromTheFile, log)
+	reportWhatThisInstallHoldsBack(heldFromTheFile, warned)
 
 	supplied := onlyWhatALookupSourceSupplied(resolved, ownedByADecode)
 	if len(supplied.Values) == 0 {
@@ -232,12 +240,12 @@ func whatTheFileWroteForADecode(bySection map[string]map[string]any, written map
 // No source is named, because the resolution does not record which one answered. A file, a variable and a
 // flag all arrive here as an override, and naming the file for a value an environment variable supplied is
 // the same misattribution the undeclared-key report was split apart to end.
-func reportWhatThisInstallHoldsBack(keys []string, log *slog.Logger) {
+func reportWhatThisInstallHoldsBack(keys []string, say func(string, ...any)) {
 	if len(keys) == 0 {
 		return
 	}
 	shown, omitted := capLoggedItems(keys)
-	log.Warn("sei.toml writes keys whose reader decodes its file whole; this install cannot deliver them "+
+	say("sei.toml writes keys whose reader decodes its file whole; this install cannot deliver them "+
 		"and they read as they always have",
 		"count", len(keys), "keys", strings.Join(shown, ","), "omitted", omitted)
 }

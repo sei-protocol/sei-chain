@@ -273,3 +273,54 @@ func TestSomethingThatIsNotARegularFileIsRefused(t *testing.T) {
 			"happening and a node would hang on start")
 	}
 }
+
+// TestASymlinkedFileIsRead covers the shape a mounted configuration file has.
+//
+// A Kubernetes ConfigMap volume mounts each entry as a symlink, and any layout that keeps the real file
+// elsewhere and links it into the node's config directory does the same. Judging the link itself rather than
+// what it points at refuses every one of those, and the file is then silently not delivered.
+func TestASymlinkedFileIsRead(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "..data-sei.toml")
+	if err := os.WriteFile(real, []byte("schema_version = 1\nnode_mode = \"validator\"\n"), 0o600); err != nil {
+		t.Fatalf("write the real file: %v", err)
+	}
+	link := filepath.Join(dir, "sei.toml")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
+
+	if _, err := Load(link); err != nil {
+		t.Errorf("a symlinked configuration file was refused: %v", err)
+	}
+}
+
+// TestASymlinkToSomethingThatIsNotAFileIsRefused keeps the change above from reopening the hang.
+//
+// Following the link is what makes a mounted file readable. It must not also make a link to a FIFO
+// readable, because that is the case whose open never returns.
+func TestASymlinkToSomethingThatIsNotAFileIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "pipe")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Skipf("cannot create a FIFO here: %v", err)
+	}
+	link := filepath.Join(dir, "sei.toml")
+	if err := os.Symlink(fifo, link); err != nil {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { _, err := Load(link); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a symlink to a FIFO was accepted as this node's configuration file")
+		}
+		if !strings.Contains(err.Error(), "regular file") {
+			t.Errorf("the refusal says %q, and it has to say the path is not a regular file", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reading a symlink to a FIFO did not return, so a node would hang on start")
+	}
+}

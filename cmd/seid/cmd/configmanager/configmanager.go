@@ -84,9 +84,14 @@ func keepOwnReportingVisible() {
 	// A count of zero means the name matched no registered logger, so the floor was not applied and every
 	// report this manager makes is left at whatever level the process is running. Reported rather than
 	// ignored, because a silenced manager is one that changes what a node runs and says nothing about it.
+	//
+	// Written to stderr rather than through the logger, which is the thing that has just been left at a
+	// level this could not raise. On the fleet the floor exists for, one that runs at error, a warning
+	// through that logger is dropped, so the one line saying the reports may be silenced would be
+	// silenced too.
 	if seilog.SetLevel(loggerName, ownReportingFloor) == 0 {
-		logger.Warn("this package's own reporting level could not be held, so its reports may be "+
-			"silenced", "logger", loggerName)
+		fmt.Fprintf(os.Stderr, "configmanager: reporting level for %q could not be held, so this "+
+			"manager's reports may be silenced\n", loggerName)
 	}
 }
 

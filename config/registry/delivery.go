@@ -109,13 +109,3 @@ func SuppliedAndOwnedByDecodedSections(resolved Resolved) (map[string]map[string
 	sort.Strings(everyKey)
 	return out, everyKey
 }
-
-// KeysADecodeDelivers returns the keys of every section whose values reach their reader by a decode, sorted.
-//
-// One read for the sections and the declarations together, for the reason SuppliedByDecodedSection takes
-// one: asked separately, a section arriving between the two reads is named by one answer and absent from
-// the other, so its keys are attributed to the wrong delivery.
-func KeysADecodeDelivers() []string {
-	_, keys := SuppliedAndOwnedByDecodedSections(Resolved{})
-	return keys
-}
