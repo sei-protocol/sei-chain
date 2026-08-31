@@ -6,7 +6,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
-	cosmostelemetry "github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/seilog"
@@ -51,8 +50,6 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 				)
 				k.StakingKeeper.Jail(ctx, consAddr)
 				oracleKeeperMetrics.validatorSlashedTotal.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("validator", consAddr.String()), attribute.String("type", "oracle")))
-				// TODO(PLT-336): remove once oracle_validator_slashed_total verified
-				cosmostelemetry.IncrValidatorSlashedCounter(consAddr.String(), "oracle")
 			}
 		}
 
