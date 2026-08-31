@@ -379,6 +379,9 @@ func TestImportExportPreservesModernTallyRound(t *testing.T) {
 
 func TestImportExportCanonicalizesPartialLegacyVoteDelegationBackfill(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
+	t.Cleanup(func() {
+		require.NoError(t, app.Close())
+	})
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 2, valTokens)
 	SortAddresses(addrs)
@@ -457,6 +460,9 @@ func TestImportExportCanonicalizesPartialLegacyVoteDelegationBackfill(t *testing
 	require.NoError(t, err)
 
 	importedApp := seiapp.SetupWithDB(t, dbm.NewMemDB(), false, false, false)
+	t.Cleanup(func() {
+		require.NoError(t, importedApp.Close())
+	})
 	_, err = importedApp.InitChain(&abci.RequestInitChain{
 		ConsensusParams: seiapp.DefaultConsensusParams,
 		AppStateBytes:   stateBytes,
