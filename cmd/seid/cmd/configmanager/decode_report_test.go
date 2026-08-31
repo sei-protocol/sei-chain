@@ -67,25 +67,34 @@ func asUint(t *testing.T, v any) uint64 {
 // still sees what a delivery changed.
 func TestAPasswordInASettingDoesNotReachTheReport(t *testing.T) {
 	const password = "sup3rs3cret"
-	const dsn = "postgres://seid:" + password + "@10.0.0.9:5432/idx"
 
-	var out bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	reportWhatMoved("tx-index",
-		[]string{"tx-index.psql-conn"},
-		map[string]string{"tx-index.psql-conn": ""},
-		map[string]string{"tx-index.psql-conn": dsn},
-		log)
+	// Every form PostgreSQL accepts a password in. The userinfo of a URL is the one that comes to mind;
+	// the other three are just as writable and were the ones that leaked.
+	for _, dsn := range []string{
+		"postgres://seid:" + password + "@10.0.0.9:5432/idx",
+		"postgres://seid@10.0.0.9:5432/idx?password=" + password,
+		"postgres://seid@10.0.0.9:5432/idx?sslpassword=" + password,
+		"host=10.0.0.9 port=5432 user=seid password=" + password + " dbname=idx",
+		"postgresql://seid@10.0.0.9/idx?password=" + password + "&sslmode=require",
+	} {
+		var out bytes.Buffer
+		log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		reportWhatMoved("tx-index",
+			[]string{"tx-index.psql-conn"},
+			map[string]string{"tx-index.psql-conn": ""},
+			map[string]string{"tx-index.psql-conn": dsn},
+			log)
 
-	if strings.Contains(out.String(), password) {
-		t.Errorf("the report carries the password from a connection string: %s", out.String())
-	}
-	if !strings.Contains(out.String(), "10.0.0.9:5432") {
-		t.Errorf("the report no longer says where the index writes, so an operator cannot tell what "+
-			"moved: %s", out.String())
-	}
-	if !strings.Contains(out.String(), "tx-index.psql-conn") {
-		t.Errorf("the report does not name the key that moved: %s", out.String())
+		if strings.Contains(out.String(), password) {
+			t.Errorf("the report carries the password from %q:\n%s", dsn, out.String())
+		}
+		if !strings.Contains(out.String(), "10.0.0.9") {
+			t.Errorf("the report no longer says where the index writes, so an operator cannot tell what "+
+				"moved: %s", out.String())
+		}
+		if !strings.Contains(out.String(), "tx-index.psql-conn") {
+			t.Errorf("the report does not name the key that moved: %s", out.String())
+		}
 	}
 }
 
@@ -102,6 +111,8 @@ func TestAValueWithNoPasswordIsReportedAsWritten(t *testing.T) {
 		"",
 		"postgres://seid@10.0.0.9:5432/idx",
 		"a,b,c",
+		"host=10.0.0.9 port=5432 user=seid dbname=idx",
+		"postgres://seid@10.0.0.9/idx?sslmode=require",
 	} {
 		if got := withoutCredentials(value); got != value {
 			t.Errorf("%q is reported as %q, and an operator reading it back has to see what they wrote",

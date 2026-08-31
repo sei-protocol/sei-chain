@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -194,21 +195,35 @@ func asSet(keys []string) map[string]struct{} {
 	return out
 }
 
+// redacted stands in for a secret a report would otherwise carry.
+const redacted = "xxxxx"
+
+// passwordAssignment matches a password given as a named field, wherever it appears.
+//
+// A connection string carries one three ways and this covers two of them: a query parameter, as in
+// "?password=", and one keyword of a space-separated list, as in "password=". PostgreSQL accepts both,
+// and it accepts prefixed spellings such as "sslpassword", which the leading group keeps intact.
+//
+// The value runs to the next separator or the end, so nothing after it is swallowed.
+var passwordAssignment = regexp.MustCompile(`(?i)(password|passwd|pwd)(\s*=\s*)[^&\s]*`)
+
 // withoutCredentials removes a password from a value that carries one.
 //
-// A setting can hold a connection string, and a connection string can hold a password. Detected in the
-// value rather than declared per key, because a list of the keys that can hold one is a list somebody keeps
-// in step with every section anyone adds, and the first key forgotten is a password in a log.
+// A setting can hold a connection string, and a connection string can carry a password in the userinfo of
+// a URL, in a query parameter, or as one keyword of a list. All three are forms an operator can write, so
+// all three are removed.
+//
+// Detected in the value rather than declared per key, because a list of the keys that can hold one is a
+// list somebody keeps in step with every section anyone adds, and the first key forgotten is a password in
+// a log.
 func withoutCredentials(value string) string {
-	u, err := url.Parse(value)
-	if err != nil || u.User == nil {
-		return value
+	if u, err := url.Parse(value); err == nil && u.User != nil {
+		if _, set := u.User.Password(); set {
+			u.User = url.UserPassword(u.User.Username(), redacted)
+			value = u.String()
+		}
 	}
-	if _, set := u.User.Password(); !set {
-		return value
-	}
-	u.User = url.UserPassword(u.User.Username(), "xxxxx")
-	return u.String()
+	return passwordAssignment.ReplaceAllString(value, "${1}${2}"+redacted)
 }
 
 // applyResolvedLogLevel hands a resolved log level to the logger, which the struct alone does not reach.
