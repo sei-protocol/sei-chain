@@ -106,9 +106,8 @@ type Database struct {
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
 
-	// dbName identifies this instance as the "db" attribute on every otel
-	// metric it records, so multiple Database instances in one process (e.g.
-	// SeparateEVMSubDBs) don't share unattributed series.
+	// dbName identifies this instance as the "db" attribute on every otel metric it records, so
+	// multiple Database instances in one process don't share unattributed series.
 	dbName string
 
 	operationMetrics *pebbledbmetrics.OperationMetrics
@@ -212,7 +211,10 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
-	dbName := filepath.Base(dataDir)
+	dbName := dataDir
+	if abs, absErr := filepath.Abs(dataDir); absErr == nil {
+		dbName = abs
+	}
 	database := &Database{
 		storage:          db,
 		asyncWriteWG:     sync.WaitGroup{},
