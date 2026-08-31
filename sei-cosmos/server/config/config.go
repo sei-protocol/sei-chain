@@ -260,20 +260,19 @@ type GRPCConfig struct {
 	// pings even when there are no active streams.
 	KeepalivePermitWithoutStream bool `mapstructure:"keepalive-permit-without-stream"`
 
-	// IPRateLimitRPS is the per-IP sustained request rate in requests/second for
-	// native gRPC (:9090). Zero disables the token bucket (Allow always returns
-	// true) and does not bypass the admission interceptor when
-	// rate-limiting-enabled is true.
+	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
+	// Zero disables the token bucket (Allow always returns true) and does not
+	// bypass admission when rate-limiting-enabled is true.
 	IPRateLimitRPS float64 `mapstructure:"ip-rate-limit-rps"`
 
 	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
-	// bucket (same effect as ip-rate-limit-rps = 0) and does not bypass the
-	// admission interceptor when rate-limiting-enabled is true.
+	// bucket (same effect as ip-rate-limit-rps = 0) and does not bypass
+	// admission when rate-limiting-enabled is true.
 	IPRateLimitBurst int `mapstructure:"ip-rate-limit-burst"`
 
-	// RateLimitingEnabled is the master switch for gRPC rate-limit admission.
-	// The interceptors it installs also govern gRPC-Web (:9091), which wraps the
-	// same *grpc.Server, and its traffic draws from the same per-IP buckets.
+	// RateLimitingEnabled is the master switch for gRPC rate-limit admission. It
+	// governs gRPC-Web (:9091) as well as native gRPC (:9090), and both planes
+	// draw from the same per-IP buckets.
 	RateLimitingEnabled bool `mapstructure:"rate-limiting-enabled"`
 
 	// TrustedProxyCIDRs lists CIDRs whose x-forwarded-for metadata is trusted
@@ -282,7 +281,7 @@ type GRPCConfig struct {
 	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
 }
 
-// RateLimiterConfig builds the ratelimiter.Config used by native gRPC admission.
+// RateLimiterConfig builds the ratelimiter.Config used by gRPC admission.
 func (c GRPCConfig) RateLimiterConfig() ratelimiter.Config {
 	return ratelimiter.Config{
 		RPS:               c.IPRateLimitRPS,

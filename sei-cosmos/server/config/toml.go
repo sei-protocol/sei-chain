@@ -260,7 +260,7 @@ keepalive-min-time = "{{ .GRPC.KeepaliveMinTime }}"
 # KeepalivePermitWithoutStream defines whether the server allows keepalive pings even when there are no active streams.
 keepalive-permit-without-stream = {{ .GRPC.KeepalivePermitWithoutStream }}
 
-# ip-rate-limit-rps is the per-IP sustained request rate in requests/second for native gRPC (:9090).
+# ip-rate-limit-rps is the per-IP sustained request rate in requests/second.
 # Zero disables per-IP throttling; set rate-limiting-enabled = false for a full bypass.
 ip-rate-limit-rps = {{ .GRPC.IPRateLimitRPS }}
 
@@ -268,9 +268,9 @@ ip-rate-limit-rps = {{ .GRPC.IPRateLimitRPS }}
 # Zero disables per-IP throttling (same effect as ip-rate-limit-rps = 0).
 ip-rate-limit-burst = {{ .GRPC.IPRateLimitBurst }}
 
-# rate-limiting-enabled is the master switch for gRPC rate-limit admission interceptors.
-# These interceptors also govern gRPC-Web (:9091), which wraps the same server, and its
-# traffic draws from the same per-IP buckets as native gRPC (:9090).
+# rate-limiting-enabled is the master switch for gRPC rate-limit admission.
+# It governs gRPC-Web (:9091) as well as native gRPC (:9090), and both planes draw
+# from the same per-IP buckets.
 rate-limiting-enabled = {{ .GRPC.RateLimitingEnabled }}
 
 # trusted-proxy-cidrs lists CIDRs whose x-forwarded-for metadata is trusted when

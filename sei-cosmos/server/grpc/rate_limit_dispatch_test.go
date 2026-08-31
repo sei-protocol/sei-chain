@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,6 +11,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding"
+	"google.golang.org/grpc/encoding/proto"
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	"google.golang.org/grpc/status"
 
@@ -108,4 +111,49 @@ func TestStreamRateLimitInterceptor_ReflectionChargesPerMessage(t *testing.T) {
 	_, err = stream.Recv()
 	require.Error(t, err)
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+}
+
+// countingCodec delegates to the server's proto codec and counts the request
+// messages it decodes.
+type countingCodec struct {
+	encoding.Codec
+	unmarshals atomic.Int64
+}
+
+func (c *countingCodec) Unmarshal(data []byte, v interface{}) error {
+	c.unmarshals.Add(1)
+	return c.Codec.Unmarshal(data, v)
+}
+
+// TestRateLimitTapHandle_RejectsBeforeRequestIsDecoded is the reason the tap
+// handler exists: a throttled caller must not reach the protobuf decoder, which
+// an interceptor cannot prevent because gRPC decodes the request before the
+// interceptor chain runs.
+func TestRateLimitTapHandle_RejectsBeforeRequestIsDecoded(t *testing.T) {
+	registry := mustNewRegistry(t, cfg(0.001, 1))
+	codec := &countingCodec{Codec: encoding.GetCodec(proto.Name)}
+
+	srv := grpc.NewServer(
+		grpc.InTapHandle(RateLimitTapHandle(registry)),
+		grpc.ForceServerCodec(codec),
+	)
+	testdata.RegisterQueryServer(srv, testdata.QueryImpl{})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(listener) }()
+	t.Cleanup(srv.Stop)
+
+	conn, err := grpc.Dial(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	client := testdata.NewQueryClient(conn)
+
+	_, err = client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), codec.unmarshals.Load())
+
+	_, err = client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.Equal(t, int64(1), codec.unmarshals.Load(), "rejected request must not reach the decoder")
 }

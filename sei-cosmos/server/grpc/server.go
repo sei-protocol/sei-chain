@@ -22,7 +22,7 @@ import (
 
 var logger = seilog.NewLogger("cosmos", "server", "grpc")
 
-// rateLimitServerOptions returns the unary and stream interceptor options that
+// rateLimitServerOptions returns the tap-handler and interceptor options that
 // apply per-IP admission to the gRPC plane. It returns nil when cfg leaves
 // rate limiting disabled.
 func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *ratelimiter.Registry, error) {
@@ -33,9 +33,9 @@ func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *rateli
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc rate limiter: %w", err)
 	}
-	// A zeroed bucket makes Allow admit unconditionally, so the interceptors
-	// install and throttle nothing. The CometBFT RPC plane logs the same
-	// combination; without this the gRPC plane would fail open silently.
+	// A zeroed bucket makes Allow admit unconditionally, so admission installs and
+	// throttles nothing. The CometBFT RPC plane logs the same combination; without
+	// this the gRPC plane would fail open silently.
 	if cfg.IPRateLimitRPS <= 0 || cfg.IPRateLimitBurst <= 0 {
 		logger.Info(
 			"gRPC rate-limit admission is enabled but the token bucket is disabled "+
@@ -45,6 +45,12 @@ func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *rateli
 		)
 	}
 	return []grpc.ServerOption{
+		// Admission happens before the request is decoded: the tap handler
+		// covers native gRPC, and RateLimitHTTPMiddleware covers gRPC-Web,
+		// which reaches this server through ServeHTTP. The interceptors charge
+		// what neither can see, each message on an established stream, and
+		// admit any RPC that arrived uncharged.
+		grpc.InTapHandle(RateLimitTapHandle(registry)),
 		grpc.ChainUnaryInterceptor(UnaryRateLimitInterceptor(registry)),
 		grpc.ChainStreamInterceptor(StreamRateLimitInterceptor(registry)),
 	}, registry, nil
@@ -63,8 +69,10 @@ func registeredMethods(srv *grpc.Server) []string {
 	return methods
 }
 
-// StartGRPCServer starts a gRPC server on the address given by cfg.
-func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig) (*grpc.Server, error) {
+// StartGRPCServer starts a gRPC server on the address given by cfg. It returns
+// the rate-limit registry the server admits against, or nil when cfg leaves rate
+// limiting disabled, so the gRPC-Web server can share the same per-IP buckets.
+func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config.GRPCConfig) (*grpc.Server, *ratelimiter.Registry, error) {
 	maxRecvMsgSize := cfg.MaxRecvMsgSize
 	if maxRecvMsgSize <= 0 {
 		maxRecvMsgSize = config.DefaultGRPCMaxRecvMsgSize
@@ -72,13 +80,13 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 
 	rateLimitOpts, rateLimitRegistry, err := rateLimitServerOptions(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	serverOpts := append([]grpc.ServerOption{
 		grpc.MaxConcurrentStreams(100),
-		// MaxRecvMsgSize bounds per-request memory allocation before the rate
-		// limiter fires, preventing an oversized request from exhausting memory.
+		// MaxRecvMsgSize bounds the memory an admitted request may allocate,
+		// preventing an oversized request from exhausting memory.
 		grpc.MaxRecvMsgSize(maxRecvMsgSize),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     cfg.MaxConnectionIdle,
@@ -110,7 +118,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		InterfaceRegistry: clientCtx.InterfaceRegistry,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Reflection allows external clients to see what services and methods
 	// the gRPC server exposes.
@@ -121,7 +129,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 
 	listener, err := net.Listen("tcp", cfg.Address)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if cfg.MaxOpenConnections > 0 {
 		maxConn := cfg.MaxOpenConnections
@@ -141,8 +149,8 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 
 	select {
 	case err := <-errCh:
-		return nil, err
+		return nil, nil, err
 	case <-time.After(types.ServerStartTime): // assume server started successfully
-		return grpcSrv, nil
+		return grpcSrv, rateLimitRegistry, nil
 	}
 }
