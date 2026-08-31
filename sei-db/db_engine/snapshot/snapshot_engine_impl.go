@@ -1174,7 +1174,7 @@ func (c *snapshotEngine) flushSnapshots(
 	for version := firstVersion; version < lastVersion; version++ {
 		versionsInBatch++
 		if batch == nil {
-			batch = c.db.NewBatch()
+			batch = c.db.NewBatch() // TODO CLAUDE: when porting this over, look into `NewBatchWithSize()` to save on allocations
 		}
 
 		// Each version's writes were gathered and ordered by key on the sort pool when the version was
