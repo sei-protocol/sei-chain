@@ -7,6 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -17,6 +21,7 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/api"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server/grpc/gogoreflection"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -95,6 +100,7 @@ func rateLimitedGRPCConfig(rps float64, burst int) config.GRPCConfig {
 // in StartGRPCServer itself: without the interceptor options it appends, a
 // second query from the same IP would be served rather than rejected.
 func TestStartGRPCServer_RateLimitingEnabledInstallsInterceptors(t *testing.T) {
+	reader := collectRejectionMetrics(t)
 	client := startRateLimitedGRPCServer(t, rateLimitedGRPCConfig(0.001, 1))
 
 	res, err := client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
@@ -104,6 +110,40 @@ func TestStartGRPCServer_RateLimitingEnabledInstallsInterceptors(t *testing.T) {
 	_, err = client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
 	require.Error(t, err)
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+
+	// StartGRPCServer hands the registry its registered methods, so the
+	// rejection is labelled with the method rather than "other".
+	require.Contains(t, rejectionMethodLabels(t, reader), "testdata.Query/Echo")
+}
+
+func collectRejectionMetrics(t *testing.T) *sdkmetric.ManualReader {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+	return reader
+}
+
+func rejectionMethodLabels(t *testing.T, reader *sdkmetric.ManualReader) []string {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	labels := []string{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "rpc_rate_limit_rejected_total" {
+				continue
+			}
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				if v, ok := dp.Attributes.Value(attribute.Key("method_namespace")); ok {
+					labels = append(labels, v.AsString())
+				}
+			}
+		}
+	}
+	return labels
 }
 
 // TestStartGRPCServer_RateLimitingDisabledSkipsInterceptors pins the master
@@ -129,4 +169,14 @@ func TestStartGRPCServer_MalformedTrustedProxyCIDR(t *testing.T) {
 
 	_, err := StartGRPCServer(client.Context{}, startGRPCServerApp{}, cfg)
 	require.ErrorContains(t, err, "grpc rate limiter")
+}
+
+func TestRegisteredMethods(t *testing.T) {
+	srv := grpc.NewServer()
+	testdata.RegisterQueryServer(srv, testdata.QueryImpl{})
+	gogoreflection.Register(srv)
+
+	methods := registeredMethods(srv)
+	require.Contains(t, methods, "testdata.Query/Echo")
+	require.Contains(t, methods, "grpc.reflection.v1.ServerReflection/ServerReflectionInfo")
 }

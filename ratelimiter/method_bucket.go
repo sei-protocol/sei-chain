@@ -77,37 +77,11 @@ var knownCometBFTRPCMethods = map[string]struct{}{
 	"websocket":            {},
 }
 
-// knownGRPCServices lists protobuf service names registered on the native gRPC
-// server. Rejection metrics on PlaneGRPC record the service name rather than
-// the full /service/Method path, keeping OTel attribute cardinality bounded.
-var knownGRPCServices = map[string]struct{}{
-	"cosmos.auth.v1beta1.Query":                         {},
-	"cosmos.authz.v1beta1.Query":                        {},
-	"cosmos.bank.v1beta1.Query":                         {},
-	"cosmos.base.reflection.v1beta1.ReflectionService":  {},
-	"cosmos.base.reflection.v2alpha1.ReflectionService": {},
-	"cosmos.base.tendermint.v1beta1.Service":            {},
-	"cosmos.distribution.v1beta1.Query":                 {},
-	"cosmos.evidence.v1beta1.Query":                     {},
-	"cosmos.gov.v1beta1.Query":                          {},
-	"cosmos.params.v1beta1.Query":                       {},
-	"cosmos.slashing.v1beta1.Query":                     {},
-	"cosmos.staking.v1beta1.Query":                      {},
-	"cosmos.tx.v1beta1.Service":                         {},
-	"cosmos.upgrade.v1beta1.Query":                      {},
-	"cosmwasm.wasm.v1.Query":                            {},
-	"grpc.reflection.v1.ServerReflection":               {},
-	"seiprotocol.seichain.epoch.Query":                  {},
-	"seiprotocol.seichain.evm.Query":                    {},
-	"seiprotocol.seichain.mint.Query":                   {},
-	"seiprotocol.seichain.oracle.Query":                 {},
-	"seiprotocol.seichain.tokenfactory.Query":           {},
-}
-
 // bucketRPCMethod maps a raw JSON-RPC method name to a low-cardinality label
 // suitable for OTel/Prometheus metrics. Attacker-controlled method strings
-// collapse to rpcMethodBucketOther.
-func bucketRPCMethod(plane, method string) string {
+// collapse to rpcMethodBucketOther. knownGRPCMethods bounds the PlaneGRPC label
+// set; the other planes ignore it.
+func bucketRPCMethod(plane, method string, knownGRPCMethods map[string]struct{}) string {
 	if method == MethodInvalid {
 		return MethodInvalid
 	}
@@ -115,32 +89,20 @@ func bucketRPCMethod(plane, method string) string {
 		return bucketCometBFTRPCMethod(method)
 	}
 	if plane == PlaneGRPC {
-		return bucketGRPCMethod(method)
+		return bucketGRPCMethod(method, knownGRPCMethods)
 	}
 	return bucketNamespacedRPCMethod(method)
 }
 
-func bucketGRPCMethod(fullMethod string) string {
+func bucketGRPCMethod(fullMethod string, known map[string]struct{}) string {
 	if fullMethod == "" || len(fullMethod) > maxRPCMethodLen {
 		return rpcMethodBucketOther
 	}
-	svc := grpcServiceFromFullMethod(fullMethod)
-	if svc == "" || len(svc) > maxRPCMethodLen {
-		return rpcMethodBucketOther
-	}
-	if _, ok := knownGRPCServices[svc]; ok {
-		return svc
+	name := strings.TrimPrefix(fullMethod, "/")
+	if _, ok := known[name]; ok {
+		return name
 	}
 	return rpcMethodBucketOther
-}
-
-func grpcServiceFromFullMethod(fullMethod string) string {
-	method := strings.TrimPrefix(fullMethod, "/")
-	slash := strings.LastIndexByte(method, '/')
-	if slash <= 0 {
-		return ""
-	}
-	return method[:slash]
 }
 
 func bucketCometBFTRPCMethod(method string) string {

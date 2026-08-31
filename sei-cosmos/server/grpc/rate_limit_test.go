@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"io"
 	"net"
 	"testing"
 
@@ -91,10 +92,12 @@ func TestUnaryRateLimitInterceptor_TrustedProxyXFF(t *testing.T) {
 
 type mockServerStream struct {
 	grpc.ServerStream
-	ctx context.Context
+	ctx     context.Context
+	recvErr error
 }
 
-func (m mockServerStream) Context() context.Context { return m.ctx }
+func (m mockServerStream) Context() context.Context  { return m.ctx }
+func (m mockServerStream) RecvMsg(interface{}) error { return m.recvErr }
 
 func TestStreamRateLimitInterceptor_AllowThenReject(t *testing.T) {
 	reg := mustNewRegistry(t, cfg(0.001, 1))
@@ -159,4 +162,30 @@ func TestUnaryRateLimitInterceptor_RealTCPAddr(t *testing.T) {
 	require.NoError(t, err)
 	_, err = ic(ctx, nil, info, handler)
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+}
+
+func TestStreamRateLimitInterceptor_ChargesPerInboundMessage(t *testing.T) {
+	reg := mustNewRegistry(t, cfg(0.001, 2))
+	ic := StreamRateLimitInterceptor(reg)
+	handler := func(_ interface{}, stream grpc.ServerStream) error {
+		require.NoError(t, stream.RecvMsg(nil))
+		return stream.RecvMsg(nil)
+	}
+	info := &grpc.StreamServerInfo{FullMethod: "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"}
+	stream := mockServerStream{ctx: grpcCtx(t.Context(), "10.0.0.1:9000")}
+
+	err := ic(nil, stream, info, handler)
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+}
+
+func TestStreamRateLimitInterceptor_RecvErrorIsNotCharged(t *testing.T) {
+	reg := mustNewRegistry(t, cfg(0.001, 1))
+	ic := StreamRateLimitInterceptor(reg)
+	handler := func(_ interface{}, stream grpc.ServerStream) error {
+		return stream.RecvMsg(nil)
+	}
+	info := &grpc.StreamServerInfo{FullMethod: "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"}
+	stream := mockServerStream{ctx: grpcCtx(t.Context(), "10.0.0.1:9000"), recvErr: io.EOF}
+
+	require.Equal(t, io.EOF, ic(nil, stream, info, handler))
 }

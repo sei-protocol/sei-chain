@@ -25,13 +25,10 @@ func UnaryRateLimitInterceptor(registry *ratelimiter.Registry) grpc.UnaryServerI
 }
 
 // StreamRateLimitInterceptor returns a server interceptor that applies per-IP
-// token-bucket rate limiting at stream establishment. registry must be non-nil.
+// token-bucket rate limiting to client streams. registry must be non-nil.
 //
-// Admission is per stream, not per message: one token is spent when the stream
-// opens and messages sent on an admitted stream are not accounted. The only
-// streaming surface on :9090 is server reflection, whose bidirectional
-// ServerReflectionInfo can therefore serve unbounded descriptor lookups over a
-// single admitted stream.
+// A stream costs one token to establish and one more per inbound message, so an
+// admitted stream cannot serve unbounded work.
 func StreamRateLimitInterceptor(registry *ratelimiter.Registry) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := ss.Context()
@@ -39,6 +36,32 @@ func StreamRateLimitInterceptor(registry *ratelimiter.Registry) grpc.StreamServe
 		if !registry.Allow(ctx, ip, ratelimiter.PlaneGRPC, info.FullMethod) {
 			return errRateLimited
 		}
-		return handler(srv, ss)
+		return handler(srv, rateLimitedServerStream{
+			ServerStream: ss,
+			registry:     registry,
+			ip:           ip,
+			method:       info.FullMethod,
+		})
 	}
+}
+
+// rateLimitedServerStream charges the per-IP bucket for each message the client
+// sends on an admitted stream.
+type rateLimitedServerStream struct {
+	grpc.ServerStream
+
+	registry *ratelimiter.Registry
+	ip       string
+	method   string
+}
+
+func (s rateLimitedServerStream) RecvMsg(m interface{}) error {
+	// Charge after the read so a blocked stream holds no token and EOF is free.
+	if err := s.ServerStream.RecvMsg(m); err != nil {
+		return err
+	}
+	if !s.registry.Allow(s.Context(), s.ip, ratelimiter.PlaneGRPC, s.method) {
+		return errRateLimited
+	}
+	return nil
 }

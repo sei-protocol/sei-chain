@@ -25,13 +25,13 @@ var logger = seilog.NewLogger("cosmos", "server", "grpc")
 // rateLimitServerOptions returns the unary and stream interceptor options that
 // apply per-IP admission to the gRPC plane. It returns nil when cfg leaves
 // rate limiting disabled.
-func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, error) {
+func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *ratelimiter.Registry, error) {
 	if !cfg.RateLimitingEnabled {
-		return nil, nil
+		return nil, nil, nil
 	}
 	registry, err := ratelimiter.New(cfg.RateLimiterConfig())
 	if err != nil {
-		return nil, fmt.Errorf("grpc rate limiter: %w", err)
+		return nil, nil, fmt.Errorf("grpc rate limiter: %w", err)
 	}
 	// A zeroed bucket makes Allow admit unconditionally, so the interceptors
 	// install and throttle nothing. The CometBFT RPC plane logs the same
@@ -47,7 +47,20 @@ func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, error) 
 	return []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(UnaryRateLimitInterceptor(registry)),
 		grpc.ChainStreamInterceptor(StreamRateLimitInterceptor(registry)),
-	}, nil
+	}, registry, nil
+}
+
+// registeredMethods returns the "service/Method" name of every method served by
+// srv.
+func registeredMethods(srv *grpc.Server) []string {
+	info := srv.GetServiceInfo()
+	methods := make([]string, 0, len(info))
+	for service, svcInfo := range info {
+		for _, m := range svcInfo.Methods {
+			methods = append(methods, service+"/"+m.Name)
+		}
+	}
+	return methods
 }
 
 // StartGRPCServer starts a gRPC server on the address given by cfg.
@@ -57,7 +70,7 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 		maxRecvMsgSize = config.DefaultGRPCMaxRecvMsgSize
 	}
 
-	rateLimitOpts, err := rateLimitServerOptions(cfg)
+	rateLimitOpts, rateLimitRegistry, err := rateLimitServerOptions(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +115,10 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 	// Reflection allows external clients to see what services and methods
 	// the gRPC server exposes.
 	gogoreflection.Register(grpcSrv)
+	if rateLimitRegistry != nil {
+		rateLimitRegistry.SetKnownGRPCMethods(registeredMethods(grpcSrv))
+	}
+
 	listener, err := net.Listen("tcp", cfg.Address)
 	if err != nil {
 		return nil, err
