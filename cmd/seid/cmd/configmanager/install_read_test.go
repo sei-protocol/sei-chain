@@ -176,6 +176,17 @@ func TestOnlyTheBootReportsTheRoutineLine(t *testing.T) {
 					tc.command, said, tc.routine, out)
 			}
 		})
+
+		// The sibling line is routine for the same reason and sits at the same floor.
+		t.Run(tc.command+" with a file supplying nothing", func(t *testing.T) {
+			out := installOnCommand(t, tc.command, "schema_version = 1\nnode_mode = \"validator\"\n",
+				slog.LevelInfo)
+			said := strings.Contains(out, "supplies no declared value")
+			if said != tc.routine {
+				t.Errorf("`seid %s` reports the empty-file line at info: %v, want %v.\n%s",
+					tc.command, said, tc.routine, out)
+			}
+		})
 	}
 }
 

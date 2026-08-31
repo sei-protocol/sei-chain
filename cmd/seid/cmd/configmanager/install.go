@@ -92,15 +92,23 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 
 	reportWhatTheFileSaysTheNodeIs(ctx, mode, log)
 
+	// Every subcommand installs, and only one of them runs a node. The routine lines below say what an
+	// ordinary boot did, and on `seid keys list` nobody asked. What was refused or held back still reports
+	// on any command, because those are problems.
+	said := log.Info
+	if !runsANode(cmd) {
+		said = log.Debug
+	}
+
 	heldForADecode := registry.SuppliedByDecodedSection(resolved)
 	reportWhatThisInstallHoldsBack(heldForADecode, log)
 
 	supplied := onlyWhatALookupSourceSupplied(resolved)
 	if len(supplied.Values) == 0 {
-		// Only when the file supplied nothing at all. A file whose every key belongs to a decoded section
+		// Only when nothing at all was supplied. A file whose every key belongs to a decoded section
 		// supplies plenty, and saying otherwise names the operator's file for something it did not do.
 		if len(heldForADecode) == 0 {
-			log.Info("sei.toml supplies no declared value; every key reads as it always has", "mode", mode)
+			said("sei.toml supplies no declared value; every key reads as it always has", "mode", mode)
 		}
 		return
 	}
@@ -115,13 +123,6 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// away.
 	installed, omittedInstalled := capLoggedItems(report.Installed)
 	added, omittedAdded := capLoggedItems(report.Added)
-	// Every subcommand installs, and only one of them runs a node. `seid keys list` on a node with a
-	// sei.toml should not print a configuration line, least of all at a level held above the operator's
-	// own. What was refused or held back still reports on any command, because those are problems.
-	said := log.Info
-	if !runsANode(cmd) {
-		said = log.Debug
-	}
 	said("configuration installed", "mode", mode,
 		"count", len(report.Installed), "installed", strings.Join(installed, ","),
 		"omitted", omittedInstalled,
@@ -185,15 +186,19 @@ func onlyWhatALookupSourceSupplied(resolved registry.Resolved) registry.Resolved
 	return out
 }
 
-// reportWhatThisInstallHoldsBack names the keys an operator supplied that this install cannot deliver.
+// reportWhatThisInstallHoldsBack names the supplied keys this install cannot deliver.
 //
 // A section whose reader decodes its file whole was read before this ran, so putting a value into the
 // source reaches nothing for it. Those keys are left out on purpose.
 //
 // Left unreported they are invisible. They are absent from what was installed, and they are declared, so
-// they are absent from the undeclared keys too. An operator whose file holds only such keys would be told
-// it supplied nothing while their node ran the old values, which is the failure this whole surface exists
+// they are absent from the undeclared keys too. An operator who supplied only such keys would be told
+// nothing was supplied while their node ran the old values, which is the failure this whole surface exists
 // to remove.
+//
+// No source is named, because the resolution does not record which one answered. A file, a variable and a
+// flag all arrive here as an override, and naming the file for a value an environment variable supplied is
+// the same misattribution the undeclared-key report was split apart to end.
 func reportWhatThisInstallHoldsBack(bySection map[string]map[string]any, log *slog.Logger) {
 	if len(bySection) == 0 {
 		return
@@ -206,7 +211,7 @@ func reportWhatThisInstallHoldsBack(bySection map[string]map[string]any, log *sl
 	}
 	sort.Strings(keys)
 	shown, omitted := capLoggedItems(keys)
-	log.Warn("sei.toml supplies keys whose reader decodes its file whole; this install cannot deliver "+
+	log.Warn("a source supplies keys whose reader decodes its file whole; this install cannot deliver "+
 		"them and they read as they always have",
 		"count", len(keys), "keys", strings.Join(shown, ","), "omitted", omitted)
 }
