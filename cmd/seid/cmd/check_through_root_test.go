@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
-// runCheckThroughRoot runs `sei-config check --home <dir>` the way an operator and a runbook run it.
+// runCheckThroughRoot runs `config check --home <dir>` the way an operator and a runbook run it.
 //
 // Through the real root command, because that is what makes the difference. A command executed on its own
 // has no parent, so nothing the root does before it happens: no hook runs, no flag is marked changed by
@@ -26,7 +26,7 @@ func runCheckThroughRoot(t *testing.T, home string, extraArgs ...string) (string
 	root.SetErr(&out)
 	root.SilenceUsage = true
 	root.SilenceErrors = true
-	root.SetArgs(append([]string{"sei-config", "check", "--home", home}, extraArgs...))
+	root.SetArgs(append([]string{"config", "check", "--home", home}, extraArgs...))
 
 	// The binary's own entry point rather than a copy of it. It registers the two logging flags, seeds the
 	// client and server contexts, and runs PrepareBaseCmd, which is what registers --home. Re-implementing

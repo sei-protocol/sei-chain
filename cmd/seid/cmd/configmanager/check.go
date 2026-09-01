@@ -49,6 +49,17 @@ func CheckCmd() *cobra.Command {
 		// cobra would follow this command's error with the whole usage block into the same stdout the
 		// report was just written to.
 		SilenceUsage: true,
+		// A hook of its own, which stops the root one from running. Cobra runs the closest hook it finds,
+		// so this covers only this command. Two things follow, and both are required.
+		//
+		// The root hook writes files. It runs the configuration handler, which generates config.toml and
+		// app.toml when they are absent, so a command that answers a question about a file would create
+		// two others as a side effect.
+		//
+		// It also copies configuration values into flags and marks them changed. That is the state which
+		// makes a flag indistinguishable from a key an operator's app.toml holds. This command reports on
+		// what was typed, so it has to read the flags before that happens.
+		PersistentPreRunE: func(*cobra.Command, []string) error { return nil },
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 
