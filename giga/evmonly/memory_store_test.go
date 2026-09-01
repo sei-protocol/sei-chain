@@ -104,17 +104,17 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.False(t, ok)
 
 	require.Equal(t, int64(0), initial.GetBlockHeight())
-	require.Equal(t, big.NewInt(10), gigaHashToBig(initial.GetBalance(gigastore.Address(address))))
-	require.Equal(t, uint64(1), initial.GetNonce(gigastore.Address(address)))
-	require.Equal(t, common.HexToHash("0xaa"), common.Hash(initial.GetStorage(gigastore.Address(address), gigastore.Hash(baseSlot))))
+	require.Equal(t, big.NewInt(10), gigaHashToBig(initial.GetBalance(address)))
+	require.Equal(t, uint64(1), initial.GetNonce(address))
+	require.Equal(t, common.HexToHash("0xaa"), initial.GetStorage(address, baseSlot))
 
 	for _, snapshot := range []gigastore.StateView{current, historical} {
 		require.Equal(t, int64(7), snapshot.GetBlockHeight())
-		require.Equal(t, big.NewInt(20), gigaHashToBig(snapshot.GetBalance(gigastore.Address(address))))
-		require.Equal(t, uint64(2), snapshot.GetNonce(gigastore.Address(address)))
-		require.Equal(t, []byte{0x60, 0x01}, snapshot.GetCode(gigastore.Address(address)))
-		require.Equal(t, gigastore.Hash{}, snapshot.GetStorage(gigastore.Address(address), gigastore.Hash(baseSlot)))
-		require.Equal(t, common.HexToHash("0xbb"), common.Hash(snapshot.GetStorage(gigastore.Address(address), gigastore.Hash(newSlot))))
+		require.Equal(t, big.NewInt(20), gigaHashToBig(snapshot.GetBalance(address)))
+		require.Equal(t, uint64(2), snapshot.GetNonce(address))
+		require.Equal(t, []byte{0x60, 0x01}, snapshot.GetCode(address))
+		require.Equal(t, gigastore.Hash{}, snapshot.GetStorage(address, baseSlot))
+		require.Equal(t, common.HexToHash("0xbb"), snapshot.GetStorage(address, newSlot))
 	}
 
 	deleteChanges, err := store.EncodeChangeSet(StateChangeSet{
@@ -128,10 +128,10 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.CommitStateChanges(8, deleteChanges))
 	afterDelete := store.OpenView()
-	require.Empty(t, afterDelete.GetCode(gigastore.Address(address)))
-	require.Equal(t, gigastore.Hash{}, afterDelete.GetStorage(gigastore.Address(address), gigastore.Hash(newSlot)))
-	require.Equal(t, []byte{0x60, 0x01}, historical.GetCode(gigastore.Address(address)))
-	require.Equal(t, common.HexToHash("0xbb"), common.Hash(historical.GetStorage(gigastore.Address(address), gigastore.Hash(newSlot))))
+	require.Empty(t, afterDelete.GetCode(address))
+	require.Equal(t, gigastore.Hash{}, afterDelete.GetStorage(address, newSlot))
+	require.Equal(t, []byte{0x60, 0x01}, historical.GetCode(address))
+	require.Equal(t, common.HexToHash("0xbb"), historical.GetStorage(address, newSlot))
 
 	initial.Close()
 	current.Close()
@@ -183,10 +183,10 @@ func TestMemoryStoreTracksZeroValueAndStorageOnlyAccounts(t *testing.T) {
 	defer before.Close()
 	defer after.Close()
 
-	require.False(t, before.AccountExists(gigastore.Address(zeroValueAddress)))
-	require.False(t, before.AccountExists(gigastore.Address(storageOnlyAddress)))
-	require.True(t, after.AccountExists(gigastore.Address(zeroValueAddress)))
-	require.True(t, after.AccountExists(gigastore.Address(storageOnlyAddress)))
+	require.False(t, before.AccountExists(zeroValueAddress))
+	require.False(t, before.AccountExists(storageOnlyAddress))
+	require.True(t, after.AccountExists(zeroValueAddress))
+	require.True(t, after.AccountExists(storageOnlyAddress))
 }
 
 func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
@@ -215,8 +215,8 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 	snapshot := store.OpenView()
 	defer snapshot.Close()
 	require.Equal(t, int64(2), snapshot.GetBlockHeight())
-	require.Equal(t, uint64(2), snapshot.GetNonce(gigastore.Address(sender)))
-	require.Equal(t, big.NewInt(2), gigaHashToBig(snapshot.GetBalance(gigastore.Address(recipient))))
+	require.Equal(t, uint64(2), snapshot.GetNonce(sender))
+	require.Equal(t, big.NewInt(2), gigaHashToBig(snapshot.GetBalance(recipient)))
 }
 
 func gigaHashToBig(value gigastore.Hash) *big.Int {

@@ -31,6 +31,21 @@ func TestReadReceiptConfigReadWriteMetrics(t *testing.T) {
 	require.True(t, cfg.EnableReadWriteMetrics)
 }
 
+func TestReadReceiptConfigEnable(t *testing.T) {
+	// An app.toml written before this key existed carries no rs-enable, and such a node must keep
+	// the store it already has rather than losing its receipt history to an absent key.
+	cfg, err := ReadReceiptConfig(mapAppOpts{})
+	require.NoError(t, err)
+	require.True(t, cfg.Enable)
+
+	// Override is read through, which is the only way to turn the store off.
+	cfg, err = ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-enable": false,
+	})
+	require.NoError(t, err)
+	require.False(t, cfg.Enable)
+}
+
 func TestReadReceiptConfigLogFilterParallelism(t *testing.T) {
 	// Defaults when unset.
 	cfg, err := ReadReceiptConfig(mapAppOpts{})

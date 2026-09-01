@@ -1,29 +1,19 @@
 package giga
 
-const (
-	AddressLen = 20
-	HashLen    = 32
+import (
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// Address is an EVM address (20 bytes). It intentionally avoids depending on
-// go-ethereum/evmc types since sei-db is a generic storage layer; callers can
-// convert to/from common.Address or evmc.Address, which share the same
-// underlying [20]byte layout.
-type Address [AddressLen]byte
+// Address is an EVM account address.
+type Address = common.Address
 
-// Hash is a 256-bit value (32 bytes), used here for storage slots, balances,
-// and code hashes. Like Address, it can be freely converted to/from common.Hash or evmc.Hash.
-type Hash [HashLen]byte
+// Hash is a 256-bit value used for storage slots, balances, and code hashes.
+type Hash = common.Hash
 
 // EmptyCodeHash is keccak256 of the empty byte string, the code hash EVM semantics assign to an
-// account that exists and holds no code. Written out rather than imported from go-ethereum for the
-// same reason Address and Hash are declared here, and pinned against ethtypes.EmptyCodeHash by test.
-var EmptyCodeHash = Hash{
-	0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c,
-	0x92, 0x7e, 0x7d, 0xb2, 0xdc, 0xc7, 0x03, 0xc0,
-	0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b,
-	0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
-}
+// account that exists and holds no code.
+var EmptyCodeHash = crypto.Keccak256Hash(nil)
 
 // StateView is a read-only, point-in-time view over the store's raw key/value data, plus (via the
 // embedded EVMStateView) EVM-specific accessors for account/storage/code/balance/nonce reads.
