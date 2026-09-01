@@ -314,18 +314,9 @@ index d76768d..26c729d 100644
          return ExecuteResult(
              benchmark_gas_used=benchmark_gas_used,
 diff --git a/packages/testing/src/execution_testing/rpc/rpc.py b/packages/testing/src/execution_testing/rpc/rpc.py
-index 58cfb1403..69caa4e7f 100644
+index 58cfb1403..dd90cf9d4 100644
 --- a/packages/testing/src/execution_testing/rpc/rpc.py
 +++ b/packages/testing/src/execution_testing/rpc/rpc.py
-@@ -72,7 +72,7 @@ TimeoutType = float | tuple[float, float] | None
- # request whose packets are silently dropped (e.g. by docker network
- # churn in hive) blocks until the kernel abandons TCP retransmission,
- # which takes ~15 minutes on Linux.
--DEFAULT_REQUEST_TIMEOUT: TimeoutType = (10.0, 300.0)
-+DEFAULT_REQUEST_TIMEOUT: TimeoutType = (10.0, 10.0)
- 
- 
- class SendTransactionExceptionError(Exception):
 @@ -797,6 +797,7 @@ class EthRPC(BaseRPC):
          self, transaction_hash: Hash
      ) -> TransactionByHashResponse | None:
