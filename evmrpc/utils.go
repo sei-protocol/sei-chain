@@ -200,11 +200,11 @@ type indexedMsg struct {
 	index int
 }
 
-// requireReceiptStore returns ErrNotConfigured when the node was started with
-// rs-enable = false. Callers that would otherwise treat a missing receipt as
-// "skip this tx" must fail here, or they answer with empty data.
+// requireReceiptStore returns ErrNotConfigured unless k holds a receipt store, which a node
+// started with rs-enable = false does not. Callers that would otherwise treat a missing receipt
+// as "skip this tx" must fail here, or they answer with empty data.
 func requireReceiptStore(k *keeper.Keeper) error {
-	if k.ReceiptStore() == nil {
+	if k == nil || k.ReceiptStore() == nil {
 		return receipt.ErrNotConfigured
 	}
 	return nil

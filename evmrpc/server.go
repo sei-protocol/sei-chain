@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -36,10 +35,10 @@ type EVMServer interface {
 // requireReceiptStoreForServing returns ErrNotConfigured when k has no receipt store. EVM RPC
 // refuses to start in that state rather than failing method by method.
 func requireReceiptStoreForServing(k *keeper.Keeper) error {
-	if k.ReceiptStore() != nil {
-		return nil
+	if err := requireReceiptStore(k); err != nil {
+		return fmt.Errorf("%w: EVM RPC cannot serve requests without receipt-store.rs-enable = true", err)
 	}
-	return fmt.Errorf("%w: EVM RPC cannot serve requests without receipt-store.rs-enable = true", receipt.ErrNotConfigured)
+	return nil
 }
 
 func NewEVMHTTPServer(

@@ -14,6 +14,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// A nil keeper holds no receipt store, so both guards answer instead of dereferencing it.
+func TestRequireReceiptStoreWithNilKeeper(t *testing.T) {
+	t.Parallel()
+
+	require.ErrorIs(t, requireReceiptStore(nil), receipt.ErrNotConfigured)
+	require.ErrorIs(t, requireReceiptStoreForServing(nil), receipt.ErrNotConfigured)
+}
+
 // TestGetLogsByFiltersWithoutReceiptStore pins that a node with rs-enable = false
 // fails log queries instead of answering [] for ranges that contained logs.
 func TestGetLogsByFiltersWithoutReceiptStore(t *testing.T) {
