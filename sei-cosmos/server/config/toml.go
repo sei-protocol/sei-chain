@@ -261,6 +261,9 @@ keepalive-min-time = "{{ .GRPC.KeepaliveMinTime }}"
 keepalive-permit-without-stream = {{ .GRPC.KeepalivePermitWithoutStream }}
 
 # ip-rate-limit-rps is the per-IP sustained request rate in requests/second.
+# Buckets are keyed by client address alone, so all local clients reaching the
+# node over 127.0.0.1 share one bucket, as does anything behind a single egress
+# address not covered by trusted-proxy-cidrs.
 # Zero disables per-IP throttling; set rate-limiting-enabled = false for a full bypass.
 ip-rate-limit-rps = {{ .GRPC.IPRateLimitRPS }}
 

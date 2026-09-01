@@ -216,6 +216,9 @@ func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 }
 
 // bucketKey returns the LRU key for ip.
+// The key is the address alone, so every client sharing an address shares one
+// bucket: all processes reaching the node over 127.0.0.1, and any population
+// behind a single egress address that TrustedProxyCIDRs does not cover.
 // IPv6 addresses are masked to /64: a client rotating within a /64 prefix
 // would otherwise get a fresh bucket per address.
 func bucketKey(ip string) string {
