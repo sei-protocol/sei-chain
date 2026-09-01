@@ -35,6 +35,7 @@ const (
 	// MaxExecuteBatchMessages is the largest execute_batch message list.
 	MaxExecuteBatchMessages = 100
 	coinJSONParseFixedGas   = uint64(1_000)
+	coinJSONParseGasPerByte = uint64(100) // TODO: parameterize
 )
 
 var Address = common.HexToAddress(WasmdAddress)
@@ -507,7 +508,7 @@ func coinJSONParseGas(payloads [][]byte) uint64 {
 
 func coinJSONParseGasFor(messageCount, totalBytes uint64) uint64 {
 	fixedGas := saturatingMul(coinJSONParseFixedGas, messageCount)
-	byteGas := saturatingMul(pcommon.JSONParseGasPerByte, totalBytes)
+	byteGas := saturatingMul(coinJSONParseGasPerByte, totalBytes)
 	return saturatingAdd(fixedGas, byteGas)
 }
 

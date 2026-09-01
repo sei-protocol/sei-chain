@@ -4,7 +4,6 @@ import (
 	"math"
 	"testing"
 
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +12,7 @@ func TestParseCoinsMetersLogicalPayloads(t *testing.T) {
 	shared := []byte("[]")
 	payloads := [][]byte{shared, shared, shared}
 	wantGas := coinJSONParseFixedGas*uint64(len(payloads)) +
-		pcommon.JSONParseGasPerByte*uint64(len(shared)*len(payloads))
+		coinJSONParseGasPerByte*uint64(len(shared)*len(payloads))
 
 	ctx := sdk.Context{}.WithGasMeter(sdk.NewGasMeter(math.MaxUint64, 1, 1))
 	coins, err := parseCoins(ctx, payloads...)

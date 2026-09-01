@@ -2,7 +2,6 @@ package common
 
 import (
 	"encoding/binary"
-	"reflect"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -23,36 +22,35 @@ func abiWord(v uint64) []byte {
 	return b
 }
 
-func TestDecodePayloadBytes_Honest(t *testing.T) {
+func TestDecodeStringCopyBytes_Honest(t *testing.T) {
 	// A single string contributes its own length.
 	strArgs := abi.Arguments{{Type: mustABIType(t, "string", nil)}}
 	data, err := strArgs.Pack("hello")
 	require.NoError(t, err)
-	n, ok := decodePayloadBytes(strArgs, data)
+	n, ok := decodeStringCopyBytes(strArgs, data)
 	require.True(t, ok)
 	require.Equal(t, uint64(len("hello")), n)
 
-	// A bytes value contributes its own length.
+	// bytes are resliced by the decoder, not copied, so they cost nothing here.
 	bytesArgs := abi.Arguments{{Type: mustABIType(t, "bytes", nil)}}
-	bytesPayload := []byte("a reasonably long bytes payload")
-	data, err = bytesArgs.Pack(bytesPayload)
+	data, err = bytesArgs.Pack([]byte("a reasonably long bytes payload"))
 	require.NoError(t, err)
-	n, ok = decodePayloadBytes(bytesArgs, data)
+	n, ok = decodeStringCopyBytes(bytesArgs, data)
 	require.True(t, ok)
-	require.Equal(t, uint64(len(bytesPayload)), n)
+	require.Equal(t, uint64(0), n)
 
 	// string[] sums the lengths of its elements.
 	arrArgs := abi.Arguments{{Type: mustABIType(t, "string[]", nil)}}
 	data, err = arrArgs.Pack([]string{"aa", "bbb", "c"})
 	require.NoError(t, err)
-	n, ok = decodePayloadBytes(arrArgs, data)
+	n, ok = decodeStringCopyBytes(arrArgs, data)
 	require.True(t, ok)
 	require.Equal(t, uint64(len("aa")+len("bbb")+len("c")), n)
 }
 
-func TestDecodePayloadBytes_Tuple(t *testing.T) {
-	// Mirrors wasmd execute_batch((string,bytes,bytes)[]): every dynamic field
-	// contributes its referenced payload length.
+func TestDecodeStringCopyBytes_Tuple(t *testing.T) {
+	// Mirrors wasmd execute_batch((string,bytes,bytes)[]): only the string field
+	// of each tuple is copied; the bytes fields are resliced.
 	tupleArrArgs := abi.Arguments{{Type: mustABIType(t, "tuple[]", []abi.ArgumentMarshaling{
 		{Name: "contractAddress", Type: "string"},
 		{Name: "msg", Type: "bytes"},
@@ -68,14 +66,18 @@ func TestDecodePayloadBytes_Tuple(t *testing.T) {
 		{ContractAddress: "two", Msg: []byte("x"), Coins: []byte("y")},
 	})
 	require.NoError(t, err)
-	n, ok := decodePayloadBytes(tupleArrArgs, data)
+	n, ok := decodeStringCopyBytes(tupleArrArgs, data)
 	require.True(t, ok)
-	require.Equal(t, uint64(len("contract-one")+len("ignored")+len("ignored too")+len("two")+len("x")+len("y")), n)
+	require.Equal(t, uint64(len("contract-one")+len("two")), n)
 }
 
-// TestDecodePayloadBytes_Aliased verifies that every logical reference to a
-// shared dynamic payload is counted.
-func TestDecodePayloadBytes_Aliased(t *testing.T) {
+// TestDecodeStringCopyBytes_Aliased is the core case: an attacker-crafted
+// string[] whose K element offsets all point at the same S-byte string. The
+// decoder copies K*S bytes even though the input is only ~(32*K + S) bytes, so
+// the copied volume is super-linear in len(input). The estimator must report the
+// full K*S so the caller is charged for the real work — while itself running in
+// O(K), not O(K*S).
+func TestDecodeStringCopyBytes_Aliased(t *testing.T) {
 	const (
 		k = uint64(4)
 		s = uint64(64)
@@ -97,7 +99,7 @@ func TestDecodePayloadBytes_Aliased(t *testing.T) {
 	arrArgs := abi.Arguments{{Type: mustABIType(t, "string[]", nil)}}
 
 	// The estimator reports the full aliased copy volume.
-	n, ok := decodePayloadBytes(arrArgs, data)
+	n, ok := decodeStringCopyBytes(arrArgs, data)
 	require.True(t, ok)
 	require.Equal(t, k*s, n)
 
@@ -112,48 +114,7 @@ func TestDecodePayloadBytes_Aliased(t *testing.T) {
 	}
 }
 
-func TestDecodePayloadBytes_AliasedExecuteBatch(t *testing.T) {
-	const (
-		k = uint64(4)
-		s = uint64(64)
-	)
-	args := abi.Arguments{{Type: mustABIType(t, "tuple[]", []abi.ArgumentMarshaling{
-		{Name: "contractAddress", Type: "string"},
-		{Name: "msg", Type: "bytes"},
-		{Name: "coins", Type: "bytes"},
-	})}}
-	data := newAliasedExecuteBatchArgs(k, s)
-
-	n, ok := decodePayloadBytes(args, data)
-	require.True(t, ok)
-	require.Equal(t, 3*k*s, n)
-
-	vals, err := args.Unpack(data)
-	require.NoError(t, err)
-	require.Len(t, vals, 1)
-	require.Equal(t, int(k), reflect.ValueOf(vals[0]).Len())
-}
-
-// newAliasedExecuteBatchArgs builds a tuple array whose element offsets all
-// reference one tuple body. The tuple's string and two bytes fields also share
-// one payload.
-func newAliasedExecuteBatchArgs(k, s uint64) []byte {
-	tupleOffset := 32 * k
-	arrayPayload := make([]byte, 0, int(tupleOffset+128+s))
-	for range k {
-		arrayPayload = append(arrayPayload, abiWord(tupleOffset)...)
-	}
-	for range 3 {
-		arrayPayload = append(arrayPayload, abiWord(96)...)
-	}
-	arrayPayload = append(arrayPayload, abiWord(s)...)
-	arrayPayload = append(arrayPayload, make([]byte, s)...)
-
-	data := append(abiWord(32), abiWord(k)...)
-	return append(data, arrayPayload...)
-}
-
-func TestDecodePayloadBytes_AliasedVoteWeighted(t *testing.T) {
+func TestDecodeStringCopyBytes_AliasedVoteWeighted(t *testing.T) {
 	const (
 		k = uint64(18432)
 		s = uint64(602592)
@@ -167,7 +128,7 @@ func TestDecodePayloadBytes_AliasedVoteWeighted(t *testing.T) {
 	}
 	data := newAliasedVoteWeightedArgs(k, s)
 
-	n, ok := decodePayloadBytes(args, data)
+	n, ok := decodeStringCopyBytes(args, data)
 	require.True(t, ok)
 	require.Equal(t, k*s, n)
 
@@ -203,12 +164,12 @@ func newAliasedVoteWeightedArgs(k, s uint64) []byte {
 	return data
 }
 
-func TestDecodePayloadBytes_Malformed(t *testing.T) {
+func TestDecodeStringCopyBytes_Malformed(t *testing.T) {
 	// A string[] header claiming an offset past the end of the buffer must not
 	// be scanned as if valid.
 	arrArgs := abi.Arguments{{Type: mustABIType(t, "string[]", nil)}}
 	data := append(abiWord(64), abiWord(1)...) // offset 64 into a 64-byte buffer
-	_, ok := decodePayloadBytes(arrArgs, data)
+	_, ok := decodeStringCopyBytes(arrArgs, data)
 	require.False(t, ok)
 }
 
@@ -232,17 +193,6 @@ func TestDecodeGasCost(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, want, gas)
 	require.Greater(t, gas, DefaultGasCost(input, false))
-
-	// bytes arg: base over the whole input plus the referenced payload volume.
-	bytesArgs := abi.Arguments{{Type: mustABIType(t, "bytes", nil)}}
-	bytesPayload := []byte("hello bytes")
-	packed, err = bytesArgs.Pack(bytesPayload)
-	require.NoError(t, err)
-	input = append([]byte{0xaa, 0xbb, 0xcc, 0xdd}, packed...)
-	want = satAdd(DefaultGasCost(input, false), satMul(perByte, uint64(len(bytesPayload))))
-	gas, ok = DecodeGasCost(bytesArgs, input)
-	require.True(t, ok)
-	require.Equal(t, want, gas)
 
 	// Structurally invalid calldata: reported as not-ok so the caller rejects it.
 	arrArgs := abi.Arguments{{Type: mustABIType(t, "string[]", nil)}}

@@ -10,7 +10,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 )
 
-// maxDecodeWalkOps bounds how many type nodes decodePayloadBytes visits. For
+// maxDecodeWalkOps bounds how many type nodes decodeStringCopyBytes visits. For
 // the argument shapes precompiles actually use (single-level dynamic arrays and
 // flat tuples of leaves) the walk is linear in len(data); this cap is a
 // defensive backstop so a hypothetical deeply-nested type cannot turn the cost
@@ -24,27 +24,32 @@ const maxDecodeWalkOps = 1 << 20
 // (or too deeply nested to price cheaply); the caller should reject such input
 // rather than decode it, since the real decoder would reject it too.
 //
-// Dynamic string and bytes payloads are counted once per logical ABI reference,
-// including when multiple offsets alias the same calldata. The charge is a
-// linear pass over the input (DefaultGasCost) plus that referenced payload
-// volume, priced at the KV read-per-byte rate.
+// The Go ABI decoder's cost is dominated by copying `string` payloads: it
+// materializes each string via string(output[begin:end]), and because a single
+// string can be referenced by many array/tuple slots, the copied volume can be
+// super-linear in len(input) (worst case ~len(input)^2). `bytes` values are
+// excluded because the decoder reslices them without copying. The charge is
+// therefore a linear pass over the input (DefaultGasCost) plus the string-copy
+// volume the decoder would produce, priced at the KV read-per-byte rate.
 func DecodeGasCost(args abi.Arguments, input []byte) (uint64, bool) {
 	base := DefaultGasCost(input, false)
 	if len(input) < 4 {
 		return base, true
 	}
-	payloadBytes, ok := decodePayloadBytes(args, input[4:])
+	strBytes, ok := decodeStringCopyBytes(args, input[4:])
 	if !ok {
 		return 0, false
 	}
-	return satAdd(base, satMul(storetypes.KVGasConfig().ReadCostPerByte, payloadBytes)), true
+	return satAdd(base, satMul(storetypes.KVGasConfig().ReadCostPerByte, strBytes)), true
 }
 
-// decodePayloadBytes returns the total dynamic string and bytes payload volume
-// referenced while unpacking data as args. It counts aliased payloads once per
-// logical reference. ok is false when the input is structurally inconsistent or
-// hits the traversal cap.
-func decodePayloadBytes(args abi.Arguments, data []byte) (uint64, bool) {
+// decodeStringCopyBytes returns the total number of string-payload bytes the ABI
+// decoder would copy while unpacking data as args, mirroring go-ethereum's
+// unpack traversal. It follows offsets and reads length prefixes but never
+// copies payloads, so it runs in time proportional to the number of type nodes
+// visited rather than the number of bytes referenced. ok is false when the
+// input is structurally inconsistent or hits the traversal cap.
+func decodeStringCopyBytes(args abi.Arguments, data []byte) (uint64, bool) {
 	w := &decodeWalker{}
 	index := 0
 	virtualArgs := 0
@@ -52,7 +57,7 @@ func decodePayloadBytes(args abi.Arguments, data []byte) (uint64, bool) {
 		if arg.Indexed {
 			continue
 		}
-		if abiContainsPayload(arg.Type) {
+		if abiContainsString(arg.Type) {
 			w.walk(data, (index+virtualArgs)*32, arg.Type)
 			if w.failed {
 				return 0, false
@@ -63,17 +68,18 @@ func decodePayloadBytes(args abi.Arguments, data []byte) (uint64, bool) {
 		}
 		index++
 	}
-	return w.payloadBytes, true
+	return w.strBytes, true
 }
 
 type decodeWalker struct {
-	payloadBytes uint64
-	ops          int
-	failed       bool
+	strBytes uint64
+	ops      int
+	failed   bool
 }
 
-// walk accounts for dynamic payload bytes in a value of type t whose head word
-// starts at index within output, mirroring go-ethereum abi.toGoType.
+// walk accounts for the string-copy bytes of a value of type t whose head word
+// starts at index within output, mirroring go-ethereum abi.toGoType. Only types
+// that can contain a string are ever passed in.
 func (w *decodeWalker) walk(output []byte, index int, t abi.Type) {
 	if w.failed {
 		return
@@ -89,13 +95,13 @@ func (w *decodeWalker) walk(output []byte, index int, t abi.Type) {
 	}
 
 	switch t.T {
-	case abi.StringTy, abi.BytesTy:
+	case abi.StringTy:
 		_, length, ok := abiLengthPrefix(index, output)
 		if !ok {
 			w.failed = true
 			return
 		}
-		w.payloadBytes = satAdd(w.payloadBytes, uint64(length)) //nolint:gosec // length is a non-negative ABI length bounded by len(output) in abiLengthPrefix
+		w.strBytes += uint64(length) //nolint:gosec // length is a non-negative ABI length bounded by len(output) in abiLengthPrefix
 	case abi.SliceTy:
 		begin, length, ok := abiLengthPrefix(index, output)
 		if !ok {
@@ -126,7 +132,7 @@ func (w *decodeWalker) walk(output []byte, index int, t abi.Type) {
 		}
 		w.walkTuple(output[base:], t)
 	default:
-		// static scalar (int/uint/bool/address/fixed bytes/...): no dynamic payload
+		// static scalar (int/uint/bool/address/fixed bytes/...): no string payload
 	}
 }
 
@@ -144,7 +150,7 @@ func (w *decodeWalker) walkElems(output []byte, size int, elem abi.Type) {
 		w.failed = true
 		return
 	}
-	if !abiContainsPayload(elem) {
+	if !abiContainsString(elem) {
 		return
 	}
 	elemSize := abiTypeSize(elem)
@@ -163,7 +169,7 @@ func (w *decodeWalker) walkElems(output []byte, size int, elem abi.Type) {
 func (w *decodeWalker) walkTuple(output []byte, t abi.Type) {
 	virtualArgs := 0
 	for i, elem := range t.TupleElems {
-		if abiContainsPayload(*elem) {
+		if abiContainsString(*elem) {
 			w.walk(output, (i+virtualArgs)*32, *elem)
 			if w.failed {
 				return
@@ -175,17 +181,18 @@ func (w *decodeWalker) walkTuple(output []byte, t abi.Type) {
 	}
 }
 
-// abiContainsPayload reports whether t is or contains a dynamic string or bytes
-// payload.
-func abiContainsPayload(t abi.Type) bool {
+// abiContainsString reports whether decoding a value of type t can copy any
+// string payload, i.e. whether the type is or transitively contains a string.
+// Used to prune subtrees the walk does not need to descend into.
+func abiContainsString(t abi.Type) bool {
 	switch t.T {
-	case abi.StringTy, abi.BytesTy:
+	case abi.StringTy:
 		return true
 	case abi.SliceTy, abi.ArrayTy:
-		return t.Elem != nil && abiContainsPayload(*t.Elem)
+		return t.Elem != nil && abiContainsString(*t.Elem)
 	case abi.TupleTy:
 		for _, elem := range t.TupleElems {
-			if abiContainsPayload(*elem) {
+			if abiContainsString(*elem) {
 				return true
 			}
 		}

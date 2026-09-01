@@ -2,11 +2,9 @@ package common_test
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"math/big"
 	"os"
-	"strings"
 	"testing"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -192,46 +190,6 @@ func TestDynamicGasPrecompileGasGate(t *testing.T) {
 	require.Equal(t, []byte("success"), res)
 	require.Nil(t, err)
 	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
-}
-
-func TestDynamicGasPrecompileAliasedBytesGasGate(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
-	newABI, err := abi.JSON(strings.NewReader(`[{"inputs":[{"name":"payloads","type":"bytes[]"}],"name":"consume","outputs":[],"stateMutability":"view","type":"function"}]`))
-	require.NoError(t, err)
-	method := newABI.Methods["consume"]
-
-	const (
-		elements = uint64(4)
-		payload  = uint64(64)
-	)
-	headsSize := 32 * elements
-	data := append(testABIWord(32), testABIWord(elements)...)
-	for range elements {
-		data = append(data, testABIWord(headsSize)...)
-	}
-	data = append(data, testABIWord(payload)...)
-	data = append(data, make([]byte, payload)...)
-	input := append(method.ID, data...)
-
-	decodeGas, ok := common.DecodeGasCost(method.Inputs, input)
-	require.True(t, ok)
-	scanGas := common.DefaultGasCost(input, false)
-	require.Greater(t, decodeGas, scanGas)
-
-	precompile := common.NewDynamicGasPrecompile(newABI, &MockDynamicGasPrecompileExecutor{evmKeeper: k}, ethcommon.Address{}, "test")
-	stateDB := state.NewDBImpl(ctx.WithEventManager(sdk.NewEventManager()), k, false)
-	res, remainingGas, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, scanGas, big.NewInt(0), nil, false, false)
-	require.Nil(t, res)
-	require.Equal(t, uint64(0), remainingGas)
-	require.Equal(t, vm.ErrExecutionReverted, err)
-	require.Empty(t, stateDB.Ctx().EventManager().Events())
-}
-
-func testABIWord(value uint64) []byte {
-	word := make([]byte, 32)
-	binary.BigEndian.PutUint64(word[24:], value)
-	return word
 }
 
 // TestDynamicGasPrecompileExecutorOutOfGasPropagates verifies that an executor
