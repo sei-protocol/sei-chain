@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -29,6 +30,12 @@ const (
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
 const PrecompileName = "wasmd"
+
+const (
+	// MaxExecuteBatchMessages is the largest execute_batch message list.
+	MaxExecuteBatchMessages = 100
+	coinJSONParseFixedGas   = uint64(1_000)
+)
 
 var Address = common.HexToAddress(WasmdAddress)
 
@@ -148,13 +155,13 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 	}
 	msg := args[2].([]byte)
 	label := args[3].(string)
-	coins := sdk.NewCoins()
 	coinsBz := args[4].([]byte)
-
-	if err := json.Unmarshal(coinsBz, &coins); err != nil {
+	parsedCoins, err := parseCoins(ctx, coinsBz)
+	if err != nil {
 		rerr = err
 		return
 	}
+	coins := parsedCoins[0]
 	coinsValue := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
 	if (value == nil && coinsValue.Sign() == 1) || (value != nil && coinsValue.Cmp(value) != 0) {
 		rerr = errors.New("coin amount must equal value specified")
@@ -224,19 +231,24 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 		Msg             []byte `json:"msg"`
 		Coins           []byte `json:"coins"`
 	})
+	if err := validateExecuteBatchSize(len(executeMsgs)); err != nil {
+		rerr = err
+		return
+	}
 
-	responses := make([][]byte, 0, len(executeMsgs))
+	coinPayloads := make([][]byte, len(executeMsgs))
+	for i := range executeMsgs {
+		coinPayloads[i] = executeMsgs[i].Coins
+	}
+	coinsByMessage, err := parseCoins(ctx, coinPayloads...)
+	if err != nil {
+		rerr = err
+		return
+	}
 
 	// validate coins add up to value
 	validateValue := big.NewInt(0)
-	for i := 0; i < len(executeMsgs); i++ {
-		executeMsg := ExecuteMsg(executeMsgs[i])
-		coinsBz := executeMsg.Coins
-		coins := sdk.NewCoins()
-		if err := json.Unmarshal(coinsBz, &coins); err != nil {
-			rerr = err
-			return
-		}
+	for _, coins := range coinsByMessage {
 		messageAmount := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
 		validateValue.Add(validateValue, messageAmount)
 	}
@@ -252,6 +264,7 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 	} else {
 		valueCopy = value
 	}
+	responses := make([][]byte, 0, len(executeMsgs))
 	for i := 0; i < len(executeMsgs); i++ {
 		executeMsg := ExecuteMsg(executeMsgs[i])
 
@@ -277,12 +290,7 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 			return
 		}
 		msg := executeMsg.Msg
-		coinsBz := executeMsg.Coins
-		coins := sdk.NewCoins()
-		if err := json.Unmarshal(coinsBz, &coins); err != nil {
-			rerr = err
-			return
-		}
+		coins := coinsByMessage[i]
 		useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 		if valueCopy != nil && !useiAmt.IsZero() {
 			// process coin amount from the value provided
@@ -371,12 +379,13 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 		return
 	}
 	msg := args[1].([]byte)
-	coins := sdk.NewCoins()
 	coinsBz := args[2].([]byte)
-	if err := json.Unmarshal(coinsBz, &coins); err != nil {
+	parsedCoins, err := parseCoins(ctx, coinsBz)
+	if err != nil {
 		rerr = err
 		return
 	}
+	coins := parsedCoins[0]
 	coinsValue := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
 	if (value == nil && coinsValue.Sign() == 1) || (value != nil && coinsValue.Cmp(value) != 0) {
 		rerr = errors.New("coin amount must equal value specified")
@@ -465,4 +474,56 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 
 func IsWasmdCall(to *common.Address) bool {
 	return to != nil && (to.Cmp(Address) == 0)
+}
+
+func validateExecuteBatchSize(size int) error {
+	if size > MaxExecuteBatchMessages {
+		return fmt.Errorf("too many execute_batch messages: got %d, maximum is %d", size, MaxExecuteBatchMessages)
+	}
+	return nil
+}
+
+// parseCoins charges for and decodes each JSON coin payload.
+func parseCoins(ctx sdk.Context, payloads ...[]byte) ([]sdk.Coins, error) {
+	ctx.GasMeter().ConsumeGas(coinJSONParseGas(payloads), "wasmd coin JSON parse")
+
+	coins := make([]sdk.Coins, len(payloads))
+	for i, payload := range payloads {
+		coins[i] = sdk.NewCoins()
+		if err := json.Unmarshal(payload, &coins[i]); err != nil {
+			return nil, err
+		}
+	}
+	return coins, nil
+}
+
+func coinJSONParseGas(payloads [][]byte) uint64 {
+	totalBytes := uint64(0)
+	for _, payload := range payloads {
+		totalBytes = saturatingAdd(totalBytes, uint64(len(payload)))
+	}
+	return coinJSONParseGasFor(uint64(len(payloads)), totalBytes)
+}
+
+func coinJSONParseGasFor(messageCount, totalBytes uint64) uint64 {
+	fixedGas := saturatingMul(coinJSONParseFixedGas, messageCount)
+	byteGas := saturatingMul(pcommon.JSONParseGasPerByte, totalBytes)
+	return saturatingAdd(fixedGas, byteGas)
+}
+
+func saturatingMul(a, b uint64) uint64 {
+	if a == 0 || b == 0 {
+		return 0
+	}
+	if a > math.MaxUint64/b {
+		return math.MaxUint64
+	}
+	return a * b
+}
+
+func saturatingAdd(a, b uint64) uint64 {
+	if a > math.MaxUint64-b {
+		return math.MaxUint64
+	}
+	return a + b
 }

@@ -21,6 +21,10 @@ import (
 
 const UnknownMethodCallGas uint64 = 3000
 
+// JSONParseGasPerByte is the gas charged per byte of JSON input parsed by a
+// precompile.
+const JSONParseGasPerByte uint64 = 100 // TODO: parameterize
+
 type Contexter interface {
 	Ctx() sdk.Context
 }
@@ -168,11 +172,11 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	}
 	// Resolve the target method from the 4-byte selector only. The argument
 	// payload is intentionally NOT decoded yet: ABI decoding of attacker-
-	// controlled calldata can cost far more than len(input) (a single string can
-	// be referenced by many array/tuple slots), so it must be paid for out of the
+	// controlled calldata can cost far more than len(input) when dynamic payloads
+	// are referenced by many array/tuple slots, so it must be paid for out of the
 	// gas the caller supplied. The static-precompile path charges RequiredGas in
-	// vm.RunPrecompiledContract before running; that step is skipped for
-	// dynamic-gas precompiles, so we apply the equivalent charge here.
+	// vm.RunPrecompiledContract before running; that step is skipped for dynamic-
+	// gas precompiles, so we apply the equivalent charge here.
 	methodID, err := ExtractMethodID(input)
 	if err != nil {
 		return nil, 0, err
@@ -216,7 +220,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 
 // chargeDecodeGas charges the (already-installed) gas meter for decoding the
 // calldata, before it is decoded: a length-proportional scan cost that also
-// bounds the DecodeGasCost scan, then the string-copy surcharge from
+// bounds the DecodeGasCost scan, then the dynamic-payload surcharge from
 // DecodeGasCost. Its out-of-gas / overflow recovery is deliberately scoped to
 // just these charges — a call that cannot afford the decode reverts here, while
 // an executor that later exhausts its gas keeps its normal propagating
@@ -241,7 +245,7 @@ func (d DynamicGasPrecompile) chargeDecodeGas(ctx sdk.Context, method *abi.Metho
 		return fmt.Errorf("invalid calldata encoding for %s", d.name)
 	}
 	// DecodeGasCost already includes scanCost; charge only the remaining
-	// (string-copy) portion so the decode is priced exactly once.
+	// dynamic-payload portion so the decode is priced exactly once.
 	ctx.GasMeter().ConsumeGas(decodeCost-scanCost, fmt.Sprintf("%s precompile calldata decode", d.name))
 	return nil
 }

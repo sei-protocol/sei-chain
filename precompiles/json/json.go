@@ -26,7 +26,7 @@ const (
 )
 
 const JSONAddress = "0x0000000000000000000000000000000000001003"
-const GasCostPerByte = 100 // TODO: parameterize
+const GasCostPerByte = pcommon.JSONParseGasPerByte
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -76,7 +76,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	// method below.
 	if len(args) > 0 {
 		if payload, ok := args[0].([]byte); ok {
-			ctx.GasMeter().ConsumeGas(uint64(GasCostPerByte*len(payload)), "json parse") //nolint:gosec
+			ctx.GasMeter().ConsumeGas(GasCostPerByte*uint64(len(payload)), "json parse") //nolint:gosec
 		}
 	}
 
