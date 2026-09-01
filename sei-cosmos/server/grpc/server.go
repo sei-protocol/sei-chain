@@ -60,7 +60,12 @@ func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *rateli
 // srv.
 func registeredMethods(srv *grpc.Server) []string {
 	info := srv.GetServiceInfo()
-	methods := make([]string, 0, len(info))
+	total := 0
+	for _, svcInfo := range info {
+		total += len(svcInfo.Methods)
+	}
+
+	methods := make([]string, 0, total)
 	for service, svcInfo := range info {
 		for _, m := range svcInfo.Methods {
 			methods = append(methods, service+"/"+m.Name)
