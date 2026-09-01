@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"runtime"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -30,6 +31,7 @@ type evmOnlyInMemoryApplication struct {
 	chainID     *big.Int
 	chainConfig *params.ChainConfig
 	store       *evmonly.MemoryStore
+	validators  []abci.ValidatorUpdate
 	state       utils.Mutex[*evmOnlyInMemoryState]
 }
 
@@ -53,7 +55,7 @@ var _ abci.Application = (*evmOnlyInMemoryApplication)(nil)
 
 // NewEVMOnlyInMemoryApplication returns an ephemeral raw-Ethereum application for
 // Autobahn Docker load tests.
-func NewEVMOnlyInMemoryApplication(chainID uint64) abci.Application {
+func NewEVMOnlyInMemoryApplication(chainID uint64, validators []abci.ValidatorUpdate) abci.Application {
 	base := evmOnlyFundedState{}
 	store := evmonly.NewMemoryStore(base)
 	chainConfig := *params.AllDevChainProtocolChanges
@@ -62,6 +64,7 @@ func NewEVMOnlyInMemoryApplication(chainID uint64) abci.Application {
 		chainID:     new(big.Int).SetUint64(chainID),
 		chainConfig: &chainConfig,
 		store:       store,
+		validators:  slices.Clone(validators),
 		state:       utils.NewMutex(&evmOnlyInMemoryState{}),
 	}
 }
@@ -122,7 +125,13 @@ func (a *evmOnlyInMemoryApplication) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
+func (a *evmOnlyInMemoryApplication) GetValidators() []abci.ValidatorUpdate {
+	return slices.Clone(a.validators)
+}
+
 func (a *evmOnlyInMemoryApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	// TODO(evmonly-production): close the gap between admission and block validity
+	// before accepting arbitrary traffic; this test app assumes executable load-test transactions.
 	tx, sender, err := a.parseTx(req.Tx)
 	if err != nil {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: err.Error()}}

@@ -37,7 +37,7 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 
 func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	t.Helper()
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID)
+	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil)
 	_, err := app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
 		ConsensusParams: &tmproto.ConsensusParams{
@@ -107,7 +107,7 @@ func TestEVMOnlyInMemoryApplicationProducesDeterministicRoot(t *testing.T) {
 }
 
 func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID)
+	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil)
 
 	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
 		Hash: crypto.Keccak256([]byte("block-1")),
@@ -118,4 +118,15 @@ func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
 	})
 
 	require.Error(t, err)
+}
+
+func TestEVMOnlyInMemoryApplicationReturnsConfiguredValidators(t *testing.T) {
+	configured := []abci.ValidatorUpdate{{Power: 7}}
+	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured)
+	configured[0].Power = 11
+
+	first := app.GetValidators()
+	require.Equal(t, []abci.ValidatorUpdate{{Power: 7}}, first)
+	first[0].Power = 13
+	require.Equal(t, []abci.ValidatorUpdate{{Power: 7}}, app.GetValidators())
 }
