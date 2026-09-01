@@ -122,16 +122,19 @@ func (e *testEnv) readyTxs() []*WrappedTx {
 	for _, account := range e.accounts {
 		byNonce := e.byNonce(account)
 		currentNonce := e.app.EvmNonce(account.address)
-		balance := e.app.balanceOf(account.address)
+		balance := uint256.NewInt(uint64(e.app.balanceOf(account.address)))
+		committed := uint256.NewInt(0)
 		for nonce := currentNonce; ; nonce++ {
 			wtx, ok := byNonce[nonce]
 			if !ok {
 				break
 			}
 			requiredBalance := wtx.evm.OrPanic("").requiredBalance
-			if requiredBalance.CmpUint64(uint64(balance)) > 0 {
+			next := new(uint256.Int).Add(committed, &requiredBalance)
+			if next.Cmp(balance) > 0 {
 				break
 			}
+			committed = next
 			ready = append(ready, wtx)
 		}
 	}
@@ -661,6 +664,90 @@ func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 	require.Equal(t, replacement.Tx(), got)
 	_, ok = env.txStore.ByHash(blocked.Hash())
 	require.False(t, ok)
+}
+
+func TestTxStore_ReadyAdvanceRespectsCumulativeBalance(t *testing.T) {
+	rng := utils.TestRng()
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
+	env := newTestEnv(rng, txStore, app, 1)
+	address := env.accounts[0].address
+	env.app.setNonce(address, 7)
+	env.app.setBalance(address, 100)
+
+	// Each tx is individually affordable (60 <= 100) but their combined cost
+	// (120) exceeds the account's balance, so only the first should become
+	// ready.
+	first := makeEvmTxForTest(rng, address, 7, 10, 60)
+	second := makeEvmTxForTest(rng, address, 8, 10, 60)
+	require.NoError(t, env.txStore.Insert(first))
+	require.NoError(t, env.txStore.Insert(second))
+	env.byHash = map[types.TxHash]*WrappedTx{first.Hash(): first, second.Hash(): second}
+	env.markReadyTxs()
+	env.assertState(t)
+	require.Equal(t, uint64(8), env.txStore.NextNonce(address))
+
+	// Once the account's real balance grows enough to cover both, a compact
+	// (triggered here via Update) re-derives readiness from scratch and the
+	// second nonce becomes ready too.
+	env.app.setBalance(address, 200)
+	env.txStore.Update(updateSpec{
+		Now:           time.Now(),
+		Height:        1,
+		TxResults:     map[types.TxHash]bool{},
+		Constraints:   NopTxConstraints(),
+		NewPriorities: map[types.TxHash]int64{},
+	})
+	env.markReadyTxs()
+	env.assertState(t)
+	require.Equal(t, uint64(9), env.txStore.NextNonce(address))
+}
+
+func TestTxStore_ReplacesReadyTxRespectsCumulativeBalance(t *testing.T) {
+	rng := utils.TestRng()
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app))
+	env := newTestEnv(rng, txStore, app, 1)
+	address := env.accounts[0].address
+	env.app.setNonce(address, 7)
+	env.app.setBalance(address, 100)
+
+	// nonce 7 (cost 30) and nonce 8 (cost 50) are both ready; combined cost
+	// (80) already accounts for most of the balance.
+	first := makeEvmTxForTest(rng, address, 7, 10, 30)
+	second := makeEvmTxForTest(rng, address, 8, 10, 50)
+	require.NoError(t, env.txStore.Insert(first))
+	require.NoError(t, env.txStore.Insert(second))
+	env.byHash = map[types.TxHash]*WrappedTx{first.Hash(): first, second.Hash(): second}
+	env.markReadyTxs()
+	env.assertState(t)
+
+	// A higher-priority replacement for nonce 7 costing 80 would push the
+	// combined cost (80+50=130) over balance, even though 80 alone fits.
+	// The replacement must be rejected and the store left unchanged.
+	tooExpensive := makeEvmTxForTest(rng, address, 7, 20, 80)
+	require.ErrorIs(t, env.txStore.Insert(tooExpensive), errSameNonce)
+	env.assertState(t)
+
+	// A higher-priority replacement costing 40 fits (40+50=90 <= 100) and
+	// must succeed, updating the account's committed cost accordingly.
+	replacement := makeEvmTxForTest(rng, address, 7, 20, 40)
+	require.NoError(t, env.txStore.Insert(replacement))
+	delete(env.byHash, first.Hash())
+	env.byHash[replacement.Hash()] = replacement
+	env.markReadyTxs()
+	env.assertState(t)
+
+	// If the swap had left readyCost stale (e.g. still counting the
+	// replaced tx's cost), a new nonce 9 costing 10 would wrongly be
+	// rejected from readiness (90+10=100 exactly fits; a stale 100+10 would
+	// not).
+	third := makeEvmTxForTest(rng, address, 9, 10, 10)
+	require.NoError(t, env.txStore.Insert(third))
+	env.byHash[third.Hash()] = third
+	env.markReadyTxs()
+	env.assertState(t)
+	require.Equal(t, uint64(10), env.txStore.NextNonce(address))
 }
 
 func TestTxStore_RejectsDuplicateEvmHash(t *testing.T) {
