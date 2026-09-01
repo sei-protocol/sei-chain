@@ -131,10 +131,9 @@ func newHeightTestWatermarks(client client.LocalClient, latest int64) *Watermark
 	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
 }
 
-// newHeightTestKeeper returns a keeper carrying nothing but a receipt store. Endpoints that filter
-// a block's transactions refuse to run without one, and the blocks this file serves hold no
-// transactions, so no other keeper dependency is reached.
-func newHeightTestKeeper() *keeper.Keeper {
+// newTestKeeperWithReceiptStore returns a keeper carrying nothing but a receipt store, which the
+// endpoints that read a block's transactions or receipts refuse to run without.
+func newTestKeeperWithReceiptStore() *keeper.Keeper {
 	k := &keeper.Keeper{}
 	k.SetReceiptStoreForTesting(&fakeReceiptStore{})
 	return k
@@ -231,7 +230,7 @@ func TestBlockAPILatestTagResolves(t *testing.T) {
 	latest := int64(100)
 	client := newHeightTestClient(latest+5, earliest, latest)
 	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewBlockAPI(client, newHeightTestKeeper(), testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, newTestKeeperWithReceiptStore(), testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
 	tags := []rpc.BlockNumber{
