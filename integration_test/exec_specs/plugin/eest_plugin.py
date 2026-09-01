@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import pytest
 
@@ -117,17 +117,26 @@ def _eip7702_system_contract(item: pytest.Item) -> bool:
 SKIP_RULES: tuple[SkipRule, ...] = (
     SkipRule(
         id="eip7623-admission",
-        reason="Known Sei EIP-7623 transaction-admission issue.",
+        reason=(
+            "Known Sei EIP-7623 transaction-admission issue "
+            "(https://github.com/sei-protocol/sei-chain/issues/4068)."
+        ),
         matches=_eip7623_admission,
     ),
     SkipRule(
         id="eip7623-floor-data-gas",
-        reason="Known Sei EIP-7623 floor-data-gas admission issue.",
+        reason=(
+            "Known Sei EIP-7623 floor-data-gas admission issue "
+            "(https://github.com/sei-protocol/sei-chain/issues/4068)."
+        ),
         matches=_eip7623_floor_data_gas,
     ),
     SkipRule(
         id="eip6780-repeated-selfdestruct",
-        reason="Known Sei EIP-6780 repeated-SELFDESTRUCT issue.",
+        reason=(
+            "Known Sei EIP-6780 repeated-SELFDESTRUCT issue "
+            "(https://github.com/sei-protocol/sei-chain/issues/4069)."
+        ),
         matches=_eip6780_repeated_selfdestruct,
     ),
     SkipRule(

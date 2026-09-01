@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      # TEMP: remove after the final CI validation.
+      - tests/exec-specs
 
 concurrency:
   group: execution-specs-${{ github.ref }}
@@ -289,7 +291,7 @@ jobs:
       - name: Write run summary
         run: |
           python3 integration_test/exec_specs/scripts/summarize_reports.py \
-            integration_test/exec_specs/reports/downloaded || true
+            integration_test/exec_specs/reports/downloaded
 
   cleanup-images:
     name: Remove Execution Specs Images

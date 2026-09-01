@@ -60,6 +60,38 @@ omits `chainId`, `accessList`, `maxFeePerGas`, and `maxPriorityFeePerGas` from
 pending typed-transaction responses. Tolerated validation errors remain visible
 as warnings and polling validates the transaction after block inclusion.
 
+## Compatibility patch policy
+
+Most of `patches/sei-compat.patch` adapts EEST's remote runner: it funds
+ephemeral accounts, submits transactions in order, polls delayed post-state,
+and handles Sei RPC compatibility. The upstream test-body changes are limited
+to cases that cannot otherwise execute faithfully against a live Sei chain:
+
+- `test_chainid.py` and `test_eip150_selfdestruct.py` use the devnet gas price
+  instead of fixed legacy prices below Sei's admission minimum.
+- Two converted static tests drop `pre_alloc_mutable` because their current
+  bodies only create fresh accounts; the marker makes EEST's remote executor
+  skip them even though they do not mutate existing pre-state.
+- The EIP-150 SELFDESTRUCT tests skip vectors that require restoring a
+  precompile's balance, which a persistent remote chain cannot do.
+- `test_set_code_txs.py` raises fixed EIP-1559 fee caps above the devnet base
+  fee so the transaction reaches the behavior under test.
+
+These changes adapt transaction construction or remote-state limitations; they
+do not alter expected post-state. Re-evaluate each hunk when updating the
+pinned EEST revision.
+
+## Known Sei deviations
+
+- `eip7623-admission` and `eip7623-floor-data-gas` are tracked by
+  [#4068](https://github.com/sei-protocol/sei-chain/issues/4068).
+- `eip6780-repeated-selfdestruct` is tracked by
+  [#4069](https://github.com/sei-protocol/sei-chain/issues/4069).
+
+Other exclusions in `plugin/eest_plugin.py` and `config/prague-ignores.list`
+describe persistent-chain or genesis-configuration limitations rather than
+known execution defects.
+
 ## CI
 
 The jobs run only after changes reach `main`:
