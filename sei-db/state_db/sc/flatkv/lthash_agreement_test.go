@@ -740,6 +740,10 @@ type miscCoord struct {
 type agreementWorkload struct {
 	rng *rand.Rand
 
+	// blockSize decides one block's total operation budget, which planBlock splits across the four
+	// categories.
+	blockSize func() int
+
 	// Index-derived pools rather than the byte-indexed addrN/slotN helpers, which top out at 256
 	// values — too few to absorb hundreds of operations per block.
 	addrs       []ktype.Address
@@ -765,7 +769,26 @@ const (
 	agreementAimAttempts = 8
 )
 
+// newAgreementWorkload draws each block's operation budget from the agreementMinOpsPerBlock..
+// agreementMaxOpsPerBlock range.
 func newAgreementWorkload(rng *rand.Rand) *agreementWorkload {
+	w := buildAgreementWorkload(rng)
+	span := agreementMaxOpsPerBlock - agreementMinOpsPerBlock + 1
+	w.blockSize = func() int { return agreementMinOpsPerBlock + rng.Intn(span) }
+	return w
+}
+
+// newFixedSizeAgreementWorkload gives every block the same operation budget. For a caller whose expected
+// output is recorded rather than derived, and so must not move if the randomized range is ever retuned.
+func newFixedSizeAgreementWorkload(rng *rand.Rand, opsPerBlock int) *agreementWorkload {
+	w := buildAgreementWorkload(rng)
+	w.blockSize = func() int { return opsPerBlock }
+	return w
+}
+
+// buildAgreementWorkload assembles the generator state shared by both constructors, leaving blockSize
+// for the caller to set.
+func buildAgreementWorkload(rng *rand.Rand) *agreementWorkload {
 	w := &agreementWorkload{
 		rng:             rng,
 		miscModules:     []string{keys.EVMStoreKey, "bank", "staking"},
@@ -822,8 +845,7 @@ func (p blockPlan) total() int { return p.creates + p.updates + p.deletes + p.ab
 // get a guaranteed share: a category that only appears sometimes is a category that is untested on the
 // blocks where it does not.
 func (w *agreementWorkload) planBlock() blockPlan {
-	span := agreementMaxOpsPerBlock - agreementMinOpsPerBlock + 1
-	total := agreementMinOpsPerBlock + w.rng.Intn(span)
+	total := w.blockSize()
 	plan := blockPlan{
 		creates:       total * 40 / 100,
 		updates:       total * 30 / 100,

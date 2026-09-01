@@ -34,16 +34,18 @@ type DBPairs struct {
 	Pairs []KVPairWithLastValue
 }
 
-// Result holds the recomputed hash state after folding a block's pairs. PerDB
+// BlockHash holds the recomputed hash state after folding a block's pairs. PerDB
 // and PerModule contain an entry for every DB dir the HashCalculator was
 // configured with (so callers can swap them in wholesale). Global is the
 // homomorphic sum of the per-DB roots. PerModuleStats holds the per-(dir,
 // module) key-count / byte totals accumulated alongside the hash.
-type Result struct {
+type BlockHash struct {
+	BlockNumber    int64
 	PerDB          map[string]*LtHash
 	PerModule      map[string]map[string]*LtHash
 	PerModuleStats map[string]map[string]ModuleStats
 	Global         *LtHash
+	Error          error
 }
 
 // HashCalculator encapsulates the per-block lattice-hash pipeline over an
@@ -103,7 +105,7 @@ func (c *HashCalculator) Compute(
 	prevPerDB map[string]*LtHash,
 	prevPerModule map[string]map[string]*LtHash,
 	prevPerModuleStats map[string]map[string]ModuleStats,
-) (*Result, error) {
+) (*BlockHash, error) {
 	newPerDB := make(map[string]*LtHash, len(c.dbDirs))
 	newPerModule := make(map[string]map[string]*LtHash, len(c.dbDirs))
 	newPerModuleStats := make(map[string]map[string]ModuleStats, len(c.dbDirs))
@@ -152,7 +154,7 @@ func (c *HashCalculator) Compute(
 		global.MixIn(newPerDB[dir])
 	}
 
-	return &Result{
+	return &BlockHash{
 		PerDB:          newPerDB,
 		PerModule:      newPerModule,
 		PerModuleStats: newPerModuleStats,
