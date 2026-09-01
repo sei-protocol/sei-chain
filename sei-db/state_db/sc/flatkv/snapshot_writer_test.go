@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -80,16 +82,18 @@ func (v *fakeView) Finalize([]*proto.KVPair) error {
 	panic("fakeView: unexpected Finalize")
 }
 
-// fakeViews returns one stub per database, as a commit would hand to the writer.
-func fakeViews() (map[string]view.View, map[string]*fakeView) {
-	views := make(map[string]view.View, len(dataDBDirs))
+// fakeViews returns a store view at version backed by one stub per database, as a commit would hand
+// to the writer, alongside the stubs so a test can inspect what the writer did to them.
+func fakeViews(t *testing.T, version int64) (*storeView, map[string]*fakeView) {
+	t.Helper()
 	stubs := make(map[string]*fakeView, len(dataDBDirs))
 	for _, name := range dataDBDirs {
-		stub := &fakeView{name: name}
-		views[name] = stub
-		stubs[name] = stub
+		stubs[name] = &fakeView{name: name}
 	}
-	return views, stubs
+	blockView, err := newStoreView(version,
+		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
+	require.NoError(t, err)
+	return blockView, stubs
 }
 
 // requireAllReleased asserts the writer handed back every reservation it took. A reservation left held
@@ -147,7 +151,7 @@ func newTestWriter(t *testing.T, interval uint32, queueDepth uint32, db *fakeChe
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, workingDirName), 0o750))
-	return newSnapshotWriter(t.Context(), dir, 0, false, interval, queueDepth, fakeCheckpointDBs(db))
+	return newSnapshotWriter(t.Context(), dir, 0, false, interval, queueDepth, fakeCheckpointDBs(db), nil)
 }
 
 // newCollectorPrunedTestWriter is newTestWriter with retention handed to the StorageGarbageCollector,
@@ -163,7 +167,7 @@ func newCollectorPrunedTestWriter(
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, workingDirName), 0o750))
-	return newSnapshotWriter(t.Context(), dir, 0, true, interval, queueDepth, fakeCheckpointDBs(db))
+	return newSnapshotWriter(t.Context(), dir, 0, true, interval, queueDepth, fakeCheckpointDBs(db), nil)
 }
 
 // requireBlocked asserts a call has not returned yet.
@@ -195,16 +199,16 @@ func TestSnapshotWriterBlocksOnceQueueIsFull(t *testing.T) {
 	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
 	w := newTestWriter(t, 1, 1, db)
 
-	first, firstStubs := fakeViews()
-	require.NoError(t, w.Offer(1, first))
+	first, firstStubs := fakeViews(t, 1)
+	require.NoError(t, w.Offer(first))
 	<-db.started // taken off the queue, and will not finish until released
 
-	queued, queuedStubs := fakeViews()
-	require.NoError(t, w.Offer(2, queued), "the single queue slot is free")
+	queued, queuedStubs := fakeViews(t, 2)
+	require.NoError(t, w.Offer(queued), "the single queue slot is free")
 
-	blocked, blockedStubs := fakeViews()
+	blocked, blockedStubs := fakeViews(t, 3)
 	returned := make(chan error, 1)
-	go func() { returned <- w.Offer(3, blocked) }()
+	go func() { returned <- w.Offer(blocked) }()
 	requireBlocked(t, returned, "Offer with a full queue")
 
 	close(db.release)
@@ -225,16 +229,16 @@ func TestSnapshotWriterCloseWakesBlockedOffer(t *testing.T) {
 	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
 	w := newTestWriter(t, 1, 1, db)
 
-	first, _ := fakeViews()
-	require.NoError(t, w.Offer(1, first))
+	first, _ := fakeViews(t, 1)
+	require.NoError(t, w.Offer(first))
 	<-db.started
 
-	queued, _ := fakeViews()
-	require.NoError(t, w.Offer(2, queued))
+	queued, _ := fakeViews(t, 2)
+	require.NoError(t, w.Offer(queued))
 
-	blocked, blockedStubs := fakeViews()
+	blocked, blockedStubs := fakeViews(t, 3)
 	offered := make(chan error, 1)
-	go func() { offered <- w.Offer(3, blocked) }()
+	go func() { offered <- w.Offer(blocked) }()
 	requireBlocked(t, offered, "Offer with a full queue")
 
 	closed := make(chan error, 1)
@@ -256,12 +260,12 @@ func TestSnapshotWriterCloseWaitsForCheckpointAndDiscardsQueue(t *testing.T) {
 	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
 	w := newTestWriter(t, 1, 4, db)
 
-	first, firstStubs := fakeViews()
-	require.NoError(t, w.Offer(7, first))
+	first, firstStubs := fakeViews(t, 7)
+	require.NoError(t, w.Offer(first))
 	<-db.started
 
-	queued, queuedStubs := fakeViews()
-	require.NoError(t, w.Offer(8, queued))
+	queued, queuedStubs := fakeViews(t, 8)
+	require.NoError(t, w.Offer(queued))
 
 	closed := make(chan error, 1)
 	go func() { closed <- w.Close() }()
@@ -282,8 +286,8 @@ func TestSnapshotWriterReleasesBlocksItDoesNotSnapshot(t *testing.T) {
 
 	all := make([]map[string]*fakeView, 0, 3)
 	for version := int64(1); version <= 3; version++ {
-		views, stubs := fakeViews()
-		require.NoError(t, w.Offer(version, views))
+		views, stubs := fakeViews(t, version)
+		require.NoError(t, w.Offer(views))
 		all = append(all, stubs)
 	}
 
@@ -301,41 +305,21 @@ func TestSnapshotWriterBrickStopsWriterAndReportsToEveryCaller(t *testing.T) {
 	db := &fakeCheckpointDB{started: make(chan struct{}), err: failure}
 	w := newTestWriter(t, 1, 1, db)
 
-	views, stubs := fakeViews()
-	require.NoError(t, w.Offer(1, views))
+	views, stubs := fakeViews(t, 1)
+	require.NoError(t, w.Offer(views))
 
 	require.Eventually(t, func() bool {
 		return errors.Is(w.Flush(), failure)
 	}, 5*time.Second, 5*time.Millisecond, "the failure must be latched and reported")
 	requireAllReleased(t, stubs)
 
-	later, laterStubs := fakeViews()
-	require.ErrorIs(t, w.Offer(2, later), failure,
+	later, laterStubs := fakeViews(t, 2)
+	require.ErrorIs(t, w.Offer(later), failure,
 		"Offer is on the commit path, so it must surface the failure rather than block on a dead queue")
 	requireAllReleased(t, laterStubs)
 
 	require.ErrorIs(t, w.Flush(), failure)
 	require.ErrorIs(t, w.Close(), failure, "Close reports what went wrong rather than hiding it")
-}
-
-// reserveViews takes ownership of nothing when it fails, so a partial success must be undone. Map
-// iteration order is unspecified, so the assertion is per-view rather than a total count: whichever
-// ones were reserved, those are the ones that must have been released.
-func TestReserveViewsUnwindsPartialSuccess(t *testing.T) {
-	ok := &fakeView{name: accountDBDir}
-	bad := &fakeView{name: codeDBDir, reserveErr: errors.New("manager is bricked")}
-
-	reserved, err := reserveViews(map[string]view.View{
-		accountDBDir: ok,
-		codeDBDir:    bad,
-	})
-	require.Error(t, err)
-	require.ErrorContains(t, err, "manager is bricked")
-	require.Nil(t, reserved, "a failed reserve must not hand back a partial set")
-
-	require.Equal(t, ok.reserves.Load(), ok.releases.Load(),
-		"a reservation taken before the failure must be handed back, not stranded")
-	require.Zero(t, bad.releases.Load(), "a reservation that was never taken must not be released")
 }
 
 // The collector's cut line is acted on by the writer's goroutine, not the collector's. With a
@@ -347,8 +331,8 @@ func TestSnapshotWriterPruneWaitsForTheWritersGoroutine(t *testing.T) {
 	w := newCollectorPrunedTestWriter(t, 1, 1, db)
 	mkSnapshots(t, w.dir, 5, 10, 20)
 
-	views, stubs := fakeViews()
-	require.NoError(t, w.Offer(100, views))
+	views, stubs := fakeViews(t, 100)
+	require.NoError(t, w.Offer(views))
 	<-db.started // the goroutine is inside the checkpoint and cannot service a cut line
 
 	require.NoError(t, w.PruneBelow(20))
@@ -370,8 +354,8 @@ func TestSnapshotWriterPruneCutLineIsSuperseded(t *testing.T) {
 	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
 	w := newCollectorPrunedTestWriter(t, 1, 1, db)
 
-	views, stubs := fakeViews()
-	require.NoError(t, w.Offer(100, views))
+	views, stubs := fakeViews(t, 100)
+	require.NoError(t, w.Offer(views))
 	<-db.started // nothing drains the cell while the checkpoint runs
 
 	require.NoError(t, w.PruneBelow(6))
@@ -398,6 +382,47 @@ func TestSnapshotWriterPruneFailureBricks(t *testing.T) {
 
 	require.ErrorContains(t, w.Close(), "resolve active snapshot")
 	require.Equal(t, []int64{5, 10}, snapshotVersions(t, w.dir), "a refused prune deletes nothing")
+}
+
+// A store on a schedule takes its heights from the schedule instead of from its own interval, and is
+// asked about every committed block rather than only about the ones the interval would have offered.
+// Being asked about every block is what lets one schedule hold several stores to the same height: a
+// height picked for another store is a height this one is asked about.
+func TestSnapshotWriterTakesHeightsFromTheSchedule(t *testing.T) {
+	w := newTestWriter(t, 10, 8, &fakeCheckpointDB{started: make(chan struct{})})
+	// An interval of 10 declines every version below it, so a snapshot here came from the schedule.
+	w.setCheckpointScheduler(controller.NewCheckpointScheduler(dbconfig.CheckpointConfig{BlockInterval: 3}))
+
+	for version := int64(1); version <= 3; version++ {
+		views, _ := fakeViews(t, version)
+		require.NoError(t, w.Offer(views))
+	}
+	require.NoError(t, w.Flush())
+
+	require.Equal(t, []int64{3}, snapshotVersions(t, w.dir),
+		"the schedule's height must be taken and the interval's ignored")
+	require.NoError(t, w.Close())
+}
+
+// A height the schedule handed out has to be reported back on the failure path too. The schedule picks
+// no further height while one store is unreported, so a writer that reported only on success would
+// stop the whole node checkpointing until it restarted.
+func TestSnapshotWriterReportsAFailedCheckpointToTheSchedule(t *testing.T) {
+	failure := errors.New("checkpoint exploded")
+	w := newTestWriter(t, 0, 1, &fakeCheckpointDB{started: make(chan struct{}), err: failure})
+	scheduler := controller.NewCheckpointScheduler(dbconfig.CheckpointConfig{BlockInterval: 1})
+	w.setCheckpointScheduler(scheduler)
+
+	views, stubs := fakeViews(t, 1)
+	require.NoError(t, w.Offer(views))
+	require.Eventually(t, func() bool {
+		return errors.Is(w.Flush(), failure)
+	}, 5*time.Second, 5*time.Millisecond, "the failed checkpoint must be latched")
+	requireAllReleased(t, stubs)
+
+	require.True(t, scheduler.ShouldCheckpoint("probe", 2),
+		"the schedule must be free to pick another height, which it is not while a store is unreported")
+	require.ErrorIs(t, w.Close(), failure)
 }
 
 // End to end through a store with the writer running asynchronously: the snapshot appears once

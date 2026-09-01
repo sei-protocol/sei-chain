@@ -416,9 +416,9 @@ func initAppConfig() (string, interface{}) {
 	pruningInterval := primes[r.Intn(len(primes))]
 	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
 
-	// Metrics
+	// Metrics. Retention is left at the upstream default, which is zero, so this pipeline agrees with
+	// the one seid init runs and neither starts the Prometheus sink without an operator asking for it.
 	srvCfg.Telemetry.Enabled = true
-	srvCfg.Telemetry.PrometheusRetentionTime = 60
 
 	// Use shared CustomAppConfig from app_config.go
 	customAppConfig := NewCustomAppConfig(srvCfg, evmrpcconfig.DefaultConfig)

@@ -32,6 +32,15 @@ type EVMServer interface {
 	Stop()
 }
 
+// requireReceiptStoreForServing returns ErrNotConfigured when k has no receipt store. EVM RPC
+// refuses to start in that state rather than failing method by method.
+func requireReceiptStoreForServing(k *keeper.Keeper) error {
+	if err := requireReceiptStore(k); err != nil {
+		return fmt.Errorf("%w: EVM RPC cannot serve requests without receipt-store.rs-enable = true", err)
+	}
+	return nil
+}
+
 func NewEVMHTTPServer(
 	config evmrpcconfig.Config,
 	tmClient client.LocalClient,
@@ -45,6 +54,9 @@ func NewEVMHTTPServer(
 	stateStore types.StateStore,
 	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
+	if err := requireReceiptStoreForServing(k); err != nil {
+		return nil, err
+	}
 
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
@@ -236,6 +248,10 @@ func NewEVMWebSocketServer(
 	stateStore types.StateStore,
 	blockHeaderNotifier *BlockHeaderNotifier,
 ) (EVMServer, error) {
+	if err := requireReceiptStoreForServing(k); err != nil {
+		return nil, err
+	}
+
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	// This is idempotent - if HTTP server already initialized it, this is a no-op
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
