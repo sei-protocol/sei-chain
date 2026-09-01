@@ -1,8 +1,8 @@
 # evmonly-loadtest
 
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
-the EVM-only executor without Cosmos SDK state, mempool, RPC, or chain
-persistence.
+the EVM-only executor through an in-memory `giga.StateDB`, without Cosmos SDK
+state, mempool, RPC, or production SC/SS persistence.
 
 The synthetic workload defaults to local EVM chain ID `1337`; override it with
 `--chain-id` when testing another signing domain.
@@ -123,11 +123,8 @@ Useful knobs:
 
 - `--blocks`: number of blocks to prebuild and execute. This is required and
   must be greater than `0`.
-- `--workers`: parallel executor workers. The default is `1`. Prepared blocks
-  are forwarded to workers in block-number order, but `--workers > 1` can still
-  finish execution out of order; this is safe for the harness because generated
-  state is frozen for prebuilt runs and executor changesets are not applied back
-  into the input state.
+- `--workers`: ordered block executor workers. This must be `1` because each
+  block reads the snapshot produced by the previous `CommitStateChanges` call.
 - `--executor-workers`: parallel OCC workers inside each executor. The default
   is `min(12, GOMAXPROCS)`, following the `sei-v3` OCC worker default.
 - `--prepare-workers`: parallel stateless preparation workers used for
@@ -179,16 +176,18 @@ The command reports these saturation signals on stdout and at `/metrics`:
   and write time
 - result-pool capacity, available slots, and overflow allocations
 
-The default executor output path intentionally discards results through mocks:
+Every run uses the Giga executor lifecycle:
 
-- `generatedState` implements `evmonly.StateReader` and supplies generated
-  genesis balances, nonces, code, and storage.
-- `discardResultSink` applies the executor `StateChangeSet` to
-  `discardStateWriter` and discards Ethereum receipts.
+- `generatedState` implements `evmonly.StateReader` and supplies immutable
+  generated genesis balances, nonces, code, and storage.
+- `evmonly.MemoryStore` opens versioned snapshots over that genesis state and
+  applies the executor's encoded output through `CommitStateChanges`.
+- `discardResultSink` discards the already-committed block result and receipts;
+  it is not responsible for state persistence.
 
-With `--result-sink=file`, the loadtest harness hands pooled
-`evmonly.BlockResult` values to an async writer through the executor's
-`evmonly.ResultSink` interface. The writer appends changesets to
+With `--result-sink=file`, after the in-memory Giga commit succeeds the loadtest
+harness hands pooled `evmonly.BlockResult` values to an async writer through the
+executor's `evmonly.ResultSink` interface. The writer appends changesets to
 `changesets.rlp` and receipts to `receipts.rlp` under `--persist-dir`; each
 record is framed as an 8-byte big-endian block height, an 8-byte big-endian RLP
 payload length, and the RLP payload. The files are temporary calibration

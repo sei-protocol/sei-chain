@@ -1,14 +1,13 @@
 package types
 
 import (
-	fmt "fmt"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 )
 
@@ -102,8 +101,6 @@ func (m *Minter) RecordSuccessfulMint(ctx sdk.Context, epoch epochTypes.Epoch, m
 	m.LastMintHeight = uint64(epoch.CurrentEpochHeight) //nolint:gosec
 	m.LastMintAmount = mintedAmount
 	mintMetrics.coinsMinted.Record(ctx.Context(), int64(mintedAmount), otelmetric.WithAttributes(attribute.String("denom", m.GetDenom()))) //nolint:gosec
-	// TODO(PLT-336): remove once mint_coins_minted verified
-	metrics.SetCoinsMinted(mintedAmount, m.GetDenom())
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			EventTypeMint,

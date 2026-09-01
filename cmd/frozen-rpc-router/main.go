@@ -32,7 +32,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	router, err := newRouter(cfg.liveNode, frozenNodes, nil, cfg.maxRequestBodySize)
+	router, err := newRouter(cfg.liveNode, frozenNodes, nil, cfg.maxRequestBodySize, cfg.maxBlockReferenceDepth, cfg.batchRequestLimit)
 	if err != nil {
 		return err
 	}
@@ -41,6 +41,7 @@ func run() error {
 		Addr:              cfg.listenAddress,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      cfg.writeTimeout,
 		IdleTimeout:       2 * time.Minute,
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -164,17 +165,22 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 // without it a test that commits and then reads a database directly is looking at a disk that lags the
 // commit. It also matches how the Cosmos-era node drives the store, which forces a flush every block.
 // A test specifically about asynchronous flushing should call s.Commit directly instead.
+//
+// Snapshots are written off the execution thread for the same reason, so the wait covers them too: a
+// test that commits past SnapshotInterval and then looks at the snapshot tree would otherwise be
+// racing the writer.
 func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	t.Helper()
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	requireFlushedToDisk(t, s)
+	require.NoError(t, s.FlushSnapshots())
 	return v
 }
 
 // rootHash returns the store's committed root hash, discarding the height it describes. Tests that
 // care about the height assert on it directly rather than through this.
-func rootHash(s Store) []byte {
+func rootHash(s giga.LiveStateStore) []byte {
 	hash, _ := s.RootHash()
 	return hash
 }
@@ -359,7 +365,9 @@ func stagedRow[T vtype.VType](
 	decode func([]byte) (T, error),
 ) T {
 	t.Helper()
-	row, err := getAndParse(store, physKey, decode)
+	raw, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	row, err := parseRow(raw, found, decode)
 	require.NoError(t, err)
 	return row
 }

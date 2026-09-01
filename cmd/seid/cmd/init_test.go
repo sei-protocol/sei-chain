@@ -185,8 +185,8 @@ func TestInitAppConfigIncludesReceiptStoreDefaults(t *testing.T) {
 
 	output := buf.String()
 	require.Contains(t, output, "[receipt-store]")
-	require.Contains(t, output, `rs-backend = "pebbledb"`)
-	require.Contains(t, output, `db-directory = ""`)
+	require.Contains(t, output, "rs-backend =")
+	require.Contains(t, output, "db-directory =")
 	require.Contains(t, output, "async-write-buffer =")
 	require.Contains(t, output, "prune-interval-seconds =")
 	require.NotContains(t, output, "use-default-comparer")

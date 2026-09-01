@@ -9,7 +9,6 @@ import (
 // Common metric key constants
 const (
 	MetricKeyBeginBlocker = "begin_blocker"
-	MetricKeyMidBlocker   = "mid_blocker"
 	MetricKeyEndBlocker   = "end_blocker"
 	MetricLabelNameModule = "module"
 	MessageCount          = "message"
@@ -28,17 +27,6 @@ func ModuleMeasureSince(module string, start time.Time, keys ...string) {
 	metrics.MeasureSinceWithLabels(
 		keys,
 		start.UTC(),
-		append([]metrics.Label{NewLabel(MetricLabelNameModule, module)}, globalLabels...),
-	)
-}
-
-// ModuleSetGauge provides a short hand method for emitting a gauge metric for a
-// module with a given set of keys. If any global labels are defined, they will
-// be added to the module label.
-func ModuleSetGauge(module string, val float32, keys ...string) {
-	metrics.SetGaugeWithLabels(
-		keys,
-		val,
 		append([]metrics.Label{NewLabel(MetricLabelNameModule, module)}, globalLabels...),
 	)
 }

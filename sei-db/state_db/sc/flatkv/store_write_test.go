@@ -1,19 +1,15 @@
 package flatkv
 
 import (
-	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -582,10 +578,11 @@ func TestStoreFsyncConfig(t *testing.T) {
 // Auto-snapshot triggered by SnapshotInterval
 // =============================================================================
 
-// A failed periodic snapshot must fail the commit rather than being logged and discarded. The flush
-// wait at the front of WriteSnapshot is where a dead store surfaces, so swallowing an error there would
-// report a block as committed whose data will never reach disk — and the caller, which is required to
-// halt on the first error, would never learn it had one.
+// A failed periodic snapshot must fail a commit rather than being logged and discarded. The writer
+// latches its first failure and reports it from every later call, so a checkpoint that failed with no
+// caller to return to still stops the node. Swallowing it would report blocks as committed whose data
+// will never reach disk, and the caller, which is required to halt on the first error, would never
+// learn it had one.
 //
 // The failure is forced with directory permissions: the snapshot cannot create its temporary directory
 // under the flatkv root. The WAL and the databases live in subdirectories that already exist, so they
@@ -616,89 +613,26 @@ func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: make([]byte, 32)}}},
 	}}))
 
+	// The commit that trips the interval only hands the block to the writer, so it succeeds.
 	_, err = s.Commit(s.Version() + 1)
-	require.Error(t, err, "a failed periodic snapshot must fail the commit")
+	require.NoError(t, err)
+
+	// Waiting for the writer surfaces the failure it latched.
+	err = s.FlushSnapshots()
+	require.Error(t, err, "a failed snapshot must be reported, not swallowed")
+	require.ErrorContains(t, err, "create snapshot tmp dir",
+		"the error must name what actually failed")
+
+	// And the node halts: every later commit reports the same failure.
+	key = keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x03}, ktype.Slot{0x03}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{{
+		Name:      "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: make([]byte, 32)}}},
+	}}))
+	_, err = s.Commit(s.Version() + 1)
+	require.Error(t, err, "a bricked snapshot writer must fail every later commit")
 	require.ErrorContains(t, err, "auto snapshot",
 		"the error must name the snapshot as the cause rather than being swallowed")
-}
-
-var _ view.View = (*stubView)(nil)
-
-// stubView is a view whose Release outcome the test chooses. Only Name and Release are
-// implemented; every other method panics, so a use this stub was not written for is loud rather than
-// silently wrong.
-type stubView struct {
-	// Reported by Name.
-	name string
-
-	// Returned by every Release call.
-	releaseErr error
-
-	// Counts Release calls.
-	releaseCalls int
-}
-
-func (s *stubView) Name() string {
-	return s.name
-}
-
-func (s *stubView) Release() error {
-	s.releaseCalls++
-	return s.releaseErr
-}
-
-func (s *stubView) Get(key []byte, updateLru bool) ([]byte, bool, error) {
-	panic("stubView: unexpected Get")
-}
-
-func (s *stubView) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	panic("stubView: unexpected BatchGet")
-}
-
-func (s *stubView) GetDiff() (map[string][]byte, error) {
-	panic("stubView: unexpected GetDiff")
-}
-
-func (s *stubView) Reserve() error {
-	panic("stubView: unexpected Reserve")
-}
-
-func (s *stubView) Finalize(writes []*proto.KVPair) error {
-	panic("stubView: unexpected Finalize")
-}
-
-func (s *stubView) AwaitFlush(ctx context.Context) error {
-	panic("stubView: unexpected AwaitFlush")
-}
-
-// A reservation left held stalls its store's flushes forever, so a failing hand-back must not stop the
-// others, and the failure must be reported rather than logged and dropped.
-//
-// Every stub fails, so "all of them were attempted" holds whatever order the map is walked in — with a
-// single failing entry among healthy ones the check would only catch a short-circuit half the time.
-func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
-	names := []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
-
-	stubs := make(map[string]*stubView, len(names))
-	sealed := make(map[string]view.View, len(names))
-	for _, name := range names {
-		stub := &stubView{name: name, releaseErr: errors.New("view manager is bricked")}
-		stubs[name] = stub
-		sealed[name] = stub
-	}
-	s := &CommitStore{lastSealed: sealed}
-
-	err := s.releaseLastSealed()
-	require.Error(t, err, "a failed hand-back must be returned, not swallowed")
-	require.ErrorContains(t, err, "view manager is bricked")
-
-	for _, name := range names {
-		require.Equal(t, 1, stubs[name].releaseCalls,
-			"every reservation must be handed back; stopping at the first failure strands the rest")
-		require.ErrorContains(t, err, "release sealed view for "+name,
-			"the joined error must name every store that failed")
-	}
-	require.Nil(t, s.lastSealed, "the handles must be forgotten even when a hand-back failed")
 }
 
 // The store's contract makes every error fatal, so a hand-back failure during teardown has to reach the
@@ -706,14 +640,15 @@ func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
 func TestCloseReportsReleaseFailure(t *testing.T) {
 	s := setupTestStore(t)
 
-	// Give back the genuine reservations first, then swap in a failing stub, so the real stores are not
+	// Retire the genuine holder first, then install one over failing stubs, so the real stores are not
 	// left holding anything when they are torn down below.
-	require.NoError(t, s.releaseLastSealed())
-	s.lastSealed = map[string]view.View{
-		accountDBDir: &stubView{name: accountDBDir, releaseErr: errors.New("view manager is bricked")},
-	}
+	require.NoError(t, s.lastSealed.Close())
+	sealed, _ := bricksOnRelease(t, s.Version())
+	installed, err := newAtomicStoreView(sealed)
+	require.NoError(t, err)
+	s.lastSealed = installed
 
-	err := s.Close()
+	err = s.Close()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "release sealed views")
 }
@@ -1005,27 +940,6 @@ func TestStoreFsyncEnabled(t *testing.T) {
 	v, ok := s.Get(keys.EVMStoreKey, evmStorageKey(ktype.Address{0x01}, ktype.Slot{0x01}))
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
-}
-
-// =============================================================================
-// lastSnapshotTime is set after WriteSnapshot
-// =============================================================================
-
-func TestLastSnapshotTimeUpdated(t *testing.T) {
-	cfg := config.DefaultTestConfig(t)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	defer s.Close()
-
-	require.True(t, s.lastSnapshotTime.IsZero())
-
-	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
-	require.NoError(t, s.WriteSnapshot(""))
-
-	require.False(t, s.lastSnapshotTime.IsZero())
-	require.True(t, time.Since(s.lastSnapshotTime) < time.Second)
 }
 
 // =============================================================================
@@ -2110,7 +2024,7 @@ func TestApplyChangeSetsAllowsSameHeightRepeatsOnly(t *testing.T) {
 	}
 }
 
-func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
+func TestCommitStateChangesStampsRowBlockHeight(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -2120,7 +2034,7 @@ func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
 
 	// Start at block 10 the legal way: seed the store so its history begins there.
 	require.NoError(t, s.SetInitialVersion(10))
-	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 
 	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)

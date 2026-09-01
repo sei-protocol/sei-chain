@@ -56,21 +56,21 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 	}
 }
 
-func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
+func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
 	runner := newOCCSpeculativeRunner(e, req)
 	workers := min(e.cfg.OCCWorkers, len(req.Txs))
 	executionPool := e.occPool
 
 	results := make([]occTxExecution, len(req.Txs))
 	chunkSize := occChunkSize(len(req.Txs), workers)
-	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), e.state, runner.blockGasLimit, results); err != nil {
+	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
-			return e.executeBlockOCCSequentialFallback(ctx, req, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
+			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
 		}
 		return nil, err
 	}
 
-	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, results)
+	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, source, results)
 	if errors.Is(err, errOCCMaxIncarnation) || errors.Is(err, errOCCWorkerPoolClosed) {
 		reason := validation.fallbackReason
 		switch {
@@ -79,7 +79,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 		case errors.Is(err, errOCCMaxIncarnation) && reason == "":
 			reason = occFallbackReasonMaxIncarnation
 		}
-		return e.executeBlockOCCSequentialFallback(ctx, req, validation, reason)
+		return e.executeBlockOCCSequentialFallback(ctx, req, source, validation, reason)
 	}
 	if err != nil {
 		return nil, err
@@ -92,11 +92,11 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock) (*Blo
 	return result, nil
 }
 
-func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, validation occValidationResult, reason string) (*BlockResult, error) {
+func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, source StateReader, validation occValidationResult, reason string) (*BlockResult, error) {
 	if reason != "" {
 		validation.fallbackReason = reason
 	}
-	result, err := e.executeBlockSequential(ctx, req)
+	result, err := e.executeBlockSequential(ctx, req, source)
 	if err != nil {
 		return nil, err
 	}
@@ -284,9 +284,10 @@ func (e *Executor) validateBlockSTM(
 	ctx context.Context,
 	runner occSpeculativeRunner,
 	pool *occWorkerPool,
+	source StateReader,
 	results []occTxExecution,
 ) ([]occTxExecution, *blockSTMState, occValidationResult, error) {
-	state := newBlockSTMValidationState(e.state)
+	state := newBlockSTMValidationState(source)
 	validation := occValidationResult{}
 	for state.nextToValidate < len(results) {
 		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation)

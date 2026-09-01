@@ -383,6 +383,18 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	runBlocks(t, src, workload, 1)
 	h := src.Version()
 
+	// FlatKV writes snapshots off the execution thread, so a commit returning no longer means its
+	// snapshot churn has finished. Exporting reads a snapshot by copying its directory, and pruning the
+	// oldest snapshot is the last step of publishing a new one, so without this wait the writer can
+	// delete the directory the export is part way through copying.
+	//
+	// Reached through the concrete store because quiescing the writer is not part of the giga.LiveStateStore
+	// abstraction: no production caller needs it, and this test only does because it drives commits and
+	// reads from one goroutine and so has a quiet period to establish.
+	flatKVStore, ok := src.flatKV.(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
 	items := drainCompositeExporter(t, exp)

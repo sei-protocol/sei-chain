@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -17,7 +18,7 @@ import (
 // Buffers one store's worth of KVs in memory at a time and is not cancellable.
 // Intended for tests and offline maintenance / migration checks; not suitable
 // for online verification of production-sized state.
-func VerifyLtHash(s Store) error {
+func VerifyLtHash(s giga.LiveStateStore) error {
 	cs, ok := s.(*CommitStore)
 	if !ok {
 		return fmt.Errorf("VerifyLtHash: unsupported store type %T", s)

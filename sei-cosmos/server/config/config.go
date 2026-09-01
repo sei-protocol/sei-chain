@@ -489,6 +489,9 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if v.IsSet("state-commit.flatkv.snapshot-keep-recent") {
 		flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
 	}
+	if v.IsSet("state-commit.flatkv.max-snapshot-lag-blocks") {
+		flatKVConfig.MaxSnapshotLagBlocks = v.GetUint32("state-commit.flatkv.max-snapshot-lag-blocks")
+	}
 	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
 		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
 	}

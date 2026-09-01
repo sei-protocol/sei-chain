@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
@@ -23,23 +24,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// failingEVMStore is a mock flatkv.Store whose loads always fail.
+// failingEVMStore is a mock giga.LiveStateStore whose loads always fail.
 type failingEVMStore struct{}
 
-var _ flatkv.Store = (*failingEVMStore)(nil)
+var _ giga.LiveStateStore = (*failingEVMStore)(nil)
 
 func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavailable") }
 
-func (f *failingEVMStore) LoadVersionReadOnly(int64) (flatkv.Store, error) {
+func (f *failingEVMStore) LoadVersionReadOnly(int64) (giga.LiveStateStore, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
 }
 func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
 	return nil
 }
 func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
-func (f *failingEVMStore) CommitBlock(int64, []*proto.NamedChangeSet) error {
+func (f *failingEVMStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
 	return nil
 }
+func (f *failingEVMStore) OpenView() giga.StateView          { return nil }
 func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
 func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
@@ -54,7 +56,6 @@ func (f *failingEVMStore) RootHash() ([]byte, int64)                     { retur
 func (f *failingEVMStore) Version() int64                                { return 0 }
 func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)              { return 0, nil }
-func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }
 func (f *failingEVMStore) Rollback(int64) error                          { return nil }
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
 func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
