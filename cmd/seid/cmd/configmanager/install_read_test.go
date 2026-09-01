@@ -261,6 +261,53 @@ func TestNoHomeMeansNoReadRatherThanAForeignFile(t *testing.T) {
 	}
 }
 
+// TestARefusedInstallPublishesNothing holds the two deliveries to one outcome.
+//
+// One of them refuses its whole set on a single bad pair; the other refuses one section at a time. Run in
+// the wrong order the per-section delivery commits first, so a node reads sei.toml for the settings its own
+// file decodes and its own files for everything else, under a line saying nothing was applied. That state
+// is described nowhere.
+//
+// The refusing state is built here rather than reached through a boot. A source enumerating a path a
+// declared key occupies is what the install refuses, and the readers of the node's own files reject that
+// shape before it reaches the source, so a boot cannot currently produce it. The refusal is still what the
+// install does when handed it, and the order it happens in is what this holds.
+func TestARefusedInstallPublishesNothing(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", seiTomlName),
+		[]byte("schema_version = 1\nnode_mode = \""+tmcfg.DefaultConfig().Mode+
+			"\"\n\n[mempool]\nsize = 7777\n"),
+		0o600); err != nil {
+		t.Fatalf("write sei.toml: %v", err)
+	}
+
+	sctx := server.NewDefaultContext()
+	// "pruning" is declared, so a value at pruning.foo names a path that key already occupies.
+	sctx.Viper.Set("pruning.foo", 1)
+	before := sctx.Config.Mempool.Size
+
+	cmd := &cobra.Command{Use: "start"}
+	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, sctx))
+	cmd.Flags().String(flags.FlagHome, home, "")
+
+	var out bytes.Buffer
+	installResolved(cmd, nil, slog.New(slog.NewTextHandler(&out,
+		&slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	if !strings.Contains(out.String(), "cannot install this node's configuration") {
+		t.Fatalf("the install was expected to refuse and did not, so this measures nothing:\n%s",
+			out.String())
+	}
+	if got := sctx.Config.Mempool.Size; got != before {
+		t.Errorf("the install refused every one of its keys and mempool.size moved from %d to %d anyway. "+
+			"Half the configuration came from sei.toml and half from the node's own files, under a line "+
+			"reporting that nothing was applied", before, got)
+	}
+}
+
 // TestNothingIsDeliveredWhenTheNodeRunsWithNoKind covers the kind a node holds when its own file states the
 // key and leaves it empty.
 //

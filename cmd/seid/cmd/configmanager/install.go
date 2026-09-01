@@ -21,20 +21,20 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 
 	// The sections whose keys belong to the upstream server. A section reaches the registry through its
-	// owning package's initialisation, so a section nothing imports is absent from what this installs, and
-	// absent silently, since an undeclared key is left to whatever answered it before.
+	// owning package's initialisation. A section nothing imports is therefore absent from what this
+	// installs, and absent silently: an undeclared key keeps whatever answered it before.
 	_ "github.com/sei-protocol/sei-chain/config/cosmosbase"
 
 	// The sections whose keys belong to the node's own configuration file. These are the ones read by a
-	// decode, so they are deliberately left out of what this installs.
+	// decode, so they are left out of what this installs.
 	_ "github.com/sei-protocol/sei-chain/config/tendermintbase"
 )
 
 // seiTomlName is the file this manager reads.
 const seiTomlName = "sei.toml"
 
-// appliedNone is the attribute every outcome that installs nothing carries. One field rather than a
-// sentence on each message, so a fleet can match on it instead of on message text.
+// appliedNone marks an outcome that installed nothing. One field rather than the same sentence repeated on
+// each message, so a fleet can match on it instead of on message text.
 var appliedNone = slog.String("applied", "none")
 
 // installResolved puts the values sei.toml supplies into the source the boot has just built. Every way
@@ -85,8 +85,8 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// in order to see a refusal is the setting a refusal suppresses.
 	applyResolvedLogLevel(resolved, typed, log)
 
-	// Before the reports it explains, because a refused registration is what makes the next one point at
-	// the wrong file, and an operator reading in order should meet the cause first.
+	// Before the reports it explains. A refused registration makes the next report name the wrong file, so
+	// an operator reading in order meets the cause first.
 	reportWhatThisBinaryCouldNotUse(resolved, log)
 
 	// After the level, so a file that raises it can report its own mistakes. A key nothing declares is
@@ -115,10 +115,6 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// them, absent from the delivery and present in what the install drops.
 	forADecode, ownedByADecode := registry.ResolvedAndOwnedByDecodedSections(resolved)
 
-	// The second delivery. Their file is read into a struct before this runs and nothing consults the
-	// source for them afterwards, so the values are decoded into that struct instead.
-	deliverDecodedSections(ctx, forADecode, log)
-
 	// Every declared key a lookup reads, whether sei.toml mentioned it or not. There is no case where this
 	// is empty for a reason an operator caused: the paths above already returned for a file that could not
 	// be read or used, so reaching here means the resolution answered.
@@ -139,15 +135,21 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 			"count", len(bad), "written", strings.Join(shown, "; "), "omitted", omitted)
 	}
 
+	// Before the decode below. This refuses its whole set on one bad key. A decode refuses one section at
+	// a time. In the other order, the refusal arrives after sections are published. The node then reads
+	// sei.toml for some settings and its own files for the rest, under a line saying nothing was applied.
 	report, err := appopts.Install(ctx.Viper, forALookup)
 	if err != nil {
 		log.Warn("cannot install this node's configuration", appliedNone, "err", err)
 		return
 	}
-	// Counted rather than named. Both lists arrive sorted and a rendered one is capped, so naming them
-	// prints the same alphabetically-first handful on every node on every boot and never a value. The
-	// counts do carry: read_here_first_count is the set the source did not already have, which is the
-	// part most likely to change what the node runs.
+
+	// The second delivery. Their file is read into a struct before this runs and nothing consults the
+	// source for them afterwards, so the values are decoded into that struct instead.
+	deliverDecodedSections(ctx, forADecode, log)
+	// Counted, not named. Both lists arrive sorted and the rendered one is capped, so naming them prints
+	// the same first ten names on every boot and never a value. read_here_first_count is the set the
+	// source did not already hold, which is the part most likely to change what the node runs.
 	said("configuration installed", "mode", mode,
 		"count", len(report.Installed),
 		"read_here_first_count", len(report.Added))
@@ -156,8 +158,8 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 // runsANode reports whether this command is the one that goes on to run a node. Every subcommand installs;
 // this decides only which of them reports it at a level an operator sees.
 func runsANode(cmd *cobra.Command) bool {
-	// By name, because nothing else on the command distinguishes them. One added later reports at the
-	// quieter level until it is named here, which is the safe direction to be wrong in.
+	// By name, because nothing else on the command distinguishes them. A command added later reports at
+	// the quieter level until it is named here.
 	return cmd != nil && cmd.Name() == "start"
 }
 
@@ -186,9 +188,8 @@ func everyKeyALookupReads(resolved registry.Resolved, ownedByADecode []string) r
 
 	out := registry.Resolved{Values: make(map[string]any, len(resolved.Values))}
 	for key, value := range resolved.Values {
-		// A key both deliveries carried would be installed into the source as well as decoded, and the
-		// install refuses a key its own contract does not cover, which would take the whole install down
-		// and with it every key of every other section.
+		// A key both deliveries carried would be installed as well as decoded. The install refuses a key
+		// its own contract does not cover, and that refusal covers every key of every section.
 		if owning[key] {
 			continue
 		}
@@ -222,7 +223,7 @@ func reportWhatThisBinaryCouldNotUse(resolved registry.Resolved, log *slog.Logge
 //
 // Only the file's own keys are named. The same resolution reports flag names matching no declared key, and
 // those are not a mistake: a command carries flags that name no setting at all, so reporting them would put
-// this warning on every boot and bury the typo it exists to surface.
+// this warning on every boot and hide the typo it exists to report.
 func reportWhatTheFileDidNotReach(resolved registry.Resolved, log *slog.Logger) {
 	if len(resolved.UnknownInFile) > 0 {
 		shown, omitted := capLoggedItems(resolved.UnknownInFile)
@@ -313,9 +314,9 @@ func readSeiToml(cmd *cobra.Command, log *slog.Logger) (*seitoml.File, bool) {
 		log.Warn("cannot resolve the home directory", appliedNone, "err", err)
 		return nil, false
 	}
-	// An empty home resolves the read to ./config, relative to whatever directory the process started in,
-	// so it would install some unrelated node's file into this one. Declining is the only safe answer:
-	// there is no directory to read, and reading the wrong one is worse than reading none.
+	// An empty home leaves the path relative, so the read lands in ./config under whatever directory the
+	// process started in. Any sei.toml there belongs to another node, and installing it would configure
+	// this one from it.
 	if home == "" {
 		log.Warn("no home directory is set, so there is nowhere to read sei.toml from", appliedNone)
 		return nil, false
@@ -348,8 +349,8 @@ func readSeiTomlAt(home string) (*seitoml.File, error) {
 	return file, nil
 }
 
-// TypedFlags records which flags this invocation carried. It answers for the state of the flags at the
-// moment it runs, so a caller has to run it before anything that calls Set on one.
+// TypedFlags records which flags this invocation carried. It records them as they are when it runs, so a
+// caller has to run it before anything calls Set on one.
 func TypedFlags(cmd *cobra.Command) map[string]string {
 	out := map[string]string{}
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
@@ -366,11 +367,10 @@ func flagValues(typed map[string]string) map[string]any {
 	if len(typed) == 0 {
 		return nil
 	}
-	// Through the environment spelling, where a dot, a hyphen and an underscore are the same character.
-	// A node's flags separate words with an underscore where the tag they decode through uses a hyphen, so
-	// comparing the two directly leaves an operator's typed flag looking like a name nothing declares, and
-	// the file then wins over the command line. The registry refuses to let two declared keys share this
-	// spelling, so a flag matches at most one key.
+	// Matched by environment spelling, where a dot, a hyphen and an underscore are the same character.
+	// Flag names use underscores and declared keys use hyphens, so a direct comparison finds no match and
+	// the flag is dropped. The registry refuses to let two declared keys share this spelling, so a flag
+	// matches at most one key.
 	byEnvName := map[string]string{}
 	for _, key := range registry.Keys() {
 		byEnvName[registry.EnvName(key)] = key

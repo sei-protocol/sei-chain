@@ -4,9 +4,8 @@ import (
 	"cmp"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
-	"regexp"
+	"reflect"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -26,7 +25,7 @@ import (
 // reads once into a struct before this runs. Those values are decoded into that struct instead, which is
 // the same mechanism the handler used and therefore the same casts, the same tags and the same hooks.
 //
-// Nothing here can stop a node starting, which is the one promise this manager makes.
+// Nothing here can stop a node starting.
 func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string]any,
 	log *slog.Logger) {
 	if len(bySection) == 0 {
@@ -44,10 +43,9 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 	// nothing else that would show it.
 	reasons := registry.DecodedSections()
 
-	// One section at a time. A decode is all or nothing for whatever it is handed, so a single value a
-	// decoder refuses would otherwise cost every key in the file rather than the keys of the section it
-	// appeared in. An operator who fixes one setting and mistypes another has to end up with the first
-	// one applied.
+	// One section at a time. A decode is all or nothing for what it is handed. Handed the whole file, a
+	// single refused value would cost every key in it. An operator who fixes one setting and mistypes
+	// another has to end up with the first one applied.
 	for _, name := range sortedKeys(bySection) {
 		log.Debug("delivering a section by decoding it rather than by a lookup",
 			"section", name, "why", reasons[name], "keys", len(bySection[name]))
@@ -58,8 +56,8 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 // deliverOneSection decodes one section's resolved values into the node's configuration.
 //
 // Decoded into a copy of that configuration first, and published into the live one only once the whole
-// section has decoded. A decoder gathers errors and keeps going, so a value it refuses partway leaves its
-// target holding some of the new values and some of the old, with nothing to compare against and no way
+// section has decoded. A decoder gathers errors and keeps going. A value it refuses partway therefore
+// leaves its target holding some new values and some old ones, with nothing to compare against and no way
 // back. Rehearsing into a copy of the configuration the node already has, rather than into a fresh one, is
 // what makes the rehearsal answer the same question: what a decoder writes can depend on what the target
 // already holds, and only a copy holds the same things.
@@ -73,12 +71,13 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 
 	// Refused before the decode, because a plain number where a length of time belongs decodes cleanly
 	// and means nanoseconds. Nothing after this can tell that apart from a value somebody meant.
-	if bad := whatDecodesToSomethingElse(ctx.Config, values); len(bad) > 0 {
+	fields := keyFieldTypes(reflect.TypeOf(*ctx.Config), "")
+	if bad := whatDecodesToSomethingElse(fields, values); len(bad) > 0 {
 		// Each message says what is wrong with the value it names, and there is more than one thing that
 		// can be. Stating one of them here would describe the others wrongly.
 		log.Error("a written value in this section decodes to something other than what it says; none of "+
 			"the section is applied and every one of its keys reads as it always has",
-			"section", name, "written", strings.Join(bad, "; "))
+			"section", name, "written", strings.Join(problemsInOrder(bad), "; "))
 		return
 	}
 
@@ -151,9 +150,9 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 
 // copyNodeConfig returns a configuration that holds what this one holds and shares nothing with it.
 //
-// A shallow copy would share every section, so a decode into the copy would write through to the original
-// and a refused value would leave exactly the half-written configuration the copy exists to prevent. This
-// copies the top level and every section under it.
+// A shallow copy shares every section. A decode into it would write through to the original, and a refused
+// value would leave the half-written configuration the copy exists to prevent. This copies the top level
+// and every section under it.
 //
 // Written against the type rather than field by field, so a section added to it is copied without this
 // function changing. Every exported reference gets one of its own and one that cannot is an error rather
@@ -172,10 +171,9 @@ func copyNodeConfig(from *tmcfg.Config) (*tmcfg.Config, error) {
 
 // whatBothSidesCouldBeReadFor drops the keys neither side could be read for.
 //
-// A key missing from both answers compares equal, so leaving it in makes the report say the section matches
-// the node's own file, which is the statement the line above it exists to withhold. Dropped here rather
-// than inside the comparison, because the comparison's job is to say what moved and this one's is to say
-// which keys it can speak for.
+// A key missing from both answers compares equal. Left in, it makes the report say the section matches the
+// node's own file, which is what the line above it withholds. Dropped here rather than inside the
+// comparison: the comparison says what moved, and this says which keys it can speak for.
 func whatBothSidesCouldBeReadFor(keys []string, unread map[string]struct{}) []string {
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -208,8 +206,7 @@ func reportWhatMoved(name string, keys []string, before, after map[string]string
 	var moved []string
 	for _, key := range keys {
 		if before[key] != after[key] {
-			moved = append(moved, fmt.Sprintf("%s: %s -> %s", key,
-				withoutCredentials(before[key]), withoutCredentials(after[key])))
+			moved = append(moved, fmt.Sprintf("%s: %s -> %s", key, before[key], after[key]))
 		}
 	}
 	if len(moved) == 0 {
@@ -240,61 +237,11 @@ func asSet(keys []string) map[string]struct{} {
 	return out
 }
 
-// redacted stands in for a secret a report would otherwise carry.
-const redacted = "xxxxx"
-
-// passwordAssignment matches a password given as a named field, wherever it appears.
-//
-// A connection string carries one three ways and this covers two of them: a query parameter, as in
-// "?password=", and one keyword of a space-separated list, as in "password=". PostgreSQL accepts both,
-// and it accepts prefixed spellings such as "sslpassword", which the leading group keeps intact.
-//
-// The value runs to the next separator or the end, so nothing after it is swallowed. A quoted value is
-// taken whole, because a keyword value may be quoted and a password may hold spaces: stopping at the first
-// one leaves the rest of it in the line.
-//
-// A backslash escape is consumed with what follows it. Quoted and unquoted keyword values both escape a
-// quote and a backslash that way, so a password holding one ends the match early and leaks its tail.
-var passwordAssignment = regexp.MustCompile(
-	`(?i)(password|passwd|pwd)(\s*=\s*)('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|(?:\\.|[^&\s\\])*)`)
-
-// credentialsInAURI matches the userinfo of a connection string that does not parse as a URL.
-//
-// A password holding a raw space, or any other byte a URL parser rejects in userinfo, makes the parse fail,
-// and a connection string in that form carries no named field for the pattern above to find. Failing open
-// there logs the whole credential, so this is the fallback: whatever sits between the scheme and the host,
-// after the first colon, is removed.
-var credentialsInAURI = regexp.MustCompile(`(://[^/@\s]*:)[^@\n]*(@)`)
-
-// withoutCredentials removes a password from a value that carries one.
-//
-// A setting can hold a connection string, and a connection string can carry a password in the userinfo of
-// a URL, in a query parameter, or as one keyword of a list. All three are forms an operator can write, so
-// all three are removed.
-//
-// Detected in the value rather than declared per key, because a list of the keys that can hold one is a
-// list somebody keeps in step with every section anyone adds, and the first key forgotten is a password in
-// a log.
-func withoutCredentials(value string) string {
-	if u, err := url.Parse(value); err == nil && u.User != nil {
-		if _, set := u.User.Password(); set {
-			u.User = url.UserPassword(u.User.Username(), redacted)
-			value = u.String()
-		}
-	} else {
-		// The parse failed, so the userinfo above was never reached and a string in that form carries no
-		// named field either. Failing open here would log the whole credential, which is the one outcome
-		// this function exists to prevent.
-		value = credentialsInAURI.ReplaceAllString(value, "${1}"+redacted+"${2}")
-	}
-	return passwordAssignment.ReplaceAllString(value, "${1}${2}"+redacted)
-}
-
 // applyResolvedLogLevel hands a resolved log level to the logger, which the struct alone does not reach.
 //
-// The boot's handler reads the level off the struct and sets it before any of this runs, so a value that
-// only reaches the struct moves a field and changes no logging. A setting that appears to take and does not
-// is what this key space exists to remove.
+// The boot's handler reads the level off the struct and sets it before any of this runs. A value that only
+// reaches the struct therefore moves a field and changes no logging. This key space exists to remove a
+// setting that appears to take and does not.
 //
 // Applied from the resolution rather than after the decode, and before it. Every failure this manager can
 // have is a log line, and a refusal is reported at a level an operator may have raised the threshold above.
@@ -314,10 +261,10 @@ func applyResolvedLogLevel(resolved registry.Resolved, typed map[string]string, 
 		return
 	}
 
-	// The logger reads a variable of its own at start-up, under a name that is not the one this key
-	// answers to, and the boot's own handler steps aside when it is set: a flag beats it and a file does
-	// not. Applying here regardless would put the file above it, so an operator who exported a level and
-	// then adopted this file would find the level they exported ignored. A typed flag still wins, which is
+	// The logger reads its own variable at start-up, under a different name from this key. The boot's own
+	// handler steps aside when that variable is set: a flag beats it, a file does not. Applying here
+	// regardless would put the file above it. An operator who exported a level and then adopted this file
+	// would find the exported level ignored. A typed flag still wins, which is
 	// the order that was already there.
 	if _, fromFlag := flagValues(typed)[logLevelKey]; !fromFlag {
 		if os.Getenv(loggerOwnVariable) != "" {

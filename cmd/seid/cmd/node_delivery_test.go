@@ -63,7 +63,9 @@ func bootWithNodeFile(t *testing.T, seiToml string, edit func(*tmcfg.Config)) *s
 	return ctx
 }
 
-const nodeFileHeader = "schema_version = 1\nnode_mode = \"validator\"\n"
+// The kind the node's own file is rendered with, so the two agree. A disagreement stops the delivery
+// outright, which is its own case rather than the backdrop for every other one.
+var nodeFileHeader = "schema_version = 1\nnode_mode = \"" + tmcfg.DefaultConfig().Mode + "\"\n"
 
 // TestAWrittenValueReachesTheNodesOwnConfiguration is the property the whole thing rests on.
 func TestAWrittenValueReachesTheNodesOwnConfiguration(t *testing.T) {
@@ -341,8 +343,12 @@ func TestNoDeliveryCarriesADeclaredDefault(t *testing.T) {
 		t.Run(string(mode), func(t *testing.T) {
 			configtest.Isolate(t)
 
+			// The node's own file records the same kind, because a disagreement stops the delivery and
+			// this measures what a delivery carries.
+			runsAs := func(cfg *tmcfg.Config) { cfg.Mode = string(mode) }
+
 			// What the node holds before any file supplies anything.
-			bare := bootWithNodeFile(t, "schema_version = 1\nnode_mode = \""+string(mode)+"\"\n", nil)
+			bare := bootWithNodeFile(t, "schema_version = 1\nnode_mode = \""+string(mode)+"\"\n", runsAs)
 			keys := everyDeclaredKey()
 			// The node's own configuration holds the decoded sections and nothing else, so those are the
 			// only keys it can be read for. Handing it the rest compares an absent value with an absent
@@ -356,7 +362,7 @@ func TestNoDeliveryCarriesADeclaredDefault(t *testing.T) {
 
 			// The same node, with a file supplying exactly one key.
 			after := bootWithNodeFile(t, "schema_version = 1\nnode_mode = \""+string(mode)+"\"\n"+
-				"\n[mempool]\nsize = 4321\n", nil)
+				"\n[mempool]\nsize = 4321\n", runsAs)
 			if got := after.Config.Mempool.Size; got != 4321 {
 				t.Fatalf("the one supplied key arrived as %d, so nothing was delivered and this test "+
 					"would pass for a delivery that does nothing", got)
@@ -477,5 +483,43 @@ func TestASectionLandsOnANodeAlreadyFailingItsOwnRules(t *testing.T) {
 		t.Errorf("the written value is %d on a node that already failed its own rules, want 7. A section "+
 			"cannot be held to rules the node was already breaking, or nothing can ever be delivered to "+
 			"it again", got)
+	}
+}
+
+// TestAnEmptyValueIsRefusedRatherThanReadAsZero covers the shape a template leaves behind.
+//
+// A value is decoded weakly, so an empty string becomes the zero of whatever numeric field it lands in and
+// nothing objects: not the decoder, and not the node's own rules. The written line reads as a setting an
+// operator left alone and decodes as one they turned off. A ceiling of zero on connections is a node with no
+// peers, and a transaction size of zero is a node that accepts nothing.
+//
+// It is also what an unfilled variable renders as, so it arrives on a node nobody edited by hand.
+func TestAnEmptyValueIsRefusedRatherThanReadAsZero(t *testing.T) {
+	for _, tc := range []struct {
+		section, key string
+		reads        func(*tmcfg.Config) int
+	}{
+		{"mempool", "size", func(c *tmcfg.Config) int { return c.Mempool.Size }},
+		{"mempool", "max-tx-bytes", func(c *tmcfg.Config) int { return c.Mempool.MaxTxBytes }},
+		{"mempool", "cache-size", func(c *tmcfg.Config) int { return c.Mempool.CacheSize }},
+		{"statesync", "fetchers", func(c *tmcfg.Config) int { return int(c.StateSync.Fetchers) }},
+	} {
+		t.Run(tc.section+"."+tc.key, func(t *testing.T) {
+			configtest.Isolate(t)
+			was := tc.reads(tmcfg.DefaultConfig())
+			if was == 0 {
+				t.Fatalf("%s.%s declares zero, so this case cannot tell a refusal from a delivery",
+					tc.section, tc.key)
+			}
+
+			ctx := bootWithNodeFile(t, nodeFileHeader+
+				"\n["+tc.section+"]\n"+tc.key+" = \"\"\n", nil)
+
+			if got := tc.reads(ctx.Config); got != was {
+				t.Errorf("%s.%s reads %d after being written empty, want the %d it declares. An empty "+
+					"value decoded to zero and turned the setting off, and nothing refused it",
+					tc.section, tc.key, got, was)
+			}
+		})
 	}
 }
