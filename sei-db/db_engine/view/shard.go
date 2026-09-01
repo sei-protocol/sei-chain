@@ -250,7 +250,7 @@ func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, erro
 		pending = append(pending, pendingRead{
 			key:           keyStr,
 			entry:         outcome.entry,
-			valueChan:     outcome.valueChan,
+			promise:       outcome.promise,
 			needsSchedule: outcome.needsSchedule,
 		})
 	}

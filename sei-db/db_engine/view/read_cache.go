@@ -35,6 +35,10 @@ for converting to a RW lock:
 // A failed DB read is fatal: the cache bricks the manager, which takes every shard out of service so
 // no further reads are served (see outOfServiceErr).
 //
+// maxSize is the cache's whole memory budget, so every value an entry keeps resident must be weighed
+// in the gcQueue size recorded for its key. An entry therefore reaches a value only through its own
+// value field, never through the promise of a completed read; settleLocked is what enforces that.
+//
 // The cache is a passive component of its shard and shares the shard's mutex: it holds no lock
 // of its own. Methods with the Locked postfix require the shared lock to be held and never
 // block; resolve and resolveBatch run without the lock and may block on DB reads; the
@@ -95,6 +99,28 @@ type readResult struct {
 	err   error
 }
 
+// readPromise carries the outcome of one in-flight database read to every reader waiting on it.
+//
+// result is written once, before ready is closed, so a reader that observes the close observes the
+// completed result. Nothing is buffered in the channel: a promise is reachable only from the entry
+// whose read is in flight and from the readers holding it, so it stops pinning the value as soon as
+// both let go. That is what keeps a finished read from retaining a value the entry no longer weighs
+// (see the retention invariant on readCache).
+type readPromise struct {
+	ready  chan struct{}
+	result readResult
+}
+
+func newReadPromise() *readPromise {
+	return &readPromise{ready: make(chan struct{})}
+}
+
+// complete publishes the read's outcome and releases every waiter. Called exactly once per promise.
+func (p *readPromise) complete(result readResult) {
+	p.result = result
+	close(p.ready)
+}
+
 // The status of a value in the cache.
 type valueStatus int
 
@@ -125,16 +151,42 @@ type cacheEntry struct {
 	// The value, if known.
 	value []byte
 
-	// If the value is not available when we request it,
-	// it will be written to this channel when it is available.
-	valueChan chan readResult
+	// The promise the in-flight read of this key completes through. Non-nil only while status is
+	// statusScheduled; scheduleLocked attaches it and settleLocked detaches it.
+	inflight *readPromise
+}
+
+// scheduleLocked marks this entry as having a read in flight and returns the promise that read
+// completes through.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (e *cacheEntry) scheduleLocked() *readPromise {
+	e.status = statusScheduled
+	e.inflight = newReadPromise()
+	return e.inflight
+}
+
+// settleLocked moves this entry to a terminal state holding value, and detaches the promise of any
+// read still in flight. It is the only way an entry leaves statusScheduled, so no terminal state can
+// keep one.
+//
+// Detaching is what keeps the recorded weight honest. A promise reaches the value its read produced,
+// so an entry that kept one after settling would retain that value while weighing itself as though
+// it did not — the shape that let a deleted key hold its old value outside the cache budget.
+// Readers already waiting hold the promise themselves and are unaffected.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (e *cacheEntry) settleLocked(status valueStatus, value []byte) {
+	e.status = status
+	e.value = value
+	e.inflight = nil
 }
 
 // Tracks a key whose value is not yet available and must be waited on.
 type pendingRead struct {
 	key           string
 	entry         *cacheEntry
-	valueChan     chan readResult
+	promise       *readPromise
 	needsSchedule bool
 	// Populated after the read completes, used by bulkInjectValues.
 	result readResult
@@ -155,8 +207,8 @@ type lookupOutcome struct {
 	// Whether the key was found, when immediate.
 	found bool
 
-	// The channel carrying the read result, when not immediate.
-	valueChan chan readResult
+	// The promise carrying the read result, when not immediate.
+	promise *readPromise
 
 	// The entry being waited on, when not immediate.
 	entry *cacheEntry
@@ -267,11 +319,9 @@ func (c *readCache) lookupLocked(
 		}
 		return lookupOutcome{immediate: true}
 	case statusScheduled:
-		return lookupOutcome{valueChan: entry.valueChan, entry: entry}
+		return lookupOutcome{promise: entry.inflight, entry: entry}
 	case statusUnknown:
-		entry.status = statusScheduled
-		entry.valueChan = make(chan readResult, 1)
-		return lookupOutcome{valueChan: entry.valueChan, entry: entry, needsSchedule: true}
+		return lookupOutcome{promise: entry.scheduleLocked(), entry: entry, needsSchedule: true}
 	default:
 		// statusFailed lands here, and that is intended: an entry becomes statusFailed only in the
 		// same critical section that takes the cache out of service, and the shard checks that under
@@ -294,21 +344,21 @@ func (c *readCache) resolve(key []byte, outcome lookupOutcome) ([]byte, bool, er
 	startTime := time.Now()
 
 	if outcome.needsSchedule {
-		entry := outcome.entry
+		entry, promise := outcome.entry, outcome.promise
 		c.readPool.Submit(func() {
 			value, _, readErr := c.readFromDB(key)
-			entry.injectValue(key, readResult{value: value, err: readErr})
+			entry.injectValue(key, promise, readResult{value: value, err: readErr})
 		})
 	}
 
-	result, err := threading.InterruptiblePull(c.ctx, outcome.valueChan)
+	err := threading.InterruptibleWait(c.ctx, outcome.promise.ready)
 	c.metrics.reportCacheMissLatency(time.Since(startTime))
 	if err != nil {
-		// The pull is interrupted only by ctx cancellation, which means the manager is shutting
+		// The wait is interrupted only by ctx cancellation, which means the manager is shutting
 		// down; report the manager's shutdown error per the Close contract.
 		return nil, false, fmt.Errorf("view manager shut down while awaiting read: %w", c.shutdownError())
 	}
-	outcome.valueChan <- result // reload the channel in case there are other listeners
+	result := outcome.promise.result
 	if result.err != nil {
 		return nil, false, fmt.Errorf("scheduled read failed: %w", result.err)
 	}
@@ -337,25 +387,24 @@ func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byt
 			p := &pending[i]
 			c.readPool.Submit(func() {
 				value, _, readErr := c.readFromDB([]byte(p.key))
-				p.entry.valueChan <- readResult{value: value, err: readErr}
+				p.promise.complete(readResult{value: value, err: readErr})
 			})
 		}
 	}
 
-	// Drain every pending read even if one fails: each scheduled read pushes exactly one token,
+	// Drain every pending read even if one fails: each scheduled read completes exactly one promise,
 	// so the drain is bounded by reads already in flight, and it leaves every entry in a terminal
 	// state (available/deleted/failed) via bulkInjectValues below. Abandoning the drain on the
 	// first error would strand the remaining entries in statusScheduled with unpopulated results.
 	for i := range pending {
-		result, err := threading.InterruptiblePull(c.ctx, pending[i].valueChan)
-		if err != nil {
+		if err := threading.InterruptibleWait(c.ctx, pending[i].promise.ready); err != nil {
 			// Context cancellation is a hard teardown: post-shutdown entry state is
 			// unobservable, and draining could block on reads that never complete while the
 			// pool is being torn down, so bail immediately with the manager's shutdown error
 			// per the Close contract.
 			return fmt.Errorf("view manager shut down while awaiting batch read: %w", c.shutdownError())
 		}
-		pending[i].valueChan <- result
+		result := pending[i].promise.result
 		pending[i].result = result
 
 		if result.err != nil {
@@ -375,26 +424,30 @@ func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byt
 	return firstErr
 }
 
-// This method is called by the read scheduler when a value becomes available.
-func (e *cacheEntry) injectValue(key []byte, result readResult) {
+// This method is called by the read scheduler when a value becomes available. promise is the one this
+// read was scheduled against; it is completed even when the entry has moved on, so no reader waiting
+// on it is stranded.
+func (e *cacheEntry) injectValue(key []byte, promise *readPromise, result readResult) {
 	c := e.cache
 	c.lock.Lock()
 
-	if e.status == statusScheduled {
-		if result.err != nil {
+	// Only the read the entry is still waiting on may settle it. A retired write or delete that
+	// landed while this read was in flight has already settled the entry with the newer value and
+	// detached this promise, and must not be overwritten by what the database held earlier.
+	if e.inflight == promise {
+		switch {
+		case result.err != nil:
 			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
-			// over valueChan, not from the entry.
-			e.status = statusFailed
-		} else if result.value == nil {
-			e.status = statusDeleted
-			e.value = nil
+			// over the promise, not from the entry.
+			e.settleLocked(statusFailed, nil)
+		case result.value == nil:
+			e.settleLocked(statusDeleted, nil)
 			size := uint64(len(key)) + c.overheadPerEntry
 			c.gcQueue.Push(key, size)
 			c.evictLocked()
-		} else {
-			e.status = statusAvailable
-			e.value = result.value
+		default:
+			e.settleLocked(statusAvailable, result.value)
 			size := uint64(len(key)) + uint64(len(result.value)) + c.overheadPerEntry
 			c.gcQueue.Push(key, size)
 			c.evictLocked()
@@ -411,7 +464,7 @@ func (e *cacheEntry) injectValue(key []byte, result readResult) {
 
 	// Release the waiter before bricking. reportReadFailure acquires the manager's versionLock, and
 	// nobody may be blocked on us while we wait for it.
-	e.valueChan <- result
+	promise.complete(result)
 
 	if result.err != nil {
 		c.reportReadFailure(result.err)
@@ -429,24 +482,26 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 			failure = reads[i].result.err
 		}
 
+		// Only the read the entry is still waiting on may settle it. A retired write or delete that
+		// landed while this read was in flight has already settled the entry with the newer value
+		// and detached this promise, and must not be overwritten by what the database held earlier.
 		entry := reads[i].entry
-		if entry.status != statusScheduled {
+		if entry.inflight != reads[i].promise {
 			continue
 		}
 		result := reads[i].result
-		if result.err != nil {
+		switch {
+		case result.err != nil:
 			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
-			// over valueChan, not from the entry.
-			entry.status = statusFailed
-		} else if result.value == nil {
-			entry.status = statusDeleted
-			entry.value = nil
+			// over the promise, not from the entry.
+			entry.settleLocked(statusFailed, nil)
+		case result.value == nil:
+			entry.settleLocked(statusDeleted, nil)
 			size := uint64(len(reads[i].key)) + c.overheadPerEntry
 			c.gcQueue.Push([]byte(reads[i].key), size)
-		} else {
-			entry.status = statusAvailable
-			entry.value = result.value
+		default:
+			entry.settleLocked(statusAvailable, result.value)
 			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + c.overheadPerEntry
 			c.gcQueue.Push([]byte(reads[i].key), size)
 		}
@@ -507,8 +562,7 @@ func (c *readCache) putRetiredLocked(data map[string][]byte) {
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) setRetiredLocked(key []byte, value []byte) {
 	entry := c.entryLocked(key, true)
-	entry.status = statusAvailable
-	entry.value = value
+	entry.settleLocked(statusAvailable, value)
 
 	size := uint64(len(key)) + uint64(len(value)) + c.overheadPerEntry
 	c.gcQueue.Push(key, size)
@@ -523,8 +577,7 @@ func (c *readCache) deleteRetiredLocked(key []byte) {
 		// Key is not in the cache, so nothing to do.
 		return
 	}
-	entry.status = statusDeleted
-	entry.value = nil
+	entry.settleLocked(statusDeleted, nil)
 
 	size := uint64(len(key)) + c.overheadPerEntry
 	c.gcQueue.Push(key, size)

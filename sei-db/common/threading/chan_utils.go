@@ -15,6 +15,18 @@ func InterruptiblePush[T any](ctx context.Context, ch chan T, value T) error {
 	}
 }
 
+// Wait for a channel to be closed (or to yield a value), returning an error if the context is
+// cancelled first. Unlike InterruptiblePull, a closed channel is the success case, so this suits a
+// channel used purely to broadcast readiness.
+func InterruptibleWait(ctx context.Context, ch <-chan struct{}) error {
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled: %w", ctx.Err())
+	case <-ch:
+		return nil
+	}
+}
+
 // Pull from a channel, returning an error if the context is cancelled before the value is pulled.
 func InterruptiblePull[T any](ctx context.Context, ch <-chan T) (T, error) {
 	var zero T
