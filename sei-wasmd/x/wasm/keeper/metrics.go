@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
@@ -122,28 +121,17 @@ func recordContractQueryRawDuration(ctx context.Context, start time.Time) {
 	telemetry.MeasureSince(start, "wasm", "contract", "query-raw")
 }
 
-func recordContractQuerySmartInvocation(contractAddress string) {
+func recordContractQuerySmartInvocation() {
 	// No OTel counter here: it would be redundant with wasm_contract_query_smart_duration's
 	// count, which is recorded unconditionally on every QuerySmart call just like this one.
 	// TODO(PLT-910): remove once wasm_contract_query_smart_duration verified
-	telemetry.IncrCounterWithLabels(
-		[]string{"wasm", "contract", "query-smart", "invocation"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddress)},
-	)
+	telemetry.IncrCounter(1, "wasm", "contract", "query-smart", "invocation")
 }
 
-func recordContractQuerySmartGasUsed(ctx context.Context, contractAddress string, gasUsed uint64) {
-	// contract_address omitted on the OTel histogram: unlike the legacy Prometheus sink, the
-	// OTel SDK has no series expiration, so a per-contract label here would retain one series
-	// per distinct contract address queried for the process lifetime.
+func recordContractQuerySmartGasUsed(ctx context.Context, gasUsed uint64) {
 	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed)) //nolint:gosec
 	// TODO(PLT-910): remove once wasm_contract_query_smart_gas_used verified
-	telemetry.SetGaugeWithLabels(
-		[]string{"wasm", "contract", "query-smart", "gas-used"},
-		float32(gasUsed),
-		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddress)},
-	)
+	telemetry.SetGauge(float32(gasUsed), "wasm", "contract", "query-smart", "gas-used")
 }
 
 const (
