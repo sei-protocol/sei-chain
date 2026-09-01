@@ -29,7 +29,7 @@ func openManager(t *testing.T, tweak func(*config.GigaStorageConfig)) (*GigaStor
 }
 
 // TestOpenFreshHome covers the shape a node boots into on a new home directory: every store
-// opens, every store is at genesis, and recovery has nothing to reconcile.
+// opens and every store is at genesis.
 func TestOpenFreshHome(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
@@ -45,10 +45,6 @@ func TestOpenFreshHome(t *testing.T) {
 	require.Zero(t, scVersion)
 	require.Zero(t, manager.SS().GetLatestVersion())
 	require.Zero(t, manager.ReceiptDB().LatestVersion())
-
-	// Recovery already ran inside the constructor, and running it again must find the same nothing to
-	// do: it is the only step here a restart repeats.
-	require.NoError(t, manager.CrashRecover())
 }
 
 // TestOpenLoadsTheCommitStore pins that SC is opened rather than merely constructed.
@@ -77,7 +73,7 @@ func TestCheckpointScheduleCoversBothHalvesOfState(t *testing.T) {
 }
 
 // TestReceiptsDisabled pins that Enable is what decides whether the receipt store is opened at
-// all, and that a manager without one still opens, recovers and closes.
+// all, and that a manager without one still opens and closes.
 func TestReceiptsDisabled(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.ReceiptDBConfig.Enable = false
@@ -87,12 +83,10 @@ func TestReceiptsDisabled(t *testing.T) {
 	require.NotNil(t, manager.SC())
 	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.SS())
-
-	require.NoError(t, manager.CrashRecover())
 }
 
 // TestStateStoreDisabled pins that SS has an Enable of its own, and that every step after the open
-// tolerates its absence: the checkpoint schedule, the prune cycle, recovery, and Close.
+// tolerates its absence: the checkpoint schedule, the prune cycle, and Close.
 func TestStateStoreDisabled(t *testing.T) {
 	manager, _ := openManager(t, func(cfg *config.GigaStorageConfig) {
 		cfg.SSConfig.Enable = false
@@ -113,8 +107,6 @@ func TestStateStoreDisabled(t *testing.T) {
 	}
 	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "BlockDB"}, names,
 		"a store this node never opened must not be offered to the collector")
-
-	require.NoError(t, manager.CrashRecover())
 }
 
 // TestStateStoreDisabledNeedsNoEVMDirectory pins that the path SS would have opened under is not
@@ -137,12 +129,10 @@ func TestReopenAfterClose(t *testing.T) {
 
 	first, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
-	require.NoError(t, first.CrashRecover())
 	require.NoError(t, first.Close())
 
 	second, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
-	require.NoError(t, second.CrashRecover())
 	require.NoError(t, second.Close())
 }
 

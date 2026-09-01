@@ -93,6 +93,32 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	}
 }
 
+// TestMigrateLegacyReceiptsBatchLeavesLegacyStoreWhenReceiptStoreDisabled pins that a node with
+// receipt-store.rs-enable = false does not delete consensus-state legacy receipts. The flush is a
+// no-op without a store, so migrating would drop the entries with nothing to recover them from.
+func TestMigrateLegacyReceiptsBatchLeavesLegacyStoreWhenReceiptStoreDisabled(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+
+	tx := common.BytesToHash([]byte{0xab})
+	before := getLegacyReceiptCount(ctx, k)
+	setLegacyReceipt(ctx, k, tx, &types.Receipt{TxHashHex: tx.Hex()})
+	require.Equal(t, before+1, getLegacyReceiptCount(ctx, k))
+
+	restore := k.ReceiptStore()
+	k.SetReceiptStoreForTesting(nil)
+	t.Cleanup(func() { k.SetReceiptStoreForTesting(restore) })
+
+	migrated, err := k.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize)
+	require.NoError(t, err)
+	require.Zero(t, migrated)
+	require.Equal(t, before+1, getLegacyReceiptCount(ctx, k))
+	checkLegacyReceipt(t, ctx, k, tx, true)
+
+	// Leave the shared test app's legacy store as this test found it.
+	prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix).Delete(tx[:])
+}
+
 func setLegacyReceipt(ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, receipt *types.Receipt) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
 	bz, err := receipt.Marshal()

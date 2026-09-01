@@ -174,8 +174,11 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 
 // MigrateLegacyReceiptsBatch moves up to batchSize receipts from the legacy KV store
 // into the persistent receipt store and deletes them from the legacy store.
-// It returns the number of receipts migrated.
+// It returns (0, nil) without touching the legacy store when the receipt store is not configured.
 func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int, error) {
+	if k.receiptStore == nil {
+		return 0, nil
+	}
 	// Iterate over legacy receipt keys under prefix types.ReceiptKeyPrefix
 	legacyStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.ReceiptKeyPrefix)
 	iter := legacyStore.Iterator(nil, nil)

@@ -51,7 +51,7 @@ type GigaStorageManager struct {
 // NewGigaStorageManager runs the steps that bring storage up:
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.
-//  3. Perform the crash recovery logic for all the DBs.
+//  3. CrashRecover (not implemented; currently a no-op).
 //  4. Register checkpoint scheduler and start garbage collector.
 func NewGigaStorageManager(ctx context.Context, cfg config.GigaStorageConfig) (*GigaStorageManager, error) {
 	if err := cfg.Validate(); err != nil {
