@@ -7,13 +7,13 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -33,10 +33,13 @@ const (
 	// to mirror; this is just sized to match a real EVM word.
 	balanceValueLen = 32
 
-	// contractAddressType tags simulated addresses (see crand.CannedRandom.Address). The same
-	// pool backs storage, balance, and nonce keys — a small set of hot accounts getting
-	// repeated writes, like real EVM traffic.
+	// contractAddressType tags simulated addresses. The same pool backs storage, balance,
+	// and nonce keys — a small set of hot accounts getting repeated writes, like real
+	// EVM traffic.
 	contractAddressType = 'c'
+
+	// rngStreamMix is the PCG stream constant so seed s and s+1 don't share a sequence.
+	rngStreamMix = 0x9e3779b97f4a7c15
 
 	// balancePct and noncePct set the synthetic write mix; slots take the remaining share (plus
 	// any rounding remainder) since EVM archive traffic is storage-slot heavy, with balance and
@@ -99,7 +102,7 @@ func DefaultConfig() Config {
 type PebbleSim struct {
 	cfg       Config
 	store     types.StateStore
-	rng       *crand.CannedRandom
+	rng       *rand.Rand
 	contracts [][]byte
 	version   int64
 	metrics   *simMetrics
@@ -136,11 +139,11 @@ func Open(cfg Config) (*PebbleSim, error) {
 		return nil, fmt.Errorf("open evm state store: %w", err)
 	}
 
-	rng := crand.NewCannedRandom(1<<20, cfg.Seed)
+	rng := newSimRNG(cfg.Seed)
 
 	contracts := make([][]byte, cfg.NumContracts)
 	for i := range contracts {
-		contracts[i] = rng.Address(contractAddressType, int64(i), keys.AddressLen)
+		contracts[i] = makeContractAddress(rng, int64(i))
 	}
 
 	return &PebbleSim{
@@ -179,14 +182,23 @@ func (p *PebbleSim) buildBatch() batch {
 	nSlots := p.cfg.BatchSize - nBalance - nNonce
 
 	pairs := make([]*proto.KVPair, 0, p.cfg.BatchSize)
+	slotVals := make([]byte, nSlots*slotLen)
 	for i := 0; i < nSlots; i++ {
-		pairs = append(pairs, &proto.KVPair{Key: p.randomStorageKey(), Value: p.rng.Bytes(slotLen)})
+		val := slotVals[i*slotLen : (i+1)*slotLen]
+		fillBytes(p.rng, val)
+		pairs = append(pairs, &proto.KVPair{Key: p.randomStorageKey(), Value: val})
 	}
+	balanceVals := make([]byte, nBalance*balanceValueLen)
 	for i := 0; i < nBalance; i++ {
-		pairs = append(pairs, &proto.KVPair{Key: p.randomBalanceKey(), Value: p.rng.Bytes(balanceValueLen)})
+		val := balanceVals[i*balanceValueLen : (i+1)*balanceValueLen]
+		fillBytes(p.rng, val)
+		pairs = append(pairs, &proto.KVPair{Key: p.randomBalanceKey(), Value: val})
 	}
+	nonceVals := make([]byte, nNonce*nonceValueLen)
 	for i := 0; i < nNonce; i++ {
-		pairs = append(pairs, &proto.KVPair{Key: p.randomNonceKey(), Value: p.rng.Bytes(nonceValueLen)})
+		val := nonceVals[i*nonceValueLen : (i+1)*nonceValueLen]
+		fillBytes(p.rng, val)
+		pairs = append(pairs, &proto.KVPair{Key: p.randomNonceKey(), Value: val})
 	}
 
 	var sortElapsed time.Duration
@@ -268,7 +280,7 @@ func (p *PebbleSim) WriteBatch(ctx context.Context) (BatchResult, error) {
 // contract from the simulated pool.
 func (p *PebbleSim) randomStorageKey() []byte {
 	addr := p.randomAddress()
-	slotID := p.rng.Int64Range(0, p.cfg.SlotsPerContract)
+	slotID := p.rng.Int64N(p.cfg.SlotsPerContract)
 
 	key := make([]byte, 0, len(keys.StateKeyPrefix())+keys.AddressLen+slotLen)
 	key = append(key, keys.StateKeyPrefix()...)
@@ -282,7 +294,7 @@ func (p *PebbleSim) randomStorageKey() []byte {
 
 // randomAddress picks a random address from the simulated pool.
 func (p *PebbleSim) randomAddress() []byte {
-	return p.contracts[p.rng.Int64Range(0, int64(len(p.contracts)))]
+	return p.contracts[p.rng.Int64N(int64(len(p.contracts)))]
 }
 
 // randomNonceKey builds a real EVM nonce key (0x0a || address) for a random address from the
@@ -310,4 +322,28 @@ func (p *PebbleSim) Version() int64 {
 // Close releases the underlying PebbleDB store.
 func (p *PebbleSim) Close() error {
 	return p.store.Close()
+}
+
+func newSimRNG(seed int64) *rand.Rand {
+	s := uint64(seed) //nolint:gosec // G115 - benchmark seed, wrap is fine
+	return rand.New(rand.NewPCG(s, s^rngStreamMix))
+}
+
+func makeContractAddress(rng *rand.Rand, id int64) []byte {
+	addr := make([]byte, keys.AddressLen)
+	fillBytes(rng, addr)
+	addr[0] = contractAddressType
+	binary.BigEndian.PutUint64(addr[9:], uint64(id)) //nolint:gosec // G115 - contract index
+	return addr
+}
+
+func fillBytes(rng *rand.Rand, dst []byte) {
+	for i := 0; i < len(dst); {
+		x := rng.Uint64()
+		for n := 0; n < 8 && i < len(dst); n++ {
+			dst[i] = byte(x)
+			x >>= 8
+			i++
+		}
+	}
 }
