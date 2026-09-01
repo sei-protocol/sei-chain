@@ -1,0 +1,335 @@
+name: Ethereum Execution Specs
+
+on:
+  push:
+    branches:
+      - main
+      # TEMP: remove after validating this workflow in CI.
+      - tests/exec-specs
+
+concurrency:
+  group: execution-specs-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-exec-specs-localnode
+  GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-exec-specs-rpcnode
+
+jobs:
+  transaction-rlp:
+    name: Ethereum Transaction and RLP Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+          cache-dependency-path: go.sum
+      - name: Restore ethereum/tests fixtures
+        uses: actions/cache@v4
+        with:
+          path: integration_test/exec_specs/.cache/ethereum-tests
+          key: ethereum-legacy-${{ runner.os }}-${{ hashFiles('integration_test/exec_specs/scripts/install_legacy_tests.sh', 'integration_test/exec_specs/legacy/applicability.json') }}
+      - name: Validate transaction and RLP fixtures
+        run: bash integration_test/exec_specs/scripts/run_transaction_rlp.sh
+      - name: Upload applicability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethereum-transaction-rlp-${{ github.run_id }}
+          path: integration_test/exec_specs/reports/legacy
+          if-no-files-found: warn
+          retention-days: 14
+
+  plan:
+    name: Plan Execution Specs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Build execution-spec matrix
+        id: plan
+        env:
+          EEST_SHARD_COUNT: '8'
+        run: python3 integration_test/exec_specs/scripts/plan_chains.py >> "$GITHUB_OUTPUT"
+
+  prepare-cluster:
+    name: Prepare Execution Specs Cluster
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    continue-on-error: true
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - name: Relocate Go caches to /mnt
+        run: bash .github/scripts/ci-relocate-go-cache.sh
+      - name: Login to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+      - name: Build localnode image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/localnode
+          file: docker/localnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/localnode
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
+          cache-from: type=registry,ref=${{ env.GHCR_LOCALNODE }}:cache
+          cache-to: type=registry,ref=${{ env.GHCR_LOCALNODE }}:cache,mode=max
+      - name: Build rpcnode image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/rpcnode
+          file: docker/rpcnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/rpcnode
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
+          cache-from: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache
+          cache-to: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache,mode=max
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Build seid in localnode image
+        env:
+          DOCKER_PLATFORM: linux/amd64
+        run: make build-seid-in-localnode-ci
+      - name: Publish run-scoped devnet images
+        run: |
+          set -euo pipefail
+          source .github/scripts/docker-registry-retry.sh
+          docker tag sei-chain/localnode "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
+      - name: Package seid
+        run: tar -czf exec-specs-build.tar.gz build/seid
+      - name: Upload seid
+        uses: actions/upload-artifact@v4
+        with:
+          name: exec-specs-build-${{ github.run_id }}
+          path: exec-specs-build.tar.gz
+          retention-days: 1
+
+  execution-specs:
+    name: Execution Specs (${{ matrix.name }})
+    needs: [ plan, prepare-cluster ]
+    runs-on: ubuntu-large
+    timeout-minutes: 60
+    continue-on-error: true
+    permissions:
+      packages: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Reclaim runner disk
+        run: bash .github/scripts/ci-free-disk.sh
+      - name: Relocate Docker data-root to /mnt
+        run: bash .github/scripts/ci-relocate-docker-data-root.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: integration_test/precompile_tests/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download seid
+        uses: actions/download-artifact@v4
+        with:
+          name: exec-specs-build-${{ github.run_id }}
+      - name: Load prebuilt seid and pull Docker images
+        run: |
+          set -euo pipefail
+          tar -xzf exec-specs-build.tar.gz
+          rm -f exec-specs-build.tar.gz
+          source .github/scripts/docker-registry-retry.sh
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
+          docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
+          docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
+          docker image rm \
+            "${GHCR_LOCALNODE}:${{ github.run_id }}" \
+            "${GHCR_RPCNODE}:${{ github.run_id }}" || true
+      - name: Install admin helper dependencies
+        run: npm ci --prefix integration_test/precompile_tests
+      - name: Restore execution-specs checkout
+        uses: actions/cache@v4
+        with:
+          path: integration_test/exec_specs/.cache/execution-specs
+          key: exec-specs-${{ runner.os }}-${{ hashFiles('integration_test/exec_specs/scripts/install.sh', 'integration_test/exec_specs/patches/sei-compat.patch') }}
+      - name: Install execution specs
+        run: bash integration_test/exec_specs/scripts/install.sh
+      - name: Start isolated Sei devnet
+        run: |
+          DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=0 \
+            make docker-cluster-start-ci
+      - name: Wait for EVM RPC
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            launched=0
+            if [[ -f build/generated/launch.complete ]]; then
+              launched=$(wc -l < build/generated/launch.complete)
+            fi
+            if [[ "$launched" -ge 4 ]] && curl --fail --silent \
+              --header "Content-Type: application/json" \
+              --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' \
+              http://127.0.0.1:8545 >/dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Sei devnet did not become EVM-ready within 300 seconds." >&2
+          exit 1
+      - name: Create and fund ephemeral EEST admin
+        env:
+          SEI_EVM_RPC: http://127.0.0.1:8545
+          SEI_COSMOS_RPC: http://127.0.0.1:26657
+        run: |
+          set -euo pipefail
+          seed_key="$(
+            npm exec --prefix integration_test/precompile_tests -- \
+              tsx integration_test/exec_specs/scripts/prepare_admin.ts
+          )"
+          if [[ ! "$seed_key" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+            echo "Ephemeral admin helper returned an invalid private key." >&2
+            exit 1
+          fi
+          echo "::add-mask::${seed_key}"
+          printf 'EEST_SEED_KEY=%s\n' "${seed_key}" >> "$GITHUB_ENV"
+      - name: Run execution specs
+        env:
+          EEST_RPC_ENDPOINT: http://127.0.0.1:8545
+          EEST_SHARD_COUNT: ${{ matrix.shard_count }}
+          EEST_SHARD_INDEX: ${{ matrix.shard }}
+          EEST_ISOLATED_FAMILY: ${{ matrix.family }}
+          EEST_TEST_PATHS_FILE: ${{ matrix.test_paths }}
+          EEST_EXCLUDE_ISOLATED_FAMILIES: ${{ matrix.exclude_isolated }}
+          EEST_PARALLELISM: '1'
+          EEST_JUNIT_XML: ${{ github.workspace }}/integration_test/exec_specs/${{ matrix.report }}
+        run: bash integration_test/exec_specs/scripts/run_suite.sh
+      - name: Upload execution-spec report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exec-specs-${{ matrix.artifact }}-${{ github.run_id }}
+          path: integration_test/exec_specs/${{ matrix.report }}
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Print devnet diagnostics
+        if: failure()
+        run: |
+          docker ps -a
+          for container in $(docker ps -a --format '{{.Names}}'); do
+            [[ "$container" == sei-node-* ]] || continue
+            echo "::group::${container}"
+            docker logs --tail 200 "$container" || true
+            echo "::endgroup::"
+          done
+      - name: Stop isolated Sei devnet
+        if: always()
+        run: make docker-cluster-stop
+
+  summarize:
+    name: Execution Specs Summary
+    if: always()
+    needs: execution-specs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Download execution-spec reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: exec-specs-*-${{ github.run_id }}
+          path: integration_test/exec_specs/reports/downloaded
+      - name: Write run summary
+        run: |
+          python3 integration_test/exec_specs/scripts/summarize_reports.py \
+            integration_test/exec_specs/reports/downloaded || true
+
+  cleanup-images:
+    name: Remove Execution Specs Images
+    if: always()
+    needs: [ prepare-cluster, execution-specs ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Delete run-scoped GHCR versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          OWNER_TYPE: ${{ github.event.repository.owner.type }}
+          RUN_TAG: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ "$OWNER_TYPE" == "Organization" ]]; then
+            base="/orgs/${OWNER}/packages/container"
+          else
+            base="/users/${OWNER}/packages/container"
+          fi
+          for package in sei-chain-exec-specs-localnode sei-chain-exec-specs-rpcnode; do
+            versions="$(
+              gh api --paginate "${base}/${package}/versions" \
+                --jq ".[] | select(.metadata.container.tags | index(\"${RUN_TAG}\")) | .id" ||
+                true
+            )"
+            while read -r version; do
+              [[ -n "$version" ]] || continue
+              gh api --method DELETE "${base}/${package}/versions/${version}" || true
+            done <<<"$versions"
+          done

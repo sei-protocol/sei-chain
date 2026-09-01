@@ -27,6 +27,7 @@ def build_matrix(shard_count: int) -> list[dict[str, object]]:
                 "artifact": f"shard-{index}",
                 "report": f"reports/junit-shard-{index}.xml",
                 "test_paths": "",
+                "exclude_isolated": "0",
             }
         )
 
@@ -41,7 +42,10 @@ def build_matrix(shard_count: int) -> list[dict[str, object]]:
                     "shard_count": family.chains,
                     "artifact": f"{name}-{index}",
                     "report": f"reports/junit-{name}-{index}.xml",
-                    "test_paths": "",
+                    "test_paths": (
+                        "integration_test/exec_specs/config/ported-static-paths.list"
+                    ),
+                    "exclude_isolated": "0",
                 }
             )
 
@@ -58,6 +62,7 @@ def build_matrix(shard_count: int) -> list[dict[str, object]]:
             "test_paths": (
                 "integration_test/exec_specs/config/ported-static-paths.list"
             ),
+            "exclude_isolated": "1",
         }
     )
 

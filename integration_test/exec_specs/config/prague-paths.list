@@ -11,6 +11,3 @@ tests/paris
 tests/shanghai
 tests/cancun
 tests/prague
-
-# Canonical tests ported from ethereum/tests.
-tests/ported_static

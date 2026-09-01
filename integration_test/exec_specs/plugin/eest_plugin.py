@@ -227,23 +227,30 @@ def isolated_family() -> IsolatedFamily | None:
     return family
 
 
+def exclude_isolated_families() -> bool:
+    value = os.environ.get("EEST_EXCLUDE_ISOLATED_FAMILIES", "0")
+    if value not in {"0", "1"}:
+        raise pytest.UsageError("EEST_EXCLUDE_ISOLATED_FAMILIES must be 0 or 1.")
+    return value == "1"
+
+
 def partition(
     items: list[pytest.Item],
     shard_count: int,
     shard_index: int,
     family: IsolatedFamily | None,
+    exclude_isolated: bool,
 ) -> tuple[list[pytest.Item], list[pytest.Item]]:
     """Split collected vectors into selected and deselected partitions."""
     if family is not None:
         selected: list[pytest.Item] = []
         deselected: list[pytest.Item] = []
         for item in items:
-            case_index = family.case_index(item)
-            keep = case_index is not None and case_index % shard_count == shard_index
+            keep = family.partition_index(item) == shard_index
             (selected if keep else deselected).append(item)
         return selected, deselected
 
-    if shard_count == 1:
+    if shard_count == 1 and not exclude_isolated:
         return list(items), []
 
     selected = []
@@ -253,9 +260,9 @@ def partition(
             candidate.case_index(item) is not None
             for candidate in ISOLATED_FAMILIES.values()
         )
-        keep = (
-            not in_isolated_family
-            and shard_for_nodeid(item.nodeid, shard_count) == shard_index
+        keep = not in_isolated_family and (
+            shard_count == 1
+            or shard_for_nodeid(item.nodeid, shard_count) == shard_index
         )
         (selected if keep else deselected).append(item)
     return selected, deselected
@@ -283,6 +290,7 @@ def pytest_collection_modifyitems(
         shard_count,
         shard_index,
         isolated_family(),
+        exclude_isolated_families(),
     )
 
     for item in selected:

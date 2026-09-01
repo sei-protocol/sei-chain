@@ -37,8 +37,9 @@ fi
 
 geth_dir="$(
     cd "${SEI_CHAIN_DIR}"
-    go list -m -f '{{if .Replace}}{{.Replace.Dir}}{{else}}{{.Dir}}{{end}}' \
-        github.com/ethereum/go-ethereum
+    go mod download -json github.com/ethereum/go-ethereum |
+        python3 -c \
+            'import json, sys; print(json.load(sys.stdin).get("Dir", ""))'
 )"
 if [[ ! -d "${geth_dir}/tests" ]]; then
     echo "Pinned Sei go-ethereum test package not found at ${geth_dir}/tests." >&2
