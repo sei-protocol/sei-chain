@@ -67,19 +67,12 @@ type SeiConfigManager struct {
 	logger *slog.Logger
 }
 
-// keepOwnReportingVisible holds this package's own logger at a level its reports survive.
+// keepOwnReportingVisible holds this package's own logger at a level its reports survive, and only this
+// one. Raising the level for the rest of the process stays the operator's to choose.
 //
-// Called after the handler, because the handler sets one level across every logger in the process and a
-// floor applied before it is simply overwritten.
-//
-// The handler this manager re-enters sets one level across every logger in the process, from a key an
-// operator writes, and a fleet that runs its nodes quiet sets it above the level these reports use. Every
-// outcome here is a report: what was applied, what moved, what was refused and what had no effect. Silenced,
-// the manager becomes a component that changes what a node runs and says nothing about it, and the file
-// stops being something an operator can reason about from the node itself.
-//
-// So this one logger keeps a floor, and only this one. Raising the level for the rest of the process is
-// still the operator's to choose.
+// Called after the handler, because the handler sets one level across every logger in the process from a
+// key an operator writes, so a floor applied before it is overwritten. A fleet that runs its nodes quiet
+// sets that level above the one these reports use, and every outcome here is a report.
 func keepOwnReportingVisible() {
 	// A floor, so a node an operator has deliberately turned up is left alone. SetLevel assigns rather
 	// than raises, and the lines this manager emits below the floor are exactly what somebody turns the

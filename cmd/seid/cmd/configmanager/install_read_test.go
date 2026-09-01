@@ -221,3 +221,39 @@ func TestAFlagIsNotReportedAsSomethingTheFileWrote(t *testing.T) {
 			"way it always has when the flag applies:\n%s", out.String())
 	}
 }
+
+// TestNoHomeMeansNoReadRatherThanAForeignFile holds the one case where reading is worse than not reading.
+//
+// Every path here joins the home directory with config/sei.toml. An empty home leaves the relative path,
+// so the read lands wherever the process happens to have started, and whatever sei.toml is there is
+// installed into this node. A node configured from a directory nobody chose is the outcome, and it reports
+// as a successful install.
+func TestNoHomeMeansNoReadRatherThanAForeignFile(t *testing.T) {
+	elsewhere := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(elsewhere, "config"), 0o750); err != nil {
+		t.Fatalf("make a directory holding another node's file: %v", err)
+	}
+	// A complete, valid file for some other node. Nothing about it is wrong; it is simply not this node's.
+	if err := os.WriteFile(filepath.Join(elsewhere, "config", seiTomlName),
+		[]byte("schema_version = 1\nnode_mode = \"validator\"\n"), 0o600); err != nil {
+		t.Fatalf("write another node's sei.toml: %v", err)
+	}
+	t.Chdir(elsewhere)
+
+	// No --home flag and no home in the environment, which is what a subcommand invoked without one has.
+	cmd := &cobra.Command{Use: "start"}
+	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey,
+		server.NewDefaultContext()))
+
+	var out bytes.Buffer
+	file, ok := readSeiToml(cmd, slog.New(slog.NewTextHandler(&out,
+		&slog.HandlerOptions{Level: slog.LevelDebug})))
+	if ok || file != nil {
+		t.Fatalf("with no home set, the read returned another node's file from the working directory, so "+
+			"its values would install into this one:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "no home directory is set") {
+		t.Errorf("declining to read is right, but the reason an operator gets does not name it:\n%s",
+			out.String())
+	}
+}

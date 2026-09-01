@@ -274,6 +274,22 @@ func shortKey(key parser.Key) string {
 	return fmt.Sprintf("%s and %d more segments", key[:maxKeyDepth].String(), len(key)-maxKeyDepth)
 }
 
+// whatALinkToNothingIs reports the error for a path whose own link exists while its target does not.
+//
+// A caller acts on fs.ErrNotExist by staying quiet, since a node without this file is the ordinary case.
+// A link placed by hand or by a mount, pointing at nothing, answers the same way and would take that same
+// silence, so whoever wrote the file gets no signal that it is doing nothing. Returns nil when the path is
+// not a link, leaving the caller the error it already has.
+func whatALinkToNothingIs(path string) error {
+	// The link itself, not what it points at, and it has to actually be one. Lstat succeeds for a regular
+	// file as well, so answering on its error alone would call any readable path a broken link.
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s is a link to something that is not there", path)
+}
+
 // Load reads the document at path.
 //
 // A path with no file there reports fs.ErrNotExist, which errors.Is matches. That is the one outcome a
@@ -288,11 +304,8 @@ func Load(path string) (*File, error) {
 	// reports the FIFO.
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		// A path that exists as a link to nothing. Stat answers the same as for no path at all, and a
-		// caller acts on that one answer by staying quiet, so somebody who placed the link would get no
-		// signal that the file they wrote is doing nothing.
-		if _, linked := os.Lstat(path); linked == nil {
-			return nil, fmt.Errorf("%s is a link to something that is not there", path)
+		if dangling := whatALinkToNothingIs(path); dangling != nil {
+			return nil, dangling
 		}
 	}
 	if err != nil {
@@ -305,6 +318,14 @@ func Load(path string) (*File, error) {
 
 	fh, err := os.Open(path) //nolint:gosec // the caller's configured path is the subject
 	if err != nil {
+		// A link's target can go between the check above and this open, which is what a mounted file's
+		// directory swap looks like from here. Asked again, so the answer names the link rather than
+		// reporting a file that is present as absent.
+		if errors.Is(err, fs.ErrNotExist) {
+			if dangling := whatALinkToNothingIs(path); dangling != nil {
+				return nil, dangling
+			}
+		}
 		return nil, err
 	}
 	defer func() { _ = fh.Close() }()

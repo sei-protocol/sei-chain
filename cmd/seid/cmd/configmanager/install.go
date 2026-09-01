@@ -33,16 +33,12 @@ import (
 // seiTomlName is the file this manager reads.
 const seiTomlName = "sei.toml"
 
-// installResolved puts the values sei.toml supplies into the source the boot has just built.
-//
-// Nothing here refuses a boot. A node with no sei.toml, an unreadable one, one recording a mode this
-// binary does not know, or a value the install cannot use installs nothing and reads exactly as it always
-// has, so selecting this manager is a switch rather than a configuration change. Refusing instead would
-// turn a mistyped line in a hand-editable file into an outage on the next restart.
-//
-// The recover below is not what carries that on its own, because a cost is not a panic: a file whose
-// reading outgrows the memory the process has is killed rather than recovered, and no recover runs. The
-// file is read within a bound stated where it is read, and that bound is the other half of this promise.
+// appliedNone is the attribute every outcome that installs nothing carries. One field rather than a
+// sentence on each message, so a fleet can match on it instead of on message text.
+var appliedNone = slog.String("applied", "none")
+
+// installResolved puts the values sei.toml supplies into the source the boot has just built. Every way
+// this can fail installs nothing and leaves each key reading as it always has.
 func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logger) {
 	// A panic here would refuse the boot, which this path exists to never do. What follows walks the
 	// node's own configuration types by reflection and decodes through two libraries, so a panic is a
@@ -51,14 +47,14 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	defer func() {
 		if r := recover(); r != nil {
 			defer func() { _ = recover() }()
-			log.Error("installing this node's configuration panicked; every key reads as it always has",
+			log.Error("installing this node's configuration panicked", appliedNone,
 				"panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 
 	ctx := server.GetServerContextFromCmd(cmd)
 	if ctx == nil || ctx.Viper == nil {
-		log.Warn("no configuration source to install into; every key reads as it always has")
+		log.Warn("no configuration source to install into", appliedNone)
 		return
 	}
 
@@ -66,19 +62,21 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	if !ok {
 		return
 	}
-	mode, ok := recordedMode(file, log)
-	if !ok {
+	mode, err := file.Mode()
+	if err != nil {
+		// Load refuses a file with no usable mode, so this answers for a File that did not come from it.
+		log.Warn("sei.toml records no usable node mode", appliedNone, "err", err)
 		return
 	}
 	written, err := file.Values()
 	if err != nil {
-		log.Warn("cannot read the values sei.toml writes; every key reads as it always has", "err", err)
+		log.Warn("cannot read the values sei.toml writes", appliedNone, "err", err)
 		return
 	}
 
 	resolved, err := registry.Resolve(registry.Mode(mode), everyChannelAnOperatorCanUse(written, typed))
 	if err != nil {
-		log.Warn("cannot resolve this node's configuration; every key reads as it always has",
+		log.Warn("cannot resolve this node's configuration", appliedNone,
 			"mode", mode, "err", err)
 		return
 	}
@@ -123,30 +121,23 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// be read or used, so reaching here means the resolution answered.
 	report, err := appopts.Install(ctx.Viper, everyKeyALookupReads(resolved, ownedByADecode))
 	if err != nil {
-		log.Warn("cannot install this node's configuration; every key reads as it always has", "err", err)
+		log.Warn("cannot install this node's configuration", appliedNone, "err", err)
 		return
 	}
-	// Added names the keys the source did not already carry, so a node reads them from the registry for
-	// the first time. That is the set most likely to change what it runs, and it was computed and thrown
-	// away.
-	installed, omittedInstalled := capLoggedItems(report.Installed)
-	added, omittedAdded := capLoggedItems(report.Added)
+	// Counted rather than named. Both lists arrive sorted and a rendered one is capped, so naming them
+	// prints the same alphabetically-first handful on every node on every boot and never a value. The
+	// counts do carry: read_here_first_count is the set the source did not already have, which is the
+	// part most likely to change what the node runs.
 	said("configuration installed", "mode", mode,
-		"count", len(report.Installed), "installed", strings.Join(installed, ","),
-		"omitted", omittedInstalled,
-		"read_here_first_count", len(report.Added), "read_here_first", strings.Join(added, ","),
-		"read_here_first_omitted", omittedAdded)
+		"count", len(report.Installed),
+		"read_here_first_count", len(report.Added))
 }
 
-// runsANode reports whether this command is the one that goes on to run a node.
-//
-// Every subcommand passes through the same pre-run, so every one of them installs, and that is deliberate:
-// a command answering a question about configuration has to read the values the node would run. What
-// differs is whether an operator wants telling about it.
-//
-// Matched by name because nothing else on the command distinguishes them. A command added later that runs a
-// node reports at the quieter level until it is named here, which is the safe direction to be wrong in.
+// runsANode reports whether this command is the one that goes on to run a node. Every subcommand installs;
+// this decides only which of them reports it at a level an operator sees.
 func runsANode(cmd *cobra.Command) bool {
+	// By name, because nothing else on the command distinguishes them. One added later reports at the
+	// quieter level until it is named here, which is the safe direction to be wrong in.
 	return cmd != nil && cmd.Name() == "start"
 }
 
@@ -165,16 +156,8 @@ func everyChannelAnOperatorCanUse(written map[string]any, typed map[string]strin
 }
 
 // everyKeyALookupReads narrows a resolution to the declared keys whose readers look a key up rather than
-// decoding one.
-//
-// Every one of them, not only the ones a source wrote. This manager is where a node's configuration comes
-// from, so a key sei.toml does not mention takes the value this binary declares for the kind of node it is,
-// and app.toml is not consulted for a declared key at all. One file answers, and what it leaves out is
-// answered by a declaration rather than by whatever happened to be on disk.
-//
-// The cost is worth stating plainly, because it is large: on a node whose app.toml was hand-tuned, every
-// declared key absent from sei.toml moves to its declared value. A path that renders sei.toml from a node's
-// existing files is what makes that safe, and it has to exist before anybody turns this on.
+// decoding one. It keeps every one of them, including the keys that took a declared value rather than a
+// written one.
 func everyKeyALookupReads(resolved registry.Resolved, ownedByADecode []string) registry.Resolved {
 	owning := make(map[string]bool, len(ownedByADecode))
 	for _, key := range ownedByADecode {
@@ -195,14 +178,8 @@ func everyKeyALookupReads(resolved registry.Resolved, ownedByADecode []string) r
 }
 
 // whatTheFileWroteForADecode narrows the decoded sections' supplied values to the keys the file itself
-// wrote, sorted.
-//
-// The supplied set is filled by the file, the environment and the flags alike, and only the file's keys are
-// ones this install holds back in a way an operator can act on. A flag answering one of these keys reaches
-// the node through the flag, so reporting it as reading the way it always has would be untrue, and naming
-// the file for it would be untrue twice.
-//
-// Matched lower-cased, which is how the resolution matches a file's keys.
+// wrote, sorted. A key a flag or the environment answered reaches the node through that channel, so naming
+// the file for it would report a value as held back when it arrived.
 func whatTheFileWroteForADecode(bySection map[string]map[string]any, written map[string]any) []string {
 	inTheFile := make(map[string]bool, len(written))
 	for key := range written {
@@ -220,19 +197,12 @@ func whatTheFileWroteForADecode(bySection map[string]map[string]any, written map
 	return keys
 }
 
-// reportWhatThisInstallHoldsBack names the supplied keys this install cannot deliver.
+// reportWhatThisInstallHoldsBack names the supplied keys this install cannot deliver, because their reader
+// decoded its file before this ran.
 //
-// A section whose reader decodes its file whole was read before this ran, so putting a value into the
-// source reaches nothing for it. Those keys are left out on purpose.
-//
-// Left unreported they are invisible. They are absent from what was installed, and they are declared, so
-// they are absent from the undeclared keys too. An operator who supplied only such keys would be told
-// nothing was supplied while their node ran the old values, which is the failure this whole surface exists
-// to remove.
-//
-// No source is named, because the resolution does not record which one answered. A file, a variable and a
-// flag all arrive here as an override, and naming the file for a value an environment variable supplied is
-// the same misattribution the undeclared-key report was split apart to end.
+// Unreported they are invisible: absent from what was installed, and declared, so absent from the
+// undeclared keys too. No source is named, because the resolution does not record which one answered, and
+// naming the file for a value a variable supplied is a misattribution.
 func reportWhatThisInstallHoldsBack(keys []string, say func(string, ...any)) {
 	if len(keys) == 0 {
 		return
@@ -263,20 +233,12 @@ func reportWhatThisBinaryCouldNotUse(resolved registry.Resolved, log *slog.Logge
 		"count", len(said), "refused", strings.Join(shown, "; "), "omitted", omitted)
 }
 
-// reportWhatTheFileDidNotReach says what an operator asked for that had no effect.
+// reportWhatTheFileDidNotReach says what an operator asked for that had no effect: a key this file writes
+// that no section declares, and a variable set for a key the environment cannot carry.
 //
-// Two things, and neither is visible anywhere else. A key this file writes that no section declares reads
-// as a setting and changes nothing. And a variable set for a key the environment cannot carry is skipped on
-// purpose, so whatever the operator wrote elsewhere is what applies. Which file that was, if any, is not
-// something the resolution records: an operator who reached for the variable because they had written the
-// key nowhere else gets no value at all for it, and naming a file would be wrong twice.
-//
-// Only the file's own keys are named. The same resolution reports flag names that match no declared key,
-// and those are not a mistake: a command carries flags that name no setting at all, so reporting them would
-// put this warning on every boot and bury the typo it exists to surface.
-//
-// The key list is capped, because a file that is broken in one way is usually broken in many, and the count
-// is what an operator alerts on.
+// Only the file's own keys are named. The same resolution reports flag names matching no declared key, and
+// those are not a mistake: a command carries flags that name no setting at all, so reporting them would put
+// this warning on every boot and bury the typo it exists to surface.
 func reportWhatTheFileDidNotReach(resolved registry.Resolved, log *slog.Logger) {
 	if len(resolved.UnknownInFile) > 0 {
 		shown, omitted := capLoggedItems(resolved.UnknownInFile)
@@ -302,20 +264,13 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// reportWhatTheFileSaysTheNodeIs names a disagreement about what kind of node this is.
+// reportWhatTheFileSaysTheNodeIs names a disagreement about what kind of node this is. sei.toml records it
+// at the top and every resolved value is the answer for that kind; the node's own file states it again in a
+// key of its own, and that one is what the node runs as.
 //
-// Two files state that, under different names. sei.toml records it at the top, and every value resolved
-// through this manager is the answer for that kind of node. The node's own configuration file states it
-// again in a key of its own, and that one is what the node runs as.
-//
-// This manager does not declare the second, on purpose: two keys for one fact can be written to disagree,
-// and then a resolution answers for one while the node is the other. Not declaring it means nothing here
-// can change it, which leaves the disagreement possible and unreported. A node whose file says validator
-// while it runs as a full node resolves a validator's values and serves queries, and every report about it
-// reads correctly.
-//
-// So it is compared and reported. Reported rather than corrected, because what kind of node this is gets
-// decided when it is provisioned, and a configuration manager is not the thing that should change it.
+// Reported rather than corrected, because what kind of node this is gets decided when it is provisioned.
+// Nothing here can change it either way: this manager deliberately does not declare the node's own mode key,
+// since two keys for one fact can be written to disagree, which is the state this reports.
 func reportWhatTheFileSaysTheNodeIs(ctx *server.Context, mode string, log *slog.Logger) {
 	if ctx == nil || ctx.Config == nil || ctx.Config.Mode == "" {
 		return
@@ -357,19 +312,26 @@ func OwnReportingEnabledForTest() bool {
 func readSeiToml(cmd *cobra.Command, log *slog.Logger) (*seitoml.File, bool) {
 	home, err := resolveHomeDir(cmd)
 	if err != nil {
-		log.Warn("cannot resolve the home directory; every key reads as it always has", "err", err)
+		log.Warn("cannot resolve the home directory", appliedNone, "err", err)
+		return nil, false
+	}
+	// An empty home resolves the read to ./config, relative to whatever directory the process started in,
+	// so it would install some unrelated node's file into this one. Declining is the only safe answer:
+	// there is no directory to read, and reading the wrong one is worse than reading none.
+	if home == "" {
+		log.Warn("no home directory is set, so there is nowhere to read sei.toml from", appliedNone)
 		return nil, false
 	}
 	file, err := readSeiTomlAt(home)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		// Not a mistake. A node without this file resolves nothing and reads as it always has.
-		log.Debug("no sei.toml; every key reads as it always has", "home", home)
+		log.Debug("no sei.toml", appliedNone, "home", home)
 		return nil, false
 	case err != nil:
 		// Somebody wrote this file and it is not doing what they think. Reported at a level an operator
 		// sees, because the alternative is a file that is silently ignored for the reason it was written.
-		log.Warn("this node's sei.toml cannot be read; every key reads as it always has",
+		log.Warn("this node's sei.toml cannot be read", appliedNone,
 			"home", home, "err", err)
 		return nil, false
 	}
@@ -388,37 +350,8 @@ func readSeiTomlAt(home string) (*seitoml.File, error) {
 	return file, nil
 }
 
-// recordedMode reads the node mode the file records.
-//
-// Every value a node reads through the registry is the resolution for one mode, so a file that does not
-// say which cannot be used at all. Reported rather than guessed: guessing picks one mode's answers for a
-// node configured as another.
-//
-// Whether the mode is one this binary knows is not checked here. The resolution refuses a mode no section
-// declares defaults for, and it names the modes there are, so a check here would be the same guard a
-// second time and a worse message.
-func recordedMode(file *seitoml.File, log *slog.Logger) (string, bool) {
-	mode, err := file.Mode()
-	if err != nil {
-		log.Warn("sei.toml records no usable node mode; every key reads as it always has", "err", err)
-		return "", false
-	}
-	return mode, true
-}
-
-// TypedFlags records which flags this invocation carried, and has to run before anything else touches
-// them.
-//
-// A flag reports itself changed when something called Set on it, and the handler this manager re-enters
-// calls Set on every flag whose name its configuration knows a value for, so that a file can supply a
-// flag's default. After that has run, a flag an operator typed and a key their app.toml holds are
-// indistinguishable, and a flag channel built from that state would put app.toml above sei.toml. That is
-// a worse inversion than the one the channel exists to prevent: the file an operator is being migrated
-// onto would lose to the file they are being migrated off.
-//
-// So the snapshot is taken at the one point before that happens, which is the entry to Apply. Taking it
-// there rather than inside the install is the difference between an invariant and a convention, because
-// there is no later point at which the truth is still available.
+// TypedFlags records which flags this invocation carried. It answers for the state of the flags at the
+// moment it runs, so a caller has to run it before anything that calls Set on one.
 func TypedFlags(cmd *cobra.Command) map[string]string {
 	out := map[string]string{}
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
@@ -430,24 +363,16 @@ func TypedFlags(cmd *cobra.Command) map[string]string {
 }
 
 // flagValues renders a snapshot of typed flags as a configuration source, under the keys the sections
-// declare.
-//
-// A flag's name and the key it carries are not always spelled the same. The node's own flags separate words
-// with an underscore where the tag they decode through uses a hyphen, so a flag named for a declared key is
-// not equal to it, and comparing the two by string leaves an operator's typed flag looking like a name
-// nothing declares. It is then dropped, and the file wins over the command line: the one channel somebody
-// reaches for during an incident is the one that loses.
-//
-// Matched through the environment spelling, where a dot and a hyphen and an underscore are all the same
-// character. That is an equivalence the registry already refuses to let two declared keys share, so a flag
-// matches at most one key and no ambiguity is possible here.
-//
-// A flag matching no declared key is left under its own name. Most of the flags a node starts with were
-// never configuration keys, and the resolution reports the unmatched ones from the file alone.
+// declare. A flag matching no declared key is left under its own name.
 func flagValues(typed map[string]string) map[string]any {
 	if len(typed) == 0 {
 		return nil
 	}
+	// Through the environment spelling, where a dot, a hyphen and an underscore are the same character.
+	// A node's flags separate words with an underscore where the tag they decode through uses a hyphen, so
+	// comparing the two directly leaves an operator's typed flag looking like a name nothing declares, and
+	// the file then wins over the command line. The registry refuses to let two declared keys share this
+	// spelling, so a flag matches at most one key.
 	byEnvName := map[string]string{}
 	for _, key := range registry.Keys() {
 		byEnvName[registry.EnvName(key)] = key

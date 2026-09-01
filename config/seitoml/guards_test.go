@@ -283,17 +283,61 @@ func TestSomethingThatIsNotARegularFileIsRefused(t *testing.T) {
 // what it points at refuses every one of those, and the file is then silently not delivered.
 func TestASymlinkedFileIsRead(t *testing.T) {
 	dir := t.TempDir()
-	real := filepath.Join(dir, "..data-sei.toml")
-	if err := os.WriteFile(real, []byte("schema_version = 1\nnode_mode = \"validator\"\n"), 0o600); err != nil {
+	// The layout a projected volume builds: the entry links into a directory that is itself a link, so
+	// reaching the file crosses two hops. A read that resolves one hop and stops finds a directory.
+	stamped := filepath.Join(dir, "..2026_09_01_00_00_00.123456789")
+	if err := os.MkdirAll(stamped, 0o750); err != nil {
+		t.Fatalf("make the timestamped directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stamped, "sei.toml"),
+		[]byte("schema_version = 1\nnode_mode = \"validator\"\n"), 0o600); err != nil {
 		t.Fatalf("write the real file: %v", err)
 	}
+	if err := os.Symlink(stamped, filepath.Join(dir, "..data")); err != nil {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
 	link := filepath.Join(dir, "sei.toml")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(filepath.Join("..data", "sei.toml"), link); err != nil {
 		t.Skipf("cannot create a symlink here: %v", err)
 	}
 
 	if _, err := Load(link); err != nil {
-		t.Errorf("a symlinked configuration file was refused: %v", err)
+		t.Errorf("a configuration file mounted the way a projected volume mounts one was refused: %v", err)
+	}
+}
+
+// TestWhatALinkToNothingIsSeparatesAMissingFileFromABrokenLink holds the one decision both reads make.
+//
+// Two places can learn that a path is not there: the check before the open, and the open itself, because a
+// link's target can go between them. Both ask this, so a broken link cannot report as an absent file
+// through one path after being named through the other. Answering for a path that is simply not there is
+// the direction that matters most: a node with no sei.toml is every node today, and turning that into a
+// report would fire on all of them.
+func TestWhatALinkToNothingIsSeparatesAMissingFileFromABrokenLink(t *testing.T) {
+	dir := t.TempDir()
+
+	dangling := filepath.Join(dir, "dangling.toml")
+	if err := os.Symlink(filepath.Join(dir, "gone.toml"), dangling); err != nil {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
+	if err := whatALinkToNothingIs(dangling); err == nil {
+		t.Error("a link whose target is not there answers as nothing to report, so the read that found it " +
+			"absent stays quiet and whoever placed the link gets no signal")
+	} else if !strings.Contains(err.Error(), "is a link to something that is not there") {
+		t.Errorf("the answer for a broken link is %q, which does not say the link is the problem", err)
+	}
+
+	if err := whatALinkToNothingIs(filepath.Join(dir, "nothing-here.toml")); err != nil {
+		t.Errorf("a path with no file and no link answers %q, so every node without a sei.toml would "+
+			"report one as broken", err)
+	}
+
+	real := filepath.Join(dir, "real.toml")
+	if err := os.WriteFile(real, []byte("schema_version = 1\n"), 0o600); err != nil {
+		t.Fatalf("write a real file: %v", err)
+	}
+	if err := whatALinkToNothingIs(real); err != nil {
+		t.Errorf("a regular file answers %q, and it is neither missing nor a link", err)
 	}
 }
 
