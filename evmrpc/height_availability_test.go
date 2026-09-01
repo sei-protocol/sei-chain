@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -130,6 +131,15 @@ func newHeightTestWatermarks(client client.LocalClient, latest int64) *Watermark
 	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
 }
 
+// newHeightTestKeeper returns a keeper carrying nothing but a receipt store. Endpoints that filter
+// a block's transactions refuse to run without one, and the blocks this file serves hold no
+// transactions, so no other keeper dependency is reached.
+func newHeightTestKeeper() *keeper.Keeper {
+	k := &keeper.Keeper{}
+	k.SetReceiptStoreForTesting(&fakeReceiptStore{})
+	return k
+}
+
 // GetBlockByHash for a block whose height sits above safe latest must return
 // JSON null per the Ethereum JSON-RPC spec (the block doesn't exist from the
 // caller's perspective), matching get-block-by-empty-hash.iox / get-block-by-
@@ -221,7 +231,7 @@ func TestBlockAPILatestTagResolves(t *testing.T) {
 	latest := int64(100)
 	client := newHeightTestClient(latest+5, earliest, latest)
 	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, newHeightTestKeeper(), testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
 	tags := []rpc.BlockNumber{
