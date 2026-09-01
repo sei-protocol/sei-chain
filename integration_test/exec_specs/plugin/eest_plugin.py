@@ -9,32 +9,16 @@ from typing import Callable
 
 import pytest
 
-from eest_families import ISOLATED_FAMILIES, IsolatedFamily
+from eest_families import (
+    EIP2929_MUTATING_ACTIONS,
+    ISOLATED_FAMILIES,
+    IsolatedFamily,
+    eip2929_action,
+)
 
 EIP2929_FAMILY = ISOLATED_FAMILIES["eip2929-precompiles"]
 
 EIP2929_PERSISTENT_STATE_CASES = {
-    21,
-    24,
-    63,
-    64,
-    65,
-    66,
-    67,
-    68,
-    69,
-    80,
-    81,
-    105,
-    106,
-    107,
-    108,
-    109,
-    110,
-    111,
-    112,
-    122,
-    123,
     277,
     323,
 }
@@ -111,6 +95,19 @@ def _eip2929_persistent_state(item: pytest.Item) -> bool:
     return EIP2929_FAMILY.case_index(item) in EIP2929_PERSISTENT_STATE_CASES
 
 
+def _eip2929_value_transfer(item: pytest.Item) -> bool:
+    case_index = EIP2929_FAMILY.case_index(item)
+    if case_index is None:
+        return False
+    try:
+        action = eip2929_action(case_index)
+    except ValueError as error:
+        raise pytest.UsageError(
+            "The pinned EIP-2929 vector layout changed; review its remote policy."
+        ) from error
+    return action in EIP2929_MUTATING_ACTIONS
+
+
 def _selfdestruct_precompile_balance(item: pytest.Item) -> bool:
     return (
         "tests/tangerine_whistle/eip150_operation_gas_costs/test_eip150_selfdestruct.py"
@@ -163,6 +160,14 @@ SKIP_RULES: tuple[SkipRule, ...] = (
         id="eip6780-repeated-selfdestruct",
         reason="Known Sei EIP-6780 repeated-SELFDESTRUCT issue.",
         matches=_eip6780_repeated_selfdestruct,
+    ),
+    SkipRule(
+        id="eip2929-value-transfer",
+        reason=(
+            "Value-bearing EIP-2929 vectors require clean precompile state per test, "
+            "which persistent remote execution cannot provide."
+        ),
+        matches=_eip2929_value_transfer,
     ),
     SkipRule(
         id="eip2929-persistent-state",

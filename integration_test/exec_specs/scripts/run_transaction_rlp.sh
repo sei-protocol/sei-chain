@@ -53,6 +53,9 @@ cleanup() {
 trap cleanup EXIT
 
 cp -R "${geth_dir}/tests/." "${temp_dir}"
+# Go's module cache is read-only. Make the private copy removable so cleanup
+# cannot turn a successful test run into a failed CI job.
+chmod -R u+w "${temp_dir}"
 rm -rf "${temp_dir}/testdata"
 mkdir -p "${temp_dir}/testdata"
 ln -s "${ETHEREUM_TESTS_DIR}/TransactionTests" \

@@ -61,13 +61,14 @@ The jobs run only after changes reach `main`:
 - Transaction and RLP fixtures run together on one standard runner.
 - Regular execution-spec vectors are distributed over eight independent
   devnets.
-- The EIP-2929 precompile family uses four semantic partitions: one for
-  read-only operations and one fresh devnet for each value-bearing CALL action.
-  This prevents funded precompile state from contaminating later gas checks.
+- The EIP-2929 precompile family uses one dedicated devnet: 397 vectors run and
+  65 are reported as persistent-state skips. Of those skips, 63 are all
+  value-bearing CALL vectors, which remote execution cannot isolate with clean
+  precompile state per test.
 - Converted legacy state tests also run as one explicit, unsharded partition
   so their established ~18 minute result remains easy to review. The isolated
-  EIP-2929 family is excluded there because it is covered by the four clean
-  partitions.
+  EIP-2929 family is excluded there because its remote-safe coverage has a
+  dedicated devnet.
 
 JUnit reports are uploaded per EEST partition and summarized in the workflow
 run. Transaction/RLP applicability reports are uploaded separately.
