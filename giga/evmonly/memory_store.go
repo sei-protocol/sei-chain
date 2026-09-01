@@ -375,73 +375,69 @@ var _ gigastore.StateView = (*memoryStoreSnapshot)(nil)
 
 func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
 	s.requireOpen()
-	addr := common.Address(address)
 	s.store.mu.RLock()
-	_, balanceTouched := latestMemoryStoreValue(s.store.balances[addr], s.height)
-	_, nonceTouched := latestMemoryStoreValue(s.store.nonces[addr], s.height)
-	_, codeTouched := latestMemoryStoreValue(s.store.code[addr], s.height)
-	firstStorageTouch, storageTouched := s.store.storageTouch[addr]
+	_, balanceTouched := latestMemoryStoreValue(s.store.balances[address], s.height)
+	_, nonceTouched := latestMemoryStoreValue(s.store.nonces[address], s.height)
+	_, codeTouched := latestMemoryStoreValue(s.store.code[address], s.height)
+	firstStorageTouch, storageTouched := s.store.storageTouch[address]
 	s.store.mu.RUnlock()
 	if balanceTouched || nonceTouched || codeTouched || storageTouched && firstStorageTouch <= s.height {
 		return true
 	}
 	if source, ok := s.store.base.(interface{ AccountExists(common.Address) bool }); ok {
-		return source.AccountExists(addr)
+		return source.AccountExists(address)
 	}
-	balance := s.store.base.GetBalance(addr)
-	return balance != nil && balance.Sign() != 0 || s.store.base.GetNonce(addr) != 0 || len(s.store.base.GetCode(addr)) != 0
+	balance := s.store.base.GetBalance(address)
+	return balance != nil && balance.Sign() != 0 || s.store.base.GetNonce(address) != 0 || len(s.store.base.GetCode(address)) != 0
 }
 
 func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
 	s.requireOpen()
-	addr := common.Address(address)
-	key := memoryStoreStorageKey{address: addr, slot: common.Hash(slot)}
+	key := memoryStoreStorageKey{address: address, slot: slot}
 	s.store.mu.RLock()
 	value, valueOK := latestMemoryStoreValue(s.store.storage[key], s.height)
-	clearHeight, clearOK := latestHeightAt(s.store.storageClear[addr], s.height)
+	clearHeight, clearOK := latestHeightAt(s.store.storageClear[address], s.height)
 	s.store.mu.RUnlock()
 	if valueOK && (!clearOK || value.height >= clearHeight) {
 		if value.delete {
 			return gigastore.Hash{}
 		}
-		return gigastore.Hash(value.value)
+		return value.value
 	}
 	if clearOK {
 		return gigastore.Hash{}
 	}
-	return gigastore.Hash(s.store.base.GetState(addr, common.Hash(slot)))
+	return s.store.base.GetState(address, slot)
 }
 
 func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
 	s.requireOpen()
-	addr := common.Address(address)
 	s.store.mu.RLock()
-	value, ok := latestMemoryStoreValue(s.store.balances[addr], s.height)
+	value, ok := latestMemoryStoreValue(s.store.balances[address], s.height)
 	s.store.mu.RUnlock()
 	if ok {
-		return gigastore.Hash(value.value)
+		return value.value
 	}
 	var balance common.Hash
-	baseBalance := s.store.base.GetBalance(addr)
+	baseBalance := s.store.base.GetBalance(address)
 	if baseBalance != nil {
 		if err := validateMemoryStoreBalance(baseBalance); err != nil {
 			panic(err)
 		}
 		baseBalance.FillBytes(balance[:])
 	}
-	return gigastore.Hash(balance)
+	return balance
 }
 
 func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) uint64 {
 	s.requireOpen()
-	addr := common.Address(address)
 	s.store.mu.RLock()
-	value, ok := latestMemoryStoreValue(s.store.nonces[addr], s.height)
+	value, ok := latestMemoryStoreValue(s.store.nonces[address], s.height)
 	s.store.mu.RUnlock()
 	if ok {
 		return value.value
 	}
-	return s.store.base.GetNonce(addr)
+	return s.store.base.GetNonce(address)
 }
 
 func (s *memoryStoreSnapshot) GetCodeSize(address gigastore.Address) int {
@@ -453,14 +449,13 @@ func (s *memoryStoreSnapshot) GetCodeHash(address gigastore.Address) gigastore.H
 	if !s.AccountExists(address) {
 		return gigastore.Hash{}
 	}
-	return gigastore.Hash(crypto.Keccak256Hash(s.GetCode(address)))
+	return crypto.Keccak256Hash(s.GetCode(address))
 }
 
 func (s *memoryStoreSnapshot) GetCode(address gigastore.Address) []byte {
 	s.requireOpen()
-	addr := common.Address(address)
 	s.store.mu.RLock()
-	value, ok := latestMemoryStoreValue(s.store.code[addr], s.height)
+	value, ok := latestMemoryStoreValue(s.store.code[address], s.height)
 	s.store.mu.RUnlock()
 	if ok {
 		if value.delete {
@@ -468,7 +463,7 @@ func (s *memoryStoreSnapshot) GetCode(address gigastore.Address) []byte {
 		}
 		return cloneBytes(value.value)
 	}
-	return cloneBytes(s.store.base.GetCode(addr))
+	return cloneBytes(s.store.base.GetCode(address))
 }
 
 func (s *memoryStoreSnapshot) GetBlockHeight() int64 {
