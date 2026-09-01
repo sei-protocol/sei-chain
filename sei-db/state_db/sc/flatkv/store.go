@@ -21,6 +21,7 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -31,9 +32,9 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
-var _ Store = (*CommitStore)(nil)
+var _ giga.LiveStateStore = (*CommitStore)(nil)
 
-// CommitStore implements flatkv.Store for EVM state.
+// CommitStore implements giga.LiveStateStore for EVM state.
 //
 // Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
 // (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller.
@@ -138,10 +139,10 @@ type CommitStore struct {
 	// All four stores, for the paths that treat them uniformly.
 	stores []view.ViewManager
 
-	// The views produced by the most recent commit, one per store and keyed by its name, each still
-	// holding the reservation Commit handed out. flushLatestVersion waits on them, and holding them
-	// keeps any later block out of pebble until the next commit hands them back.
-	lastSealed map[string]view.View
+	// The views of the most recently committed block, one reservation held for as long as they stay
+	// installed, which is what keeps any later block out of pebble. Nil outside the window in which the
+	// view managers exist.
+	lastSealed *atomicStoreView
 
 	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
 	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
@@ -400,7 +401,7 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened giga.LiveStateStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
@@ -973,8 +974,11 @@ func (s *CommitStore) closeStores() error {
 	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
 	// awaiting a flush on views whose store is already gone.
-	if err := s.releaseLastSealed(); err != nil {
-		errs = append(errs, fmt.Errorf("release sealed views: %w", err))
+	if s.lastSealed != nil {
+		if err := s.lastSealed.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("release sealed views: %w", err))
+		}
+		s.lastSealed = nil
 	}
 
 	for _, store := range s.stores {

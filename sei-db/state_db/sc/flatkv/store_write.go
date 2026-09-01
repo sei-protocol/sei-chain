@@ -16,15 +16,12 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// CommitBlock applies changesets and commits them at version in one call.
-// Giga-only helper for committing all state changes of a block.
-// TODO: make this async and pipelined
-func (s *CommitStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
-	if err := s.ApplyChangeSets(version, changesets); err != nil {
-		return fmt.Errorf("CommitBlock: apply version %d: %w", version, err)
+func (s *CommitStore) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
+	if err := s.ApplyChangeSets(blockNum, changeset); err != nil {
+		return fmt.Errorf("CommitStateChanges: apply version %d: %w", blockNum, err)
 	}
-	if _, err := s.Commit(version); err != nil {
-		return fmt.Errorf("CommitBlock: commit version %d: %w", version, err)
+	if _, err := s.Commit(blockNum); err != nil {
+		return fmt.Errorf("CommitStateChanges: commit version %d: %w", blockNum, err)
 	}
 	return nil
 }
@@ -119,7 +116,7 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	// restarts fast.
 	if s.snapshotWriter != nil {
 		s.phaseTimer.SetPhase("commit_offer_snapshot")
-		if err := s.snapshotWriter.Offer(version, s.lastSealed); err != nil {
+		if err := s.offerToSnapshotWriter(); err != nil {
 			return version, fmt.Errorf("auto snapshot at version %d: %w", version, err)
 		}
 	}
@@ -159,46 +156,43 @@ func (s *CommitStore) clearPendingBlock() {
 // alreadyHave is the catch-up skip list: the height each store had already reached when replay started,
 // or nil outside a replay. A store listed at or above version keeps the metadata it already has, since
 // recording this block's height would move that store backwards.
-func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (retErr error) {
+func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) error {
 	s.phaseTimer.SetPhase("commit_seal_stores")
 
-	views := make(map[string]view.View, len(s.stores))
-	defer func() {
-		if retErr != nil {
-			// An error in this function is non-recoverable. Outer scope is responsible for teardown.
-			// The reservations this block took, and the previous block's still in lastSealed, are not
-			// handed back here: they go away when the view managers close. A store kept alive past this
-			// error never flushes again, since an unreleased view stalls every later one.
-			return
-		}
-		// The new views are recorded even when the hand-back fails, so teardown can give them back.
-		err := s.releaseLastSealed()
-		s.lastSealed = views
-		if err != nil {
-			retErr = fmt.Errorf("release previous block's reservations: %w", err)
-		}
-	}()
-
-	for _, store := range s.stores {
-		start := time.Now()
-		sealed, err := store.Commit()
-		otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
-		if err != nil {
-			return fmt.Errorf("%s seal: %w", store.Name(), err)
-		}
-		views[sealed.Name()] = sealed
+	blockView, err := s.commitStores(version)
+	if err != nil {
+		return err
 	}
 
-	if err := s.hashSealedBlock(views); err != nil {
+	previous, err := s.lastSealed.get()
+	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return fmt.Errorf("read previous block's view: %w", err)
+	}
+
+	if err := s.hashSealedBlock(blockView, previous); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("hash sealed block: %w", err)
+	}
+	if err := previous.release(); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return fmt.Errorf("release previous block's reservations: %w", err)
 	}
 
 	s.phaseTimer.SetPhase("commit_finalize_stores")
-	for _, sealed := range views {
-		if err := s.finalizeStore(sealed, version, alreadyHave); err != nil {
-			return fmt.Errorf("finalize %s: %w", sealed.Name(), err)
+	for _, dbView := range blockView.viewSlice {
+		if err := s.finalizeStore(dbView, version, alreadyHave); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
+			return fmt.Errorf("finalize %s: %w", dbView.Name(), err)
 		}
+	}
+
+	if err := s.lastSealed.set(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return fmt.Errorf("install block %d: %w", version, err)
+	}
+	if err := blockView.release(); err != nil {
+		return fmt.Errorf("release this block's reservations: %w", err)
 	}
 
 	// Adopt the freshly persisted per-DB metadata only once every store has accepted it. A store that
@@ -217,14 +211,50 @@ func (s *CommitStore) sealBlock(version int64, alreadyHave map[string]int64) (re
 	return nil
 }
 
+// commitStores() seals the current block on every store as one view at version. The returned view
+// carries the reservation each store's Commit() handed out, and the caller owns it.
+func (s *CommitStore) commitStores(version int64) (*storeView, error) {
+	commit := func(store view.ViewManager) (view.View, error) {
+		start := time.Now()
+		dbView, err := store.Commit()
+		otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(dbAttr(store.Name()), successAttr(err)))
+		if err != nil {
+			return nil, fmt.Errorf("%s seal: %w", store.Name(), err)
+		}
+		return dbView, nil
+	}
+
+	account, err := commit(s.accountStore)
+	if err != nil {
+		return nil, err
+	}
+	code, err := commit(s.codeStore)
+	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return nil, err
+	}
+	storage, err := commit(s.storageStore)
+	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return nil, err
+	}
+	misc, err := commit(s.miscStore)
+	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return nil, err
+	}
+	return newStoreView(version, account, code, storage, misc)
+}
+
 // hashSealedBlock folds the block that was just sealed into the store's hashes.
 //
 // The new values are each data store's view diff. The old values are those same keys read back
-// from the previous block's view, which lastSealed still holds when this runs.
-func (s *CommitStore) hashSealedBlock(sealed map[string]view.View) error {
+// from previous, the view of the block before it.
+func (s *CommitStore) hashSealedBlock(current *storeView, previous *storeView) error {
 	s.phaseTimer.SetPhase("commit_compute_lt_hash")
 
-	changed, err := s.changedValuesByStore(sealed)
+	changed, err := s.changedValuesByStore(current, previous)
 	if err != nil {
 		return fmt.Errorf("gather changed values: %w", err)
 	}
@@ -252,35 +282,43 @@ func (s *CommitStore) hashSealedBlock(sealed map[string]view.View) error {
 //
 // The store-wide root is rebuilt from scratch on every seal — HashCalculator.Compute sums the four
 // per-database roots and never mixes in the previous store-wide value.
-func (s *CommitStore) changedValuesByStore(sealed map[string]view.View) ([]lthash.DBPairs, error) {
-	changed := make([][]lthash.KVPairWithLastValue, len(dataDBDirs))
-	errs := make([]error, len(dataDBDirs))
+func (s *CommitStore) changedValuesByStore(current *storeView, previous *storeView) ([]lthash.DBPairs, error) {
+	pairs := []struct {
+		current  view.View
+		previous view.View
+	}{
+		{current.accountStoreView, previous.accountStoreView},
+		{current.codeStoreView, previous.codeStoreView},
+		{current.storageStoreView, previous.storageStoreView},
+		{current.miscStoreView, previous.miscStoreView},
+	}
+
+	changed := make([][]lthash.KVPairWithLastValue, len(pairs))
+	errs := make([]error, len(pairs))
 
 	var wg sync.WaitGroup
-	for i, dir := range dataDBDirs {
-		idx, name := i, dir
+	for i, pair := range pairs {
+		idx, currentView, previousView := i, pair.current, pair.previous
 		wg.Add(1)
 		s.miscPool.Submit(func() {
 			defer wg.Done()
-			// A store committing its first block has no previous view, so every key in that block
-			// is new. A missing entry yields nil, which changedValues reads as "no old values".
-			changed[idx], errs[idx] = changedValues(sealed[name], s.lastSealed[name])
+			changed[idx], errs[idx] = changedValues(currentView, previousView)
 			if errs[idx] != nil {
-				errs[idx] = fmt.Errorf("%s changed values: %w", name, errs[idx])
+				errs[idx] = fmt.Errorf("%s changed values: %w", currentView.Name(), errs[idx])
 			}
 		})
 	}
 	wg.Wait()
 
-	out := make([]lthash.DBPairs, 0, len(dataDBDirs))
-	for i, dir := range dataDBDirs {
+	out := make([]lthash.DBPairs, 0, len(pairs))
+	for i, pair := range pairs {
 		if errs[i] != nil {
 			return nil, errs[i]
 		}
 		if len(changed[i]) == 0 {
 			continue
 		}
-		out = append(out, lthash.DBPairs{Dir: dir, Pairs: changed[i]})
+		out = append(out, lthash.DBPairs{Dir: pair.current.Name(), Pairs: changed[i]})
 	}
 	return out, nil
 }
@@ -290,8 +328,8 @@ func (s *CommitStore) changedValuesByStore(sealed map[string]view.View) ([]lthas
 //
 // A nil value in the diff is a deletion. Keys under the reserved metadata prefix are dropped: they are
 // the store's bookkeeping, and folding them in would make the hash depend on its own recorded value.
-func changedValues(sealed view.View, previous view.View) ([]lthash.KVPairWithLastValue, error) {
-	diff, err := sealed.GetDiff()
+func changedValues(current view.View, previous view.View) ([]lthash.KVPairWithLastValue, error) {
+	diff, err := current.GetDiff()
 	if err != nil {
 		return nil, fmt.Errorf("read diff: %w", err)
 	}
@@ -330,20 +368,41 @@ func changedValues(sealed view.View, previous view.View) ([]lthash.KVPairWithLas
 	return out, nil
 }
 
-// releaseLastSealed gives back the reservations recorded in lastSealed, which lets the stores resume
-// writing out blocks later than the one those reservations were holding.
-//
-// Every reservation is handed back even if one of them fails, because a reservation left held stalls its
-// store's flushes indefinitely. The failures are joined and returned.
-func (s *CommitStore) releaseLastSealed() error {
-	var errs []error
-	for name, sealed := range s.lastSealed {
-		if err := sealed.Release(); err != nil {
-			errs = append(errs, fmt.Errorf("release sealed view for %s: %w", name, err))
-		}
+// offerToSnapshotWriter() hands the most recently committed block to the writer, which decides whether
+// it becomes a snapshot. The writer takes its own reservation, so this one lasts only for the call.
+func (s *CommitStore) offerToSnapshotWriter() error {
+	blockView, err := s.lastSealed.get()
+	if err != nil {
+		return fmt.Errorf("read latest sealed view: %w", err)
 	}
-	s.lastSealed = nil
-	return errors.Join(errs...)
+	if err := s.snapshotWriter.Offer(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return err
+	}
+	if err := blockView.release(); err != nil {
+		return fmt.Errorf("release latest sealed view: %w", err)
+	}
+	return nil
+}
+
+// replaceSealedView() installs blockView, discarding whatever was installed before. The startup
+// lifecycle seals use it because they may install a block no later than the current one, which set()
+// refuses. The caller keeps its own reservations.
+func (s *CommitStore) replaceSealedView(blockView *storeView) error {
+	if s.lastSealed != nil {
+		if err := s.lastSealed.Close(); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
+			return fmt.Errorf("retire previous sealed view: %w", err)
+		}
+		s.lastSealed = nil
+	}
+
+	installed, err := newAtomicStoreView(blockView)
+	if err != nil {
+		return fmt.Errorf("install sealed view at height %d: %w", blockView.blockHeight, err)
+	}
+	s.lastSealed = installed
+	return nil
 }
 
 // flushLatestVersion blocks until the most recently committed block has been flushed down to all five
@@ -355,10 +414,16 @@ func (s *CommitStore) releaseLastSealed() error {
 // stay there until the reservation is handed back — which is what anyone reading the databases directly,
 // rather than through the stores, depends on.
 func (s *CommitStore) flushLatestVersion() error {
-	for _, sealed := range s.lastSealed {
-		if err := sealed.AwaitFlush(s.ctx); err != nil {
-			return fmt.Errorf("await flush: %w", err)
-		}
+	blockView, err := s.lastSealed.get()
+	if err != nil {
+		return fmt.Errorf("read latest sealed view: %w", err)
+	}
+	if err := blockView.awaitFlush(s.ctx); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return fmt.Errorf("await flush: %w", err)
+	}
+	if err := blockView.release(); err != nil {
+		return fmt.Errorf("release latest sealed view: %w", err)
 	}
 	return nil
 }
@@ -369,21 +434,21 @@ func (s *CommitStore) flushLatestVersion() error {
 // describes the later height it holds; writing this block's height alongside that hash would persist a
 // pair that describes no single moment. Finalizing with an empty write set still makes the sealed
 // version flushable, which is the only thing finalization is required to do.
-func (s *CommitStore) finalizeStore(sealed view.View, version int64, alreadyHave map[string]int64) error {
-	if alreadyHave[sealed.Name()] >= version {
-		return sealed.Finalize(nil)
+func (s *CommitStore) finalizeStore(dbView view.View, version int64, alreadyHave map[string]int64) error {
+	if alreadyHave[dbView.Name()] >= version {
+		return dbView.Finalize(nil)
 	}
 
 	writes, err := encodeLocalMeta(
 		version,
-		s.perDBWorkingLtHash[sealed.Name()],
-		s.perDBModuleWorkingLtHash[sealed.Name()],
-		s.perDBModuleWorkingStats[sealed.Name()],
+		s.perDBWorkingLtHash[dbView.Name()],
+		s.perDBModuleWorkingLtHash[dbView.Name()],
+		s.perDBModuleWorkingStats[dbView.Name()],
 	)
 	if err != nil {
-		return fmt.Errorf("encode %s local meta at version %d: %w", sealed.Name(), version, err)
+		return fmt.Errorf("encode %s local meta at version %d: %w", dbView.Name(), version, err)
 	}
-	if err := sealed.Finalize(writes); err != nil {
+	if err := dbView.Finalize(writes); err != nil {
 		return fmt.Errorf("finalize view at version %d: %w", version, err)
 	}
 	return nil
@@ -431,6 +496,13 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 	s.workingLtHash = globalHash
 	s.committedVersion = version
 	s.committedLtHash = s.workingLtHash.Clone()
+
+	// Imported data goes straight to Pebble, so no view describes it and the sealed view is still the
+	// one open() installed. Sealing here is what leaves the store's committed version and its sealed
+	// view naming the same block.
+	if err := s.sealBaseline(); err != nil {
+		return fmt.Errorf("seal imported version: %w", err)
+	}
 	return nil
 }
 
@@ -444,50 +516,49 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 // can flush, so a seal that kept the baseline's reservation would stall every flush after it, and the
 // checkpoint SetInitialVersion takes next would wait forever.
 func (s *CommitStore) sealSeededVersion(seededVersion int64) error {
-	views := make(map[string]view.View, len(s.stores))
+	blockView, err := s.commitStores(seededVersion)
+	if err != nil {
+		return fmt.Errorf("seal seeded version: %w", err)
+	}
 
-	for _, store := range s.stores {
-		sealed, err := store.Commit()
-		if err != nil {
-			return fmt.Errorf("%s seal seeded version: %w", store.Name(), err)
-		}
-		views[sealed.Name()] = sealed
-
-		if err := s.finalizeStore(sealed, seededVersion, nil); err != nil {
-			return fmt.Errorf("%s finalize seeded version: %w", store.Name(), err)
+	for _, dbView := range blockView.viewSlice {
+		if err := s.finalizeStore(dbView, seededVersion, nil); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
+			return fmt.Errorf("%s finalize seeded version: %w", dbView.Name(), err)
 		}
 	}
 
-	// The new views are recorded even when the hand-back fails, so teardown can give them back.
-	err := s.releaseLastSealed()
-	s.lastSealed = views
-	if err != nil {
-		return fmt.Errorf("release baseline reservations: %w", err)
+	if err := s.replaceSealedView(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return fmt.Errorf("install seeded version: %w", err)
+	}
+	if err := blockView.release(); err != nil {
+		return fmt.Errorf("release seeded version's reservations: %w", err)
 	}
 	return nil
 }
 
-// sealBaseline seals an empty version on every store. Called at startup so that we always have a view
-// of the "previous" block (simplifies logic significantly).
+// sealBaseline seals a data-free version on every store at the store's committed version and installs
+// it as the sealed view, so that a view of the current block always exists.
 func (s *CommitStore) sealBaseline() error {
-	views := make(map[string]view.View, len(s.stores))
+	blockView, err := s.commitStores(s.committedVersion)
+	if err != nil {
+		return fmt.Errorf("seal baseline: %w", err)
+	}
 
-	for _, store := range s.stores {
-		sealed, err := store.Commit()
-		if err != nil {
-			return fmt.Errorf("%s seal baseline: %w", store.Name(), err)
-		}
-		views[sealed.Name()] = sealed
-		if err := sealed.Finalize(nil); err != nil {
-			return fmt.Errorf("%s finalize baseline: %w", store.Name(), err)
+	for _, dbView := range blockView.viewSlice {
+		if err := dbView.Finalize(nil); err != nil {
+			// Error is fatal; leaking reservations doesn't make it worse.
+			return fmt.Errorf("%s finalize baseline: %w", dbView.Name(), err)
 		}
 	}
 
-	// The new views are recorded even when the hand-back fails, so teardown can give them back.
-	err := s.releaseLastSealed()
-	s.lastSealed = views
-	if err != nil {
-		return fmt.Errorf("release previous block's reservations: %w", err)
+	if err := s.replaceSealedView(blockView); err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return fmt.Errorf("install baseline: %w", err)
+	}
+	if err := blockView.release(); err != nil {
+		return fmt.Errorf("release baseline reservations: %w", err)
 	}
 	return nil
 }

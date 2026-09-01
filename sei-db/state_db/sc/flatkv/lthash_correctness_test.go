@@ -968,8 +968,7 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
-	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NoError(t, err)
+	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.NotNil(t, paw, "the staged account row must still be present")
 	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
@@ -1023,8 +1022,7 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	// inspectable — BatchSet turns an IsDelete row into a store-level delete, and reading a key
 	// deleted in the current version reports absent rather than handing back the tombstone — so assert
 	// the observable consequence instead.
-	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NoError(t, err)
+	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.Nil(t, paw, "a fully deleted account row must read back as absent")
 }
 
