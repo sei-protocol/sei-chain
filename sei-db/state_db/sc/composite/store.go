@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
@@ -41,7 +42,7 @@ type CompositeCommitStore struct {
 	memIAVL *memiavl.CommitStore
 
 	// The flatKV backend. Will be nil if migration to flatKV has not yet started.
-	flatKV flatkv.Store
+	flatKV giga.LiveStateStore
 
 	// Manages routing of traffic between the memiavl and flatkv backends.
 	// Built (and rebuilt) inside LoadVersion against the just-opened
@@ -179,7 +180,7 @@ func NewCompositeCommitStore(
 		openFlatKV = false
 	}
 
-	var flatKV flatkv.Store
+	var flatKV giga.LiveStateStore
 	if openFlatKV {
 		stateWAL, err := flatkv.OpenStateWAL(&cfg.FlatKVConfig)
 		if err != nil {
@@ -410,7 +411,7 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	}
 
 	var memIAVLCommitter *memiavl.CommitStore
-	var flatKVStore flatkv.Store
+	var flatKVStore giga.LiveStateStore
 
 	defer func() {
 		if retErr == nil {
@@ -695,7 +696,7 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 // newFlatKVInstance constructs (but does not open) a flatkv commit store
 // rooted at this store's home directory, mirroring the constructor's
 // configuration.
-func (cs *CompositeCommitStore) newFlatKVInstance() (flatkv.Store, error) {
+func (cs *CompositeCommitStore) newFlatKVInstance() (giga.LiveStateStore, error) {
 	flatKVConfig := cs.config.FlatKVConfig
 	flatKVConfig.DataDir = utils.GetFlatKVPath(cs.homeDir)
 	stateWAL, err := flatkv.OpenStateWAL(&flatKVConfig)
@@ -1009,7 +1010,7 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 // version key). This is the moment flatkv joins the AppHash. Works
 // against both live stores (latest + pending writes) and read-only clones
 // (metadata as-of their loaded version).
-func migrationStarted(flatKV flatkv.Store) (bool, error) {
+func migrationStarted(flatKV giga.LiveStateStore) (bool, error) {
 	if boundaryBytes, ok := flatKV.Get(
 		migration.MigrationStore, []byte(migration.MigrationBoundaryKey),
 	); ok {

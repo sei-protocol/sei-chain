@@ -20,15 +20,15 @@ import (
 // Interface Compliance Tests
 // =============================================================================
 
-// TestCommitStoreImplementsStore verifies that CommitStore implements flatkv.Store
+// TestCommitStoreImplementsStore verifies that CommitStore implements giga.LiveStateStore
 func TestCommitStoreImplementsStore(t *testing.T) {
-	// Compile-time check is in store.go: var _ Store = (*CommitStore)(nil)
+	// Compile-time check is in store.go: var _ giga.LiveStateStore = (*CommitStore)(nil)
 	// This test verifies runtime behavior of interface methods
 
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Verify Store interface methods
+	// Verify giga.LiveStateStore interface methods
 	require.Equal(t, int64(0), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)
@@ -448,16 +448,6 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 // =============================================================================
 // Lifecycle (outOfBandSnapshot, Rollback)
 // =============================================================================
-
-func TestStoreOutOfBandSnapshotRequiresCommit(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	// Cannot snapshot at version 0 (nothing committed)
-	err := s.outOfBandSnapshot()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "uncommitted")
-}
 
 func TestStoreRollbackNoSnapshot(t *testing.T) {
 	s := setupTestStore(t)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -85,12 +84,9 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 		k.setZeroStorageCleanupCheckpoint(ctx, nil)
 	}
 
-	seimetrics.IncrEvmZeroStorageProcessedKeys(processedMetric)                          // TODO(PLT-330): remove once evm_zero_storage_processed_keys_total verified
 	evmKeeperMetrics.zeroStorageProcessedKeys.Add(ctx.Context(), int64(processedMetric)) //nolint:gosec
 
 	if deleted > 0 {
-		seimetrics.IncrEvmZeroStoragePrunedKeys(deletedMetric)                          // TODO(PLT-330): remove once evm_zero_storage_pruned_keys_total verified
-		seimetrics.IncrEvmZeroStoragePrunedBytes(bytesPruned)                           // TODO(PLT-330): remove once evm_zero_storage_pruned_bytes_total verified
 		evmKeeperMetrics.zeroStoragePrunedKeys.Add(ctx.Context(), int64(deletedMetric)) //nolint:gosec
 		evmKeeperMetrics.zeroStoragePrunedBytes.Add(ctx.Context(), int64(bytesPruned))  //nolint:gosec
 		logger.Info("pruned zero storage slots", "processed", processed, "deleted", deleted, "bytes_saved", bytesPruned)
