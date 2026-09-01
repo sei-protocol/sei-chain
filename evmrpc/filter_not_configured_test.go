@@ -7,6 +7,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/stretchr/testify/require"
@@ -56,5 +58,17 @@ func TestGetRewardsWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 	api := &InfoAPI{keeper: &keeper.Keeper{}}
 	_, err := api.getRewards(nil, nil, nil)
+	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+}
+
+// Both listeners refuse to start without a receipt store. The remaining arguments can be zero
+// because the guard returns before anything reads them.
+func TestEVMServersRefuseWithoutReceiptStore(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewEVMHTTPServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, "", nil)
+	require.ErrorIs(t, err, receipt.ErrNotConfigured)
+
+	_, err = NewEVMWebSocketServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, "", nil, nil)
 	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 }

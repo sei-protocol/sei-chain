@@ -30,8 +30,9 @@ const DefaultReceiptLogFilterParallelism = 16
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
-	// Enable reports whether the receipt store is opened. A node with it off serves no
-	// receipt or log query and keeps no receipt history.
+	// Enable reports whether the receipt store is opened. A node with it off keeps no receipt
+	// history, and its EVM RPC listeners refuse to start, since most eth_* methods read a
+	// block's transactions or receipts.
 	// defaults to true
 	Enable bool `mapstructure:"rs-enable"`
 

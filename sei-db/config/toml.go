@@ -187,8 +187,9 @@ const ReceiptStoreConfigTemplate = `
 
 [receipt-store]
 # Enable defines whether the receipt store should be enabled.
-# A node with this set to false serves no receipt or log query and keeps no
-# receipt history.
+# A node with this set to false keeps no receipt history, and its EVM RPC listeners
+# refuse to start, since most eth_* methods read a block's transactions or receipts.
+# Turning it off requires evm.http_enabled and evm.ws_enabled to both be false.
 # defaults to true
 rs-enable = {{ .ReceiptStore.Enable }}
 
