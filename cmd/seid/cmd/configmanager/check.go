@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -109,11 +110,15 @@ func CheckCmd() *cobra.Command {
 //
 // Answered from the environment this command runs in, which is the same limitation the resolution has.
 func whatTheGateSays(getenv func(string) string) (problems, notes []string) {
-	if _, err := Select(getenv); err != nil {
+	mgr, err := Select(getenv)
+	if err != nil {
 		return []string{fmt.Sprintf("%s is set to something this binary does not accept, so a boot "+
 			"would refuse before reaching this file: %v", EnvVar, err)}, nil
 	}
-	if getenv(EnvVar) != "v2" {
+	// Asked of the manager Select returned rather than of the value itself. Select owns which gate values
+	// read this file, and a value added there later would otherwise make this note say a boot reads none
+	// of the file on a node where it does.
+	if _, reads := mgr.(SeiConfigManager); !reads {
 		return nil, []string{fmt.Sprintf("%s is not set to v2 for this command, so a boot in the same "+
 			"environment reads none of this file. What follows is what it would reach if it were", EnvVar)}
 	}
@@ -178,7 +183,11 @@ func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err
 		problems = append(problems, fmt.Sprintf("%s: sei.toml writes this and no section declares it, "+
 			"so it has no effect", key))
 	}
-	running, err := theModeTheNodesOwnFileRecords(home)
+	own, err := theNodesOwnConfiguration(home)
+	running := ""
+	if own != nil {
+		running = own.Mode
+	}
 	switch {
 	case err != nil:
 		problems = append(problems, fmt.Sprintf("the node's own configuration file cannot be read, so a "+
@@ -188,38 +197,33 @@ func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err
 			"configuration file says %s. Every value resolved here is the answer for the first and the "+
 			"node would run as the second", mode, running))
 	}
-	problems = append(problems, whatADecodeWouldRefuse(resolved)...)
+	problems = append(problems, whatADecodeWouldRefuse(resolved, own)...)
 	notes = append(notes, whatTheFileLeavesToTheDeclaration(resolved, written, mode))
 	return problems, notes, true, nil
 }
 
-// theModeTheNodesOwnFileRecords reads what kind of node the node's own configuration file says this is.
+// theNodesOwnConfiguration reads the node's own configuration file into the struct a boot decodes it into.
 //
-// Read from the file here rather than taken from a running node, because nothing is running.
+// Decoded rather than read key by key, so the mode and the rehearsal base below come from one read and both
+// answer for the same file. A boot unmarshals this file over the same defaults, so a key stated with nothing
+// after it arrives empty and an absent key keeps the default, which is what a boot runs with.
 //
-// An absent file, or one with no mode in it, answers what a boot would compute rather than empty. A boot
-// starts from this binary's defaults and writes the file itself when it is missing, so the running mode is
-// never empty on that path. Answering empty here would pass a node whose sei.toml names a different kind,
-// and then that node reports the disagreement at its loudest level on the next start: a pass in exactly
-// the case with the largest consequence.
-func theModeTheNodesOwnFileRecords(home string) (string, error) {
+// A file that is not there is the only absence. Every other failure is a file somebody wrote that a boot
+// does not start on, so answering with defaults would pass a node that cannot boot.
+func theNodesOwnConfiguration(home string) (*tmcfg.Config, error) {
+	cfg := tmcfg.DefaultConfig()
 	v := viper.New()
 	v.SetConfigFile(filepath.Join(home, "config", "config.toml"))
 	switch err := v.ReadInConfig(); {
 	case errors.Is(err, fs.ErrNotExist):
-		// The only case that is an absence. Every other failure is a file somebody wrote that this
-		// binary cannot read, and a boot does not start at all on one of those, so answering with a
-		// default would pass a node that cannot boot.
+		return cfg, nil
 	case err != nil:
-		return "", err
+		return nil, err
 	}
-	// A key that is present answers with what it holds, empty included. A boot unmarshals that empty
-	// string over the default, so the running kind really is empty and the comparison beside this reports
-	// it. Substituting the default here would pass a node the boot goes on to report.
-	if v.IsSet("mode") {
-		return v.GetString("mode"), nil
+	if err := v.Unmarshal(cfg); err != nil {
+		return nil, err
 	}
-	return tmcfg.DefaultConfig().Mode, nil
+	return cfg, nil
 }
 
 // whatTheFileLeavesToTheDeclaration says how much of this node's configuration the file does not state.
@@ -236,15 +240,24 @@ func whatTheFileLeavesToTheDeclaration(resolved registry.Resolved, written map[s
 	for key := range written {
 		inTheFile[strings.ToLower(key)] = true
 	}
-	left := 0
+	stated := 0
 	for key := range resolved.Values {
-		if !inTheFile[strings.ToLower(key)] {
-			left++
+		if inTheFile[strings.ToLower(key)] {
+			stated++
 		}
 	}
-	return fmt.Sprintf("this file states %d of %d declared keys; the other %d take the value this binary "+
-		"declares for a %s, whatever app.toml and config.toml currently say",
-		len(resolved.Values)-left, len(resolved.Values), left, mode)
+	// Overrides holds every key a source answered, the file included, so the remainder is the set that
+	// took a declared value. Counting the keys absent from the file instead would put a key answered by a
+	// variable or a flag in that remainder, and tell an operator a default applies where it does not.
+	declared := len(resolved.Values) - len(resolved.Overrides)
+	elsewhere := len(resolved.Overrides) - stated
+
+	line := fmt.Sprintf("this file states %d of %d declared keys", stated, len(resolved.Values))
+	if elsewhere > 0 {
+		line += fmt.Sprintf("; %d more are answered by an environment variable or a flag", elsewhere)
+	}
+	return line + fmt.Sprintf("; the other %d take the value this binary declares for a %s, whatever "+
+		"app.toml and config.toml currently say", declared, mode)
 }
 
 // whatTheResolutionAlreadyKnows returns the problems a resolution reports without any rehearsal.
@@ -272,21 +285,29 @@ func whatTheResolutionAlreadyKnows(resolved registry.Resolved) []string {
 
 // whatADecodeWouldRefuse rehearses each decoded section the way the boot's delivery does.
 //
-// Rehearsed against a fresh configuration rather than a running node's, because there is no node here. That
-// is a weaker target than the delivery uses, and the difference is the point: a value this accepts may still
-// be refused at boot if the field it lands on holds something this cannot see. It is why this reports what
-// it can answer and the boot still reports what it finds.
-func whatADecodeWouldRefuse(resolved registry.Resolved) []string {
+// Rehearsed against the node's own configuration, which is the target the delivery uses. Every declared key
+// of a section is delivered, so the values under test are the same either way today; sharing the target is
+// what keeps the two answers together as the declared set changes.
+//
+// One difference remains. The delivery applies a section whose rules fail when the node's configuration
+// already fails its own, and this has no such allowance, so on a node in that state this reports a section
+// the boot applies.
+func whatADecodeWouldRefuse(resolved registry.Resolved, own *tmcfg.Config) []string {
 	bySection, _ := registry.ResolvedAndOwnedByDecodedSections(resolved)
 	var problems []string
 	for _, name := range sortedKeys(bySection) {
 		values := bySection[name]
-		base := tmcfg.DefaultConfig()
+		base := own
+		if base == nil {
+			base = tmcfg.DefaultConfig()
+		}
 
 		// Each message says what is wrong with the value it names, and there is more than one thing that
 		// can be. Stating one of them here would describe the others wrongly.
-		if bad := whatDecodesToSomethingElse(base, values); len(bad) > 0 {
-			problems = append(problems, fmt.Sprintf("[%s]: %s", name, strings.Join(bad, "; ")))
+		fields := keyFieldTypes(reflect.TypeOf(*base), "")
+		if bad := whatDecodesToSomethingElse(fields, values); len(bad) > 0 {
+			problems = append(problems, fmt.Sprintf("[%s]: %s", name,
+				strings.Join(problemsInOrder(bad), "; ")))
 			continue
 		}
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -438,5 +439,62 @@ func TestTheCauseIsReportedBeforeTheSymptom(t *testing.T) {
 	if cause > symptom {
 		t.Errorf("the registration defect is printed after the key it explains, so an operator reading "+
 			"in order treats a valid key as their own typo:\n%s", out.String())
+	}
+}
+
+// TestTheCountsAddUpAndNameTheRightSource holds the arithmetic an operator reads before a restart.
+//
+// The line decides whether somebody expects a restart to move one setting or to replace everything around
+// it, and an off-by-one in it is invisible: the sentence reads correctly whatever the numbers are. The
+// source matters as much as the count. A key an environment variable or a flag answered is absent from the
+// file and does not take a declared value, so counting the file's absences would name a default where one
+// does not apply.
+func TestTheCountsAddUpAndNameTheRightSource(t *testing.T) {
+	configtest.Isolate(t)
+	written := map[string]any{"mempool.size": 4321}
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		File:      written,
+		LookupEnv: func(name string) (string, bool) { return "", false },
+		Flags:     map[string]any{"rpc.max-open-connections": "99"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	total := len(resolved.Values)
+	if total == 0 || len(resolved.Overrides) < 2 {
+		t.Fatalf("the resolution answered %d keys with %d overrides, so this measures nothing",
+			total, len(resolved.Overrides))
+	}
+
+	line := whatTheFileLeavesToTheDeclaration(resolved, written, "full")
+
+	// Every declared key falls in exactly one of the three, so the three have to sum to the total.
+	var stated, elsewhere, declared int
+	if _, err := fmt.Sscanf(line, "this file states %d of %d declared keys", &stated, &total); err != nil {
+		t.Fatalf("the line does not state the file's count: %q", line)
+	}
+	if !strings.Contains(line, "answered by an environment variable or a flag") {
+		t.Fatalf("a flag answered a declared key and the line does not say so, so its value reads as a "+
+			"binary default: %q", line)
+	}
+	for _, part := range strings.Split(line, "; ") {
+		switch {
+		case strings.HasPrefix(part, "the other "):
+			_, _ = fmt.Sscanf(part, "the other %d", &declared)
+		case strings.Contains(part, "more are answered"):
+			_, _ = fmt.Sscanf(part, "%d more are answered", &elsewhere)
+		}
+	}
+	if stated+elsewhere+declared != total {
+		t.Errorf("%d stated + %d answered elsewhere + %d declared = %d, and the resolution answered %d. "+
+			"A key is counted twice or not at all:\n%s",
+			stated, elsewhere, declared, stated+elsewhere+declared, total, line)
+	}
+	if stated != 1 {
+		t.Errorf("the file states one key and the line says %d", stated)
+	}
+	if elsewhere != 1 {
+		t.Errorf("one flag answered a declared key and the line says %d", elsewhere)
 	}
 }
