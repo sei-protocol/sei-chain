@@ -1,0 +1,16 @@
+# Requires consensus/Engine payload withdrawals rather than static genesis.
+tests/shanghai/eip4895_withdrawals
+
+# These suites require Ethereum's per-block system calls, beacon-root/header
+# inputs, or execution-request output.
+tests/cancun/eip4788_beacon_root
+tests/prague/eip2935_historical_block_hashes_from_state
+tests/prague/eip6110_deposits
+tests/prague/eip7002_el_triggerable_withdrawals
+tests/prague/eip7251_consolidations
+
+# Sei does not admit EIP-4844 blob transactions.
+tests/cancun/eip4844_blobs
+
+# Requires execution-request fields and block processing absent from Sei.
+tests/prague/eip7685_general_purpose_el_requests

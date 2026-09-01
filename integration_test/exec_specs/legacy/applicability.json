@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "fixtureRevision": "c67e485ff8b5be9abc8ad15345ec21aa22e290d9",
+  "goEthereumVersion": "v1.15.7-sei-20",
+  "transactionFork": "Prague",
+  "suites": {
+    "TransactionTests": {
+      "status": "applicable",
+      "runner": "github.com/ethereum/go-ethereum/tests.TestTransaction",
+      "builtInSkippedFiles": [
+        "ttEIP1559/GasLimitPriceProductOverflow.json",
+        "ttEIP1559/GasLimitPriceProductPlusOneOverflow.json",
+        "ttEIP1559/maxFeePerGas32BytesValue.json",
+        "ttEIP1559/maxFeePerGasOverflow.json",
+        "ttEIP1559/maxPriorityFeePerGass32BytesValue.json",
+        "ttEIP1559/maxPriorityFeePerGasOverflow.json",
+        "ttEIP3860/DataTestInitCodeTooBig.json",
+        "ttGasLimit/TransactionWithGasLimitxPriceOverflow.json",
+        "ttGasPrice/TransactionWithGasPriceOverflow.json",
+        "ttNonce/TransactionWithHighNonce64Minus1.json",
+        "ttValue/TransactionWithHighValueOverflow.json"
+      ],
+      "notes": "Valid and invalid fixtures are both runnable. The Prague result hash marks expected acceptance; an exception without a hash marks expected rejection."
+    },
+    "RLPTests": {
+      "status": "applicable",
+      "runner": "github.com/ethereum/go-ethereum/tests.TestRLP",
+      "builtInSkippedFiles": [],
+      "notes": "VALID inputs must decode and round-trip; INVALID inputs must be rejected."
+    }
+  }
+}

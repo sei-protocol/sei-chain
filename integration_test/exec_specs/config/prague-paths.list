@@ -1,0 +1,16 @@
+# Fork test directories applicable at Prague.
+tests/frontier
+tests/homestead
+tests/tangerine_whistle
+tests/byzantium
+tests/constantinople
+tests/istanbul
+tests/berlin
+tests/london
+tests/paris
+tests/shanghai
+tests/cancun
+tests/prague
+
+# Canonical tests ported from ethereum/tests.
+tests/ported_static
