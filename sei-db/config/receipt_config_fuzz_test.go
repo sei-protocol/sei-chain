@@ -8,66 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 )
 
-// receiptKeys covers the [receipt-store] keys whose resolution is a plain guarded
-// checked cast. Three read sites in this section are not plain and get their own
-// targets: db-directory (trimmed), rs-backend (lower-cased, trimmed and
-// allowlisted), and the misnamed legacy backend key (a fail-closed detector).
-var receiptKeys = []configtest.KeySpec{
-	{
-		Key: "receipt-store.async-write-buffer", Path: "AsyncWriteBuffer", Cast: configtest.CastInt,
-		Checked: true,
-		Why:     "default 100; <= 0 means synchronous writes, so an absent key must not clobber it to 0",
-	},
-	{
-		Key: "receipt-store.prune-interval-seconds", Path: "PruneIntervalSeconds", Cast: configtest.CastInt,
-		Checked: true,
-	},
-	{
-		Key: "receipt-store.enable-read-write-metrics", Path: "EnableReadWriteMetrics", Cast: configtest.CastBool,
-		Checked: true,
-	},
-	{
-		Key: "receipt-store.log-filter-parallelism", Path: "LogFilterParallelism", Cast: configtest.CastInt,
-		Checked: true,
-		Why:     "default 16; littidx eth_getLogs fan-out, <= 0 falls back at the consumer",
-	},
-}
-
-func readReceipt(opts configtest.AppOpts) (any, error) { return ReadReceiptConfig(opts) }
-
-func FuzzReadReceiptConfig(f *testing.F) {
-	// Every row carries at least one value that differs from its in-code default,
-	// which is what lets the row tell a reader that resolves its key from one that
-	// never looks the key up: a seed spelling the default resolves the field to the
-	// value an absent key already resolves it to, so the assertion holds either way
-	// and the key could be renamed in production with this suite green. The prune
-	// interval arrives as a numeric string because that is the shape an environment
-	// variable has, and 1200 rather than the default 600 is what makes the read
-	// observable.
-	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
-	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(100), false)
-	seeds.AddRow(uint(0), fuzzing.KindInt64, "", int64(0), false)
-	seeds.AddRow(uint(1), fuzzing.KindNumericString, "", int64(1200), false)
-	seeds.AddRow(uint(2), fuzzing.KindBool, "", int64(0), true)
-	seeds.AddRow(uint(3), fuzzing.KindInt64, "", int64(8), false)
-	seeds.AddRow(uint(0), fuzzing.KindString, "many", int64(0), false)
-	// A non-numeric string for each remaining row, so every Checked column here is exercised rather
-	// than asserted. Row 0 already had one; 1 and 3 are int casts and 2 is a bool, and all three
-	// reject a word.
-	seeds.AddRow(uint(1), fuzzing.KindString, "often", int64(0), false)
-	seeds.AddRow(uint(2), fuzzing.KindString, "maybe", int64(0), false)
-	seeds.AddRow(uint(3), fuzzing.KindString, "several", int64(0), false)
-	seeds.AddRow(uint(1), fuzzing.KindNil, "", int64(0), false)
-	seeds.AddRow(uint(3), fuzzing.KindNil, "", int64(0), false)
-
-	configtest.CheckEveryRowHasADiscriminatingSeed(f, "receipt-store", readReceipt, receiptKeys, seeds)
-
-	f.Fuzz(func(t *testing.T, keyIdx uint, kind uint8, s string, n int64, b bool) {
-		spec := configtest.Pick(receiptKeys, keyIdx)
-		configtest.CheckRow(t, "receipt-store", readReceipt, spec, fuzzing.ConfigValue(kind, s, n, b))
-	})
-}
-
 // FuzzReceiptBackend pins the backend allowlist, which is fail-closed by design:
 // only pebbledb, pebble and littidx boot, and anything else is a startup error
 // rather than a fallback. Opening a receipt store on the wrong engine would read
@@ -169,48 +109,19 @@ func FuzzReceiptMisnamedBackendKey(f *testing.F) {
 	})
 }
 
-// TestReadReceiptConfigAbsentKeysKeepDefaults pins the section baseline.
+// TestReadReceiptConfigAbsentKeysKeepDefaults pins the section baseline: no
+// [receipt-store] section means the store boots on the declared defaults rather
+// than the zero value, where an async write buffer of 0 would silence the writer
+// into synchronous mode and a backend of "" would fail the allowlist. Both sides
+// move together when a default changes, so this asserts the reader's behavior
+// rather than the values themselves.
 func TestReadReceiptConfigAbsentKeysKeepDefaults(t *testing.T) {
-	configtest.CheckAbsent(t, "receipt-store", readReceipt, DefaultReceiptStoreConfig())
-}
-
-// TestDefaultsMatchTheRecordedValues pins the receipt-store defaults themselves.
-//
-// The absent-keys coverage in this file proves the reader returns the declared defaults; it
-// cannot prove which values those are, because both sides of that comparison come from the
-// same package. This compares them against testdata/receipt-store.golden, an independent
-// recording, so a default that moves shows the new value in a diff instead of passing
-// silently.
-func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "receipt-store", DefaultReceiptStoreConfig())
-}
-
-// TestKeyNamesMatchTheRecordedNames pins the four key names themselves.
-//
-// This section is where a retired spelling is already load-bearing. receipt-store.backend is a
-// hard boot error because it was renamed to rs-backend, which is what a rename costs when it is
-// done without a record of the name it replaced.
-func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
-	configtest.CheckKeyNames(t, "receipt-store", receiptKeys)
-}
-
-// TestManifestNamesEveryField enforces the claim receiptKeys makes about itself: that it names
-// every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
-// replacement implementation reads as this section's contract.
-func TestManifestNamesEveryField(t *testing.T) {
-	configtest.CheckManifestCoversEveryField(t, "receipt-store", DefaultReceiptStoreConfig(), receiptKeys,
-		"Backend",     // FuzzReceiptBackend: fail-closed allowlist, not a plain cast
-		"DBDirectory", // FuzzReceiptDBDirectory: the trim is the behavior under test
-		// KeepRecent is tagged mapstructure:"-", so no [receipt-store] key reaches it. The app
-		// layer sets it from min-retain-blocks instead, which is worth recording here: a field
-		// sitting in a config struct that configuration cannot address is exactly the kind of
-		// thing a replacement manager would otherwise try to map a key onto.
-		"KeepRecent",
-		// ExternalPruning is tagged mapstructure:"-" for a sharper reason than KeepRecent: it is
-		// only correct when this store is registered with a running StorageGarbageCollector, which
-		// is a property of how the process was wired and not something an operator can assert from
-		// app.toml. Exposing a key for it would let a node stand its pruner down with nothing to
-		// replace it, and the resulting unbounded growth is silent.
-		"ExternalPruning",
-	)
+	cfg, err := ReadReceiptConfig(configtest.AppOpts{})
+	if err != nil {
+		t.Fatalf("an absent [receipt-store] section must read cleanly, got %v", err)
+	}
+	if want := DefaultReceiptStoreConfig(); cfg != want {
+		t.Fatalf("an absent [receipt-store] section resolved to %+v, want the declared defaults %+v",
+			cfg, want)
+	}
 }

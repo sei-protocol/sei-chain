@@ -169,16 +169,16 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 		return nil, err
 	}
 	if len(bz) != SizeMetadata {
-		return nil, fmt.Errorf("wrong metadata file size, expcted: %d, found: %d", SizeMetadata, len(bz))
+		return nil, fmt.Errorf("%w: wrong metadata file size, expcted: %d, found: %d", errCorruptedSnapshot, SizeMetadata, len(bz))
 	}
 
 	magic := binary.LittleEndian.Uint32(bz)
 	if magic != SnapshotFileMagic {
-		return nil, fmt.Errorf("invalid metadata file magic: %d", magic)
+		return nil, fmt.Errorf("%w: invalid metadata file magic: %d", errCorruptedSnapshot, magic)
 	}
 	format := binary.LittleEndian.Uint32(bz[4:])
 	if format != SnapshotFormat {
-		return nil, fmt.Errorf("unknown snapshot format: %d", format)
+		return nil, fmt.Errorf("%w: unknown snapshot format: %d", errCorruptedSnapshot, format)
 	}
 	version := binary.LittleEndian.Uint32(bz[8:])
 
@@ -216,12 +216,12 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	// validate nodes length
 	if len(nodes)%SizeNode != 0 {
 		return nil, cleanupHandles(
-			fmt.Errorf("corrupted snapshot, nodes file size %d is not a multiple of %d", len(nodes), SizeNode),
+			fmt.Errorf("%w, nodes file size %d is not a multiple of %d", errCorruptedSnapshot, len(nodes), SizeNode),
 		)
 	}
 	if len(leaves)%SizeLeaf != 0 {
 		return nil, cleanupHandles(
-			fmt.Errorf("corrupted snapshot, leaves file size %d is not a multiple of %d", len(leaves), SizeLeaf),
+			fmt.Errorf("%w, leaves file size %d is not a multiple of %d", errCorruptedSnapshot, len(leaves), SizeLeaf),
 		)
 	}
 
@@ -229,7 +229,7 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	leavesLen := len(leaves) / SizeLeaf
 	if (leavesLen > 0 && nodesLen+1 != leavesLen) || (leavesLen == 0 && nodesLen != 0) {
 		return nil, cleanupHandles(
-			fmt.Errorf("corrupted snapshot, branch nodes size %d don't match leaves size %d", nodesLen, leavesLen),
+			fmt.Errorf("%w, branch nodes size %d don't match leaves size %d", errCorruptedSnapshot, nodesLen, leavesLen),
 		)
 	}
 
@@ -501,21 +501,23 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 // WriteSnapshotWithRateLimit writes snapshot with optional rate limiting.
 // limiter is a shared rate limiter. nil means unlimited.
 func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir string, limiter *rate.Limiter) error {
+	root, version := t.snapshotSource()
+
 	// Estimate tree size: root.Size() returns leaf count, total = leaves + branches ≈ 2x
 	treeSize := int64(0)
-	if t.root != nil {
-		treeSize = t.root.Size() * 2 // Total nodes (leaves + branches)
+	if root != nil {
+		treeSize = root.Size() * 2 // Total nodes (leaves + branches)
 	}
 
 	// Use 128MB buffer for all trees (large buffer for better performance)
 	bufSize := bufIOSize
 
-	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, limiter, func(w *snapshotWriter) (uint32, error) {
-		if t.root == nil {
+	err := writeSnapshotWithBuffer(ctx, snapshotDir, version, bufSize, treeSize, limiter, func(w *snapshotWriter) (uint32, error) {
+		if root == nil {
 			return 0, nil
 		}
 
-		if err := w.writePostOrder(t.root); err != nil {
+		if err := w.writePostOrder(root); err != nil {
 			return 0, err
 		}
 		return w.leafCounter, nil
@@ -526,6 +528,20 @@ func (t *Tree) WriteSnapshotWithRateLimit(ctx context.Context, snapshotDir strin
 	}
 
 	return nil
+}
+
+// snapshotSource returns the root to serialize together with the version to
+// record for it, read as a pair so a concurrent SaveVersion cannot land between
+// them and pair a root with the wrong version.
+//
+// The version returned is the last saved one. It describes the root only when
+// the tree has no unsaved writes, which holds for every snapshot writer today
+// because DB.Commit copies after SaveVersion. A snapshot written from a
+// mid-version copy would record a version its nodes are one ahead of.
+func (t *Tree) snapshotSource() (Node, uint32) {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+	return t.root, t.version
 }
 
 // writeSnapshotWithBuffer writes snapshot with specified buffer size and optional rate limiting.
@@ -930,8 +946,21 @@ func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) erro
 	}
 }
 
+// checkNodeHash rejects a hash whose length is not the fixed 32-byte record
+// size, so a malformed hash cannot produce a misaligned snapshot file.
+func checkNodeHash(kind string, hash []byte) error {
+	if len(hash) != SizeHash {
+		return fmt.Errorf("invalid %s hash size %d, expected %d", kind, len(hash), SizeHash)
+	}
+	return nil
+}
+
 // writeLeafDirect performs the actual leaf write (called by writer goroutine)
 func (w *snapshotWriter) writeLeafDirect(version uint32, keyLen uint32, keyOffset uint64, hash []byte) error {
+	if err := checkNodeHash("leaf", hash); err != nil {
+		return err
+	}
+
 	var buf [SizeLeafWithoutHash]byte
 	binary.LittleEndian.PutUint32(buf[OffsetLeafVersion:], version)
 	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], keyLen)
@@ -974,6 +1003,10 @@ func (w *snapshotWriter) writeBranch(version, size uint32, height, preTrees uint
 
 // writeBranchDirect performs the actual branch write (called by writer goroutine)
 func (w *snapshotWriter) writeBranchDirect(version, size uint32, height, preTrees uint8, keyLeaf uint32, hash []byte) error {
+	if err := checkNodeHash("branch", hash); err != nil {
+		return err
+	}
+
 	var buf [SizeNodeWithoutHash]byte
 	buf[OffsetHeight] = height
 	buf[OffsetPreTrees] = preTrees

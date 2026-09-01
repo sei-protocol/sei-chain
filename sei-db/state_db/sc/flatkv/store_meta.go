@@ -382,7 +382,7 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	if seededVersion > 0 {
-		if err := s.WriteSnapshot(""); err != nil {
+		if err := s.outOfBandSnapshot(); err != nil {
 			return fmt.Errorf("flatkv: SetInitialVersion: write seeded snapshot: %w", err)
 		}
 	}
