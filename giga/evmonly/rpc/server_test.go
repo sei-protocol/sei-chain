@@ -135,7 +135,7 @@ func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 		To:       &to,
 		Value:    big.NewInt(1),
 	})
-	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(1337)), key)
+	tx, err = ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(713715)), key)
 	require.NoError(t, err)
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)

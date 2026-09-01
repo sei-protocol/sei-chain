@@ -14,7 +14,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-const evmOnlyTestChainID uint64 = 1337
+const evmOnlyTestChainID uint64 = 713715
 
 func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, common.Address) {
 	t.Helper()

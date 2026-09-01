@@ -85,7 +85,7 @@ type AutobahnFileConfig struct {
 }
 
 // AutobahnEVMOnlyInMemoryChainID is the chain ID of the test-only EVM executor.
-const AutobahnEVMOnlyInMemoryChainID uint64 = 1337
+const AutobahnEVMOnlyInMemoryChainID uint64 = 713715
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
