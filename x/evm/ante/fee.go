@@ -13,7 +13,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
-	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -128,7 +127,6 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
 	gp := txData.EffectiveGasPrice(utils.Big0)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
-		utilmetrics.HistogramEvmEffectiveGasPrice(gp) // TODO(PLT-330): remove once evm_effective_gas_price verified
 		evmAnteMetrics.effectiveGasPrice.Record(ctx.Context(), effectiveGasPriceHistogramSample(gp))
 	}
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()

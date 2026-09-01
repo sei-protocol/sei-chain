@@ -106,6 +106,10 @@ type Database struct {
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
 
+	// dbName identifies this instance as the "db" attribute on every otel metric it records, so
+	// multiple Database instances in one process don't share unattributed series.
+	dbName string
+
 	operationMetrics *pebbledbmetrics.OperationMetrics
 }
 
@@ -207,18 +211,20 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
+	dbName := dataDir
+	if abs, absErr := filepath.Abs(dataDir); absErr == nil {
+		dbName = abs
+	}
 	database := &Database{
-		storage:         db,
-		asyncWriteWG:    sync.WaitGroup{},
-		config:          config,
-		earliestVersion: atomic.Int64{},
-		latestVersion:   atomic.Int64{},
-		descending:      descending,
-		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
-		operationMetrics: pebbledbmetrics.NewOperationMetrics(
-			config.EnableReadWriteMetrics,
-			filepath.Base(dataDir),
-		),
+		storage:          db,
+		asyncWriteWG:     sync.WaitGroup{},
+		config:           config,
+		earliestVersion:  atomic.Int64{},
+		latestVersion:    atomic.Int64{},
+		descending:       descending,
+		pendingChanges:   make(chan VersionedChangesets, config.AsyncWriteBuffer),
+		dbName:           dbName,
+		operationMetrics: pebbledbmetrics.NewOperationMetrics(config.EnableReadWriteMetrics, dbName),
 	}
 	database.latestVersion.Store(latestVersion)
 	database.earliestVersion.Store(earliestVersion)
@@ -247,10 +253,11 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	database.asyncWriteWG.Add(1)
 	go database.writeAsyncInBackground()
 
-	// Start background metrics collection
+	// Start background metrics collection for Pebble-internal stats
+	// (compaction, flush, sstable, memtable, WAL, cache).
 	metricsCtx, metricsCancel := context.WithCancel(context.Background())
 	database.metricsCancel = metricsCancel
-	go database.collectMetricsInBackground(metricsCtx)
+	pebbledbmetrics.NewPebbleMetrics(metricsCtx, db, dbName, 10*time.Second)
 
 	return database, nil
 }
@@ -594,7 +601,8 @@ func (db *Database) recordPruneOutcome(err error) {
 	} else {
 		failures = db.pruneFailures.Add(1)
 	}
-	otelMetrics.pruneConsecutiveFailures.Record(context.Background(), failures)
+	otelMetrics.pruneConsecutiveFailures.Record(context.Background(), failures,
+		metric.WithAttributes(attribute.String("db", db.dbName)))
 }
 
 // Retrieves earliest version from db, if not found, return 0
@@ -651,7 +659,10 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 		otelMetrics.applyChangesetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+				attribute.String("db", db.dbName),
+			),
 		)
 	}()
 	// Check if version is 0 and change it to 1
@@ -662,7 +673,7 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatch(db.storage, version, db.descending, db.operationMetrics)
+	b, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return err
 	}
@@ -697,12 +708,16 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		otelMetrics.applyChangesetAsyncLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+				attribute.String("db", db.dbName),
+			),
 		)
 		// Record pending queue depth
 		otelMetrics.pendingChangesQueueDepth.Record(
 			context.Background(),
 			int64(len(db.pendingChanges)),
+			metric.WithAttributes(attribute.String("db", db.dbName)),
 		)
 	}()
 	// Write to WAL
@@ -798,7 +813,12 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return db.IteratorWithContext(context.Background(), storeKey, version, start, end)
 }
 
-func (db *Database) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) IteratorWithContext(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if db.descending {
 		return db.iteratorDescending(ctx, storeKey, version, start, end)
 	}
@@ -809,7 +829,12 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return db.ReverseIteratorWithContext(context.Background(), storeKey, version, start, end)
 }
 
-func (db *Database) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) ReverseIteratorWithContext(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if db.descending {
 		return db.reverseIteratorDescending(ctx, storeKey, version, start, end)
 	}
@@ -846,6 +871,7 @@ func (db *Database) getDescending(storeKey string, targetVersion int64, key []by
 			metric.WithAttributes(
 				attribute.Bool("success", _err == nil),
 				attribute.String("store", storeKey),
+				attribute.String("db", db.dbName),
 			),
 		)
 	}()
@@ -892,6 +918,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
 				attribute.Bool("success", _err == nil),
+				attribute.String("db", db.dbName),
 			),
 		)
 	}()
@@ -1022,7 +1049,12 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
-func (db *Database) iteratorDescending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) iteratorDescending(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -1045,10 +1077,30 @@ func (db *Database) iteratorDescending(ctx context.Context, storeKey string, ver
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey, db.operationMetrics))
+	return finishMVCCIterator(
+		newPebbleDBIterator(
+			ctx,
+			itr,
+			storePrefix(storeKey),
+			start,
+			end,
+			version,
+			db.GetEarliestVersion(),
+			false,
+			db.config.UseDefaultComparer,
+			storeKey,
+			db.operationMetrics,
+			db.dbName,
+		),
+	)
 }
 
-func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) reverseIteratorDescending(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -1071,7 +1123,22 @@ func (db *Database) reverseIteratorDescending(ctx context.Context, storeKey stri
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return finishMVCCIterator(newPebbleDBIterator(ctx, itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey, db.operationMetrics))
+	return finishMVCCIterator(
+		newPebbleDBIterator(
+			ctx,
+			itr,
+			storePrefix(storeKey),
+			start,
+			end,
+			version,
+			db.GetEarliestVersion(),
+			true,
+			db.config.UseDefaultComparer,
+			storeKey,
+			db.operationMetrics,
+			db.dbName,
+		),
+	)
 }
 
 func getMVCCSliceDescending(db *pebble.DB, storeKey string, key []byte, version int64) (_ []byte, err error) {
@@ -1172,6 +1239,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
 				attribute.Bool("success", _err == nil),
+				attribute.String("db", db.dbName),
 			),
 		)
 	}()
@@ -1180,7 +1248,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version, db.descending, db.operationMetrics)
+		batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 		if err != nil {
 			panic(err)
 		}
@@ -1201,7 +1269,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version, db.descending, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					panic(err)
 				}
@@ -1286,7 +1354,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 
 func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 
-	batch, err := NewBatch(db.storage, version, db.descending, db.operationMetrics)
+	batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
@@ -1306,7 +1374,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 					return true
 				}
 				deleteCounter = 0
-				batch, err = NewBatch(db.storage, version, db.descending, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
 					return true
@@ -1380,60 +1448,4 @@ func valTombstoned(value []byte) bool {
 	}
 
 	return true
-}
-
-// collectMetricsInBackground periodically collects PebbleDB internal metrics
-func (db *Database) collectMetricsInBackground(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second) // Collect metrics every 10 seconds
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			db.collectAndRecordMetrics(ctx)
-		}
-	}
-}
-
-// collectAndRecordMetrics collects PebbleDB internal metrics and records them
-func (db *Database) collectAndRecordMetrics(ctx context.Context) {
-	if db.storage == nil {
-		return
-	}
-
-	m := db.storage.Metrics()
-
-	// Compaction metrics - report raw counts
-	otelMetrics.compactionCount.Add(ctx, m.Compact.Count)
-	otelMetrics.compactionDuration.Record(ctx, m.Compact.Duration.Seconds())
-
-	// Flush metrics - report raw counts
-	otelMetrics.flushCount.Add(ctx, m.Flush.Count)
-	otelMetrics.flushDuration.Record(ctx, m.Flush.WriteThroughput.WorkDuration.Seconds())
-	otelMetrics.flushBytesWritten.Add(ctx, m.Flush.WriteThroughput.Bytes)
-
-	// Storage metrics per level with level as attribute
-	for level := 0; level < len(m.Levels); level++ {
-		levelMetrics := m.Levels[level]
-		levelAttr := attribute.Int("level", level)
-
-		otelMetrics.sstableCount.Record(ctx, levelMetrics.TablesCount, metric.WithAttributes(levelAttr))
-		otelMetrics.sstableTotalSize.Record(ctx, levelMetrics.TablesSize, metric.WithAttributes(levelAttr))
-		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.TableBytesIn), metric.WithAttributes(levelAttr))           //nolint:gosec
-		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.TableBytesCompacted), metric.WithAttributes(levelAttr)) //nolint:gosec
-	}
-
-	// Memtable metrics
-	otelMetrics.memtableCount.Record(ctx, m.MemTable.Count)
-	otelMetrics.memtableTotalSize.Record(ctx, int64(m.MemTable.Size)) //nolint:gosec
-
-	// WAL metrics
-	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size)) //nolint:gosec
-
-	// Cache metrics - report raw counts
-	otelMetrics.cacheHits.Add(ctx, m.BlockCache.Hits)
-	otelMetrics.cacheMisses.Add(ctx, m.BlockCache.Misses)
-	otelMetrics.cacheSize.Record(ctx, m.BlockCache.Size)
 }

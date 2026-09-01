@@ -22,7 +22,6 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/utils"
-	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -81,7 +80,6 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		// check if the account has enough balance (without charging)
 		if !p.IsAccountBalancePositive(ctx, seiAddr, evmAddr) {
 			assocErr := evmtypes.NewAssociationMissingErr(seiAddr.String())
-			utilmetrics.IncrementAssociationError("associate_tx_insufficient_funds", assocErr) // TODO(PLT-330): remove once evm_association_error_total verified
 			evmAnteMetrics.associationError.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("scenario", "associate_tx_insufficient_funds"), attribute.String("type", assocErr.AddressType())))
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
 		}
