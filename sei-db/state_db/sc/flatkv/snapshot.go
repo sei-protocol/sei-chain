@@ -15,7 +15,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -386,17 +385,8 @@ func (s *CommitStore) resolveSnapshotDir(flatkvDir string) (string, error) {
 // bootstrap paths that need a snapshot at a height the cadence would decline — the end of an import,
 // and a seeded initial version — and it must not grow a third caller that is merely "convenient".
 func (s *CommitStore) outOfBandSnapshot() (err error) {
-	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", s.committedVersion)
-	defer obs.done(&err, func() {
-		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, s.committedVersion)
-	})
-
 	if s.readOnly {
 		return errReadOnly
-	}
-	version := s.committedVersion
-	if version <= 0 {
-		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
 	}
 
 	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
@@ -407,14 +397,29 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 	// this publishes above it, so a publication racing it can only make it delete less.
 	if s.snapshotWriter != nil {
 		if err := s.snapshotWriter.Flush(); err != nil {
-			return fmt.Errorf("await pending snapshot before writing version %d: %w", version, err)
+			return fmt.Errorf("await pending snapshot: %w", err)
 		}
 	}
 
-	tmpPath, err := checkpointDatabases(
-		s.ctx, s.flatkvDir(), version, s.lastSealed, s.checkpointables(), s.phaseTimer)
+	blockView, err := s.lastSealed.get()
 	if err != nil {
+		return fmt.Errorf("read latest sealed view: %w", err)
+	}
+	version := blockView.blockHeight
+
+	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", version)
+	defer obs.done(&err, func() {
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, version)
+	})
+
+	tmpPath, err := checkpointDatabases(
+		s.ctx, s.flatkvDir(), blockView, s.checkpointables(), s.phaseTimer)
+	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("checkpoint databases at version %d: %w", version, err)
+	}
+	if err := blockView.release(); err != nil {
+		return fmt.Errorf("release latest sealed view: %w", err)
 	}
 	pruned, err := publishSnapshot(
 		s.ctx, s.flatkvDir(), s.config.SnapshotKeepRecent, s.config.ExternalPruning, version, tmpPath)
@@ -427,12 +432,12 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 	return nil
 }
 
-// checkpointDatabases copies every database at version into a fresh temporary directory and returns
-// its path. The directory is removed again if any part of the copy fails.
+// checkpointDatabases() copies every database at blockView's height into a fresh temporary directory and
+// returns its path. The directory is removed again if any part of the copy fails.
 //
-// The caller must hold a reservation on each view passed in, and must keep holding it until this
-// returns. That is what stops a later block reaching Pebble mid-copy, and so what makes the result a
-// view of exactly this version rather than of no single moment.
+// The caller must hold a reservation on blockView, and must keep holding it until this returns. That is
+// what stops a later block reaching Pebble mid-copy, and so what makes the result a view of exactly
+// this version rather than of no single moment.
 //
 // phaseTimer reports the two halves of the call separately — waiting for the databases to reach this
 // version, then copying them — because the reservation is held across both and they are the same
@@ -440,18 +445,17 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 func checkpointDatabases(
 	ctx context.Context,
 	dir string,
-	version int64,
-	views map[string]view.View,
+	blockView *storeView,
 	dbs map[string]types.Checkpointable,
 	phaseTimer *metrics.PhaseTimer,
 ) (_ string, err error) {
+	version := blockView.blockHeight
+
 	// The databases are already flushing this block in the background; this waits for them to finish.
 	// On return Pebble holds exactly this block, and stays there while the reservations are held.
 	phaseTimer.SetPhase("snapshot_await_flush")
-	for name, sealed := range views {
-		if flushErr := sealed.AwaitFlush(ctx); flushErr != nil {
-			return "", fmt.Errorf("await flush of %s at version %d: %w", name, version, flushErr)
-		}
+	if flushErr := blockView.awaitFlush(ctx); flushErr != nil {
+		return "", fmt.Errorf("await flush at version %d: %w", version, flushErr)
 	}
 	phaseTimer.SetPhase("snapshot_copy_databases")
 

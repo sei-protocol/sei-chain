@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // openManager opens a manager over a fresh home directory, applying tweak to the default config
@@ -36,6 +37,7 @@ func TestOpenFreshHome(t *testing.T) {
 	require.NotNil(t, manager.ReceiptDB())
 	require.NotNil(t, manager.StateWAL())
 	require.NotNil(t, manager.SC())
+	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.SS())
 
 	scVersion, err := manager.SC().GetLatestVersion()
@@ -83,6 +85,7 @@ func TestReceiptsDisabled(t *testing.T) {
 
 	require.Nil(t, manager.ReceiptDB())
 	require.NotNil(t, manager.SC())
+	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.SS())
 
 	require.NoError(t, manager.CrashRecover())
@@ -97,6 +100,7 @@ func TestStateStoreDisabled(t *testing.T) {
 
 	require.Nil(t, manager.SS())
 	require.NotNil(t, manager.SC())
+	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.ReceiptDB())
 
@@ -125,8 +129,8 @@ func TestStateStoreDisabledNeedsNoEVMDirectory(t *testing.T) {
 }
 
 // TestReopenAfterClose proves Close releases what the next open needs. SC holds a file lock and
-// adopts the state WAL, so a Close that missed either of them, or closed the WAL twice, shows up
-// here rather than as a node that will not restart.
+// the manager owns the state WAL, so a Close that missed either of them, or closed the WAL twice,
+// shows up here rather than as a node that will not restart.
 func TestReopenAfterClose(t *testing.T) {
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
@@ -196,6 +200,27 @@ func TestAnInvalidConfigIsRefusedBeforeAnyStoreOpens(t *testing.T) {
 	entries, err := os.ReadDir(home)
 	require.NoError(t, err)
 	require.Empty(t, entries, "validation must reject the config before a store creates its directory")
+}
+
+// TestStateDBCommitsToWALAndLiveSC pins that the manager hands out a StateDB whose write path
+// reaches both layers: the WAL the manager owns, and the live SC opened with no WAL of its own.
+func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
+	manager, _ := openManager(t, nil)
+
+	cs := []*proto.NamedChangeSet{{
+		Name: "bank",
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}},
+		},
+	}}
+	require.NoError(t, manager.StateDB().CommitStateChanges(1, cs))
+
+	require.Equal(t, int64(1), manager.SC().Version())
+	ok, first, last, err := manager.StateWAL().GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), first)
+	require.Equal(t, uint64(1), last)
 }
 
 // TestEveryStoreJoinsThePruneCycle pins which stores the shared cut line covers.

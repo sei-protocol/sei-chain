@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -30,10 +31,13 @@ type GigaStorageManager struct {
 	// receiptDB is nil when ReceiptDBConfig.Enable is false.
 	receiptDB receipt.ReceiptStore
 
-	// stateWAL is closed by sc.Close after SC adopts it.
+	// stateWAL is closed by Close. SC is opened with no WAL of its own; StateDB writes it.
 	stateWAL statewal.StateWAL
 
 	sc *flatkv.CommitStore
+
+	// stateDB has no Close; Close shuts down the WAL and SC it is backed by.
+	stateDB giga.StateDB
 
 	// ss is nil when SSConfig.Enable is false.
 	ss *evm.EVMStateStore
@@ -97,14 +101,8 @@ func (m *GigaStorageManager) openDBs(ctx context.Context, cfg config.GigaStorage
 		m.receiptDB = receiptDB
 	}
 
-	stateWAL, err := flatkv.OpenStateWAL(cfg.FlatKVConfig)
-	if err != nil {
-		return fmt.Errorf("open state WAL: %w", err)
-	}
-	m.stateWAL = stateWAL
-
-	// NewCommitStore adopts the WAL. Assign m.sc before LoadLatest so Close does not close the WAL twice.
-	sc, err := flatkv.NewCommitStore(ctx, cfg.FlatKVConfig, stateWAL)
+	// StateDB writes the WAL; a store that held one would record every block twice.
+	sc, err := flatkv.NewCommitStore(ctx, cfg.FlatKVConfig, nil)
 	if err != nil {
 		return fmt.Errorf("open state commit store: %w", err)
 	}
@@ -115,6 +113,13 @@ func (m *GigaStorageManager) openDBs(ctx context.Context, cfg config.GigaStorage
 	if err := m.sc.CleanupOrphanedReadOnlyDirs(); err != nil {
 		return fmt.Errorf("clean up orphaned state commit read-only dirs: %w", err)
 	}
+
+	// LoadLatest reads the WAL directory out-of-band and takes the lock a live WAL holds.
+	stateWAL, err := flatkv.OpenStateWAL(cfg.FlatKVConfig)
+	if err != nil {
+		return fmt.Errorf("open state WAL: %w", err)
+	}
+	m.stateWAL = stateWAL
 
 	if cfg.SSConfig.Enable {
 		ss, err := evm.NewEVMStateStore(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
@@ -127,8 +132,7 @@ func (m *GigaStorageManager) openDBs(ctx context.Context, cfg config.GigaStorage
 		}
 	}
 
-	// TODO: pass wal, sc and ss to GigaStateDB constructor
-
+	m.stateDB = giga.NewStateDB(m.stateWAL, m.sc)
 	return nil
 }
 
@@ -178,11 +182,14 @@ func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStor
 // ReceiptDB returns the receipt store, or nil when receipts are disabled.
 func (m *GigaStorageManager) ReceiptDB() receipt.ReceiptStore { return m.receiptDB }
 
-// StateWAL returns the state WAL that SC replays from.
+// StateWAL returns the state WAL that StateDB writes.
 func (m *GigaStorageManager) StateWAL() statewal.StateWAL { return m.stateWAL }
 
 // SC returns the state commit store.
 func (m *GigaStorageManager) SC() *flatkv.CommitStore { return m.sc }
+
+// StateDB returns the Giga state DB over the WAL and live SC.
+func (m *GigaStorageManager) StateDB() giga.StateDB { return m.stateDB }
 
 // SS returns the EVM state store, or nil when the state store is disabled.
 func (m *GigaStorageManager) SS() *evm.EVMStateStore { return m.ss }
@@ -214,15 +221,12 @@ func (m *GigaStorageManager) Close() error {
 			errs = errors.Join(errs, fmt.Errorf("close EVM state store: %w", err))
 		}
 	}
-	switch {
-	case m.sc != nil:
-		// sc.Close closes the WAL it adopted, so closing the WAL here as well would be a
-		// double close.
+	if m.sc != nil {
 		if err := m.sc.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close state commit store: %w", err))
 		}
-	case m.stateWAL != nil:
-		// open failed before SC adopted the WAL, so nothing else will close it.
+	}
+	if m.stateWAL != nil {
 		if err := m.stateWAL.Close(); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 		}
