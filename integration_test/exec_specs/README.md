@@ -65,11 +65,11 @@ The jobs run only after changes reach `main`:
   vectors require clean state per test. It will remain disabled until it can
   run through a state-isolated fixture runner.
 - Converted legacy state tests also run as one explicit, unsharded partition
-  so their established ~18 minute result remains easy to review. The isolated
-  EIP-2929 family is excluded there for the same persistent-state limitation.
+  so their established ~18 minute result remains easy to review. The EIP-2929
+  family is excluded there for the same persistent-state limitation.
 
 JUnit reports are uploaded per EEST partition and summarized in the workflow
-run. Transaction/RLP applicability reports are uploaded separately.
+run. Transaction/RLP results are printed directly in their job log.
 
 The jobs are informational (`continue-on-error`) and therefore do not make the
-post-merge workflow fail. There is intentionally no policy-audit job.
+post-merge workflow fail.

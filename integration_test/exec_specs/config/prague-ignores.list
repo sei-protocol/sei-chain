@@ -12,5 +12,9 @@ tests/prague/eip7251_consolidations
 # Sei does not admit EIP-4844 blob transactions.
 tests/cancun/eip4844_blobs
 
+# Requires clean precompile state for every vector, which persistent remote
+# execution cannot provide.
+tests/ported_static/stPreCompiledContracts/test_precomps_eip2929_cancun.py
+
 # Requires execution-request fields and block processing absent from Sei.
 tests/prague/eip7685_general_purpose_el_requests

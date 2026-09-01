@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      # TEMP: remove after validating this workflow in CI.
-      - tests/exec-specs
 
 concurrency:
   group: execution-specs-${{ github.ref }}
@@ -38,17 +36,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: integration_test/exec_specs/.cache/ethereum-tests
-          key: ethereum-legacy-${{ runner.os }}-${{ hashFiles('integration_test/exec_specs/scripts/install_legacy_tests.sh', 'integration_test/exec_specs/legacy/applicability.json') }}
+          key: ethereum-legacy-${{ runner.os }}-${{ hashFiles('integration_test/exec_specs/scripts/install_legacy_tests.sh') }}
       - name: Validate transaction and RLP fixtures
         run: bash integration_test/exec_specs/scripts/run_transaction_rlp.sh
-      - name: Upload applicability report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ethereum-transaction-rlp-${{ github.run_id }}
-          path: integration_test/exec_specs/reports/legacy
-          if-no-files-found: warn
-          retention-days: 14
 
   plan:
     name: Plan Execution Specs
@@ -250,9 +240,7 @@ jobs:
           EEST_RPC_ENDPOINT: http://127.0.0.1:8545
           EEST_SHARD_COUNT: ${{ matrix.shard_count }}
           EEST_SHARD_INDEX: ${{ matrix.shard }}
-          EEST_ISOLATED_FAMILY: ${{ matrix.family }}
           EEST_TEST_PATHS_FILE: ${{ matrix.test_paths }}
-          EEST_EXCLUDE_ISOLATED_FAMILIES: ${{ matrix.exclude_isolated }}
           EEST_PARALLELISM: '1'
           EEST_JUNIT_XML: ${{ github.workspace }}/integration_test/exec_specs/${{ matrix.report }}
         run: bash integration_test/exec_specs/scripts/run_suite.sh

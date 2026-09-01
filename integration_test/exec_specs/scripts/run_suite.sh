@@ -10,9 +10,7 @@ EEST_SWEEP_AMOUNT="${EEST_SWEEP_AMOUNT:-100000 ether}"
 EEST_SHARD_COUNT="${EEST_SHARD_COUNT:-1}"
 EEST_SHARD_INDEX="${EEST_SHARD_INDEX:-0}"
 
-if [[ -n "${EEST_ISOLATED_FAMILY:-}" ]]; then
-    report_name="${EEST_ISOLATED_FAMILY}-${EEST_SHARD_INDEX}"
-elif [[ "${EEST_SHARD_COUNT}" == "1" ]]; then
+if [[ "${EEST_SHARD_COUNT}" == "1" ]]; then
     report_name="all"
 else
     report_name="shard-${EEST_SHARD_INDEX}"

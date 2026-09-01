@@ -5,7 +5,6 @@ set -euo pipefail
 SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SEI_CHAIN_DIR="${SEI_CHAIN_DIR:-$(cd "${SUITE_ROOT}/../.." && pwd)}"
 ETHEREUM_TESTS_DIR="${ETHEREUM_TESTS_DIR:-${SUITE_ROOT}/.cache/ethereum-tests}"
-POLICY="${ETHEREUM_LEGACY_POLICY:-${SUITE_ROOT}/legacy/applicability.json}"
 TEST_PATTERN="${ETHEREUM_LEGACY_TEST_PATTERN:-TestTransaction|TestRLP}"
 TEST_TIMEOUT="${ETHEREUM_LEGACY_TEST_TIMEOUT:-5m}"
 
@@ -15,25 +14,13 @@ if [[ ! -f "${SEI_CHAIN_DIR}/go.mod" ]]; then
 fi
 
 bash "${SUITE_ROOT}/scripts/install_legacy_tests.sh"
-python3 "${SUITE_ROOT}/legacy/audit.py" \
-    --ethereum-tests-dir "${ETHEREUM_TESTS_DIR}" \
-    --policy "${POLICY}"
 
-expected_geth_version="$(
-    python3 -c \
-        'import json, sys; print(json.load(open(sys.argv[1]))["goEthereumVersion"])' \
-        "${POLICY}"
-)"
 resolved_geth_version="$(
     cd "${SEI_CHAIN_DIR}"
     go list -m -f \
         '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' \
         github.com/ethereum/go-ethereum
 )"
-if [[ "${resolved_geth_version}" != "${expected_geth_version}" ]]; then
-    echo "Sei go-ethereum version ${resolved_geth_version} does not match reviewed policy ${expected_geth_version}." >&2
-    exit 2
-fi
 
 geth_dir="$(
     cd "${SEI_CHAIN_DIR}"

@@ -9,10 +9,6 @@ from typing import Callable
 
 import pytest
 
-from eest_families import ISOLATED_FAMILIES, IsolatedFamily
-
-EIP2929_FAMILY = ISOLATED_FAMILIES["eip2929-precompiles"]
-
 EIP2930_FLOOR_GAS_CASES = {
     "access_list_empty-data_1_zero_byte",
     "access_list_empty-data_4_zero_byte",
@@ -81,10 +77,6 @@ def _eip6780_repeated_selfdestruct(item: pytest.Item) -> bool:
     )
 
 
-def _eip2929_remote_unsupported(item: pytest.Item) -> bool:
-    return EIP2929_FAMILY.case_index(item) is not None
-
-
 def _selfdestruct_precompile_balance(item: pytest.Item) -> bool:
     return (
         "tests/tangerine_whistle/eip150_operation_gas_costs/test_eip150_selfdestruct.py"
@@ -139,14 +131,6 @@ SKIP_RULES: tuple[SkipRule, ...] = (
         matches=_eip6780_repeated_selfdestruct,
     ),
     SkipRule(
-        id="eip2929-persistent-remote",
-        reason=(
-            "EIP-2929 precompile vectors require clean state per test and are "
-            "disabled on persistent remote chains."
-        ),
-        matches=_eip2929_remote_unsupported,
-    ),
-    SkipRule(
         id="selfdestruct-precompile-balance",
         reason="Persistent remote chains cannot restore precompile balances to zero.",
         matches=_selfdestruct_precompile_balance,
@@ -191,69 +175,28 @@ def shard_configuration() -> tuple[int, int]:
     return shard_count, shard_index
 
 
-def isolated_family() -> IsolatedFamily | None:
-    name = os.environ.get("EEST_ISOLATED_FAMILY", "")
-    if not name:
-        return None
-    family = ISOLATED_FAMILIES.get(name)
-    if family is None:
-        known = ", ".join(sorted(ISOLATED_FAMILIES)) or "none"
-        raise pytest.UsageError(
-            f"Unknown EEST_ISOLATED_FAMILY {name!r}. Known families: {known}."
-        )
-    return family
-
-
-def exclude_isolated_families() -> bool:
-    value = os.environ.get("EEST_EXCLUDE_ISOLATED_FAMILIES", "0")
-    if value not in {"0", "1"}:
-        raise pytest.UsageError("EEST_EXCLUDE_ISOLATED_FAMILIES must be 0 or 1.")
-    return value == "1"
-
-
 def partition(
     items: list[pytest.Item],
     shard_count: int,
     shard_index: int,
-    family: IsolatedFamily | None,
-    exclude_isolated: bool,
 ) -> tuple[list[pytest.Item], list[pytest.Item]]:
     """Split collected vectors into selected and deselected partitions."""
-    if family is not None:
-        selected: list[pytest.Item] = []
-        deselected: list[pytest.Item] = []
-        for item in items:
-            keep = family.partition_index(item) == shard_index
-            (selected if keep else deselected).append(item)
-        return selected, deselected
-
-    if shard_count == 1 and not exclude_isolated:
+    if shard_count == 1:
         return list(items), []
 
     selected = []
     deselected = []
     for item in items:
-        in_isolated_family = any(
-            candidate.case_index(item) is not None
-            for candidate in ISOLATED_FAMILIES.values()
-        )
-        keep = not in_isolated_family and (
-            shard_count == 1
-            or shard_for_nodeid(item.nodeid, shard_count) == shard_index
-        )
+        keep = shard_for_nodeid(item.nodeid, shard_count) == shard_index
         (selected if keep else deselected).append(item)
     return selected, deselected
 
 
 def pytest_report_header() -> str | None:
     shard_count, shard_index = shard_configuration()
-    family = isolated_family()
-    parts = []
-    if family is not None:
-        parts.append(f"EEST dedicated family {family.name}")
-    if shard_count > 1 or family is not None:
-        parts.append(f"chain {shard_index + 1}/{shard_count}")
-    return ", ".join(parts) if parts else None
+    if shard_count > 1:
+        return f"EEST chain {shard_index + 1}/{shard_count}"
+    return None
 
 
 @pytest.hookimpl(trylast=True)
@@ -262,13 +205,7 @@ def pytest_collection_modifyitems(
     items: list[pytest.Item],
 ) -> None:
     shard_count, shard_index = shard_configuration()
-    selected, deselected = partition(
-        items,
-        shard_count,
-        shard_index,
-        isolated_family(),
-        exclude_isolated_families(),
-    )
+    selected, deselected = partition(items, shard_count, shard_index)
 
     for item in selected:
         rule = matching_rule(item)

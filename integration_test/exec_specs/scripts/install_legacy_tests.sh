@@ -39,6 +39,4 @@ for suite in TransactionTests RLPTests; do
     fi
 done
 
-printf '%s\n' "${ETHEREUM_TESTS_REVISION}" \
-    >"${ETHEREUM_TESTS_DIR}/.sei-ethereum-tests-revision"
 echo "Installed ethereum/tests ${ETHEREUM_TESTS_REVISION} in ${ETHEREUM_TESTS_DIR}."
