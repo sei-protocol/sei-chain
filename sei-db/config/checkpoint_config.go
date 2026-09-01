@@ -19,6 +19,12 @@ type CheckpointConfig struct {
 	BlockInterval int64
 }
 
+// Enabled reports whether any interval is set, and so whether a scheduler built from this config
+// picks heights at all.
+func (c CheckpointConfig) Enabled() bool {
+	return c.TimeInterval > 0 || c.BlockInterval > 0
+}
+
 // DefaultCheckpointConfig returns a cadence mirroring the state-commit snapshot settings: a
 // checkpoint every 10,000 blocks, and no more than one an hour.
 func DefaultCheckpointConfig() CheckpointConfig {

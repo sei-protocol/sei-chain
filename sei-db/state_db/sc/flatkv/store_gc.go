@@ -20,8 +20,12 @@ import (
 // it replays from, but never prunes that WAL itself.
 var _ controller.PrunableStore = (*CommitStore)(nil)
 
+// checkpointStoreName identifies this store to the collector it is pruned by and to the schedule it
+// checkpoints on, which name it independently of each other.
+const checkpointStoreName = "FlatKV"
+
 func (s *CommitStore) Name() string {
-	return "FlatKV"
+	return checkpointStoreName
 }
 
 // ExternalPruning reports config.ExternalPruning, the same field pruneSnapshotsByCount and

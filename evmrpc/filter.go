@@ -896,6 +896,9 @@ func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+	if err := requireReceiptStore(f.k); err != nil {
+		return nil, 0, err
+	}
 	latest, err := f.latestHeight(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -1160,7 +1163,7 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
-		return nil, receipt.ErrRangeQueryNotSupported
+		return nil, receipt.ErrNotConfigured
 	}
 
 	budget := f.newLogBudget(limit)
@@ -1259,7 +1262,10 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 		}
 
 		// filterTransactions caches receipts in globalBlockCache
-		txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+		txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+		if err != nil {
+			return nil, err
+		}
 		if len(txHashes) == 0 {
 			continue
 		}
@@ -1334,7 +1340,10 @@ func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit fi
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) error {
 	ctx := f.ctxProvider(block.Block.Height)
 
-	txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+	txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+	if err != nil {
+		return err
+	}
 	if len(txHashes) == 0 {
 		return nil
 	}
@@ -1354,6 +1363,9 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	for txIdx, txHashEntry := range txHashes {
 		rcpt, err := getOrSetCachedReceiptErr(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, txHashEntry.hash)
 		if err != nil {
+			if errors.Is(err, receipt.ErrNotConfigured) {
+				return err
+			}
 			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
 			continue
 		}

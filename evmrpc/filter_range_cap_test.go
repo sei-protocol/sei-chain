@@ -132,6 +132,13 @@ func (s *rangeCapReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint
 
 func (s *rangeCapReceiptStore) Close() error { return nil }
 
+func (s *rangeCapReceiptStore) Name() string                    { return "range-cap-receipts" }
+func (s *rangeCapReceiptStore) PruneHistory(uint64) error       { return nil }
+func (s *rangeCapReceiptStore) PruneSnapshots(uint64) error     { return nil }
+func (s *rangeCapReceiptStore) ExternalPruning() bool           { return false }
+func (s *rangeCapReceiptStore) GetRollbackFloor(uint64) uint64  { return 0 }
+func (s *rangeCapReceiptStore) GetLatestBlock() (uint64, error) { return 0, nil }
+
 func (s *rangeCapReceiptStore) setCandidates(candidates []*ethtypes.Log) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
