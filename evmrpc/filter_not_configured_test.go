@@ -74,9 +74,9 @@ func TestGetRewardsWithoutReceiptStore(t *testing.T) {
 func TestEVMServersRefuseWithoutReceiptStore(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewEVMHTTPServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, "", nil)
+	_, err := NewEVMHTTPServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, "", nil, false, nil)
 	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 
-	_, err = NewEVMWebSocketServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, "", nil, nil)
+	_, err = NewEVMWebSocketServer(evmrpcconfig.Config{}, nil, &keeper.Keeper{}, legacyabci.BeginBlockKeepers{}, nil, nil, nil, nil, "", nil, false, nil)
 	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 }

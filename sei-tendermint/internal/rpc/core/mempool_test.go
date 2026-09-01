@@ -10,10 +10,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -68,16 +68,17 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	// Setup: in-process validator addr map and empty block store.
+	// Setup: in-process validator addr map and empty in-memory BlockStore
+	// (memblock BlockDB wrapped by autobahn/blockstore).
 	addrs := map[atypes.PublicKey]p2p.GigaNodeAddr{
 		valKey.Public(): {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
 		},
 	}
-	blockDB, err := blockstore.New(memblock.NewBlockDB())
+	blockStore, err := blockstore.New(memblock.NewBlockDB())
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, blockDB.Close()) })
+	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
 
 	// Setup: Giga validator router so gigaRouter() is present and mempool exists.
 	commonCfg := p2p.GigaRouterCommonConfig{
@@ -86,7 +87,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		App:            proxy.New(&abci.BaseApplication{}),
 		GenDoc:         genDoc,
 	}
-	dataState, err := p2p.BuildDataState(&commonCfg, blockDB)
+	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
 	giga, err := p2p.NewGigaValidatorRouter(&p2p.GigaValidatorConfig{
 		GigaRouterCommonConfig: commonCfg,
