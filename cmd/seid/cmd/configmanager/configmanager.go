@@ -74,7 +74,7 @@ type SeiConfigManager struct {
 // key an operator writes, so a floor applied before it is overwritten. A fleet that runs its nodes quiet
 // sets that level above the one these reports use, and every outcome here is a report.
 func keepOwnReportingVisible() {
-	// A floor, so a node an operator has deliberately turned up is left alone. SetLevel assigns rather
+	// A floor, so a node an operator turned up is left alone. SetLevel assigns rather
 	// than raises, and the lines this manager emits below the floor are exactly what somebody turns the
 	// level up to see: that there is no file, and what an ordinary invocation held back or installed.
 	if at, known := seilog.GetLevel(loggerName); known && at <= ownReportingFloor {
