@@ -116,9 +116,19 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 	}, nil
 }
 
-// BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
+// ErrBroadcastTxCommitUnsupported is returned by BroadcastTxCommit when Autobahn
+// is active. The transaction is not submitted; use BroadcastTx (CheckTx) and
+// confirm inclusion from committed state.
+var ErrBroadcastTxCommitUnsupported = errors.New("broadcast_tx_commit is not supported on Autobahn; use broadcast_tx_sync")
+
+// BroadcastTxCommit returns the CheckTx and DeliverTx results after inclusion.
+// Under Autobahn it returns ErrBroadcastTxCommitUnsupported without submitting
+// the transaction.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
+	if env.gigaRouter().IsPresent() {
+		return nil, ErrBroadcastTxCommitUnsupported
+	}
 	if err := env.requireWritable(); err != nil {
 		return nil, err
 	}
@@ -128,23 +138,6 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 		defer cancel()
 	}
 
-	if giga, ok := env.gigaRouter().Get(); ok {
-		v, ok := giga.Mempool().Get()
-		if !ok {
-			return nil, errors.New("autobahn fullnode has no local mempool; broadcast_tx_* must be sent to a validator")
-		}
-		r, err := v.InsertTx(ctx, req.Tx)
-		if err != nil {
-			return nil, err
-		}
-		if r.Code != abci.CodeTypeOK {
-			return &coretypes.ResultBroadcastTxCommit{
-				CheckTx: *r,
-				Hash:    req.Tx.Hash().Bytes(),
-			}, nil
-		}
-		return env.broadcastTxCommitFromCheckTx(ctx, req, r)
-	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
