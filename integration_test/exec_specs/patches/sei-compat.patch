@@ -314,7 +314,7 @@ index d76768d..26c729d 100644
          return ExecuteResult(
              benchmark_gas_used=benchmark_gas_used,
 diff --git a/packages/testing/src/execution_testing/rpc/rpc.py b/packages/testing/src/execution_testing/rpc/rpc.py
-index 58cfb1403..dd90cf9d4 100644
+index 58cfb1403..57b8266df 100644
 --- a/packages/testing/src/execution_testing/rpc/rpc.py
 +++ b/packages/testing/src/execution_testing/rpc/rpc.py
 @@ -797,6 +797,7 @@ class EthRPC(BaseRPC):
@@ -325,7 +325,7 @@ index 58cfb1403..dd90cf9d4 100644
          try:
              logger.info(f"Requesting tx details of {transaction_hash}")
              response = self.post_request(
-@@ -811,6 +812,17 @@ class EthRPC(BaseRPC):
+@@ -811,6 +812,20 @@ class EthRPC(BaseRPC):
                  response, context=self.response_validation_context
              )
          except ValidationError as e:
@@ -336,14 +336,17 @@ index 58cfb1403..dd90cf9d4 100644
 +                and response.get("block_hash") is None
 +            ):
 +                logger.warning(
-+                    "Ignoring malformed pending transaction response for "
-+                    f"{transaction_hash}; polling will retry after inclusion"
++                    "Ignoring malformed pending transaction response for %s; "
++                    "polling will retry after inclusion. "
++                    "Validation errors: %s",
++                    transaction_hash,
++                    e.errors(include_url=False),
 +                )
 +                return None
              pprint(e.errors())
              raise e
  
-@@ -839,12 +851,26 @@ class EthRPC(BaseRPC):
+@@ -839,12 +854,28 @@ class EthRPC(BaseRPC):
              if result is None:
                  results.append(None)
              else:
@@ -355,7 +358,7 @@ index 58cfb1403..dd90cf9d4 100644
                          context=self.response_validation_context,
                      )
 -                )
-+                except ValidationError:
++                except ValidationError as e:
 +                    if (
 +                        os.getenv("EEST_TOLERATE_MALFORMED_PENDING_TX") == "1"
 +                        and isinstance(result, dict)
@@ -364,7 +367,9 @@ index 58cfb1403..dd90cf9d4 100644
 +                    ):
 +                        logger.warning(
 +                            "Ignoring malformed pending transaction response; "
-+                            "polling will retry after inclusion"
++                            "polling will retry after inclusion. "
++                            "Validation errors: %s",
++                            e.errors(include_url=False),
 +                        )
 +                        parsed_result = None
 +                    else:

@@ -5,7 +5,8 @@ set -euo pipefail
 SUITE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EEST_REPOSITORY="${EEST_REPOSITORY:-https://github.com/ethereum/execution-specs.git}"
 EEST_REVISION="${EEST_REVISION:-2ce2191562f76ec6e64a82f82165d821e1c781fc}"
-EEST_DIR="${EEST_DIR:-${SUITE_ROOT}/.cache/execution-specs}"
+DEFAULT_EEST_DIR="${SUITE_ROOT}/.cache/execution-specs"
+EEST_DIR="${EEST_DIR:-${DEFAULT_EEST_DIR}}"
 EEST_PATCH="${EEST_PATCH:-${SUITE_ROOT}/patches/sei-compat.patch}"
 EEST_UV_BIN="${EEST_UV_BIN:-uv}"
 EEST_PYTHON="${EEST_PYTHON:-3.12}"
@@ -48,6 +49,13 @@ if [[ ! -d "${EEST_DIR}/.git" ]]; then
     mkdir -p "$(dirname "${EEST_DIR}")"
     git init --quiet "${EEST_DIR}"
     git -C "${EEST_DIR}" remote add origin "${EEST_REPOSITORY}"
+fi
+
+if [[ "${EEST_DIR}" != "${DEFAULT_EEST_DIR}" ]] \
+    && [[ -n "$(git -C "${EEST_DIR}" status --short 2>/dev/null)" ]]; then
+    echo "Refusing to replace modified execution-specs checkout at ${EEST_DIR}." >&2
+    echo "Use the default cache path or clean the checkout first." >&2
+    exit 2
 fi
 
 current_revision="$(git -C "${EEST_DIR}" rev-parse HEAD 2>/dev/null || true)"

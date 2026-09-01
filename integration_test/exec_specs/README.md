@@ -54,6 +54,12 @@ integration-test funding and association helpers. The mnemonic is never stored
 in this repository. `EEST_SEED_KEY` may also point to another funded,
 disposable account when running against a non-local chain.
 
+Local runs strictly validate pending `eth_getTransactionByHash` responses.
+CI explicitly sets `EEST_TOLERATE_MALFORMED_PENDING_TX=1` because Sei currently
+omits `chainId`, `accessList`, `maxFeePerGas`, and `maxPriorityFeePerGas` from
+pending typed-transaction responses. Tolerated validation errors remain visible
+as warnings and polling validates the transaction after block inclusion.
+
 ## CI
 
 The jobs run only after changes reach `main`:

@@ -244,6 +244,9 @@ jobs:
           EEST_SHARD_INDEX: ${{ matrix.shard }}
           EEST_TEST_PATHS_FILE: ${{ matrix.test_paths }}
           EEST_PARALLELISM: '1'
+          # Sei's pending typed-transaction response omits chainId, accessList,
+          # maxFeePerGas, and maxPriorityFeePerGas until block inclusion.
+          EEST_TOLERATE_MALFORMED_PENDING_TX: '1'
           EEST_JUNIT_XML: ${{ github.workspace }}/integration_test/exec_specs/${{ matrix.report }}
         run: bash integration_test/exec_specs/scripts/run_suite.sh
       - name: Upload execution-spec report
