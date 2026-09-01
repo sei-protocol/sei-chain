@@ -8,6 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const maxFiltersForTest = uint64(100)
+const maxBlockFilterHashesForTest = uint64(200)
+
 type opts struct {
 	httpEnabled                  interface{}
 	httpPort                     interface{}
@@ -254,8 +257,8 @@ func getDefaultOpts() opts {
 		"",
 		"",
 		time.Duration(5),
-		uint64(100),
-		uint64(200),
+		maxFiltersForTest,
+		maxBlockFilterHashesForTest,
 		time.Duration(5),
 		1000,
 		false,
@@ -303,8 +306,8 @@ func TestReadConfig(t *testing.T) {
 	require.Nil(t, err)
 	require.False(t, cfg.EnableParallelizedBlockTrace)
 	require.True(t, cfg.EnableSimulation)
-	require.Equal(t, uint64(100), cfg.MaxFilters)
-	require.Equal(t, uint64(200), cfg.MaxBlockFilterHashes)
+	require.Equal(t, maxFiltersForTest, cfg.MaxFilters)
+	require.Equal(t, maxBlockFilterHashesForTest, cfg.MaxBlockFilterHashes)
 	// Round-trip: an explicitly-supplied value overrides the default.
 	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
 	require.Equal(t, []string{"callTracer", "prestateTracer"}, cfg.TraceAllowedTracers)
