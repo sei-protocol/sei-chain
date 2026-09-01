@@ -867,10 +867,11 @@ ws_origins = "{{ .EVM.WSOrigins }}"
 filter_timeout = "{{ .EVM.FilterTimeout }}"
 
 # maximum number of active eth_newFilter and eth_newBlockFilter filters
+# filters cannot be added if there are too many active eth_newFilter and eth_newBlockFilter
 max_filters = {{ .EVM.MaxFilters }}
 
 # maximum number of unpolled hashes retained by an eth_newBlockFilter filter;
-# the filter is invalidated if it falls farther behind
+# if a filter has more than this many unpolled hashes the filter will be invalidated and removed.
 max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
 
 # checkTx timeout for sig verify
