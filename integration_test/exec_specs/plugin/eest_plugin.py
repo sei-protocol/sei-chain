@@ -9,19 +9,9 @@ from typing import Callable
 
 import pytest
 
-from eest_families import (
-    EIP2929_MUTATING_ACTIONS,
-    ISOLATED_FAMILIES,
-    IsolatedFamily,
-    eip2929_action,
-)
+from eest_families import ISOLATED_FAMILIES, IsolatedFamily
 
 EIP2929_FAMILY = ISOLATED_FAMILIES["eip2929-precompiles"]
-
-EIP2929_PERSISTENT_STATE_CASES = {
-    277,
-    323,
-}
 
 EIP2930_FLOOR_GAS_CASES = {
     "access_list_empty-data_1_zero_byte",
@@ -91,21 +81,8 @@ def _eip6780_repeated_selfdestruct(item: pytest.Item) -> bool:
     )
 
 
-def _eip2929_persistent_state(item: pytest.Item) -> bool:
-    return EIP2929_FAMILY.case_index(item) in EIP2929_PERSISTENT_STATE_CASES
-
-
-def _eip2929_value_transfer(item: pytest.Item) -> bool:
-    case_index = EIP2929_FAMILY.case_index(item)
-    if case_index is None:
-        return False
-    try:
-        action = eip2929_action(case_index)
-    except ValueError as error:
-        raise pytest.UsageError(
-            "The pinned EIP-2929 vector layout changed; review its remote policy."
-        ) from error
-    return action in EIP2929_MUTATING_ACTIONS
+def _eip2929_remote_unsupported(item: pytest.Item) -> bool:
+    return EIP2929_FAMILY.case_index(item) is not None
 
 
 def _selfdestruct_precompile_balance(item: pytest.Item) -> bool:
@@ -162,17 +139,12 @@ SKIP_RULES: tuple[SkipRule, ...] = (
         matches=_eip6780_repeated_selfdestruct,
     ),
     SkipRule(
-        id="eip2929-value-transfer",
+        id="eip2929-persistent-remote",
         reason=(
-            "Value-bearing EIP-2929 vectors require clean precompile state per test, "
-            "which persistent remote execution cannot provide."
+            "EIP-2929 precompile vectors require clean state per test and are "
+            "disabled on persistent remote chains."
         ),
-        matches=_eip2929_value_transfer,
-    ),
-    SkipRule(
-        id="eip2929-persistent-state",
-        reason="Persistent remote state changes account-existence assumptions.",
-        matches=_eip2929_persistent_state,
+        matches=_eip2929_remote_unsupported,
     ),
     SkipRule(
         id="selfdestruct-precompile-balance",

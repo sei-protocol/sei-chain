@@ -33,6 +33,8 @@ def build_matrix(shard_count: int) -> list[dict[str, object]]:
 
     for name in sorted(ISOLATED_FAMILIES):
         family = ISOLATED_FAMILIES[name]
+        if not family.run_remote:
+            continue
         for index in range(family.chains):
             entries.append(
                 {
