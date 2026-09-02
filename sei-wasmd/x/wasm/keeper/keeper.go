@@ -689,7 +689,7 @@ func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []b
 		return nil, sdkerrors.Wrap(types.ErrQueryFailed, qErr.Error())
 	}
 
-	recordContractQuerySmartGasUsed(ctx.Context(), contractAddr.String(), gasUsed)
+	recordContractQuerySmartGasUsed(ctx.Context(), gasUsed)
 	return queryResult, nil
 }
 

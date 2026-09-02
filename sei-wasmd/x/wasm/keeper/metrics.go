@@ -108,10 +108,7 @@ func recordContractQueryRawDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractQueryRawDuration.Record(ctx, time.Since(start).Seconds())
 }
 
-func recordContractQuerySmartGasUsed(ctx context.Context, contractAddress string, gasUsed uint64) {
-	// contract_address omitted on the OTel histogram: unlike the legacy Prometheus sink, the
-	// OTel SDK has no series expiration, so a per-contract label here would retain one series
-	// per distinct contract address queried for the process lifetime.
+func recordContractQuerySmartGasUsed(ctx context.Context, gasUsed uint64) {
 	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed)) //nolint:gosec
 }
 
