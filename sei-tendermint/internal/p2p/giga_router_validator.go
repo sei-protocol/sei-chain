@@ -73,29 +73,30 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		// gap-fills keep retrying. Compare against the p2p node key
 		// (r.key.Public), not validatorKey (consensus signing key used by
 		// EvmProxy): GigaNodeAddr.Key is a NodePublicKey.
-		selfKey := r.key.Public()
-		for validatorKey, addr := range r.cfg.ValidatorAddrs {
-			getBlock := addr.Key != selfKey
-			s.Spawn(func() error {
-				for {
-					err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-						return r.service.RunClient(ctx, client, validatorKey, getBlock)
-					})
-					logger.Info("giga connection failed", "addr", addr, "err", err)
-					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
-						return err
-					}
-				}
-			})
-		}
+		s.SpawnNamed("committeeMembers", func() error {
+			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
+		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
-		s.SpawnNamed("evmProxies", func() error { return r.runEvmProxies(ctx) })
 		return nil
 	})
+}
+
+// runCommitteePeer maintains an outbound connection to a committee member.
+func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
+	getBlock := addr.Key != r.key.Public()
+	for {
+		err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+			return r.service.RunClient(ctx, client, validatorKey, getBlock)
+		})
+		logger.Info("giga connection failed", "addr", addr, "err", err)
+		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+			return err
+		}
+	}
 }
 
 // EvmProxy on the validator returns None when the sender's shard owner is
@@ -110,7 +111,10 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}
-	target := r.cfg.ValidatorAddrs[validator]
+	target, ok := r.cfg.ValidatorAddrs[validator]
+	if !ok {
+		return utils.None[*ethrpc.Client]()
+	}
 	if _, ok := r.poolOut.Get(target.Key); !ok {
 		return utils.None[*ethrpc.Client]()
 	}
