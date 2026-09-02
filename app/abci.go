@@ -57,11 +57,10 @@ func (app *App) BeginBlock(
 	}
 }
 
-// applyMigrationBatchSize paces the SC store's background data migration at the network-agreed rate.
-// The NumKeysToMigratePerBlock gov param is read from chain state so every node
-// applies the same value each block; a per-node rate would diverge the
-// AppHash. 0 (the default until a gov proposal raises it) leaves the migration
-// paused; it is the sole source of the rate (there is no node-local fallback).
+// applyMigrationBatchSize paces the SC store's background data migration.
+// Production builds read NumKeysToMigratePerBlock from chain state so every node
+// applies the same value each block; a per-node rate would diverge the AppHash.
+// 0 (the default until a gov proposal raises it) leaves the migration paused.
 func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	if app.rootStore == nil {
 		return
@@ -77,6 +76,18 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 			subspace.Set(ctx, migration.KeyNumKeysToMigratePerBlock, migration.DefaultNumKeysToMigratePerBlock)
 		}
 		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
+	}
+	govNumKeys := numKeys
+	if app.migrationBatchSizeOverride > 0 {
+		numKeys = uint64(app.migrationBatchSizeOverride)
+		if !app.migrationBatchSizeOverrideLogged {
+			logger.Warn(
+				"using mock block-validation migration batch size override; this node may diverge from the network",
+				"govNumKeysToMigratePerBlock", govNumKeys,
+				"configuredKeysToMigratePerBlock", app.migrationBatchSizeOverride,
+			)
+			app.migrationBatchSizeOverrideLogged = true
+		}
 	}
 	// Defense-in-depth: gov validation already rejects values above
 	// MaxNumKeysToMigratePerBlock, but clamp here too so an out-of-range value

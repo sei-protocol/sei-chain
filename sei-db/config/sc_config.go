@@ -90,6 +90,10 @@ type StateCommitConfig struct {
 	// diverge once the chain migrates.
 	WriteModeEnableAuto bool `mapstructure:"write-mode-enable-auto"`
 
+	// KeysToMigratePerBlock is a node-local shadow-test migration rate. Production
+	// builds ignore it; only the mock block-validation build may use it.
+	KeysToMigratePerBlock int `mapstructure:"keys-to-migrate-per-block"`
+
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
 	MemIAVLConfig memiavl.Config
 

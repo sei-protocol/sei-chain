@@ -33,6 +33,7 @@ const (
 	FlagSCSubspaceMaxBytes           = "state-commit.sc-subspace-max-bytes"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
 	FlagSCWriteModeEnableAuto        = "state-commit.sc-write-mode-enable-auto"
+	FlagSCKeysToMigratePerBlock      = "state-commit.sc-keys-to-migrate-per-block"
 	FlagSCFlatKVReadWriteMetrics     = "state-commit.flatkv.enable-read-write-metrics"
 
 	// Hash logger configs (per-block hash logging; enabled by default)
@@ -65,7 +66,7 @@ func SetupSeiDB(
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
-) ([]func(*baseapp.BaseApp), seidb.StateStore) {
+) ([]func(*baseapp.BaseApp), seidb.StateStore, int) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		panic("SeiDB state-commit (SC) must be enabled; IAVL backend has been fully deprecated")
@@ -98,7 +99,7 @@ func SetupSeiDB(
 		},
 	}, baseAppOptions...)
 
-	return baseAppOptions, cms.GetStateStore()
+	return baseAppOptions, cms.GetStateStore(), mockBlockValidationMigrationBatchSize(scConfig)
 }
 
 func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
@@ -144,6 +145,9 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	// explicit key flips it.
 	if v := appOpts.Get(FlagSCWriteModeEnableAuto); v != nil {
 		scConfig.WriteModeEnableAuto = cast.ToBool(v)
+	}
+	if v := appOpts.Get(FlagSCKeysToMigratePerBlock); v != nil {
+		scConfig.KeysToMigratePerBlock = cast.ToInt(v)
 	}
 	// Always parse sc-write-mode (even when auto is on) so a typo'd value fails
 	// fast here exactly as it does in server/config.GetConfig.

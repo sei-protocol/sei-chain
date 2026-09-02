@@ -167,6 +167,7 @@ type stateCommitSchema struct {
 	SubspaceMaxBytes           int                     `mapstructure:"sc-subspace-max-bytes"`
 	WriteMode                  string                  `mapstructure:"sc-write-mode"`
 	WriteModeEnableAuto        bool                    `mapstructure:"sc-write-mode-enable-auto"`
+	KeysToMigratePerBlock      int                     `mapstructure:"sc-keys-to-migrate-per-block"`
 	HashLoggerEnable           bool                    `mapstructure:"sc-hash-logger-enable"`
 	HashLoggerDirectory        string                  `mapstructure:"sc-hash-logger-directory"`
 	HashLoggerBlocksToRetain   uint                    `mapstructure:"sc-hash-logger-blocks-to-retain"`
@@ -203,6 +204,7 @@ func stateCommitDefaults(registry.Mode) any {
 		SubspaceMaxBytes:           live.SubspaceMaxBytes,
 		WriteMode:                  string(live.WriteMode),
 		WriteModeEnableAuto:        live.WriteModeEnableAuto,
+		KeysToMigratePerBlock:      live.KeysToMigratePerBlock,
 		HashLoggerEnable:           live.HashLogger.Enable,
 		HashLoggerDirectory:        live.HashLogger.Directory,
 		HashLoggerBlocksToRetain:   live.HashLogger.BlocksToRetain,

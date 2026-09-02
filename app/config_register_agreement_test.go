@@ -92,6 +92,7 @@ func readerValues(t *testing.T) map[string]string {
 		FlagSCSubspaceMaxBytes:           fmt.Sprint(sc.SubspaceMaxBytes),
 		FlagSCWriteMode:                  fmt.Sprint(sc.WriteMode),
 		FlagSCWriteModeEnableAuto:        fmt.Sprint(sc.WriteModeEnableAuto),
+		FlagSCKeysToMigratePerBlock:      fmt.Sprint(sc.KeysToMigratePerBlock),
 		FlagSCHashLoggerEnable:           fmt.Sprint(sc.HashLogger.Enable),
 		FlagSCHashLoggerDirectory:        fmt.Sprint(sc.HashLogger.Directory),
 		FlagSCHashLoggerBlocksToRetain:   fmt.Sprint(sc.HashLogger.BlocksToRetain),
