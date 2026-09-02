@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/spf13/cobra"
+
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
 // TestAnUnreadableSeiTomlIsDistinguishedFromAnAbsentOne holds the difference an operator depends on.
@@ -130,7 +133,7 @@ func installWithSeiToml(t *testing.T, body string) string {
 // arriving through the report meant to prevent it.
 func TestAFileHoldingOnlyDecodedKeysIsNotReportedAsSupplyingNothing(t *testing.T) {
 	// mempool is read by a decode, so its keys are held back by this install.
-	out := installWithSeiToml(t, "schema_version = 1\nnode_mode = \"validator\"\n\n[mempool]\nsize = 4321\n")
+	out := installWithSeiToml(t, "schema_version = 1\nnode_mode = \"full\"\n\n[mempool]\nsize = 4321\n")
 
 	if !strings.Contains(out, "mempool.size") {
 		t.Errorf("the held-back key is not named anywhere, so an operator has no way to learn their "+
@@ -146,7 +149,7 @@ func TestAFileHoldingOnlyDecodedKeysIsNotReportedAsSupplyingNothing(t *testing.T
 //
 // A problem still reports on any command. Those are not routine.
 func TestOnlyTheBootReportsTheRoutineLine(t *testing.T) {
-	const file = "schema_version = 1\nnode_mode = \"validator\"\n\n[evm]\nmax_tx_pool_txs = 111\n"
+	const file = "schema_version = 1\nnode_mode = \"full\"\n\n[evm]\nmax_tx_pool_txs = 111\n"
 
 	for _, tc := range []struct {
 		command string
@@ -202,7 +205,7 @@ func TestAFlagIsNotReportedAsSomethingTheFileWrote(t *testing.T) {
 	}
 	// A file that supplies nothing at all.
 	if err := os.WriteFile(filepath.Join(home, "config", seiTomlName),
-		[]byte("schema_version = 1\nnode_mode = \"validator\"\n"), 0o600); err != nil {
+		[]byte("schema_version = 1\nnode_mode = \"full\"\n"), 0o600); err != nil {
 		t.Fatalf("write sei.toml: %v", err)
 	}
 
@@ -235,7 +238,7 @@ func TestNoHomeMeansNoReadRatherThanAForeignFile(t *testing.T) {
 	}
 	// A complete, valid file for some other node. Nothing about it is wrong; it is simply not this node's.
 	if err := os.WriteFile(filepath.Join(elsewhere, "config", seiTomlName),
-		[]byte("schema_version = 1\nnode_mode = \"validator\"\n"), 0o600); err != nil {
+		[]byte("schema_version = 1\nnode_mode = \"full\"\n"), 0o600); err != nil {
 		t.Fatalf("write another node's sei.toml: %v", err)
 	}
 	t.Chdir(elsewhere)
@@ -255,5 +258,44 @@ func TestNoHomeMeansNoReadRatherThanAForeignFile(t *testing.T) {
 	if !strings.Contains(out.String(), "no home directory is set") {
 		t.Errorf("declining to read is right, but the reason an operator gets does not name it:\n%s",
 			out.String())
+	}
+}
+
+// TestNothingIsDeliveredWhenTheNodeRunsWithNoKind covers the kind a node holds when its own file states the
+// key and leaves it empty.
+//
+// A boot unmarshals that empty string over its default, so the node really does run with no kind at all.
+// Treating it as agreement would deliver whatever kind sei.toml names to a node that is none of them, and
+// every value delivered is the answer for one kind.
+func TestNothingIsDeliveredWhenTheNodeRunsWithNoKind(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", seiTomlName),
+		[]byte("schema_version = 1\nnode_mode = \""+tmcfg.DefaultConfig().Mode+
+			"\"\n\n[api]\nmax-open-connections = 4321\n"), 0o600); err != nil {
+		t.Fatalf("write sei.toml: %v", err)
+	}
+
+	sctx := server.NewDefaultContext()
+	// The kind emptied the way the node's own file can state it.
+	sctx.Config.Mode = ""
+
+	cmd := &cobra.Command{Use: "start"}
+	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey, sctx))
+	cmd.Flags().String(flags.FlagHome, home, "")
+
+	var out bytes.Buffer
+	installResolved(cmd, nil, slog.New(slog.NewTextHandler(&out,
+		&slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	if got := fmt.Sprint(sctx.Viper.Get("api.max-open-connections")); got == "4321" {
+		t.Errorf("the node runs with no kind at all and a value was delivered anyway, so it is "+
+			"configured as a kind it is not:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "says another") {
+		t.Errorf("nothing was delivered, and the reason an operator gets does not name the "+
+			"disagreement:\n%s", out.String())
 	}
 }

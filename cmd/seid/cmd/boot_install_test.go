@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
 )
 
@@ -69,7 +70,9 @@ func bootWith(t *testing.T, body string, typed map[string]string) *server.Contex
 // A key with no section goes above every table. Once a table heading is open every bare key after it
 // belongs to that table, so a node-wide setting written after one would be read under the wrong name.
 func seiTomlWriting(key, value string) string {
-	const header = "schema_version = 1\nnode_mode = \"validator\"\n"
+	// The kind the node's own file records, so the two agree. A disagreement stops the delivery, which is
+	// its own case rather than the backdrop for every other one.
+	header := "schema_version = 1\nnode_mode = \"" + tmcfg.DefaultConfig().Mode + "\"\n"
 	if i := indexOf(key, '.'); i >= 0 {
 		return header + "\n[" + key[:i] + "]\n" + key[i+1:] + " = " + value + "\n"
 	}
@@ -96,7 +99,7 @@ func TestEachChannelWinsOverTheOneBelowIt(t *testing.T) {
 		// sei.toml does not mention is answered by a declaration rather than by what happened to be on
 		// disk.
 		configtest.Isolate(t)
-		ctx := bootWith(t, "schema_version = 1\nnode_mode = \"validator\"\n", nil)
+		ctx := bootWith(t, "schema_version = 1\nnode_mode = \"full\"\n", nil)
 		declared, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
 		if err != nil {
 			t.Fatalf("Resolve: %v", err)
@@ -198,7 +201,7 @@ func TestAppTomlDoesNotReachTheFlagChannel(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home.Root, "config"), 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	body := "schema_version = 1\nnode_mode = \"validator\"\n\n[state-sync]\nsnapshot-keep-recent = 111\n"
+	body := "schema_version = 1\nnode_mode = \"full\"\n\n[state-sync]\nsnapshot-keep-recent = 111\n"
 	if err := os.WriteFile(filepath.Join(home.Root, "config", "sei.toml"), []byte(body), 0o600); err != nil {
 		t.Fatalf("write sei.toml: %v", err)
 	}
@@ -270,4 +273,72 @@ func declaredKey(key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// TestAValueAReaderWouldCoerceIsNotInstalled covers what a lookup does with a value of the wrong shape.
+//
+// A source hands a value out as it was written, and a reader asking for a number gets a zero from a word
+// and false from a sentence. So a setting an operator meant to turn on arrives off, nothing refuses it, and
+// no report names the key. The reader decides whether that is a zero or a crash, which is not a property
+// this side controls, so the shape is refused before it reaches the source.
+func TestAValueAReaderWouldCoerceIsNotInstalled(t *testing.T) {
+	for _, tc := range []struct {
+		name, key, written string
+		reads              func(*server.Context) any
+	}{
+		{
+			name: "a whole number written as a fraction", key: "min-retain-blocks", written: "1.5",
+			reads: func(c *server.Context) any { return c.Viper.Get("min-retain-blocks") },
+		},
+		{
+			name: "a negative where the setting cannot hold one", key: "api.max-open-connections",
+			written: "-1",
+			reads:   func(c *server.Context) any { return c.Viper.Get("api.max-open-connections") },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configtest.Isolate(t)
+			ctx := bootWith(t, seiTomlWriting(tc.key, tc.written), nil)
+
+			got := tc.reads(ctx)
+			if fmt.Sprint(got) == tc.written {
+				t.Errorf("%s was installed as %v, exactly as written. A reader coerces that rather than "+
+					"refusing it, so the setting arrives as something else and nothing says so",
+					tc.key, got)
+			}
+		})
+	}
+}
+
+// TestNothingIsDeliveredForTheWrongKindOfNode holds the one disagreement that costs the whole file.
+//
+// Every resolved value is the answer for the kind sei.toml names. When the node's own file names a
+// different kind, that is not one setting failing to arrive: it is the whole configuration answering for a
+// node this is not. A validator's declared values put the query and peer listeners on loopback and turn
+// the query interfaces off, so a node that serves queries would keep running while serving none of them.
+//
+// Delivering nothing leaves the node on its own files, which is what it reads with this manager switched
+// off, and an operator can still act on that.
+func TestNothingIsDeliveredForTheWrongKindOfNode(t *testing.T) {
+	configtest.Isolate(t)
+	running := tmcfg.DefaultConfig().Mode
+	other := "validator"
+	if running == other {
+		t.Fatalf("the default kind is %q, so this case cannot tell agreement from disagreement", running)
+	}
+
+	ctx := bootWith(t, "schema_version = 1\nnode_mode = \""+other+
+		"\"\n\n[api]\nmax-open-connections = 4321\n", nil)
+
+	if ctx.Config == nil || ctx.Config.Mode != running {
+		t.Fatalf("the node runs as %v, and this case needs it to run as %q",
+			ctx.Config, running)
+	}
+	// Compared as text. The source holds this as an any, and an untyped 4321 in a comparison against one
+	// is a different dynamic type, so the comparison is false whatever the value is.
+	if got := fmt.Sprint(ctx.Viper.Get("api.max-open-connections")); got == "4321" {
+		t.Errorf("sei.toml names a %s while the node runs as a %s, and its value was installed anyway. "+
+			"Every key delivered here is the answer for the kind the file names, so the node is "+
+			"configured as something it is not", other, running)
+	}
 }

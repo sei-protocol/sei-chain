@@ -88,7 +88,11 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// have for it.
 	reportWhatTheFileDidNotReach(resolved, log)
 
-	reportWhatTheFileSaysTheNodeIs(ctx, mode, log)
+	// Before anything is delivered. A key that arrives here is the answer for the kind sei.toml names, and
+	// on a disagreement that is not the kind this node is.
+	if !theFileNamesTheKindThisNodeRuns(ctx, mode, log) {
+		return
+	}
 
 	// Every subcommand installs, and only one of them runs a node, so the lines describing an ordinary
 	// boot drop to debug everywhere else. On `seid keys list` nobody asked, and a line held above the
@@ -119,7 +123,24 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// Every declared key a lookup reads, whether sei.toml mentioned it or not. There is no case where this
 	// is empty for a reason an operator caused: the paths above already returned for a file that could not
 	// be read or used, so reaching here means the resolution answered.
-	report, err := appopts.Install(ctx.Viper, everyKeyALookupReads(resolved, ownedByADecode))
+	forALookup := everyKeyALookupReads(resolved, ownedByADecode)
+
+	// Values a reader turns into something else rather than refusing. Nothing downstream objects: the
+	// source hands the value out as it was written, and a reader asking for a number gets a zero from a
+	// word, so a setting an operator meant to change ends up off with nothing naming it. Dropped one key
+	// at a time, because a lookup delivers each key on its own and one wrong value need not cost the rest.
+	if bad := whatDecodesToSomethingElse(whatEachDeclaredKeyHolds(registry.Mode(mode)),
+		forALookup.Values); len(bad) > 0 {
+		for key := range bad {
+			delete(forALookup.Values, key)
+		}
+		shown, omitted := capLoggedItems(problemsInOrder(bad))
+		log.Error("these written values would reach their setting as something other than what they say, "+
+			"so none of them is installed and each reads as it always has",
+			"count", len(bad), "written", strings.Join(shown, "; "), "omitted", omitted)
+	}
+
+	report, err := appopts.Install(ctx.Viper, forALookup)
 	if err != nil {
 		log.Warn("cannot install this node's configuration", appliedNone, "err", err)
 		return
@@ -264,32 +285,46 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-// reportWhatTheFileSaysTheNodeIs names a disagreement about what kind of node this is. sei.toml records it
-// at the top and every resolved value is the answer for that kind; the node's own file states it again in a
-// key of its own, and that one is what the node runs as.
+// theFileNamesTheKindThisNodeRuns reports whether sei.toml and the node's own file agree on what kind of
+// node this is, and names the disagreement when they do not.
 //
-// Reported rather than corrected, because what kind of node this is gets decided when it is provisioned.
-// Nothing here can change it either way: this manager deliberately does not declare the node's own mode key,
-// since two keys for one fact can be written to disagree, which is the state this reports.
-func reportWhatTheFileSaysTheNodeIs(ctx *server.Context, mode string, log *slog.Logger) {
-	if ctx == nil || ctx.Config == nil || ctx.Config.Mode == "" {
-		return
+// Nothing is delivered when they disagree. Every resolved value is the answer for one kind of node, so a
+// disagreement is not one setting that did not arrive: it is the whole configuration answering for a node
+// this is not. A validator's declared values put the query and peer listeners on loopback and turn the
+// query interfaces off, so a node that serves queries would go on running while serving none of them.
+//
+// An empty running kind counts as a disagreement. The node's own file can state the key with nothing after
+// it, and a node running with no kind at all is not the kind sei.toml names either.
+//
+// Delivering nothing leaves the node reading its own files, exactly as it does with this manager switched
+// off, which is the outcome an operator can still act on. The kind itself is not corrected here, because
+// what kind of node this is gets decided when it is provisioned.
+func theFileNamesTheKindThisNodeRuns(ctx *server.Context, mode string, log *slog.Logger) bool {
+	if ctx == nil || ctx.Config == nil {
+		return true
 	}
 	running := ctx.Config.Mode
 	if !modesDisagree(mode, running) {
-		return
+		return true
 	}
-	log.Error("sei.toml says this is one kind of node and the node's own configuration file says another; "+
-		"every value resolved here is the answer for the first and the node runs as the second",
+	log.Error("sei.toml says this is one kind of node and the node's own configuration file says another, "+
+		"so nothing is delivered and every key reads as it always has. Every value resolved here is the "+
+		"answer for the first and the node runs as the second",
 		"sei.toml", mode, "running", running)
+	return false
 }
 
 // modesDisagree reports whether the kind of node sei.toml records and the kind the node runs as are
 // different kinds.
 //
-// One pairing is not a disagreement. The kind that keeps every version of history has no name of its own in
-// the node's own configuration file, so the command that writes that file writes the query-serving name
-// instead, and the difference between them lives in settings the node's own file does not carry.
+// One pairing is not a disagreement. The kind that keeps every version of history has no name in the node's
+// own configuration file. The command that writes that file writes the query-serving name instead, and what
+// separates the two lives in settings that file does not carry.
+//
+// An empty running mode is a real value and disagrees with every recorded kind. A node's own file can state
+// the key with nothing after it, a boot unmarshals that over its default, and the node then runs with no
+// kind at all. Answering with a default for that case would agree with whatever sei.toml records and hide
+// it.
 func modesDisagree(recorded, running string) bool {
 	if recorded == running {
 		return false
