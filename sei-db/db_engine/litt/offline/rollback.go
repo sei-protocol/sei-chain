@@ -1,7 +1,6 @@
-// Package rollback implements an offline rollback utility for LittDB. It rewinds a database to a chosen
-// point by discarding the most recently written keys, and is intended for operational use (for example,
-// rolling a node's state back to a specific block height) while the database is not running.
-package rollback
+// Package offline implements offline utilities for LittDB — operations that read or mutate a database's
+// files directly while it is not running, without starting a live instance.
+package offline
 
 import (
 	"context"
@@ -12,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
@@ -27,14 +27,15 @@ import (
 // group is kept along with everything written before it, and everything written after the group is discarded.
 type RollbackFilter func(tableName string, key []byte, isPrimary bool) (bool, error)
 
-// RollbackLittDB performs an offline rollback of the LittDB instance stored across the given data
-// directories (the same paths passed to the database as its storage roots).
+// RollbackLittDB performs an offline rollback of the LittDB instance stored across config.Paths (the same
+// paths passed to the database as its storage roots).
 //
-// For every table found under dataDirs, RollbackLittDB walks that table's key files from newest to oldest
-// and invokes rollbackFilter(tableName, key, isPrimary) for each record. The first key for which the filter
-// returns true marks the rollback point: that key's group (a primary plus any secondary keys written with
-// it) and everything written before it are retained; everything written after the group is permanently
-// deleted from the segment files. A table for which the filter never returns true is left unchanged.
+// For every table found under config.Paths, RollbackLittDB walks that table's key files from newest to
+// oldest and invokes rollbackFilter(tableName, key, isPrimary) for each record. The first key for which the
+// filter returns true marks the rollback point: that key's group (a primary plus any secondary keys
+// written with it) and everything written before it are retained; everything written after the group is
+// permanently deleted from the segment files. A table for which the filter never returns true is left
+// unchanged.
 //
 // The keymap and any snapshot are discarded rather than edited: the database rebuilds both from the
 // truncated segment files the next time it starts, which keeps them exactly consistent with the
@@ -48,27 +49,22 @@ type RollbackFilter func(tableName string, key []byte, isPrimary bool) (bool, er
 //
 // The operation is idempotent and safe to re-run: re-running with the same filter completes (and repairs)
 // a rollback that was interrupted partway through.
-func RollbackLittDB(dataDirs []string, rollbackFilter RollbackFilter) error {
+func RollbackLittDB(config *litt.Config, rollbackFilter RollbackFilter) error {
 	logger := slog.Default()
 
-	if len(dataDirs) == 0 {
-		return fmt.Errorf("no data directories provided")
+	if config == nil || len(config.Paths) == 0 {
+		return fmt.Errorf("at least one path must be provided")
 	}
 	if rollbackFilter == nil {
 		return fmt.Errorf("rollback filter must not be nil")
 	}
-
-	roots := make([]string, len(dataDirs))
-	for i, dir := range dataDirs {
-		sanitized, err := util.SanitizePath(dir)
-		if err != nil {
-			return fmt.Errorf("invalid data directory %q: %w", dir, err)
-		}
-		roots[i] = sanitized
+	if err := config.SanitizePaths(); err != nil {
+		return fmt.Errorf("failed to sanitize data directories: %w", err)
 	}
+	roots := config.Paths
 
 	// Refuse to operate on a database that is in active use. The DB holds these same locks while running.
-	releaseLocks, err := util.LockDirectories(logger, roots, util.LockfileName, true)
+	releaseLocks, err := util.LockDirectories(logger, roots, util.LockfileName, config.Fsync)
 	if err != nil {
 		return fmt.Errorf("failed to lock data directories %v: %w", roots, err)
 	}
@@ -80,7 +76,7 @@ func RollbackLittDB(dataDirs []string, rollbackFilter RollbackFilter) error {
 	}
 
 	for _, table := range tables {
-		if err := rollbackTable(logger, roots, table, rollbackFilter); err != nil {
+		if err := rollbackTable(logger, roots, table, config.Fsync, rollbackFilter); err != nil {
 			return fmt.Errorf("failed to roll back table %q: %w", table, err)
 		}
 	}
@@ -101,6 +97,7 @@ func rollbackTable(
 	logger *slog.Logger,
 	roots []string,
 	tableName string,
+	fsync bool,
 	rollbackFilter RollbackFilter,
 ) error {
 	errorMonitor := util.NewErrorMonitor(context.Background(), logger, nil)
@@ -112,7 +109,7 @@ func rollbackTable(
 
 	lowestSegmentIndex, highestSegmentIndex, segments, err := segment.GatherSegmentFiles(
 		logger, errorMonitor, segmentPaths, false /* snapshottingEnabled */, time.Now(),
-		true /* cleanOrphans */, true /* fsync */)
+		true /* cleanOrphans */, fsync)
 	if err != nil {
 		return fmt.Errorf("failed to gather segment files: %w", err)
 	}

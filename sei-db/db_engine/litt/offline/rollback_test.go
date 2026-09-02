@@ -1,4 +1,4 @@
-package rollback
+package offline
 
 import (
 	"fmt"
@@ -116,10 +116,10 @@ func TestRollbackLittDB(t *testing.T) {
 	const count = 200
 	const keepThrough = 137
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		require.Equal(t, rollbackTestTable, tableName) // filter is invoked per table
 		require.True(t, isPrimary)                     // these are all standalone primary keys
 		return indexFromKey(t, key) <= keepThrough, nil
@@ -139,10 +139,10 @@ func TestRollbackNoMatch(t *testing.T) {
 
 	const count = 50
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return false, nil
 	})
 	require.NoError(t, err)
@@ -158,10 +158,10 @@ func TestRollbackKeepsEverything(t *testing.T) {
 
 	const count = 50
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return true, nil // the very first key visited (the newest) matches
 	})
 	require.NoError(t, err)
@@ -175,11 +175,11 @@ func TestRollbackKeepsEverything(t *testing.T) {
 func TestRollbackPropagatesFilterError(t *testing.T) {
 	t.Parallel()
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	writeSequentialKeys(t, config, 20)
 
 	wantErr := fmt.Errorf("boom")
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return false, wantErr
 	})
 	require.ErrorIs(t, err, wantErr)
@@ -194,7 +194,7 @@ func TestRollbackWithSecondaryKeys(t *testing.T) {
 	const count = 60
 	const keepThrough = 28
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestRollbackWithSecondaryKeys(t *testing.T) {
 	require.NoError(t, table.Flush())
 	require.NoError(t, db.Close())
 
-	err = RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err = RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		// Only primary keys carry an index we want to stop on; secondaries are reported with isPrimary=false.
 		if !isPrimary {
 			require.True(t, strings.HasPrefix(string(key), "sk-"))
@@ -276,7 +276,7 @@ func TestRollbackRefusesBelowGCWatermark(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, existsBefore)
 
-	err = RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err = RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return indexFromKey(t, key) <= 10, nil
 	})
 	require.Error(t, err)
@@ -296,15 +296,15 @@ func TestRollbackIsIdempotent(t *testing.T) {
 	const count = 120
 	const keepThrough = 71
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
 	filter := func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return indexFromKey(t, key) <= keepThrough, nil
 	}
 
-	require.NoError(t, RollbackLittDB(roots, filter))
-	require.NoError(t, RollbackLittDB(roots, filter)) // second run must be a safe no-op
+	require.NoError(t, RollbackLittDB(config, filter))
+	require.NoError(t, RollbackLittDB(config, filter)) // second run must be a safe no-op
 
 	db, table := openTable(t, config)
 	assertSequentialState(t, table, count, keepThrough, values)
