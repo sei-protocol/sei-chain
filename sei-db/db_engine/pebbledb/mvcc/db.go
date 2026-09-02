@@ -152,7 +152,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		// Let Pebble run several compactions in parallel so it can keep up with
 		// the tombstone churn produced by pruning. See maxConcurrentCompactions.
 		DisableWAL:                 true, // TODO: it breaks tests.
-		CompactionConcurrencyRange: func() (int, int) { return 1, maxConcurrentCompactions },
+		CompactionConcurrencyRange: func() (int, int) { return 4, 10 },
 	}
 
 	// Configure L0 with explicit settings
