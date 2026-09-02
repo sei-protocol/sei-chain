@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/spf13/cobra"
 )
 
@@ -86,7 +87,10 @@ const (
 //     magnitude slower than snapshot (changelog replay + per-leaf tree walk
 //     instead of a sequential file read). Use it only when no snapshot exists
 //     at the target height — e.g. nodes whose snapshot rewrite lags the tip, so
-//     an arbitrary comparison height has no snapshot-<height> on disk.
+//     an arbitrary comparison height has no snapshot-<height> on disk. On a live
+//     node this mode can read a changelog record the node is midway through
+//     writing; it then reports that and asks for a rerun rather than repairing
+//     the changelog under its writer.
 //
 // The flatkv side is always a pebble WAL-replay-to-height and is fast
 // regardless. So when comparing across nodes, pick a height that is an existing
@@ -1104,13 +1108,24 @@ func digestMemIAVL(dbDir string, height int64, findTarget []byte, normalization 
 	}
 }
 
+// openMemiAVLReplayReadOnly opens dbDir for changelog replay without repairing
+// its changelog. The repair is a truncation, and a record a running node is
+// midway through writing is indistinguishable from a corrupt one, so repairing
+// here can discard a block that node has committed.
 func openMemiAVLReplayReadOnly(dbDir string, height int64) (*memiavl.DB, error) {
 	db, err := memiavl.OpenDB(height, memiavl.Options{
-		Dir:      dbDir,
-		ReadOnly: true,
-		ZeroCopy: true,
+		Dir:               dbDir,
+		ReadOnly:          true,
+		ZeroCopy:          true,
+		NoChangelogRepair: true,
 	})
 	if err != nil {
+		if errors.Is(err, wal.ErrCorrupt) {
+			return nil, fmt.Errorf("the changelog under %s ends mid-record, which is what a node "+
+				"writing a block looks like; %s was left as it was found, so rerun this command, and if "+
+				"it keeps failing the changelog is corrupt and the node needs attention: %w",
+				dbDir, dbDir, err)
+		}
 		return nil, fmt.Errorf("open memiavl read-only replay: %w", err)
 	}
 	return db, nil

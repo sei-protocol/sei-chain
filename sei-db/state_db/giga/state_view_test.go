@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// EmptyCodeHash is written out byte by byte rather than imported, so it is held against the value it
-// was copied from. A wrong constant would make every account without code read as a contract.
+// EmptyCodeHash must match go-ethereum's empty-code hash; a mismatch would make every account
+// without code read as a contract, or a contract as an EOA.
 func TestEmptyCodeHashMatchesEthereum(t *testing.T) {
-	require.Equal(t, Hash(ethtypes.EmptyCodeHash), EmptyCodeHash)
+	require.Equal(t, ethtypes.EmptyCodeHash, EmptyCodeHash)
 }

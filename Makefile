@@ -205,6 +205,10 @@ build-frozen-rpc-router:
 	go build -o ./build/frozen-rpc-router ./cmd/frozen-rpc-router
 .PHONY: build-frozen-rpc-router
 
+build-autobahn-e2e:
+	go build -o ./autobahn-e2e ./cmd/autobahn-e2e
+.PHONY: build-autobahn-e2e
+
 build-verbose:
 	mkdir -p ./build
 	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
@@ -399,6 +403,7 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_OCC=$(GIGA_OCC) \
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
+	AUTOBAHN_EVMONLY_IN_MEMORY=$(AUTOBAHN_EVMONLY_IN_MEMORY) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
 	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
 	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
@@ -549,10 +554,15 @@ giga-integration-test:
 # Run Autobahn integration tests with an Autobahn-enabled cluster.
 autobahn-integration-test:
 	@# The test drives cluster start/stop itself via TestMain — see
-	@# integration_test/autobahn/autobahn_test.go. GOWORK=off: ignore ambient
-	@# go.work; this target only needs stdlib + sei-tendermint.
+	@# integration_test/autobahn/autobahn_test.go. GOWORK=off ignores an
+	@# ambient go.work so dependency resolution matches the module.
 	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
+
+# Run the minimal in-memory EVM-only executor behind a four-validator Autobahn cluster.
+autobahn-evmonly-integration-test:
+	@AUTOBAHN_EVMONLY_IN_MEMORY=true GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
+.PHONY: autobahn-evmonly-integration-test
 
 # Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.
 # (node-level GIGA_EXECUTOR/GIGA_OCC values are pinned in docker-compose.giga-mixed.yml)
