@@ -48,8 +48,7 @@ type BoundedCache struct {
 	CacheBackend
 	limit int
 
-	mu         *sync.Mutex
-	metricName []string
+	mu *sync.Mutex
 }
 
 func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
@@ -60,8 +59,6 @@ func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
 		CacheBackend: backend,
 		limit:        limit,
 		mu:           &sync.Mutex{},
-		// cosmos_bounded_cache
-		metricName: []string{"cosmos", "bounded", "cache"},
 	}
 }
 

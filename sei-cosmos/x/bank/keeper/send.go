@@ -180,13 +180,14 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 	return nil
 }
 
-// recordNewAccounts dual-emits the legacy new-account counter and its OTel
-// counterpart (bank_new_account). Runs from consensus-critical send paths, so
-// a telemetry fault here must not panic into the caller.
+// recordNewAccounts adds count to the bank_new_account counter, ignoring
+// non-positive counts.
 func recordNewAccounts(ctx context.Context, count int64) {
 	if count <= 0 {
 		return
 	}
+	// Runs from consensus-critical send paths, so a telemetry fault must not
+	// panic into the caller.
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
