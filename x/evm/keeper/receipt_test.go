@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -84,6 +85,28 @@ func TestFlushTransientReceipts(t *testing.T) {
 	// Flushing with no receipts should not error
 	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
+}
+
+// TestFlushTransientReceiptsWithoutStore pins that a node with receipt-store.rs-enable = false
+// flushes without error. The flush runs from the pre-commit handler, which panics on a returned
+// error, so an absent store reporting a failure here would take the node down every block.
+func TestFlushTransientReceiptsWithoutStore(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+
+	restore := k.ReceiptStore()
+	k.SetReceiptStoreForTesting(nil)
+	t.Cleanup(func() { k.SetReceiptStoreForTesting(restore) })
+
+	// A receipt the block produced, so the flush has something it would otherwise write.
+	txHash := common.HexToHash("0x00000000000000000000000000000000000000000000000000000000deadbeef")
+	require.NoError(t, k.SetTransientReceipt(ctx, txHash, &types.Receipt{TxHashHex: txHash.Hex(), Status: 1}))
+
+	require.NoError(t, k.FlushTransientReceipts(ctx))
+
+	// And the read paths still refuse rather than reporting the receipt absent.
+	_, err := k.GetReceipt(ctx, txHash)
+	require.ErrorIs(t, err, receipt.ErrNotConfigured)
 }
 
 func TestDeleteTransientReceipt(t *testing.T) {

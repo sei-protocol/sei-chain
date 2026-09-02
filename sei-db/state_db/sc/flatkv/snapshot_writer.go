@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
@@ -31,7 +32,7 @@ const snapshotQueueScrapeInterval = 10 * time.Second
 // reports it, so a failure that has no caller to fail at the time it happens still stops the node:
 // Offer is on the commit path, so the next Commit fails.
 type SnapshotWriter struct {
-	// mu guards fatalErr.
+	// mu guards fatalErr and scheduler.
 	mu sync.Mutex
 
 	// dir is the flatkv root holding the snapshot directories, the current symlink and the working dir.
@@ -44,7 +45,8 @@ type SnapshotWriter struct {
 	// StorageGarbageCollector's by-height retention.
 	externalPruning bool
 
-	// interval is how many blocks apart snapshots are taken. 0 disables them.
+	// interval is how many blocks apart snapshots are taken. 0 disables them. Consulted only while
+	// scheduler is nil, the scheduler owning the cadence outright once there is one.
 	interval uint32
 
 	// dbs is the handle each database is checkpointed through, keyed by database directory name.
@@ -75,12 +77,18 @@ type SnapshotWriter struct {
 
 	// fatalErr latches the first failure. Nil until something fails.
 	fatalErr error
+
+	// scheduler holds this store to the same checkpoint heights as every other store on the node.
+	// Nil leaves the store on its own interval.
+	scheduler *controller.CheckpointScheduler
 }
 
 // newSnapshotWriter starts a writer for the given databases. Close stops it.
 //
 // queueDepth is how many blocks may pile up behind a snapshot before offering another one blocks. A
 // value below 1 is treated as 1.
+//
+// scheduler may be nil, which leaves the writer on interval.
 //
 // parent is the store's context: cancelling it stops the writer too, which matters because the store
 // cancels its own context during teardown.
@@ -92,6 +100,7 @@ func newSnapshotWriter(
 	interval uint32,
 	queueDepth uint32,
 	dbs map[string]types.Checkpointable,
+	scheduler *controller.CheckpointScheduler,
 ) *SnapshotWriter {
 	ctx, stop := context.WithCancel(parent)
 	w := &SnapshotWriter{
@@ -106,10 +115,26 @@ func newSnapshotWriter(
 		pruneCutLine:    make(chan uint64, 1),
 		exited:          make(chan struct{}),
 		phaseTimer:      metrics.NewPhaseTimer(flatkvMeter, "seidb_snapshot_writer"),
+		scheduler:       scheduler,
 	}
 	go w.run()
 	go w.reportQueueDepth()
 	return w
+}
+
+// setCheckpointScheduler hands the writer the schedule it takes its heights from, replacing whatever
+// it had. A nil scheduler returns it to its own interval.
+func (w *SnapshotWriter) setCheckpointScheduler(scheduler *controller.CheckpointScheduler) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.scheduler = scheduler
+}
+
+// currentCheckpointScheduler returns the schedule in force, or nil when the writer is on interval.
+func (w *SnapshotWriter) currentCheckpointScheduler() *controller.CheckpointScheduler {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.scheduler
 }
 
 // Offer hands a committed block to the writer, which decides if it should be written to disk.
@@ -223,10 +248,12 @@ func (w *SnapshotWriter) enqueue(message any) error {
 	}
 }
 
-// shouldSnapshot reports whether a committed block becomes a snapshot. Snapshots are taken every
-// interval blocks; an interval of 0 disables them, at the cost of a WAL that grows without bound and a
-// restart that replays the whole history.
-func (w *SnapshotWriter) shouldSnapshot(version int64) bool {
+// onSnapshotInterval reports whether a committed block becomes a snapshot on this writer's own
+// cadence. Snapshots are taken every interval blocks; an interval of 0 disables them, at the cost of a
+// WAL that grows without bound and a restart that replays the whole history.
+//
+// Only consulted while the writer has no scheduler.
+func (w *SnapshotWriter) onSnapshotInterval(version int64) bool {
 	if w.interval == 0 || version <= 0 {
 		return false
 	}
@@ -326,6 +353,11 @@ func (w *SnapshotWriter) handlePruneCutLine(cutLine uint64) error {
 }
 
 // Possibly checkpoint a block. Releases reservation when finished regardless of choice.
+//
+// Every committed block reaches here, so the schedule is asked about every one of them rather than
+// only about the heights an interval would have offered it. That is what lets one schedule hold
+// several stores to the same height: a height it picks for another store is a height this one is
+// asked about.
 func (w *SnapshotWriter) maybeCheckpointBlock(request *snapshotRequest) (err error) {
 	// The only release for a block that reached the goroutine, covering written, declined and failed
 	// alike. A reservation left held stalls its view manager's flushes indefinitely.
@@ -336,10 +368,27 @@ func (w *SnapshotWriter) maybeCheckpointBlock(request *snapshotRequest) (err err
 		}
 	}()
 
-	if !w.shouldSnapshot(request.blockView.BlockHeight()) {
+	scheduler := w.currentCheckpointScheduler()
+	if scheduler == nil {
+		if !w.onSnapshotInterval(request.blockView.BlockHeight()) {
+			w.phaseTimer.SetPhase("release_declined_block")
+			return nil
+		}
+		return w.checkpointBlock(request)
+	}
+
+	if !scheduler.ShouldCheckpoint(checkpointStoreName, request.blockView.BlockHeight()) {
 		w.phaseTimer.SetPhase("release_declined_block")
 		return nil
 	}
+	// The schedule holds this height until it is reported, so it has to be reported on the failure
+	// path as much as on the success one: an unreported height stops the node checkpointing.
+	defer scheduler.MarkCheckpointComplete(checkpointStoreName, request.blockView.BlockHeight())
+	return w.checkpointBlock(request)
+}
+
+// checkpointBlock writes the snapshot for a block the cadence selected.
+func (w *SnapshotWriter) checkpointBlock(request *snapshotRequest) error {
 	if err := w.writeCheckpoint(request); err != nil {
 		return fmt.Errorf("write snapshot at version %d: %w", request.blockView.BlockHeight(), err)
 	}

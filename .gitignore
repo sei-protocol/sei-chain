@@ -9,6 +9,7 @@ build/
 dist/
 cache/
 ./evm_stress
+/autobahn-e2e
 *.iml
 
 # Local .terraform directories

@@ -80,15 +80,6 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	// TODO: remove after all TxHashes have been removed
 	k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)
 
-	// Migrate legacy EVM receipts to receipt.db in small batches every N blocks
-	if ctx.BlockHeight()%LegacyReceiptMigrationInterval == 0 {
-		if migrated, err := k.MigrateLegacyReceiptsBatch(ctx, LegacyReceiptMigrationBatchSize); err != nil {
-			logger.Error("failed migrating legacy receipts", "err", err)
-		} else if migrated > 0 {
-			logger.Info("migrated legacy EVM receipts to receipt.db", "count", migrated)
-		}
-	}
-
 	if scanned, deleted := k.PruneZeroStorageSlots(ctx, ZeroStorageCleanupBatchSize); deleted > 0 {
 		logger.Info("pruned zero-value contract storage slots while scanning keys", "pruned-count", deleted, "key-count", scanned)
 	}

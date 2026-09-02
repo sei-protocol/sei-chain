@@ -17,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
@@ -145,6 +146,11 @@ type CommitStore struct {
 	// torn down by closeStores, so its lifetime is exactly the window in which the databases it
 	// checkpoints are open. Nil on a read-only store, which never commits.
 	snapshotWriter *SnapshotWriter
+
+	// The schedule this store takes its checkpoint heights from, nil when it is on its own interval.
+	// Held here as well as on the snapshot writer because the writer is rebuilt by every open, and a
+	// store that lost its schedule to a reopen would drift off the node's shared heights silently.
+	checkpointScheduler *controller.CheckpointScheduler
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
@@ -345,6 +351,23 @@ func (s *CommitStore) resetPools() {
 
 func (s *CommitStore) flatkvDir() string {
 	return s.config.DataDir
+}
+
+// SetCheckpointScheduler hands this store the schedule it takes its checkpoint heights from, in place
+// of its own SnapshotInterval. Every committed block is then offered to the schedule, which is what
+// holds this store and every other store on it to the same heights.
+//
+// A nil scheduler returns the store to its interval. Safe to call on an open store, and it survives a
+// later reopen.
+func (s *CommitStore) SetCheckpointScheduler(scheduler *controller.CheckpointScheduler) {
+	s.mu.Lock()
+	s.checkpointScheduler = scheduler
+	writer := s.snapshotWriter
+	s.mu.Unlock()
+
+	if writer != nil {
+		writer.setCheckpointScheduler(scheduler)
+	}
 }
 
 // LoadLatest opens the database at the latest persisted version, leaving this store open for writing.
@@ -888,6 +911,7 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 			s.config.SnapshotInterval,
 			s.config.MaxSnapshotLagBlocks,
 			s.checkpointables(),
+			s.checkpointScheduler,
 		)
 	}
 

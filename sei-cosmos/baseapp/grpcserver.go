@@ -78,11 +78,8 @@ func (app *BaseApp) RegisterGRPCServer(server gogogrpc.Server) {
 			methodHandler := method.Handler
 			newMethods[i] = grpc.MethodDesc{
 				MethodName: method.MethodName,
-				Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
-					return methodHandler(srv, ctx, dec, grpcmiddleware.ChainUnaryServer(
-						grpcrecovery.UnaryServerInterceptor(),
-						interceptor,
-					))
+				Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, serverInterceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+					return methodHandler(srv, ctx, dec, chainQueryInterceptors(serverInterceptor, interceptor))
 				},
 			}
 		}
@@ -97,4 +94,17 @@ func (app *BaseApp) RegisterGRPCServer(server gogogrpc.Server) {
 
 		server.RegisterService(newDesc, data.handler)
 	}
+}
+
+// chainQueryInterceptors returns the chain a unary query runs through: panic
+// recovery, then serverInterceptor when non-nil, then queryCtx last so a rejected
+// call never costs a query context.
+func chainQueryInterceptors(serverInterceptor, queryCtx grpc.UnaryServerInterceptor) grpc.UnaryServerInterceptor {
+	chain := make([]grpc.UnaryServerInterceptor, 0, 3)
+	chain = append(chain, grpcrecovery.UnaryServerInterceptor())
+	if serverInterceptor != nil {
+		chain = append(chain, serverInterceptor)
+	}
+	chain = append(chain, queryCtx)
+	return grpcmiddleware.ChainUnaryServer(chain...)
 }
