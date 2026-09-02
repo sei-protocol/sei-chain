@@ -48,25 +48,52 @@ func NewDecodeStore(cdc codec.Codec) func(kvA, kvB kv.Pair) string {
 			cdc.MustUnmarshal(kvB.Value, &voteB)
 			return fmt.Sprintf("%v\n%v", voteA, voteB)
 
-		case bytes.Equal(kvA.Key[:1], types.TallyProgressKeyPrefix),
-			bytes.Equal(kvA.Key[:1], types.TallyCleanupKeyPrefix),
-			bytes.Equal(kvA.Key[:1], types.VoteDelegationsKeyPrefix),
-			bytes.Equal(kvA.Key[:1], types.TallyVoteDelegationsKeyPrefix),
+		case bytes.Equal(kvA.Key[:1], types.TallyProgressKeyPrefix):
+			var progressA, progressB types.TallyProgress
+			cdc.MustUnmarshal(kvA.Value, &progressA)
+			cdc.MustUnmarshal(kvB.Value, &progressB)
+			return fmt.Sprintf("%v\n%v", progressA, progressB)
+
+		case bytes.Equal(kvA.Key[:1], types.VoteDelegationsKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.TallyVoteDelegationsKeyPrefix):
+			var snapshotA, snapshotB types.VoteDelegationSnapshot
+			cdc.MustUnmarshal(kvA.Value, &snapshotA)
+			cdc.MustUnmarshal(kvB.Value, &snapshotB)
+			return fmt.Sprintf("%v\n%v", snapshotA, snapshotB)
+
+		case bytes.Equal(kvA.Key[:1], types.VoteDelegationUpdatesKeyPrefix):
+			var updateA, updateB types.VoteDelegationUpdate
+			cdc.MustUnmarshal(kvA.Value, &updateA)
+			cdc.MustUnmarshal(kvB.Value, &updateB)
+			return fmt.Sprintf("%v\n%v", updateA, updateB)
+
+		case bytes.Equal(kvA.Key[:1], types.TallyBoundaryMetaKeyPrefix):
+			var boundaryA, boundaryB types.TallyBoundary
+			cdc.MustUnmarshal(kvA.Value, &boundaryA)
+			cdc.MustUnmarshal(kvB.Value, &boundaryB)
+			return fmt.Sprintf("%v\n%v", boundaryA, boundaryB)
+
+		case bytes.Equal(kvA.Key[:1], types.TallyValidatorAccumulatorsKeyPrefix):
+			var accumulatorA, accumulatorB types.TallyValidatorAccumulator
+			cdc.MustUnmarshal(kvA.Value, &accumulatorA)
+			cdc.MustUnmarshal(kvB.Value, &accumulatorB)
+			return fmt.Sprintf("%v\n%v", accumulatorA, accumulatorB)
+
+		case bytes.Equal(kvA.Key[:1], types.TallyCleanupKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.VoterProposalsKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.VoteDelegationBackfillCutoffKey),
 			bytes.Equal(kvA.Key[:1], types.VoteDelegationBackfillProgressKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.VoteDelegationUpdateSequenceKey),
-			bytes.Equal(kvA.Key[:1], types.VoteDelegationUpdatesKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.VoterVoteDelegationUpdatesKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.VoteDelegationSnapshotRevisionKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.ProposalDeadlineKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.DeadlineBoundaryBlockTimeKey),
-			bytes.Equal(kvA.Key[:1], types.TallyBoundaryMetaKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.GapTallyBoundaryKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.ExactTallyBoundaryKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.ProposalTallyBoundaryKeyPrefix),
 			bytes.Equal(kvA.Key[:1], types.IncrementalTallyEnabledKey),
-			bytes.Equal(kvA.Key[:1], types.ModernTallyRoundKeyPrefix):
+			bytes.Equal(kvA.Key[:1], types.ModernTallyRoundKeyPrefix),
+			bytes.Equal(kvA.Key[:1], types.TallyAccumulatorCleanupKeyPrefix):
 			return fmt.Sprintf("%X\n%X", kvA.Value, kvB.Value)
 
 		default:

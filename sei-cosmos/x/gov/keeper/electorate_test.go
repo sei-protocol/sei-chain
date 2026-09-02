@@ -99,6 +99,44 @@ func TestTallyOnlyWaitsForDelegationUpdatesThroughItsBoundary(t *testing.T) {
 	)
 }
 
+func TestTallyWaitsForEarlierUnrelatedDelegationUpdates(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	blockTime := time.Unix(100, 0)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{Time: blockTime})
+	addrs, valAddrs := createValidators(t, ctx, app, []int64{5, 5, 5})
+	target := createVotingProposalEndingAt(t, ctx, app, blockTime)
+	delegateAndVoteYes(t, ctx, app, target.ProposalId, addrs[3], valAddrs[0], 2)
+
+	unrelated := createVotingProposalEndingAt(t, ctx, app, blockTime.Add(time.Hour))
+	delegateAndVoteYes(t, ctx, app, unrelated.ProposalId, addrs[4], valAddrs[0], 2)
+	updatedShares := queueDelegationShareUpdate(t, ctx, app, addrs[4], valAddrs[0], sdk.OneDec())
+	app.GovKeeper.CaptureExactTallyBoundary(ctx)
+
+	complete, processed, _, _, _ := app.GovKeeper.TallyIncremental(ctx, target, 1)
+	require.False(t, complete)
+	require.Equal(t, 1, processed)
+
+	store := ctx.KVStore(app.GetKey(govtypes.StoreKey))
+	require.True(t, store.Has(govtypes.VoteKey(target.ProposalId, addrs[3])))
+	require.False(t, store.Has(govtypes.TallyVoteKey(target.ProposalId, false, addrs[3])))
+	require.False(t, app.GovKeeper.HasPendingVoteDelegationUpdates(ctx))
+	requireVoteDelegationShares(
+		t,
+		[]govtypes.VoteDelegationSnapshot{decodeVoteDelegationSnapshot(
+			t,
+			store.Get(govtypes.VoteDelegationsKey(unrelated.ProposalId, addrs[4])),
+		)},
+		valAddrs[0],
+		updatedShares,
+	)
+
+	complete, processed, _, _, _ = app.GovKeeper.TallyIncremental(ctx, target, 1)
+	require.True(t, complete)
+	require.Equal(t, 1, processed)
+	require.False(t, store.Has(govtypes.VoteKey(target.ProposalId, addrs[3])))
+	require.True(t, store.Has(govtypes.TallyVoteKey(target.ProposalId, false, addrs[3])))
+}
+
 func createVotingProposalEndingAt(
 	t *testing.T,
 	ctx sdk.Context,

@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math"
 	"time"
@@ -10,14 +9,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
-
-type pendingVoteDelegationUpdate struct {
-	Voter     string    `json:"voter"`
-	Validator string    `json:"validator"`
-	Shares    sdk.Dec   `json:"shares"`
-	BlockTime time.Time `json:"block_time"`
-	Cursor    []byte    `json:"cursor,omitempty"`
-}
 
 // QueueVoteDelegationUpdate defers one slash-induced delegation change for bounded processing.
 func (keeper Keeper) QueueVoteDelegationUpdate(
@@ -31,14 +22,14 @@ func (keeper Keeper) QueueVoteDelegationUpdate(
 	}
 
 	sequence := keeper.nextVoteDelegationUpdateSequence(ctx)
-	update := pendingVoteDelegationUpdate{
+	update := types.VoteDelegationUpdate{
 		Voter:     voter.String(),
 		Validator: validator.String(),
 		Shares:    shares,
 		BlockTime: ctx.BlockTime(),
 	}
 	store := ctx.KVStore(keeper.storeKey)
-	store.Set(types.VoteDelegationUpdateKey(sequence), marshalVoteDelegationUpdate(update))
+	store.Set(types.VoteDelegationUpdateKey(sequence), keeper.cdc.MustMarshal(&update))
 	store.Set(types.VoterVoteDelegationUpdateKey(voter, sequence), []byte{1})
 }
 
@@ -70,7 +61,7 @@ func (keeper Keeper) ProcessVoteDelegationUpdatesThrough(
 		if sequence > throughSequence {
 			return true, processed
 		}
-		update := unmarshalVoteDelegationUpdate(iterator.Value())
+		update := keeper.unmarshalVoteDelegationUpdate(iterator.Value())
 		var updateComplete bool
 		updateComplete, processed = keeper.processVoteDelegationUpdate(
 			ctx,
@@ -123,7 +114,7 @@ func (keeper Keeper) nextVoteDelegationUpdateSequence(ctx sdk.Context) uint64 {
 func (keeper Keeper) processVoteDelegationUpdate(
 	ctx sdk.Context,
 	sequence uint64,
-	update pendingVoteDelegationUpdate,
+	update types.VoteDelegationUpdate,
 	maxUpdates int,
 	processed int,
 ) (complete bool, newProcessed int) {
@@ -150,7 +141,7 @@ func (keeper Keeper) processVoteDelegationUpdate(
 	}
 
 	if iterator.Valid() {
-		store.Set(types.VoteDelegationUpdateKey(sequence), marshalVoteDelegationUpdate(update))
+		store.Set(types.VoteDelegationUpdateKey(sequence), keeper.cdc.MustMarshal(&update))
 		return false, newProcessed
 	}
 	if newProcessed == processed {
@@ -163,7 +154,7 @@ func (keeper Keeper) applyVoteDelegationUpdate(
 	ctx sdk.Context,
 	proposalID uint64,
 	sequence uint64,
-	update pendingVoteDelegationUpdate,
+	update types.VoteDelegationUpdate,
 ) {
 	voter := sdk.MustAccAddressFromBech32(update.Voter)
 	if keeper.voteDelegationSnapshotRevision(ctx, proposalID, voter) >= sequence {
@@ -215,7 +206,7 @@ func (keeper Keeper) applyVoteDelegationSnapshotUpdates(
 		if bz == nil {
 			panic(fmt.Sprintf("missing vote delegation update %d", sequence))
 		}
-		update := unmarshalVoteDelegationUpdate(bz)
+		update := keeper.unmarshalVoteDelegationUpdate(bz)
 		if keeper.delegationUpdateBelongsToTallyBoundary(ctx, proposal, sequence, update.BlockTime) {
 			index.set(update.Validator, update.Shares)
 		}
@@ -266,19 +257,9 @@ func (keeper Keeper) setVoteDelegationSnapshotRevision(
 	)
 }
 
-func marshalVoteDelegationUpdate(update pendingVoteDelegationUpdate) []byte {
-	bz, err := json.Marshal(update)
-	if err != nil {
-		panic(fmt.Errorf("marshal vote delegation update: %w", err))
-	}
-	return bz
-}
-
-func unmarshalVoteDelegationUpdate(bz []byte) pendingVoteDelegationUpdate {
-	var update pendingVoteDelegationUpdate
-	if err := json.Unmarshal(bz, &update); err != nil {
-		panic(fmt.Errorf("unmarshal vote delegation update: %w", err))
-	}
+func (keeper Keeper) unmarshalVoteDelegationUpdate(bz []byte) types.VoteDelegationUpdate {
+	var update types.VoteDelegationUpdate
+	keeper.cdc.MustUnmarshal(bz, &update)
 	return update
 }
 

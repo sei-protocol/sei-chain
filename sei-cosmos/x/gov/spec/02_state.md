@@ -216,13 +216,14 @@ And the pseudocode for the `ProposalProcessingQueue`:
 
 ## Incremental tally state
 
-An expired proposal retains a tally accumulator, a cursor, and a snapshot of the
-bonded validators and tally parameters until all of its vote records have been
-processed. Processed votes move to a round-specific archive so an application-state
-export can reconstruct every vote while a tally is unfinished. New votes and deposits
-are rejected after the voting period ends. A vote's per-validator delegation snapshot
-is created with the vote and refreshed by staking hooks whenever that voter delegates,
-undelegates, or redelegates before the proposal's electorate boundary. The boundary
+An expired proposal retains a cursor, a snapshot of the bonded validators and tally
+parameters, and mutable per-validator tally accumulators until all of its vote records
+have been processed. Processed votes move to a round-specific archive so an
+application-state export can reconstruct every vote while a tally is unfinished. New
+votes and deposits are rejected after the voting period ends. A vote's per-validator
+delegation snapshot is created with the vote and refreshed by staking hooks whenever
+that voter delegates, undelegates, or redelegates before the proposal's electorate
+boundary. The boundary
 freezes voter shares, bonded-validator tokens and shares, total bonded tokens, and
 tally parameters together. Deadlines strictly between consecutive block times use the
 state committed before the later block begins; deadlines equal to a block time use the
@@ -239,12 +240,14 @@ budget reserved so cleanup cannot be starved by unfinished tallies.
 
 Delegation changes caused by validator slashing are queued as constant-size updates
 instead of rewriting every affected vote snapshot in `BeginBlock`. Before advancing
-an affected tally, `EndBlock` folds updates through that proposal's frozen boundary
-sequence into canonical vote snapshots under the same record-work budget. Later
-updates do not delay or alter the frozen proposal. Read-only tally and export paths
-overlay relevant queued updates so they remain consistent while that bounded work is
-unfinished. Once an incremental tally has started, tally queries continue from its
-persisted accumulator and frozen electorate.
+a tally, `EndBlock` drains the globally ordered update queue through that proposal's
+frozen boundary sequence under the same record-work budget. Updates at or before the
+boundary can consume that budget even when their voters did not vote on the proposal,
+so a slash-update backlog can postpone its vote processing and later expired proposals
+in the queue. Updates after the boundary neither delay nor alter the frozen proposal.
+Read-only tally and export paths overlay relevant queued updates so they remain
+consistent while that bounded work is unfinished. Once an incremental tally has
+started, tally queries continue from its persisted accumulator and frozen electorate.
 
 The version 4 governance store migration records the first proposal ID that does not
 need delegation-tracking backfill. That cutoff is retained in application-state

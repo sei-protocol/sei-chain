@@ -93,6 +93,18 @@ func TestValidateGenesisRequiresSnapshotsForFrozenElectorateVotes(t *testing.T) 
 	require.NoError(t, ValidateGenesis(state))
 }
 
+func TestValidateGenesisAllowsInactiveBondedStakeInTallyElectorate(t *testing.T) {
+	state := DefaultGenesisState()
+	state.Proposals = Proposals{{ProposalId: 1, Status: StatusVotingPeriod}}
+	state.TallyElectorates = []TallyElectorate{validTallyElectorate(1)}
+	state.TallyElectorates[0].TotalBondedTokens = sdk.NewInt(2)
+
+	require.NoError(t, ValidateGenesis(state))
+
+	state.TallyElectorates[0].TotalBondedTokens = sdk.ZeroInt()
+	require.ErrorContains(t, ValidateGenesis(state), "exceed total bonded tokens")
+}
+
 func TestGenesisStateEqualIncludesVoteDelegationSnapshots(t *testing.T) {
 	state1 := GenesisState{VoteDelegationSnapshots: []VoteDelegationSnapshot{{
 		ProposalId: 1,

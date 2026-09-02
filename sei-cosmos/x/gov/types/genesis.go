@@ -274,9 +274,11 @@ func validateTallyElectorates(proposals Proposals, electorates []TallyElectorate
 			}
 			validatorTokens = validatorTokens.Add(validator.BondedTokens)
 		}
-		if !validatorTokens.Equal(electorate.TotalBondedTokens) {
+		// Jailed and otherwise inactive bonded validators remain in the quorum
+		// denominator but are not part of the frozen active validator set.
+		if validatorTokens.GT(electorate.TotalBondedTokens) {
 			return fmt.Errorf(
-				"tally electorate validator tokens %s do not equal total bonded tokens %s",
+				"tally electorate validator tokens %s exceed total bonded tokens %s",
 				validatorTokens,
 				electorate.TotalBondedTokens,
 			)
