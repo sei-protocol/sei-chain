@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"fmt"
-	"math"
 	"net"
 	"net/http"
 	"time"
@@ -46,12 +45,11 @@ func StartGRPCWeb(grpcSrv *grpc.Server, registry *ratelimiter.Registry, config c
 	if err != nil {
 		return nil, fmt.Errorf("[grpc-web] failed to listen on %s: %w", config.GRPCWeb.Address, err)
 	}
+	// Same ordering as :9090: the per-IP cap sits below the global one, so an
+	// address at its limit cannot consume the shared budget to be refused.
+	listener = ratelimiter.ConnLimitListener(listener, ratelimiter.PlaneGRPC, clampToMaxInt(config.GRPCWeb.MaxConnectionsPerIP))
 	if config.GRPCWeb.MaxOpenConnections > 0 {
-		maxConn := config.GRPCWeb.MaxOpenConnections
-		if maxConn > math.MaxInt {
-			maxConn = math.MaxInt
-		}
-		listener = netutil.LimitListener(listener, int(maxConn)) //nolint:gosec // G115: clamped to math.MaxInt above
+		listener = netutil.LimitListener(listener, clampToMaxInt(config.GRPCWeb.MaxOpenConnections))
 	}
 
 	errCh := make(chan error, 1)

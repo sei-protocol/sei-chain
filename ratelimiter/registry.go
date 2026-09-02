@@ -56,6 +56,10 @@ type Config struct {
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted.
 	// Empty means trust no proxy; use RemoteAddr / peer address directly.
 	TrustedProxyCIDRs []string
+	// MaxInFlightPerIP is the number of RPCs one IP may have in flight at once.
+	// Zero disables the concurrency limit (AcquireInFlight always returns true),
+	// leaving the token bucket as the only admission control.
+	MaxInFlightPerIP int
 }
 
 // DefaultConfig uses no trusted proxies. If your node is behind a reverse proxy or
@@ -74,6 +78,7 @@ type Registry struct {
 	lru            *expirable.LRU[string, *rate.Limiter]
 	mu             sync.Mutex
 	grpcMethods    atomic.Pointer[map[string]struct{}]
+	inflight       *inflightCounter
 }
 
 // SetKnownGRPCMethods bounds the method label recorded for PlaneGRPC rejections
@@ -82,7 +87,7 @@ type Registry struct {
 func (r *Registry) SetKnownGRPCMethods(methods []string) {
 	known := make(map[string]struct{}, len(methods))
 	for _, m := range methods {
-		known[strings.TrimPrefix(m, "/")] = struct{}{}
+		known[trimLeadingSlash(m)] = struct{}{}
 	}
 	r.grpcMethods.Store(&known)
 }
@@ -100,10 +105,15 @@ func New(cfg Config) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
+	var inflight *inflightCounter
+	if cfg.MaxInFlightPerIP > 0 {
+		inflight = newInflightCounter(cfg.MaxInFlightPerIP)
+	}
 	return &Registry{
 		cfg:            cfg,
 		trustedProxies: proxies,
 		lru:            expirable.NewLRU[string, *rate.Limiter](lruSize, nil, lruTTL),
+		inflight:       inflight,
 	}, nil
 }
 
@@ -255,6 +265,11 @@ func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 		out = append(out, network)
 	}
 	return out, nil
+}
+
+// trimLeadingSlash returns the gRPC "service/Method" name of a full method name.
+func trimLeadingSlash(fullMethod string) string {
+	return strings.TrimPrefix(fullMethod, "/")
 }
 
 func stripPort(addr string) string {

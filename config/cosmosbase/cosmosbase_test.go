@@ -74,11 +74,12 @@ func TestTheRESTKeysAreTheOnesItsReaderResolves(t *testing.T) {
 func TestTheGRPCKeysAreTheOnesItsReaderResolves(t *testing.T) {
 	requireDeclares(t, GRPCSectionName, []string{
 		"grpc.enable", "grpc.address", "grpc.max-recv-msg-size", "grpc.max-open-connections",
+		"grpc.max-connections-per-ip",
 		"grpc.max-connection-idle", "grpc.max-connection-age", "grpc.max-connection-age-grace",
 		"grpc.keepalive-time", "grpc.keepalive-timeout", "grpc.keepalive-min-time",
 		"grpc.keepalive-permit-without-stream",
-		"grpc.ip-rate-limit-rps", "grpc.ip-rate-limit-burst", "grpc.rate-limiting-enabled",
-		"grpc.trusted-proxy-cidrs",
+		"grpc.ip-rate-limit-rps", "grpc.ip-rate-limit-burst", "grpc.max-in-flight-per-ip",
+		"grpc.rate-limiting-enabled", "grpc.trusted-proxy-cidrs",
 	})
 }
 

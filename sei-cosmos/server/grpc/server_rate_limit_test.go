@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -120,34 +121,65 @@ func TestStartGRPCServer_RateLimitingEnabledInstallsInterceptors(t *testing.T) {
 	require.Contains(t, rejectionMethodLabels(t, reader), "testdata.Query/Echo")
 }
 
+// rateLimitRejectedMetric and inFlightRejectedMetric are the two rejection
+// counters, kept apart so a test can say which control did the rejecting.
+const (
+	rateLimitRejectedMetric = "rpc_rate_limit_rejected_total"
+	inFlightRejectedMetric  = "rpc_inflight_rejected_total"
+)
+
+var (
+	rejectionReaderOnce sync.Once
+	rejectionReader     *sdkmetric.ManualReader
+)
+
+// collectRejectionMetrics returns the reader the rejection counters record into.
+//
+// One reader for the whole package rather than one per test, because the global
+// meter provider takes only the first provider set: the counters are created at
+// package init and delegate to that one, so a second reader would collect
+// nothing and every assertion on it would pass vacuously. The counters are
+// therefore cumulative across tests, so assert on what a test added rather than
+// on a total.
 func collectRejectionMetrics(t *testing.T) *sdkmetric.ManualReader {
 	t.Helper()
-	reader := sdkmetric.NewManualReader()
-	prev := otel.GetMeterProvider()
-	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
-	t.Cleanup(func() { otel.SetMeterProvider(prev) })
-	return reader
+	rejectionReaderOnce.Do(func() {
+		rejectionReader = sdkmetric.NewManualReader()
+		otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(rejectionReader)))
+	})
+	return rejectionReader
 }
 
 func rejectionMethodLabels(t *testing.T, reader *sdkmetric.ManualReader) []string {
 	t.Helper()
+	labels := []string{}
+	for label := range rejectionCounts(t, reader, rateLimitRejectedMetric) {
+		labels = append(labels, label)
+	}
+	return labels
+}
+
+// rejectionCounts returns the named rejection counter's value per
+// method_namespace label.
+func rejectionCounts(t *testing.T, reader *sdkmetric.ManualReader, name string) map[string]int64 {
+	t.Helper()
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(context.Background(), &rm))
 
-	labels := []string{}
+	counts := map[string]int64{}
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "rpc_rate_limit_rejected_total" {
+			if m.Name != name {
 				continue
 			}
 			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
 				if v, ok := dp.Attributes.Value(attribute.Key("method_namespace")); ok {
-					labels = append(labels, v.AsString())
+					counts[v.AsString()] += dp.Value
 				}
 			}
 		}
 	}
-	return labels
+	return counts
 }
 
 // TestStartGRPCServer_RateLimitingDisabledSkipsInterceptors pins the master
