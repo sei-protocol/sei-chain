@@ -35,7 +35,7 @@ const (
 	// DefaultGRPCWebMaxConnectionsPerIP defines the default maximum number of
 	// simultaneous open connections one client address may hold on the gRPC-web
 	// server. 0 means unlimited.
-	DefaultGRPCWebMaxConnectionsPerIP = 100
+	DefaultGRPCWebMaxConnectionsPerIP = 0
 
 	// DefaultGRPCMaxOpenConnections defines the default maximum number of
 	// simultaneous open connections for the gRPC server. 0 means unlimited.
@@ -43,10 +43,8 @@ const (
 
 	// DefaultGRPCMaxConnectionsPerIP defines the default maximum number of
 	// simultaneous open connections one client address may hold on the gRPC
-	// server. It is a tenth of the global budget, so no single address can crowd
-	// the rest out of it, and it is well above what any ordinary client opens.
-	// 0 means unlimited.
-	DefaultGRPCMaxConnectionsPerIP = 100
+	// server. 0 means unlimited.
+	DefaultGRPCMaxConnectionsPerIP = 0
 
 	// DefaultGRPCMaxRecvMsgSize defines the default maximum message size in bytes
 	// that the gRPC server can receive (4 MB), mirroring gRPC's own default.
@@ -631,8 +629,8 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}
 
 	// Apply in-code defaults when keys are absent so that nodes upgrading with an
-	// older app.toml (which lacks these keys) remain bounded rather than running
-	// with unlimited connections / message sizes.
+	// older app.toml (which lacks these keys) pick up the declared defaults rather
+	// than running with zero values where a limit is intended.
 	grpcMaxRecvMsgSize := DefaultGRPCMaxRecvMsgSize
 	if v.IsSet("grpc.max-recv-msg-size") {
 		grpcMaxRecvMsgSize = v.GetInt("grpc.max-recv-msg-size")
