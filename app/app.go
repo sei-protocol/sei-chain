@@ -430,13 +430,15 @@ type App struct {
 	encodingConfig       appparams.EncodingConfig
 	legacyEncodingConfig appparams.EncodingConfig
 	evmRPCConfig         evmrpcconfig.Config
-	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
-	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
-	// FinalizeBlocker calls Stash with the (hash, header, response)
-	// tuple, App.Commit calls PublishStashed after a successful
-	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
-	// defend against stale tuples from prior failed commits or
-	// non-stashing return paths (EthReplay/EthBlockTest).
+	// autobahnEnabled records whether Autobahn was configured for this node.
+	autobahnEnabled bool
+	// blockHeaderNotifier owns the FinalizeBlock→Commit pairing for Autobahn
+	// eth_subscribe("newHeads") and eth_newBlockFilter notifications. It
+	// calls Stash from FinalizeBlocker with the
+	// (hash, header, response) tuple, App.Commit calls PublishStashed
+	// after a successful BaseApp.Commit, and FinalizeBlocker entry
+	// calls ClearStash to defend against stale tuples from prior failed
+	// commits or non-stashing return paths (EthReplay/EthBlockTest).
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
@@ -659,7 +661,9 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading receipt store config: %s", err))
 	}
-	if app.receiptStore == nil {
+	// A nil store is the seam tests inject their own through, and it is also what a disabled
+	// receipt store leaves behind: the EVM keeper reads nil as a node that keeps no receipts.
+	if app.receiptStore == nil && receiptConfig.Enable {
 		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
@@ -691,7 +695,8 @@ func New(
 	// reconcile the encoder so swapping the consumer is a no-op for
 	// non-Autobahn subscribers. Until that's verified, keep this gate
 	// so non-Autobahn newHeads semantics are unchanged by this PR.
-	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
+	app.autobahnEnabled = tmConfig != nil && tmConfig.AutobahnConfigFile != ""
+	if app.autobahnEnabled {
 		app.blockHeaderNotifier = tmutils.Some(evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity))
 	}
 	if app.evmRPCConfig.TraceBakeEnabled {
@@ -2577,8 +2582,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
+	headNotifier, _ := app.blockHeaderNotifier.Get()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2592,8 +2598,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		headNotifier, _ := app.blockHeaderNotifier.Get()
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
 		}

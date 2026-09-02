@@ -16,7 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "ss", "evm")
 
 var _ types.StateStore = (*EVMStateStore)(nil)
 var _ types.ContextIteratorStore = (*EVMStateStore)(nil)
@@ -30,6 +33,10 @@ type EVMStateStore struct {
 	dir         string
 	separateDBs bool
 	snapshotMgr *sssnapshot.Manager
+
+	// checkpoint holds the schedule this store takes its snapshot heights from, and tracks the
+	// snapshots in flight so Close can wait for them.
+	checkpoint checkpointState
 
 	externalPruning bool
 }
@@ -392,10 +399,6 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
-func (s *EVMStateStore) ExternalPruning() bool {
-	return s.externalPruning
-}
-
 func (s *EVMStateStore) snapshotSourceDirs() []string {
 	if !s.separateDBs {
 		return []string{s.dir}
@@ -415,6 +418,10 @@ func subDBPath(base string, storeType EVMStoreType) string {
 }
 
 func (s *EVMStateStore) Close() error {
+	// A snapshot being published reads and stamps these databases, so it has to finish before they
+	// close rather than race the shutdown.
+	s.stopCheckpoints()
+
 	var lastErr error
 	for _, db := range s.managedDBs {
 		if err := db.Close(); err != nil {

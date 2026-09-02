@@ -11,8 +11,8 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 // ErrSnapshotWriterClosed is reported (wrapped) by calls that observe the writer shutting down
@@ -31,7 +31,7 @@ const snapshotQueueScrapeInterval = 10 * time.Second
 // reports it, so a failure that has no caller to fail at the time it happens still stops the node:
 // Offer is on the commit path, so the next Commit fails.
 type SnapshotWriter struct {
-	// mu guards fatalErr.
+	// mu guards fatalErr and scheduler.
 	mu sync.Mutex
 
 	// dir is the flatkv root holding the snapshot directories, the current symlink and the working dir.
@@ -44,7 +44,8 @@ type SnapshotWriter struct {
 	// StorageGarbageCollector's by-height retention.
 	externalPruning bool
 
-	// interval is how many blocks apart snapshots are taken. 0 disables them.
+	// interval is how many blocks apart snapshots are taken. 0 disables them. Consulted only while
+	// scheduler is nil, the scheduler owning the cadence outright once there is one.
 	interval uint32
 
 	// dbs is the handle each database is checkpointed through, keyed by database directory name.
@@ -75,12 +76,18 @@ type SnapshotWriter struct {
 
 	// fatalErr latches the first failure. Nil until something fails.
 	fatalErr error
+
+	// scheduler holds this store to the same checkpoint heights as every other store on the node.
+	// Nil leaves the store on its own interval.
+	scheduler *controller.CheckpointScheduler
 }
 
 // newSnapshotWriter starts a writer for the given databases. Close stops it.
 //
 // queueDepth is how many blocks may pile up behind a snapshot before offering another one blocks. A
 // value below 1 is treated as 1.
+//
+// scheduler may be nil, which leaves the writer on interval.
 //
 // parent is the store's context: cancelling it stops the writer too, which matters because the store
 // cancels its own context during teardown.
@@ -92,6 +99,7 @@ func newSnapshotWriter(
 	interval uint32,
 	queueDepth uint32,
 	dbs map[string]types.Checkpointable,
+	scheduler *controller.CheckpointScheduler,
 ) *SnapshotWriter {
 	ctx, stop := context.WithCancel(parent)
 	w := &SnapshotWriter{
@@ -106,10 +114,26 @@ func newSnapshotWriter(
 		pruneCutLine:    make(chan uint64, 1),
 		exited:          make(chan struct{}),
 		phaseTimer:      metrics.NewPhaseTimer(flatkvMeter, "seidb_snapshot_writer"),
+		scheduler:       scheduler,
 	}
 	go w.run()
 	go w.reportQueueDepth()
 	return w
+}
+
+// setCheckpointScheduler hands the writer the schedule it takes its heights from, replacing whatever
+// it had. A nil scheduler returns it to its own interval.
+func (w *SnapshotWriter) setCheckpointScheduler(scheduler *controller.CheckpointScheduler) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.scheduler = scheduler
+}
+
+// currentCheckpointScheduler returns the schedule in force, or nil when the writer is on interval.
+func (w *SnapshotWriter) currentCheckpointScheduler() *controller.CheckpointScheduler {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.scheduler
 }
 
 // Offer hands a committed block to the writer, which decides if it should be written to disk.
@@ -117,13 +141,13 @@ func newSnapshotWriter(
 // The writer takes its own reservation on every view for as long as it needs one, and hands it back
 // whether it writes a snapshot, declines to, or fails. The caller only has to hold a reservation of its
 // own until this returns, and so does not have to know whether the writer keeps the block past the call.
-func (w *SnapshotWriter) Offer(version int64, views map[string]view.View) error {
-	reserved, err := reserveViews(views)
-	if err != nil {
+func (w *SnapshotWriter) Offer(blockView *storeView) error {
+	version := blockView.blockHeight
+	if err := blockView.reserve(); err != nil {
 		return fmt.Errorf("reserve version %d for snapshot: %w", version, err)
 	}
 
-	request := &snapshotRequest{version: version, views: reserved}
+	request := &snapshotRequest{blockView: blockView}
 	if err := w.enqueue(request); err != nil {
 		return errors.Join(
 			fmt.Errorf("offer version %d to snapshot writer: %w", version, err),
@@ -223,10 +247,12 @@ func (w *SnapshotWriter) enqueue(message any) error {
 	}
 }
 
-// shouldSnapshot reports whether a committed block becomes a snapshot. Snapshots are taken every
-// interval blocks; an interval of 0 disables them, at the cost of a WAL that grows without bound and a
-// restart that replays the whole history.
-func (w *SnapshotWriter) shouldSnapshot(version int64) bool {
+// onSnapshotInterval reports whether a committed block becomes a snapshot on this writer's own
+// cadence. Snapshots are taken every interval blocks; an interval of 0 disables them, at the cost of a
+// WAL that grows without bound and a restart that replays the whole history.
+//
+// Only consulted while the writer has no scheduler.
+func (w *SnapshotWriter) onSnapshotInterval(version int64) bool {
 	if w.interval == 0 || version <= 0 {
 		return false
 	}
@@ -326,22 +352,44 @@ func (w *SnapshotWriter) handlePruneCutLine(cutLine uint64) error {
 }
 
 // Possibly checkpoint a block. Releases reservation when finished regardless of choice.
+//
+// Every committed block reaches here, so the schedule is asked about every one of them rather than
+// only about the heights an interval would have offered it. That is what lets one schedule hold
+// several stores to the same height: a height it picks for another store is a height this one is
+// asked about.
 func (w *SnapshotWriter) maybeCheckpointBlock(request *snapshotRequest) (err error) {
 	// The only hand-back for a block that reached the goroutine, covering written, declined and failed
 	// alike. A reservation left held stalls its view manager's flushes indefinitely.
 	defer func() {
 		if relErr := request.release(); relErr != nil {
 			err = errors.Join(err, fmt.Errorf(
-				"hand back reservations for version %d: %w", request.version, relErr))
+				"hand back reservations for version %d: %w", request.blockView.blockHeight, relErr))
 		}
 	}()
 
-	if !w.shouldSnapshot(request.version) {
+	scheduler := w.currentCheckpointScheduler()
+	if scheduler == nil {
+		if !w.onSnapshotInterval(request.blockView.blockHeight) {
+			w.phaseTimer.SetPhase("release_declined_block")
+			return nil
+		}
+		return w.checkpointBlock(request)
+	}
+
+	if !scheduler.ShouldCheckpoint(checkpointStoreName, request.blockView.blockHeight) {
 		w.phaseTimer.SetPhase("release_declined_block")
 		return nil
 	}
+	// The schedule holds this height until it is reported, so it has to be reported on the failure
+	// path as much as on the success one: an unreported height stops the node checkpointing.
+	defer scheduler.MarkCheckpointComplete(checkpointStoreName, request.blockView.blockHeight)
+	return w.checkpointBlock(request)
+}
+
+// checkpointBlock writes the snapshot for a block the cadence selected.
+func (w *SnapshotWriter) checkpointBlock(request *snapshotRequest) error {
 	if err := w.writeCheckpoint(request); err != nil {
-		return fmt.Errorf("write snapshot at version %d: %w", request.version, err)
+		return fmt.Errorf("write snapshot at version %d: %w", request.blockView.blockHeight, err)
 	}
 	return nil
 }
@@ -358,7 +406,7 @@ func (w *SnapshotWriter) discardQueued() {
 			case *snapshotRequest:
 				if err := request.release(); err != nil {
 					logger.Error("failed to hand back reservations of a discarded snapshot",
-						"version", request.version, "err", err)
+						"version", request.blockView.blockHeight, "err", err)
 				}
 			case *cloneRequest:
 				request.responseChan <- fmt.Errorf("clone snapshot for version %d: %w",
@@ -382,7 +430,7 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 			metric.WithAttributes(successAttr(err)))
 		if err != nil {
 			logger.Error("FlatKV snapshot failed",
-				"version", request.version, "elapsed", time.Since(start), "err", err)
+				"version", request.blockView.blockHeight, "elapsed", time.Since(start), "err", err)
 		}
 	}()
 
@@ -393,21 +441,21 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 	workCtx := context.WithoutCancel(w.ctx)
 
 	tmpPath, err := checkpointDatabases(
-		workCtx, w.dir, request.version, request.views, w.dbs, w.phaseTimer)
+		workCtx, w.dir, request.blockView, w.dbs, w.phaseTimer)
 	if err != nil {
-		return fmt.Errorf("snapshot version %d: %w", request.version, err)
+		return fmt.Errorf("snapshot version %d: %w", request.blockView.blockHeight, err)
 	}
 
 	w.phaseTimer.SetPhase("publish_snapshot")
 	pruned, err := publishSnapshot(
-		workCtx, w.dir, w.keepRecent, w.externalPruning, request.version, tmpPath)
+		workCtx, w.dir, w.keepRecent, w.externalPruning, request.blockView.blockHeight, tmpPath)
 	if err != nil {
-		return fmt.Errorf("publish snapshot at version %d: %w", request.version, err)
+		return fmt.Errorf("publish snapshot at version %d: %w", request.blockView.blockHeight, err)
 	}
 
-	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, request.version)
+	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, request.blockView.blockHeight)
 	logger.Info("FlatKV snapshot created",
-		"version", request.version, "pruned", pruned, "elapsed", time.Since(start))
+		"version", request.blockView.blockHeight, "pruned", pruned, "elapsed", time.Since(start))
 	return nil
 }
 
@@ -440,21 +488,4 @@ func (w *SnapshotWriter) stoppedError() error {
 		return fmt.Errorf("snapshot writer failed: %w", err)
 	}
 	return ErrSnapshotWriterClosed
-}
-
-// reserveViews takes a reservation on each of the given views, for a consumer that will outlive
-// whoever already holds one. Every reservation taken is handed back if any one of them fails, since a
-// caller that gets an error takes ownership of nothing.
-func reserveViews(views map[string]view.View) (map[string]view.View, error) {
-	reserved := make(map[string]view.View, len(views))
-	for name, sealed := range views {
-		if err := sealed.Reserve(); err != nil {
-			for _, taken := range reserved {
-				_ = taken.Release()
-			}
-			return nil, fmt.Errorf("reserve %s view: %w", name, err)
-		}
-		reserved[name] = sealed
-	}
-	return reserved, nil
 }

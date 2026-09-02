@@ -31,16 +31,12 @@ func (s *CommitStore) closeDBsOnly() error {
 	return nil
 }
 
-// Close drains thread pools, closes all database instances, cancels the store's context to stop background
-// goroutines (caches, metrics), and releases the file lock.
+// Close releases everything the store owns: it drains the thread pools, closes the databases and the WAL,
+// cancels the store's context to stop background goroutines (caches, metrics), and releases the file lock.
 //
-// Close does not coordinate with concurrent operations: it releases resources they still hold, and no lock
-// guards them against it. Callers need not quiesce first — a background export replaying this store's WAL into
-// a read-only clone (see replayIntoReadOnlyCopy) ends with a closed-WAL error.
-//
-// That overlap includes an unsynchronized read of the WAL's closed flag. The racing read either observes the
-// flag or falls through to the WAL's own closed check, so it changes nothing a caller can see, but a test that
-// closes the store while an export runs would trip the race detector.
+// NOT safe to call concurrently with any other method on this store. Close takes no lock and coordinates
+// with nothing, so it releases resources a concurrent call is still using — including a background export
+// reading through this store's WAL. The caller must quiesce the store first.
 func (s *CommitStore) Close() error {
 	// Stores before pools, and pools before databases. The stores' lifecycle goroutines flush through
 	// the databases, and a database's own cache layer submits its writes to miscPool, so closing the

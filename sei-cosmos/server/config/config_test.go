@@ -55,7 +55,7 @@ func TestDefaultSwaggerConfig(t *testing.T) {
 func TestDefaultTelemetryConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.True(t, cfg.Telemetry.Enabled, "Telemetry should be enabled by default")
-	require.Equal(t, int64(7200), cfg.Telemetry.PrometheusRetentionTime)
+	require.Equal(t, int64(0), cfg.Telemetry.PrometheusRetentionTime)
 	require.Empty(t, cfg.Telemetry.GlobalLabels)
 }
 

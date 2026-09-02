@@ -9,8 +9,8 @@ on:
 jobs:
   ai-review:
     if: github.event_name != 'issue_comment' || github.event.issue.pull_request != null
-    # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.19
-    uses: sei-protocol/uci/.github/workflows/ai-review.yml@eb65d6d3f967c661f6af91cfac599fd355445f71
+    # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.21
+    uses: sei-protocol/uci/.github/workflows/ai-review.yml@93ebad0186c8b71a4036fd0915ffe2ec44283d4b
     permissions:
       contents: read
       pull-requests: write
@@ -18,7 +18,8 @@ jobs:
       id-token: write
     secrets: inherit
     with:
-      # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.19
-      uci-ref: eb65d6d3f967c661f6af91cfac599fd355445f71
+      # See: https://github.com/sei-protocol/uci/releases/tag/v0.0.21
+      uci-ref: 93ebad0186c8b71a4036fd0915ffe2ec44283d4b
       allowed-team: 'sei-protocol/sei-core'
+      allowed-bots: '["seidroid[bot]"]' # To allow AI review on automatically backported PRs.
       enable-cursor: false # Disabled for now since there is a dedicated Bugbot flow built into Cursor currently enabled on repo.

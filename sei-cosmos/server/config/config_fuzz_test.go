@@ -619,10 +619,8 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"grpc.enable", cfg.GRPC.Enable, def.GRPC.Enable, true},
 		{"grpc.address", cfg.GRPC.Address, def.GRPC.Address, true},
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
-		{
-			"telemetry.prometheus-retention-time",
-			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, true,
-		},
+		{"telemetry.prometheus-retention-time",
+			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, false},
 
 		// [api]. The rows set false have a declared default that is already the getter's zero, so
 		// nothing about the resolved value distinguishes a guard from its absence.

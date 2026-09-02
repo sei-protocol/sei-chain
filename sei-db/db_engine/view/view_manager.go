@@ -158,14 +158,22 @@ type ViewManager interface {
 //     of every newer view until those reservations are released.
 //   - Retirement (freeing the view's in-memory state) happens only after the view has
 //     been both flushed AND fully released.
+//
+// A view is thread safe with respect to updates to the manager it came from, and with respect to other
+// views. Release is the exception: it drops a reservation, so a read racing the final Release races the
+// reclamation of the data being read.
+//
+// Warning: it is not safe to mutate byte slices (keys or values) passed to or received from a view.
+// The view is not required to make defensive copies, and so these slices must be treated as immutable.
+//
+// There are no recoverable View errors. Any error returned by a view is fatal, and halting is the
+// caller's responsibility: on the first error the caller is expected to stop, because continuing on top
+// of state the view could not vouch for risks forking the chain.
 type View interface {
 	// Name returns the name of the manager this view was taken from.
 	Name() string
 
 	// Get returns the value for the given key, or (nil, false, nil) if not found.
-	//
-	// It is not safe to mutate the key slice after calling this method, nor is it safe to mutate the value slice
-	// that is returned.
 	Get(
 		// The entry to fetch.
 		key []byte,
@@ -180,7 +188,7 @@ type View interface {
 	// is always a found value (an empty value is a non-nil zero-length slice).
 	//
 	// If any read fails, BatchGet returns a nil map and that error — reads are not partially
-	// recoverable. It is not safe to mutate the returned key or value slices.
+	// recoverable.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
 	// GetDiff returns the set of key-value mutations contained in this view, relative to the

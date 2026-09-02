@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"runtime/debug"
 
@@ -115,74 +114,6 @@ func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []met
 	telemetry.IncrCounterWithLabels(keys, val, labels)
 }
 
-// sei_oracle_vote_penalty_count
-func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
-	metrics.SetGaugeWithLabels(
-		[]string{"sei", "oracle", "vote", "penalty", "count"},
-		float32(count),
-		[]metrics.Label{
-			telemetry.NewLabel("type", penaltyType),
-			telemetry.NewLabel("validator", valAddr),
-		},
-	)
-}
-
-// sei_epoch_new
-func SetEpochNew(epochNum uint64) {
-	metrics.SetGauge(
-		[]string{"sei", "epoch", "new"},
-		float32(epochNum),
-	)
-}
-
-// sei_evm_zero_storage_pruned_keys
-func IncrEvmZeroStoragePrunedKeys(count uint64) {
-	SafeTelemetryIncrCounter(
-		float32(count),
-		"sei", "evm", "zero", "storage", "pruned", "keys",
-	)
-}
-
-// sei_evm_zero_storage_processed_keys
-func IncrEvmZeroStorageProcessedKeys(count uint64) {
-	SafeTelemetryIncrCounter(
-		float32(count),
-		"sei", "evm", "zero", "storage", "processed", "keys",
-	)
-}
-
-// sei_evm_zero_storage_pruned_bytes
-func IncrEvmZeroStoragePrunedBytes(bytes uint64) {
-	SafeTelemetryIncrCounter(
-		float32(bytes),
-		"sei", "evm", "zero", "storage", "pruned", "bytes",
-	)
-}
-
-// Measures number of times a denom's price is updated
-// Metric Name:
-//
-//	sei_oracle_price_update_count
-func IncrPriceUpdateDenom(denom string) {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "oracle", "price", "update"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("denom", denom)},
-	)
-}
-
-// Measures number of times a denom's price is updated
-// Metric Name:
-//
-//	sei_oracle_price_update_count
-func SetCoinsMinted(amount uint64, denom string) {
-	telemetry.SetGaugeWithLabels(
-		[]string{"sei", "mint", "coins"},
-		float32(amount),
-		[]metrics.Label{telemetry.NewLabel("denom", denom)},
-	)
-}
-
 func IncrementErrorMetrics(scenario string, err error) {
 	if err == nil {
 		return
@@ -203,45 +134,5 @@ func IncrementAssociationError(scenario string, err types.AssociationMissingErr)
 			telemetry.NewLabel("scenario", scenario),
 			telemetry.NewLabel("type", err.AddressType()),
 		},
-	)
-}
-
-func IncrementNonceMismatch(tooHigh bool) {
-	cause := "too_low"
-	if tooHigh {
-		cause = "too_high"
-	}
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "nonce", "mismatch"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("cause", cause),
-		},
-	)
-}
-
-func AddHistogramMetric(key []string, value float32) {
-	metrics.AddSample(key, value)
-}
-
-// Gauge for gas price paid for transactions
-// Metric Name:
-//
-// sei_evm_effective_gas_price
-func HistogramEvmEffectiveGasPrice(gasPrice *big.Int) {
-	AddHistogramMetric(
-		[]string{"sei", "evm", "effective", "gas", "price"},
-		float32(gasPrice.Uint64()),
-	)
-}
-
-// Gauge for block base fee
-// Metric Name:
-//
-// sei_evm_block_base_fee
-func GaugeEvmBlockBaseFee(baseFee *big.Int, blockHeight int64) {
-	metrics.SetGauge(
-		[]string{"sei", "evm", "block", "base", "fee"},
-		float32(baseFee.Uint64()),
 	)
 }

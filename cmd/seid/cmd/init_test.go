@@ -192,6 +192,29 @@ func TestInitAppConfigIncludesReceiptStoreDefaults(t *testing.T) {
 	require.NotContains(t, output, "use-default-comparer")
 }
 
+// TestInitAppConfigLeavesPrometheusSinkOff pins the two app.toml-generation pipelines to the same
+// answer about the Prometheus sink. This one writes the file a node without one gets on any command
+// other than init, and a positive retention here would start the sink with nothing scraping it and no
+// operator having asked for it.
+func TestInitAppConfigLeavesPrometheusSinkOff(t *testing.T) {
+	customAppTemplate, customAppConfig := initAppConfig()
+
+	cfg, ok := customAppConfig.(CustomAppConfig)
+	require.True(t, ok)
+	require.Zero(t, cfg.Telemetry.PrometheusRetentionTime)
+	require.Equal(t,
+		srvconfig.DefaultConfig().Telemetry.PrometheusRetentionTime,
+		cfg.Telemetry.PrometheusRetentionTime,
+		"the self-written file and seid init must agree on whether the Prometheus sink exists")
+
+	tmpl, err := template.New("app").Parse(customAppTemplate)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, tmpl.Execute(&buf, customAppConfig))
+	require.Contains(t, buf.String(), "prometheus-retention-time = 0")
+}
+
 // TestInitModeFlag verifies the mode flag validation
 func TestInitModeFlag(t *testing.T) {
 	validModes := []string{"validator", "full", "seed", "archive"}

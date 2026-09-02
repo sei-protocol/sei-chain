@@ -21,18 +21,17 @@ import (
 // Held as text because the two sides carry different Go types for the same key often enough that comparing
 // values would be comparing shapes. What matters here is which keys disagree and what a node gets instead.
 var legacyConfigManagerDefaults = map[string]string{
-	"api.address":                         "",
-	"api.max-open-connections":            "0",
-	"api.rpc-max-body-bytes":              "0",
-	"api.rpc-read-timeout":                "0",
-	"api.swagger":                         "false",
-	"grpc.enable":                         "true",
-	"minimum-gas-prices":                  "",
-	"occ-enabled":                         "false",
-	"pruning":                             "default",
-	"pruning-keep-every":                  "",
-	"telemetry.enabled":                   "false",
-	"telemetry.prometheus-retention-time": "0",
+	"api.address":              "",
+	"api.max-open-connections": "0",
+	"api.rpc-max-body-bytes":   "0",
+	"api.rpc-read-timeout":     "0",
+	"api.swagger":              "false",
+	"grpc.enable":              "true",
+	"minimum-gas-prices":       "",
+	"occ-enabled":              "false",
+	"pruning":                  "default",
+	"pruning-keep-every":       "",
+	"telemetry.enabled":        "false",
 }
 
 // reasoning says what a node gets under that manager, for the keys where it is worth stating.

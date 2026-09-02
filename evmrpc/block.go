@@ -115,7 +115,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block), nil
+	return a.getEvmTxCount(block)
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
@@ -137,7 +137,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if err = a.watermarks.EnsureReceiptHeightAvailable(block.Block.Height); err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block), nil
+	return a.getEvmTxCount(block)
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]any, returnErr error) {
@@ -270,7 +270,10 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	// Get all tx hashes for the block
 	height := block.Block.Height
 
-	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, false, a.cacheCreationMutex, a.globalBlockCache)
+	txHashes, err := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, false, a.cacheCreationMutex, a.globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 
 	// Get tx receipts for all hashes in parallel, with a hard cap on the
 	// goroutine fan-out, so a block with a very large number of txs
@@ -351,7 +354,10 @@ func EncodeTmBlock(
 	transactions := []any{}
 	latestCtx := ctxProvider(LatestCtxHeight)
 
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, cacheCreationMutex, globalBlockCache)
+	msgs, err := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
@@ -463,8 +469,8 @@ func FullBloom() ethtypes.Bloom {
 
 // getEvmTxCount returns the same transaction count as EncodeTmBlock exposes: filterTransactions
 // plus the same per-msg rules as EncodeTmBlock (EVM messages need GetReceipt to succeed).
-func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) *hexutil.Uint {
-	n := countBlockTxsLikeEncodeTmBlock(
+func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) (*hexutil.Uint, error) {
+	n, err := countBlockTxsLikeEncodeTmBlock(
 		a.ctxProvider,
 		a.txConfigProvider,
 		block,
@@ -472,8 +478,11 @@ func (a *BlockAPI) getEvmTxCount(block *coretypes.ResultBlock) *hexutil.Uint {
 		a.cacheCreationMutex,
 		a.globalBlockCache,
 	)
+	if err != nil {
+		return nil, err
+	}
 	cntHex := hexutil.Uint(n) //nolint:gosec
-	return &cntHex
+	return &cntHex, nil
 }
 
 func countBlockTxsLikeEncodeTmBlock(
@@ -483,9 +492,12 @@ func countBlockTxsLikeEncodeTmBlock(
 	k *keeper.Keeper,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
-) int {
+) (int, error) {
 	latestCtx := ctxProvider(LatestCtxHeight)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, false, cacheCreationMutex, globalBlockCache)
+	msgs, err := filterTransactions(k, ctxProvider, txConfigProvider, block, false, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return 0, err
+	}
 	n := 0
 	for _, msg := range msgs {
 		switch m := msg.msg.(type) {
@@ -499,5 +511,5 @@ func countBlockTxsLikeEncodeTmBlock(
 			n++
 		}
 	}
-	return n
+	return n, nil
 }
