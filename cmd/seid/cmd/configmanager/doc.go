@@ -6,8 +6,13 @@
 // # sei.toml is the configuration
 //
 // Under v2, the resolution answers every declared key. A key sei.toml writes takes the written value. A key
-// it leaves out takes the value this binary declares for this kind of node. app.toml and config.toml are
-// not consulted for a declared key.
+// it leaves out takes the value this binary declares for this kind of node. Neither app.toml nor config.toml
+// supplies the value of a declared key.
+//
+// Both are still read. The boot's own handler parses them to build the source the rest of the boot reads,
+// and it refuses to start on a file it cannot parse or a value its own rules reject. So a node with a
+// complete sei.toml still does not start on a malformed legacy file. What this manager replaces is their
+// values for a declared key, not the reading of them.
 //
 // A sparse sei.toml is therefore a large change to a node whose app.toml was hand-tuned. Every declared key
 // the file leaves out moves to its declared value, and there are more than two hundred.
@@ -24,9 +29,10 @@
 //
 // # Refusing nothing
 //
-// Nothing here stops a node starting. Every failure leaves each key reading as it always did, and the node
-// starts: a missing sei.toml, an unreadable one, an unknown mode, a value that decodes to something else,
-// or a panic in the delivery. A mistyped line must not become an outage on the next restart.
+// Nothing this manager does stops a node starting. Every failure here leaves each key reading as it always
+// did, and the node starts: a missing sei.toml, an unreadable one, an unknown mode, a value that decodes to
+// something else, or a panic in the delivery. A mistyped line in this file must not become an outage on the
+// next restart. What the legacy files themselves refuse is theirs, and unchanged.
 //
 // A refusal covers one section, not the file, because a decode is all or nothing for what it is handed. An
 // operator who fixes one setting and mistypes another gets the first one.

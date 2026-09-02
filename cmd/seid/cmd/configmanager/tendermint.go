@@ -105,21 +105,14 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	//
 	// Cheap here and nowhere else, because this is the one place a copy exists to test. It also inherits
 	// the section-scoped refusal, so a bad value costs its own section and not the whole file.
-	// Against what the node already holds, not against the rules alone. ValidateBasic answers for the whole
-	// configuration, and the boot never applies it to an existing config.toml, so a node can already be in
-	// a state these rules reject. Refusing on that would blame this section for a failure it did not cause
-	// and leave every later change unable to land.
-	if err := candidate.ValidateBasic(); err != nil {
-		if already := ctx.Config.ValidateBasic(); already != nil {
-			log.Warn("this node's configuration already fails its own rules, so this section cannot be "+
-				"held to them; it is applied as written",
-				"section", name, "keys", strings.Join(keys, ","), "already", already)
-		} else {
-			log.Error("this section's written values leave the node's configuration invalid, so none of "+
-				"the section is applied and every one of its keys reads as it always has",
-				"section", name, "keys", strings.Join(keys, ","), "err", err)
-			return
-		}
+	// Held to this section's own rules, not the whole configuration's. The whole set stops at the first
+	// failing section, so a node already failing on one section makes every other section's failure
+	// unattributable, and a value written here lands under a line saying the node was already broken.
+	if err := whatTheSectionsOwnRulesSay(candidate, sectionPrefix(keys)); err != nil {
+		log.Error("this section's written values break its own rules, so none of the section is applied "+
+			"and every one of its keys reads as it always has",
+			"section", name, "keys", strings.Join(keys, ","), "err", err)
+		return
 	}
 
 	if err := publishNodeConfig(ctx.Config, candidate); err != nil {
@@ -234,46 +227,89 @@ func asSet(keys []string) map[string]struct{} {
 	return out
 }
 
-// applyResolvedLogLevel hands a resolved log level to the logger, which the struct alone does not reach.
+// applyTheLevelTheStructNowHolds hands the logger the level the node's configuration holds, which the
+// struct alone does not reach.
 //
 // The boot's handler reads the level off the struct and sets it before any of this runs. A value that only
 // reaches the struct therefore moves a field and changes no logging. This key space exists to remove a
 // setting that appears to take and does not.
 //
-// Applied whether a source supplied the level or not. The decode publishes whatever the resolution answered
-// into the struct, so a level nobody wrote still moves the field; returning early there would leave the
-// struct saying one level, the process running another, and the report naming a move that did not happen.
+// Read from the struct rather than from the resolution, and after the deliveries, so the two always agree.
+// The section carrying this key is refused as a whole when any of its values is wrong, and the resolution
+// still holds a level for it, so applying that would move the process while the struct kept what it had.
 //
-// Which value arrives is already decided: the resolution ranks a flag over the environment over the file.
 // A level that cannot be read is reported and skipped, and the node keeps the level it had.
-func applyResolvedLogLevel(resolved registry.Resolved, typed map[string]string, log *slog.Logger) {
+func applyTheLevelTheStructNowHolds(ctx *server.Context, typed map[string]string, log *slog.Logger) {
+	if ctx == nil || ctx.Config == nil {
+		return
+	}
+	text := ctx.Config.LogLevel
+
 	// The logger reads its own variable at start-up, under a different name from this key. The boot's own
 	// handler steps aside when that variable is set: a flag beats it, a file does not. Applying here
 	// regardless would put the file above it. An operator who exported a level and then adopted this file
-	// would find the exported level ignored. A typed flag still wins, which is
-	// the order that was already there.
+	// would find the exported level ignored. A typed flag still wins, which is the order that was already
+	// there.
 	if _, fromFlag := flagValues(typed)[logLevelKey]; !fromFlag {
 		if os.Getenv(loggerOwnVariable) != "" {
 			log.Info("a log level is set in the environment under the logger's own variable, which the "+
-				"node already applied; the level this file supplies is not used",
-				"variable", loggerOwnVariable, "ignored", resolved.Values[logLevelKey])
+				"node already applied; the level this node's configuration holds is not used",
+				"variable", loggerOwnVariable, "ignored", text)
 			return
 		}
 	}
-	text, isText := resolved.Values[logLevelKey].(string)
-	if !isText {
-		log.Error("the resolved log level is not text; the node keeps the level it already had",
-			"value", resolved.Values[logLevelKey])
-		return
-	}
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(text)); err != nil {
-		log.Error("the resolved log level cannot be read; the node keeps the level it already had",
-			"level", text, "err", err)
+		log.Error("the log level this node's configuration holds cannot be read; the node keeps the level "+
+			"it already had", "level", text, "err", err)
 		return
 	}
 	seilog.SetDefaultLevel(level, true)
 	// That set every logger in the process, this one included, so the floor goes back on.
 	keepOwnReportingVisible()
-	log.Info("resolved log level applied", "level", text)
+	log.Info("log level applied", "level", text)
+}
+
+// whatTheSectionsOwnRulesSay reports what this section's own rules say about a candidate.
+//
+// Each section type states its own, and the whole configuration's rules are those called in turn, stopping
+// at the first failure. So asking the whole set cannot say which section a failure belongs to: on a node
+// already failing elsewhere every answer is the other section's, and on a node that is not, a failure
+// anywhere reads as this section's.
+//
+// Returns nil for a section whose type states no rules of its own.
+func whatTheSectionsOwnRulesSay(candidate *tmcfg.Config, prefix string) error {
+	holder := reflect.ValueOf(candidate).Elem()
+	for i := 0; i < holder.NumField(); i++ {
+		field := holder.Type().Field(i)
+		tag := field.Tag.Get("mapstructure")
+		name := strings.Split(tag, ",")[0]
+		squashed := strings.Contains(tag, ",squash")
+
+		// A section with no prefix keeps its keys at the root of the file, which is the group the node's
+		// own type squashes in, so its rules are that group's.
+		if (prefix == "" && squashed) || (prefix != "" && name == prefix) {
+			value := holder.Field(i)
+			if value.Kind() == reflect.Pointer && value.IsNil() {
+				return nil
+			}
+			if rules, states := value.Interface().(interface{ ValidateBasic() error }); states {
+				return rules.ValidateBasic()
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// sectionPrefix returns the segment every key of a section shares, empty for a section whose keys sit at
+// the root of the file.
+func sectionPrefix(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	if at := strings.IndexByte(keys[0], '.'); at >= 0 {
+		return keys[0][:at]
+	}
+	return ""
 }

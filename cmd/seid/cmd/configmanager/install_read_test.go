@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/spf13/cobra"
@@ -357,32 +356,25 @@ func TestNothingIsDeliveredWhenTheNodeRunsWithNoKind(t *testing.T) {
 	}
 }
 
-// TestTheLevelFollowsTheStructEvenWhenNobodyWroteIt keeps three answers about the log level together.
+// TestTheLevelAppliedIsTheOneTheStructHolds keeps the process and the node's configuration together.
 //
-// The decode publishes whatever the resolution answered into the struct, so a level nobody wrote still
-// moves the field. Applying only what a source supplied left the struct saying one level, the process
-// running another, and the report naming a move that never reached the logger.
-func TestTheLevelFollowsTheStructEvenWhenNobodyWroteIt(t *testing.T) {
-	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{})
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	if _, wrote := resolved.Values[logLevelKey]; !wrote {
-		t.Fatalf("%s is not answered by an empty resolution, so this measures nothing", logLevelKey)
-	}
-	for _, key := range resolved.Overrides {
-		if key == logLevelKey {
-			t.Fatalf("a source supplied %s, and this case is about the level nobody wrote", logLevelKey)
-		}
-	}
+// The level reaches the struct through the section that carries it, and that section is refused as a whole
+// when any of its values is wrong. The resolution still holds a level either way, so applying that one
+// would move the process while the struct kept what it had, and the report would name a move the logger
+// never saw.
+func TestTheLevelAppliedIsTheOneTheStructHolds(t *testing.T) {
+	t.Setenv(loggerOwnVariable, "")
+
+	sctx := server.NewDefaultContext()
+	sctx.Config.LogLevel = "warn"
 
 	var out bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	applyResolvedLogLevel(resolved, map[string]string{}, log)
+	applyTheLevelTheStructNowHolds(sctx, map[string]string{}, log)
 
-	if !strings.Contains(out.String(), "resolved log level applied") {
-		t.Errorf("no source wrote the level and it was not applied, so the struct the decode publishes "+
-			"and the level the process runs at disagree:\n%s", out.String())
+	if !strings.Contains(out.String(), "log level applied") ||
+		!strings.Contains(out.String(), "warn") {
+		t.Errorf("the node's configuration holds warn and that is not what was applied:\n%s", out.String())
 	}
 }
 

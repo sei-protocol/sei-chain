@@ -469,9 +469,9 @@ func TestAValueTheNodesOwnRulesRejectIsRefused(t *testing.T) {
 
 // TestASectionLandsOnANodeAlreadyFailingItsOwnRules covers a node the boot never validated.
 //
-// The node's rules answer for the whole configuration, and a boot does not apply them to an existing
-// config.toml, so a node can already hold a value they reject. Refusing on that blames the section being
-// delivered for a failure it did not cause, and leaves every later change unable to land on that node.
+// A boot does not apply the node's rules to an existing config.toml, so a node can already hold a value
+// they reject. A section is held to its own rules, so a failure somewhere else is never asked about, and
+// refusing on one would blame this section for a failure it did not cause.
 func TestASectionLandsOnANodeAlreadyFailingItsOwnRules(t *testing.T) {
 	configtest.Isolate(t)
 
@@ -521,5 +521,35 @@ func TestAnEmptyValueIsRefusedRatherThanReadAsZero(t *testing.T) {
 					tc.section, tc.key, got, was)
 			}
 		})
+	}
+}
+
+// TestASectionBreakingItsOwnRulesIsRefusedEvenOnAnAlreadyInvalidNode is the other half of that.
+//
+// Holding a section to the whole configuration's rules cannot tell the two apart: the whole set stops at
+// the first failing section, so on a node already failing anywhere, a value written here fails the same
+// check and lands under a line saying the node was already broken.
+//
+// The already-invalid section has to sort after the one being delivered. Sections are delivered in order,
+// so an earlier one is corrected by its own declared values before a later one is ever checked, and the
+// case only shows up when the failure is still standing.
+func TestASectionBreakingItsOwnRulesIsRefusedEvenOnAnAlreadyInvalidNode(t *testing.T) {
+	configtest.Isolate(t)
+	const held = 77
+
+	alreadyInvalid := func(c *tmcfg.Config) {
+		// statesync sorts after rpc, so this is still failing when rpc is delivered.
+		c.StateSync.Enable = true
+		c.StateSync.UseP2P = false
+		c.StateSync.RPCServers = nil
+		// A distinctive value in the section being delivered, so a refusal cannot look like a delivery.
+		c.RPC.MaxSubscriptionClients = held
+	}
+	ctx := bootWithNodeFile(t, nodeFileHeader+"\n[rpc]\nmax-subscription-clients = -1\n", alreadyInvalid)
+
+	if got := ctx.Config.RPC.MaxSubscriptionClients; got != held {
+		t.Errorf("rpc.max-subscription-clients reads %d after a written value its own rules reject, want "+
+			"the %d the node held. A failure standing in a later section made this section's own failure "+
+			"read as somebody else's", got, held)
 	}
 }

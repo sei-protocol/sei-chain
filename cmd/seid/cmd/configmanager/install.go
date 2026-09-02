@@ -147,7 +147,7 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// reports that nothing was applied. Run first, those reports would be false for this one setting.
 	// They stay visible either way: this package holds its own logger at a floor, and each of them is a
 	// warning or an error.
-	applyResolvedLogLevel(resolved, typed, log)
+	applyTheLevelTheStructNowHolds(ctx, typed, log)
 	// Counted, not named. Both lists arrive sorted and the rendered one is capped, so naming them prints
 	// the same first ten names on every boot and never a value. read_here_first_count is the set the
 	// source did not already hold, which is the part most likely to change what the node runs.
