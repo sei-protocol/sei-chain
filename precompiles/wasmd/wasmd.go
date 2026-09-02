@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -31,14 +30,10 @@ const (
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
 const PrecompileName = "wasmd"
 
-const (
-	// MaxExecuteBatchMessages is the largest execute_batch message list.
-	MaxExecuteBatchMessages = 100
-	coinJSONParseFixedGas   = uint64(1_000)
-	coinJSONParseGasPerByte = uint64(100) // TODO: parameterize
+var (
+	Address                 = common.HexToAddress(WasmdAddress)
+	ErrExecuteBatchDisabled = errors.New("wasmd execute_batch is disabled")
 )
-
-var Address = common.HexToAddress(WasmdAddress)
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -104,7 +99,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	case ExecuteMethod:
 		return p.execute(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case ExecuteBatchMethod:
-		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
+		return nil, pcommon.GetRemainingGas(ctx, p.evmKeeper), ErrExecuteBatchDisabled
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
@@ -156,13 +151,13 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 	}
 	msg := args[2].([]byte)
 	label := args[3].(string)
+	coins := sdk.NewCoins()
 	coinsBz := args[4].([]byte)
-	parsedCoins, err := parseCoins(ctx, coinsBz)
-	if err != nil {
+
+	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		rerr = err
 		return
 	}
-	coins := parsedCoins[0]
 	coinsValue := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
 	if (value == nil && coinsValue.Sign() == 1) || (value != nil && coinsValue.Cmp(value) != 0) {
 		rerr = errors.New("coin amount must equal value specified")
@@ -208,138 +203,6 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 	return
 }
 
-func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
-	defer func() {
-		if err := recover(); err != nil {
-			ret = nil
-			remainingGas = 0
-			rerr = fmt.Errorf("%s", err)
-			return
-		}
-	}()
-	if readOnly {
-		rerr = errors.New("cannot call execute from staticcall")
-		return
-	}
-
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		rerr = err
-		return
-	}
-
-	executeMsgs := args[0].([]struct {
-		ContractAddress string `json:"contractAddress"`
-		Msg             []byte `json:"msg"`
-		Coins           []byte `json:"coins"`
-	})
-	if err := validateExecuteBatchSize(len(executeMsgs)); err != nil {
-		rerr = err
-		return
-	}
-
-	coinPayloads := make([][]byte, len(executeMsgs))
-	for i := range executeMsgs {
-		coinPayloads[i] = executeMsgs[i].Coins
-	}
-	coinsByMessage, err := parseCoins(ctx, coinPayloads...)
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	// validate coins add up to value
-	validateValue := big.NewInt(0)
-	for _, coins := range coinsByMessage {
-		messageAmount := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		validateValue.Add(validateValue, messageAmount)
-	}
-	// if validateValue is greater than zero, then value must be provided, and they must be equal
-	if (value == nil && validateValue.Sign() == 1) || (value != nil && validateValue.Cmp(value) != 0) {
-		rerr = errors.New("sum of coin amounts must equal value specified")
-		return
-	}
-	// Copy to avoid modifying the original value
-	var valueCopy *big.Int
-	if value != nil {
-		valueCopy = new(big.Int).Set(value)
-	} else {
-		valueCopy = value
-	}
-	responses := make([][]byte, 0, len(executeMsgs))
-	for i := 0; i < len(executeMsgs); i++ {
-		executeMsg := ExecuteMsg(executeMsgs[i])
-
-		// type assertion will always succeed because it's already validated in p.Prepare call in Run()
-		contractAddrStr := executeMsg.ContractAddress
-		if ctx.EVMPrecompileCalledFromDelegateCall() {
-			erc20pointer, _, erc20exists := p.evmKeeper.GetERC20CW20Pointer(ctx, contractAddrStr)
-			erc721pointer, _, erc721exists := p.evmKeeper.GetERC721CW721Pointer(ctx, contractAddrStr)
-			erc1155pointer, _, erc1155exists := p.evmKeeper.GetERC1155CW1155Pointer(ctx, contractAddrStr)
-			if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) && (!erc1155exists || erc1155pointer.Cmp(callingContract) != 0) {
-				return nil, 0, fmt.Errorf("%s is not a pointer of %s", callingContract.Hex(), contractAddrStr)
-			}
-		}
-
-		contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
-		if err != nil {
-			rerr = err
-			return
-		}
-		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
-		if !senderAssociated {
-			rerr = types.NewAssociationMissingErr(caller.Hex())
-			return
-		}
-		msg := executeMsg.Msg
-		coins := coinsByMessage[i]
-		useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
-		if valueCopy != nil && !useiAmt.IsZero() {
-			// process coin amount from the value provided
-			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
-			if err != nil {
-				rerr = err
-				return
-			}
-			valueCopy.Sub(valueCopy, useiAmtAsWei)
-			if valueCopy.Sign() == -1 {
-				rerr = errors.New("insufficient value provided for payment")
-				return
-			}
-			// sanity check coin amounts match
-			if !coin.Amount.Equal(useiAmt) {
-				rerr = errors.New("mismatch between coins and payment value")
-				return
-			}
-		}
-		// Run basic validation, can also just expose validateLabel and validate validateWasmCode in sei-wasmd
-		msgExecute := wasmtypes.MsgExecuteContract{
-			Sender:   senderAddr.String(),
-			Contract: contractAddr.String(),
-			Msg:      msg,
-			Funds:    coins,
-		}
-		if err := msgExecute.ValidateBasic(); err != nil {
-			rerr = err
-			return
-		}
-
-		res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
-		if err != nil {
-			rerr = err
-			return
-		}
-		responses = append(responses, res)
-	}
-	if valueCopy != nil && valueCopy.Sign() != 0 {
-		rerr = errors.New("value remaining after execution, must match provided amounts exactly")
-		return
-	}
-	ret, rerr = method.Outputs.Pack(responses)
-	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-	return
-}
-
 func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -380,13 +243,12 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 		return
 	}
 	msg := args[1].([]byte)
+	coins := sdk.NewCoins()
 	coinsBz := args[2].([]byte)
-	parsedCoins, err := parseCoins(ctx, coinsBz)
-	if err != nil {
+	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		rerr = err
 		return
 	}
-	coins := parsedCoins[0]
 	coinsValue := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
 	if (value == nil && coinsValue.Sign() == 1) || (value != nil && coinsValue.Cmp(value) != 0) {
 		rerr = errors.New("coin amount must equal value specified")
@@ -475,56 +337,4 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 
 func IsWasmdCall(to *common.Address) bool {
 	return to != nil && (to.Cmp(Address) == 0)
-}
-
-func validateExecuteBatchSize(size int) error {
-	if size > MaxExecuteBatchMessages {
-		return fmt.Errorf("too many execute_batch messages: got %d, maximum is %d", size, MaxExecuteBatchMessages)
-	}
-	return nil
-}
-
-// parseCoins charges for and decodes each JSON coin payload.
-func parseCoins(ctx sdk.Context, payloads ...[]byte) ([]sdk.Coins, error) {
-	ctx.GasMeter().ConsumeGas(coinJSONParseGas(payloads), "wasmd coin JSON parse")
-
-	coins := make([]sdk.Coins, len(payloads))
-	for i, payload := range payloads {
-		coins[i] = sdk.NewCoins()
-		if err := json.Unmarshal(payload, &coins[i]); err != nil {
-			return nil, err
-		}
-	}
-	return coins, nil
-}
-
-func coinJSONParseGas(payloads [][]byte) uint64 {
-	totalBytes := uint64(0)
-	for _, payload := range payloads {
-		totalBytes = saturatingAdd(totalBytes, uint64(len(payload)))
-	}
-	return coinJSONParseGasFor(uint64(len(payloads)), totalBytes)
-}
-
-func coinJSONParseGasFor(messageCount, totalBytes uint64) uint64 {
-	fixedGas := saturatingMul(coinJSONParseFixedGas, messageCount)
-	byteGas := saturatingMul(coinJSONParseGasPerByte, totalBytes)
-	return saturatingAdd(fixedGas, byteGas)
-}
-
-func saturatingMul(a, b uint64) uint64 {
-	if a == 0 || b == 0 {
-		return 0
-	}
-	if a > math.MaxUint64/b {
-		return math.MaxUint64
-	}
-	return a * b
-}
-
-func saturatingAdd(a, b uint64) uint64 {
-	if a > math.MaxUint64-b {
-		return math.MaxUint64
-	}
-	return a + b
 }

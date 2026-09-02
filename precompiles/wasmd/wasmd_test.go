@@ -25,6 +25,35 @@ func TestAddress(t *testing.T) {
 	require.Equal(t, "0x0000000000000000000000000000000000001002", p.Address().Hex())
 }
 
+func TestExecuteBatchDisabled(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithIsEVM(true)
+	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+
+	executor := p.GetExecutor().(*wasmd.PrecompileExecutor)
+	method, err := p.ABI.MethodById(executor.ExecuteBatchID)
+	require.NoError(t, err)
+	args, err := method.Inputs.Pack([]wasmd.ExecuteMsg{{Coins: []byte("{")}})
+	require.NoError(t, err)
+
+	stateDB := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	_, remainingGas, err := p.RunAndCalculateGas(
+		&vm.EVM{StateDB: stateDB},
+		common.Address{},
+		common.Address{},
+		append(executor.ExecuteBatchID, args...),
+		1_000_000,
+		nil,
+		nil,
+		false,
+		false,
+	)
+	require.Equal(t, vm.ErrExecutionReverted, err)
+	require.NotZero(t, remainingGas)
+	require.ErrorIs(t, stateDB.GetPrecompileError(), wasmd.ErrExecuteBatchDisabled)
+}
+
 func TestInstantiate(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
@@ -269,295 +298,6 @@ func TestQuery(t *testing.T) {
 	require.Equal(t, uint64(0), g)
 	args, _ = queryMethod.Inputs.Pack(contractAddr.String(), []byte("{\"bad\":{}}"))
 	_, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, nil, nil, false, false)
-	require.NotNil(t, err)
-	require.Equal(t, uint64(0), g)
-}
-
-func TestExecuteBatchOneMessage(t *testing.T) {
-	testApp := app.Setup(t, false, false, false)
-	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
-	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	ctx = ctx.WithIsEVM(true)
-	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
-	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
-	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
-	require.Nil(t, err)
-	codeID, err := wasmKeeper.Create(ctx, mockAddr, code, nil)
-	require.Nil(t, err)
-	contractAddr, _, err := wasmKeeper.Instantiate(ctx, codeID, mockAddr, mockAddr, []byte("{}"), "test", sdk.NewCoins())
-	require.Nil(t, err)
-
-	amts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000)))
-	testApp.BankKeeper.MintCoins(ctx, "evm", amts)
-	testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", mockAddr, amts)
-	testApp.BankKeeper.MintCoins(ctx, "evm", amts)
-	testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", mockAddr, amts)
-	amtsbz, err := amts.MarshalJSON()
-	require.Nil(t, err)
-	executeMethod, err := p.ABI.MethodById(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID)
-	require.Nil(t, err)
-	executeMsg := wasmd.ExecuteMsg{
-		ContractAddress: contractAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-	args, err := executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsg})
-	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm := vm.EVM{
-		StateDB: statedb,
-	}
-	suppliedGas := uint64(1000000)
-	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
-	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false, false)
-	require.Nil(t, err)
-	outputs, err := executeMethod.Outputs.Unpack(res)
-	require.Nil(t, err)
-	require.Equal(t, 1, len(outputs))
-	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string((outputs[0].([][]byte))[0]))
-	require.NotZero(t, g)
-	require.Equal(t, int64(1000), testApp.BankKeeper.GetBalance(statedb.Ctx(), contractAddr, "usei").Amount.Int64())
-
-	amtsbz, err = sdk.NewCoins().MarshalJSON()
-	require.Nil(t, err)
-	executeMsg = wasmd.ExecuteMsg{
-		ContractAddress: contractAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-	args, err = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsg})
-	require.Nil(t, err)
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false, false)
-	require.NotNil(t, err) // value and amounts not equal
-
-	// allowed delegatecall
-	contractAddrAllowed := common.BytesToAddress([]byte("contractA"))
-	testApp.EvmKeeper.SetERC20CW20Pointer(ctx, contractAddr.String(), contractAddrAllowed)
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrAllowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, false)
-	require.Nil(t, err)
-
-	// disallowed delegatecall
-	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, true)
-	require.NotNil(t, err)
-
-	// bad contract address
-	executeMsg = wasmd.ExecuteMsg{
-		ContractAddress: mockAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-	args, _ = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsg})
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, false)
-	require.NotNil(t, err)
-	require.Equal(t, uint64(0), g)
-
-	// bad inputs
-	executeMsg = wasmd.ExecuteMsg{
-		ContractAddress: "not bech32",
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-	args, _ = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsg})
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, false)
-	require.NotNil(t, err)
-	require.Equal(t, uint64(0), g)
-	executeMsg = wasmd.ExecuteMsg{
-		ContractAddress: contractAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           []byte("bad coins"),
-	}
-	args, _ = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsg})
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, false)
-	require.NotNil(t, err)
-	require.Equal(t, uint64(0), g)
-}
-
-func TestExecuteBatchValueImmutability(t *testing.T) {
-	testApp := app.Setup(t, false, false, false)
-	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
-	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	ctx = ctx.WithIsEVM(true)
-	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
-	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
-	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
-	require.Nil(t, err)
-	codeID, err := wasmKeeper.Create(ctx, mockAddr, code, nil)
-	require.Nil(t, err)
-	contractAddr, _, err := wasmKeeper.Instantiate(ctx, codeID, mockAddr, mockAddr, []byte("{}"), "test", sdk.NewCoins())
-	require.Nil(t, err)
-
-	amts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000)))
-	testApp.BankKeeper.MintCoins(ctx, "evm", amts)
-	testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", mockAddr, amts)
-	testApp.BankKeeper.MintCoins(ctx, "evm", amts)
-	testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", mockAddr, amts)
-	amtsbz, err := amts.MarshalJSON()
-	require.Nil(t, err)
-	executeMethod, err := p.ABI.MethodById(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID)
-	require.Nil(t, err)
-	executeMsg := wasmd.ExecuteMsg{
-		ContractAddress: contractAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-	args, err := executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsg})
-	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm := vm.EVM{
-		StateDB: statedb,
-	}
-	suppliedGas := uint64(1000000)
-	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
-	value := big.NewInt(1000_000_000_000_000)
-	valueCopy := new(big.Int).Set(value)
-	p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, value, nil, false, false)
-
-	require.Equal(t, valueCopy, value)
-}
-
-func TestExecuteBatchMultipleMessages(t *testing.T) {
-	testApp := app.Setup(t, false, false, false)
-	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
-	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	ctx = ctx.WithIsEVM(true)
-	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
-	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.Nil(t, err)
-	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
-	require.Nil(t, err)
-	codeID, err := wasmKeeper.Create(ctx, mockAddr, code, nil)
-	require.Nil(t, err)
-	contractAddr, _, err := wasmKeeper.Instantiate(ctx, codeID, mockAddr, mockAddr, []byte("{}"), "test", sdk.NewCoins())
-	require.Nil(t, err)
-
-	amts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000)))
-	largeAmts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(3000)))
-	testApp.BankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(13000))))
-	testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", mockAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(13000))))
-	amtsbz, err := amts.MarshalJSON()
-	require.Nil(t, err)
-	executeMethod, err := p.ABI.MethodById(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID)
-	require.Nil(t, err)
-	executeMsgWithCoinsAmt := wasmd.ExecuteMsg{
-		ContractAddress: contractAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-
-	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm := vm.EVM{
-		StateDB: statedb,
-	}
-	suppliedGas := uint64(1000000)
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
-	require.Nil(t, err)
-	args, err := executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgWithCoinsAmt, executeMsgWithCoinsAmt})
-	require.Nil(t, err)
-	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, big.NewInt(3000_000_000_000_000), nil, false, false)
-	require.Nil(t, err)
-	outputs, err := executeMethod.Outputs.Unpack(res)
-	require.Nil(t, err)
-	require.Equal(t, 1, len(outputs))
-	parsedOutputs := outputs[0].([][]byte)
-	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(parsedOutputs[0]))
-	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(parsedOutputs[1]))
-	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(parsedOutputs[2]))
-	require.NotZero(t, g)
-	require.Equal(t, int64(3000), testApp.BankKeeper.GetBalance(statedb.Ctx(), contractAddr, "usei").Amount.Int64())
-
-	amtsbz2, err := sdk.NewCoins().MarshalJSON()
-	require.Nil(t, err)
-	executeMsgWithNoCoins := wasmd.ExecuteMsg{
-		ContractAddress: contractAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz2,
-	}
-	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm = vm.EVM{
-		StateDB: statedb,
-	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
-	require.Nil(t, err)
-	args, err = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithNoCoins, executeMsgWithCoinsAmt, executeMsgWithNoCoins})
-	require.Nil(t, err)
-	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false, false)
-	require.Nil(t, err)
-	outputs, err = executeMethod.Outputs.Unpack(res)
-	require.Nil(t, err)
-	require.Equal(t, 1, len(outputs))
-	parsedOutputs = outputs[0].([][]byte)
-	require.Equal(t, fmt.Sprintf("received test msg from %s with", mockAddr.String()), string(parsedOutputs[0]))
-	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(parsedOutputs[1]))
-	require.Equal(t, fmt.Sprintf("received test msg from %s with", mockAddr.String()), string(parsedOutputs[2]))
-	require.NotZero(t, g)
-	require.Equal(t, int64(1000), testApp.BankKeeper.GetBalance(statedb.Ctx(), contractAddr, "usei").Amount.Int64())
-
-	// allowed delegatecall
-	args, err = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithNoCoins, executeMsgWithNoCoins})
-	require.Nil(t, err)
-	contractAddrAllowed := common.BytesToAddress([]byte("contractA"))
-	testApp.EvmKeeper.SetERC20CW20Pointer(ctx, contractAddr.String(), contractAddrAllowed)
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrAllowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, false)
-	require.Nil(t, err)
-
-	// disallowed delegatecall
-	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, true)
-	require.NotNil(t, err)
-
-	// bad contract address
-	executeMsgBadContract := wasmd.ExecuteMsg{
-		ContractAddress: mockAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm = vm.EVM{
-		StateDB: statedb,
-	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
-	require.Nil(t, err)
-	args, err = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgBadContract, executeMsgWithCoinsAmt})
-	require.Nil(t, err)
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, big.NewInt(3000_000_000_000_000), nil, false, false)
-	require.NotNil(t, err)
-	require.Equal(t, uint64(0), g)
-
-	// bad inputs
-	executeMsgBadInputs := wasmd.ExecuteMsg{
-		ContractAddress: "not bech32",
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           amtsbz,
-	}
-	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm = vm.EVM{
-		StateDB: statedb,
-	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
-	require.Nil(t, err)
-	args, _ = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgBadInputs, executeMsgWithCoinsAmt})
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, big.NewInt(3000_000_000_000_000), nil, false, false)
-	require.NotNil(t, err)
-	require.Equal(t, uint64(0), g)
-	executeMsgBadInputCoins := wasmd.ExecuteMsg{
-		ContractAddress: contractAddr.String(),
-		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
-		Coins:           []byte("bad coins"),
-	}
-	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	evm = vm.EVM{
-		StateDB: statedb,
-	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
-	require.Nil(t, err)
-	args, _ = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgBadInputCoins, executeMsgWithCoinsAmt})
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, big.NewInt(3000_000_000_000_000), nil, false, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 }
