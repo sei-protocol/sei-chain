@@ -10,8 +10,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -118,9 +120,9 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	committee, err := atypes.NewCommittee(map[atypes.PublicKey]uint64{key.Public(): 1})
 	require.NoError(t, err)
-	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime)
+	registry, err := epoch.NewRegistry(committee, atypes.GlobalBlockNumber(genDoc.InitialHeight), genDoc.GenesisTime, utils.None[string]())
 	require.NoError(t, err)
-	qc, blocks := data.TestCommitQC(rng, registry.LatestEpoch(), keys, utils.None[*atypes.CommitQC]())
+	qc, blocks := data.TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*atypes.CommitQC]())
 	gr := qc.QC().GlobalRange()
 	require.Greater(t, gr.Len(), 2)
 	last := gr.First + atypes.GlobalBlockNumber(gr.Len()/2)
@@ -144,4 +146,38 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	got, err := state.TryBlock(last)
 	require.NoError(t, err)
 	require.Equal(t, blocks[gr.Len()/2].Header().Hash(), got.Header().Hash())
+}
+
+func TestCommitteeWeights(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	wantPK := utils.OrPanic1(atypes.PublicKeyFromBytes(sk.Public().Bytes()))
+	got, err := committeeWeights([]abci.ValidatorUpdate{{
+		PubKey: crypto.PubKeyToProto(sk.Public()),
+		Power:  42,
+	}})
+	require.NoError(t, err)
+	require.Equal(t, map[atypes.PublicKey]uint64{wantPK: 42}, got)
+}
+
+func TestCommitteeWeights_SkipsZeroPower(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	got, err := committeeWeights([]abci.ValidatorUpdate{{
+		PubKey: crypto.PubKeyToProto(sk.Public()),
+		Power:  0,
+	}})
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestCommitteeWeights_DuplicateKey(t *testing.T) {
+	rng := utils.TestRng()
+	sk := ed25519.TestSecretKey(utils.GenBytes(rng, 32))
+	pk := crypto.PubKeyToProto(sk.Public())
+	_, err := committeeWeights([]abci.ValidatorUpdate{
+		{PubKey: pk, Power: 1},
+		{PubKey: pk, Power: 2},
+	})
+	require.Error(t, err)
 }

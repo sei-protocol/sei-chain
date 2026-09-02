@@ -145,7 +145,7 @@ func TestWriteSnapshotWithBuffer(t *testing.T) {
 			if tree.root == nil {
 				return 0, nil
 			}
-			if err := w.writeRecursive(tree.root); err != nil {
+			if err := w.writePostOrder(tree.root); err != nil {
 				return 0, err
 			}
 			return w.leafCounter, nil
@@ -208,6 +208,28 @@ func TestSnapshotWriterErrorHandling(t *testing.T) {
 	snapshotDir := "/invalid/path/that/does/not/exist"
 	err := tree.WriteSnapshot(context.Background(), snapshotDir)
 	require.Error(t, err)
+}
+
+func TestSnapshotWriterRejectsInvalidHashLengths(t *testing.T) {
+	t.Run("leaf", func(t *testing.T) {
+		var leaves bytes.Buffer
+		writer := &snapshotWriter{leavesWriter: &leaves}
+
+		err := writer.writeLeafDirect(1, 1, 0, nil)
+
+		require.ErrorContains(t, err, "invalid leaf hash size 0, expected 32")
+		require.Empty(t, leaves.Bytes())
+	})
+
+	t.Run("branch", func(t *testing.T) {
+		var nodes bytes.Buffer
+		writer := &snapshotWriter{nodesWriter: &nodes}
+
+		err := writer.writeBranchDirect(1, 2, 1, 0, 1, make([]byte, SizeHash-1))
+
+		require.ErrorContains(t, err, "invalid branch hash size 31, expected 32")
+		require.Empty(t, nodes.Bytes())
+	})
 }
 
 // TestEmptySnapshotWrite tests writing an empty snapshot

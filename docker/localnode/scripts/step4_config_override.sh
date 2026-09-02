@@ -1,11 +1,13 @@
 #!/usr/bin/env sh
 
 NODE_ID=${ID:-0}
+VALIDATOR=${VALIDATOR:-true}
 # Defaults mirror the app's DefaultConfig (giga+OCC on): unset runs what an
 # unconfigured seid would; only an explicit false selects V2.
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
 GIGA_OCC=${GIGA_OCC:-true}
 AUTOBAHN=${AUTOBAHN:-false}
+AUTOBAHN_EVMONLY_IN_MEMORY=${AUTOBAHN_EVMONLY_IN_MEMORY:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 # GIGA_FLATKV_ONLY=true boots the cluster directly in the terminal v3
 # steady state: all SC writes route to FlatKV and memiavl is not allocated.
@@ -30,6 +32,10 @@ TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
 cp build/generated/genesis.json ~/.sei/config/genesis.json
 cp "$APP_CONFIG_FILE" ~/.sei/config/app.toml
 cp "$TENDERMINT_CONFIG_FILE" ~/.sei/config/config.toml
+
+if [ "$VALIDATOR" != "true" ]; then
+  sed -i 's/^mode = "validator"/mode = "full"/' ~/.sei/config/config.toml
+fi
 
 # Override up persistent peers
 NODE_IP=$(hostname -i | awk '{print $1}')
@@ -163,8 +169,17 @@ if [ "$AUTOBAHN" = "true" ]; then
     NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
   done
 
-  # Generate autobahn config using seid
-  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+  if [ "$AUTOBAHN_EVMONLY_IN_MEMORY" = "true" ]; then
+    seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG" --persistent-state-dir=
+    sed -i 's/^evm-only-in-memory = .*/evm-only-in-memory = true/' ~/.sei/config/config.toml
+    sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
+    sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+    sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+    sed -i '/^\[grpc-web\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
+    echo "Enabled Autobahn EVM-only execution with only eth_sendRawTransaction RPC for node $NODE_ID"
+  else
+    seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+  fi
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then

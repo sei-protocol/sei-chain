@@ -12,12 +12,14 @@ import (
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "ss", "evm")
 
 var _ types.StateStore = (*EVMStateStore)(nil)
 var _ types.ContextIteratorStore = (*EVMStateStore)(nil)
@@ -31,6 +33,10 @@ type EVMStateStore struct {
 	dir         string
 	separateDBs bool
 	snapshotMgr *sssnapshot.Manager
+
+	// checkpoint holds the schedule this store takes its snapshot heights from, and tracks the
+	// snapshots in flight so Close can wait for them.
+	checkpoint checkpointState
 
 	externalPruning bool
 }
@@ -393,10 +399,6 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
-func (s *EVMStateStore) ExternalPruning() bool {
-	return s.externalPruning
-}
-
 func (s *EVMStateStore) snapshotSourceDirs() []string {
 	if !s.separateDBs {
 		return []string{s.dir}
@@ -416,6 +418,10 @@ func subDBPath(base string, storeType EVMStoreType) string {
 }
 
 func (s *EVMStateStore) Close() error {
+	// A snapshot being published reads and stamps these databases, so it has to finish before they
+	// close rather than race the shutdown.
+	s.stopCheckpoints()
+
 	var lastErr error
 	for _, db := range s.managedDBs {
 		if err := db.Close(); err != nil {
@@ -427,7 +433,7 @@ func (s *EVMStateStore) Close() error {
 
 func (s *EVMStateStore) SupportsCheckpoint() bool {
 	for _, db := range s.managedDBs {
-		if !controller.SupportsCheckpoint(db) {
+		if !sssnapshot.SupportsCheckpoint(db) {
 			return false
 		}
 	}
@@ -455,7 +461,7 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 			done(errors.New("EVM state store has no managed DB to checkpoint"))
 			return
 		}
-		controller.ScheduleCheckpoint(db, destDir, shouldRun, done)
+		sssnapshot.ScheduleCheckpoint(db, destDir, shouldRun, done)
 		return
 	}
 
@@ -465,10 +471,10 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 	}
 
 	storeTypes := AllEVMStoreTypes()
-	report := controller.FanIn(len(storeTypes), done)
+	report := sssnapshot.FanIn(len(storeTypes), done)
 	for _, storeType := range storeTypes {
 		name := StoreTypeName(storeType)
-		controller.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
+		sssnapshot.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
 			if err != nil {
 				err = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
 			}
@@ -483,11 +489,11 @@ func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) erro
 		if db == nil {
 			return errors.New("EVM state store has no managed DB to stamp")
 		}
-		return controller.SetCheckpointVersion(db, destDir, version)
+		return sssnapshot.SetCheckpointVersion(db, destDir, version)
 	}
 	for _, storeType := range AllEVMStoreTypes() {
 		name := StoreTypeName(storeType)
-		if err := controller.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
+		if err := sssnapshot.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
 			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", name, err)
 		}
 	}
@@ -506,7 +512,7 @@ func (s *EVMStateStore) StartSnapshots(
 		Backend:         ssConfig.Backend,
 		KeepRecent:      ssConfig.SnapshotKeepRecent,
 		ExternalPruning: ssConfig.ExternalPruning,
-		Scheduler:       s,
+		Checkpointer:    s,
 		Floor:           floor,
 	})
 	if err != nil {

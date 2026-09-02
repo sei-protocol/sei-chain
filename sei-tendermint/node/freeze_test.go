@@ -1,8 +1,18 @@
 package node
 
 import (
+	"errors"
+	"fmt"
 	"math"
+	"slices"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
+	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 func TestValidateFreezeHeight(t *testing.T) {
@@ -37,5 +47,97 @@ func TestWithFreezeHeight(t *testing.T) {
 	const height = uint64(123)
 	if got := resolveOptions(WithFreezeHeight(height)).freezeHeight; got != height {
 		t.Fatalf("freeze height = %d, want %d", got, height)
+	}
+}
+
+func TestValidateFreezeMode(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		mode         string
+		freezeHeight uint64
+		wantErr      bool
+	}{
+		{name: "disabled validator", mode: config.ModeValidator},
+		{name: "full node", mode: config.ModeFull, freezeHeight: 10},
+		{name: "validator", mode: config.ModeValidator, freezeHeight: 10, wantErr: true},
+		{name: "seed", mode: config.ModeSeed, freezeHeight: 10, wantErr: true},
+		{name: "unknown mode handled by node mode validation", mode: "unknown", freezeHeight: 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateFreezeMode(tc.mode, tc.freezeHeight)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateFreezeMode() error = %v, wantErr %t", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestFreezeModeDisablesMempoolTraffic(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), "freeze_mempool_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Mode = config.ModeFull
+	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
+	nodeService, err := newLocalNodeService(t.Context(), cfg, WithFreezeHeight(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := nodeService.(*nodeImpl)
+
+	if !node.mempool.IsPresent() {
+		t.Fatal("internal mempool is unavailable")
+	}
+	if !node.rpcEnv.Mempool.IsPresent() {
+		t.Fatal("RPC mempool reads are unavailable in freeze mode")
+	}
+	if !node.rpcEnv.ReadOnly {
+		t.Fatal("RPC writes are enabled in freeze mode")
+	}
+	txRequest := &coretypes.RequestBroadcastTx{Tx: types.Tx{1}}
+	for name, broadcast := range map[string]func() error{
+		"async": func() error {
+			_, err := node.rpcEnv.BroadcastTxAsync(t.Context(), txRequest)
+			return err
+		},
+		"sync": func() error {
+			_, err := node.rpcEnv.BroadcastTxSync(t.Context(), txRequest)
+			return err
+		},
+		"default": func() error {
+			_, err := node.rpcEnv.BroadcastTx(t.Context(), txRequest)
+			return err
+		},
+		"commit": func() error {
+			_, err := node.rpcEnv.BroadcastTxCommit(t.Context(), txRequest)
+			return err
+		},
+	} {
+		if err := broadcast(); !errors.Is(err, rpccore.ErrReadOnly) {
+			t.Fatalf("%s RPC transaction broadcast error = %v, want ErrReadOnly", name, err)
+		}
+	}
+	if _, err := node.rpcEnv.BroadcastEvidence(t.Context(), &coretypes.RequestBroadcastEvidence{}); !errors.Is(err, rpccore.ErrReadOnly) {
+		t.Fatalf("RPC evidence broadcast error = %v, want ErrReadOnly", err)
+	}
+	if pending, err := node.rpcEnv.UnconfirmedTxs(t.Context(), &coretypes.RequestUnconfirmedTxs{}); err != nil {
+		t.Fatalf("reading unconfirmed transactions: %v", err)
+	} else if pending.Total != 0 {
+		t.Fatalf("unconfirmed transaction total = %d, want 0", pending.Total)
+	}
+	for _, nodeService := range node.services {
+		if _, ok := nodeService.(*mempoolreactor.Reactor); ok {
+			t.Fatal("mempool reactor is enabled in freeze mode")
+		}
+	}
+	if err := node.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		node.Stop()
+		node.Wait()
+	})
+	if slices.Contains(node.NodeInfo().Channels, byte(mempoolreactor.MempoolChannel)) {
+		t.Fatal("mempool channel is advertised in freeze mode")
 	}
 }

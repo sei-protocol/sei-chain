@@ -437,7 +437,10 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	traceTxConfigProvider := traceCompatTxConfigProvider(b.txConfigProvider, b.isV65ActiveAtHeight, b.isV67ActiveAtHeight)
-	msgs := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
+	msgs, err := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
+	if err != nil {
+		return nil, nil, err
+	}
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg

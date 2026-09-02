@@ -11,8 +11,8 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -104,7 +104,7 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	returnedRemoteClients := map[*ethrpc.Client]struct{}{}
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
-		shardValidator := router.data.Registry().LatestEpoch().Committee().EvmShard(sender)
+		shardValidator := router.data.NextCommitEpoch().Load().Committee().EvmShard(sender)
 		expectedClient := clientByValidator[shardValidator]
 		proxyClient, ok := router.EvmProxy(sender).Get()
 		require.True(t, ok)

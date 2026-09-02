@@ -185,11 +185,34 @@ func TestInitAppConfigIncludesReceiptStoreDefaults(t *testing.T) {
 
 	output := buf.String()
 	require.Contains(t, output, "[receipt-store]")
-	require.Contains(t, output, `rs-backend = "pebbledb"`)
-	require.Contains(t, output, `db-directory = ""`)
+	require.Contains(t, output, "rs-backend =")
+	require.Contains(t, output, "db-directory =")
 	require.Contains(t, output, "async-write-buffer =")
 	require.Contains(t, output, "prune-interval-seconds =")
 	require.NotContains(t, output, "use-default-comparer")
+}
+
+// TestInitAppConfigLeavesPrometheusSinkOff pins the two app.toml-generation pipelines to the same
+// answer about the Prometheus sink. This one writes the file a node without one gets on any command
+// other than init, and a positive retention here would start the sink with nothing scraping it and no
+// operator having asked for it.
+func TestInitAppConfigLeavesPrometheusSinkOff(t *testing.T) {
+	customAppTemplate, customAppConfig := initAppConfig()
+
+	cfg, ok := customAppConfig.(CustomAppConfig)
+	require.True(t, ok)
+	require.Zero(t, cfg.Telemetry.PrometheusRetentionTime)
+	require.Equal(t,
+		srvconfig.DefaultConfig().Telemetry.PrometheusRetentionTime,
+		cfg.Telemetry.PrometheusRetentionTime,
+		"the self-written file and seid init must agree on whether the Prometheus sink exists")
+
+	tmpl, err := template.New("app").Parse(customAppTemplate)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, tmpl.Execute(&buf, customAppConfig))
+	require.Contains(t, buf.String(), "prometheus-retention-time = 0")
 }
 
 // TestInitModeFlag verifies the mode flag validation

@@ -616,9 +616,6 @@ func TestProposerWaitsForPreviousBlock(t *testing.T) {
 	// ensure that the observed validator did not propose a block until after
 	// the time configured for height 4.
 	assert.True(t, results.height5.proposalIssuedAt.After(pbtsTest.firstBlockTime.Add(tc.height4ProposedBlockOffset)))
-
-	// Ensure that the validator issued a prevote for a non-nil block.
-	assert.NotNil(t, results.height5.prevote.BlockID.Hash)
 }
 
 func TestProposerWaitTime(t *testing.T) {

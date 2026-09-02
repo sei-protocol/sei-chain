@@ -19,7 +19,7 @@ func TestAvailClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	committee := registry.LatestEpoch().Committee()
+	committee := registry.MustEpoch(0).Committee()
 	env := newTestEnv(registry)
 	var nodes []*testNode
 	activeKeys := keys[:3] // keys are sorted by weight, so that's ok.
@@ -112,7 +112,7 @@ func TestAvailClientServer(t *testing.T) {
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
-				if err := node.data.PushAppHash(ctx, n, h); err != nil {
+				if err := node.data.PushAppHash(ctx, n, h, nil); err != nil {
 					return fmt.Errorf("node.data.PushAppHash(): %w", err)
 				}
 			}

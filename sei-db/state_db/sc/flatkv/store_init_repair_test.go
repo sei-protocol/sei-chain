@@ -45,7 +45,7 @@ func reopenStore(t *testing.T, s *CommitStore, cfg *config.Config) *CommitStore 
 // requireAllDataDBsAt asserts every data DB records version.
 func requireAllDataDBsAt(t *testing.T, s *CommitStore, version int64, because ...string) {
 	t.Helper()
-	for _, ndb := range s.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, version, meta.CommittedVersion, "%s version record %s", ndb.dir, strings.Join(because, " "))
@@ -64,7 +64,7 @@ func TestRebuildTriggersOnlyAboveTheReachableVersion(t *testing.T) {
 	defer s.Close()
 	require.NoError(t, s.LoadLatest())
 	for i := int64(1); i <= 3; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 
 	reachable, err := latestVersion(cfg.DataDir, s.wal)
@@ -127,7 +127,7 @@ func TestTornSeedIsDiscardedAndCanBeReseeded(t *testing.T) {
 	// The caller re-seeds, and the version it asks for need not be the one that was interrupted.
 	require.NoError(t, reopened.SetInitialVersion(200))
 	require.Equal(t, int64(199), reopened.Version())
-	require.NoError(t, reopened.CommitBlock(200, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
+	require.NoError(t, reopened.CommitStateChanges(200, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
 	require.Equal(t, int64(200), reopened.Version())
 }
 
@@ -231,7 +231,7 @@ func TestTornCommitStillRecoversFromWAL(t *testing.T) {
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
 	requireAllDataDBsAt(t, s, 1)
 
 	rewindVersionRecords(t, s, 0, miscDBDir)
@@ -257,7 +257,7 @@ func TestLostVersionRecordWithMetadataRefuses(t *testing.T) {
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
 
 	// The per-module records under _meta/x:bank/ survive, which is what makes this distinguishable
 	// from a DB that was never written.
@@ -282,10 +282,10 @@ func TestIdentityRootsAtNonZeroVersionOpen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{
 		makeChangeSet(evmStorageKey(addrN(0x01), slotN(0x01)), padLeft32(0xAA), false),
 	}))
-	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{
+	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{
 		makeChangeSet(evmStorageKey(addrN(0x01), slotN(0x01)), nil, true),
 	}))
 	require.True(t, s.committedLtHash.IsZero(), "fixture precondition: the store root is the identity")
@@ -409,12 +409,12 @@ func TestDataDBAheadOfWALTouchedByReplayIsRebuilt(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{1})}))
-	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{2})}))
-	wantRoot := bytes.Clone(s.CommittedRootHash())
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{1})}))
+	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{bankPair([]byte("a"), []byte{2})}))
+	wantRoot := bytes.Clone(rootHash(s))
 
 	// Block 3 writes a different key, so replaying block 2 cannot overwrite it.
-	require.NoError(t, s.CommitBlock(3, []*proto.NamedChangeSet{bankPair([]byte("b"), []byte{3})}))
+	require.NoError(t, s.CommitStateChanges(3, []*proto.NamedChangeSet{bankPair([]byte("b"), []byte{3})}))
 
 	// Drop block 3 from the WAL, leaving misc holding its rows and recording version 3.
 	require.NoError(t, s.wal.Close())
@@ -436,7 +436,7 @@ func TestDataDBAheadOfWALTouchedByReplayIsRebuilt(t *testing.T) {
 	require.NoError(t, reopened.LoadLatest(), "the unreachable block is discarded, not carried forward")
 	require.Equal(t, int64(2), reopened.Version())
 	requireAllDataDBsAt(t, reopened, 2)
-	require.Equal(t, wantRoot, reopened.CommittedRootHash(),
+	require.Equal(t, wantRoot, rootHash(reopened),
 		"the root must be the one that belongs to the height the store reports")
 
 	_, found := reopened.Get(keys.BankStoreKey, []byte("b"))
@@ -454,7 +454,7 @@ func TestTwoDataDBsAheadAtDifferentVersions(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 	for i := int64(1); i <= 2; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 
 	rewindVersionRecords(t, s, 5, miscDBDir)

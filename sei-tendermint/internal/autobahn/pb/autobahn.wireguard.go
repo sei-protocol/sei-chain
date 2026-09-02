@@ -119,6 +119,18 @@ func (*ConsensusReq) MaxSize() int {
 	return 1111608
 }
 
+func (*Committee) MaxSize() int {
+	return 6200
+}
+
+func (*EpochRecord) MaxSize() int {
+	return 6214
+}
+
+func (*EpochMember) MaxSize() int {
+	return 60
+}
+
 func init() {
 	// Register the wireguard.Schema generated for autobahn.Timestamp.
 	runtime.MustRegister[*Timestamp](runtime.Schema{
@@ -275,7 +287,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for autobahn.PersistedInner.
 	runtime.MustRegister[*PersistedInner](runtime.Schema{
-		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*CommitQC]())},
+		9: {MaxCount: 1},
 		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*PrepareQC]())},
 		3: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
 		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
@@ -358,6 +370,29 @@ func init() {
 		7: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*SignedProposal]())},
 		4: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*FullTimeoutVote]())},
 		5: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*TimeoutQC]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.Committee.
+	runtime.MustRegister[*Committee](runtime.Schema{
+		1: {MaxCount: 100, Nested: utils.Some(reflect.TypeFor[*EpochMember]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.EpochRecord.
+	runtime.MustRegister[*EpochRecord](runtime.Schema{
+		1: {MaxCount: 1},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Committee]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.PersistedEpochRegistry.
+	runtime.MustRegister[*PersistedEpochRegistry](runtime.Schema{
+		1: {Nested: utils.Some(reflect.TypeFor[*EpochRecord]())},
+		2: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*EpochRecord]())},
+	})
+
+	// Register the wireguard.Schema generated for autobahn.EpochMember.
+	runtime.MustRegister[*EpochMember](runtime.Schema{
+		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*LaneID]())},
+		2: {MaxCount: 1},
 	})
 
 }

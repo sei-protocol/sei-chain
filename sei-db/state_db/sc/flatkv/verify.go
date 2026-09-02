@@ -4,23 +4,21 @@ import (
 	"bytes"
 	"fmt"
 
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
-// VerifyLtHash full-scans all four data DBs and checks the recomputed state
-// against the store's maintained metadata. In addition to the global
-// committedLtHash, it validates the per-DB, per-module decomposition that FlatKV
-// now persists (per-module LtHashes and per-module key/byte stats), catching
-// drift in that bookkeeping even when the global root still matches. Read-write
-// stores with uncommitted ApplyChangeSets writes are rejected (the on-disk scan
-// cannot see them).
+// VerifyLtHash scans all four data stores and checks the recomputed state against the store's maintained
+// metadata. Beyond the global root it validates the per-DB, per-module decomposition — per-module hashes
+// and per-module key/byte totals — catching drift in that bookkeeping even when the global root matches.
+// A store with a staged block is rejected: the scan sees that block's rows and the maintained hashes do
+// not.
 //
-// Buffers one DB's worth of KVs in memory at a time and is not cancellable.
+// Buffers one store's worth of KVs in memory at a time and is not cancellable.
 // Intended for tests and offline maintenance / migration checks; not suitable
 // for online verification of production-sized state.
-func VerifyLtHash(s Store) error {
+func VerifyLtHash(s giga.LiveStateStore) error {
 	cs, ok := s.(*CommitStore)
 	if !ok {
 		return fmt.Errorf("VerifyLtHash: unsupported store type %T", s)
@@ -29,44 +27,43 @@ func VerifyLtHash(s Store) error {
 }
 
 func verifyLtHashInternal(cs *CommitStore) error {
-	// A read-write store between ApplyChangeSets and Commit has
-	// workingLtHash != committedLtHash. The full scan below reads only
-	// persisted DB contents, so there is no way to validate the in-memory
-	// pending state against disk here. Fail loudly rather than masquerade
-	// a pending-writes situation as an integrity error.
-	if !cs.readOnly && !cs.workingLtHash.Equal(cs.committedLtHash) {
+	// The scan walks the stores, which merge a staged block's rows, while the hashes it is compared
+	// against do not account for that block until it is sealed. Refuse rather than report a healthy
+	// store as corrupt.
+	if cs.pendingBlockHeight != 0 {
 		return fmt.Errorf(
-			"VerifyLtHash: store has uncommitted writes at version %d; "+
+			"VerifyLtHash: store has uncommitted writes: block %d is staged; "+
 				"commit or reopen readonly before verifying",
-			cs.committedVersion,
+			cs.pendingBlockHeight,
 		)
+	}
+
+	// verifyPersistedDBMetadata reads the databases rather than the stores, so whatever the view managers have
+	// staged has to reach pebble before it can see it.
+	if err := cs.flushLatestVersion(); err != nil {
+		return fmt.Errorf("VerifyLtHash: flush before reading persisted metadata: %w", err)
 	}
 
 	// Recompute each DB's per-module hashes and stats from disk, validate the
 	// maintained per-module metadata against them, and accumulate the global
 	// root as the homomorphic sum of the derived per-DB roots.
 	global := lthash.New()
-	for _, ndb := range cs.namedDataDBs() {
-		if ndb.db == nil {
-			continue
-		}
-		scanHash, scanStats, err := scanDBByModule(ndb.db)
+	for _, store := range cs.stores {
+		scanHash, scanStats, err := scanStoreByModule(store)
 		if err != nil {
-			return fmt.Errorf("VerifyLtHash: scan %s: %w", ndb.dir, err)
+			return fmt.Errorf("VerifyLtHash: scan %s: %w", store.Name(), err)
 		}
-		dbRoot, err := cs.verifyDBModuleMetadata(ndb.dir, scanHash, scanStats)
+		dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), scanHash, scanStats)
 		if err != nil {
 			return err
 		}
-		if err := cs.verifyPersistedDBMetadata(ndb.dir, ndb.db, dbRoot); err != nil {
+		if err := cs.verifyPersistedDBMetadata(store.Name(), dbRoot); err != nil {
 			return err
 		}
 		global.MixIn(dbRoot)
 	}
 
-	// The full scan reflects on-disk (committed) state, so the only correct
-	// reference is committedLtHash. workingLtHash may include uncommitted
-	// ApplyChangeSets updates that have not yet been persisted.
+	// The scan reflects committed state, so committedLtHash is the reference.
 	if gc, cc := global.Checksum(), cs.committedLtHash.Checksum(); gc != cc {
 		return fmt.Errorf(
 			"VerifyLtHash: global mismatch at version %d\n  committed: %x\n  full-scan: %x",
@@ -76,14 +73,16 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	return nil
 }
 
-// scanDBByModule full-scans one data DB and returns, per module, the LtHash of
-// its keys and their key-count / byte footprint. Meta keys are skipped. Only
-// rows with a non-empty key and non-empty value are counted — the same
-// membership predicate foldChunk / serializeKV use for LtHash MixIn — so the
-// scan is directly comparable to the maintained per-module metadata. Module
-// membership uses the same physical-key routing the write path uses.
-func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
-	iter, err := db.NewIter(&seidbtypes.IterOptions{})
+// scanStoreByModule full-scans one data store and returns, per module, the
+// LtHash of its keys and their key-count / byte footprint. Only rows with a
+// non-empty key and non-empty value are counted — the same membership predicate
+// foldChunk / serializeKV use for LtHash MixIn — so the scan is directly
+// comparable to the maintained per-module metadata. Module membership uses the
+// same physical-key routing the write path uses.
+func scanStoreByModule(
+	store view.ViewManager,
+) (map[string]*lthash.LtHash, map[string]lthash.ModuleStats, error) {
+	iter, err := store.Iterator(nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open iterator: %w", err)
 	}
@@ -92,11 +91,9 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 	byModule := make(map[string][]lthash.KVPairWithLastValue)
 	stats := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
-		if ktype.IsMetaKey(iter.Key()) {
-			continue
-		}
 		// Match foldChunk / serializeKV: empty key or empty value is not a
-		// hash-set member and must not appear in stats.
+		// hash-set member and must not appear in stats. Reserved metadata keys are filtered by the
+		// store, so there is nothing to skip for them here.
 		if len(iter.Key()) == 0 || len(iter.Value()) == 0 {
 			continue
 		}
@@ -128,14 +125,10 @@ func scanDBByModule(db seidbtypes.KeyValueDB) (map[string]*lthash.LtHash, map[st
 	return hashes, stats, nil
 }
 
-// verifyPersistedDBMetadata reads one DB's LocalMeta off disk and checks its
-// version against the store's committed version and its root against scanRoot.
-func (cs *CommitStore) verifyPersistedDBMetadata(
-	dir string,
-	db seidbtypes.KeyValueDB,
-	scanRoot *lthash.LtHash,
-) error {
-	meta, err := loadLocalMeta(db)
+// verifyPersistedDBMetadata reads the named DB's LocalMeta off disk and checks its version against the
+// store's committed version and its root against scanRoot.
+func (cs *CommitStore) verifyPersistedDBMetadata(dir string, scanRoot *lthash.LtHash) error {
+	meta, err := loadLocalMeta(cs.rawDBFor(dir))
 	if err != nil {
 		return fmt.Errorf("VerifyLtHash: read %s persisted metadata: %w", dir, err)
 	}

@@ -203,9 +203,10 @@ message FullTimeoutVote {
 // Do NOT persist internal derived fields (e.g., cached computations, runtime state).
 // Derived fields are implementation-dependent and should be recomputed on load.
 message PersistedInner {
-  reserved "commit_vote", "prepare_vote";
-  reserved 4, 5;
-  optional CommitQC commit_qc = 1;
+  reserved "commit_vote", "prepare_vote", "commit_qc";
+  reserved 4, 5, 1;
+  // Index is the current view RoadIndex (ConsensusSpec.Index; 0 at genesis).
+  optional uint64 index = 9;
   optional PrepareQC prepare_qc = 2;
   optional TimeoutQC timeout_qc = 3;
 
@@ -314,4 +315,28 @@ message ConsensusReq {
     FullTimeoutVote timeout_vote = 4;
     TimeoutQC timeout_qc = 5;
   }
+}
+
+message Committee {
+  option (wireguard.sized) = true;
+  repeated EpochMember members = 1 [(wireguard.max_count) = 100];
+}
+
+// Committee for an execution-derived epoch.
+message EpochRecord {
+  option (wireguard.sized) = true;
+  optional uint64 index = 1; // required
+  optional Committee committee = 2; // required
+}
+
+// Persisted execution-derived epoch registry state.
+message PersistedEpochRegistry {
+  repeated EpochRecord live = 1;
+  optional EpochRecord pending = 2; // optional
+}
+
+message EpochMember {
+  option (wireguard.sized) = true;
+  optional LaneID lane_id = 1; // required
+  optional uint64 weight = 2; // required, can't be zero
 }

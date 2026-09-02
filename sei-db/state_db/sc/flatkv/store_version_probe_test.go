@@ -61,7 +61,7 @@ func TestGetLatestVersionFreshStore(t *testing.T) {
 func TestGetLatestVersionAfterCommits(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 3; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 	require.Equal(t, int64(3), requireProbeMatchesOpen(t, s, cfg))
 }
@@ -74,13 +74,13 @@ func TestGetLatestVersionAfterCommits(t *testing.T) {
 func TestGetLatestVersionWatermarksBehindWAL(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 3; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 	rewindVersionRecords(t, s, 2)
 
 	// Pin that the two candidate sources genuinely disagree here, so this test fails for an
 	// implementation that reads a watermark rather than for an implementation detail.
-	for _, ndb := range s.namedDataDBs() {
+	for _, ndb := range selectDataDBs(t, s, nil) {
 		meta, err := loadLocalMeta(ndb.db)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), meta.CommittedVersion, "%s watermark trails the WAL", ndb.dir)
@@ -112,11 +112,11 @@ func TestGetLatestVersionTornSeed(t *testing.T) {
 func TestGetLatestVersionSnapshotBehindWAL(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 2; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	for i := int64(3); i <= 5; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 
 	snapVersion, err := currentSnapshotVersion(cfg.DataDir)
@@ -130,9 +130,9 @@ func TestGetLatestVersionSnapshotBehindWAL(t *testing.T) {
 func TestGetLatestVersionWALWipedAfterSnapshot(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 2; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	resetWALForTest(t, s)
 
 	require.Equal(t, int64(2), requireProbeMatchesOpen(t, s, cfg))
@@ -145,7 +145,7 @@ func TestCommitStoreGetLatestVersionUsesMemoryWhileOpen(t *testing.T) {
 	s, _ := newProbeStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
 	got, err := s.GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), got)

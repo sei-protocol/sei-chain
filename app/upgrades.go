@@ -8,6 +8,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"golang.org/x/mod/semver"
 )
 
@@ -97,8 +98,10 @@ func (app *App) RegisterUpgradeHandlers() {
 				if err != nil {
 					return nil, err
 				}
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, storekeys.IBCStoreKey)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, capabilityModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
+				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
 				if err := migrateDelegationByValIndex(ctx, app); err != nil {
 					return nil, err
 				}

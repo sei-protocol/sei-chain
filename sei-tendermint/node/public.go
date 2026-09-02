@@ -7,6 +7,9 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
@@ -54,7 +57,14 @@ func New(
 	if err := validateNodeSetupConfig(conf); err != nil {
 		return nil, err
 	}
-	app = prepareApplication(conf, app)
+	opts := resolveOptions(nodeOptions...)
+	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
+		return nil, err
+	}
+	app, err := prepareApplication(conf, app)
+	if err != nil {
+		return nil, err
+	}
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -90,9 +100,6 @@ func New(
 			nodeOptions...,
 		)
 	case config.ModeSeed:
-		if resolveOptions(nodeOptions...).freezeHeight > 0 {
-			return nil, fmt.Errorf("freeze height is not supported in seed mode")
-		}
 		return makeSeedNode(
 			conf,
 			config.DefaultDBProvider,
@@ -104,19 +111,59 @@ func New(
 	}
 }
 
+func validateFreezeMode(mode string, freezeHeight uint64) error {
+	if freezeHeight == 0 || mode == config.ModeFull {
+		return nil
+	}
+	switch mode {
+	case config.ModeValidator, config.ModeSeed:
+		return fmt.Errorf("freeze height is not supported in %s mode", mode)
+	default:
+		return nil
+	}
+}
+
 func validateNodeSetupConfig(conf *config.Config) error {
 	if conf.MockApp && conf.AutobahnConfigFile == "" {
 		return fmt.Errorf("mock-app requires autobahn-config-file")
 	}
+	if conf.EVMOnlyInMemory && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("evm-only-in-memory requires autobahn-config-file")
+	}
 	return nil
 }
 
-func prepareApplication(conf *config.Config, app abci.Application) abci.Application {
+func prepareApplication(conf *config.Config, app abci.Application) (abci.Application, error) {
+	if conf.EVMOnlyInMemory {
+		validators, err := evmOnlyValidatorUpdates(conf.AutobahnConfigFile)
+		if err != nil {
+			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
+		}
+		logger.Warn("Autobahn EVM-only in-memory execution enabled; state is ephemeral and unsafe for persistent networks")
+		return p2p.NewEVMOnlyInMemoryApplication(config.AutobahnEVMOnlyInMemoryChainID, validators), nil
+	}
 	if conf.MockApp {
-		return NewMockApp(app)
+		return NewMockApp(app), nil
 	}
 	if conf.FastCheckTx {
-		return fastCheckTxApplication{Application: app}
+		return fastCheckTxApplication{Application: app}, nil
 	}
-	return app
+	return app, nil
+}
+
+func evmOnlyValidatorUpdates(autobahnConfigFile string) ([]abci.ValidatorUpdate, error) {
+	fc, _, err := loadAutobahnCommittee(autobahnConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	validators := make([]abci.ValidatorUpdate, len(fc.Validators))
+	for i, validator := range fc.Validators {
+		key, err := ed25519.PublicKeyFromBytes(validator.ValidatorKey.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("validator %d public key: %w", i, err)
+		}
+		// BuildDataState assigns unit voting power to every configured Autobahn validator.
+		validators[i] = abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: 1}
+	}
+	return validators, nil
 }

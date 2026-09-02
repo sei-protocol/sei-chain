@@ -41,6 +41,9 @@ type gigaRouterCommon struct {
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 	proxies utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 	app     *proxy.Proxy
+	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
+	// EvmProxy can Load() without taking the data lock on every call.
+	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
 
 	// inboundFullnodeCount tracks live non-committee inbound block-sync
 	// connections. Optimistic Add(1) + compare against cap; over-rejects
@@ -75,7 +78,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime)
+	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime, cfg.PersistentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
@@ -162,14 +165,7 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHea
 // without a nil-check on the same type. The "no such block" case is
 // rejected at the BlockByHash call site before delegating here.
 //
-// LastCommit is non-nil with empty Signatures, mirroring executeBlock's
-// FinalizeBlock call which passes an empty abci.CommitInfo. Under Autobahn
-// the committee is fixed by genesis (no validator-set updates), so the
-// application is not in control of jailing — surfacing N "absent sig"
-// entries here would make trace replay's BeginBlock bump missed-block
-// counters and diverge from production. ToReqBeginBlock skips the per-
-// validator loop when Signatures is empty, so empty Votes flow into
-// distribution/slashing on both paths.
+// LastCommit is non-nil with empty Signatures, matching executeBlock's empty CommitInfo.
 func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
@@ -188,7 +184,12 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 				Height: utils.Clamp[int64](gb.GlobalNumber),
 				Time:   gb.Timestamp,
 			},
-			Data:       types.Data{Txs: tmTxs},
+			Data: types.Data{Txs: tmTxs},
+			// Autobahn does not feed per-validator votes into the app. Filling N
+			// absent signatures would make trace replay's BeginBlock bump
+			// missed-block counters and diverge from production. ToReqBeginBlock
+			// skips the per-validator loop when Signatures is empty, so empty
+			// Votes flow into distribution/slashing on both paths.
 			LastCommit: &types.Commit{},
 		},
 	}
@@ -244,7 +245,11 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
-	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
+	weights, err := committeeWeights(app.GetValidators())
+	if err != nil {
+		return nil, err
+	}
+	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
@@ -430,7 +435,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
 		// once everyone votes on apphashes of a suffix of finalized blocks.
-		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash); err != nil {
+		weights, err := committeeWeights(app.GetValidators())
+		if err != nil {
+			return err
+		}
+		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash, weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
 	}
@@ -567,4 +576,31 @@ func (r *gigaRouterCommon) evmProxy(validator atypes.PublicKey) utils.Option[*et
 		}
 	}
 	return utils.None[*ethrpc.Client]()
+}
+
+// committeeWeights maps the bonded validator set after Commit to voting power.
+func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+	weights := make(map[atypes.PublicKey]uint64, len(vals))
+	for _, v := range vals {
+		if v.Power <= 0 {
+			continue
+		}
+		pk, err := crypto.PubKeyFromProto(v.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
+		}
+		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
+		}
+		if _, dup := weights[apk]; dup {
+			return nil, fmt.Errorf("duplicate public key %s", apk)
+		}
+		power, ok := utils.SafeCast[uint64](v.Power)
+		if !ok {
+			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
+		}
+		weights[apk] = power
+	}
+	return weights, nil
 }

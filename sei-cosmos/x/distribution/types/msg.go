@@ -158,6 +158,9 @@ func (msg MsgFundCommunityPool) ValidateBasic() error {
 	if !msg.Amount.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, msg.Amount.String())
 	}
+	if _, err := sdk.NewDecCoinsFromCoins(msg.Amount...); err != nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, err.Error())
+	}
 	if msg.Depositor == "" {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, msg.Depositor)
 	}

@@ -2,7 +2,6 @@ package lthash
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 )
@@ -23,16 +22,6 @@ const (
 	// a single chunk on one worker.
 	parallelThreshold = 1000
 )
-
-// OldValueReader reads the previously-committed serialized value for a set of
-// physical keys within a single logical DB (identified by dir). It is
-// implemented by the caller (the FlatKV store) over its underlying DBs plus any
-// pending-write overlay. Only keys that have a prior value appear in the result;
-// a key mapped to a nil value means "resolved, but no bytes to unmix" (e.g. the
-// key is pending a deletion earlier in the same block).
-type OldValueReader interface {
-	ReadOldValues(dir string, physKeys map[string]struct{}) (map[string][]byte, error)
-}
 
 // ModuleFunc extracts the owning module name from a physical key. Injected by
 // the caller so the HashCalculator stays decoupled from the key-encoding package.
@@ -60,10 +49,10 @@ type Result struct {
 // HashCalculator encapsulates the per-block lattice-hash pipeline over an
 // injected CPU-bound worker pool:
 //
-//  1. ReadOldValues — grab the prior value for each changed key (in parallel).
-//  2. Compute — hash individual keys and combine the per-worker results into
-//     the final per-module hashes, then derive each per-DB root and the global
-//     hash from those.
+// Compute hashes individual keys and combines the per-worker results into the
+// final per-module hashes, then derives each per-DB root and the global hash
+// from those. Callers supply the key/old-value/new-value triples; reading the
+// old values is not this package's job.
 //
 // The pool is supplied by the caller (the FlatKV store) rather than created
 // here. The HashCalculator does not own the pool and never closes it; pool
@@ -89,52 +78,6 @@ func NewHashCalculator(pool threading.Pool, dbDirs []string, moduleOf ModuleFunc
 		dbDirs:   append([]string(nil), dbDirs...),
 		moduleOf: moduleOf,
 	}
-}
-
-// ReadOldValues fetches prior serialized values for keysByDB (dir -> physical
-// keyset), reading each DB in parallel over the pool. This is step (1) of the
-// pipeline: "take the changed keys and grab the old value for each".
-func (c *HashCalculator) ReadOldValues(
-	reader OldValueReader,
-	keysByDB map[string]map[string]struct{},
-) (map[string]map[string][]byte, error) {
-	type job struct {
-		dir  string
-		keys map[string]struct{}
-	}
-	jobs := make([]job, 0, len(keysByDB))
-	for dir, keySet := range keysByDB {
-		if len(keySet) == 0 {
-			continue
-		}
-		jobs = append(jobs, job{dir: dir, keys: keySet})
-	}
-
-	out := make(map[string]map[string][]byte, len(jobs))
-	if len(jobs) == 0 {
-		return out, nil
-	}
-
-	results := make([]map[string][]byte, len(jobs))
-	errs := make([]error, len(jobs))
-	var wg sync.WaitGroup
-	wg.Add(len(jobs))
-	for i := range jobs {
-		idx := i
-		c.pool.Submit(func() {
-			defer wg.Done()
-			results[idx], errs[idx] = reader.ReadOldValues(jobs[idx].dir, jobs[idx].keys)
-		})
-	}
-	wg.Wait()
-
-	for i, err := range errs {
-		if err != nil {
-			return nil, fmt.Errorf("read old values for %s: %w", jobs[i].dir, err)
-		}
-		out[jobs[i].dir] = results[i]
-	}
-	return out, nil
 }
 
 // ModuleKey identifies a single (data DB dir, module) accumulator.

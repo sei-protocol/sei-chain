@@ -135,7 +135,7 @@ func parseConfig(args []string) (config, error) {
 	fs.IntVar(&cfg.builders, "builders", runtime.GOMAXPROCS(0), "parallel block builder goroutines")
 	fs.IntVar(&cfg.prepareWorkers, "prepare-workers", defaultPrepareWorkers(), "parallel block preparation workers for transaction decode and sender recovery")
 	fs.IntVar(&cfg.parseWorkers, "parse-workers", 0, "parallel transaction decode/sender recovery workers inside each prepared block; 0 defaults to 1 when prepare-workers > 1, otherwise GOMAXPROCS")
-	fs.IntVar(&cfg.workers, "workers", defaultWorkerCount, "parallel executor workers")
+	fs.IntVar(&cfg.workers, "workers", defaultWorkerCount, "ordered block executor workers; must be 1 for giga store commits")
 	fs.IntVar(&cfg.executorWorkers, "executor-workers", defaultExecutorWorkers(), "parallel OCC workers inside each executor")
 	fs.DurationVar(&cfg.reportInterval, "report-interval", defaultReportInterval, "stdout and rate-gauge reporting interval; 0 disables periodic reports")
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
@@ -237,6 +237,9 @@ func parseConfig(args []string) (config, error) {
 	}
 	if cfg.workers <= 0 {
 		return config{}, fmt.Errorf("workers must be positive")
+	}
+	if cfg.workers != 1 {
+		return config{}, fmt.Errorf("workers must be 1 for ordered giga store commits")
 	}
 	if cfg.executorWorkers <= 0 {
 		return config{}, fmt.Errorf("executor-workers must be positive")

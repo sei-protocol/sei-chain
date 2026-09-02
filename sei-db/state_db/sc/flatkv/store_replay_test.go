@@ -56,8 +56,9 @@ func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	// History legally begins at 10, so this is a lagging watermark rather than a store that skipped
 	// blocks 1-9.
 	require.NoError(t, s.SetInitialVersion(10))
-	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
-	hashAfterCommit := append([]byte(nil), s.RootHash()...)
+	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
+	require.Equal(t, int64(10), s.Version())
+	hashAfterCommit := append([]byte(nil), rootHash(s)...)
 
 	rewindVersionRecords(t, s, 9)
 	require.NoError(t, s.Close())
@@ -68,7 +69,7 @@ func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 
 	require.NoError(t, reopened.LoadLatest())
 	require.Equal(t, int64(10), reopened.Version())
-	require.Equal(t, hashAfterCommit, reopened.RootHash())
+	require.Equal(t, hashAfterCommit, rootHash(reopened))
 
 	height, found, err := reopened.GetBlockHeightModified(keys.EVMStoreKey, key)
 	require.NoError(t, err)
@@ -93,7 +94,7 @@ func gappedWALStore(t *testing.T, firstBlock int64) *CommitStore {
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.CommitBlock(firstBlock, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(firstBlock, []*proto.NamedChangeSet{cs}))
 	return s
 }
 
@@ -119,6 +120,7 @@ func TestCatchupAcceptsWALStartingExactlyAtReplayStart(t *testing.T) {
 	defer func() { require.NoError(t, s.Close()) }()
 
 	s.committedVersion = 9
+	require.NoError(t, s.sealBaseline(), "re-seal the baseline at the rewound height, as open would")
 	require.NoError(t, s.replayIntoMutableStore(0))
 	require.Equal(t, int64(10), s.committedVersion)
 }
@@ -135,7 +137,7 @@ func TestLoadVersionSurfacesCatchupGap(t *testing.T) {
 	require.NoError(t, s.SetInitialVersion(10))
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
-	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
 
 	// Rewind the persisted watermark so the reopened store needs blocks 6-9, which this WAL never held.
 	rewindVersionRecords(t, s, 5)
@@ -165,7 +167,7 @@ func TestReadOnlyServesSeededMidChainStore(t *testing.T) {
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	for _, v := range []int64{10, 11, 12} {
 		cs := makeChangeSet(key, padLeft32(byte(v)), false)
-		require.NoError(t, s.CommitBlock(v, []*proto.NamedChangeSet{cs}))
+		require.NoError(t, s.CommitStateChanges(v, []*proto.NamedChangeSet{cs}))
 	}
 
 	// The clone opens at the seeded snapshot (version 9) and replays 10-12 from the WAL.
@@ -191,11 +193,15 @@ func TestReadOnlySurfacesReplayGap(t *testing.T) {
 
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0xAB}, ktype.Slot{0xCD}))
 	commit := func(v int64, val byte) {
-		require.NoError(t, s.CommitBlock(v, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(val), false)}))
+		require.NoError(t, s.CommitStateChanges(v, []*proto.NamedChangeSet{makeChangeSet(key, padLeft32(val), false)}))
 	}
 	for v := int64(1); v <= 4; v++ {
 		commit(v, byte(v))
 	}
+
+	// CommitStateChanges offers snapshots to the writer without waiting, so wait here: the snapshots this
+	// falls back to have to be on disk before the WAL is wiped.
+	require.NoError(t, s.FlushSnapshots())
 
 	// Wipe the WAL and resume, so it no longer reaches back to the snapshot at version 2.
 	resetWALForTest(t, s)
@@ -289,13 +295,15 @@ func TestReplayBlocksReturnsAppliedCount(t *testing.T) {
 	}
 	require.Equal(t, int64(3), s.committedVersion)
 
-	// Rewind only the in-memory watermark so the WAL holds blocks the store must re-apply.
+	// Rewind the in-memory watermark so the WAL holds blocks the store must re-apply, and re-seal the
+	// baseline there, which is the pair of things open does before it replays.
 	s.committedVersion = 1
+	require.NoError(t, s.sealBaseline())
 	it, ok, err := s.openReplayIterator(s.committedVersion, 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	replayed, err := replayBlocks(s, it)
+	replayed, err := replayBlocks(s, it, nil)
 	require.NoError(t, err)
 	require.Equal(t, 2, replayed, "blocks 2 and 3 must be replayed and counted")
 	require.Equal(t, int64(3), s.committedVersion)
@@ -320,7 +328,7 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
 	}
 	primaryVersion := s.committedVersion
-	primaryHash := append([]byte(nil), s.RootHash()...)
+	primaryHash := append([]byte(nil), rootHash(s)...)
 
 	ro, err := s.LoadVersionReadOnly(2)
 	require.NoError(t, err)
@@ -328,7 +336,66 @@ func TestReplayIntoReadOnlyCopyDoesNotDisturbPrimary(t *testing.T) {
 
 	require.Equal(t, int64(2), ro.Version(), "the clone must land exactly on the requested version")
 	require.Equal(t, primaryVersion, s.committedVersion, "feeding a clone must not move the primary")
-	require.Equal(t, primaryHash, s.RootHash())
+	require.Equal(t, primaryHash, rootHash(s))
+}
+
+// A store that already holds the block being replayed must not have its recorded height written
+// backwards. Catch-up feeds each block only to the stores that need it, but the seal that follows
+// records metadata for every store, so a store sitting at a later height gets a note claiming an
+// earlier one — paired with the hash of the height it actually holds. The two halves of that note then
+// describe different moments, and if the process dies mid-catch-up it is the note that survives.
+//
+// The skew is the skip list, which is an argument to applyAndCommit, so no partial flush needs
+// manufacturing: hand it a list that marks the other stores as already holding a later block.
+func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+
+	for round := byte(1); round <= 4; round++ {
+		commitMixedState(t, s, round)
+	}
+	requireFlushedToDisk(t, s)
+	require.Equal(t, int64(4), s.Version())
+
+	// What each database recorded at block 4, which is the state it must keep.
+	before := make(map[string]*ktype.LocalMeta, len(dataDBDirs))
+	for _, dir := range dataDBDirs {
+		meta, err := loadLocalMeta(s.rawDBFor(dir))
+		require.NoError(t, err)
+		require.Equal(t, int64(4), meta.CommittedVersion, "%s must start at block 4", dir)
+		before[dir] = meta
+	}
+
+	// Replay block 3 with only the storage database behind. Every other store already holds block 4
+	// and is skipped, exactly as a catch-up after a partial flush would do.
+	skipped := []string{accountDBDir, codeDBDir, miscDBDir}
+	alreadyHave := map[string]int64{
+		accountDBDir: 4, codeDBDir: 4, miscDBDir: 4,
+		storageDBDir: 2,
+	}
+	// Open would have derived the committed version from the lowest height any store reached and sealed
+	// the baseline there, which is what a catch-up replays forward from.
+	s.committedVersion = 2
+	require.NoError(t, s.sealBaseline())
+
+	addr, slot := addrN(3), slotN(3)
+	block3 := []*proto.NamedChangeSet{namedCS(
+		noncePair(addr, 3),
+		codeHashPair(addr, codeHashN(3)),
+		codePair(addr, []byte{0x60, 0x80, 3}),
+		storagePair(addr, slot, []byte{3, 0xAA}),
+	)}
+	require.NoError(t, s.applyAndCommit(3, block3, alreadyHave))
+	requireFlushedToDisk(t, s)
+
+	for _, dir := range skipped {
+		meta, err := loadLocalMeta(s.rawDBFor(dir))
+		require.NoError(t, err)
+		require.Equal(t, int64(4), meta.CommittedVersion,
+			"%s skipped block 3, so its recorded height must not be rewound to 3", dir)
+		require.True(t, before[dir].LtHash.Equal(meta.LtHash),
+			"%s skipped block 3, so its recorded hash must not change", dir)
+	}
 }
 
 // TestReplayConvergesOnPartialAccountFieldWrites pins the one case where replaying
@@ -351,23 +418,23 @@ func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
 
 	addr := ktype.Address{0xAB}
 	// Block 1 sets the nonce, block 2 is unrelated, block 3 sets only the codehash.
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{{
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{{
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 7)}},
 	}}))
-	require.NoError(t, s.CommitBlock(2, []*proto.NamedChangeSet{{
+	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, ktype.Slot{0x01})),
 				Value: padLeft32(0x22)},
 		}},
 	}}))
-	require.NoError(t, s.CommitBlock(3, []*proto.NamedChangeSet{{
+	require.NoError(t, s.CommitStateChanges(3, []*proto.NamedChangeSet{{
 		Name:      keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{codePair(addr, []byte{0x60, 0x0A})}},
 	}}))
 
-	wantRoot := bytes.Clone(s.CommittedRootHash())
+	wantRoot := bytes.Clone(rootHash(s))
 	wantAccount, found := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	require.True(t, found)
 	require.NoError(t, s.Close())
@@ -386,7 +453,7 @@ func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
 	defer s3.Close()
 
 	require.Equal(t, int64(3), s3.Version())
-	require.Equal(t, wantRoot, s3.CommittedRootHash(),
+	require.Equal(t, wantRoot, rootHash(s3),
 		"rebuilding an account row through partial-field replays must land on the same root")
 	gotAccount, found := s3.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	require.True(t, found)

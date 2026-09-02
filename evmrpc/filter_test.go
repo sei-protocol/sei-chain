@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestNewPendingTransactionFilterNotSupported(t *testing.T) {
@@ -345,6 +347,47 @@ func TestFilterBlockFilter(t *testing.T) {
 		require.Equal(t, 66, len(hash))
 		require.Equal(t, "0x", hash[:2])
 	}
+}
+
+func TestFilterBlockFilterAutobahn(t *testing.T) {
+	t.Parallel()
+
+	// Setup: create a block filter on the notifier-backed HTTP server (TestMain).
+	resObj := sendRequest(t, TestNotifierHTTPPort, "newBlockFilter")
+	if errVal, ok := resObj["error"]; ok {
+		t.Fatal("newBlockFilter error:", errVal)
+	}
+	blockFilterId := resObj["result"].(string)
+
+	// Test: poll before any committed block.
+	resObj = sendRequest(t, TestNotifierHTTPPort, evmrpc.GetFilterChangesMethod, blockFilterId)
+	// Verify: empty array, not null.
+	hashesInterface, ok := resObj["result"].([]interface{})
+	require.True(t, ok, "getFilterChanges should return [] not null")
+	require.Empty(t, hashesInterface)
+
+	// Test: publish one Autobahn FinalizeBlock hash through the notifier.
+	hash := common.HexToHash("0x4242424242424242424242424242424242424242424242424242424242424242")
+	BlockFilterNotifierForTest.OnBlockCommitted(hash.Bytes(), &tmproto.Header{
+		Height: 1,
+		Time:   time.Unix(1_700_000_500, 0).UTC(),
+	}, &abci.ResponseFinalizeBlock{})
+
+	// Test: poll after the commit.
+	resObj = sendRequest(t, TestNotifierHTTPPort, evmrpc.GetFilterChangesMethod, blockFilterId)
+	if errVal, ok := resObj["error"]; ok {
+		t.Fatal("getFilterChanges error:", errVal)
+	}
+	// Verify: the filter returns that hash, not a zero Tendermint Header.Hash().
+	hashesInterface = resObj["result"].([]interface{})
+	require.Equal(t, []interface{}{hash.Hex()}, hashesInterface)
+
+	// Test: poll again with no new commits.
+	resObj = sendRequest(t, TestNotifierHTTPPort, evmrpc.GetFilterChangesMethod, blockFilterId)
+	// Verify: drained; empty array, not null.
+	hashesInterface, ok = resObj["result"].([]interface{})
+	require.True(t, ok, "exhausted getFilterChanges should return [] not null")
+	require.Empty(t, hashesInterface)
 }
 
 func TestFilterExpiration(t *testing.T) {

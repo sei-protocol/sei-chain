@@ -62,7 +62,7 @@ func runBlocks(t *testing.T, cs *CompositeCommitStore, workload *migrationWorklo
 	t.Helper()
 	for i := 0; i < n; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 }
@@ -79,7 +79,7 @@ func runUntilAtMigrationVersion(
 	t.Helper()
 	for i := 0; i < maxBlocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 		done, err := migration.IsAtVersion(flatKVReaderFor(cs), version)
 		require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.False(t, hasLatticeHash(cs),
@@ -266,7 +266,7 @@ func TestComposite_Auto_RestartResume(t *testing.T) {
 	cs := openAutoStore(t, dir, batch)
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
@@ -383,6 +383,18 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	runBlocks(t, src, workload, 1)
 	h := src.Version()
 
+	// FlatKV writes snapshots off the execution thread, so a commit returning no longer means its
+	// snapshot churn has finished. Exporting reads a snapshot by copying its directory, and pruning the
+	// oldest snapshot is the last step of publishing a new one, so without this wait the writer can
+	// delete the directory the export is part way through copying.
+	//
+	// Reached through the concrete store because quiescing the writer is not part of the giga.LiveStateStore
+	// abstraction: no production caller needs it, and this test only does because it drives commits and
+	// reads from one goroutine and so has a quiet period to establish.
+	flatKVStore, ok := src.flatKV.(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
 	items := drainCompositeExporter(t, exp)
@@ -455,7 +467,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	// commits.
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -484,7 +496,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 			"memiavl StoreInfos must stay in the commit info while the bank migration is in flight")
 		sawMidFlight = true
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.True(t, sawMidFlight,
@@ -553,7 +565,7 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 	for i := 0; i < 5; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
@@ -591,7 +603,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 				{Key: []byte("k"), Value: valAt(i)},
 			}}},
 		}))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -600,7 +612,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	for i := 0; i < 3; i++ {
 		require.NoError(t, cs.ApplyChangeSets(nil))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 

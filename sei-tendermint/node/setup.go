@@ -14,10 +14,10 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
@@ -633,6 +633,7 @@ func makeNodeInfo(
 	eventSinks []indexer.EventSink,
 	genDoc *types.GenesisDoc,
 	versionInfo version.Consensus,
+	mempoolP2PEnabled bool,
 ) (types.NodeInfo, error) {
 
 	txIndexerStatus := "off"
@@ -641,29 +642,35 @@ func makeNodeInfo(
 		txIndexerStatus = "on"
 	}
 
+	channels := []byte{
+		byte(blocksync.BlockSyncChannel),
+		byte(consensus.StateChannel),
+		byte(consensus.DataChannel),
+		byte(consensus.VoteChannel),
+		byte(consensus.VoteSetBitsChannel),
+	}
+	if mempoolP2PEnabled {
+		channels = append(channels, byte(mempoolreactor.MempoolChannel))
+	}
+	channels = append(channels,
+		byte(evidence.EvidenceChannel),
+		byte(statesync.SnapshotChannel),
+		byte(statesync.ChunkChannel),
+		byte(statesync.LightBlockChannel),
+		byte(statesync.ParamsChannel),
+	)
+
 	nodeInfo := types.NodeInfo{
 		ProtocolVersion: types.ProtocolVersion{
 			P2P:   version.P2PProtocol, // global
 			Block: versionInfo.Block,
 			App:   versionInfo.App,
 		},
-		NodeID:  nodeKey.ID(),
-		Network: genDoc.ChainID,
-		Version: version.TMVersion,
-		Channels: []byte{
-			byte(blocksync.BlockSyncChannel),
-			byte(consensus.StateChannel),
-			byte(consensus.DataChannel),
-			byte(consensus.VoteChannel),
-			byte(consensus.VoteSetBitsChannel),
-			byte(mempoolreactor.MempoolChannel),
-			byte(evidence.EvidenceChannel),
-			byte(statesync.SnapshotChannel),
-			byte(statesync.ChunkChannel),
-			byte(statesync.LightBlockChannel),
-			byte(statesync.ParamsChannel),
-		},
-		Moniker: cfg.Moniker,
+		NodeID:   nodeKey.ID(),
+		Network:  genDoc.ChainID,
+		Version:  version.TMVersion,
+		Channels: channels,
+		Moniker:  cfg.Moniker,
 		Other: types.NodeInfoOther{
 			TxIndex:    txIndexerStatus,
 			RPCAddress: cfg.RPC.ListenAddress,

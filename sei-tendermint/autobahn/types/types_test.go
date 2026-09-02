@@ -139,6 +139,35 @@ func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
 	}
 }
 
+func TestAppProposalConvDecode_RequiredFields(t *testing.T) {
+	rng := utils.TestRng()
+	base := AppProposalConv.Encode(GenAppProposal(rng))
+	if _, err := AppProposalConv.Decode(base); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		mut  func(*pb.AppProposal)
+	}{
+		{"road_index", func(p *pb.AppProposal) { p.RoadIndex = nil }},
+		{"epoch_index", func(p *pb.AppProposal) { p.EpochIndex = nil }},
+		{"global_first", func(p *pb.AppProposal) { p.GlobalFirst = nil }},
+		{"global_next", func(p *pb.AppProposal) { p.GlobalNext = nil }},
+		{"app_hash nil", func(p *pb.AppProposal) { p.AppHash = nil }},
+		{"app_hash empty", func(p *pb.AppProposal) { p.AppHash = []byte{} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := AppProposalConv.Encode(GenAppProposal(rng))
+			tc.mut(p)
+			if _, err := AppProposalConv.Decode(p); err == nil {
+				t.Fatal("Decode() succeeded, want error")
+			}
+		})
+	}
+}
+
 // TestNewTimeoutQC_MixedPrepareQCs verifies quorum-intersection behavior:
 // even if only one vote carries a PrepareQC, NewTimeoutQC picks it up
 // and Verify accepts the result.
@@ -148,7 +177,7 @@ func TestNewTimeoutQC_MixedPrepareQCs(t *testing.T) {
 	ep := NewEpoch(GenEpochIndex(rng), OpenRoadRange(), utils.GenTimestamp(rng), committee, GlobalBlockNumber(rng.Uint64()%1000000)+1)
 	view := View{Index: 0, Number: 0, EpochIndex: ep.EpochIndex()}
 
-	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view)))
+	pqc := makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, view, ep.FirstBlock())))
 
 	// Only keys[0] carries the PrepareQC; the rest carry None.
 	votes := make([]*FullTimeoutVote, len(keys))
@@ -202,7 +231,7 @@ func TestTimeoutQCVerify_HighestPrepareQCSelected(t *testing.T) {
 
 	makePQCAt := func(vn ViewNumber) *PrepareQC {
 		pView := View{Index: 0, Number: vn, EpochIndex: ep.EpochIndex()}
-		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView)))
+		return makePrepareQC(keys, NewPrepareVote(ProposalAt(ep, pView, ep.FirstBlock())))
 	}
 
 	// keys[0] has PrepareQC at view number 2, keys[1] at 4, rest None.

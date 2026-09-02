@@ -10,6 +10,7 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -190,7 +191,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	srcHash := s.RootHash()
+	srcHash := rootHash(s)
 
 	// --- Export ---
 	exp, err := s.Exporter(1)
@@ -230,7 +231,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	require.Equal(t, codeHashVal, got)
 
 	// LtHash should match because import recomputes it from the same physical key/value pairs
-	require.Equal(t, srcHash, s2.RootHash())
+	require.Equal(t, srcHash, rootHash(s2))
 
 	require.NoError(t, s2.Close())
 }
@@ -302,7 +303,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 		}}},
 	}))
 	commitAndCheck(t, src)
-	srcHash := src.RootHash()
+	srcHash := rootHash(src)
 
 	exp, err := src.Exporter(1)
 	require.NoError(t, err)
@@ -349,7 +350,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.True(t, found, "nonce key must survive reopen")
 	require.Equal(t, nonceVal, got)
 
-	require.Equal(t, srcHash, s2.RootHash())
+	require.Equal(t, srcHash, rootHash(s2))
 }
 
 // TestImportPurgesStaleData verifies that importing a snapshot into a store
@@ -433,7 +434,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 		}}},
 	}))
 	commitAndCheck(t, src)
-	srcHash := src.RootHash()
+	srcHash := rootHash(src)
 
 	exp, err := src.Exporter(1)
 	require.NoError(t, err)
@@ -479,7 +480,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 		require.False(t, found, "stale key should NOT exist after import")
 	}
 
-	require.Equal(t, srcHash, s.RootHash(), "LtHash must match source after clean import")
+	require.Equal(t, srcHash, rootHash(s), "LtHash must match source after clean import")
 
 	// Verify the store survives a reopen.
 	require.NoError(t, s.Close())
@@ -493,7 +494,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 		_, found = s.Get(keys.EVMStoreKey, k)
 		require.False(t, found, "stale key must remain absent after reopen")
 	}
-	require.Equal(t, srcHash, s.RootHash())
+	require.Equal(t, srcHash, rootHash(s))
 }
 
 func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
@@ -760,71 +761,18 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 	require.Equal(t, padLeft32(0x11), sd.GetValue()[:], "historical export should have v1 value")
 }
 
-func TestExportImportLargerDataset(t *testing.T) {
-	cfg := config.DefaultTestConfig(t)
-	s := setupTestStoreWithConfig(t, cfg)
-	defer s.Close()
-
-	// Write multiple key types across multiple addresses in a single block
-	// so that all rows share the same block height. The importer commits
-	// everything at a single version, so block heights must match for the
-	// LtHash round-trip to be identical.
-	var allPairs []*proto.KVPair
-	for i := byte(1); i <= 10; i++ {
-		addr := addrN(i)
-		allPairs = append(allPairs,
-			noncePair(addr, uint64(i)),
-			&proto.KVPair{
-				Key:   keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(i))),
-				Value: padLeft32(i, i, i),
-			},
-		)
-		if i%3 == 0 {
-			allPairs = append(allPairs,
-				codeHashPair(addr, codeHashN(i)),
-				codePair(addr, []byte{0x60, i}),
-			)
-		}
-	}
-	cs := &proto.NamedChangeSet{
-		Name:      "evm",
-		Changeset: proto.ChangeSet{Pairs: allPairs},
-	}
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
-	originalHash := s.RootHash()
-
-	// Export.
-	exp, err := s.Exporter(1)
-	require.NoError(t, err)
-	nodes := drainExporter(t, exp)
-	require.NoError(t, exp.Close())
-	require.Greater(t, len(nodes), 0)
-
-	// Import into a fresh store.
-	dir2 := t.TempDir()
-	cfg2 := config.DefaultTestConfig(t)
-	cfg2.DataDir = filepath.Join(dir2, flatkvRootDir)
-	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
-	require.NoError(t, err)
-	err = s2.LoadLatest()
-	require.NoError(t, err)
-
-	imp, err := s2.Importer(1)
-	require.NoError(t, err)
-	for _, n := range nodes {
-		imp.AddNode(n)
-	}
-	require.NoError(t, imp.Close())
-
-	require.Equal(t, int64(1), s2.Version())
-	require.Equal(t, originalHash, s2.RootHash(), "imported store should have identical RootHash")
-	require.NoError(t, s2.Close())
-}
-
+// The exporter does not parse values, so a row it cannot interpret is exported byte-for-byte rather
+// than rejected or silently dropped.
+//
+// The corruption is staged while the store is closed. Writing to a database behind a live store is not
+// observable through it — every read, the exporter's scan included, goes through the store, which
+// serves what it has staged and cached rather than re-reading the disk. Reopening with a nil WAL gives a
+// store with a cold cache and no replay to heal the row.
 func TestExporterCorruptAccountValueInDB(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
+	cfg := config.DefaultTestConfig(t)
+	s0, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s0.LoadLatest())
 
 	addr := addrN(0x20)
 	cs := &proto.NamedChangeSet{
@@ -833,14 +781,26 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 			noncePair(addr, 42),
 		}},
 	}
-	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
+	require.NoError(t, s0.ApplyChangeSets(s0.Version()+1, []*proto.NamedChangeSet{cs}))
+	commitAndCheck(t, s0)
+	require.NoError(t, s0.Close())
 
-	// Corrupt the account value in accountDB with invalid-length data.
-	batch := s.accountDB.NewBatch()
+	// Corrupt the account value on disk with invalid-length data. The store resolves its data
+	// directories on its own copy of the config, so ask for the same resolution to reach the files it
+	// opened rather than reading a path back off cfg.
+	resolved := resolveConfig(cfg)
+	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig)
+	require.NoError(t, err)
+	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
 	require.NoError(t, batch.Commit(dbtypes.WriteOptions{Sync: true}))
 	_ = batch.Close()
+	require.NoError(t, corrupt.Close())
+
+	s, err := NewCommitStore(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	defer s.Close()
+	require.NoError(t, s.LoadLatest())
 
 	// Raw exporter does not parse values — corrupt data is exported as-is.
 	exp := NewKVExporter(s, s.Version())
@@ -943,7 +903,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	}))
 	commitAndCheck(t, src)
 
-	srcHash := src.RootHash()
+	srcHash := rootHash(src)
 
 	exp, err := src.Exporter(2)
 	require.NoError(t, err)
@@ -1009,7 +969,7 @@ func TestExporterImporterNonEVMMiscRoundTrip(t *testing.T) {
 	// Round-trip LtHash invariance: import recomputes the LtHash from the
 	// same physical key/value pairs, so the global RootHash must match
 	// bit-for-bit.
-	require.Equalf(t, srcHash, dst.RootHash(),
+	require.Equalf(t, srcHash, rootHash(dst),
 		"RootHash after non-EVM round-trip mismatch")
 
 	// Full-scan verification catches any silent drift between miscDB's

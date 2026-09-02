@@ -5,9 +5,9 @@
     "MinimumNumberOfColdAccounts": 1000000,
     "MinimumNumberOfDormantAccounts": 100000000,
     "FlatKVConfig": {
-        "AccountCacheConfig": { "MaxSize": 1073741824 },
-        "CodeCacheConfig": { "MaxSize": 1073741824 },
-        "StorageCacheConfig": { "MaxSize": 4294967296 }
+        "AccountStoreConfig": { "MaxSize": 1073741824 },
+        "CodeStoreConfig": { "MaxSize": 1073741824 },
+        "StorageStoreConfig": { "MaxSize": 4294967296 }
     }
 }
 

@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -22,11 +23,17 @@ import (
 // Test Helpers
 // =============================================================================
 
+// namedDB pairs a data DB's directory name with the raw handle beneath its view manager.
+type namedDB struct {
+	dir string
+	db  types.KeyValueDB
+}
+
 // rewindVersionRecords rewrites every data DB's version record, lowering the
 // store's watermark the way a torn commit does. Pass one dir to skew a single DB.
 func rewindVersionRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
 	t.Helper()
-	for _, ndb := range selectDataDBs(s, dirs) {
+	for _, ndb := range selectDataDBs(t, s, dirs) {
 		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version),
 			types.WriteOptions{Sync: true}))
 	}
@@ -39,7 +46,7 @@ func rewindVersionRecords(t *testing.T, s *CommitStore, version int64, dirs ...s
 func stampSeedRecords(t *testing.T, s *CommitStore, version int64, dirs ...string) {
 	t.Helper()
 	opts := types.WriteOptions{Sync: true}
-	for _, ndb := range selectDataDBs(s, dirs) {
+	for _, ndb := range selectDataDBs(t, s, dirs) {
 		require.NoError(t, ndb.db.Set(ktype.MetaVersionKey, versionToBytes(version), opts))
 		require.NoError(t, ndb.db.Set(ktype.MetaLtHashKey, lthash.New().Marshal(), opts))
 	}
@@ -50,7 +57,7 @@ func stampSeedRecords(t *testing.T, s *CommitStore, version int64, dirs ...strin
 func stripMetaRecords(t *testing.T, s *CommitStore, dirs ...string) {
 	t.Helper()
 	opts := types.WriteOptions{Sync: true}
-	for _, ndb := range selectDataDBs(s, dirs) {
+	for _, ndb := range selectDataDBs(t, s, dirs) {
 		require.NoError(t, ndb.db.Delete(ktype.MetaVersionKey, opts))
 		require.NoError(t, ndb.db.Delete(ktype.MetaLtHashKey, opts))
 	}
@@ -60,26 +67,28 @@ func stripMetaRecords(t *testing.T, s *CommitStore, dirs ...string) {
 // DB, bypassing the commit path so the DB holds data no metadata accounts for.
 func writeRawDataKey(t *testing.T, s *CommitStore, dir string, key, value []byte) {
 	t.Helper()
-	db, err := s.dataDBByDir(dir)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(key, value, types.WriteOptions{Sync: true}))
+	for _, ndb := range selectDataDBs(t, s, []string{dir}) {
+		require.NoError(t, ndb.db.Set(key, value, types.WriteOptions{Sync: true}))
+	}
 }
 
-// selectDataDBs returns the store's data DBs named by dirs, or all of them when
-// dirs is empty.
-func selectDataDBs(s *CommitStore, dirs []string) []namedDB {
+// selectDataDBs returns the raw databases named by dirs, or all four when dirs is empty.
+//
+// It waits for the view managers to flush first, which is what makes a forgery written through the returned
+// handles stick: the managers write asynchronously, so a record already staged would otherwise land on
+// top of whatever the caller writes next.
+func selectDataDBs(t *testing.T, s *CommitStore, dirs []string) []namedDB {
+	t.Helper()
+	requireFlushedToDisk(t, s)
+
 	if len(dirs) == 0 {
-		return s.namedDataDBs()
-	}
-	wanted := make(map[string]struct{}, len(dirs))
-	for _, d := range dirs {
-		wanted[d] = struct{}{}
+		dirs = dataDBDirs
 	}
 	selected := make([]namedDB, 0, len(dirs))
-	for _, ndb := range s.namedDataDBs() {
-		if _, ok := wanted[ndb.dir]; ok {
-			selected = append(selected, ndb)
-		}
+	for _, dir := range dirs {
+		db := s.rawDBFor(dir)
+		require.NotNil(t, db, "no view manager for %s", dir)
+		selected = append(selected, namedDB{dir: dir, db: db})
 	}
 	return selected
 }
@@ -123,9 +132,7 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	cfg := pebbledb.DefaultTestConfig(t)
-	cacheCfg := pebbledb.DefaultTestCacheConfig()
-	db, err := pebbledb.OpenWithCache(t.Context(), &cfg, &cacheCfg,
-		threading.NewAdHocPool(), threading.NewAdHocPool())
+	db, err := pebbledb.Open(t.Context(), &cfg)
 	require.NoError(t, err)
 	return db
 }
@@ -152,12 +159,30 @@ func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 	return s
 }
 
-// commitAndCheck commits the next sequential version and asserts no error.
+// commitAndCheck commits the next block and waits for it to reach disk.
+//
+// The wait is what keeps the bulk of this suite meaningful: the stores flush asynchronously, so
+// without it a test that commits and then reads a database directly is looking at a disk that lags the
+// commit. It also matches how the Cosmos-era node drives the store, which forces a flush every block.
+// A test specifically about asynchronous flushing should call s.Commit directly instead.
+//
+// Snapshots are written off the execution thread for the same reason, so the wait covers them too: a
+// test that commits past SnapshotInterval and then looks at the snapshot tree would otherwise be
+// racing the writer.
 func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	t.Helper()
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
+	requireFlushedToDisk(t, s)
+	require.NoError(t, s.FlushSnapshots())
 	return v
+}
+
+// rootHash returns the store's committed root hash, discarding the height it describes. Tests that
+// care about the height assert on it directly rather than through this.
+func rootHash(s giga.LiveStateStore) []byte {
+	hash, _ := s.RootHash()
+	return hash
 }
 
 // ---------- helpers to build prefix-encoded changeset pairs ----------
@@ -268,18 +293,18 @@ func CountKeys(s *CommitStore) (int64, error) {
 	return count, nil
 }
 
-// workingHashSnapshot captures the full working lattice state — global,
+// workingHashes captures the full working lattice state — global,
 // per-DB, and per-module hashes plus per-module stats — so a failed
 // ApplyChangeSets can assert none of it moved. Global equality alone is not
 // enough: two different per-module maps can sum to the same root.
-type workingHashSnapshot struct {
+type workingHashes struct {
 	global         *lthash.LtHash
 	perDB          map[string]*lthash.LtHash
 	perModule      map[string]map[string]*lthash.LtHash
 	perModuleStats map[string]map[string]lthash.ModuleStats
 }
 
-func snapshotWorkingHashes(s *CommitStore) workingHashSnapshot {
+func captureWorkingHashes(s *CommitStore) workingHashes {
 	perDB := make(map[string]*lthash.LtHash, len(s.perDBWorkingLtHash))
 	for dir, h := range s.perDBWorkingLtHash {
 		perDB[dir] = h.Clone()
@@ -296,7 +321,7 @@ func snapshotWorkingHashes(s *CommitStore) workingHashSnapshot {
 	for dir, mods := range s.perDBModuleWorkingStats {
 		perModuleStats[dir] = maps.Clone(mods)
 	}
-	return workingHashSnapshot{
+	return workingHashes{
 		global:         s.workingLtHash.Clone(),
 		perDB:          perDB,
 		perModule:      perModule,
@@ -304,7 +329,7 @@ func snapshotWorkingHashes(s *CommitStore) workingHashSnapshot {
 	}
 }
 
-func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingHashSnapshot) {
+func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingHashes) {
 	t.Helper()
 	// Compute clones prev* before folding; a regression that mutates those
 	// clones in place or swaps them onto the store on the error path must
@@ -327,4 +352,49 @@ func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingH
 		}
 	}
 	require.Equal(t, before.perModuleStats, s.perDBModuleWorkingStats, "perDBModuleWorkingStats mutated on failed Apply")
+}
+
+// stagedRow reads a physical key back through its store and decodes it. The store reports whatever
+// the block has staged so far merged over the on-disk row, so this is how a staged row is observed now
+// that the pending-write maps are gone. A nil result means the key is absent — either never written, or
+// deleted in this block, which the store deliberately does not distinguish.
+func stagedRow[T vtype.VType](
+	t *testing.T,
+	store view.ViewManager,
+	physKey []byte,
+	decode func([]byte) (T, error),
+) T {
+	t.Helper()
+	raw, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	row, err := parseRow(raw, found, decode)
+	require.NoError(t, err)
+	return row
+}
+
+// requireStaged asserts physKey currently reads back a row from store. Presence needs no decoding, so
+// it asks the store directly rather than going through a row type.
+func requireStaged(t *testing.T, store view.ViewManager, physKey []byte, msgAndArgs ...any) {
+	t.Helper()
+	_, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	require.True(t, found, msgAndArgs...)
+}
+
+// requireNotStaged asserts physKey reads back nothing from store.
+func requireNotStaged(t *testing.T, store view.ViewManager, physKey []byte, msgAndArgs ...any) {
+	t.Helper()
+	_, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	require.False(t, found, msgAndArgs...)
+}
+
+// requireFlushedToDisk waits until the most recently committed block has reached the databases.
+//
+// Any test that reads a database directly — a full scan for independent ground truth, or a check that
+// a metadata key landed — needs this first. The stores flush asynchronously, so without it the test
+// is looking at a disk that lags the committed version and the comparison means nothing.
+func requireFlushedToDisk(t *testing.T, s *CommitStore) {
+	t.Helper()
+	require.NoError(t, s.flushLatestVersion())
 }

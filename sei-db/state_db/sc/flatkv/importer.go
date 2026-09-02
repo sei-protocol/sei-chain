@@ -170,8 +170,10 @@ type KVImporter struct {
 	version int64
 
 	ingestCh chan rawKVPair
-	workers  map[seidbtypes.KeyValueDB]*dbWorker
-	wg       sync.WaitGroup
+	// workers is keyed by database directory name, which is what routePhysicalKey answers with. Keying by
+	// handle instead would make the routing decision carry a raw database around.
+	workers map[string]*dbWorker
+	wg      sync.WaitGroup
 
 	// done is closed on the first pipeline error so that AddNode,
 	// the dispatcher, and all workers bail immediately.
@@ -182,26 +184,29 @@ type KVImporter struct {
 	finishErr  error
 }
 
-func NewKVImporter(store *CommitStore, version int64) types.Importer {
+// NewKVImporter builds the import pipeline over dbs, the raw databases the import writes into. The handles
+// are passed in rather than fetched off store, because an import writes beneath the view managers and so
+// must be handed the databases explicitly by whoever opened them.
+func NewKVImporter(store *CommitStore, version int64, dbs rawDBs) types.Importer {
 	imp := &KVImporter{
 		store:    store,
 		version:  version,
 		ingestCh: make(chan rawKVPair, ingestChanSize),
-		workers:  make(map[seidbtypes.KeyValueDB]*dbWorker, 4),
+		workers:  make(map[string]*dbWorker, len(dataDBDirs)),
 		done:     make(chan struct{}),
 	}
 
-	for _, ndb := range store.namedDataDBs() {
+	for _, dir := range dataDBDirs {
 		w := newDBWorker(
 			store.ctx,
-			ndb.dir,
-			ndb.db,
+			dir,
+			dbs.forDir(dir),
 			store.ltCalc,
-			store.perDBWorkingLtHash[ndb.dir],
-			cloneModuleHashes(store.perDBModuleWorkingLtHash[ndb.dir]),
-			cloneModuleStats(store.perDBModuleWorkingStats[ndb.dir]),
+			store.perDBWorkingLtHash[dir],
+			cloneModuleHashes(store.perDBModuleWorkingLtHash[dir]),
+			cloneModuleStats(store.perDBModuleWorkingStats[dir]),
 		)
-		imp.workers[ndb.db] = w
+		imp.workers[dir] = w
 	}
 
 	for _, w := range imp.workers {
@@ -239,13 +244,13 @@ func (imp *KVImporter) dispatch() {
 			if !ok {
 				return
 			}
-			db, err := imp.store.routePhysicalKey(kv.Key)
+			dir, err := routePhysicalKey(kv.Key)
 			if err != nil {
 				imp.setErr(fmt.Errorf("route key: %w", err))
 				return
 			}
 			select {
-			case imp.workers[db].ch <- kv:
+			case imp.workers[dir].ch <- kv:
 			case <-imp.done:
 				return
 			}
@@ -298,7 +303,7 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 // Abort tears down the worker pipeline without finalizing the import.
 // It records reason as the first pipeline error (so any in-flight worker
 // also bails fast) and then runs Close, which observes the non-nil error
-// and skips FinalizeImport / WriteSnapshot. The on-disk FlatKV directory
+// and skips FinalizeImport / outOfBandSnapshot. The on-disk FlatKV directory
 // is left at its pre-import committed version, allowing the operator to
 // retry without --force.
 //
@@ -320,7 +325,7 @@ func (imp *KVImporter) Abort(reason error) error {
 // Close on both the success and error paths.
 //
 // If the first pipeline error has already been recorded (either by a
-// worker or by Abort), Close skips FinalizeImport / WriteSnapshot so the
+// worker or by Abort), Close skips FinalizeImport / outOfBandSnapshot so the
 // store stays at its pre-import version.
 func (imp *KVImporter) Close() error {
 	imp.finishOnce.Do(func() {
@@ -370,7 +375,7 @@ func (imp *KVImporter) Close() error {
 		// Write a snapshot so the imported data survives store reopen / restart.
 		// Import bypasses the WAL, so without a snapshot the next LoadLatest
 		// would clone from the pre-import snapshot and lose all imported data.
-		if err = imp.store.WriteSnapshot(""); err != nil {
+		if err = imp.store.outOfBandSnapshot(); err != nil {
 			err = fmt.Errorf("failed to import when writing snapshot: %w", err)
 			return
 		}

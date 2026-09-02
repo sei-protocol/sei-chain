@@ -41,7 +41,7 @@ func TestBasisCase(t *testing.T) {
 	multiRouter := NewTestMultiRouter(t, inMemoryRouter, memiavlRouter, flatKVRouter)
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -97,7 +97,7 @@ func TestMemiavlOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	commit := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 	}
 
@@ -147,7 +147,7 @@ func TestEVMMigrated(t *testing.T) {
 	require.NoError(t, err)
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -224,7 +224,7 @@ func TestAllMigratedButBank(t *testing.T) {
 	require.NoError(t, err)
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -369,7 +369,7 @@ func TestDualWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")

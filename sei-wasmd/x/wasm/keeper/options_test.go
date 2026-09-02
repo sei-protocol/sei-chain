@@ -7,7 +7,6 @@ import (
 	distributionkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -91,7 +90,7 @@ func TestConstructorOptions(t *testing.T) {
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
-			k := NewKeeper(nil, nil, nil, paramtypes.NewSubspace(nil, nil, nil, nil, ""), authkeeper.AccountKeeper{}, nil, stakingkeeper.Keeper{}, distributionkeeper.Keeper{}, nil, upgradekeeper.Keeper{}, nil, nil, nil, "tempDir", types.DefaultWasmConfig(), SupportedFeatures, spec.srcOpt)
+			k := NewKeeper(nil, nil, nil, paramtypes.NewSubspace(nil, nil, nil, nil, ""), authkeeper.AccountKeeper{}, nil, stakingkeeper.Keeper{}, distributionkeeper.Keeper{}, nil, nil, "tempDir", types.DefaultWasmConfig(), SupportedFeatures, spec.srcOpt)
 			spec.verify(t, k)
 		})
 	}
