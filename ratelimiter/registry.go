@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
@@ -72,6 +73,25 @@ type Registry struct {
 	trustedProxies []*net.IPNet
 	lru            *expirable.LRU[string, *rate.Limiter]
 	mu             sync.Mutex
+	grpcMethods    atomic.Pointer[map[string]struct{}]
+}
+
+// SetKnownGRPCMethods bounds the method label recorded for PlaneGRPC rejections
+// to the given "service/Method" names. Call it before serving; unlisted methods
+// are recorded as "other".
+func (r *Registry) SetKnownGRPCMethods(methods []string) {
+	known := make(map[string]struct{}, len(methods))
+	for _, m := range methods {
+		known[strings.TrimPrefix(m, "/")] = struct{}{}
+	}
+	r.grpcMethods.Store(&known)
+}
+
+func (r *Registry) knownGRPCMethods() map[string]struct{} {
+	if known := r.grpcMethods.Load(); known != nil {
+		return *known
+	}
+	return nil
 }
 
 // New creates a Registry from cfg. Returns an error if any CIDR in TrustedProxyCIDRs is invalid.
@@ -101,7 +121,7 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method, r.knownGRPCMethods())),
 		),
 	)
 	return false
@@ -121,7 +141,7 @@ func (r *Registry) AllowN(ctx context.Context, ip, plane, method string, n int) 
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(plane, method)),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method, r.knownGRPCMethods())),
 		),
 	)
 	return false
@@ -196,6 +216,9 @@ func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 }
 
 // bucketKey returns the LRU key for ip.
+// The key is the address alone, so every client sharing an address shares one
+// bucket: all processes reaching the node over 127.0.0.1, and any population
+// behind a single egress address that TrustedProxyCIDRs does not cover.
 // IPv6 addresses are masked to /64: a client rotating within a /64 prefix
 // would otherwise get a fresh bucket per address.
 func bucketKey(ip string) string {
