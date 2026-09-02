@@ -105,7 +105,7 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 	// Held to this section's own rules, not the whole configuration's. The whole set stops at the first
 	// failing section, so a node already failing on one section makes every other section's failure
 	// unattributable, and a value written here lands under a line saying the node was already broken.
-	if err := whatTheSectionsOwnRulesSay(candidate, sectionPrefix(keys)); err != nil {
+	if err := whatTheSectionsOwnRulesSay(candidate, keys); err != nil {
 		log.Error("this section's written values break its own rules, so none of the section is applied "+
 			"and every one of its keys reads as it always has",
 			"section", name, "keys", strings.Join(keys, ","), "err", err)
@@ -209,15 +209,18 @@ func theLevelTheBootApplied(ctx *server.Context) string {
 	return ctx.Viper.GetString(flags.FlagLogLevel)
 }
 
-// whatTheSectionsOwnRulesSay reports what this section's own rules say about a candidate.
+// whatTheSectionsOwnRulesSay reports what the rules of the section holding these keys say about a
+// candidate.
 //
 // Each section type states its own, and the whole configuration's rules are those called in turn, stopping
 // at the first failure. So asking the whole set cannot say which section a failure belongs to: on a node
 // already failing elsewhere every answer is the other section's, and on a node that is not, a failure
 // anywhere reads as this section's.
 //
-// Returns nil for a section whose type states no rules of its own.
-func whatTheSectionsOwnRulesSay(candidate *tmcfg.Config, prefix string) error {
+// The keys pick the section out, because the name the registry gives the root of the file matches no tag in
+// the node's own type. Returns nil for a section whose type states no rules of its own.
+func whatTheSectionsOwnRulesSay(candidate *tmcfg.Config, keys []string) error {
+	prefix := sectionPrefix(keys)
 	holder := reflect.ValueOf(candidate).Elem()
 	for i := 0; i < holder.NumField(); i++ {
 		field := holder.Type().Field(i)
