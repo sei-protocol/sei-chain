@@ -2,9 +2,9 @@ package giga
 
 import (
 	"fmt"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
