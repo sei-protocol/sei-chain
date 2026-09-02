@@ -291,8 +291,9 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	// legacy: telemetry.MeasureSince in sei-cosmos/baseapp/abci.go TODO(PLT-353)
 	appMetrics.commitDuration.Record(ctx, elapsed.Seconds())
 	app.RecordBenchmarkCommitTime(elapsed)
-	// After a successful Commit, publish the pending eth_newHeads event
-	// stashed by FinalizeBlocker. Subscribers see only committed state.
+	// After a successful Commit, publish the pending committed-block
+	// event stashed by FinalizeBlocker. newHeads and newBlockFilter
+	// see only committed state.
 	// Header.AppHash is intentionally left unset (Tendermint convention:
 	// it holds the previous block's hash); stateRoot is sourced from
 	// response.AppHash by encodeCommittedBlock.

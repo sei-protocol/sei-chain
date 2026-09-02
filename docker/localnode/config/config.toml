@@ -17,6 +17,9 @@ moniker = "sei-node-0"
 #   - No priv_validator_key.json, priv_validator_state.json
 mode = "validator"
 
+# Test-only application replacement for Autobahn EVM load tests
+evm-only-in-memory = false
+
 # Database backend: goleveldb | cleveldb | boltdb | rocksdb | badgerdb
 # * goleveldb (github.com/syndtr/goleveldb - most popular implementation)
 #   - pure go
