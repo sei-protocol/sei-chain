@@ -119,6 +119,16 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// source hands the value out as it was written, and a reader asking for a number gets a zero from a
 	// word, so a setting an operator meant to change ends up off with nothing naming it. Dropped one key
 	// at a time, because a lookup delivers each key on its own and one wrong value need not cost the rest.
+	//
+	// Dropping a key does not stop an environment variable from supplying it. The boot's source reads the
+	// environment itself, under this binary's name with dots and hyphens as underscores, so a reader asks
+	// for a key and gets SEID_THAT_KEY whether anything was installed for it or not. A value refused here
+	// because it came from a variable therefore still reaches the reader, coerced the same way. Measured:
+	// SEID_API_MAX_OPEN_CONNECTIONS=-1 is refused, the key is dropped, and the reader still answers -1.
+	//
+	// Left as it is. The variable was equally effective before this manager existed, so the key does read
+	// the way it always has, which is what the report says. Installing the declared value instead would
+	// make the refusal bite, at the cost of putting this binary's default over a variable an operator set.
 	if bad := whatDecodesToSomethingElse(whatEachDeclaredKeyHolds(registry.Mode(mode)),
 		forALookup.Values); len(bad) > 0 {
 		for key := range bad {
