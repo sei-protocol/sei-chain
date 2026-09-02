@@ -125,8 +125,10 @@ type cacheEntry struct {
 	// The value, if known.
 	value []byte
 
-	// If the value is not available when we request it,
-	// it will be written to this channel when it is available.
+	// If the value is not available when we request it, it will be written to this channel when
+	// it is available. A retire call may nil this field out from under an in-flight read (see
+	// setRetiredLocked/deleteRetiredLocked), so code outside the lock must never dereference this
+	// field directly — it must instead use a channel reference bound at scheduling time.
 	valueChan chan readResult
 }
 
@@ -295,9 +297,10 @@ func (c *readCache) resolve(key []byte, outcome lookupOutcome) ([]byte, bool, er
 
 	if outcome.needsSchedule {
 		entry := outcome.entry
+		ch := outcome.valueChan
 		c.readPool.Submit(func() {
 			value, _, readErr := c.readFromDB(key)
-			entry.injectValue(key, readResult{value: value, err: readErr})
+			entry.injectValue(key, ch, readResult{value: value, err: readErr})
 		})
 	}
 
@@ -337,7 +340,7 @@ func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byt
 			p := &pending[i]
 			c.readPool.Submit(func() {
 				value, _, readErr := c.readFromDB([]byte(p.key))
-				p.entry.valueChan <- readResult{value: value, err: readErr}
+				p.valueChan <- readResult{value: value, err: readErr}
 			})
 		}
 	}
@@ -375,8 +378,11 @@ func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byt
 	return firstErr
 }
 
-// This method is called by the read scheduler when a value becomes available.
-func (e *cacheEntry) injectValue(key []byte, result readResult) {
+// This method is called by the read scheduler when a value becomes available. ch is the channel
+// bound at scheduling time (see resolve), not e.valueChan directly: a retire may have nil'd that
+// field by the time this runs, but ch still refers to the same channel object any waiters are
+// blocked on.
+func (e *cacheEntry) injectValue(key []byte, ch chan readResult, result readResult) {
 	c := e.cache
 	c.lock.Lock()
 
@@ -411,7 +417,7 @@ func (e *cacheEntry) injectValue(key []byte, result readResult) {
 
 	// Release the waiter before bricking. reportReadFailure acquires the manager's versionLock, and
 	// nobody may be blocked on us while we wait for it.
-	e.valueChan <- result
+	ch <- result
 
 	if result.err != nil {
 		c.reportReadFailure(result.err)
@@ -507,6 +513,10 @@ func (c *readCache) putRetiredLocked(data map[string][]byte) {
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) setRetiredLocked(key []byte, value []byte) {
 	entry := c.entryLocked(key, true)
+	// Any in-flight read already holds its own bound reference to the old channel (see
+	// injectValue), so clearing this field can't strand it — it just stops this entry from
+	// retaining a stale buffered value indefinitely.
+	entry.valueChan = nil
 	entry.status = statusAvailable
 	entry.value = value
 
@@ -523,6 +533,10 @@ func (c *readCache) deleteRetiredLocked(key []byte) {
 		// Key is not in the cache, so nothing to do.
 		return
 	}
+	// Any in-flight read already holds its own bound reference to the old channel (see
+	// injectValue), so clearing this field can't strand it — it just stops this entry from
+	// retaining a stale buffered value indefinitely.
+	entry.valueChan = nil
 	entry.status = statusDeleted
 	entry.value = nil
 
