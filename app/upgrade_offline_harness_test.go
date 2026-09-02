@@ -395,6 +395,13 @@ func requireOfflineUpgradeStoreKey(t *testing.T, snapshot map[string]string, nam
 	require.True(t, ok, "retained %s disappeared", name)
 }
 
+// committedOfflineUpgradePlan returns the pending upgrade plan in the committed
+// upgrade store.
+func committedOfflineUpgradePlan(t *testing.T, testApp *App) (upgradetypes.Plan, bool) {
+	t.Helper()
+	return testApp.UpgradeKeeper.GetUpgradePlan(offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()))
+}
+
 func committedUpgradeStore(t *testing.T, testApp *App) sdk.KVStore {
 	t.Helper()
 	key := testApp.GetKey(upgradetypes.StoreKey)

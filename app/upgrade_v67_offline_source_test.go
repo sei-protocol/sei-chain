@@ -57,6 +57,10 @@ func TestV67OfflineUpgradeSource(t *testing.T) {
 
 	commitOfflineUpgradeApp(t, testApp)
 	sourceHeight := testApp.LastBlockHeight()
+	plan, found := committedOfflineUpgradePlan(t, testApp)
+	require.True(t, found, "scheduled upgrade plan was not committed")
+	require.Equal(t, "v6.7", plan.Name)
+	require.Equal(t, upgradeHeight, plan.Height)
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
 	expectedModules := append([]string(nil), v67OfflineSourceStores...)
 	expectedModules = append(expectedModules, "oracle")
@@ -67,7 +71,7 @@ func TestV67OfflineUpgradeSource(t *testing.T) {
 	closeOfflineUpgradeApp(t, testApp)
 
 	writeOfflineUpgradeArtifact(t, root, offlineUpgradeArtifact{
-		Upgrade:        "v6.7",
+		Upgrade:        plan.Name,
 		SourceHeight:   sourceHeight,
 		UpgradeHeight:  upgradeHeight,
 		ModuleVersions: moduleVersions,
@@ -118,7 +122,7 @@ func TestV67OfflineUpgradeReopen(t *testing.T) {
 	}
 
 	lastName, lastHeight := testApp.UpgradeKeeper.GetLastCompletedUpgrade(ctx)
-	require.Equal(t, "v6.7", lastName)
+	require.Equal(t, artifact.Upgrade, lastName)
 	require.Equal(t, artifact.UpgradeHeight, lastHeight)
 	require.False(t, testApp.UpgradeKeeper.HasHandler("v6.7"),
 		"v6.6 registered a v6.7 upgrade handler")

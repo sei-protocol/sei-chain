@@ -402,8 +402,9 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v67UpgradeName, chain.UpgradeName(t))
 
+	planName := requireV67RecordedPlanName(t, chain)
 	appliedOutput := chain.MustSeid(t, "",
-		"q", "upgrade", "applied", v67UpgradeName, "--output", "json")
+		"q", "upgrade", "applied", planName, "--output", "json")
 	var applied struct {
 		Header struct {
 			Height json.RawMessage `json:"height"`
@@ -413,6 +414,14 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	appliedHeight := v67JSONInt(t, applied.Header.Height)
 	require.Equal(t, chain.TargetHeight(t), appliedHeight)
 	chain.Record(t, "applied_height", appliedHeight)
+	// A header carries the application hash of the state its parent produced, so
+	// the upgrade block's own result appears one height above the applied height.
+	chain.RequireBlockAgreement(t,
+		appliedHeight,
+		appliedHeight+1,
+		appliedHeight+2,
+		appliedHeight+3,
+	)
 
 	var beforeVersions []string
 	chain.Replay(t, "module_versions", &beforeVersions)
@@ -556,6 +565,68 @@ func v67JSONInt(t *testing.T, encoded json.RawMessage) int64 {
 	var value int64
 	require.NoError(t, json.Unmarshal(encoded, &value))
 	return value
+}
+
+func requireV67RecordedPlanName(t *testing.T, chain *upgradetest.CrossVersion) string {
+	t.Helper()
+	want := chain.UpgradeName(t)
+	proposals := chain.MustSeid(t, "", "q", "gov", "proposals", "--output", "json")
+	chain.WriteDiagnostic(t, "v67-gov-proposals.json", []byte(proposals))
+	planName := softwareUpgradePlanName(t, proposals)
+	require.Equal(t, want, planName)
+
+	doneKey := append([]byte{upgradetypes.DoneByte}, []byte(planName)...)
+	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, doneKey),
+		"upgrade store has no done entry for recorded plan name %q", planName)
+
+	for _, miss := range upgradeNameNearMisses(planName) {
+		missKey := append([]byte{upgradetypes.DoneByte}, []byte(miss)...)
+		require.Empty(t, chain.QueryStore(t, upgradetypes.StoreKey, missKey),
+			"upgrade store has a done entry for near-miss name %q", miss)
+		applied := chain.Seid("", "q", "upgrade", "applied", miss, "--output", "json")
+		require.Error(t, applied.Err, "applied query succeeded for near-miss name %q", miss)
+		require.Contains(t, applied.Combined(), "no upgrade found")
+	}
+	return planName
+}
+
+func softwareUpgradePlanName(t *testing.T, proposalsJSON string) string {
+	t.Helper()
+	var envelope struct {
+		Proposals []struct {
+			Content struct {
+				Type string `json:"@type"`
+				Plan struct {
+					Name string `json:"name"`
+				} `json:"plan"`
+			} `json:"content"`
+		} `json:"proposals"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(proposalsJSON), &envelope))
+	var names []string
+	for _, proposal := range envelope.Proposals {
+		if !strings.HasSuffix(proposal.Content.Type, ".SoftwareUpgradeProposal") {
+			continue
+		}
+		if strings.HasSuffix(proposal.Content.Type, ".CancelSoftwareUpgradeProposal") {
+			continue
+		}
+		require.NotEmpty(t, proposal.Content.Plan.Name)
+		names = append(names, proposal.Content.Plan.Name)
+	}
+	require.Len(t, names, 1, "want one software-upgrade proposal, got %q", names)
+	return names[0]
+}
+
+func TestV67SoftwareUpgradePlanName(t *testing.T) {
+	got := softwareUpgradePlanName(t, `{
+  "proposals": [
+    {"content": {"@type": "/cosmos.gov.v1beta1.TextProposal", "title": "x"}},
+    {"content": {"@type": "/cosmos.upgrade.v1beta1.CancelSoftwareUpgradeProposal", "title": "v6.7.0"}},
+    {"content": {"@type": "/cosmos.upgrade.v1beta1.SoftwareUpgradeProposal", "title": "v6.7", "plan": {"name": "v6.7", "height": "42"}}}
+  ]
+}`)
+	require.Equal(t, "v6.7", got)
 }
 
 func v67ModuleVersionKey(module string) []byte {
@@ -923,14 +994,6 @@ func replaceV67ValidatorHome(t *testing.T, chain *upgradetest.CrossVersion, node
 	require.NoError(t, result.Err, "replace %s home from %s: %s", node, src, result.Combined())
 }
 
-func requireV67ValidatorAgrees(t *testing.T, chain *upgradetest.CrossVersion, node string) {
-	t.Helper()
-	agreeHeight := chain.Height(t)
-	chain.WaitForHeightOn(t, node, agreeHeight, 3*time.Minute)
-	require.Equal(t, chain.AppHashAt(t, chain.Node(), agreeHeight), chain.AppHashAt(t, node, agreeHeight),
-		"validator %s disagrees with its peers at height %d", node, agreeHeight)
-}
-
 func requireV67UpgradeNeededLog(t *testing.T, log string, height int64) {
 	t.Helper()
 	expected := fmt.Sprintf(`UPGRADE "%s" NEEDED at height: %d`, v67UpgradeName, height)
@@ -944,7 +1007,7 @@ func restoreV67Validator(t *testing.T, chain *upgradetest.CrossVersion, node, sn
 	chain.StopNodeOn(t, node)
 	replaceV67ValidatorHome(t, chain, node, snapshot)
 	chain.StartNodeOn(t, node, v67RunningSeid)
-	requireV67ValidatorAgrees(t, chain, node)
+	chain.RequireBlockAgreement(t, chain.Height(t))
 }
 
 // preserveV67UnupgradedHome copies a non-primary validator home while seid is
@@ -955,7 +1018,7 @@ func preserveV67UnupgradedHome(t *testing.T, chain *upgradetest.CrossVersion) {
 	chain.StopNodeOn(t, v67UnupgradedHaltNode)
 	copyV67ValidatorHome(t, chain, v67UnupgradedHaltNode, v67UnupgradedHomeSnapshot)
 	chain.StartNodeOn(t, v67UnupgradedHaltNode, v67RunningSeid)
-	requireV67ValidatorAgrees(t, chain, v67UnupgradedHaltNode)
+	chain.RequireBlockAgreement(t, chain.Height(t))
 	chain.Record(t, "unupgraded_home_node", v67UnupgradedHaltNode)
 }
 
@@ -971,7 +1034,7 @@ func requireV67CrashRecovery(t *testing.T, chain *upgradetest.CrossVersion) {
 	chain.WaitForBlocks(t, 2)
 	chain.StartNodeOn(t, peer, v67RunningSeid)
 	chain.WaitForHeightOn(t, peer, killedAt, 3*time.Minute)
-	requireV67ValidatorAgrees(t, chain, peer)
+	chain.RequireBlockAgreement(t, chain.Height(t))
 }
 
 // requireV67OldBinaryOnMigratedNode starts the v6.6 binary against an upgraded

@@ -23,6 +23,7 @@ const (
 	crossVersionUpgradeNameEnv   = "UPGRADE_TEST_UPGRADE_NAME"
 	crossVersionTargetHeightEnv  = "UPGRADE_TEST_TARGET_HEIGHT"
 	crossVersionReleaseBinaryEnv = "UPGRADE_TEST_RELEASE_BINARY"
+	validatorCount               = 4
 )
 
 // A CrossVersion gives a tagged test access to the validator running each side
@@ -145,6 +146,15 @@ func (c *CrossVersion) Node() string {
 	return c.node
 }
 
+// Nodes returns the validator names in the cluster.
+func (c *CrossVersion) Nodes() []string {
+	nodes := make([]string, validatorCount)
+	for i := range nodes {
+		nodes[i] = fmt.Sprintf("sei-node-%d", i)
+	}
+	return nodes
+}
+
 // Seid executes the running seid binary in the primary validator.
 func (c *CrossVersion) Seid(input string, args ...string) CommandResult {
 	return c.SeidOn(c.node, input, args...)
@@ -176,8 +186,38 @@ func (c *CrossVersion) MustSeid(t *testing.T, input string, args ...string) stri
 	return result.Stdout
 }
 
-// AppHashAt returns the application hash of the block at height on node.
-func (c *CrossVersion) AppHashAt(t *testing.T, node string, height int64) []byte {
+// RequireBlockAgreement requires every validator to report the same application
+// hash and block hash at each height.
+func (c *CrossVersion) RequireBlockAgreement(t *testing.T, heights ...int64) {
+	t.Helper()
+	if len(heights) == 0 {
+		t.Fatal("no heights to compare")
+	}
+	maxHeight := heights[0]
+	for _, height := range heights {
+		if height <= 0 {
+			t.Fatalf("height must be positive, got %d", height)
+		}
+		if height > maxHeight {
+			maxHeight = height
+		}
+	}
+	nodes := c.Nodes()
+	for _, node := range nodes {
+		c.WaitForHeightOn(t, node, maxHeight, 3*time.Minute)
+	}
+	for _, height := range heights {
+		views := make([]blockView, 0, len(nodes))
+		for _, node := range nodes {
+			views = append(views, c.blockAt(t, node, height))
+		}
+		if err := validatorBlockAgreementError(height, views); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func (c *CrossVersion) blockAt(t *testing.T, node string, height int64) blockView {
 	t.Helper()
 	if node == "" {
 		t.Fatal("node must not be empty")
@@ -204,11 +244,15 @@ func (c *CrossVersion) AppHashAt(t *testing.T, node string, height int64) []byte
 	if result.Err != nil {
 		t.Fatalf("block query at height %d on %s failed: %v\n%s", height, node, result.Err, result.Combined())
 	}
-	hash, err := parseBlockAppHash([]byte(result.Stdout))
+	parsed, err := parseBlockIdentity([]byte(result.Stdout))
 	if err != nil {
 		t.Fatalf("decode block query at height %d on %s: %v\n%s", height, node, err, result.Stdout)
 	}
-	return hash
+	if parsed.height != height {
+		t.Fatalf("block query at height %d on %s returned height %d\n%s",
+			height, node, parsed.height, result.Stdout)
+	}
+	return blockView{node: node, appHash: parsed.appHash, blockHash: parsed.blockHash}
 }
 
 // QueryStore reads key from storeName on the running node via ABCI query.
@@ -767,32 +811,87 @@ func decodeABCIBytes(raw json.RawMessage) ([]byte, error) {
 	return decoded, nil
 }
 
-func parseBlockAppHash(output []byte) ([]byte, error) {
+type blockView struct {
+	node      string
+	appHash   []byte
+	blockHash []byte
+}
+
+type parsedBlock struct {
+	appHash   []byte
+	blockHash []byte
+	height    int64
+}
+
+func parseBlockIdentity(output []byte) (parsedBlock, error) {
 	var envelope struct {
 		Error  json.RawMessage `json:"error"`
 		Result struct {
+			BlockID struct {
+				Hash string `json:"hash"`
+			} `json:"block_id"`
 			Block struct {
 				Header struct {
-					AppHash string `json:"app_hash"`
+					Height  json.RawMessage `json:"height"`
+					AppHash string          `json:"app_hash"`
 				} `json:"header"`
 			} `json:"block"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(output, &envelope); err != nil {
-		return nil, fmt.Errorf("decode JSON-RPC envelope: %w", err)
+		return parsedBlock{}, fmt.Errorf("decode JSON-RPC envelope: %w", err)
 	}
 	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
-		return nil, fmt.Errorf("JSON-RPC error: %s", envelope.Error)
+		return parsedBlock{}, fmt.Errorf("JSON-RPC error: %s", envelope.Error)
 	}
-	text := strings.TrimPrefix(envelope.Result.Block.Header.AppHash, "0x")
+	appHash, err := decodeRPCHex("app_hash", envelope.Result.Block.Header.AppHash)
+	if err != nil {
+		return parsedBlock{}, err
+	}
+	blockHash, err := decodeRPCHex("block_hash", envelope.Result.BlockID.Hash)
+	if err != nil {
+		return parsedBlock{}, err
+	}
+	height, err := parseJSONInt(envelope.Result.Block.Header.Height)
+	if err != nil {
+		return parsedBlock{}, fmt.Errorf("decode block height: %w", err)
+	}
+	return parsedBlock{appHash: appHash, blockHash: blockHash, height: height}, nil
+}
+
+func decodeRPCHex(label, text string) ([]byte, error) {
+	text = strings.TrimPrefix(text, "0x")
 	if text == "" {
-		return nil, fmt.Errorf("block has no app_hash")
+		return nil, fmt.Errorf("block has no %s", label)
 	}
 	decoded, err := hex.DecodeString(text)
 	if err != nil {
-		return nil, fmt.Errorf("decode app_hash %q: %w", text, err)
+		return nil, fmt.Errorf("decode %s %q: %w", label, text, err)
 	}
 	return decoded, nil
+}
+
+func validatorBlockAgreementError(height int64, views []blockView) error {
+	if len(views) < 2 {
+		return fmt.Errorf("need at least two validators to compare at height %d", height)
+	}
+	first := views[0]
+	for _, view := range views[1:] {
+		if bytes.Equal(view.appHash, first.appHash) && bytes.Equal(view.blockHash, first.blockHash) {
+			continue
+		}
+		return fmt.Errorf("%s", formatValidatorBlockDisagreement(height, views))
+	}
+	return nil
+}
+
+func formatValidatorBlockDisagreement(height int64, views []blockView) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "validators disagreed at height %d:", height)
+	for _, view := range views {
+		fmt.Fprintf(&b, "\n  %s app_hash=%x block_hash=%x", view.node, view.appHash, view.blockHash)
+	}
+	return b.String()
 }
 
 func requiredEnv(t *testing.T, name string) string {

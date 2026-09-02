@@ -90,23 +90,73 @@ func TestParseABCIQueryResponse(t *testing.T) {
 	require.Empty(t, log)
 }
 
-func TestParseBlockAppHash(t *testing.T) {
-	hash, err := parseBlockAppHash([]byte(`{
+func TestCrossVersionNodes(t *testing.T) {
+	require.Equal(t, []string{"sei-node-0", "sei-node-1", "sei-node-2", "sei-node-3"},
+		(&CrossVersion{}).Nodes())
+}
+
+func TestParseBlockIdentity(t *testing.T) {
+	parsed, err := parseBlockIdentity([]byte(`{
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
+    "block_id": {
+      "hash": "0x01020304"
+    },
     "block": {
       "header": {
-        "app_hash": "0a0b0c0d"
+        "height": "42",
+        "app_hash": "0x0a0b0c0d"
       }
     }
   }
 }`))
 	require.NoError(t, err)
-	require.Equal(t, []byte{0x0a, 0x0b, 0x0c, 0x0d}, hash)
+	require.Equal(t, int64(42), parsed.height)
+	require.Equal(t, []byte{0x0a, 0x0b, 0x0c, 0x0d}, parsed.appHash)
+	require.Equal(t, []byte{0x01, 0x02, 0x03, 0x04}, parsed.blockHash)
 
-	_, err = parseBlockAppHash([]byte(`{"result":{"block":{"header":{"app_hash":""}}}}`))
+	_, err = parseBlockIdentity([]byte(`{"result":{"block_id":{"hash":"01"},"block":{"header":{"height":"1","app_hash":""}}}}`))
 	require.ErrorContains(t, err, "no app_hash")
+
+	_, err = parseBlockIdentity([]byte(`{"result":{"block_id":{"hash":""},"block":{"header":{"height":"1","app_hash":"0a"}}}}`))
+	require.ErrorContains(t, err, "no block_hash")
+}
+
+func TestValidatorBlockAgreementError(t *testing.T) {
+	agreeing := []blockView{
+		{node: "sei-node-0", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+		{node: "sei-node-1", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+		{node: "sei-node-2", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+		{node: "sei-node-3", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+	}
+	require.NoError(t, validatorBlockAgreementError(67, agreeing))
+	require.ErrorContains(t, validatorBlockAgreementError(67, agreeing[:1]),
+		"need at least two validators to compare at height 67")
+
+	splitState := []blockView{
+		{node: "sei-node-0", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+		{node: "sei-node-1", appHash: []byte{0xcc}, blockHash: []byte{0xbb}},
+		{node: "sei-node-2", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+		{node: "sei-node-3", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+	}
+	err := validatorBlockAgreementError(67, splitState)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "validators disagreed at height 67")
+	require.ErrorContains(t, err, "sei-node-0 app_hash=aa block_hash=bb")
+	require.ErrorContains(t, err, "sei-node-1 app_hash=cc block_hash=bb")
+
+	splitChain := []blockView{
+		{node: "sei-node-0", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+		{node: "sei-node-1", appHash: []byte{0xaa}, blockHash: []byte{0xdd}},
+		{node: "sei-node-2", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+		{node: "sei-node-3", appHash: []byte{0xaa}, blockHash: []byte{0xbb}},
+	}
+	err = validatorBlockAgreementError(68, splitChain)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "validators disagreed at height 68")
+	require.ErrorContains(t, err, "sei-node-0 app_hash=aa block_hash=bb")
+	require.ErrorContains(t, err, "sei-node-1 app_hash=aa block_hash=dd")
 }
 
 func TestSeidSignalScript(t *testing.T) {

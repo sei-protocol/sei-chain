@@ -36,7 +36,7 @@ func testV67OfflineUpgradeTargetFixture(t *testing.T) {
 	requireV67OfflineRetainedIdentities(t, artifact.Retained)
 	require.Equal(t, artifact.SourceHeight+1, artifact.UpgradeHeight)
 
-	t.Setenv("UPGRADE_VERSION_LIST", artifact.Upgrade)
+	t.Setenv("UPGRADE_VERSION_LIST", LatestUpgrade)
 
 	cleanRoot := filepath.Join(root, offlineUpgradeMigratedDir)
 	crashRoot := filepath.Join(root, "crash")
@@ -57,6 +57,7 @@ func testV67OfflineUpgradeTargetFixture(t *testing.T) {
 func applyV67OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
 	t.Helper()
 	testApp := openOfflineUpgradeApp(t, root, false)
+	requireV67OfflinePersistedPlanHasHandler(t, testApp, artifact)
 	require.Equal(t, artifact.ModuleVersions, offlineUpgradeModuleVersions(t, testApp),
 		"v6.7 did not reopen the v6.6 module version map")
 	requireV67OfflineRetainedStores(t, testApp, artifact)
@@ -69,6 +70,7 @@ func applyV67OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	reopened := openOfflineUpgradeApp(t, root, false)
 	defer closeOfflineUpgradeApp(t, reopened)
 	require.Equal(t, artifact.UpgradeHeight, reopened.LastBlockHeight())
+	requireV67OfflineAppliedName(t, reopened, artifact)
 	requireV67OfflineVersionMap(t, reopened, artifact.ModuleVersions)
 	requireV67OfflineRetainedStores(t, reopened, artifact)
 	requireV67OfflineBankState(t, reopened, artifact.Retained)
@@ -79,6 +81,7 @@ func applyV67OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 func applyV67OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
 	t.Helper()
 	testApp := openOfflineUpgradeApp(t, root, false)
+	requireV67OfflinePersistedPlanHasHandler(t, testApp, artifact)
 	require.Equal(t, artifact.SourceHeight, testApp.LastBlockHeight())
 	finalizeV67OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
 	closeOfflineUpgradeApp(t, testApp)
@@ -95,8 +98,30 @@ func applyV67OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 	reopened := openOfflineUpgradeApp(t, root, false)
 	defer closeOfflineUpgradeApp(t, reopened)
 	require.Equal(t, artifact.UpgradeHeight, reopened.LastBlockHeight())
+	requireV67OfflineAppliedName(t, reopened, artifact)
 	requireV67OfflineVersionMap(t, reopened, artifact.ModuleVersions)
 	return committedOfflineUpgradeHash(t, reopened)
+}
+
+func requireV67OfflinePersistedPlanHasHandler(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
+	t.Helper()
+	plan, found := committedOfflineUpgradePlan(t, testApp)
+	require.True(t, found, "committed upgrade plan did not survive the process boundary")
+	require.Equal(t, artifact.Upgrade, plan.Name)
+	require.Equal(t, artifact.UpgradeHeight, plan.Height)
+	require.Equal(t, LatestUpgrade, plan.Name)
+	require.True(t, testApp.UpgradeKeeper.HasHandler(plan.Name),
+		"target binary has no handler for persisted plan name %q", plan.Name)
+}
+
+func requireV67OfflineAppliedName(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
+	t.Helper()
+	lastName, lastHeight := testApp.UpgradeKeeper.GetLastCompletedUpgrade(
+		offlineUpgradeReadContext(testApp, testApp.LastBlockHeight()))
+	require.Equal(t, artifact.Upgrade, lastName)
+	require.Equal(t, artifact.UpgradeHeight, lastHeight)
+	require.True(t, testApp.UpgradeKeeper.HasHandler(lastName),
+		"target binary has no handler for applied plan name %q", lastName)
 }
 
 func finalizeV67OfflineUpgrade(t *testing.T, testApp *App, height int64) {
