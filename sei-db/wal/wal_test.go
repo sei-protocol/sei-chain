@@ -57,7 +57,7 @@ func TestOpenAndCorruptedTail(t *testing.T) {
 			_, err = wal.Open(dir, opts)
 			require.Equal(t, wal.ErrCorrupt, err)
 
-			log, err := open(dir, opts)
+			log, err := open(dir, opts, false)
 			require.NoError(t, err)
 
 			lastIndex, err := log.LastIndex()
@@ -171,7 +171,7 @@ func TestOpenWithNilOptions(t *testing.T) {
 	dir := t.TempDir()
 
 	// Test that open function handles nil options correctly
-	log, err := open(dir, nil)
+	log, err := open(dir, nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, log)
 
