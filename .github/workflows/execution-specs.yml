@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      # TEMP: remove after the final CI validation.
-      - tests/exec-specs
 
 concurrency:
   group: execution-specs-${{ github.ref }}
@@ -47,6 +45,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      expected_reports: ${{ steps.plan.outputs.expected_reports }}
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -272,7 +271,7 @@ jobs:
   summarize:
     name: Execution Specs Summary
     if: always()
-    needs: execution-specs
+    needs: [ plan, execution-specs ]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -284,8 +283,11 @@ jobs:
           pattern: exec-specs-*-${{ github.run_id }}
           path: integration_test/exec_specs/reports/downloaded
       - name: Write run summary
+        env:
+          EXPECTED_REPORTS_JSON: ${{ needs.plan.outputs.expected_reports }}
         run: |
           python3 integration_test/exec_specs/scripts/summarize_reports.py \
+            --expected-reports-json "${EXPECTED_REPORTS_JSON}" \
             integration_test/exec_specs/reports/downloaded
 
   cleanup-images:

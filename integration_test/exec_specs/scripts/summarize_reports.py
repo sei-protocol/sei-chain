@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
-import xml.etree.ElementTree as ElementTree
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from xml.etree import ElementTree
 
 MAX_LISTED_FAILURES = 50
 
@@ -50,34 +52,39 @@ def read_report(path: Path) -> ReportTotals:
     return totals
 
 
-def render(reports: list[ReportTotals]) -> str:
+def render(
+    reports: list[ReportTotals],
+    *,
+    missing_reports: list[str] | None = None,
+    duplicate_reports: list[str] | None = None,
+    unexpected_reports: list[str] | None = None,
+) -> str:
     lines = ["## Execution specs summary", ""]
     if not reports:
         lines.append("No JUnit reports were found.")
-        return "\n".join(lines)
+    else:
+        lines += [
+            "| Chain | Passed | Failed | Skipped | XFailed | Duration |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for report in sorted(reports, key=lambda item: item.name):
+            lines.append(
+                f"| {report.name} | {report.passed} | {report.failed} "
+                f"| {report.skipped} | {report.xfailed} "
+                f"| {report.duration / 60:.1f} min |"
+            )
 
-    lines += [
-        "| Chain | Passed | Failed | Skipped | XFailed | Duration |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
-    for report in sorted(reports, key=lambda item: item.name):
+        totals = ReportTotals(name="total")
+        for report in reports:
+            totals.passed += report.passed
+            totals.failed += report.failed
+            totals.skipped += report.skipped
+            totals.xfailed += report.xfailed
         lines.append(
-            f"| {report.name} | {report.passed} | {report.failed} "
-            f"| {report.skipped} | {report.xfailed} "
-            f"| {report.duration / 60:.1f} min |"
+            f"| **all {len(reports)} chains** | **{totals.passed}** "
+            f"| **{totals.failed}** | **{totals.skipped}** "
+            f"| **{totals.xfailed}** | |"
         )
-
-    totals = ReportTotals(name="total")
-    for report in reports:
-        totals.passed += report.passed
-        totals.failed += report.failed
-        totals.skipped += report.skipped
-        totals.xfailed += report.xfailed
-    lines.append(
-        f"| **all {len(reports)} chains** | **{totals.passed}** "
-        f"| **{totals.failed}** | **{totals.skipped}** "
-        f"| **{totals.xfailed}** | |"
-    )
 
     failing = [report for report in reports if report.failures]
     if failing:
@@ -86,6 +93,17 @@ def render(reports: list[ReportTotals]) -> str:
             lines.append(f"**{report.name}**")
             lines += [f"- `{identifier}`" for identifier in report.failures]
             lines.append("")
+
+    inventory_errors = (
+        ("Missing expected reports", missing_reports or []),
+        ("Duplicate reports", duplicate_reports or []),
+        ("Unexpected reports", unexpected_reports or []),
+    )
+    if any(names for _, names in inventory_errors):
+        lines += ["", "### Report inventory errors", ""]
+        for label, names in inventory_errors:
+            if names:
+                lines.append(f"- {label}: {', '.join(f'`{name}`' for name in names)}")
 
     return "\n".join(lines)
 
@@ -108,10 +126,45 @@ def main() -> int:
         nargs="+",
         help="JUnit XML files, or directories searched recursively for them.",
     )
+    parser.add_argument(
+        "--expected-reports-json",
+        help="JSON array of exact JUnit report filenames expected from the matrix.",
+    )
     arguments = parser.parse_args()
 
-    reports = [read_report(path) for path in collect(arguments.paths)]
-    summary = render(reports)
+    expected_reports: list[str] = []
+    if arguments.expected_reports_json:
+        try:
+            parsed_expected = json.loads(arguments.expected_reports_json)
+        except json.JSONDecodeError as error:
+            parser.error(f"invalid --expected-reports-json: {error}")
+        if not isinstance(parsed_expected, list) or not all(
+            isinstance(name, str) and name for name in parsed_expected
+        ):
+            parser.error("--expected-reports-json must be a JSON array of filenames.")
+        expected_reports = parsed_expected
+        if len(set(expected_reports)) != len(expected_reports):
+            parser.error("--expected-reports-json contains duplicate filenames.")
+
+    report_paths = collect(arguments.paths)
+    actual_counts = Counter(path.name for path in report_paths)
+    expected_names = set(expected_reports)
+    actual_names = set(actual_counts)
+    missing_reports = sorted(expected_names - actual_names)
+    unexpected_reports = (
+        sorted(actual_names - expected_names) if expected_reports else []
+    )
+    duplicate_reports = sorted(
+        name for name, count in actual_counts.items() if count > 1
+    )
+
+    reports = [read_report(path) for path in report_paths]
+    summary = render(
+        reports,
+        missing_reports=missing_reports,
+        duplicate_reports=duplicate_reports,
+        unexpected_reports=unexpected_reports,
+    )
     print(summary)
 
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -119,7 +172,7 @@ def main() -> int:
         with open(step_summary, "a", encoding="utf-8") as handle:
             handle.write(summary + "\n")
 
-    if not reports:
+    if not reports or missing_reports or duplicate_reports or unexpected_reports:
         return 1
     return 1 if any(report.failed for report in reports) else 0
 

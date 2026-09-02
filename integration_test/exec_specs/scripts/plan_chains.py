@@ -54,7 +54,10 @@ def main() -> int:
         print("EEST_SHARD_COUNT must be positive.", file=sys.stderr)
         return 2
 
-    print(f"matrix={json.dumps({'include': build_matrix(shard_count)})}")
+    entries = build_matrix(shard_count)
+    print(f"matrix={json.dumps({'include': entries})}")
+    expected_reports = [os.path.basename(str(entry["report"])) for entry in entries]
+    print(f"expected_reports={json.dumps(expected_reports)}")
     return 0
 
 
