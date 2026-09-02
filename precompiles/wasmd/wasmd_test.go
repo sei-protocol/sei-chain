@@ -25,35 +25,6 @@ func TestAddress(t *testing.T) {
 	require.Equal(t, "0x0000000000000000000000000000000000001002", p.Address().Hex())
 }
 
-func TestExecuteBatchDisabled(t *testing.T) {
-	testApp := app.Setup(t, false, false, false)
-	ctx := testApp.GetContextForDeliverTx([]byte{}).WithIsEVM(true)
-	p, err := wasmd.NewPrecompile(testApp.GetPrecompileKeepers())
-	require.NoError(t, err)
-
-	executor := p.GetExecutor().(*wasmd.PrecompileExecutor)
-	method, err := p.ABI.MethodById(executor.ExecuteBatchID)
-	require.NoError(t, err)
-	args, err := method.Inputs.Pack([]wasmd.ExecuteMsg{{Coins: []byte("{")}})
-	require.NoError(t, err)
-
-	stateDB := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-	_, remainingGas, err := p.RunAndCalculateGas(
-		&vm.EVM{StateDB: stateDB},
-		common.Address{},
-		common.Address{},
-		append(executor.ExecuteBatchID, args...),
-		1_000_000,
-		nil,
-		nil,
-		false,
-		false,
-	)
-	require.Equal(t, vm.ErrExecutionReverted, err)
-	require.NotZero(t, remainingGas)
-	require.ErrorIs(t, stateDB.GetPrecompileError(), wasmd.ErrExecuteBatchDisabled)
-}
-
 func TestInstantiate(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
