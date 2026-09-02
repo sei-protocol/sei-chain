@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd/configmanager"
 	"github.com/sei-protocol/sei-chain/config/registry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
@@ -235,6 +237,115 @@ func TestATypedFlagReachesTheKeyItCarries(t *testing.T) {
 			"one. The flag's name and the key it carries are spelled differently, so comparing them as "+
 			"strings drops the flag and the file wins over the command line", got, flag)
 	}
+}
+
+// bootWithTypedLevel runs a real boot against a sei.toml, with the node's own configuration file holding
+// fileLevel and --log_level carrying typed when that is not empty.
+func bootWithTypedLevel(t *testing.T, seiToml, fileLevel, typed string) *server.Context {
+	t.Helper()
+	home := configtest.NewHome(t)
+	live := tmcfg.DefaultConfig()
+	live.LogLevel = fileLevel
+	if err := tmcfg.WriteConfigFile(home.Root, live); err != nil {
+		t.Fatalf("render the node's configuration file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home.Root, "config", "sei.toml"),
+		[]byte(seiToml), 0o600); err != nil {
+		t.Fatalf("write sei.toml: %v", err)
+	}
+
+	cmd := server.StartCmd(nil, home.Root, []trace.TracerProviderOption{})
+	// A persistent flag of the root command in production. Registered here because this harness runs the
+	// manager directly, and cobra merges an inherited persistent flag only during Execute. The viper key
+	// it binds to is the same either way.
+	cmd.Flags().String(flags.FlagLogLevel, "", "The logging level")
+	if err := cmd.Flags().Set("home", home.Root); err != nil {
+		t.Fatal(err)
+	}
+	if typed != "" {
+		if err := cmd.Flags().Set(flags.FlagLogLevel, typed); err != nil {
+			t.Fatalf("set --%s: %v", flags.FlagLogLevel, err)
+		}
+	}
+	ctx, err := runManager(t, configmanager.SeiConfigManager{}, cmd)
+	if err != nil {
+		t.Fatalf("the boot was refused: %v", err)
+	}
+	if ctx.Config == nil {
+		t.Fatal("the boot produced no node configuration")
+	}
+	return ctx
+}
+
+// TestTheLevelTheProcessLogsAtFollowsWhicheverChannelDecidedIt covers the one setting this manager applies
+// outside the two deliveries.
+//
+// A level that only reaches the struct moves a field and changes no logging, so this manager hands the
+// struct's level to the logger after the deliveries. Which channel supplied the level decides whether that
+// is right.
+//
+// sei.toml supplies it through the section carrying the key, and this manager is what applies it. The
+// --log_level flag supplies it to the boot's handler instead, under an underscored key where the struct's
+// is hyphenated. A refused root section therefore leaves the struct on the level the node's own file gave
+// it, and applying that level puts the file over the command line.
+//
+// Both cases read the level the process logs at rather than the struct. The struct is not where this
+// setting takes effect: the boot's handler sets one level across every logger before any of this runs.
+func TestTheLevelTheProcessLogsAtFollowsWhicheverChannelDecidedIt(t *testing.T) {
+	// What the node's own configuration file gives the level in both cases, so each case has somewhere to
+	// move away from.
+	const fileLevel = "error"
+
+	t.Run("a level sei.toml supplies reaches the logger", func(t *testing.T) {
+		configtest.Isolate(t)
+		if before := configtest.LogDefaultLevel(); before == slog.LevelWarn {
+			t.Fatalf("the process already logs at %v, so a supplied level of warn cannot be told apart "+
+				"from the level the boot started with", before)
+		}
+		ctx := bootWithTypedLevel(t, nodeFileHeader+"log-level = \"warn\"\n\n[mempool]\nsize = 4321\n",
+			fileLevel, "")
+
+		if got := ctx.Config.LogLevel; got != "warn" {
+			t.Fatalf("the struct holds %q where sei.toml says warn, so the section carrying the level was "+
+				"never delivered and this measures nothing", got)
+		}
+		if got := configtest.LogDefaultLevel(); got != slog.LevelWarn {
+			t.Errorf("the node logs at %v with warn in sei.toml and %q in its own configuration file, "+
+				"want warn. The level moved a field in the struct and no logger", got, fileLevel)
+		}
+	})
+
+	t.Run("a typed level survives a refused root section", func(t *testing.T) {
+		const typedLevel = "debug"
+		configtest.Isolate(t)
+		if before := configtest.LogDefaultLevel(); before == slog.LevelDebug {
+			t.Fatalf("the process already logs at %v, so a typed level of %s cannot be told apart from "+
+				"the level the boot started with", before, typedLevel)
+		}
+		// An unknown log format breaks the root section's own rules, so the whole section is refused and
+		// the level it carries never reaches the struct. That key sits beside the level in that section.
+		ctx := bootWithTypedLevel(t, nodeFileHeader+
+			"log-format = \"nonsense\"\n\n[mempool]\nsize = 4321\n", fileLevel, typedLevel)
+
+		if got := ctx.Config.Mempool.Size; got != 4321 {
+			t.Fatalf("mempool.size reads %d, so no section was delivered and this measures nothing", got)
+		}
+		if got := ctx.Config.LogLevel; got != fileLevel {
+			t.Fatalf("the struct holds %q where the node's own file says %q, so the root section was "+
+				"applied and this measures an accepted section rather than a refused one", got, fileLevel)
+		}
+		if got := ctx.Viper.GetString(flags.FlagLogLevel); got != typedLevel {
+			t.Fatalf("the boot reads %q for --%s, so the typed flag never reached the handler that "+
+				"applies it", got, flags.FlagLogLevel)
+		}
+
+		if got := configtest.LogDefaultLevel(); got != slog.LevelDebug {
+			t.Errorf("the node logs at %v with --%s=%s typed and %q in its own configuration file, want "+
+				"%s. The refused section left the struct on the file's level, and applying that level "+
+				"put the file over the command line", got, flags.FlagLogLevel, typedLevel, fileLevel,
+				typedLevel)
+		}
+	})
 }
 
 // TestALengthOfTimeWrittenAsAPlainNumberIsRefused covers a value that decodes cleanly and is wrong by a

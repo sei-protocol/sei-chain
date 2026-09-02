@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
@@ -209,9 +210,6 @@ func reportWhatMoved(name string, keys []string, before, after map[string]string
 		"section", name, "count", len(moved), "changed", strings.Join(shown, "; "), "omitted", omitted)
 }
 
-// logLevelKey is the one delivered setting the struct is not the end of.
-const logLevelKey = "log-level"
-
 // loggerOwnVariable is the environment variable the logger itself reads when it starts.
 //
 // Not the variable this key answers to in the resolution, which carries the binary's own prefix. Two names
@@ -238,25 +236,32 @@ func asSet(keys []string) map[string]struct{} {
 // The section carrying this key is refused as a whole when any of its values is wrong, and the resolution
 // still holds a level for it, so applying that would move the process while the struct kept what it had.
 //
-// A level that cannot be read is reported and skipped, and the node keeps the level it had.
-func applyTheLevelTheStructNowHolds(ctx *server.Context, typed map[string]string, log *slog.Logger) {
+// Nothing is applied when the boot already took a level from above the node's own file, or when the
+// logger's own variable is set. A level that cannot be read is reported and skipped.
+func applyTheLevelTheStructNowHolds(ctx *server.Context, log *slog.Logger) {
 	if ctx == nil || ctx.Config == nil {
 		return
 	}
 	text := ctx.Config.LogLevel
 
+	// The command line does not reach this struct, whose key is spelled with a hyphen where the flag uses
+	// an underscore, so a refused section leaves the struct on the file's level while the process runs the
+	// flag's. Applying the struct's level then puts the file back over the command line.
+	if applied := theLevelTheBootApplied(ctx); applied != "" {
+		log.Info("the boot already applied a log level that outranks this node's configuration file; the "+
+			"level that file holds is not used", "level", applied, "ignored", text)
+		return
+	}
+
 	// The logger reads its own variable at start-up, under a different name from this key. The boot's own
 	// handler steps aside when that variable is set: a flag beats it, a file does not. Applying here
 	// regardless would put the file above it. An operator who exported a level and then adopted this file
-	// would find the exported level ignored. A typed flag still wins, which is the order that was already
-	// there.
-	if _, fromFlag := flagValues(typed)[logLevelKey]; !fromFlag {
-		if os.Getenv(loggerOwnVariable) != "" {
-			log.Info("a log level is set in the environment under the logger's own variable, which the "+
-				"node already applied; the level this node's configuration holds is not used",
-				"variable", loggerOwnVariable, "ignored", text)
-			return
-		}
+	// would find the exported level ignored.
+	if os.Getenv(loggerOwnVariable) != "" {
+		log.Info("a log level is set in the environment under the logger's own variable, which the "+
+			"node already applied; the level this node's configuration holds is not used",
+			"variable", loggerOwnVariable, "ignored", text)
+		return
 	}
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(text)); err != nil {
@@ -268,6 +273,19 @@ func applyTheLevelTheStructNowHolds(ctx *server.Context, typed map[string]string
 	// That set every logger in the process, this one included, so the floor goes back on.
 	keepOwnReportingVisible()
 	log.Info("log level applied", "level", text)
+}
+
+// theLevelTheBootApplied returns the log level the boot's handler set the process from, and empty when
+// nothing above the node's own file supplied one.
+//
+// The same read the handler makes, on the same source, so the two cannot answer differently. It carries
+// the --log_level flag and the variable of that name under the binary's own prefix. A non-empty answer is
+// a level the handler has already parsed and applied.
+func theLevelTheBootApplied(ctx *server.Context) string {
+	if ctx.Viper == nil {
+		return ""
+	}
+	return ctx.Viper.GetString(flags.FlagLogLevel)
 }
 
 // whatTheSectionsOwnRulesSay reports what this section's own rules say about a candidate.

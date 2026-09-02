@@ -370,7 +370,7 @@ func TestTheLevelAppliedIsTheOneTheStructHolds(t *testing.T) {
 
 	var out bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	applyTheLevelTheStructNowHolds(sctx, map[string]string{}, log)
+	applyTheLevelTheStructNowHolds(sctx, log)
 
 	if !strings.Contains(out.String(), "log level applied") ||
 		!strings.Contains(out.String(), "warn") {
@@ -409,7 +409,7 @@ func TestAPathThatAppliedNothingChangedNoLevelEither(t *testing.T) {
 	if !strings.Contains(out.String(), "says another") {
 		t.Fatalf("the kind gate did not fire, so this measures nothing:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "resolved log level applied") {
+	if strings.Contains(out.String(), "log level applied") {
 		t.Errorf("nothing was delivered and the log level was applied anyway, so the report saying every "+
 			"key reads as it always has is false for this one:\n%s", out.String())
 	}
