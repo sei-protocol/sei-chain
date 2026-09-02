@@ -1829,7 +1829,8 @@ func TestHashFailureSurfacesOnTheStream(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	hashes := s.HashChan()
+	hashes, err := s.HashChan()
+	require.NoError(t, err)
 	require.NoError(t, (<-hashes).Error, "the good block hashes normally")
 
 	s.moduleOf = func([]byte) (string, error) {
@@ -1854,6 +1855,35 @@ func TestHashFailureSurfacesOnTheStream(t *testing.T) {
 
 	require.ErrorContains(t, s.FlushHashes(), "injected moduleOf failure",
 		"a caller waiting for hashes must be told they failed, not that they are done")
+}
+
+// A read-only store does hash blocks — it replays them to reach its target height — but it reads that
+// stream itself, so it has none to hand out. Handing back a live channel that stays empty would leave a
+// consumer waiting forever, and an empty one is indistinguishable from a store that finished.
+func TestReadOnlyStoreRefusesItsHashChan(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(evmStorageKey(ktype.Address{0x11}, ktype.Slot{0x22}), padLeft32(0x33), false),
+	}))
+	commitAndCheck(t, s)
+
+	stream, err := s.HashChan()
+	require.NoError(t, err, "a committing store hands out its stream")
+	require.NotNil(t, stream)
+
+	ro, err := s.LoadVersionReadOnly(0)
+	require.NoError(t, err)
+	defer func() { _ = ro.Close() }()
+
+	roStream, err := ro.HashChan()
+	require.Error(t, err, "a read-only store must refuse rather than return a stream that stays empty")
+	require.ErrorContains(t, err, "read-only")
+	require.Nil(t, roStream)
+
+	// The height is still readable, which is what a caller wanting a read-only store's hash actually needs.
+	require.Equal(t, ro.Version(), ro.PublishedHash().BlockNumber)
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {

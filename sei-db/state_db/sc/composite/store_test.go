@@ -52,8 +52,10 @@ func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil
 func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *failingEVMStore) PublishedHash() *lthash.BlockHash       { return lthash.NewBlockHash(nil) }
-func (f *failingEVMStore) HashChan() <-chan *lthash.BlockHash     { return nil }
+func (f *failingEVMStore) PublishedHash() *lthash.BlockHash { return lthash.NewBlockHash(nil) }
+func (f *failingEVMStore) HashChan() (<-chan *lthash.BlockHash, error) {
+	return nil, fmt.Errorf("flatkv unavailable")
+}
 func (f *failingEVMStore) FlushHashes() error                     { return nil }
 func (f *failingEVMStore) CommitPendingBlock() error              { return nil }
 func (f *failingEVMStore) Version() int64                         { return 0 }

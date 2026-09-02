@@ -132,8 +132,11 @@ type LiveStateStore interface {
 	// block order, with no gaps or duplicates, closed once the store stops hashing.
 	//
 	// The channel has finite depth, so failure to dequeue hashes for long enough blocks commit. Every
-	// deployment therefore needs a consumer.
-	HashChan() <-chan *lthash.BlockHash
+	// store that returns one therefore needs a consumer.
+	//
+	// A store that will never carry a stream reports why instead of handing back one that stays empty:
+	// one that is not open, and one that hashes only in order to replay and so consumes its own.
+	HashChan() (<-chan *lthash.BlockHash, error)
 
 	// FlushHashes blocks until the store has published a hash for every block committed so far, and
 	// recorded each one's metadata alongside the block it describes.

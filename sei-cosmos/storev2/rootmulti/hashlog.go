@@ -84,10 +84,12 @@ func (rs *Store) desiredHashCategories() map[string]struct{} {
 	return categories
 }
 
-// openHashLogger constructs the logger once. It starts with no caller columns (just the changeset
-// column); syncHashCategories then registers the live categories, which the logger handles as runtime
-// column changes (each new column rotates to a fresh file, but the empty initial files are dropped and
-// their indexes reused, so the first file with data starts at index 0).
+// openHashLogger constructs the logger once, with no caller columns beyond the changeset column.
+//
+// The columns arrive afterwards, from two directions: a backend registers the ones it reports when it is
+// handed this logger, and syncHashCategories registers whatever else the live backend set calls for and
+// removes what it drops. The logger treats each change as a file rotation, but an empty file is dropped
+// and its index reused, so the first file with data still starts at index 0.
 func openHashLogger(scDir string, hashLoggerConfig config.HashLoggerConfig) (hashlog.HashLogger, error) {
 	loggerVersion := hashLoggerConfig.Version
 	if loggerVersion == "" {

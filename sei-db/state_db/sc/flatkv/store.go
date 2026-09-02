@@ -236,6 +236,10 @@ func NewCommitStore(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
+	if err := registerHashCategories(hl); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 
 	coreCount := runtime.NumCPU()
@@ -1100,9 +1104,9 @@ func (s *CommitStore) startHashing() error {
 	)
 
 	if s.readOnly {
-		// Nothing consumes a read-only store's stream — HashChan reports it as closed — so it is drained
-		// here. Left unread, replaying past the channel's depth would block on a hash no one wants. The
-		// goroutine ends when the finalizer closes the stream.
+		// A read-only store's stream is drained here, and HashChan refuses to hand it out, because the two
+		// have to agree on who reads it. Left unread, replaying past the channel's depth would block on a
+		// hash no one wants. The goroutine ends when the finalizer closes the stream.
 		published := s.finalizer.HashChan()
 		go func() {
 			for range published { //nolint:revive // discarding is the point
@@ -1228,20 +1232,24 @@ func (s *CommitStore) PublishedHash() *lthash.BlockHash {
 // HashChan returns a channel producing the hash of each block. Exactly one hash per block committed, in
 // block order, with no gaps or duplicates. It is closed once the store stops hashing.
 //
-// The channel has finite depth, so failure to dequeue hashes for long enough blocks commit. Every
-// deployment therefore needs a consumer.
-func (s *CommitStore) HashChan() <-chan *lthash.BlockHash {
+// The channel has finite depth, so failure to dequeue hashes for long enough blocks commit. A store that
+// hands one out therefore needs a consumer.
+//
+// The two stores that have no stream to hand out say so rather than returning one that stays empty: a
+// caller cannot tell an empty stream from a store that hashed its blocks and stopped.
+func (s *CommitStore) HashChan() (<-chan *lthash.BlockHash, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.finalizer != nil {
-		return s.finalizer.HashChan()
+	if s.readOnly {
+		// Such a store does hash blocks — it replays them to reach its target height — but it consumes
+		// that stream itself, so there is none to give away. Its height is available from PublishedHash.
+		return nil, fmt.Errorf("flatkv: a read-only store consumes its own hash stream")
 	}
-	// A read-only store never commits and so never publishes. A closed channel lets a consumer range
-	// over it and finish, rather than blocking forever on a stream that will never carry anything.
-	empty := make(chan *lthash.BlockHash)
-	close(empty)
-	return empty
+	if s.finalizer == nil {
+		return nil, fmt.Errorf("flatkv: the store is not open, so it is not hashing")
+	}
+	return s.finalizer.HashChan(), nil
 }
 
 // FlushHashes blocks until the store has published a hash for every block committed so far, and

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // flatKVHashCache answers Cosmos's synchronous hash questions from flatKV's asynchronous hash stream.
@@ -49,6 +50,21 @@ func (c *flatKVHashCache) hashAtVersion(store giga.LiveStateStore, version int64
 
 // awaitHeight reports the hash for height, reading the stream until it arrives.
 func (c *flatKVHashCache) awaitHeight(store giga.LiveStateStore, height int64) ([]byte, error) {
+	// Taken once and used by both the drain below and the wait at the end. A store with no stream can
+	// still answer from its published hash, so the refusal is carried rather than returned, and reported
+	// only where waiting on a stream is the last resort left.
+	stream, streamErr := store.HashChan()
+
+	// Whatever the stream already holds is taken before any answer below is considered. Every published
+	// hash has to leave the stream exactly once — it has finite depth and blocks commit once full — and
+	// the published hash consulted below can satisfy a height whose stream entry is still queued, which
+	// would strand that entry for good.
+	if streamErr == nil {
+		if err := c.takeQueued(stream); err != nil {
+			return nil, err
+		}
+	}
+
 	if hash, ok := c.hashes[height]; ok {
 		c.forget(height)
 		return hash, nil
@@ -67,11 +83,12 @@ func (c *flatKVHashCache) awaitHeight(store giga.LiveStateStore, height int64) (
 			height, max(published.BlockNumber, c.highest))
 	}
 
-	for hash := range store.HashChan() {
-		checksum := hash.Global.Checksum()
-		c.hashes[hash.BlockNumber] = checksum[:]
-		if hash.BlockNumber > c.highest {
-			c.highest = hash.BlockNumber
+	if streamErr != nil {
+		return nil, fmt.Errorf("no flatkv hash stream to wait on for block %d: %w", height, streamErr)
+	}
+	for hash := range stream {
+		if err := c.accept(hash); err != nil {
+			return nil, err
 		}
 		if hash.BlockNumber >= height {
 			break
@@ -84,6 +101,40 @@ func (c *flatKVHashCache) awaitHeight(store giga.LiveStateStore, height int64) (
 	}
 	c.forget(height)
 	return result, nil
+}
+
+// takeQueued moves every hash the stream is already holding into the cache, without waiting for one that
+// has not been published yet. A closed stream reads as holding nothing.
+func (c *flatKVHashCache) takeQueued(stream <-chan *lthash.BlockHash) error {
+	for {
+		select {
+		case hash, open := <-stream:
+			if !open {
+				return nil
+			}
+			if err := c.accept(hash); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+// accept records one block's hash off the stream, reporting instead the failure a failed block carries.
+func (c *flatKVHashCache) accept(hash *lthash.BlockHash) error {
+	if hash.Error != nil {
+		// Reported rather than left to the stream closing behind it: nothing is published after a failed
+		// block, so reading on would block until the stream closed and then report only that the hash never
+		// arrived, losing the reason. A failed block carries no hashes to read.
+		return fmt.Errorf("flatkv failed to hash block %d: %w", hash.BlockNumber, hash.Error)
+	}
+	checksum := hash.Global.Checksum()
+	c.hashes[hash.BlockNumber] = checksum[:]
+	if hash.BlockNumber > c.highest {
+		c.highest = hash.BlockNumber
+	}
+	return nil
 }
 
 // forget drops every height at or below the one just answered. The stream is one-directional, so

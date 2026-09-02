@@ -1,6 +1,11 @@
 package flatkv
 
-import "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+import (
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+)
 
 // Hash logger category names owned by the flatKV backend. flatKVDBHashPrefix is joined with a data DB
 // directory name (e.g. "flatKV/db/account").
@@ -16,8 +21,7 @@ func (s *CommitStore) HashCategories() []string {
 	return hashCategories()
 }
 
-// hashCategories returns the same set without needing a store, for a caller that must open the logger
-// before the store that reports to it.
+// hashCategories returns the same set without needing a store.
 func hashCategories() []string {
 	categories := make([]string, 0, len(dataDBDirs)+1)
 	categories = append(categories, FlatKVRootHashType)
@@ -25,6 +29,23 @@ func hashCategories() []string {
 		categories = append(categories, flatKVDBHashPrefix+dir)
 	}
 	return categories
+}
+
+// registerHashCategories puts this backend's columns on hl, so that the hashes reported to it later are
+// accepted rather than rejected as unknown.
+//
+// It runs when a store takes the logger, which is the only point early enough. Hashes are reported from
+// the finalization goroutine, and the first of those can land during the WAL replay that opening the
+// store performs — before any commit-path code has had the chance to register a column. A rejected
+// report latches and silences reporting for the life of the store, so this cannot be left to a caller
+// that may report first.
+func registerHashCategories(hl hashlog.HashLogger) error {
+	for _, category := range hashCategories() {
+		if err := hl.RegisterHashType(category); err != nil {
+			return fmt.Errorf("register hash category %q: %w", category, err)
+		}
+	}
+	return nil
 }
 
 // Reports one block's hashes: the global root and each data database's per-DB checksum, under the

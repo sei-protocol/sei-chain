@@ -12,6 +12,10 @@ import "github.com/sei-protocol/sei-chain/sei-db/proto"
 // computes itself from the raw change sets (see ReportChangeset). A block is considered complete, and is written to
 // disk, once a hash has been reported for every configured type.
 //
+// Every method is safe to call from any goroutine, concurrently. The logger holds no state a caller touches
+// directly: each entry point either reads an atomic or hands its argument to a background goroutine over a
+// channel, and the column set belongs to the logger's own control loop.
+//
 // Slice ownership: every slice handed to this logger — the hash passed to ReportHash, and the change set (and
 // all of its nested keys and values) passed to ReportChangeset — is retained and read asynchronously on background
 // goroutines after the call returns. The caller is free to keep reading these slices, but MUST NOT mutate them
@@ -41,9 +45,11 @@ type HashLogger interface {
 	// the current file, seals it, and opens a fresh file whose header includes the new column. Registering a
 	// type that is already present is a no-op (no rotation). The reserved changeset type is rejected, as are
 	// names containing characters outside the legal allow-list. Returns nil once the change has been applied
-	// (the call blocks until then), so a subsequent ReportHash for the new column is accepted.
+	// (the call blocks until then).
 	//
-	// Callers must not invoke the Register/Unregister/Report methods concurrently from multiple goroutines.
+	// Registering is how a caller declares a column before reporting to it, so that the column is on the
+	// first file's header and no early block is written without it. It is not a precondition of ReportHash,
+	// which creates a column it does not recognise.
 	RegisterHashType(hashType string) error
 
 	// Unregister a previously registered caller-reported hash type, removing its column. Like
@@ -51,12 +57,12 @@ type HashLogger interface {
 	// not present is a no-op; the reserved changeset column cannot be removed.
 	UnregisterHashType(hashType string) error
 
-	// Report a hash for a block under the given type. The type must be one of the types this logger was
-	// configured to record (via HashLoggerConfig.HashTypes or RegisterHashType), otherwise an error is
-	// returned. The changeset hash type is reserved for the
-	// logger-computed changeset column (use ReportChangeset) and is also rejected when changeset hashing is enabled. A
-	// subsystem that is disabled should report a nil hash for its type rather than skipping the call, so that
-	// the block can still be completed.
+	// Report a hash for a block under the given type. A type the logger does not already record becomes a
+	// recorded column, logged once as the wiring mistake it is; a name outside the legal allow-list is
+	// logged and dropped instead, since column names are written into the CSV unquoted. The changeset hash
+	// type is reserved for the logger-computed changeset column (use ReportChangeset) and is rejected when
+	// changeset hashing is enabled. A subsystem that is disabled should report a nil hash for its type
+	// rather than skipping the call, so that the block can still be completed.
 	ReportHash(blockNumber uint64, hashType string, hash []byte) error
 
 	// Shut down the HashLogger and release any resources. Flushes pending writes before returning. Only blocks
