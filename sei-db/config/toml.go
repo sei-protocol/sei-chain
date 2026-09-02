@@ -69,6 +69,11 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 # all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
+# Node-local shadow-test migration rate. Production builds ignore this key; only
+# the mock block-validation build may use it to drain a mainnet-following shadow
+# node that is expected to diverge locally.
+sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
+
 # HashLogger records a per-block CSV of named hashes (memIAVL module/root hashes, flatKV DB/root
 # hashes, the app hash, the block hash, and the changeset hash) so block-hash computation can be
 # studied and compared across nodes. It is a debugging/forensics tool; enabled by default.

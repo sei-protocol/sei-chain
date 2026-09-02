@@ -39,6 +39,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
 	case FlagSCFlatKVReadWriteMetrics:
 		return defaultSCConfig.FlatKVConfig.EnableReadWriteMetrics
+	case FlagSCKeysToMigratePerBlock:
+		return defaultSCConfig.KeysToMigratePerBlock
 	case FlagSSEnable:
 		return defaultSSConfig.Enable
 	case FlagSSBackend:
@@ -233,7 +235,7 @@ func TestSetupSeiDB_StateSyncSnapshotWithoutSSDoesNotPanic(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		opts, ss := SetupSeiDB(homePath, appOpts, nil)
+		opts, ss, _ := SetupSeiDB(homePath, appOpts, nil)
 		require.NotNil(t, opts)
 		require.Nil(t, ss, "state store must be nil when SS is disabled")
 	})

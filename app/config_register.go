@@ -164,6 +164,7 @@ type stateCommitSchema struct {
 	HistoricalProofBurst       int                     `mapstructure:"sc-historical-proof-burst"`
 	WriteMode                  string                  `mapstructure:"sc-write-mode"`
 	WriteModeEnableAuto        bool                    `mapstructure:"sc-write-mode-enable-auto"`
+	KeysToMigratePerBlock      int                     `mapstructure:"sc-keys-to-migrate-per-block"`
 	HashLoggerEnable           bool                    `mapstructure:"sc-hash-logger-enable"`
 	HashLoggerDirectory        string                  `mapstructure:"sc-hash-logger-directory"`
 	HashLoggerBlocksToRetain   uint                    `mapstructure:"sc-hash-logger-blocks-to-retain"`
@@ -197,6 +198,7 @@ func stateCommitDefaults(registry.Mode) any {
 		HistoricalProofBurst:       live.HistoricalProofBurst,
 		WriteMode:                  string(live.WriteMode),
 		WriteModeEnableAuto:        live.WriteModeEnableAuto,
+		KeysToMigratePerBlock:      live.KeysToMigratePerBlock,
 		HashLoggerEnable:           live.HashLogger.Enable,
 		HashLoggerDirectory:        live.HashLogger.Directory,
 		HashLoggerBlocksToRetain:   live.HashLogger.BlocksToRetain,

@@ -449,6 +449,9 @@ type App struct {
 	rootStore    *rootmulti.Store
 	receiptStore receipt.ReceiptStore
 
+	migrationBatchSizeOverride       int
+	migrationBatchSizeOverrideLogged bool
+
 	forkInitializer func(sdk.Context)
 
 	// evmHTTPServer/evmWSServer hold the EVM JSON-RPC HTTP and WebSocket listeners
@@ -500,7 +503,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bAppOptions, stateStore := SetupSeiDB(homePath, appOpts, baseAppOptions)
+	bAppOptions, stateStore, migrationBatchSizeOverride := SetupSeiDB(homePath, appOpts, baseAppOptions)
 
 	bApp := baseapp.NewBaseApp(AppName, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
@@ -517,19 +520,20 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:              bApp,
-		cdc:                  cdc,
-		appCodec:             appCodec,
-		interfaceRegistry:    interfaceRegistry,
-		keys:                 keys,
-		tkeys:                tkeys,
-		memKeys:              memKeys,
-		txDecoder:            encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:          version.NewInfo(),
-		metricCounter:        &map[string]float32{},
-		encodingConfig:       encodingConfig,
-		legacyEncodingConfig: MakeLegacyEncodingConfig(),
-		stateStore:           stateStore,
+		BaseApp:                    bApp,
+		cdc:                        cdc,
+		appCodec:                   appCodec,
+		interfaceRegistry:          interfaceRegistry,
+		keys:                       keys,
+		tkeys:                      tkeys,
+		memKeys:                    memKeys,
+		txDecoder:                  encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:                version.NewInfo(),
+		metricCounter:              &map[string]float32{},
+		encodingConfig:             encodingConfig,
+		legacyEncodingConfig:       MakeLegacyEncodingConfig(),
+		stateStore:                 stateStore,
+		migrationBatchSizeOverride: migrationBatchSizeOverride,
 	}
 
 	for _, option := range appOptions {
