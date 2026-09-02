@@ -103,7 +103,6 @@ func TestCommitBlockTakesTheHeadFromTheBatch(t *testing.T) {
 	waiter.WaitForPendingWrites()
 
 	require.Equal(t, int64(4), store.GetLatestVersion())
-	require.Empty(t, store.dbsWithoutWrites(evmChangeset()))
 }
 
 // A block's keys route to some sub-DBs and not others, and the head is the minimum across them, so a
@@ -120,6 +119,8 @@ func TestCommitBlockAdvancesEverySubDBHead(t *testing.T) {
 	require.Greater(t, len(store.managedDBs), 1)
 
 	// One account key, which routes to a single sub-DB.
+	require.Len(t, store.dbsWithoutWrites(store.groupBySubType(evmChangeset())), len(store.managedDBs)-1)
+
 	require.NoError(t, store.CommitBlock(7, evmChangeset()))
 	for _, db := range store.managedDBs {
 		waiter, ok := db.(types.PendingWriteWaiter)
