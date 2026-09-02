@@ -2,6 +2,7 @@ package giga
 
 import (
 	"fmt"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -16,7 +17,9 @@ type stateDB struct {
 	wal statewal.StateWAL
 
 	// The live state DB, which both receives writes and serves current-block reads.
-	liveStateDB LiveStateStore
+	sc LiveStateStore
+
+	ss *evm.EVMStateStore
 }
 
 // NewStateDB returns a StateDB backed by wal and liveStateDB.
@@ -25,10 +28,11 @@ type stateDB struct {
 // behalf; one holding a WAL would record every block twice.
 //
 // The caller retains ownership of wal and liveStateDB: a StateDB has no Close.
-func NewStateDB(wal statewal.StateWAL, liveStateDB LiveStateStore) StateDB {
+func NewStateDB(wal statewal.StateWAL, sc LiveStateStore, ss *evm.EVMStateStore) StateDB {
 	return &stateDB{
-		wal:         wal,
-		liveStateDB: liveStateDB,
+		wal: wal,
+		sc:  sc,
+		ss:  ss,
 	}
 }
 
@@ -47,15 +51,16 @@ func (s *stateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 		return fmt.Errorf("end block %d in state WAL: %w", blockNum, err)
 	}
 
-	if err := s.liveStateDB.CommitStateChanges(blockNum, changeset); err != nil {
+	if err := s.sc.CommitStateChanges(blockNum, changeset); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
 	}
+	// TODO: Commit changes to SS
 
 	return nil
 }
 
 func (s *stateDB) OpenView() StateView {
-	return s.liveStateDB.OpenView()
+	return s.sc.OpenView()
 }
 
 // OpenViewAt panics. Serving a past height requires the historical state DB, which is not wired into

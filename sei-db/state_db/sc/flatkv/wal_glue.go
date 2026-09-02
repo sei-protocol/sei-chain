@@ -23,10 +23,14 @@ func OpenStateWAL(cfg *config.Config) (statewal.StateWAL, error) {
 	return statewal.New(stateWALConfig(cfg.DataDir))
 }
 
+func StateWALPath(parentDir string) string {
+	return filepath.Join(parentDir, changelogDir)
+}
+
 // stateWALConfig builds the state WAL configuration for a store whose data directory is dir: a
 // "changelog" subdirectory of it, with a fixed instance name used only to label metrics. It is the
 // single definition of that layout convention, and GetLatestVersion reads the WAL's range through it
 // without an open store.
-func stateWALConfig(dir string) *statewal.Config {
-	return statewal.DefaultConfig(filepath.Join(dir, changelogDir), "flatkv")
+func stateWALConfig(parentDir string) *statewal.Config {
+	return statewal.DefaultConfig(StateWALPath(parentDir), "flatkv")
 }

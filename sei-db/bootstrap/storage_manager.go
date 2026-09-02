@@ -8,10 +8,8 @@ import (
 
 	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -25,6 +23,8 @@ var logger = seilog.NewLogger("db", "giga")
 // GigaStorageManager owns every database a Giga node reads and writes, plus the
 // checkpoint schedule and prune cycle that run above them.
 type GigaStorageManager struct {
+	cfg config.GigaStorageConfig
+
 	// blockStore.Close closes the block database it was built over.
 	blockStore *blockstore.Store
 
@@ -51,89 +51,28 @@ type GigaStorageManager struct {
 // NewGigaStorageManager runs the steps that bring storage up:
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.
-//  3. CrashRecover (not implemented; currently a no-op).
+//  3. OpenDBWithRecovery: bring every store onto one height.
 //  4. Register checkpoint scheduler and start garbage collector.
 func NewGigaStorageManager(ctx context.Context, cfg config.GigaStorageConfig) (*GigaStorageManager, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("cannot open storage with invalid configs: %w", err)
 	}
-
-	m := &GigaStorageManager{}
-	err := m.openDBs(ctx, cfg)
-	if err == nil {
-		err = m.CrashRecover()
-	}
-	if err == nil {
-		m.startCheckpointSchedule(cfg.CheckpointConfig)
-		err = m.startGarbageCollector(ctx, cfg.PruningConfig)
-	}
+	m := &GigaStorageManager{cfg: cfg}
+	err := m.OpenDBWithRecovery(ctx)
 	if err != nil {
 		if closeErr := m.Close(); closeErr != nil {
 			logger.Error("failed to close a partially started storage manager", "err", closeErr)
 		}
 		return nil, err
 	}
+	m.startCheckpointSchedule(cfg.CheckpointConfig)
+	if err := m.startGarbageCollector(ctx, cfg.PruningConfig); err != nil {
+		if closeErr := m.Close(); closeErr != nil {
+			logger.Error("failed to close a partially started storage manager", "err", closeErr)
+		}
+		return nil, err
+	}
 	return m, nil
-}
-
-// openDBs opens the stores named by cfg. Receipts and SS are left nil when disabled.
-func (m *GigaStorageManager) openDBs(ctx context.Context, cfg config.GigaStorageConfig) error {
-	blockDB, err := littblock.NewBlockDB(cfg.BlockDBConfig)
-	if err != nil {
-		return fmt.Errorf("open block db: %w", err)
-	}
-	blockStore, err := blockstore.New(blockDB)
-	if err != nil {
-		// The store takes ownership of blockDB only once it is built, so nothing else will close it.
-		if closeErr := blockDB.Close(); closeErr != nil {
-			logger.Error("failed to close the block db after the block store failed to open", "err", closeErr)
-		}
-		return fmt.Errorf("open block store: %w", err)
-	}
-	m.blockStore = blockStore
-
-	if cfg.ReceiptDBConfig.Enable {
-		// Giga has no legacy receipt KVStore.
-		receiptDB, err := receipt.NewReceiptStore(cfg.ReceiptDBConfig, nil)
-		if err != nil {
-			return fmt.Errorf("open receipt store: %w", err)
-		}
-		m.receiptDB = receiptDB
-	}
-
-	// StateDB writes the WAL; a store that held one would record every block twice.
-	sc, err := flatkv.NewCommitStore(ctx, cfg.FlatKVConfig, nil)
-	if err != nil {
-		return fmt.Errorf("open state commit store: %w", err)
-	}
-	m.sc = sc
-	if err := m.sc.LoadLatest(); err != nil {
-		return fmt.Errorf("load state commit store: %w", err)
-	}
-	if err := m.sc.CleanupOrphanedReadOnlyDirs(); err != nil {
-		return fmt.Errorf("clean up orphaned state commit read-only dirs: %w", err)
-	}
-
-	// LoadLatest reads the WAL directory out-of-band and takes the lock a live WAL holds.
-	stateWAL, err := flatkv.OpenStateWAL(cfg.FlatKVConfig)
-	if err != nil {
-		return fmt.Errorf("open state WAL: %w", err)
-	}
-	m.stateWAL = stateWAL
-
-	if cfg.SSConfig.Enable {
-		ss, err := evm.NewEVMStateStore(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
-		if err != nil {
-			return fmt.Errorf("open EVM state store: %w", err)
-		}
-		m.ss = ss
-		if err := m.ss.StartSnapshots(utils.GetStateStoreSnapshotsSiblingPath(m.ss.Dir()), cfg.SSConfig, nil); err != nil {
-			return fmt.Errorf("start EVM state store snapshot manager: %w", err)
-		}
-	}
-
-	m.stateDB = giga.NewStateDB(m.stateWAL, m.sc)
-	return nil
 }
 
 // startCheckpointSchedule puts the opened halves of state on one checkpoint cadence.

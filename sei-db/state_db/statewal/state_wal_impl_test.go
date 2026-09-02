@@ -250,7 +250,7 @@ func TestPruneDropsOldBlocks(t *testing.T) {
 // directory without a live StateWAL (the seal/recovery details are exercised in the seiwal package).
 func TestGetRange(t *testing.T) {
 	t.Run("empty directory reports no blocks", func(t *testing.T) {
-		ok, _, _, err := GetRange(testConfig(t.TempDir()))
+		ok, _, _, err := GetRange(t.TempDir())
 		require.NoError(t, err)
 		require.False(t, ok)
 	})
@@ -263,7 +263,7 @@ func TestGetRange(t *testing.T) {
 		}
 		require.NoError(t, w.Close())
 
-		ok, start, end, err := GetRange(cfg)
+		ok, start, end, err := GetRange(cfg.Path)
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, uint64(1), start)
@@ -292,7 +292,7 @@ func TestPruneAfter(t *testing.T) {
 			}
 			require.NoError(t, w.Close())
 
-			require.NoError(t, PruneAfter(cfg, 3))
+			require.NoError(t, PruneAfter(cfg.Path, 3))
 			w2 := openWAL(t, cfg)
 			defer func() { require.NoError(t, w2.Close()) }()
 
@@ -326,7 +326,7 @@ func TestVerifyIntegrity(t *testing.T) {
 	}
 	require.NoError(t, w.Close())
 
-	require.NoError(t, VerifyIntegrity(cfg))
+	require.NoError(t, VerifyIntegrity(cfg.Path))
 
 	// Corrupt a byte in one sealed file's body; the on-demand scan must surface it.
 	entries, err := os.ReadDir(dir)
@@ -345,5 +345,5 @@ func TestVerifyIntegrity(t *testing.T) {
 	data[len(data)-5] ^= 0xFF // flip a byte inside the record, before the trailing CRC
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	require.Error(t, VerifyIntegrity(cfg))
+	require.Error(t, VerifyIntegrity(cfg.Path))
 }

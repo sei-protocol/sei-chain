@@ -725,7 +725,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
 		}
-		if err := statewal.PruneAfter(cfg, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0
+		if err := statewal.PruneAfter(cfg.Path, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0}
 			return fmt.Errorf("rollback to version %d (from snapshot %d): prune WAL at %s: %w; "+
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
