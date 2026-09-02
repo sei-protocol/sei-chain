@@ -212,6 +212,12 @@ func TestExportGenesisIncludesVotesFromUnfinishedTally(t *testing.T) {
 	require.False(t, complete)
 	require.Equal(t, 1, processed)
 
+	jailedValidator, found := app.StakingKeeper.GetValidator(ctx, seiapp.ConvertAddrsToValAddrs(addrs)[0])
+	require.True(t, found)
+	jailedConsAddr, err := jailedValidator.GetConsAddr()
+	require.NoError(t, err)
+	app.StakingKeeper.Jail(ctx, sdk.ConsAddress(jailedConsAddr.Bytes()))
+
 	validator, found := app.StakingKeeper.GetValidator(ctx, seiapp.ConvertAddrsToValAddrs(addrs)[0])
 	require.True(t, found)
 	_, err = app.StakingKeeper.Delegate(
@@ -232,6 +238,7 @@ func TestExportGenesisIncludesVotesFromUnfinishedTally(t *testing.T) {
 	require.Len(t, genesis.Votes, 3)
 	require.Len(t, genesis.VoteDelegationSnapshots, 3)
 	require.Len(t, genesis.TallyElectorates, 1)
+	require.NoError(t, types.ValidateGenesis(genesis))
 	genesisJSON := app.AppCodec().MustMarshalJSON(genesis)
 	var decodedGenesis types.GenesisState
 	app.AppCodec().MustUnmarshalJSON(genesisJSON, &decodedGenesis)

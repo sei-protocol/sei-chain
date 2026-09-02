@@ -78,6 +78,10 @@ const (
 // - 0x42: Incremental tally activation marker
 
 // - 0x43<proposalID_Bytes>: Legacy proposal's post-expedited modern tally round
+
+// - 0x44<proposalID_Bytes><tallyRound_Byte><validatorAddrLen (1 Byte)><validatorAddr_Bytes>: Tally validator accumulator
+
+// - 0x45<proposalID_Bytes><tallyRound_Byte>: Tally validator accumulator cleanup cursor
 var (
 	ProposalsKeyPrefix          = []byte{0x00}
 	ActiveProposalQueuePrefix   = []byte{0x01}
@@ -103,14 +107,16 @@ var (
 	VoterVoteDelegationUpdatesKeyPrefix     = []byte{0x3A}
 	VoteDelegationSnapshotRevisionKeyPrefix = []byte{0x3B}
 
-	ProposalDeadlineKeyPrefix      = []byte{0x3C}
-	DeadlineBoundaryBlockTimeKey   = []byte{0x3D}
-	TallyBoundaryMetaKeyPrefix     = []byte{0x3E}
-	GapTallyBoundaryKeyPrefix      = []byte{0x3F}
-	ExactTallyBoundaryKeyPrefix    = []byte{0x40}
-	ProposalTallyBoundaryKeyPrefix = []byte{0x41}
-	IncrementalTallyEnabledKey     = []byte{0x42}
-	ModernTallyRoundKeyPrefix      = []byte{0x43}
+	ProposalDeadlineKeyPrefix           = []byte{0x3C}
+	DeadlineBoundaryBlockTimeKey        = []byte{0x3D}
+	TallyBoundaryMetaKeyPrefix          = []byte{0x3E}
+	GapTallyBoundaryKeyPrefix           = []byte{0x3F}
+	ExactTallyBoundaryKeyPrefix         = []byte{0x40}
+	ProposalTallyBoundaryKeyPrefix      = []byte{0x41}
+	IncrementalTallyEnabledKey          = []byte{0x42}
+	ModernTallyRoundKeyPrefix           = []byte{0x43}
+	TallyValidatorAccumulatorsKeyPrefix = []byte{0x44}
+	TallyAccumulatorCleanupKeyPrefix    = []byte{0x45}
 )
 
 var lenTime = len(sdk.FormatTimeBytes(time.Now()))
@@ -285,6 +291,21 @@ func TallyCleanupKey(proposalID uint64, expedited bool) []byte {
 	return append(append(TallyCleanupKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited))
 }
 
+// TallyValidatorAccumulatorsKey returns the prefix for mutable validator state in a tally round.
+func TallyValidatorAccumulatorsKey(proposalID uint64, expedited bool) []byte {
+	return append(append(TallyValidatorAccumulatorsKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited))
+}
+
+// TallyValidatorAccumulatorKey returns the key for one validator's mutable tally state.
+func TallyValidatorAccumulatorKey(proposalID uint64, expedited bool, validator sdk.ValAddress) []byte {
+	return append(TallyValidatorAccumulatorsKey(proposalID, expedited), address.MustLengthPrefix(validator.Bytes())...)
+}
+
+// TallyAccumulatorCleanupKey returns the cleanup cursor key for a tally round's validator accumulators.
+func TallyAccumulatorCleanupKey(proposalID uint64, expedited bool) []byte {
+	return append(append(TallyAccumulatorCleanupKeyPrefix, GetProposalIDBytes(proposalID)...), tallyRound(expedited))
+}
+
 func tallyRound(expedited bool) byte {
 	if expedited {
 		return 0
@@ -327,6 +348,15 @@ func SplitTallyCleanupKey(key []byte) (proposalID uint64, expedited bool) {
 	kv.AssertKeyLength(key, 10)
 	if key[0] != TallyCleanupKeyPrefix[0] {
 		panic(fmt.Sprintf("invalid tally cleanup key prefix %d", key[0]))
+	}
+	return GetProposalIDFromBytes(key[1:9]), decodeTallyRound(key[9])
+}
+
+// SplitTallyAccumulatorCleanupKey returns the proposal and tally round encoded in an accumulator cleanup key.
+func SplitTallyAccumulatorCleanupKey(key []byte) (proposalID uint64, expedited bool) {
+	kv.AssertKeyLength(key, 10)
+	if key[0] != TallyAccumulatorCleanupKeyPrefix[0] {
+		panic(fmt.Sprintf("invalid tally accumulator cleanup key prefix %d", key[0]))
 	}
 	return GetProposalIDFromBytes(key[1:9]), decodeTallyRound(key[9])
 }

@@ -557,11 +557,54 @@ func TestTallyIncrementalPersistsProgressAndCleansArchivedVotes(t *testing.T) {
 
 	require.Equal(t, 2, app.GovKeeper.CleanupTallyVotes(ctx, 2))
 	require.Len(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
-	require.Equal(t, 1, app.GovKeeper.CleanupTallyVotes(ctx, 2))
+	require.Equal(t, 2, app.GovKeeper.CleanupTallyVotes(ctx, 2))
 	require.Empty(t, app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false))
+	require.Equal(t, 1, app.GovKeeper.CleanupTallyVotes(ctx, 2))
+	require.Zero(t, countStorePrefix(ctx, app, types.TallyValidatorAccumulatorsKey(proposal.ProposalId, false)))
 	for _, addr := range addrs[:3] {
 		require.False(t, store.Has(types.TallyVoteDelegationsKey(proposal.ProposalId, false, addr)))
 	}
+}
+
+func TestTallyProgressPreservesItsFrozenBoundary(t *testing.T) {
+	app := seiapp.Setup(t, false, false, false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	addrs, _ := createValidators(t, ctx, app, []int64{5, 5, 5})
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	proposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, proposal)
+
+	for _, addr := range addrs[:3] {
+		require.NoError(t, app.GovKeeper.AddVote(
+			ctx,
+			proposal.ProposalId,
+			addr,
+			types.NewNonSplitVoteOption(types.OptionYes),
+		))
+	}
+
+	complete, processed, _, _, _ := app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.False(t, complete)
+	require.Equal(t, 1, processed)
+
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+	boundaryID := append([]byte(nil), store.Get(types.ProposalTallyBoundaryKey(proposal.ProposalId))...)
+	boundaryKey := types.TallyBoundaryMetaKey(boundaryID)
+	boundaryBefore := append([]byte(nil), store.Get(boundaryKey)...)
+	var progress types.TallyProgress
+	app.AppCodec().MustUnmarshal(store.Get(types.TallyProgressKey(proposal.ProposalId)), &progress)
+	require.Equal(t, boundaryID, progress.BoundaryId)
+	require.NotEmpty(t, progress.Cursor)
+	require.NotEmpty(t, boundaryBefore)
+	require.Equal(t, 1, countStorePrefix(ctx, app, types.TallyValidatorAccumulatorsKey(proposal.ProposalId, false)))
+
+	complete, processed, _, _, _ = app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	require.False(t, complete)
+	require.Equal(t, 1, processed)
+	require.Equal(t, boundaryBefore, store.Get(boundaryKey))
+	require.Equal(t, 2, countStorePrefix(ctx, app, types.TallyValidatorAccumulatorsKey(proposal.ProposalId, false)))
 }
 
 func TestTallyIncrementalIgnoresDelegationsAddedAfterTallyStarts(t *testing.T) {

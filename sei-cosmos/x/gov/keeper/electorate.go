@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -16,17 +15,11 @@ const (
 	proposalTallyBoundary byte = 'p'
 )
 
-type tallyElectorate struct {
-	TotalBondedTokens sdk.Int           `json:"total_bonded_tokens"`
-	TallyParams       types.TallyParams `json:"tally_params"`
-	Validators        []tallyValidator  `json:"validators"`
-}
-
 type tallyBoundary struct {
-	LowerTime      time.Time       `json:"lower_time"`
-	UpperTime      time.Time       `json:"upper_time"`
-	UpdateSequence uint64          `json:"update_sequence"`
-	Electorate     tallyElectorate `json:"electorate"`
+	LowerTime      time.Time
+	UpperTime      time.Time
+	UpdateSequence uint64
+	Electorate     tallyElectorate
 }
 
 // CaptureGapTallyBoundary freezes one electorate for proposal deadlines between consecutive block times.
@@ -96,11 +89,9 @@ func (keeper Keeper) snapshotTallyElectorate(ctx sdk.Context) tallyElectorate {
 	}
 	keeper.sk.IterateBondedValidatorsByPower(ctx, func(_ int64, validator stakingtypes.ValidatorI) bool {
 		electorate.Validators = append(electorate.Validators, tallyValidator{
-			Address:                 validator.GetOperator().String(),
-			BondedTokens:            validator.GetBondedTokens(),
-			DelegatorShares:         validator.GetDelegatorShares(),
-			ObservedDelegatorShares: sdk.ZeroDec(),
-			DelegatorResults:        newTallyOptionResults(),
+			Address:         validator.GetOperator().String(),
+			BondedTokens:    validator.GetBondedTokens(),
+			DelegatorShares: validator.GetDelegatorShares(),
 		})
 		return false
 	})
@@ -137,11 +128,7 @@ func (keeper Keeper) ExportTallyElectorate(
 	proposal types.Proposal,
 ) (types.TallyElectorate, bool) {
 	if progress, found := keeper.getTallyProgress(ctx, proposal.ProposalId); found {
-		return tallyElectorateToGenesis(proposal.ProposalId, tallyElectorate{
-			TotalBondedTokens: progress.TotalBondedTokens,
-			TallyParams:       progress.TallyParams,
-			Validators:        progress.Validators,
-		}), true
+		return tallyElectorateToGenesis(proposal.ProposalId, keeper.tallyProgressBoundary(ctx, proposal.ProposalId, progress).Electorate), true
 	}
 	if boundary, _, found := keeper.getSelectedTallyBoundary(ctx, proposal.ProposalId); found {
 		return tallyElectorateToGenesis(proposal.ProposalId, boundary.Electorate), true
@@ -234,11 +221,8 @@ func (keeper Keeper) setProposalTallyBoundary(ctx sdk.Context, proposalID uint64
 }
 
 func (keeper Keeper) setTallyBoundary(ctx sdk.Context, boundaryID []byte, boundary tallyBoundary) {
-	bz, err := json.Marshal(boundary)
-	if err != nil {
-		panic(fmt.Errorf("marshal tally boundary: %w", err))
-	}
-	ctx.KVStore(keeper.storeKey).Set(types.TallyBoundaryMetaKey(boundaryID), bz)
+	stored := tallyBoundaryToProto(boundary)
+	ctx.KVStore(keeper.storeKey).Set(types.TallyBoundaryMetaKey(boundaryID), keeper.cdc.MustMarshal(&stored))
 }
 
 func (keeper Keeper) getTallyBoundary(ctx sdk.Context, boundaryID []byte) (tallyBoundary, bool) {
@@ -246,11 +230,9 @@ func (keeper Keeper) getTallyBoundary(ctx sdk.Context, boundaryID []byte) (tally
 	if bz == nil {
 		return tallyBoundary{}, false
 	}
-	var boundary tallyBoundary
-	if err := json.Unmarshal(bz, &boundary); err != nil {
-		panic(fmt.Errorf("unmarshal tally boundary: %w", err))
-	}
-	return boundary, true
+	var stored types.TallyBoundary
+	keeper.cdc.MustUnmarshal(bz, &stored)
+	return tallyBoundaryFromProto(stored), true
 }
 
 func (keeper Keeper) addProposalDeadline(ctx sdk.Context, proposalID uint64, endTime time.Time) {
@@ -356,11 +338,59 @@ func tallyElectorateFromGenesis(electorate types.TallyElectorate) tallyElectorat
 	validators := make([]tallyValidator, 0, len(electorate.TallyValidators))
 	for _, validator := range electorate.TallyValidators {
 		validators = append(validators, tallyValidator{
-			Address:                 validator.Address,
-			BondedTokens:            validator.BondedTokens,
-			DelegatorShares:         validator.DelegatorShares,
-			ObservedDelegatorShares: sdk.ZeroDec(),
-			DelegatorResults:        newTallyOptionResults(),
+			Address:         validator.Address,
+			BondedTokens:    validator.BondedTokens,
+			DelegatorShares: validator.DelegatorShares,
+		})
+	}
+	return tallyElectorate{
+		TotalBondedTokens: electorate.TotalBondedTokens,
+		TallyParams:       electorate.TallyParams,
+		Validators:        validators,
+	}
+}
+
+func tallyBoundaryToProto(boundary tallyBoundary) types.TallyBoundary {
+	return types.TallyBoundary{
+		LowerTime:      boundary.LowerTime,
+		UpperTime:      boundary.UpperTime,
+		UpdateSequence: boundary.UpdateSequence,
+		Electorate:     tallyElectorateToProto(boundary.Electorate),
+	}
+}
+
+func tallyBoundaryFromProto(boundary types.TallyBoundary) tallyBoundary {
+	return tallyBoundary{
+		LowerTime:      boundary.LowerTime,
+		UpperTime:      boundary.UpperTime,
+		UpdateSequence: boundary.UpdateSequence,
+		Electorate:     tallyElectorateFromProto(boundary.Electorate),
+	}
+}
+
+func tallyElectorateToProto(electorate tallyElectorate) types.FrozenTallyElectorate {
+	validators := make([]types.TallyValidator, 0, len(electorate.Validators))
+	for _, validator := range electorate.Validators {
+		validators = append(validators, types.TallyValidator{
+			Address:         validator.Address,
+			BondedTokens:    validator.BondedTokens,
+			DelegatorShares: validator.DelegatorShares,
+		})
+	}
+	return types.FrozenTallyElectorate{
+		TotalBondedTokens: electorate.TotalBondedTokens,
+		TallyParams:       electorate.TallyParams,
+		Validators:        validators,
+	}
+}
+
+func tallyElectorateFromProto(electorate types.FrozenTallyElectorate) tallyElectorate {
+	validators := make([]tallyValidator, 0, len(electorate.Validators))
+	for _, validator := range electorate.Validators {
+		validators = append(validators, tallyValidator{
+			Address:         validator.Address,
+			BondedTokens:    validator.BondedTokens,
+			DelegatorShares: validator.DelegatorShares,
 		})
 	}
 	return tallyElectorate{
