@@ -15,6 +15,32 @@ channel (`-queue-depth` batches deep) so Pebble's write throughput isn't gated b
 `pebblesim_stall_duration_seconds` (and the `stall` figure in each log line) reports how long the
 writer waited for a batch — non-zero means generation, not Pebble, is the bottleneck.
 
+
+create a machine in ec2: `c5.12xlarge`. disks: TODO.
+
+```
+sudo dnf update -y
+sudo dnf install -y git golang docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user
+newgrp docker
+```
+
+```
+git clone https://github.com/sei-protocol/sei-chain
+cd sei-chain
+git checkout ss-write-benchmark
+cd sei-db/state_db/bench/pebblesim/
+```
+
+in another window
+```
+ssh -i YOURKEY.pem -N -L 3000:localhost:3000 ec2-user@<EC2_PUBLIC_IP>
+```
+
+go to:
+
+
 ## Run
 
 ```
@@ -32,6 +58,7 @@ go run ./cmd/pebblesim \
 -metrics-addr :9099 \
 -contracts 10000 \
 -slots-per-contract 100000000 \
--queue-depth 4
+-queue-depth 4 -presort
 ```
 
+nohup go run ./cmd/pebblesim -dir ./pebblesim-data -batch-size 500000 -interval 1000ms -metrics-addr :9099 -contracts 10000 -slots-per-contract 100000000 -queue-depth 4 -presort > logs.txt 2>&1 < /dev/null &
