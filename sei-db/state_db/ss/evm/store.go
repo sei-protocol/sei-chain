@@ -215,17 +215,62 @@ func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) er
 // CommitBlock records a committed block and offers its version to the checkpoint schedule. It is the
 // commit path's entry point: the apply methods are raw writes and take no snapshot.
 func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
-	// A block carrying no EVM change writes nothing here, but the head still follows the chain rather
-	// than the last block that happened to touch EVM state.
-	if len(filterEVMChangesets(changesets)) == 0 {
-		if err := s.SetLatestVersion(version); err != nil {
+	evmChangesets := filterEVMChangesets(changesets)
+	if len(evmChangesets) > 0 {
+		if err := s.ApplyChangesetAsync(version, evmChangesets); err != nil {
 			return err
 		}
-	} else if err := s.ApplyChangesetAsync(version, changesets); err != nil {
+	}
+	if err := s.advanceUnwrittenHeads(version, evmChangesets); err != nil {
 		return err
 	}
 	s.scheduleSnapshot(version)
 	return nil
+}
+
+// advanceUnwrittenHeads moves the version marker of every managed database the block wrote nothing to,
+// each at its own place in that database's write order.
+//
+// A database that took a batch needs nothing here: the batch carries the marker alongside the data.
+// The rest would keep the marker of whichever block last routed to them, and the head is the minimum
+// across all of them, so one left behind holds the head — and the GC floor taken from it — below the
+// committed height. Going through the queue rather than around it keeps the marker from overtaking
+// blocks still queued behind it, which stamp their own lower version as they drain.
+func (s *EVMStateStore) advanceUnwrittenHeads(version int64, evmChangesets []*proto.NamedChangeSet) error {
+	for _, db := range s.dbsWithoutWrites(evmChangesets) {
+		barrier, ok := db.(types.DrainBarrier)
+		if !ok {
+			if err := db.SetLatestVersion(version); err != nil {
+				return err
+			}
+			continue
+		}
+		// Runs on the database's apply goroutine, which a panic would take down with it.
+		barrier.ScheduleAtDrain(func() {
+			if err := db.SetLatestVersion(version); err != nil {
+				logger.Error("failed to advance EVM state store version marker", "version", version, "err", err)
+			}
+		})
+	}
+	return nil
+}
+
+// dbsWithoutWrites returns the managed databases that none of evmChangesets' keys route to.
+func (s *EVMStateStore) dbsWithoutWrites(evmChangesets []*proto.NamedChangeSet) []types.StateStore {
+	if !s.separateDBs {
+		if len(evmChangesets) > 0 {
+			return nil
+		}
+		return s.managedDBs
+	}
+	written := s.groupBySubType(evmChangesets)
+	unwritten := make([]types.StateStore, 0, len(s.managedDBs))
+	for storeType, db := range s.subDBs {
+		if len(written[storeType]) == 0 {
+			unwritten = append(unwritten, db)
+		}
+	}
+	return unwritten
 }
 
 func (s *EVMStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {

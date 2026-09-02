@@ -37,7 +37,7 @@ type checkpointState struct {
 }
 
 // SetCheckpointScheduler hands this store the schedule it takes its checkpoint heights from. Until it
-// has one, ScheduleSnapshot does nothing and the store takes no snapshots at all.
+// has one, CommitBlock takes no snapshot and the store snapshots nothing.
 //
 // A nil scheduler stands the store's snapshotting down. Safe to call on an open store.
 func (s *EVMStateStore) SetCheckpointScheduler(scheduler *controller.CheckpointScheduler) {
