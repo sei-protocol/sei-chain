@@ -212,6 +212,22 @@ func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) er
 	return nil
 }
 
+// CommitBlock records a committed block and offers its version to the checkpoint schedule. It is the
+// commit path's entry point: the apply methods are raw writes and take no snapshot.
+func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	// A block carrying no EVM change writes nothing here, but the head still follows the chain rather
+	// than the last block that happened to touch EVM state.
+	if len(filterEVMChangesets(changesets)) == 0 {
+		if err := s.SetLatestVersion(version); err != nil {
+			return err
+		}
+	} else if err := s.ApplyChangesetAsync(version, changesets); err != nil {
+		return err
+	}
+	s.scheduleSnapshot(version)
+	return nil
+}
+
 func (s *EVMStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	if !s.separateDBs {
 		db := s.primaryDB()
