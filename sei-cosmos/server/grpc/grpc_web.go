@@ -11,12 +11,16 @@ import (
 	"golang.org/x/net/netutil"
 	"google.golang.org/grpc"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 )
 
-// StartGRPCWeb starts a gRPC-Web server on the given address.
-func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, error) {
+// StartGRPCWeb starts a gRPC-Web server on the given address. registry is the
+// rate-limit registry StartGRPCServer returned; when it is non-nil the two
+// planes admit against the same per-IP buckets, and when it is nil gRPC-Web
+// serves without per-IP admission.
+func StartGRPCWeb(grpcSrv *grpc.Server, registry *ratelimiter.Registry, config config.Config) (*http.Server, error) {
 	var options []grpcweb.Option
 	if config.GRPCWeb.EnableUnsafeCORS {
 		options = append(options,
@@ -26,9 +30,12 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 		)
 	}
 
-	wrappedServer := grpcweb.WrapServer(grpcSrv, options...)
+	var handler http.Handler = grpcweb.WrapServer(grpcSrv, options...)
+	if registry != nil {
+		handler = RateLimitHTTPMiddleware(registry, handler)
+	}
 	grpcWebSrv := &http.Server{
-		Handler:           wrappedServer,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      2 * time.Minute,
