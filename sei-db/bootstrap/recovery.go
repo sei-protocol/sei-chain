@@ -15,8 +15,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 )
 
-// OpenDBWithRecovery opens every store onto one height: the lowest of the block store, the state
-// WAL, and the receipt store. A target of 0 means a fresh node, and nothing is moved.
+// OpenDBWithRecovery opens every store and brings them onto one height after an unclean shutdown.
+// After recovery:
+//  1. Every store is at or below the block store's height.
+//  2. Every store other than the block store is on the same height.
+//
+// The target is the lowest of the block store, the state WAL, and the receipt store. A target of 0
+// means a fresh node with nothing to converge on, and nothing is moved.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openBlockStore(); err != nil {
 		return err
@@ -53,6 +58,7 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	return nil
 }
 
+// openBlockStore opens the block ledger consensus reads and writes.
 func (m *GigaStorageManager) openBlockStore() error {
 	blockDB, err := littblock.NewBlockDB(m.cfg.BlockDBConfig)
 	if err != nil {
@@ -69,8 +75,8 @@ func (m *GigaStorageManager) openBlockStore() error {
 	return nil
 }
 
+// openReceiptStore opens the receipt store, leaving it nil when receipts are disabled.
 func (m *GigaStorageManager) openReceiptStore() error {
-	// Open ReceiptDB if enabled
 	if m.cfg.ReceiptDBConfig.Enable {
 		// Giga has no legacy receipt KVStore.
 		receiptDB, err := receipt.NewReceiptStore(m.cfg.ReceiptDBConfig, nil)
@@ -82,8 +88,8 @@ func (m *GigaStorageManager) openReceiptStore() error {
 	return nil
 }
 
+// openStateWal opens the state WAL that StateDB writes and SC replays.
 func (m *GigaStorageManager) openStateWal() error {
-	// Open StateWAL
 	stateWAL, err := flatkv.OpenStateWAL(m.cfg.FlatKVConfig)
 	if err != nil {
 		return fmt.Errorf("open state WAL: %w", err)
@@ -92,8 +98,8 @@ func (m *GigaStorageManager) openStateWal() error {
 	return nil
 }
 
+// openSC opens the state commit store over stateWal.
 func (m *GigaStorageManager) openSC(ctx context.Context, stateWal statewal.StateWAL) error {
-	// Open SC with external State WAL
 	sc, err := flatkv.NewCommitStore(ctx, m.cfg.FlatKVConfig, stateWal)
 	if err != nil {
 		return fmt.Errorf("open state commit store: %w", err)
@@ -102,8 +108,9 @@ func (m *GigaStorageManager) openSC(ctx context.Context, stateWal statewal.State
 	return nil
 }
 
+// openSS opens the EVM state store and its snapshot manager, leaving it nil when the state store is
+// disabled.
 func (m *GigaStorageManager) openSS() error {
-	// Open SS if enabled
 	if m.cfg.SSConfig.Enable {
 		ss, err := evm.NewEVMStateStore(m.cfg.SSConfig.EVMDBDirectory, m.cfg.SSConfig)
 		if err != nil {
