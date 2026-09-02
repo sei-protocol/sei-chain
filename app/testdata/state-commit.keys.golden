@@ -15,6 +15,7 @@
 "state-commit.sc-hash-logger-directory"
 "state-commit.sc-hash-logger-blocks-to-retain"
 "state-commit.sc-hash-logger-max-disk-size"
+"state-commit.sc-keys-to-migrate-per-block"
 # keys with a target of their own
 "state-commit.sc-write-mode"
 "state-commit.sc-write-mode-enable-auto"

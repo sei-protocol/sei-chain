@@ -83,6 +83,10 @@ var scKeys = []configtest.KeySpec{
 		Key: FlagSCHashLoggerMaxDiskSize, Path: "HashLogger.MaxDiskSize", Cast: configtest.CastUint,
 		Why: "0 is a meaningful value (disk cap disabled) and is taken verbatim",
 	},
+	{
+		Key: FlagSCKeysToMigratePerBlock, Path: "KeysToMigratePerBlock", Cast: configtest.CastInt,
+		Why: "shadow builds may use it as the node-local migration rate; production builds still parse but ignore it",
+	},
 }
 
 // ssKeys is the [state-store] read-site manifest. Every row is unchecked;
@@ -247,6 +251,7 @@ func FuzzParseSCConfigs(f *testing.F) {
 	// which is what holds the reader to the key name rather than only to the cast.
 	seeds.AddRow(uint(9), fuzzing.KindBool, "", int64(0), true)         // flatkv read/write metrics on; the default is off
 	seeds.AddRow(uint(15), fuzzing.KindInt64, "", int64(100000), false) // block-count retention on; the default is 0, meaning disabled
+	seeds.AddRow(uint(17), fuzzing.KindInt64, "", int64(1024), false)   // local shadow migration rate
 
 	configtest.CheckEveryRowHasADiscriminatingSeed(f, "state-commit", readSC, scKeys, seeds,
 		scKeysWithTargetsOfTheirOwn...)
