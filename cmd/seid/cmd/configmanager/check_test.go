@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
+	"github.com/sei-protocol/sei-chain/config/tendermintbase"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
@@ -496,5 +498,181 @@ func TestTheCountsAddUpAndNameTheRightSource(t *testing.T) {
 	}
 	if elsewhere != 1 {
 		t.Errorf("one flag answered a declared key and the line says %d", elsewhere)
+	}
+}
+
+// theTwoVerdicts is what the check and the boot's delivery each made of one input.
+type theTwoVerdicts struct {
+	// The sections each refused, sorted.
+	byTheCheck, byTheDelivery []string
+	// The configuration the delivery published into, which is what a boot would go on to run.
+	delivered *tmcfg.Config
+}
+
+// rehearseAndDeliver runs the check's rehearsal and the boot's delivery over one resolution.
+//
+// Driven from one resolution and one node configuration, because the two verdicts are only comparable for
+// the same input. Each side is handed a copy of that configuration, since the delivery publishes into the
+// one it is given.
+func rehearseAndDeliver(t *testing.T, own *tmcfg.Config, file map[string]any) theTwoVerdicts {
+	t.Helper()
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{
+		File:      file,
+		LookupEnv: func(string) (string, bool) { return "", false },
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	for key := range file {
+		if _, declared := resolved.Values[key]; !declared {
+			t.Fatalf("no section declares %s, so the file writes nothing and both verdicts are about a "+
+				"resolution that carries none of this fixture", key)
+		}
+	}
+
+	forTheCheck, err := copyNodeConfig(own)
+	if err != nil {
+		t.Fatalf("copy the node's configuration: %v", err)
+	}
+	forTheDelivery, err := copyNodeConfig(own)
+	if err != nil {
+		t.Fatalf("copy the node's configuration: %v", err)
+	}
+
+	capture := &capturingHandler{}
+	log := slog.New(capture)
+	ctx := &server.Context{Config: forTheDelivery}
+	bySection, _ := registry.ResolvedAndOwnedByDecodedSections(resolved)
+	deliverDecodedSections(ctx, bySection, log, log.Info)
+
+	return theTwoVerdicts{
+		byTheCheck:    sectionsTheCheckNamed(whatADecodeWouldRefuse(resolved, forTheCheck)),
+		byTheDelivery: sectionsTheDeliveryNamed(capture.records),
+		delivered:     ctx.Config,
+	}
+}
+
+// sectionsTheCheckNamed reads the section out of each problem the check reported, which names it first in
+// brackets.
+//
+// A problem naming no section is kept whole rather than dropped. Dropped, a report that stopped naming
+// sections would compare equal to a run that refused nothing.
+func sectionsTheCheckNamed(problems []string) []string {
+	out := make([]string, 0, len(problems))
+	for _, problem := range problems {
+		closing := strings.Index(problem, "]")
+		if !strings.HasPrefix(problem, "[") || closing < 0 {
+			out = append(out, problem)
+			continue
+		}
+		out = append(out, problem[1:closing])
+	}
+	sort.Strings(out)
+	return out
+}
+
+// sectionsTheDeliveryNamed reads the section off every refusal the delivery logged. A refusal is what it
+// reports at its error level, and each one carries the section it cost.
+func sectionsTheDeliveryNamed(records []slog.Record) []string {
+	out := make([]string, 0, len(records))
+	for _, record := range records {
+		if record.Level < slog.LevelError {
+			continue
+		}
+		named := ""
+		record.Attrs(func(a slog.Attr) bool {
+			if a.Key == "section" {
+				named = a.Value.String()
+			}
+			return true
+		})
+		out = append(out, named)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestTheCheckDoesNotFailASectionTheDeliveryApplies is why this command sits on top of the delivery.
+//
+// The answer is a prediction, and a prediction is worth its exit status only when it comes from the code
+// that would refuse the value at boot. The delivery holds a section to that section's own rules. Asking the
+// whole configuration instead reports a failure standing anywhere in config.toml as this section's values
+// being refused, so a fleet reading the exit status holds a change back over a node that would take it.
+func TestTheCheckDoesNotFailASectionTheDeliveryApplies(t *testing.T) {
+	configtest.Isolate(t)
+	const written = tendermintbase.RPCSectionName + ".max-open-connections"
+
+	// State sync is on with no servers to reach, which is a state its own rules refuse and an operator's
+	// config.toml can be in for months without it mattering.
+	own := tmcfg.DefaultConfig()
+	own.StateSync.Enable = true
+	if whatTheSectionsOwnRulesSay(own, []string{tendermintbase.StateSyncSectionName + ".enable"}) == nil {
+		t.Fatal("this fixture passes state sync's own rules, so there is no standing failure for the " +
+			"check to attribute to another section")
+	}
+	if own.ValidateBasic() == nil {
+		t.Fatal("this fixture passes the whole configuration's rules, so asking those answers the same " +
+			"as asking one section's and nothing here separates the two questions")
+	}
+	// The delivery takes sections in sorted order, so the written section has to sort first. A standing
+	// failure in a section delivered earlier is corrected by that section's own declared values before the
+	// written one is reached, and the case would not arise.
+	if tendermintbase.RPCSectionName >= tendermintbase.StateSyncSectionName {
+		t.Fatalf("[%s] does not sort before [%s], so the standing failure is corrected before the "+
+			"written section is rehearsed", tendermintbase.RPCSectionName,
+			tendermintbase.StateSyncSectionName)
+	}
+
+	got := rehearseAndDeliver(t, own, map[string]any{written: 111})
+
+	if runs := got.delivered.RPC.MaxOpenConnections; runs != 111 {
+		t.Fatalf("the delivery left max-open-connections at %d with 111 in the file, so it refused the "+
+			"section and there is no applied section for the check to disagree about", runs)
+	}
+	if strings.Join(got.byTheCheck, ",") != strings.Join(got.byTheDelivery, ",") {
+		t.Errorf("the check refused %v and the delivery refused %v for the same input. A failure "+
+			"standing in [%s] is reported as another section's values being refused, and the command "+
+			"exits non-zero on a file a boot applies",
+			got.byTheCheck, got.byTheDelivery, tendermintbase.StateSyncSectionName)
+	}
+}
+
+// TestTheCheckRefusesWhatTheDeliveryRefuses holds the command to still failing on what a boot drops.
+//
+// Asking one section's rules rather than the whole configuration's is only right while it refuses what the
+// boot refuses. The keys at the root of the file are the case to watch: the registry names that section for
+// its reports and the node's own type carries no tag of that name, so a section picked out by name states
+// no rules and every value in it passes.
+func TestTheCheckRefusesWhatTheDeliveryRefuses(t *testing.T) {
+	for _, tc := range []struct {
+		section string
+		file    map[string]any
+	}{
+		{tendermintbase.RPCSectionName, map[string]any{
+			tendermintbase.RPCSectionName + ".max-open-connections": -1}},
+		{tendermintbase.MempoolSectionName, map[string]any{
+			tendermintbase.MempoolSectionName + ".size": -1}},
+		{tendermintbase.RootSectionName, map[string]any{"log-format": "nonsense"}},
+	} {
+		t.Run(tc.section, func(t *testing.T) {
+			configtest.Isolate(t)
+			own := tmcfg.DefaultConfig()
+			if err := own.ValidateBasic(); err != nil {
+				t.Fatalf("this fixture's node configuration fails on its own, so a refusal here says "+
+					"nothing about the written value: %v", err)
+			}
+
+			got := rehearseAndDeliver(t, own, tc.file)
+
+			if strings.Join(got.byTheDelivery, ",") != tc.section {
+				t.Fatalf("the delivery refused %v, want exactly [%s]. The fixture does not write a value "+
+					"a boot refuses, so this case cannot show the check refusing one",
+					got.byTheDelivery, tc.section)
+			}
+			if strings.Join(got.byTheCheck, ",") != tc.section {
+				t.Errorf("the check refused %v where the delivery refused %v. A value a boot drops "+
+					"passes the command an operator runs to find it", got.byTheCheck, got.byTheDelivery)
+			}
+		})
 	}
 }

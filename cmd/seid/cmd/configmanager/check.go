@@ -285,26 +285,27 @@ func whatTheResolutionAlreadyKnows(resolved registry.Resolved) []string {
 
 // whatADecodeWouldRefuse rehearses each decoded section the way the boot's delivery does.
 //
-// Rehearsed against the node's own configuration, which is the target the delivery uses. Every declared key
-// of a section is delivered, so the values under test are the same either way today; sharing the target is
-// what keeps the two answers together as the declared set changes.
-//
-// One difference remains. The delivery applies a section whose rules fail when the node's configuration
-// already fails its own, and this has no such allowance, so on a node in that state this reports a section
-// the boot applies.
+// Rehearsed against the node's own configuration, which is the target the delivery decodes into. Every
+// declared key of a section is delivered, so both rehearse the same values, and sharing the target keeps
+// the two answers together as the declared set changes.
 func whatADecodeWouldRefuse(resolved registry.Resolved, own *tmcfg.Config) []string {
 	bySection, _ := registry.ResolvedAndOwnedByDecodedSections(resolved)
+	base := own
+	if base == nil {
+		base = tmcfg.DefaultConfig()
+	}
+	// The type the node's configuration holds for each declared key, which is what a written value is
+	// weighed against below.
+	fields := keyFieldTypes(reflect.TypeOf(*base), "")
+
 	var problems []string
 	for _, name := range sortedKeys(bySection) {
 		values := bySection[name]
-		base := own
-		if base == nil {
-			base = tmcfg.DefaultConfig()
-		}
+		keys := sortedKeys(values)
 
-		// Each message says what is wrong with the value it names, and there is more than one thing that
-		// can be. Stating one of them here would describe the others wrongly.
-		fields := keyFieldTypes(reflect.TypeOf(*base), "")
+		// Asked before the decode, because a plain number where a length of time belongs decodes cleanly
+		// and means nanoseconds. Each message says what is wrong with the value it names, and there is
+		// more than one thing that can be, so stating one of them here would describe the others wrongly.
 		if bad := whatDecodesToSomethingElse(fields, values); len(bad) > 0 {
 			problems = append(problems, fmt.Sprintf("[%s]: %s", name,
 				strings.Join(problemsInOrder(bad), "; ")))
@@ -322,15 +323,16 @@ func whatADecodeWouldRefuse(resolved registry.Resolved, own *tmcfg.Config) []str
 		}
 		if err := source.Unmarshal(candidate); err != nil {
 			problems = append(problems, fmt.Sprintf("[%s]: %v, so none of this section would apply "+
-				"(keys: %s)", name, err, strings.Join(sortedKeys(values), ",")))
+				"(keys: %s)", name, err, strings.Join(keys, ",")))
 			continue
 		}
 
-		// The node's own rules, the same step the delivery takes after a clean decode. Without it this
-		// command passes a file the boot drops, which is the divergence it exists to prevent.
-		if err := candidate.ValidateBasic(); err != nil {
+		// The node's own rules, through the same function the delivery asks after a clean decode. The
+		// whole configuration's rules stop at the first failing section, so a failure standing anywhere in
+		// config.toml would read here as this section's values being refused.
+		if err := whatTheSectionsOwnRulesSay(candidate, keys); err != nil {
 			problems = append(problems, fmt.Sprintf("[%s]: %v, so none of this section would apply "+
-				"(keys: %s)", name, err, strings.Join(sortedKeys(values), ",")))
+				"(keys: %s)", name, err, strings.Join(keys, ",")))
 		}
 	}
 	sort.Strings(problems)
