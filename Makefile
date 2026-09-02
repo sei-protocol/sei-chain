@@ -653,7 +653,8 @@ upgrade-test:
 .PHONY: upgrade-test
 
 # Compile the current boundary's source phase against one ref, persist its app
-# database, then compile the target phase against another ref and reopen it.
+# database, compile the target phase against another ref to apply the upgrade,
+# then reopen the migrated database with the source branch.
 #
 #   make upgrade-test-offline \
 #     FROM_REF=release/v6.6 TO_REF=release/v6.7

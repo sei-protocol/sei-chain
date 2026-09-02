@@ -35,6 +35,8 @@ func TestScaffoldCreatesATaggedAppUpgradeTest(t *testing.T) {
 		"//go:build upgrade_v67 && offline_upgrade && upgrade_source")
 	require.Contains(t, string(offlineSource), "func TestV67OfflineUpgradeSource")
 	require.Contains(t, string(offlineSource), "TODO: create committed v6.7 source state")
+	require.Contains(t, string(offlineSource), "func TestV67OfflineUpgradeReopen")
+	require.Contains(t, string(offlineSource), "TODO: reopen the migrated database with the source binary")
 
 	offlineTarget, err := os.ReadFile(filepath.Join(root, "upgrade_v67_offline_target_test.go"))
 	require.NoError(t, err)

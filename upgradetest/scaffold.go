@@ -109,6 +109,11 @@ func Test%[2]sOfflineUpgradeSource(t *testing.T) {
 	_ = requireOfflineUpgradePhase(t, "source")
 	t.Fatal("TODO: create committed %[3]s source state")
 }
+
+func Test%[2]sOfflineUpgradeReopen(t *testing.T) {
+	_ = requireOfflineUpgradePhase(t, "reopen")
+	t.Fatal("TODO: reopen the migrated database with the source binary")
+}
 `, tag, exportedSuffix, to))
 	offlineTarget := []byte(fmt.Sprintf(`//go:build %[1]s && offline_upgrade && upgrade_target
 

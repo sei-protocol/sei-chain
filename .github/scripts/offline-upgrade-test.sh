@@ -43,6 +43,9 @@ validate_inputs() {
     [[ -f "$REPO_ROOT/app/${UPGRADE_TAG}_offline_${phase}_test.go" ]] ||
       die "$UPGRADE_TAG has no offline $phase test"
   done
+  grep -q 'func Test.*OfflineUpgradeReopen(' \
+    "$REPO_ROOT/app/${UPGRADE_TAG}_offline_source_test.go" ||
+    die "$UPGRADE_TAG has no offline reopen test"
   [[ -f "$REPO_ROOT/app/upgrade_offline_harness_test.go" ]] ||
     die "offline upgrade harness is missing"
 }
@@ -103,18 +106,26 @@ run_phase() {
   local worktree="$2"
   local test_suffix
   local upgrade_list
+  local file_phase
   case "$phase" in
     source)
       test_suffix=Source
       upgrade_list=
+      file_phase=source
       ;;
     target)
       test_suffix=Target
       upgrade_list="$BOUNDARY_TO"
+      file_phase=target
+      ;;
+    reopen)
+      test_suffix=Reopen
+      upgrade_list=
+      file_phase=source
       ;;
     *) die "unknown offline upgrade phase $phase" ;;
   esac
-  install_phase_tests "$worktree" "$phase"
+  install_phase_tests "$worktree" "$file_phase"
 
   log "Running $UPGRADE_TAG offline $phase phase against $(git -C "$worktree" rev-parse --short HEAD)"
   (
@@ -122,10 +133,10 @@ run_phase() {
     local tests
     tests="$(
       go test \
-        -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$phase" \
+        -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$file_phase" \
         -list "^Test.*OfflineUpgrade${test_suffix}$" \
         ./app 2>/dev/null |
-        awk '/^Test.*OfflineUpgrade(Source|Target)$/ { print }'
+        awk '/^Test.*OfflineUpgrade(Source|Target|Reopen)$/ { print }'
     )"
     [[ -n "$tests" ]] ||
       die "$UPGRADE_TAG $phase phase selected no offline test"
@@ -134,7 +145,7 @@ run_phase() {
       UPGRADE_TEST_ARTIFACT="$STATE_ARTIFACT" \
       UPGRADE_VERSION_LIST="$upgrade_list" \
       go test \
-        -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$phase" \
+        -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$file_phase" \
         -run "^Test.*OfflineUpgrade${test_suffix}$" \
         -count=1 \
         -timeout=10m \
@@ -161,6 +172,7 @@ main() {
   prepare_worktrees
   run_phase source "$SOURCE_WORKTREE"
   run_phase target "$TARGET_WORKTREE"
+  run_phase reopen "$SOURCE_WORKTREE"
   log "Offline upgrade $BOUNDARY_FROM -> $BOUNDARY_TO succeeded"
 }
 
