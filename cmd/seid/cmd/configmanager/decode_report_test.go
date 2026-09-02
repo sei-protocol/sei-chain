@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/config/registry"
@@ -33,7 +32,7 @@ func TestEveryDeclaredKeyOfADecodedSectionIsDelivered(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	forADecode, _ := registry.ResolvedAndOwnedByDecodedSections(resolved)
-	deliverDecodedSections(ctx, forADecode, log, log.Info)
+	deliverDecodedSections(ctx, forADecode, log)
 
 	declared := resolved.Values["p2p.max-connections"]
 	if declared == nil {
@@ -54,35 +53,4 @@ func asUint(t *testing.T, v any) uint64 {
 		t.Fatalf("the declared value %v is not a number: %v", v, err)
 	}
 	return n
-}
-
-// TestAnUnreadKeyIsNotComparedAsUnchanged covers the statement the report must withhold.
-//
-// A key neither side could be read for is absent from both answers, so a comparison finds it equal and says
-// it did not move. That is what a key an operator wrote and got looks like, produced by having read nothing,
-// and the line naming the unread keys exists precisely so the report does not claim it.
-func TestAnUnreadKeyIsNotComparedAsUnchanged(t *testing.T) {
-	keys := []string{"mempool.size", "mempool.ttl-duration", "mempool.max-tx-bytes"}
-	unread := asSet([]string{"mempool.ttl-duration"})
-
-	got := whatBothSidesCouldBeReadFor(keys, unread)
-	want := []string{"mempool.size", "mempool.max-tx-bytes"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("the keys compared are %v, want %v", got, want)
-	}
-
-	// The report over the surviving keys must still say what moved, so the filter cannot be a way of
-	// reporting nothing.
-	var out bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	reportWhatMoved("mempool", got,
-		map[string]string{"mempool.size": "5000", "mempool.max-tx-bytes": "1048576"},
-		map[string]string{"mempool.size": "4321", "mempool.max-tx-bytes": "1048576"},
-		log, log.Info)
-	if !strings.Contains(out.String(), "mempool.size") {
-		t.Errorf("the report does not name the key that moved:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), "ttl-duration") {
-		t.Errorf("the report names a key neither side could be read for:\n%s", out.String())
-	}
 }

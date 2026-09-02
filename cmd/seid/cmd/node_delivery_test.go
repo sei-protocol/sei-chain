@@ -395,9 +395,9 @@ func TestALengthOfTimeWrittenAsAPlainNumberIsRefused(t *testing.T) {
 
 // TestTheReportSurvivesAQuietNode is what a fleet running its nodes quiet needs.
 //
-// One log level covers every logger in the process and an operator writes it. A fleet that sets it above the
-// level these reports use turns this manager into a component that changes what a node runs and says nothing
-// about it, and the report is the only place the node's own file and the running settings can be told apart.
+// One log level covers every logger in the process and an operator writes it. A fleet that sets it above
+// the level these reports use silences a manager that refuses written values. A refusal names the keys a
+// section did not deliver, and nothing else names them.
 //
 // The level is what is asserted rather than a message, because a message can be absent for reasons that have
 // nothing to do with whether it would have been printed.
@@ -410,8 +410,8 @@ func TestTheReportSurvivesAQuietNode(t *testing.T) {
 	}
 	if !configmanager.OwnReportingEnabledForTest() {
 		t.Error("a node whose file sets the level to error delivered a value and this manager's own " +
-			"reporting is switched off. The report is the only signal it has, and the node's own file " +
-			"and its running settings can be told apart nowhere else")
+			"reporting is switched off. A refusal is the only signal an operator has for a section " +
+			"whose written values did not arrive")
 	}
 }
 
