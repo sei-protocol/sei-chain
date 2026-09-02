@@ -21,6 +21,10 @@ const defaultBufferSize = 1024
 // The size of write batches if the provided write batch size is less than 1.
 const defaultWriteBatchSize = 64
 
+// ErrCorrupt reports that the log ends mid-record. An open returns it only under
+// Config.NoRepairOnOpen; otherwise the tail is truncated and the open succeeds.
+var ErrCorrupt = wal.ErrCorrupt
+
 // WAL is a generic write-ahead log implementation.
 type WAL[T any] struct {
 	ctx    context.Context
@@ -94,6 +98,12 @@ type Config struct {
 	// AllowEmpty permits removing all entries via TruncateAll.
 	// When false (default), at least one entry must remain after truncation.
 	AllowEmpty bool
+
+	// NoRepairOnOpen returns wal.ErrCorrupt from the open instead of truncating a
+	// corrupted tail to recover the log. A reader that must leave the log as it
+	// found it sets it. It does not cover the segment cleanup the open performs for
+	// an interrupted TruncateFront, which reports no error to gate on.
+	NoRepairOnOpen bool
 }
 
 // NewWAL creates a new generic write-ahead log that persists entries.
@@ -120,7 +130,7 @@ func NewWAL[T any](
 		NoSync:     !config.FsyncEnabled,
 		NoCopy:     !config.DeepCopyEnabled,
 		AllowEmpty: config.AllowEmpty,
-	})
+	}, config.NoRepairOnOpen)
 	if err != nil {
 		return nil, err
 	}
@@ -542,13 +552,18 @@ func (walLog *WAL[T]) Close() error {
 	return nil
 }
 
-// open opens the replay log, try to truncate the corrupted tail if there's any
-func open(dir string, opts *wal.Options) (*wal.Log, error) {
+// open opens the replay log, truncating a corrupted tail to recover the log.
+// When noRepair is set it returns wal.ErrCorrupt instead, leaving the tail in
+// place.
+func open(dir string, opts *wal.Options, noRepair bool) (*wal.Log, error) {
 	if opts == nil {
 		opts = wal.DefaultOptions
 	}
 	rlog, err := wal.Open(dir, opts)
 	if errors.Is(err, wal.ErrCorrupt) {
+		if noRepair {
+			return nil, err
+		}
 		// try to truncate corrupted tail
 		var fis []os.DirEntry
 		fis, err = os.ReadDir(dir)
