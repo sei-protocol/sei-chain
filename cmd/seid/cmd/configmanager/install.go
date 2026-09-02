@@ -146,7 +146,7 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 
 	// The second delivery. Their file is read into a struct before this runs and nothing consults the
 	// source for them afterwards, so the values are decoded into that struct instead.
-	deliverDecodedSections(ctx, forADecode, log)
+	deliverDecodedSections(ctx, forADecode, log, said)
 	// Counted, not named. Both lists arrive sorted and the rendered one is capped, so naming them prints
 	// the same first ten names on every boot and never a value. read_here_first_count is the set the
 	// source did not already hold, which is the part most likely to change what the node runs.

@@ -148,8 +148,13 @@ func TestAFileHoldingOnlyDecodedKeysIsNotReportedAsSupplyingNothing(t *testing.T
 // configuration line on every invocation of a CLI that was asked something else.
 //
 // A problem still reports on any command. Those are not routine.
+//
+// Both deliveries are held to it. The file below writes one key each side, so a routine line from the
+// install and one from the decode both have to follow the command rather than only the install's.
 func TestOnlyTheBootReportsTheRoutineLine(t *testing.T) {
-	const file = "schema_version = 1\nnode_mode = \"full\"\n\n[evm]\nmax_tx_pool_txs = 111\n"
+	const file = "schema_version = 1\nnode_mode = \"full\"\n" +
+		"\n[evm]\nmax_tx_pool_txs = 111\n" +
+		"\n[mempool]\nsize = 4321\n"
 
 	for _, tc := range []struct {
 		command string
@@ -161,10 +166,14 @@ func TestOnlyTheBootReportsTheRoutineLine(t *testing.T) {
 	} {
 		t.Run(tc.command, func(t *testing.T) {
 			out := installOnCommand(t, tc.command, file, slog.LevelInfo)
-			said := strings.Contains(out, "configuration installed")
-			if said != tc.routine {
-				t.Errorf("`seid %s` reports the routine line at info: %v, want %v.\n%s",
-					tc.command, said, tc.routine, out)
+			for _, line := range []struct{ what, says string }{
+				{"install", "configuration installed"},
+				{"decode", "this section's settings now differ"},
+			} {
+				if said := strings.Contains(out, line.says); said != tc.routine {
+					t.Errorf("`seid %s` reports the %s delivery's routine line at info: %v, want %v.\n%s",
+						tc.command, line.what, said, tc.routine, out)
+				}
 			}
 		})
 	}

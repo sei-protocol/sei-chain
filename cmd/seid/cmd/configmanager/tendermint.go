@@ -27,7 +27,7 @@ import (
 //
 // Nothing here can stop a node starting.
 func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string]any,
-	log *slog.Logger) {
+	log *slog.Logger, said func(string, ...any)) {
 	if len(bySection) == 0 {
 		return
 	}
@@ -49,7 +49,7 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 	for _, name := range sortedKeys(bySection) {
 		log.Debug("delivering a section by decoding it rather than by a lookup",
 			"section", name, "why", reasons[name], "keys", len(bySection[name]))
-		deliverOneSection(ctx, name, bySection[name], log)
+		deliverOneSection(ctx, name, bySection[name], log, said)
 	}
 }
 
@@ -61,7 +61,8 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 // back. Rehearsing into a copy of the configuration the node already has, rather than into a fresh one, is
 // what makes the rehearsal answer the same question: what a decoder writes can depend on what the target
 // already holds, and only a copy holds the same things.
-func deliverOneSection(ctx *server.Context, name string, values map[string]any, log *slog.Logger) {
+func deliverOneSection(ctx *server.Context, name string, values map[string]any, log *slog.Logger,
+	said func(string, ...any)) {
 	keys := sortedKeys(values)
 
 	source := viper.New()
@@ -145,7 +146,7 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 			"keys", strings.Join(shown, ","), "omitted", omitted)
 	}
 
-	reportWhatMoved(name, whatBothSidesCouldBeReadFor(keys, unread), before, after, log)
+	reportWhatMoved(name, whatBothSidesCouldBeReadFor(keys, unread), before, after, log, said)
 }
 
 // copyNodeConfig returns a configuration that holds what this one holds and shares nothing with it.
@@ -191,18 +192,14 @@ func whatBothSidesCouldBeReadFor(keys []string, unread map[string]struct{}) []st
 // the morning. None of them describes the running node after this. This log line is the only place the two
 // can be told apart, so it names the key, what the file gave it and what the node now runs.
 //
-// Keys that did not move are not reported. An operator who writes the value their file already held has
-// changed nothing, and a line saying so buries the ones that did.
-//
-// A value carrying a password has the password taken out, in the forms a connection string writes one: the
-// userinfo of a URL, a named field, quoted or not, with or without backslash escapes. This is the only
-// place the running configuration is written down, so it is also the only place one would reach a log file,
-// a journal, and whatever ships them onward. The node's own configuration file holds the same string and
-// nothing reads it out to a log.
+// A key that did not move is not named. An operator who writes the value their file already held has
+// changed nothing, and naming it buries the keys that did move. The section still reports that it matched,
+// at a level a routine boot does not raise.
 //
 // The rendered list is capped for the reason every other one here is: the count is what an operator alerts
 // on, and one line per key of a large section buries whichever of them mattered.
-func reportWhatMoved(name string, keys []string, before, after map[string]string, log *slog.Logger) {
+func reportWhatMoved(name string, keys []string, before, after map[string]string, log *slog.Logger,
+	said func(string, ...any)) {
 	var moved []string
 	for _, key := range keys {
 		if before[key] != after[key] {
@@ -210,12 +207,12 @@ func reportWhatMoved(name string, keys []string, before, after map[string]string
 		}
 	}
 	if len(moved) == 0 {
-		log.Info("this section's written values match what the node's own file already gave it",
+		log.Debug("this section's written values match what the node's own file already gave it",
 			"section", name, "keys", len(keys))
 		return
 	}
 	shown, omitted := capLoggedItems(moved)
-	log.Info("this section's settings now differ from what the node's own configuration file says",
+	said("this section's settings now differ from what the node's own configuration file says",
 		"section", name, "count", len(moved), "changed", strings.Join(shown, "; "), "omitted", omitted)
 }
 

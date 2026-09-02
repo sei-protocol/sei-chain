@@ -33,7 +33,7 @@ func TestEveryDeclaredKeyOfADecodedSectionIsDelivered(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	forADecode, _ := registry.ResolvedAndOwnedByDecodedSections(resolved)
-	deliverDecodedSections(ctx, forADecode, log)
+	deliverDecodedSections(ctx, forADecode, log, log.Info)
 
 	declared := resolved.Values["p2p.max-connections"]
 	if declared == nil {
@@ -78,7 +78,7 @@ func TestAnUnreadKeyIsNotComparedAsUnchanged(t *testing.T) {
 	reportWhatMoved("mempool", got,
 		map[string]string{"mempool.size": "5000", "mempool.max-tx-bytes": "1048576"},
 		map[string]string{"mempool.size": "4321", "mempool.max-tx-bytes": "1048576"},
-		log)
+		log, log.Info)
 	if !strings.Contains(out.String(), "mempool.size") {
 		t.Errorf("the report does not name the key that moved:\n%s", out.String())
 	}
