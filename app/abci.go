@@ -288,7 +288,6 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	start := time.Now()
 	res, err = app.BaseApp.Commit(ctx)
 	elapsed := time.Since(start)
-	// legacy: telemetry.MeasureSince in sei-cosmos/baseapp/abci.go TODO(PLT-353)
 	appMetrics.commitDuration.Record(ctx, elapsed.Seconds())
 	app.RecordBenchmarkCommitTime(elapsed)
 	// After a successful Commit, publish the pending committed-block

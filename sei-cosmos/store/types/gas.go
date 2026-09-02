@@ -6,8 +6,6 @@ import (
 	"math"
 	"sync"
 
-	"github.com/armon/go-metrics"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
@@ -120,13 +118,6 @@ func (g *basicGasMeter) incrGasExceededCounter(errorType string, descriptor stri
 		attribute.String("error", errorType),
 		attribute.String("descriptor", descriptor),
 	))
-	// TODO(PLT-353): remove once store_gas_exceeded verified
-	telemetry.IncrCounterWithLabels(
-		[]string{"gas", "exceeded"},
-		1,
-		// descriptor is a label to distinguish between different gas meters (e.g block vs tx)
-		[]metrics.Label{telemetry.NewLabel("error", errorType), telemetry.NewLabel("descriptor", descriptor)},
-	)
 }
 
 // RefundGas will deduct the given amount from the gas consumed. If the amount is greater than the

@@ -10,7 +10,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -193,8 +192,6 @@ func recordNewAccounts(ctx context.Context, count int64) {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
-	// TODO(PLT-353): remove once bank_new_account verified
-	telemetry.IncrCounter(float32(count), "new", "account")
 	bankMetrics.newAccount.Add(ctx, count)
 }
 
