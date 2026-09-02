@@ -94,8 +94,8 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 		return
 	}
 
-	// Every subcommand installs, and only one of them runs a node, so the line describing an ordinary
-	// boot drops to debug everywhere else. On `seid keys list` nobody asked, and a line held above the
+	// Every subcommand installs, and only one of them runs a node, so the lines describing an ordinary
+	// boot drop to debug everywhere else. On `seid keys list` nobody asked, and a line held above the
 	// operator's own level buries the reports beside it that are actionable.
 	//
 	// What a refused registration says, and what a key nothing declares says, report everywhere. Both are
@@ -141,7 +141,7 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 
 	// The second delivery. Their file is read into a struct before this runs and nothing consults the
 	// source for them afterwards, so the values are decoded into that struct instead.
-	deliverDecodedSections(ctx, forADecode, log)
+	deliverDecodedSections(ctx, forADecode, log, said)
 
 	// After both deliveries, because this changes the level the process runs at and every path above
 	// reports that nothing was applied. Run first, those reports would be false for this one setting.

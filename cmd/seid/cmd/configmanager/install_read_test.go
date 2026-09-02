@@ -98,6 +98,32 @@ func TestAPanicWhileInstallingDoesNotRefuseTheBoot(t *testing.T) {
 	}
 }
 
+// installWithSeiToml runs the install against a home holding the given sei.toml, and returns what it
+// reported. The file is the only thing that varies, so the command is one no subcommand is named after.
+func installWithSeiToml(t *testing.T, body string) string {
+	t.Helper()
+	return installOnCommand(t, "probe", body, slog.LevelDebug)
+}
+
+// TestAFileHoldingOnlyDecodedKeysIsNotReportedAsSupplyingNothing covers the one report an operator has.
+//
+// The sections whose reader decodes its file whole are deliberately left out of this install, because
+// putting a value into the source reaches nothing for them. Those keys are then invisible: absent from
+// what was installed, and declared, so absent from the undeclared keys too.
+//
+// An operator whose file holds only such keys therefore supplied plenty and would be told it supplied
+// nothing, while their node ran the old values. That is the failure the whole surface exists to remove,
+// arriving through the report meant to prevent it.
+func TestAFileHoldingOnlyDecodedKeysIsNotReportedAsSupplyingNothing(t *testing.T) {
+	// mempool is read by a decode, so its keys are held back by this install.
+	out := installWithSeiToml(t, "schema_version = 1\nnode_mode = \"full\"\n\n[mempool]\nsize = 4321\n")
+
+	if !strings.Contains(out, "mempool.size") {
+		t.Errorf("the held-back key is not named anywhere, so an operator has no way to learn their "+
+			"value did not arrive:\n%s", out)
+	}
+}
+
 // TestOnlyTheBootReportsTheRoutineLine keeps a configuration line off every other command.
 //
 // Every subcommand passes through the same pre-run, so `seid keys list` and `seid q` install too. The
@@ -105,8 +131,13 @@ func TestAPanicWhileInstallingDoesNotRefuseTheBoot(t *testing.T) {
 // configuration line on every invocation of a CLI that was asked something else.
 //
 // A problem still reports on any command. Those are not routine.
+//
+// Both deliveries are held to it. The file below writes one key each side, so a routine line from the
+// install and one from the decode both have to follow the command rather than only the install's.
 func TestOnlyTheBootReportsTheRoutineLine(t *testing.T) {
-	const file = "schema_version = 1\nnode_mode = \"full\"\n\n[evm]\nmax_tx_pool_txs = 111\n"
+	const file = "schema_version = 1\nnode_mode = \"full\"\n" +
+		"\n[evm]\nmax_tx_pool_txs = 111\n" +
+		"\n[mempool]\nsize = 4321\n"
 
 	for _, tc := range []struct {
 		command string
@@ -118,9 +149,14 @@ func TestOnlyTheBootReportsTheRoutineLine(t *testing.T) {
 	} {
 		t.Run(tc.command, func(t *testing.T) {
 			out := installOnCommand(t, tc.command, file, slog.LevelInfo)
-			if said := strings.Contains(out, "configuration installed"); said != tc.routine {
-				t.Errorf("`seid %s` reports the install's routine line at info: %v, want %v.\n%s",
-					tc.command, said, tc.routine, out)
+			for _, line := range []struct{ what, says string }{
+				{"install", "configuration installed"},
+				{"decode", "this section's settings now differ"},
+			} {
+				if said := strings.Contains(out, line.says); said != tc.routine {
+					t.Errorf("`seid %s` reports the %s delivery's routine line at info: %v, want %v.\n%s",
+						tc.command, line.what, said, tc.routine, out)
+				}
 			}
 		})
 	}

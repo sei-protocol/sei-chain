@@ -1,6 +1,7 @@
 package configmanager
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,7 +27,8 @@ import (
 // the same mechanism the handler used and therefore the same casts, the same tags and the same hooks.
 //
 // Nothing here can stop a node starting.
-func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string]any, log *slog.Logger) {
+func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string]any,
+	log *slog.Logger, said func(string, ...any)) {
 	if len(bySection) == 0 {
 		return
 	}
@@ -48,7 +50,7 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 	for _, name := range sortedKeys(bySection) {
 		log.Debug("delivering a section by decoding it rather than by a lookup",
 			"section", name, "why", reasons[name], "keys", len(bySection[name]))
-		deliverOneSection(ctx, name, bySection[name], log)
+		deliverOneSection(ctx, name, bySection[name], log, said)
 	}
 }
 
@@ -60,7 +62,8 @@ func deliverDecodedSections(ctx *server.Context, bySection map[string]map[string
 // back. Rehearsing into a copy of the configuration the node already has, rather than into a fresh one, is
 // what makes the rehearsal answer the same question: what a decoder writes can depend on what the target
 // already holds, and only a copy holds the same things.
-func deliverOneSection(ctx *server.Context, name string, values map[string]any, log *slog.Logger) {
+func deliverOneSection(ctx *server.Context, name string, values map[string]any, log *slog.Logger,
+	said func(string, ...any)) {
 	keys := sortedKeys(values)
 
 	source := viper.New()
@@ -87,6 +90,7 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 			"section", name, "keys", strings.Join(keys, ","), "err", err)
 		return
 	}
+	before, unreadBefore, readErr := describe(ctx.Config, keys)
 
 	if err := source.Unmarshal(candidate); err != nil {
 		log.Error("a written value in this section was refused, so none of the section is applied and "+
@@ -117,6 +121,26 @@ func deliverOneSection(ctx *server.Context, name string, values map[string]any, 
 			"section", name, "keys", strings.Join(keys, ","), "err", err)
 		return
 	}
+	after, unreadAfter, afterErr := describe(ctx.Config, keys)
+	if readErr != nil || afterErr != nil {
+		// Reported rather than compared. Two unreadable sides look identical, so comparing them would
+		// say every value matched, which is a statement about nothing produced by reading nothing.
+		log.Error("this section was applied and what moved cannot be read, so nothing here says which "+
+			"settings now differ from the node's own file", "section", name,
+			"keys", strings.Join(keys, ","), "err", cmp.Or(readErr, afterErr))
+		return
+	}
+	// The same hazard one key at a time. A key absent from both answers compares equal, so it would be
+	// reported as a setting that did not move, which is what a key an operator wrote and got looks like.
+	unread := asSet(append(unreadBefore, unreadAfter...))
+	if len(unread) > 0 {
+		shown, omitted := capLoggedItems(sortedKeys(unread))
+		log.Error("this section was applied and some of its keys cannot be read back, so nothing here "+
+			"says whether those moved", "section", name, "count", len(shown)+omitted,
+			"keys", strings.Join(shown, ","), "omitted", omitted)
+	}
+
+	reportWhatMoved(name, whatBothSidesCouldBeReadFor(keys, unread), before, after, log, said)
 }
 
 // copyNodeConfig returns a configuration that holds what this one holds and shares nothing with it.
@@ -140,11 +164,68 @@ func copyNodeConfig(from *tmcfg.Config) (*tmcfg.Config, error) {
 	return &out, nil
 }
 
+// whatBothSidesCouldBeReadFor drops the keys neither side could be read for.
+//
+// A key missing from both answers compares equal. Left in, it makes the report say the section matches the
+// node's own file, which is what the line above it withholds. Dropped here rather than inside the
+// comparison: the comparison says what moved, and this says which keys it can speak for.
+func whatBothSidesCouldBeReadFor(keys []string, unread map[string]struct{}) []string {
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if _, missing := unread[key]; !missing {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// reportWhatMoved names every key whose value this delivery changed.
+//
+// The node's own configuration file still says what it said. Every tool an operator reaches for reads that
+// file, and none of them describes the running node afterwards. This line is the only place that names
+// which of their keys now read differently.
+//
+// Key names, never a value. A declared key can hold a secret: tx-index.psql-conn is a PostgreSQL
+// connection string, and validator operators share their logs with third parties. The name says which
+// setting to go and read.
+//
+// A key that did not move is not named, because naming it buries the keys that did. The section still
+// reports that it matched, at a level a routine boot does not raise.
+//
+// The rendered list is capped. The count is what an operator alerts on, and one line per key of a large
+// section buries whichever of them mattered.
+func reportWhatMoved(name string, keys []string, before, after map[string]string, log *slog.Logger,
+	said func(string, ...any)) {
+	var moved []string
+	for _, key := range keys {
+		if before[key] != after[key] {
+			moved = append(moved, key)
+		}
+	}
+	if len(moved) == 0 {
+		log.Debug("this section's written values match what the node's own file already gave it",
+			"section", name, "keys", len(keys))
+		return
+	}
+	shown, omitted := capLoggedItems(moved)
+	said("this section's settings now differ from what the node's own configuration file says",
+		"section", name, "count", len(moved), "keys", strings.Join(shown, ","), "omitted", omitted)
+}
+
 // loggerOwnVariable is the environment variable the logger itself reads when it starts.
 //
 // Not the variable this key answers to in the resolution, which carries the binary's own prefix. Two names
 // for one setting, and the older one is read before any of this runs.
 const loggerOwnVariable = "SEI_LOG_LEVEL"
+
+// asSet collapses repeats, so a key unread on both sides is named once.
+func asSet(keys []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		out[key] = struct{}{}
+	}
+	return out
+}
 
 // applyTheLevelTheStructNowHolds hands the logger the level the node's configuration holds, which the
 // struct alone does not reach.
