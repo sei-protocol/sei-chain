@@ -11,7 +11,6 @@ const (
 	MetricKeyBeginBlocker = "begin_blocker"
 	MetricKeyEndBlocker   = "end_blocker"
 	MetricLabelNameModule = "module"
-	MessageCount          = "message"
 	TxCount               = "transaction"
 )
 
@@ -59,12 +58,6 @@ func SetGaugeWithLabels(keys []string, val float32, labels []metrics.Label) {
 // metric with global labels (if any).
 func MeasureSince(start time.Time, keys ...string) {
 	metrics.MeasureSinceWithLabels(keys, start.UTC(), globalLabels)
-}
-
-// MeasureSinceWithLabels provides a wrapper functionality for emitting a a time measure
-// metric with custom labels (if any)
-func MeasureSinceWithLabels(keys []string, start time.Time, labels []metrics.Label) {
-	metrics.MeasureSinceWithLabels(keys, start.UTC(), labels)
 }
 
 // Measure Validator slashing events
