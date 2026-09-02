@@ -8,39 +8,29 @@ import (
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
-// GigaStorageConfig is an in-process composition of store configs for Giga storage.
-// It is intentionally not read from app.toml (no mapstructure tags, no TOML section):
-// callers build it via DefaultGigaStorageConfig. Nested knobs live on the store and
-// collector configs they already own (StateStoreConfig, ReceiptStoreConfig,
-// StorageGarbageCollectorConfig) rather than being redeclared here — in particular
-// RollbackWindow and LookbackWindow have a single source of truth in
-// DefaultStorageGarbageCollectorConfig, and cover every managed store at once.
+// GigaStorageConfig composes the store configs a Giga node opens. It is not read from
+// app.toml; callers build it with DefaultGigaStorageConfig.
 type GigaStorageConfig struct {
-	HomePath        string
-	FlatKVConfig    *flatkvConfig.Config
-	SSConfig        StateStoreConfig
-	ReceiptDBConfig ReceiptStoreConfig
-	BlockDBConfig   *littblock.BlockDBConfig
-	PruningConfig   *StorageGarbageCollectorConfig
+	HomePath         string
+	FlatKVConfig     *flatkvConfig.Config           // required
+	SSConfig         StateStoreConfig               // optional via Enable
+	ReceiptDBConfig  ReceiptStoreConfig             // optional via Enable
+	BlockDBConfig    *littblock.BlockDBConfig       // required
+	PruningConfig    *StorageGarbageCollectorConfig // required
+	CheckpointConfig CheckpointConfig
 }
 
-// DefaultGigaStorageConfig returns a GigaStorageConfig whose store directories match the
-// layout below, and whose pruning knobs are DefaultStorageGarbageCollectorConfig():
+// gigaReceiptBackend is the receipt backend Giga opens (littidx).
+const gigaReceiptBackend = "littidx"
+
+// DefaultGigaStorageConfig returns a config rooted at homePath:
 //
 //	data/state_commit/flatkv
-//	data/state_store/evm/{backend}   (sole SS; no Cosmos SS in Giga)
+//	data/state_store/evm/{backend}
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
 //
-// Giga opens SS via evm.NewEVMStateStore(dir, ssConfig) directly — not through
-// composite.NewCompositeStateStore — so the EVM path lives on EVMDBDirectory (the
-// argument callers pass as dir). DBDirectory and EVMSplit are left at their defaults:
-// they only matter for the composite path, which Giga does not use.
-//
-// Unlike the other Default*Config helpers in this package, this returns an error: the
-// block-store default wraps littdb.DefaultConfig, whose signature is fallible. It only rejects
-// an empty path list, so the error cannot fire from here — the return is kept so this helper
-// does not have to change if littdb starts validating the path itself.
+// SS is opened at EVMDBDirectory. Every store sets ExternalPruning so PruningConfig owns retention.
 func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 	blockDBConfig, err := littblock.DefaultConfig(utils.GetBlockStorePath(homePath))
 	if err != nil {
@@ -49,19 +39,70 @@ func DefaultGigaStorageConfig(homePath string) (GigaStorageConfig, error) {
 
 	flatKV := flatkvConfig.DefaultConfig()
 	flatKV.DataDir = utils.GetFlatKVPath(homePath)
+	flatKV.ExternalPruning = true
 
 	ssConfig := DefaultStateStoreConfig()
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
+	ssConfig.ExternalPruning = true
 
 	receiptConfig := DefaultReceiptStoreConfig()
+	receiptConfig.Backend = gigaReceiptBackend
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
+	receiptConfig.ExternalPruning = true
 
 	return GigaStorageConfig{
-		HomePath:        homePath,
-		FlatKVConfig:    flatKV,
-		SSConfig:        ssConfig,
-		ReceiptDBConfig: receiptConfig,
-		BlockDBConfig:   blockDBConfig,
-		PruningConfig:   DefaultStorageGarbageCollectorConfig(),
+		HomePath:         homePath,
+		FlatKVConfig:     flatKV,
+		SSConfig:         ssConfig,
+		ReceiptDBConfig:  receiptConfig,
+		BlockDBConfig:    blockDBConfig,
+		PruningConfig:    DefaultStorageGarbageCollectorConfig(),
+		CheckpointConfig: DefaultCheckpointConfig(),
 	}, nil
+}
+
+// Validate checks fields no store checks for itself. Stores still validate as they open;
+// this fails first so a bad config does not leave databases half-open.
+func (c GigaStorageConfig) Validate() error {
+	if c.FlatKVConfig == nil {
+		return fmt.Errorf("flatkv config is required")
+	}
+	// FlatKVConfig.Validate runs after the store fills nested dirs from DataDir, so a
+	// correct-as-written config fails it. Only DataDir is checked here.
+	if c.FlatKVConfig.DataDir == "" {
+		return fmt.Errorf("flatkv data dir is required")
+	}
+
+	if c.BlockDBConfig == nil {
+		return fmt.Errorf("block db config is required")
+	}
+	if err := c.BlockDBConfig.Validate(); err != nil {
+		return fmt.Errorf("block db config is invalid: %w", err)
+	}
+
+	if c.SSConfig.Enable && c.SSConfig.EVMDBDirectory == "" {
+		return fmt.Errorf("state store EVM db directory is required")
+	}
+
+	if c.PruningConfig == nil {
+		return fmt.Errorf("pruning config is required")
+	}
+	if err := c.PruningConfig.Validate(); err != nil {
+		return fmt.Errorf("pruning config is invalid: %w", err)
+	}
+	if !c.FlatKVConfig.ExternalPruning {
+		return fmt.Errorf("flatkv ExternalPruning must be true")
+	}
+	if c.SSConfig.Enable && !c.SSConfig.ExternalPruning {
+		return fmt.Errorf("state store ExternalPruning must be true")
+	}
+	if c.ReceiptDBConfig.Enable && !c.ReceiptDBConfig.ExternalPruning {
+		return fmt.Errorf("receipt store ExternalPruning must be true")
+	}
+
+	if !c.CheckpointConfig.Enabled() {
+		return fmt.Errorf("checkpoint config must set a time interval, a block interval, or both; " +
+			"with neither the node takes no snapshots and its state WAL grows without bound")
+	}
+	return nil
 }

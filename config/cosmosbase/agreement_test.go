@@ -21,18 +21,17 @@ import (
 // Held as text because the two sides carry different Go types for the same key often enough that comparing
 // values would be comparing shapes. What matters here is which keys disagree and what a node gets instead.
 var legacyConfigManagerDefaults = map[string]string{
-	"api.address":                         "",
-	"api.max-open-connections":            "0",
-	"api.rpc-max-body-bytes":              "0",
-	"api.rpc-read-timeout":                "0",
-	"api.swagger":                         "false",
-	"grpc.enable":                         "true",
-	"minimum-gas-prices":                  "",
-	"occ-enabled":                         "false",
-	"pruning":                             "default",
-	"pruning-keep-every":                  "",
-	"telemetry.enabled":                   "false",
-	"telemetry.prometheus-retention-time": "0",
+	"api.address":              "",
+	"api.max-open-connections": "0",
+	"api.rpc-max-body-bytes":   "0",
+	"api.rpc-read-timeout":     "0",
+	"api.swagger":              "false",
+	"grpc.enable":              "true",
+	"minimum-gas-prices":       "",
+	"occ-enabled":              "false",
+	"pruning":                  "default",
+	"pruning-keep-every":       "",
+	"telemetry.enabled":        "false",
 }
 
 // reasoning says what a node gets under that manager, for the keys where it is worth stating.
@@ -110,6 +109,10 @@ func readerValues(t *testing.T) map[string]string {
 		"grpc.keepalive-timeout":               fmt.Sprint(cfg.GRPC.KeepaliveTimeout),
 		"grpc.keepalive-min-time":              fmt.Sprint(cfg.GRPC.KeepaliveMinTime),
 		"grpc.keepalive-permit-without-stream": fmt.Sprint(cfg.GRPC.KeepalivePermitWithoutStream),
+		"grpc.ip-rate-limit-rps":               fmt.Sprint(cfg.GRPC.IPRateLimitRPS),
+		"grpc.ip-rate-limit-burst":             fmt.Sprint(cfg.GRPC.IPRateLimitBurst),
+		"grpc.rate-limiting-enabled":           fmt.Sprint(cfg.GRPC.RateLimitingEnabled),
+		"grpc.trusted-proxy-cidrs":             fmt.Sprint(cfg.GRPC.TrustedProxyCIDRs),
 		"telemetry.service-name":               fmt.Sprint(cfg.Telemetry.ServiceName),
 		"telemetry.enabled":                    fmt.Sprint(cfg.Telemetry.Enabled),
 		"telemetry.enable-hostname":            fmt.Sprint(cfg.Telemetry.EnableHostname),

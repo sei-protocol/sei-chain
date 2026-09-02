@@ -1,4 +1,4 @@
-package flatkv
+package giga
 
 import (
 	"io"
@@ -11,13 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// Options configures a FlatKV store.
-type Options struct {
-	// Dir is the base directory containing snapshot dirs, working/, and changelog/.
-	Dir string
-}
-
-// Store provides EVM state storage with LtHash integrity.
+// LiveStateStore provides EVM state storage with LtHash integrity.
 //
 // Lifecycle: NewCommitStore (create) → LoadLatest (open) → ApplyChangeSets/Commit → Close.
 // Write path: ApplyChangeSets (buffer) → Commit (persist).
@@ -33,7 +27,7 @@ type Options struct {
 // yields — must not be mutated. They are not defensively copied: a value out of an iterator can point
 // straight into memory the store is still using, so writing to it corrupts state that other readers
 // will see.
-type Store interface {
+type LiveStateStore interface {
 	// LoadLatest opens this store at the latest persisted version, ready to commit. It must be called
 	// before any read or write, and is the only way to obtain a committable store. Use Rollback to move a
 	// committable store backwards.
@@ -44,7 +38,7 @@ type Store interface {
 	//
 	// The view is reconstructed from the newest snapshot at or below targetVersion plus this store's WAL,
 	// so a version whose history has been pruned fails rather than being served approximately.
-	LoadVersionReadOnly(targetVersion int64) (Store, error)
+	LoadVersionReadOnly(targetVersion int64) (LiveStateStore, error)
 
 	// ApplyChangeSets buffers changesets at the given version, to be
 	// persisted by the next Commit.
@@ -61,13 +55,16 @@ type Store interface {
 	// (see PendingVersion).
 	Commit(version int64) (int64, error)
 
-	// CommitBlock is a Giga-only helper that applies changesets and commits
-	// them at version in one call.
-	// Callers must use either ApplyChangeSets+Commit or CommitBlock
+	// CommitStateChanges is a Giga-only helper that applies changesets and commits
+	// them at blockNum in one call.
+	// Callers must use either ApplyChangeSets+Commit or CommitStateChanges
 	// exclusively, never mixing the two on the same store.
 	// ApplyChangeSets+Commit is expected to be deprecated once all callers
-	// move to CommitBlock.
-	CommitBlock(version int64, cs []*proto.NamedChangeSet) error
+	// move to CommitStateChanges.
+	CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error
+
+	// OpenView returns a read-only StateView of the current block. The caller must Close it when done.
+	OpenView() StateView
 
 	// SetInitialVersion seeds the store so that Commit(initialVersion) is
 	// accepted as the first commit. Must be called after LoadLatest, on a

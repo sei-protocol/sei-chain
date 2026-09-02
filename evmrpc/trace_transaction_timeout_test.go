@@ -23,7 +23,6 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +37,7 @@ func TestTraceTransactionTimeoutReleasesSemaphore(t *testing.T) {
 	backend := newSlowIterTraceBackend(store)
 	api := &DebugAPI{
 		tracersAPI:         tracers.NewAPI(backend),
-		keeper:             &keeper.Keeper{},
+		keeper:             newTestKeeperWithReceiptStore(),
 		ctxProvider:        func(int64) sdk.Context { return sdk.Context{} },
 		traceCallSemaphore: make(chan struct{}, 1),
 		traceTimeout:       50 * time.Millisecond,

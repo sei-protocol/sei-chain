@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
+
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
@@ -41,10 +42,11 @@ type SendAPI struct {
 type SendConfig struct {
 	slow             bool
 	enableSimulation bool
+	autobahn         bool
 }
 
-func NewSendConfig(slow bool, enableSimulation bool) *SendConfig {
-	return &SendConfig{slow: slow, enableSimulation: enableSimulation}
+func NewSendConfig(slow bool, enableSimulation bool, autobahn bool) *SendConfig {
+	return &SendConfig{slow: slow, enableSimulation: enableSimulation, autobahn: autobahn}
 }
 
 func NewSendAPI(
@@ -132,7 +134,10 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return hash, encodeErr
 	}
 
-	if s.sendConfig.slow {
+	// Autobahn rejects BroadcastTxCommit before InsertTx. evm.slow still
+	// submits via BroadcastTx so eth_sendRawTransaction lands the tx; only
+	// seid -b block / broadcast_tx_commit itself fail-fasts.
+	if s.sendConfig.slow && !s.sendConfig.autobahn {
 		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
 		if broadcastError != nil {
 			err = broadcastError

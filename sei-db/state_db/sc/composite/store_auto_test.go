@@ -388,7 +388,7 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	// oldest snapshot is the last step of publishing a new one, so without this wait the writer can
 	// delete the directory the export is part way through copying.
 	//
-	// Reached through the concrete store because quiescing the writer is not part of the flatkv.Store
+	// Reached through the concrete store because quiescing the writer is not part of the giga.LiveStateStore
 	// abstraction: no production caller needs it, and this test only does because it drives commits and
 	// reads from one goroutine and so has a quiet period to establish.
 	flatKVStore, ok := src.flatKV.(*flatkv.CommitStore)

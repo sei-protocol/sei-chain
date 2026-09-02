@@ -10,11 +10,10 @@ import (
 
 // TestTheDeclaredKeysAreTheKeysThisReaderResolves holds the declaration against the reader.
 //
-// Six keys, which is every key the reader resolves and takes a value from. Two of the struct's fields are
-// excluded from configuration and declare nothing, because the app layer assigns them after this reader
-// has returned and a key for either is one an operator writes that the assignment discards. The reader
-// resolves a seventh key, the retired spelling of the backend, only to refuse to start; a key whose one
-// outcome is a stopped node is not one to offer.
+// Six keys, which is every key this section offers in app.toml. Three fields declare nothing:
+// KeepRecent and ExternalPruning are assigned after this reader returns, and EnableReadWriteMetrics
+// is honored by the reader but not written into the generated file. The reader also resolves the
+// retired spelling of the backend, only to refuse to start.
 func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 	for _, defect := range registry.Defects() {
 		if defect.Section == ReceiptStoreSectionName {
@@ -31,7 +30,7 @@ func TestTheDeclaredKeysAreTheKeysThisReaderResolves(t *testing.T) {
 	want := []string{
 		flagRSAsyncWriteBuffer,
 		flagRSDBDirectory,
-		flagRSReadWriteMetrics,
+		flagRSEnable,
 		flagRSLogFilterParallelism,
 		flagRSPruneIntervalSeconds,
 		flagRSBackend,

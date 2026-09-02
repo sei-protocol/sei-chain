@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"runtime/debug"
 
@@ -115,30 +114,6 @@ func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []met
 	telemetry.IncrCounterWithLabels(keys, val, labels)
 }
 
-// sei_evm_zero_storage_pruned_keys
-func IncrEvmZeroStoragePrunedKeys(count uint64) {
-	SafeTelemetryIncrCounter(
-		float32(count),
-		"sei", "evm", "zero", "storage", "pruned", "keys",
-	)
-}
-
-// sei_evm_zero_storage_processed_keys
-func IncrEvmZeroStorageProcessedKeys(count uint64) {
-	SafeTelemetryIncrCounter(
-		float32(count),
-		"sei", "evm", "zero", "storage", "processed", "keys",
-	)
-}
-
-// sei_evm_zero_storage_pruned_bytes
-func IncrEvmZeroStoragePrunedBytes(bytes uint64) {
-	SafeTelemetryIncrCounter(
-		float32(bytes),
-		"sei", "evm", "zero", "storage", "pruned", "bytes",
-	)
-}
-
 func IncrementErrorMetrics(scenario string, err error) {
 	if err == nil {
 		return
@@ -159,45 +134,5 @@ func IncrementAssociationError(scenario string, err types.AssociationMissingErr)
 			telemetry.NewLabel("scenario", scenario),
 			telemetry.NewLabel("type", err.AddressType()),
 		},
-	)
-}
-
-func IncrementNonceMismatch(tooHigh bool) {
-	cause := "too_low"
-	if tooHigh {
-		cause = "too_high"
-	}
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "nonce", "mismatch"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("cause", cause),
-		},
-	)
-}
-
-func AddHistogramMetric(key []string, value float32) {
-	metrics.AddSample(key, value)
-}
-
-// Gauge for gas price paid for transactions
-// Metric Name:
-//
-// sei_evm_effective_gas_price
-func HistogramEvmEffectiveGasPrice(gasPrice *big.Int) {
-	AddHistogramMetric(
-		[]string{"sei", "evm", "effective", "gas", "price"},
-		float32(gasPrice.Uint64()),
-	)
-}
-
-// Gauge for block base fee
-// Metric Name:
-//
-// sei_evm_block_base_fee
-func GaugeEvmBlockBaseFee(baseFee *big.Int, blockHeight int64) {
-	metrics.SetGauge(
-		[]string{"sei", "evm", "block", "base", "fee"},
-		float32(baseFee.Uint64()),
 	)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -179,7 +180,7 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 
 // rootHash returns the store's committed root hash, discarding the height it describes. Tests that
 // care about the height assert on it directly rather than through this.
-func rootHash(s Store) []byte {
+func rootHash(s giga.LiveStateStore) []byte {
 	hash, _ := s.RootHash()
 	return hash
 }
@@ -364,7 +365,9 @@ func stagedRow[T vtype.VType](
 	decode func([]byte) (T, error),
 ) T {
 	t.Helper()
-	row, err := getAndParse(store, physKey, decode)
+	raw, found, err := store.Get(physKey, true)
+	require.NoError(t, err)
+	row, err := parseRow(raw, found, decode)
 	require.NoError(t, err)
 	return row
 }
