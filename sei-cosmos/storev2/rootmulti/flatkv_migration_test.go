@@ -38,7 +38,7 @@ func migrationVersionInFlatKV(t *testing.T, dir string, cfg seidbconfig.StateCom
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	stateWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
 	require.NoError(t, err)
-	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg, stateWAL)
+	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg, stateWAL, nil)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)

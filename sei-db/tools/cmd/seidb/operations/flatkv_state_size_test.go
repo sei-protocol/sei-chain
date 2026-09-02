@@ -223,7 +223,7 @@ func newTestFlatKVStore(t *testing.T) *flatkv.CommitStore {
 	cfg := flatkvconfig.DefaultTestConfig(t)
 	stateWAL, err := flatkv.OpenStateWAL(cfg)
 	require.NoError(t, err)
-	s, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
+	s, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL, nil)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)

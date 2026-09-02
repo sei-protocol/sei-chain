@@ -24,9 +24,9 @@ import (
 // answer that changed. This does, because the expected values were computed by a build that no longer
 // exists and are read back from testdata rather than recomputed.
 //
-// The recorded archive is produced by the same code path that reports hashes in production —
-// CommitStore.HashCategories and CommitStore.RecordHashes into a hashlog.HashLogger — so the format is
-// a CSV of one row per block, and comparing two runs is hashlog.CompareHashesInRange.
+// The recorded archive is produced by the same code path that reports hashes in production — the
+// finalization goroutine reporting into a hashlog.HashLogger the store was built with — so the format
+// is a CSV of one row per block, and comparing two runs is hashlog.CompareHashesInRange.
 
 // goldenRecord regenerates the committed archive instead of checking against it. Off by default, and
 // refused outright on CI: see recordGoldenArchive.
@@ -114,11 +114,11 @@ func requireArchivesAgree(t *testing.T, recorded string, fresh string) {
 func writeGoldenRun(t *testing.T, dir string, cfg *config.Config) {
 	t.Helper()
 
-	store := setupTestStoreWithConfig(t, cfg)
-	defer func() { require.NoError(t, store.Close()) }()
-
-	logger := newGoldenHashLogger(t, dir, store.HashCategories())
+	logger := newGoldenHashLogger(t, dir, hashCategories())
 	defer func() { require.NoError(t, logger.Close()) }()
+
+	store := setupTestStoreWithHashLogger(t, cfg, logger)
+	defer func() { require.NoError(t, store.Close()) }()
 
 	workload := newFixedSizeAgreementWorkload(
 		rand.New(rand.NewSource(goldenSeed)), //nolint:gosec // deterministic test data only
@@ -135,8 +135,10 @@ func writeGoldenRun(t *testing.T, dir string, cfg *config.Config) {
 
 		block := uint64(height) //nolint:gosec // heights start at 1 and only increase
 		logger.ReportChangeset(block, changeSets)
-		require.NoError(t, store.RecordHashes(logger, block), "record hashes for block %d", height)
 	}
+
+	// Hashes are reported off the commit path, so the run is not complete until they have caught up.
+	require.NoError(t, store.FlushHashes())
 }
 
 // newGoldenHashLogger opens a logger that records the store's hash categories plus the changeset column

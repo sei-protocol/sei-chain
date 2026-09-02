@@ -29,7 +29,7 @@ func autoConfig() config.StateCommitConfig {
 // openAutoStore opens (or reopens) a composite store at dir in Auto mode.
 func openAutoStore(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, autoConfig())
+	cs, err := NewCompositeCommitStore(t.Context(), dir, autoConfig(), nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
@@ -232,7 +232,7 @@ func TestComposite_SetWriteModeRequiresAutoConfig(t *testing.T) {
 	cfg.WriteMode = types.MemiavlOnly
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -244,7 +244,7 @@ func TestComposite_SetWriteModeRequiresAutoConfig(t *testing.T) {
 }
 
 func TestComposite_SetWriteModeBeforeLoadVersion(t *testing.T) {
-	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig(), nil)
 	require.NoError(t, err)
 	require.Error(t, cs.SetWriteMode(types.MigrateEVM))
 }
@@ -305,7 +305,7 @@ func autoExportConfig() config.StateCommitConfig {
 // openAutoStoreWithConfig mirrors openAutoStore for a caller-supplied config.
 func openAutoStoreWithConfig(t *testing.T, dir string, cfg config.StateCommitConfig, batch int) *CompositeCommitStore {
 	t.Helper()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
@@ -432,7 +432,7 @@ func TestComposite_ImporterRejectsFlatKVSectionOnMemiavlOnly(t *testing.T) {
 	cfg.WriteMode = types.MemiavlOnly
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
-	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 	err = cs.LoadLatest()
@@ -630,7 +630,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 }
 
 func TestComposite_Auto_InitializeRejectsNonCanonicalStores(t *testing.T) {
-	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig())
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), autoConfig(), nil)
 	require.NoError(t, err)
 	require.Error(t, cs.Initialize([]string{"not-a-canonical-store"}),
 		"Auto must enforce canonical store names since the mode may become mixed")

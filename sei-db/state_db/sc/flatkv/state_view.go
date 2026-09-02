@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -16,24 +17,24 @@ var _ giga.StateView = (*flatKVStateView)(nil)
 
 // flatKVStateView serves the Giga read API from one committed block.
 type flatKVStateView struct {
-	// The block being read. Close() hands back the reservation it carries.
-	blockView *storeView
+	// The block being read. Close() releases the reservation it carries.
+	blockView *sview.StoreView
 
-	// Guards the hand-back, so a second Close does not release a reservation this view no longer owns.
+	// Guards the release, so a second Close does not release a reservation this view no longer owns.
 	closeOnce sync.Once
 }
 
 // GetBlockHeight returns the block height of this view.
 func (v *flatKVStateView) GetBlockHeight() int64 {
-	return v.blockView.blockHeight
+	return v.blockView.BlockHeight()
 }
 
-// Close hands back the reservation this view holds. The view must not be read afterwards.
+// Close releases the reservation this view holds. The view must not be read afterwards.
 // Idempotent.
 func (v *flatKVStateView) Close() {
 	v.closeOnce.Do(func() {
-		if err := v.blockView.release(); err != nil {
-			panic(fmt.Sprintf("flatkv: close state view at height %d: %v", v.blockView.blockHeight, err))
+		if err := v.blockView.Release(); err != nil {
+			panic(fmt.Sprintf("flatkv: close state view at height %d: %v", v.blockView.BlockHeight(), err))
 		}
 	})
 }
@@ -151,10 +152,11 @@ func (v *flatKVStateView) GetCodeSize(addr giga.Address) int {
 // accountData returns the account row for the 20-byte address in keyBytes, or nil when no account
 // exists in this block.
 func (v *flatKVStateView) accountData(keyBytes []byte) *vtype.AccountData {
-	raw, found := v.readRow(v.blockView.accountStoreView, ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes))
+	raw, found := v.readRow(v.blockView.AccountView(), ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes))
 	account, err := parseRow(raw, found, vtype.DeserializeAccountData)
 	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v", keyBytes, v.blockView.blockHeight, err))
+		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v",
+			keyBytes, v.blockView.BlockHeight(), err))
 	}
 	if account == nil || account.IsDelete() {
 		return nil
@@ -164,10 +166,11 @@ func (v *flatKVStateView) accountData(keyBytes []byte) *vtype.AccountData {
 
 // storageData returns the storage row for the addr||slot in keyBytes, or nil when the slot is unset.
 func (v *flatKVStateView) storageData(keyBytes []byte) *vtype.StorageData {
-	raw, found := v.readRow(v.blockView.storageStoreView, ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes))
+	raw, found := v.readRow(v.blockView.StorageView(), ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes))
 	storage, err := parseRow(raw, found, vtype.DeserializeStorageData)
 	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v", keyBytes, v.blockView.blockHeight, err))
+		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v",
+			keyBytes, v.blockView.BlockHeight(), err))
 	}
 	if storage == nil || storage.IsDelete() {
 		return nil
@@ -177,10 +180,11 @@ func (v *flatKVStateView) storageData(keyBytes []byte) *vtype.StorageData {
 
 // codeData returns the code row for the 20-byte address in keyBytes, or nil when it has no code.
 func (v *flatKVStateView) codeData(keyBytes []byte) *vtype.CodeData {
-	raw, found := v.readRow(v.blockView.codeStoreView, ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes))
+	raw, found := v.readRow(v.blockView.CodeView(), ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes))
 	code, err := parseRow(raw, found, vtype.DeserializeCodeData)
 	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse code for %x at height %d: %v", keyBytes, v.blockView.blockHeight, err))
+		panic(fmt.Sprintf("flatkv: parse code for %x at height %d: %v",
+			keyBytes, v.blockView.BlockHeight(), err))
 	}
 	if code == nil || code.IsDelete() {
 		return nil
@@ -190,11 +194,11 @@ func (v *flatKVStateView) codeData(keyBytes []byte) *vtype.CodeData {
 
 // miscValue returns the value stored under keyBytes in the named module, and whether it was found.
 func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, bool) {
-	raw, found := v.readRow(v.blockView.miscStoreView, ktype.ModulePhysicalKey(module, keyBytes))
+	raw, found := v.readRow(v.blockView.MiscView(), ktype.ModulePhysicalKey(module, keyBytes))
 	misc, err := parseRow(raw, found, vtype.DeserializeMiscData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse misc %s/%x at height %d: %v",
-			module, keyBytes, v.blockView.blockHeight, err))
+			module, keyBytes, v.blockView.BlockHeight(), err))
 	}
 	if misc == nil || misc.IsDelete() {
 		return nil, false
@@ -208,7 +212,7 @@ func (v *flatKVStateView) readRow(dbView view.View, physKey []byte) ([]byte, boo
 	value, found, err := dbView.Get(physKey, true)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: %s read of key %x at height %d: %v",
-			dbView.Name(), physKey, v.blockView.blockHeight, err))
+			dbView.Name(), physKey, v.blockView.BlockHeight(), err))
 	}
 	return value, found
 }

@@ -288,7 +288,7 @@ func TestIdentityRootsAtNonZeroVersionOpen(t *testing.T) {
 	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{
 		makeChangeSet(evmStorageKey(addrN(0x01), slotN(0x01)), nil, true),
 	}))
-	require.True(t, s.committedLtHash.IsZero(), "fixture precondition: the store root is the identity")
+	require.True(t, s.maintainedHashes().Global.IsZero(), "fixture precondition: the store root is the identity")
 
 	reopened := reopenStore(t, s, cfg)
 	defer reopened.Close()

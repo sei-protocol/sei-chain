@@ -7,7 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -122,17 +122,34 @@ type LiveStateStore interface {
 		ascending bool,
 	) (dbm.Iterator, error)
 
-	// RootHash returns the 32-byte checksum of the committed LtHash and the height that checksum
-	// describes. Note: the checksum is the Blake3-256 digest of the underlying 2048-byte raw LtHash
-	// vector.
-	RootHash() ([]byte, int64)
+	// PublishedHash returns the most recent block hash the store has published: its height, its
+	// lattice hash root, and each database's root. Hashing is asynchronous, so on a committing store
+	// this lags the committed version; use FlushHashes to make it describe the version just committed.
+	// On a freshly loaded or read-only store it is the height that was loaded.
+	PublishedHash() *lthash.BlockHash
+
+	// HashChan returns a channel producing the hash of each block: exactly one per block committed, in
+	// block order, with no gaps or duplicates, closed once the store stops hashing.
+	//
+	// The channel has finite depth, so failure to dequeue hashes for long enough blocks commit. Every
+	// deployment therefore needs a consumer.
+	HashChan() <-chan *lthash.BlockHash
+
+	// FlushHashes blocks until the store has published a hash for every block committed so far, and
+	// recorded each one's metadata alongside the block it describes.
+	FlushHashes() error
+
+	// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A
+	// no-op on a store with no pending writes.
+	//
+	// A block that has not been committed has no hash, so a caller wanting one mid-block is asking for
+	// the block to be committed. This is that request, made explicitly. Post-Cosmos nothing asks for a
+	// hash mid-block and this goes away.
+	CommitPendingBlock() error
 
 	// HashCategories returns the hash logger category names this store reports (the global root plus one
 	// per data DB). The set is fixed. The caller registers these on the logger.
 	HashCategories() []string
-
-	// RecordHashes reports this store's hashes (root + per-DB) for blockNumber. Call right after Commit.
-	RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error
 
 	// Version returns the latest committed version.
 	Version() int64

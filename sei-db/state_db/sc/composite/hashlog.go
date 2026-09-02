@@ -20,19 +20,15 @@ func (cs *CompositeCommitStore) HashCategories() []string {
 	return categories
 }
 
-// RecordHashes reports every live backend's hashes for blockNumber. Call right after Commit.
+// RecordHashes reports memIAVL's hashes for blockNumber. Call right after Commit.
+//
+// flatKV is absent because it reports its own from its finalization goroutine, under the height each
+// hash describes rather than the height being committed.
 func (cs *CompositeCommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error {
-	if cs.memIAVL != nil {
-		if err := cs.memIAVL.RecordHashes(hl, blockNumber); err != nil {
-			return err
-		}
+	if cs.memIAVL == nil {
+		return nil
 	}
-	if cs.flatKV != nil {
-		if err := cs.flatKV.RecordHashes(hl, blockNumber); err != nil {
-			return err
-		}
-	}
-	return nil
+	return cs.memIAVL.RecordHashes(hl, blockNumber)
 }
 
 // MemIAVLCommitInfo returns the raw memIAVL commit info (its per-store hashes), or nil when memIAVL is

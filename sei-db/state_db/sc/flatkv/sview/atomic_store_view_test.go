@@ -1,4 +1,4 @@
-package flatkv
+package sview
 
 import (
 	"errors"
@@ -9,13 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests use the fakeView stub and the fakeViews helper defined in snapshot_writer_test.go, and
 // requireBalanced from store_view_test.go.
 
 // An atomic store view with nothing in it would force every later call to answer "no view", which is
 // the case the constructor exists to rule out.
 func TestNewAtomicStoreViewRequiresAView(t *testing.T) {
-	_, err := newAtomicStoreView(nil)
+	_, err := NewAtomicStoreView(nil)
 	require.ErrorContains(t, err, "initial view is nil")
 }
 
@@ -24,22 +23,22 @@ func TestNewAtomicStoreViewRequiresAView(t *testing.T) {
 // reserved and so can no longer be read.
 func TestAtomicStoreViewSetKeepsInstalledViewWhenReserveFails(t *testing.T) {
 	installed, installedStubs := fakeViews(t, 1)
-	asv, err := newAtomicStoreView(installed)
+	asv, err := NewAtomicStoreView(installed)
 	require.NoError(t, err)
 
-	bad, err := newStoreView(2,
+	bad, err := NewStoreView(2,
 		&fakeView{name: accountDBDir},
 		&fakeView{name: codeDBDir, reserveErr: errors.New("manager is bricked")},
 		&fakeView{name: storageDBDir},
 		&fakeView{name: miscDBDir})
 	require.NoError(t, err)
 
-	require.ErrorContains(t, asv.set(bad), "manager is bricked")
+	require.ErrorContains(t, asv.Set(bad), "manager is bricked")
 
-	blockView, err := asv.get()
+	blockView, err := asv.Get()
 	require.NoError(t, err, "the installed view must still be readable after a failed set")
 	require.Equal(t, int64(1), blockView.blockHeight, "the installed view must not have been displaced")
-	require.NoError(t, blockView.release())
+	require.NoError(t, blockView.Release())
 
 	require.NoError(t, asv.Close())
 	requireBalanced(t, installedStubs)
@@ -49,12 +48,12 @@ func TestAtomicStoreViewSetKeepsInstalledViewWhenReserveFails(t *testing.T) {
 // backwards means building a new atomic store view, which is what the startup-lifecycle seals do.
 func TestAtomicStoreViewRefusesToGoBackwards(t *testing.T) {
 	installed, _ := fakeViews(t, 5)
-	asv, err := newAtomicStoreView(installed)
+	asv, err := NewAtomicStoreView(installed)
 	require.NoError(t, err)
 
 	for _, height := range []int64{4, 5} {
 		earlier, stubs := fakeViews(t, height)
-		require.ErrorContains(t, asv.set(earlier), "view height must advance",
+		require.ErrorContains(t, asv.Set(earlier), "view height must advance",
 			"height %d is not above the installed height 5", height)
 		for name, stub := range stubs {
 			require.Zero(t, stub.reserves.Load(), "%s: a refused view must not be reserved", name)
@@ -62,27 +61,27 @@ func TestAtomicStoreViewRefusesToGoBackwards(t *testing.T) {
 	}
 
 	later, laterStubs := fakeViews(t, 6)
-	require.NoError(t, asv.set(later))
+	require.NoError(t, asv.Set(later))
 
 	require.NoError(t, asv.Close())
 	requireBalanced(t, laterStubs)
 }
 
-// Close is the terminal release: it hands back the reservation the atomic store view owns, which is
+// Close is the terminal release: it releases the reservation the atomic store view owns, which is
 // what lets the view managers underneath it shut down. Nothing may be handed out afterwards.
 func TestAtomicStoreViewIsUnusableAfterClose(t *testing.T) {
 	installed, stubs := fakeViews(t, 1)
-	asv, err := newAtomicStoreView(installed)
+	asv, err := NewAtomicStoreView(installed)
 	require.NoError(t, err)
 
 	require.NoError(t, asv.Close())
 	require.NoError(t, asv.Close(), "Close must be idempotent")
 
-	_, err = asv.get()
+	_, err = asv.Get()
 	require.ErrorContains(t, err, "closed")
 
 	later, _ := fakeViews(t, 2)
-	require.ErrorContains(t, asv.set(later), "closed")
+	require.ErrorContains(t, asv.Set(later), "closed")
 
 	requireBalanced(t, stubs)
 	for name, stub := range stubs {
@@ -99,11 +98,11 @@ func TestAtomicStoreViewServesReadersWhileAdvancing(t *testing.T) {
 	const readers = 8
 
 	initial, initialStubs := fakeViews(t, 1)
-	asv, err := newAtomicStoreView(initial)
+	asv, err := NewAtomicStoreView(initial)
 	require.NoError(t, err)
 
 	// Built up front so the writer goroutine does nothing but install them.
-	blockViews := make([]*storeView, 0, blocks)
+	blockViews := make([]*StoreView, 0, blocks)
 	allStubs := []map[string]*fakeView{initialStubs}
 	for height := int64(2); height <= blocks; height++ {
 		blockView, stubs := fakeViews(t, height)
@@ -120,7 +119,7 @@ func TestAtomicStoreViewServesReadersWhileAdvancing(t *testing.T) {
 		defer wg.Done()
 		defer close(stop)
 		for _, blockView := range blockViews {
-			if err := asv.set(blockView); err != nil {
+			if err := asv.Set(blockView); err != nil {
 				failures <- fmt.Errorf("set height %d: %w", blockView.blockHeight, err)
 				return
 			}
@@ -138,7 +137,7 @@ func TestAtomicStoreViewServesReadersWhileAdvancing(t *testing.T) {
 				default:
 				}
 
-				blockView, err := asv.get()
+				blockView, err := asv.Get()
 				if err != nil {
 					failures <- fmt.Errorf("get: %w", err)
 					return
@@ -147,7 +146,7 @@ func TestAtomicStoreViewServesReadersWhileAdvancing(t *testing.T) {
 					failures <- fmt.Errorf("reader was handed height %d", blockView.blockHeight)
 					return
 				}
-				if err := blockView.release(); err != nil {
+				if err := blockView.Release(); err != nil {
 					failures <- fmt.Errorf("release height %d: %w", blockView.blockHeight, err)
 					return
 				}

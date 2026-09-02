@@ -239,7 +239,7 @@ func driveMigrationWorkload(
 	// commit and the post-reopen version checks become flaky.
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -263,7 +263,7 @@ func driveMigrationWorkload(
 	migCfg.WriteMode = types.MigrateEVM
 	migCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
-	cs, err = NewCompositeCommitStore(t.Context(), dir, migCfg)
+	cs, err = NewCompositeCommitStore(t.Context(), dir, migCfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(keysToMigratePerBlock))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
@@ -291,7 +291,7 @@ func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitSto
 	cfg.WriteMode = types.MigrateEVM
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
@@ -308,7 +308,7 @@ func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *test
 	memCfg := config.DefaultStateCommitConfig()
 	memCfg.WriteMode = types.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -450,7 +450,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 	memCfg := config.DefaultStateCommitConfig()
 	memCfg.WriteMode = types.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -508,7 +508,7 @@ func TestComposite_MigrateEVM_PruneZeroStorageSlotsDuringMigration(t *testing.T)
 
 	finalCfg := evmMigratedConfig()
 	finalCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	cs, err = NewCompositeCommitStore(t.Context(), dir, finalCfg)
+	cs, err = NewCompositeCommitStore(t.Context(), dir, finalCfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -702,7 +702,7 @@ func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
 		memCfg := config.DefaultStateCommitConfig()
 		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg, nil)
 		require.NoError(t, err)
 		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 		err = cs.LoadLatest()
@@ -791,7 +791,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 		memCfg := config.DefaultStateCommitConfig()
 		memCfg.WriteMode = types.MemiavlOnly
 		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg, nil)
 		require.NoError(t, err)
 		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 		err = cs.LoadLatest()
@@ -859,7 +859,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	// --- Mode flip: reopen as EVMMigrated. ---
 	finalCfg := evmMigratedConfig()
 	finalCfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	cs, err := NewCompositeCommitStore(t.Context(), dir, finalCfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, finalCfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -944,7 +944,7 @@ func openCompositeForRollback(
 	cfg.FlatKVConfig.SnapshotInterval = snap.flatkvInterval
 	cfg.FlatKVConfig.SnapshotKeepRecent = 5
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
 	require.NoError(t, err)
 	require.NoError(t, cs.SetMigrationBatchSize(batch))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))

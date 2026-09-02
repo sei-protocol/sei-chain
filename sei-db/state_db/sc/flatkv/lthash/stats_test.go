@@ -48,44 +48,44 @@ func TestFoldChunkStats(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		pair     KVPairWithLastValue
+		pair     KeyMutation
 		wantKeys int64
 		wantByte int64
 	}{
 		{
 			name:     "add",
-			pair:     KVPairWithLastValue{Key: key, Value: []byte("newvalue")},
+			pair:     KeyMutation{Key: key, Value: []byte("newvalue")},
 			wantKeys: 1,
 			wantByte: int64(len(key)) + int64(len("newvalue")),
 		},
 		{
 			name:     "update grows",
-			pair:     KVPairWithLastValue{Key: key, Value: []byte("longer-value"), LastValue: []byte("short")},
+			pair:     KeyMutation{Key: key, Value: []byte("longer-value"), LastValue: []byte("short")},
 			wantKeys: 0,
 			wantByte: int64(len("longer-value")) - int64(len("short")),
 		},
 		{
 			name:     "update shrinks",
-			pair:     KVPairWithLastValue{Key: key, Value: []byte("v"), LastValue: []byte("wasbigger")},
+			pair:     KeyMutation{Key: key, Value: []byte("v"), LastValue: []byte("wasbigger")},
 			wantKeys: 0,
 			wantByte: int64(len("v")) - int64(len("wasbigger")),
 		},
 		{
 			name:     "delete",
-			pair:     KVPairWithLastValue{Key: key, LastValue: []byte("oldvalue"), Delete: true},
+			pair:     KeyMutation{Key: key, LastValue: []byte("oldvalue"), Delete: true},
 			wantKeys: -1,
 			wantByte: -(int64(len(key)) + int64(len("oldvalue"))),
 		},
 		{
 			name:     "delete absent is no-op",
-			pair:     KVPairWithLastValue{Key: key, Delete: true},
+			pair:     KeyMutation{Key: key, Delete: true},
 			wantKeys: 0,
 			wantByte: 0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := foldChunk([]KVPairWithLastValue{tc.pair})
+			d := hashChunk([]KeyMutation{tc.pair})
 			require.Equal(t, tc.wantKeys, d.KeyCount)
 			require.Equal(t, tc.wantByte, d.Bytes)
 		})
@@ -96,28 +96,28 @@ func TestFoldChunkStats(t *testing.T) {
 // and checks the aggregated per-module stats equal a straightforward serial
 // tally, proving the chunk-and-merge does not lose or double-count.
 func TestComputeModuleHashInfosStatsParallel(t *testing.T) {
-	const dir = "d"
+	const dbName = "d"
 	moduleOf := func([]byte) (string, error) { return "m", nil }
 	pool := threading.NewFixedPool("test", 4, 4)
 	defer pool.Close()
-	c := NewHashCalculator(pool, []string{dir}, moduleOf)
-
-	const n = computeChunkSize*3 + 7 // spans several chunks, not a chunk multiple
-	pairs := make([]KVPairWithLastValue, n)
+	cfg := DefaultConfig()
+	n := int(cfg.ChunkSize)*3 + 7 // spans several chunks, not a chunk multiple
+	mutations := make([]KeyMutation, n)
 	var wantKeys, wantBytes int64
-	for i := range pairs {
+	for i := range mutations {
 		key := []byte(fmt.Sprintf("m/key-%05d", i))
 		val := []byte(fmt.Sprintf("value-%d", i))
-		pairs[i] = KVPairWithLastValue{Key: key, Value: val}
+		mutations[i] = KeyMutation{Key: key, Value: val}
 		wantKeys++
 		wantBytes += int64(len(key)) + int64(len(val))
 	}
 
-	deltas, err := c.ComputeModuleHashInfos([]DBPairs{{Dir: dir, Pairs: pairs}})
+	deltas, err := ComputeModuleHashInfos(
+		pool, moduleOf, []DatabaseMutations{{DBName: dbName, Mutations: mutations}}, cfg.ChunkSize)
 	require.NoError(t, err)
 	require.Len(t, deltas, 1)
 
-	d := deltas[ModuleKey{Dir: dir, Module: "m"}]
+	d := deltas[ModuleKey{DBName: dbName, Module: "m"}]
 	require.NotNil(t, d)
 	require.Equal(t, wantKeys, d.KeyCount)
 	require.Equal(t, wantBytes, d.Bytes)

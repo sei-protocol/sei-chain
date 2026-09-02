@@ -38,33 +38,43 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		)
 	}
 
+	// Hashing is asynchronous, so the maintained state has to be caught up with the committed height
+	// before the scan can be compared against it.
+	if err := cs.FlushHashes(); err != nil {
+		return fmt.Errorf("VerifyLtHash: flush hashes before verifying: %w", err)
+	}
+
 	// verifyPersistedDBMetadata reads the databases rather than the stores, so whatever the view managers have
 	// staged has to reach pebble before it can see it.
 	if err := cs.flushLatestVersion(); err != nil {
 		return fmt.Errorf("VerifyLtHash: flush before reading persisted metadata: %w", err)
 	}
 
+	// Read once, so every comparison below describes the same moment.
+	maintained := cs.PublishedHash()
+
 	// Recompute each DB's per-module hashes and stats from disk, validate the
 	// maintained per-module metadata against them, and accumulate the global
 	// root as the homomorphic sum of the derived per-DB roots.
-	global := lthash.New()
+	perDB := make(map[string]*lthash.LtHash, len(dataDBDirs))
 	for _, store := range cs.stores {
 		scanHash, scanStats, err := scanStoreByModule(store)
 		if err != nil {
 			return fmt.Errorf("VerifyLtHash: scan %s: %w", store.Name(), err)
 		}
-		dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), scanHash, scanStats)
+		dbRoot, err := cs.verifyDBModuleMetadata(store.Name(), maintained, scanHash, scanStats)
 		if err != nil {
 			return err
 		}
 		if err := cs.verifyPersistedDBMetadata(store.Name(), dbRoot); err != nil {
 			return err
 		}
-		global.MixIn(dbRoot)
+		perDB[store.Name()] = dbRoot
 	}
+	global := lthash.SumDBHashes(dataDBDirs, perDB)
 
-	// The scan reflects committed state, so committedLtHash is the reference.
-	if gc, cc := global.Checksum(), cs.committedLtHash.Checksum(); gc != cc {
+	// The scan reflects committed state, so the maintained root is the reference.
+	if gc, cc := global.Checksum(), maintained.Global.Checksum(); gc != cc {
 		return fmt.Errorf(
 			"VerifyLtHash: global mismatch at version %d\n  committed: %x\n  full-scan: %x",
 			cs.committedVersion, cc, gc,
@@ -88,7 +98,7 @@ func scanStoreByModule(
 	}
 	defer func() { _ = iter.Close() }()
 
-	byModule := make(map[string][]lthash.KVPairWithLastValue)
+	byModule := make(map[string][]lthash.KeyMutation)
 	stats := make(map[string]lthash.ModuleStats)
 	for ; iter.Valid(); iter.Next() {
 		// Match foldChunk / serializeKV: empty key or empty value is not a
@@ -101,7 +111,7 @@ func scanStoreByModule(
 		if err != nil {
 			return nil, nil, fmt.Errorf("route key %x: %w", iter.Key(), err)
 		}
-		byModule[module] = append(byModule[module], lthash.KVPairWithLastValue{
+		byModule[module] = append(byModule[module], lthash.KeyMutation{
 			Key:   bytes.Clone(iter.Key()),
 			Value: bytes.Clone(iter.Value()),
 		})
@@ -116,7 +126,7 @@ func scanStoreByModule(
 
 	hashes := make(map[string]*lthash.LtHash, len(byModule))
 	for module, pairs := range byModule {
-		h, _ := lthash.ComputeLtHash(nil, pairs)
+		h := lthash.ComputeLtHash(nil, pairs)
 		if h == nil {
 			h = lthash.New()
 		}
@@ -162,11 +172,12 @@ func (cs *CommitStore) verifyPersistedDBMetadata(dir string, scanRoot *lthash.Lt
 // that is not zeroed, or the per-module sum not equaling the per-DB root.
 func (cs *CommitStore) verifyDBModuleMetadata(
 	dir string,
+	maintained *lthash.BlockHash,
 	scanHash map[string]*lthash.LtHash,
 	scanStats map[string]lthash.ModuleStats,
 ) (*lthash.LtHash, error) {
-	workingHash := cs.perDBModuleWorkingLtHash[dir]
-	workingStats := cs.perDBModuleWorkingStats[dir]
+	workingHash := maintained.PerModule[dir]
+	workingStats := maintained.PerModuleStats[dir]
 
 	// Every module on disk must match the maintained hash and stats.
 	for module, h := range scanHash {
@@ -217,7 +228,7 @@ func (cs *CommitStore) verifyDBModuleMetadata(
 
 	// The maintained per-module hashes must homomorphically sum to the
 	// maintained per-DB root, and that root must equal the scan.
-	root := cs.perDBWorkingLtHash[dir]
+	root := maintained.PerDB[dir]
 	sum := lthash.SumModuleHashes(workingHash)
 	if root == nil || !root.Equal(sum) {
 		return nil, fmt.Errorf(

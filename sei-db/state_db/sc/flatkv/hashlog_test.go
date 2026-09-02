@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -41,7 +42,14 @@ func (c *captureLogger) ReportChangeset(uint64, []*proto.NamedChangeSet) { c.cha
 func (c *captureLogger) Close() error { return nil }
 
 func TestFlatKVHashReporting(t *testing.T) {
-	s := setupTestStore(t)
+	// The logger precedes the store, which reports to it as each block is finalized.
+	logger := newCaptureLogger()
+	for _, category := range hashCategories() {
+		require.NoError(t, logger.RegisterHashType(category))
+	}
+	require.Len(t, logger.registered, 5)
+
+	s := setupTestStoreWithHashLogger(t, config.DefaultTestConfig(t), logger)
 	defer func() { require.NoError(t, s.Close()) }()
 
 	// Write some EVM storage so the account/storage DBs have non-empty LtHashes.
@@ -59,13 +67,7 @@ func TestFlatKVHashReporting(t *testing.T) {
 		"flatKV/db/misc",
 	}, s.HashCategories())
 
-	logger := newCaptureLogger()
-	for _, category := range s.HashCategories() {
-		require.NoError(t, logger.RegisterHashType(category))
-	}
-	require.Len(t, logger.registered, 5)
-
-	require.NoError(t, s.RecordHashes(logger, 1))
+	require.NoError(t, s.FlushHashes())
 
 	// Every category is reported, and the root matches CommittedRootHash.
 	for _, category := range s.HashCategories() {
@@ -74,7 +76,12 @@ func TestFlatKVHashReporting(t *testing.T) {
 	}
 	require.Equal(t, rootHash(s), logger.hashes["flatKV/root"])
 
-	// Each reported per-DB hash is the checksum of that DB's committed LtHash.
+	// Each reported per-DB hash is the checksum of the LtHash that database actually recorded. Read back
+	// off disk rather than from the store's load-time copy: the finalizer writes it, so disk is the only
+	// place the two can be compared.
+	//
+	require.NoError(t, s.reloadLocalMeta())
+
 	for _, dir := range dataDBDirs {
 		checksum := s.localMeta[dir].LtHash.Checksum()
 		require.Equal(t, checksum[:], logger.hashes["flatKV/db/"+dir])
@@ -85,5 +92,5 @@ func TestFlatKVHashReporting(t *testing.T) {
 	for _, dir := range dataDBDirs {
 		sum.MixIn(s.localMeta[dir].LtHash)
 	}
-	require.True(t, sum.Equal(s.committedLtHash))
+	require.True(t, sum.Equal(s.maintainedHashes().Global))
 }

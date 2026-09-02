@@ -303,7 +303,7 @@ func newDiskBackedFlatKVStore(t *testing.T, snapshotInterval uint32) (*flatkv.Co
 	cfg.SnapshotKeepRecent = 100
 	stateWAL, err := flatkv.OpenStateWAL(cfg)
 	require.NoError(t, err)
-	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
+	store, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL, nil)
 	require.NoError(t, err)
 	err = store.LoadLatest()
 	require.NoError(t, err)

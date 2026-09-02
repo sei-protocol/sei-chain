@@ -1,6 +1,10 @@
 package flatkv
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
+)
 
 // This file contains the messages that can be sent to the snapshot writer's goroutine.
 
@@ -8,17 +12,17 @@ import "fmt"
 // snapshot.
 type snapshotRequest struct {
 	// blockView is the view of every database at the height this snapshot would capture. It carries a
-	// reservation this request owns and must hand back exactly once — a second Release() on a view bricks
+	// reservation this request owns and must release exactly once — a second Release() on a view bricks
 	// its manager.
-	blockView *storeView
+	blockView *sview.StoreView
 }
 
-// release() hands back the reservations this request holds, so the databases can resume writing out
-// later blocks. The goroutine owns this for a request it received; Offer() owns it only for one it took
+// Releases the reservations this request holds, so the databases can resume writing out later
+// blocks. The goroutine owns this for a request it received; Offer() owns it only for one it took
 // reservations for but could not enqueue.
 func (r *snapshotRequest) release() error {
-	if err := r.blockView.release(); err != nil {
-		return fmt.Errorf("release views at version %d: %w", r.blockView.blockHeight, err)
+	if err := r.blockView.Release(); err != nil {
+		return fmt.Errorf("release views at version %d: %w", r.blockView.BlockHeight(), err)
 	}
 	return nil
 }

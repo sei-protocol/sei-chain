@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
 
 // ErrSnapshotWriterClosed is reported (wrapped) by calls that observe the writer shutting down
@@ -113,12 +114,12 @@ func newSnapshotWriter(
 
 // Offer hands a committed block to the writer, which decides if it should be written to disk.
 //
-// The writer takes its own reservation on every view for as long as it needs one, and hands it back
+// The writer takes its own reservation on every view for as long as it needs one, and releases it
 // whether it writes a snapshot, declines to, or fails. The caller only has to hold a reservation of its
 // own until this returns, and so does not have to know whether the writer keeps the block past the call.
-func (w *SnapshotWriter) Offer(blockView *storeView) error {
-	version := blockView.blockHeight
-	if err := blockView.reserve(); err != nil {
+func (w *SnapshotWriter) Offer(blockView *sview.StoreView) error {
+	version := blockView.BlockHeight()
+	if err := blockView.Reserve(); err != nil {
 		return fmt.Errorf("reserve version %d for snapshot: %w", version, err)
 	}
 
@@ -251,7 +252,7 @@ func (w *SnapshotWriter) reportQueueDepth() {
 // stopped or one of them fails.
 func (w *SnapshotWriter) run() {
 	defer close(w.exited)
-	// Whatever is still queued is owed a hand-back, so nothing is left holding a reservation that would
+	// Whatever is still queued is owed a release, so nothing is left holding a reservation that would
 	// stall its database for good.
 	defer w.discardQueued()
 
@@ -326,21 +327,21 @@ func (w *SnapshotWriter) handlePruneCutLine(cutLine uint64) error {
 
 // Possibly checkpoint a block. Releases reservation when finished regardless of choice.
 func (w *SnapshotWriter) maybeCheckpointBlock(request *snapshotRequest) (err error) {
-	// The only hand-back for a block that reached the goroutine, covering written, declined and failed
+	// The only release for a block that reached the goroutine, covering written, declined and failed
 	// alike. A reservation left held stalls its view manager's flushes indefinitely.
 	defer func() {
 		if relErr := request.release(); relErr != nil {
 			err = errors.Join(err, fmt.Errorf(
-				"hand back reservations for version %d: %w", request.blockView.blockHeight, relErr))
+				"release reservations for version %d: %w", request.blockView.BlockHeight(), relErr))
 		}
 	}()
 
-	if !w.shouldSnapshot(request.blockView.blockHeight) {
+	if !w.shouldSnapshot(request.blockView.BlockHeight()) {
 		w.phaseTimer.SetPhase("release_declined_block")
 		return nil
 	}
 	if err := w.writeCheckpoint(request); err != nil {
-		return fmt.Errorf("write snapshot at version %d: %w", request.blockView.blockHeight, err)
+		return fmt.Errorf("write snapshot at version %d: %w", request.blockView.BlockHeight(), err)
 	}
 	return nil
 }
@@ -356,8 +357,8 @@ func (w *SnapshotWriter) discardQueued() {
 			switch request := message.(type) {
 			case *snapshotRequest:
 				if err := request.release(); err != nil {
-					logger.Error("failed to hand back reservations of a discarded snapshot",
-						"version", request.blockView.blockHeight, "err", err)
+					logger.Error("failed to release reservations of a discarded snapshot",
+						"version", request.blockView.BlockHeight(), "err", err)
 				}
 			case *cloneRequest:
 				request.responseChan <- fmt.Errorf("clone snapshot for version %d: %w",
@@ -381,7 +382,7 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 			metric.WithAttributes(successAttr(err)))
 		if err != nil {
 			logger.Error("FlatKV snapshot failed",
-				"version", request.blockView.blockHeight, "elapsed", time.Since(start), "err", err)
+				"version", request.blockView.BlockHeight(), "elapsed", time.Since(start), "err", err)
 		}
 	}()
 
@@ -394,19 +395,19 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 	tmpPath, err := checkpointDatabases(
 		workCtx, w.dir, request.blockView, w.dbs, w.phaseTimer)
 	if err != nil {
-		return fmt.Errorf("snapshot version %d: %w", request.blockView.blockHeight, err)
+		return fmt.Errorf("snapshot version %d: %w", request.blockView.BlockHeight(), err)
 	}
 
 	w.phaseTimer.SetPhase("publish_snapshot")
 	pruned, err := publishSnapshot(
-		workCtx, w.dir, w.keepRecent, w.externalPruning, request.blockView.blockHeight, tmpPath)
+		workCtx, w.dir, w.keepRecent, w.externalPruning, request.blockView.BlockHeight(), tmpPath)
 	if err != nil {
-		return fmt.Errorf("publish snapshot at version %d: %w", request.blockView.blockHeight, err)
+		return fmt.Errorf("publish snapshot at version %d: %w", request.blockView.BlockHeight(), err)
 	}
 
-	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, request.blockView.blockHeight)
+	otelMetrics.CurrentSnapshotHeight.Record(w.ctx, request.blockView.BlockHeight())
 	logger.Info("FlatKV snapshot created",
-		"version", request.blockView.blockHeight, "pruned", pruned, "elapsed", time.Since(start))
+		"version", request.blockView.BlockHeight(), "pruned", pruned, "elapsed", time.Since(start))
 	return nil
 }
 
