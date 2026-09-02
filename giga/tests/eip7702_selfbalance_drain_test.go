@@ -58,8 +58,8 @@ func buildEIP7702SelfBalanceDrainTxs(t *testing.T, tCtx *GigaTestContext, sponso
 	t.Helper()
 	// Three sponsor txs at up to 500,000 gas * 100 gwei each need up to 4.5e16
 	// wei; fund generously above that.
-	fundAccount(t, tCtx, sponsor.AccountAddress, big.NewInt(1_000_000_000_000_000_000)) // gas money only
-	fundAccount(t, tCtx, authority.AccountAddress, big.NewInt(1_000_000_000_000_000))   // the balance drain() will empty
+	fundAccount(t, tCtx, sponsor.AccountAddress, big.NewInt(1_000_000_000_000_000_000))   // gas money only
+	fundAccount(t, tCtx, authority.AccountAddress, big.NewInt(1_000_000_000_000_000_000)) // the balance drain() will empty
 	tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, sponsor.AccountAddress, sponsor.EvmAddress)
 	tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, authority.AccountAddress, authority.EvmAddress)
 	tCtx.TestApp.GigaEvmKeeper.SetAddressMapping(tCtx.Ctx, sponsor.AccountAddress, sponsor.EvmAddress)
