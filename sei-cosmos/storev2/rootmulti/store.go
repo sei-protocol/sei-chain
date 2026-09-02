@@ -307,8 +307,6 @@ func (rs *Store) flush() error {
 			return err
 		}
 		storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-		// TODO(PLT-353): remove once storev2_ss_version verified
-		telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 	}
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
