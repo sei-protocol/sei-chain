@@ -58,6 +58,16 @@ func whatDecodesToSomethingElse(fields map[string]reflect.Type, values map[strin
 				key)
 			continue
 		}
+		// A switch written as prose. The decode reads a word it does not recognise as off, so a setting an
+		// operator wrote in order to turn something on arrives off. Nothing else objects: the reader asks
+		// for a bool and gets one.
+		if text, isText := value.(string); isText && ft.Kind() == reflect.Bool {
+			if _, err := strconv.ParseBool(strings.TrimSpace(text)); err != nil {
+				bad[key] = fmt.Sprintf("%s = %q is not a value this setting can be switched by, and "+
+					"decodes to false rather than being refused; write true or false", key, text)
+			}
+			continue
+		}
 		n, numeric := asNumber(value)
 		if !numeric {
 			continue

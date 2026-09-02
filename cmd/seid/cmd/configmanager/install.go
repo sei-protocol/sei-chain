@@ -80,11 +80,6 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 			"mode", mode, "err", err)
 		return
 	}
-	// First, because every report below is a log line and a refusal is reported at a level an operator
-	// may have raised the threshold above. Doing this after would mean the one setting somebody changes
-	// in order to see a refusal is the setting a refusal suppresses.
-	applyResolvedLogLevel(resolved, typed, log)
-
 	// Before the reports it explains. A refused registration makes the next report name the wrong file, so
 	// an operator reading in order meets the cause first.
 	reportWhatThisBinaryCouldNotUse(resolved, log)
@@ -147,6 +142,12 @@ func installResolved(cmd *cobra.Command, typed map[string]string, log *slog.Logg
 	// The second delivery. Their file is read into a struct before this runs and nothing consults the
 	// source for them afterwards, so the values are decoded into that struct instead.
 	deliverDecodedSections(ctx, forADecode, log, said)
+
+	// After both deliveries, because this changes the level the process runs at and every path above
+	// reports that nothing was applied. Run first, those reports would be false for this one setting.
+	// They stay visible either way: this package holds its own logger at a floor, and each of them is a
+	// warning or an error.
+	applyResolvedLogLevel(resolved, typed, log)
 	// Counted, not named. Both lists arrive sorted and the rendered one is capped, so naming them prints
 	// the same first ten names on every boot and never a value. read_here_first_count is the set the
 	// source did not already hold, which is the part most likely to change what the node runs.

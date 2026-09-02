@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/spf13/cobra"
@@ -353,5 +354,71 @@ func TestNothingIsDeliveredWhenTheNodeRunsWithNoKind(t *testing.T) {
 	if !strings.Contains(out.String(), "says another") {
 		t.Errorf("nothing was delivered, and the reason an operator gets does not name the "+
 			"disagreement:\n%s", out.String())
+	}
+}
+
+// TestTheLevelFollowsTheStructEvenWhenNobodyWroteIt keeps three answers about the log level together.
+//
+// The decode publishes whatever the resolution answered into the struct, so a level nobody wrote still
+// moves the field. Applying only what a source supplied left the struct saying one level, the process
+// running another, and the report naming a move that never reached the logger.
+func TestTheLevelFollowsTheStructEvenWhenNobodyWroteIt(t *testing.T) {
+	resolved, err := registry.Resolve(registry.ModeFull, registry.Sources{})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if _, wrote := resolved.Values[logLevelKey]; !wrote {
+		t.Fatalf("%s is not answered by an empty resolution, so this measures nothing", logLevelKey)
+	}
+	for _, key := range resolved.Overrides {
+		if key == logLevelKey {
+			t.Fatalf("a source supplied %s, and this case is about the level nobody wrote", logLevelKey)
+		}
+	}
+
+	var out bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	applyResolvedLogLevel(resolved, map[string]string{}, log)
+
+	if !strings.Contains(out.String(), "resolved log level applied") {
+		t.Errorf("no source wrote the level and it was not applied, so the struct the decode publishes "+
+			"and the level the process runs at disagree:\n%s", out.String())
+	}
+}
+
+// TestAPathThatAppliedNothingChangedNoLevelEither holds the reports that say nothing was applied.
+//
+// The level is the one setting this manager changes outside the two deliveries, so applying it before the
+// gates would make every one of those reports false for it.
+func TestAPathThatAppliedNothingChangedNoLevelEither(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// A kind the node does not run as, which is the gate that reports nothing was delivered.
+	other := "validator"
+	if tmcfg.DefaultConfig().Mode == other {
+		t.Fatalf("the default kind is %q, so this cannot tell agreement from disagreement", other)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", seiTomlName),
+		[]byte("schema_version = 1\nnode_mode = \""+other+"\"\n"), 0o600); err != nil {
+		t.Fatalf("write sei.toml: %v", err)
+	}
+
+	cmd := &cobra.Command{Use: "start"}
+	cmd.SetContext(context.WithValue(context.Background(), server.ServerContextKey,
+		server.NewDefaultContext()))
+	cmd.Flags().String(flags.FlagHome, home, "")
+
+	var out bytes.Buffer
+	installResolved(cmd, nil, slog.New(slog.NewTextHandler(&out,
+		&slog.HandlerOptions{Level: slog.LevelDebug})))
+
+	if !strings.Contains(out.String(), "says another") {
+		t.Fatalf("the kind gate did not fire, so this measures nothing:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "resolved log level applied") {
+		t.Errorf("nothing was delivered and the log level was applied anyway, so the report saying every "+
+			"key reads as it always has is false for this one:\n%s", out.String())
 	}
 }

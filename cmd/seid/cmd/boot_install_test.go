@@ -346,3 +346,26 @@ func TestNothingIsDeliveredForTheWrongKindOfNode(t *testing.T) {
 			"configured as something it is not", other, running)
 	}
 }
+
+// TestASwitchWrittenAsProseIsNotInstalled covers the shape a numeric check cannot see.
+//
+// A reader asks for a bool and gets one, so nothing objects: a word the decode does not recognise reads as
+// false. An operator who wrote a switch in order to turn something on gets it off, and their own file's
+// value is replaced by that. Every declared bool is reachable this way.
+func TestASwitchWrittenAsProseIsNotInstalled(t *testing.T) {
+	for _, tc := range []struct{ name, key, written string }{
+		{"prose", "api.enable", "yes please"},
+		{"empty", "api.enable", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configtest.Isolate(t)
+			ctx := bootWith(t, seiTomlWriting(tc.key, "\""+tc.written+"\""), nil)
+
+			if got := fmt.Sprint(ctx.Viper.Get(tc.key)); got == tc.written {
+				t.Errorf("%s was installed as %q exactly as written. A reader turns that into false "+
+					"rather than refusing it, so the setting arrives off and nothing names the key",
+					tc.key, got)
+			}
+		})
+	}
+}

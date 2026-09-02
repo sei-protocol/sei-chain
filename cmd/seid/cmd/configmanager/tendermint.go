@@ -240,24 +240,13 @@ func asSet(keys []string) map[string]struct{} {
 // reaches the struct therefore moves a field and changes no logging. This key space exists to remove a
 // setting that appears to take and does not.
 //
-// Applied from the resolution rather than after the decode, and before it. Every failure this manager can
-// have is a log line, and a refusal is reported at a level an operator may have raised the threshold above.
-// Waiting for a successful decode would mean the one setting somebody changes in order to see a refusal is
-// the setting a refusal suppresses.
+// Applied whether a source supplied the level or not. The decode publishes whatever the resolution answered
+// into the struct, so a level nobody wrote still moves the field; returning early there would leave the
+// struct saying one level, the process running another, and the report naming a move that did not happen.
 //
 // Which value arrives is already decided: the resolution ranks a flag over the environment over the file.
 // A level that cannot be read is reported and skipped, and the node keeps the level it had.
 func applyResolvedLogLevel(resolved registry.Resolved, typed map[string]string, log *slog.Logger) {
-	supplied := false
-	for _, key := range resolved.Overrides {
-		if key == logLevelKey {
-			supplied = true
-		}
-	}
-	if !supplied {
-		return
-	}
-
 	// The logger reads its own variable at start-up, under a different name from this key. The boot's own
 	// handler steps aside when that variable is set: a flag beats it, a file does not. Applying here
 	// regardless would put the file above it. An operator who exported a level and then adopted this file
