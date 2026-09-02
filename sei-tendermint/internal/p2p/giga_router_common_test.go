@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -146,6 +147,102 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	got, err := state.TryBlock(last)
 	require.NoError(t, err)
 	require.Equal(t, blocks[gr.Len()/2].Header().Hash(), got.Header().Hash())
+}
+
+func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
+	rng := utils.TestRng()
+	low := atypes.GenSecretKey(rng)
+	mid := atypes.GenSecretKey(rng)
+	high := atypes.GenSecretKey(rng)
+	keys := []atypes.SecretKey{low, mid, high}
+	router := testGigaRouterWithData(t, map[atypes.PublicKey]GigaNodeAddr{
+		low.Public():  {},
+		mid.Public():  {},
+		high.Public(): {},
+	})
+	first := router.data.Registry().FirstBlock()
+
+	got, h, err := router.Validators(first)
+	require.NoError(t, err)
+	require.Equal(t, first, h)
+	require.Len(t, got, 3)
+	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
+
+	_, _, err = router.Validators(0)
+	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
+
+	_, _, err = router.Validators(first + 100)
+	require.ErrorIs(t, err, coretypes.ErrHeightExceedsChainHead)
+
+	weights := map[atypes.PublicKey]uint64{
+		low.Public():  1,
+		mid.Public():  5,
+		high.Public(): 10,
+	}
+	require.NoError(t, router.data.Registry().StageAndActivate(0, weights))
+	fakeNext := utils.NewAtomicSend(router.data.Registry().MustEpoch(2))
+	router.nextCommitEpoch = fakeNext.Subscribe()
+	got, h, err = router.Validators(first)
+	require.NoError(t, err)
+	require.Equal(t, first, h)
+	require.Equal(t, []int64{1, 1, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
+
+	n := pushQCAtRoad(t, router, keys, router.data.Registry().MustEpoch(2), epoch.FirstRoad(2))
+	got, h, err = router.Validators(n)
+	require.NoError(t, err)
+	require.Equal(t, n, h)
+	require.Equal(t, []int64{10, 5, 1}, []int64{got[0].VotingPower, got[1].VotingPower, got[2].VotingPower})
+	require.Equal(t, high.Public().Bytes(), got[0].PubKey.Bytes())
+	require.Equal(t, mid.Public().Bytes(), got[1].PubKey.Bytes())
+	require.Equal(t, low.Public().Bytes(), got[2].PubKey.Bytes())
+
+	require.NoError(t, router.data.Registry().StageAndActivate(1, weights))
+	require.NoError(t, router.data.Registry().StageAndActivate(2, weights))
+	require.NoError(t, router.data.Registry().PruneBefore(4))
+	_, _, err = router.Validators(n)
+	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
+}
+
+func pushQCAtRoad(t *testing.T, router *gigaRouterCommon, keys []atypes.SecretKey, ep *atypes.Epoch, road atypes.RoadIndex) atypes.GlobalBlockNumber {
+	t.Helper()
+	first := router.data.Registry().FirstBlock()
+	proposal, blocks := atypes.ProposalAtBlocks(ep, atypes.View{Index: road, Number: 0}, first, 1)
+	votes := make([]*atypes.Signed[*atypes.CommitVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, atypes.Sign(k, atypes.NewCommitVote(proposal)))
+	}
+	headers := make([]*atypes.BlockHeader, len(blocks))
+	for i, b := range blocks {
+		headers[i] = b.Header()
+	}
+	qc := atypes.NewFullCommitQC(atypes.NewCommitQC(votes), headers)
+	require.NoError(t, router.data.PushQC(t.Context(), qc, blocks))
+	return first
+}
+
+func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAddr) *gigaRouterCommon {
+	t.Helper()
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "validators-road-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	state, err := BuildDataState(&GigaRouterCommonConfig{
+		DialInterval:   time.Second,
+		ValidatorAddrs: addrs,
+		GenDoc:         genDoc,
+		App:            proxy.New(&fixedHeightApp{height: 1}),
+	}, db)
+	require.NoError(t, err)
+	return &gigaRouterCommon{
+		data:            state,
+		nextCommitEpoch: state.NextCommitEpoch(),
+	}
 }
 
 func TestCommitteeWeights(t *testing.T) {
