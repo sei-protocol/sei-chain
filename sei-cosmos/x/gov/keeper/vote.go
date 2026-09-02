@@ -14,28 +14,40 @@ import (
 
 // AddVote adds a vote on a specific proposal
 func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.AccAddress, options types.WeightedVoteOptions) error {
+	_, err := keeper.addVote(ctx, proposalID, voterAddr, options)
+	return err
+}
+
+func (keeper Keeper) addVote(
+	ctx sdk.Context,
+	proposalID uint64,
+	voterAddr sdk.AccAddress,
+	options types.WeightedVoteOptions,
+) (bool, error) {
 	proposal, ok := keeper.GetProposal(ctx, proposalID)
 	if !ok {
-		return sdkerrors.Wrapf(types.ErrUnknownProposal, "%d", proposalID)
+		return false, sdkerrors.Wrapf(types.ErrUnknownProposal, "%d", proposalID)
 	}
 	if proposal.Status != types.StatusVotingPeriod {
-		return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+		return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 	}
-	if keeper.IncrementalTallyEnabled(ctx) {
+	incrementalTallyEnabled := keeper.IncrementalTallyEnabled(ctx)
+	if incrementalTallyEnabled {
 		if proposal.VotingEndTime.Before(ctx.BlockTime()) {
-			return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+			return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 		}
 		if keeper.voteDelegationSnapshotFrozen(ctx, proposal) || keeper.IsVoteDelegationBackfillInProgress(ctx, proposalID) {
-			return sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
+			return false, sdkerrors.Wrapf(types.ErrInactiveProposal, "%d", proposalID)
 		}
 	}
 
 	for _, option := range options {
 		if !types.ValidWeightedVoteOption(option) {
-			return sdkerrors.Wrap(types.ErrInvalidVote, option.String())
+			return false, sdkerrors.Wrap(types.ErrInvalidVote, option.String())
 		}
 	}
 
+	newTallyRecord := incrementalTallyEnabled && !ctx.KVStore(keeper.storeKey).Has(types.VoteKey(proposalID, voterAddr))
 	vote := types.NewVote(proposalID, voterAddr, options)
 	keeper.SetVote(ctx, vote)
 
@@ -50,7 +62,7 @@ func (keeper Keeper) AddVote(ctx sdk.Context, proposalID uint64, voterAddr sdk.A
 		),
 	)
 
-	return nil
+	return newTallyRecord, nil
 }
 
 // GetAllVotes returns all the votes from the store

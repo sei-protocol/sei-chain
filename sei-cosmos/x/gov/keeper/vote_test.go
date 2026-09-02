@@ -10,9 +10,113 @@ import (
 
 	seiapp "github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
+
+func TestMsgServerChargesDeferredVoteTallyGas(t *testing.T) {
+	tests := []struct {
+		name                    string
+		weighted                bool
+		revote                  bool
+		active                  bool
+		incrementalTallyEnabled bool
+		extraGas                sdk.Gas
+	}{
+		{
+			name:                    "vote",
+			active:                  true,
+			incrementalTallyEnabled: true,
+			extraGas:                types.DeferredVoteTallyGas,
+		},
+		{
+			name:                    "weighted vote",
+			weighted:                true,
+			active:                  true,
+			incrementalTallyEnabled: true,
+			extraGas:                types.DeferredVoteTallyGas,
+		},
+		{
+			name:                    "revote",
+			revote:                  true,
+			active:                  true,
+			incrementalTallyEnabled: true,
+			extraGas:                types.DeferredVoteTallyGas,
+		},
+		{
+			name:                    "inactive proposal",
+			incrementalTallyEnabled: true,
+		},
+		{
+			name:   "feature disabled",
+			active: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			directGas := voteGasConsumed(t, false, tc.weighted, tc.revote, tc.active, tc.incrementalTallyEnabled)
+			msgServerGas := voteGasConsumed(t, true, tc.weighted, tc.revote, tc.active, tc.incrementalTallyEnabled)
+
+			require.Equal(t, directGas+tc.extraGas, msgServerGas)
+		})
+	}
+}
+
+func voteGasConsumed(
+	t *testing.T,
+	throughMsgServer bool,
+	weighted bool,
+	revote bool,
+	active bool,
+	incrementalTallyEnabled bool,
+) sdk.Gas {
+	t.Helper()
+
+	app := seiapp.Setup(t, false, false, false)
+	t.Cleanup(func() { require.NoError(t, app.Close()) })
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	voter := seiapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))[0]
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	require.NoError(t, err)
+	if active {
+		proposal.Status = types.StatusVotingPeriod
+		app.GovKeeper.SetProposal(ctx, proposal)
+	}
+	if !incrementalTallyEnabled {
+		ctx.KVStore(app.GetKey(types.StoreKey)).Delete(types.IncrementalTallyEnabledKey)
+	}
+
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1_000_000, 1, 1))
+	castVote := func(option types.VoteOption) error {
+		options := types.NewNonSplitVoteOption(option)
+		if !throughMsgServer {
+			return app.GovKeeper.AddVote(ctx, proposal.ProposalId, voter, options)
+		}
+
+		msgServer := keeper.NewMsgServerImpl(app.GovKeeper)
+		if weighted {
+			_, err = msgServer.VoteWeighted(sdk.WrapSDKContext(ctx), types.NewMsgVoteWeighted(voter, proposal.ProposalId, options))
+		} else {
+			_, err = msgServer.Vote(sdk.WrapSDKContext(ctx), types.NewMsgVote(voter, proposal.ProposalId, option))
+		}
+		return err
+	}
+
+	gasBeforeVote := ctx.GasMeter().GasConsumed()
+	if active {
+		require.NoError(t, castVote(types.OptionYes))
+		if revote {
+			require.NoError(t, castVote(types.OptionNo))
+		}
+	} else {
+		require.Error(t, castVote(types.OptionYes))
+	}
+
+	return ctx.GasMeter().GasConsumed() - gasBeforeVote
+}
 
 func TestVotes(t *testing.T) {
 	app := seiapp.Setup(t, false, false, false)
