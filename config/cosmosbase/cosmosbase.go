@@ -96,7 +96,7 @@ func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 // interface follows and for the same reason. The upstream default is on for every kind, so declaring that
 // would state an open interface on the nodes meant to expose the least.
 //
-// Six of these eleven keys are read only when the key is present. Two more are durations read through a
+// Nine of these fifteen keys are read only when the key is present. Two more are durations read through a
 // clamp that rescues a negative value and does nothing for an absent one, so those two are unguarded and
 // their clobber leaves no trace. The durations are declared as durations and written into a file as text,
 // which is the shape the reader parses back.

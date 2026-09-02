@@ -77,6 +77,8 @@ func TestTheGRPCKeysAreTheOnesItsReaderResolves(t *testing.T) {
 		"grpc.max-connection-idle", "grpc.max-connection-age", "grpc.max-connection-age-grace",
 		"grpc.keepalive-time", "grpc.keepalive-timeout", "grpc.keepalive-min-time",
 		"grpc.keepalive-permit-without-stream",
+		"grpc.ip-rate-limit-rps", "grpc.ip-rate-limit-burst", "grpc.rate-limiting-enabled",
+		"grpc.trusted-proxy-cidrs",
 	})
 }
 
