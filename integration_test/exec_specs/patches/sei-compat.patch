@@ -145,10 +145,10 @@ index 45ab14ec8..fa1f4e503 100644
          address_stubs=address_stubs,
          funding_gas_limit=sender_fund_refund_gas_limit,
 diff --git a/packages/testing/src/execution_testing/execution/transaction_post.py b/packages/testing/src/execution_testing/execution/transaction_post.py
-index d76768d..26c729d 100644
+index d76768d..ae08b99 100644
 --- a/packages/testing/src/execution_testing/execution/transaction_post.py
 +++ b/packages/testing/src/execution_testing/execution/transaction_post.py
-@@ -1,11 +1,13 @@
+@@ -1,11 +1,14 @@
  """Simple transaction-send then post-check execution format."""
  
 +import os
@@ -160,10 +160,11 @@ index d76768d..26c729d 100644
  
 -from execution_testing.base_types import Address, Hash
 +from execution_testing.base_types import Account, Address, Hash, Storage
++from execution_testing.exceptions import TransactionException
  from execution_testing.forks import Fork
  from execution_testing.logging import get_logger
  from execution_testing.rpc import (
-@@ -26,6 +28,90 @@ from .base import BaseExecute, ExecuteResult
+@@ -26,6 +29,90 @@ from .base import BaseExecute, ExecuteResult
  
  logger = get_logger(__name__)
  
@@ -254,19 +255,24 @@ index d76768d..26c729d 100644
  
  class TransactionPost(BaseExecute):
      """
-@@ -79,6 +165,11 @@ class TransactionPost(BaseExecute):
+@@ -79,6 +166,16 @@ class TransactionPost(BaseExecute):
          balances: Dict[Address, int] = {}
          for block in self.blocks:
              for tx in block:
-+                # Preserve deliberately underfunded senders for transaction
-+                # rejection tests. Only valid transactions should cause the
-+                # remote pre-allocation layer to increase explicit funding.
-+                if tx.error is not None:
++                # Preserve underfunding only when it is part of the expected
++                # rejection; fund transactions testing every other error.
++                expected_errors = (
++                    tx.error if isinstance(tx.error, list) else [tx.error]
++                )
++                if any(
++                    error == TransactionException.INSUFFICIENT_ACCOUNT_FUNDS
++                    for error in expected_errors
++                ):
 +                    continue
                  sender = tx.sender
                  assert sender is not None, "Sender is None"
                  if sender not in balances:
-@@ -99,11 +190,18 @@ class TransactionPost(BaseExecute):
+@@ -99,11 +196,18 @@ class TransactionPost(BaseExecute):
  
          for block in self.blocks:
              for tx in block:
@@ -287,7 +293,7 @@ index d76768d..26c729d 100644
  
          # Track transaction hashes for gas validation (benchmarking)
          all_tx_hashes: List[Hash] = []
-@@ -179,24 +277,7 @@ class TransactionPost(BaseExecute):
+@@ -179,24 +283,7 @@ class TransactionPost(BaseExecute):
                  gas_used = int(receipt["gasUsed"], 16)
                  benchmark_gas_used += gas_used
  

@@ -24,7 +24,6 @@ jobs:
     name: Ethereum Transaction and RLP Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -46,7 +45,6 @@ jobs:
     name: Plan Execution Specs
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    continue-on-error: true
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
@@ -62,7 +60,6 @@ jobs:
     name: Prepare Execution Specs Cluster
     runs-on: ubuntu-large
     timeout-minutes: 45
-    continue-on-error: true
     permissions:
       packages: write
       contents: read
@@ -145,7 +142,6 @@ jobs:
     if: needs.plan.result == 'success' && needs.prepare-cluster.result == 'success'
     runs-on: ubuntu-large
     timeout-minutes: 60
-    continue-on-error: true
     permissions:
       packages: read
       contents: read
@@ -279,7 +275,6 @@ jobs:
     needs: execution-specs
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -299,7 +294,6 @@ jobs:
     needs: [ prepare-cluster, execution-specs ]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     permissions:
       contents: read
       packages: write

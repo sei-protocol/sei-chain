@@ -109,5 +109,6 @@ The jobs run only after changes reach `main`:
 JUnit reports are uploaded per EEST partition and summarized in the workflow
 run. Transaction/RLP results are printed directly in their job log.
 
-The jobs are informational (`continue-on-error`) and therefore do not make the
-post-merge workflow fail.
+The workflow runs only after changes reach `main`, so it is not a pull-request
+gate. Failures remain visible as failed post-merge workflow runs instead of
+being converted into green results.
