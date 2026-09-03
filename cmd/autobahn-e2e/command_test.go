@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +79,15 @@ func TestClusterNodesMatchDockerComposePorts(t *testing.T) {
 	}, clusterNodes(4))
 }
 
+func TestNativeClusterNodesUseOneRPCPortPerHost(t *testing.T) {
+	require.Equal(t, []node{
+		{Index: 0, Name: "node-0", EVMHostPort: 8545},
+		{Index: 1, Name: "node-1", EVMHostPort: 8545},
+		{Index: 2, Name: "node-2", EVMHostPort: 8545},
+		{Index: 3, Name: "node-3", EVMHostPort: 8545},
+	}, nativeClusterNodes(4))
+}
+
 func TestFindNodeAcceptsNamesAndIndexes(t *testing.T) {
 	nodes := clusterNodes(4)
 	for _, selector := range []string{"2", "node-2", "sei-node-2"} {
@@ -104,9 +114,14 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 		case strings.Contains(joined, "create-key-pair"):
 			return "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n", nil
 		case strings.Contains(joined, "run-instances"):
-			return "i-123\n", nil
+			return "i-100\ti-101\ti-102\ti-103\n", nil
 		case strings.Contains(joined, "describe-instances"):
-			return "203.0.113.10\n", nil
+			return `[
+  {"InstanceID":"i-100","PublicIP":"203.0.113.10","PrivateIP":"10.0.0.10"},
+  {"InstanceID":"i-101","PublicIP":"203.0.113.11","PrivateIP":"10.0.0.11"},
+  {"InstanceID":"i-102","PublicIP":"203.0.113.12","PrivateIP":"10.0.0.12"},
+  {"InstanceID":"i-103","PublicIP":"203.0.113.13","PrivateIP":"10.0.0.13"}
+]`, nil
 		case spec.name == "ssh":
 			return "", nil
 		default:
@@ -133,8 +148,13 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	state, err := app.store().load(options.name)
 	require.NoError(t, err)
 	require.Equal(t, "ready", state.Status)
-	require.Equal(t, "i-123", state.AWS.InstanceID)
-	require.Equal(t, "203.0.113.10", state.AWS.PublicIP)
+	require.Equal(t, []awsInstanceState{
+		{NodeIndex: 0, InstanceID: "i-100", PublicIP: "203.0.113.10", PrivateIP: "10.0.0.10"},
+		{NodeIndex: 1, InstanceID: "i-101", PublicIP: "203.0.113.11", PrivateIP: "10.0.0.11"},
+		{NodeIndex: 2, InstanceID: "i-102", PublicIP: "203.0.113.12", PrivateIP: "10.0.0.12"},
+		{NodeIndex: 3, InstanceID: "i-103", PublicIP: "203.0.113.13", PrivateIP: "10.0.0.13"},
+	}, state.AWS.Instances)
+	require.Equal(t, nativeClusterNodes(4), state.Nodes)
 	require.True(t, state.AWS.ManagedKey)
 	require.FileExists(t, state.AWS.SSHKeyPath)
 	keyInfo, err := os.Stat(state.AWS.SSHKeyPath)
@@ -145,7 +165,12 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	commands := joinedCommands(runner.commands)
 	require.Contains(t, commands, "authorize-security-group-ingress")
 	require.Contains(t, commands, "--cidr 198.51.100.4/32")
-	require.Contains(t, commands, "AUTOBAHN_EVMONLY_IN_MEMORY=true")
+	require.Contains(t, commands, "--count 4")
+	require.Contains(t, commands, "UserIdGroupPairs=[{GroupId=sg-123}]")
+	require.Contains(t, commands, "prepare_native_cluster.sh")
+	require.Contains(t, commands, "install_native_node.sh")
+	require.Contains(t, commands, "systemctl start seid.service")
+	require.NotContains(t, commands, "docker")
 	require.Contains(t, commands, "-o StrictHostKeyChecking=accept-new")
 }
 
@@ -190,6 +215,33 @@ func TestAWSDeployRetainsFailedState(t *testing.T) {
 	require.Equal(t, "sg-123", state.AWS.SecurityGroupID)
 }
 
+func TestAWSRuntimeOptionValidation(t *testing.T) {
+	parameter, err := ubuntuAMIParameter("amd64")
+	require.NoError(t, err)
+	require.Equal(t, ubuntuAMD64AMIParameter, parameter)
+	parameter, err = ubuntuAMIParameter("arm64")
+	require.NoError(t, err)
+	require.Equal(t, ubuntuARM64AMIParameter, parameter)
+	_, err = ubuntuAMIParameter("riscv64")
+	require.Error(t, err)
+
+	for _, value := range []string{"off", "0", "100", "200"} {
+		require.NoError(t, validateGoGC(value))
+	}
+	for _, value := range []string{"", "-1", "invalid"} {
+		require.Error(t, validateGoGC(value))
+	}
+}
+
+func TestDescribeAWSInstancesHandlesMissingPublicIP(t *testing.T) {
+	runner := &fakeRunner{outputFn: func(commandSpec) (string, error) {
+		return `[{"InstanceID":"i-100","PublicIP":null,"PrivateIP":"10.0.0.10"}]`, nil
+	}}
+	instances, err := describeAWSInstances(t.Context(), awsClient{runner: runner}, []string{"i-100"})
+	require.NoError(t, err)
+	require.Equal(t, awsInstanceState{InstanceID: "i-100", PrivateIP: "10.0.0.10"}, instances["i-100"])
+}
+
 func TestAWSForwardUsesChosenNodePort(t *testing.T) {
 	stateDir := t.TempDir()
 	state := clusterState{
@@ -197,11 +249,16 @@ func TestAWSForwardUsesChosenNodePort(t *testing.T) {
 		Name:    "forward-test",
 		Target:  "aws",
 		Status:  "ready",
-		Nodes:   clusterNodes(4),
+		Nodes:   nativeClusterNodes(4),
 		AWS: &awsState{
-			PublicIP:   "203.0.113.10",
 			SSHUser:    "ubuntu",
 			SSHKeyPath: "/tmp/test.pem",
+			Instances: []awsInstanceState{
+				{NodeIndex: 0, InstanceID: "i-100", PublicIP: "203.0.113.10", PrivateIP: "10.0.0.10"},
+				{NodeIndex: 1, InstanceID: "i-101", PublicIP: "203.0.113.11", PrivateIP: "10.0.0.11"},
+				{NodeIndex: 2, InstanceID: "i-102", PublicIP: "203.0.113.12", PrivateIP: "10.0.0.12"},
+				{NodeIndex: 3, InstanceID: "i-103", PublicIP: "203.0.113.13", PrivateIP: "10.0.0.13"},
+			},
 		},
 	}
 	require.NoError(t, newStateStore(stateDir).save(state))
@@ -218,8 +275,8 @@ func TestAWSForwardUsesChosenNodePort(t *testing.T) {
 	require.Len(t, runner.commands, 1)
 	require.Equal(t, "ssh", runner.commands[0].name)
 	joined := strings.Join(runner.commands[0].args, " ")
-	require.Contains(t, joined, "-L 127.0.0.1:18545:127.0.0.1:8551")
-	require.True(t, strings.HasSuffix(joined, "ubuntu@203.0.113.10"))
+	require.Contains(t, joined, "-L 127.0.0.1:18545:127.0.0.1:8545")
+	require.True(t, strings.HasSuffix(joined, "ubuntu@203.0.113.13"))
 }
 
 func TestListShowsPartialAWSDeploymentWithoutCredentials(t *testing.T) {
@@ -245,6 +302,55 @@ func TestListShowsPartialAWSDeploymentWithoutCredentials(t *testing.T) {
 	require.Contains(t, stdout.String(), "partial-aws")
 	require.Contains(t, stdout.String(), "failed")
 	require.Empty(t, runner.commands)
+}
+
+func TestListInspectsEachNativeAWSInstance(t *testing.T) {
+	stateDir := t.TempDir()
+	state := clusterState{
+		Version: stateVersion,
+		Name:    "native-aws",
+		Target:  targetAWS,
+		Status:  "ready",
+		Nodes:   nativeClusterNodes(4),
+		AWS: &awsState{
+			Region:     "us-west-2",
+			SSHUser:    "ubuntu",
+			SSHKeyPath: "/tmp/test.pem",
+			Instances: []awsInstanceState{
+				{NodeIndex: 0, InstanceID: "i-100", PublicIP: "203.0.113.10", PrivateIP: "10.0.0.10"},
+				{NodeIndex: 1, InstanceID: "i-101", PublicIP: "203.0.113.11", PrivateIP: "10.0.0.11"},
+				{NodeIndex: 2, InstanceID: "i-102", PublicIP: "203.0.113.12", PrivateIP: "10.0.0.12"},
+				{NodeIndex: 3, InstanceID: "i-103", PublicIP: "203.0.113.13", PrivateIP: "10.0.0.13"},
+			},
+		},
+	}
+	require.NoError(t, newStateStore(stateDir).save(state))
+	runner := &fakeRunner{outputFn: func(spec commandSpec) (string, error) {
+		joined := strings.Join(spec.args, " ")
+		switch {
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return `{}`, nil
+		case strings.Contains(joined, "describe-instances"):
+			return "running\n", nil
+		case spec.name == "ssh" && strings.Contains(joined, "systemctl is-active"):
+			return "active\n", nil
+		case spec.name == "ssh" && strings.Contains(joined, "26660/metrics"):
+			return "tendermint_internal_autobahn_data_next_block{stage=\"execute\"} 43\n", nil
+		default:
+			return "", nil
+		}
+	}}
+	var stdout bytes.Buffer
+	app := &application{runner: runner, stdout: &stdout, stderr: &bytes.Buffer{}, stateDir: stateDir}
+
+	require.NoError(t, app.list(context.Background(), listOptions{name: state.Name}))
+	for nodeIndex := range 4 {
+		require.Contains(t, stdout.String(), "node-"+fmt.Sprint(nodeIndex))
+		require.Contains(t, stdout.String(), "i-10"+fmt.Sprint(nodeIndex))
+		require.Contains(t, stdout.String(), "203.0.113.1"+fmt.Sprint(nodeIndex))
+	}
+	require.Equal(t, 4, strings.Count(stdout.String(), "active"))
+	require.Equal(t, 4, strings.Count(stdout.String(), "42"))
 }
 
 func TestAWSTeardownToleratesAlreadyDeletedManagedResources(t *testing.T) {
@@ -281,6 +387,51 @@ func TestAWSTeardownToleratesAlreadyDeletedManagedResources(t *testing.T) {
 	require.NoFileExists(t, store.path(state.Name))
 }
 
+func TestAWSTeardownStopsAndTerminatesNativeInstances(t *testing.T) {
+	stateDir := t.TempDir()
+	keyPath := filepath.Join(stateDir, "managed.pem")
+	require.NoError(t, os.WriteFile(keyPath, []byte("key"), 0o600))
+	state := clusterState{
+		Version: stateVersion,
+		Name:    "native-teardown",
+		Target:  targetAWS,
+		Status:  "ready",
+		Nodes:   nativeClusterNodes(4),
+		AWS: &awsState{
+			Region:          "us-west-2",
+			SSHUser:         "ubuntu",
+			SSHKeyPath:      keyPath,
+			SecurityGroupID: "sg-native",
+			KeyName:         "key-native",
+			ManagedKey:      true,
+			Instances: []awsInstanceState{
+				{NodeIndex: 0, InstanceID: "i-100", PublicIP: "203.0.113.10"},
+				{NodeIndex: 1, InstanceID: "i-101", PublicIP: "203.0.113.11"},
+				{NodeIndex: 2, InstanceID: "i-102", PublicIP: "203.0.113.12"},
+				{NodeIndex: 3, InstanceID: "i-103", PublicIP: "203.0.113.13"},
+			},
+		},
+	}
+	store := newStateStore(stateDir)
+	require.NoError(t, store.save(state))
+	runner := &fakeRunner{outputFn: func(spec commandSpec) (string, error) {
+		if strings.Contains(strings.Join(spec.args, " "), "sts get-caller-identity") {
+			return `{}`, nil
+		}
+		return "", nil
+	}}
+	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, stateDir: stateDir}
+
+	require.NoError(t, app.teardown(context.Background(), teardownOptions{name: state.Name}))
+	commands := joinedCommands(runner.commands)
+	require.Equal(t, 4, strings.Count(commands, "systemctl stop seid.service"))
+	require.Contains(t, commands, "terminate-instances --instance-ids i-100 i-101 i-102 i-103")
+	require.Contains(t, commands, "instance-terminated --instance-ids i-100 i-101 i-102 i-103")
+	require.NotContains(t, commands, "docker-cluster-stop")
+	require.NoFileExists(t, keyPath)
+	require.NoFileExists(t, store.path(state.Name))
+}
+
 func TestLocalTeardownRemovesState(t *testing.T) {
 	stateDir := t.TempDir()
 	state := clusterState{
@@ -311,14 +462,15 @@ func TestParseAutobahnExecutedHeight(t *testing.T) {
 	require.Equal(t, "-", parseAutobahnExecutedHeight("not-prometheus"))
 }
 
-func TestWriteUserDataUsesSelectedSSHUser(t *testing.T) {
-	path, err := writeUserData(t.TempDir(), "test", "ec2-user")
+func TestWriteUserDataInstallsNativeBuildDependencies(t *testing.T) {
+	path, err := writeUserData(t.TempDir(), "test")
 	require.NoError(t, err)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Contains(t, string(data), "usermod -aG docker ec2-user")
+	require.Contains(t, string(data), "build-essential python3")
 	require.Contains(t, string(data), "go1.25.6")
 	require.Contains(t, string(data), "/var/lib/autobahn-e2e-ready")
+	require.NotContains(t, string(data), "docker")
 }
 
 func TestShellQuote(t *testing.T) {

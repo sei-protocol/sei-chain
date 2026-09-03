@@ -60,8 +60,12 @@ func (a *application) forward(ctx context.Context, options forwardOptions) error
 		if state.AWS == nil {
 			return fmt.Errorf("aws metadata is missing")
 		}
-		_, _ = fmt.Fprintf(a.stdout, "Forwarding %s to %s:8545 through %s. Press Ctrl-C to stop.\n", localAddress, node.Name, state.AWS.PublicIP)
-		baseArgs := sshBaseArgs(state)
+		instance, err := awsInstanceForNode(state, node)
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(a.stdout, "Forwarding %s to %s:8545 through %s. Press Ctrl-C to stop.\n", localAddress, node.Name, instance.PublicIP)
+		baseArgs := sshBaseArgs(state, instance)
 		destination := baseArgs[len(baseArgs)-1]
 		args := append(baseArgs[:len(baseArgs)-1],
 			"-o", "ExitOnForwardFailure=yes",

@@ -38,8 +38,8 @@ if [ "$VALIDATOR" != "true" ]; then
 fi
 
 # Override up persistent peers
-NODE_IP=$(hostname -i | awk '{print $1}')
-PEERS=$(cat build/generated/persistent_peers.txt |grep -v "$NODE_IP" | paste -sd "," -)
+NODE_IP=${NODE_IP:-$(hostname -i | awk '{print $1}')}
+PEERS=$(grep -F -v "@$NODE_IP:" build/generated/persistent_peers.txt | paste -sd "," -)
 sed -i'' -e 's/persistent-peers = ""/persistent-peers = "'$PEERS'"/g' ~/.sei/config/config.toml
 
 # Override snapshot directory

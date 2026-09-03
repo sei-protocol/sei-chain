@@ -142,7 +142,7 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 	if state.AWS == nil {
 		return nil, fmt.Errorf("aws metadata is missing")
 	}
-	if state.AWS.InstanceID == "" {
+	if len(state.AWS.Instances) == 0 && state.AWS.InstanceID == "" {
 		reports := make([]nodeReport, len(state.Nodes))
 		for i, node := range state.Nodes {
 			reports[i] = nodeReport{
@@ -156,6 +156,58 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 		}
 		return reports, nil
 	}
+	if len(state.AWS.Instances) == 0 {
+		return a.inspectLegacyAWSCluster(ctx, state)
+	}
+	client := awsClient{runner: a.runner, region: state.AWS.Region, profile: state.AWS.Profile}
+	if err := a.ensureAWSCredentials(ctx, client); err != nil {
+		return nil, err
+	}
+	reports := make([]nodeReport, len(state.Nodes))
+	for i, node := range state.Nodes {
+		instance, err := awsInstanceForNode(state, node)
+		if err != nil {
+			return nil, err
+		}
+		instanceStatus, err := client.output(ctx,
+			"ec2", "describe-instances",
+			"--instance-ids", instance.InstanceID,
+			"--query", "Reservations[0].Instances[0].State.Name",
+			"--output", "text",
+		)
+		if err != nil {
+			return nil, err
+		}
+		instanceStatus = strings.TrimSpace(instanceStatus)
+		status := instanceStatus
+		height := "-"
+		if instanceStatus == "running" && instance.PublicIP != "" {
+			value, inspectErr := a.runner.output(ctx, sshCommandForInstance(state, instance,
+				"systemctl is-active seid.service"))
+			if inspectErr == nil {
+				status = strings.TrimSpace(value)
+			}
+			value, heightErr := a.runner.output(ctx, sshCommandForInstance(state, instance,
+				"curl -fsS http://127.0.0.1:26660/metrics"))
+			if heightErr == nil {
+				height = parseAutobahnExecutedHeight(value)
+			}
+		}
+		reports[i] = nodeReport{
+			Cluster:    state.Name,
+			Target:     state.Target,
+			Node:       node.Name,
+			Status:     status,
+			Height:     height,
+			EVMTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", node.EVMHostPort),
+			InstanceID: instance.InstanceID,
+			PublicIP:   instance.PublicIP,
+		}
+	}
+	return reports, nil
+}
+
+func (a *application) inspectLegacyAWSCluster(ctx context.Context, state clusterState) ([]nodeReport, error) {
 	client := awsClient{runner: a.runner, region: state.AWS.Region, profile: state.AWS.Profile}
 	if err := a.ensureAWSCredentials(ctx, client); err != nil {
 		return nil, err
@@ -171,16 +223,17 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 	}
 	instanceStatus = strings.TrimSpace(instanceStatus)
 	reports := make([]nodeReport, len(state.Nodes))
+	instance := awsInstanceState{InstanceID: state.AWS.InstanceID, PublicIP: state.AWS.PublicIP}
 	for i, node := range state.Nodes {
 		status := instanceStatus
 		height := "-"
-		if instanceStatus == "running" && state.AWS.PublicIP != "" {
-			value, inspectErr := a.runner.output(ctx, sshCommand(state,
+		if instanceStatus == "running" && instance.PublicIP != "" {
+			value, inspectErr := a.runner.output(ctx, sshCommandForInstance(state, instance,
 				"docker inspect --format '{{.State.Status}}' "+shellQuote(node.Container)))
 			if inspectErr == nil {
 				status = strings.TrimSpace(value)
 			}
-			value, heightErr := a.runner.output(ctx, sshCommand(state,
+			value, heightErr := a.runner.output(ctx, sshCommandForInstance(state, instance,
 				"docker exec "+shellQuote(node.Container)+" curl -fsS http://127.0.0.1:26660/metrics"))
 			if heightErr == nil {
 				height = parseAutobahnExecutedHeight(value)
