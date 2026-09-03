@@ -20,10 +20,6 @@ import (
 //
 // The target is the lowest head among the block store, the state WAL and the receipt store. A target of
 // 0 means there is no height to converge on and nothing is moved.
-//
-// The two halves of state and the WAL they share belong to the StateDB, which opens them where it
-// finds them. recoverStores is the step that puts every store on the target and readies state for the
-// block after it.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openBlockStore(); err != nil {
 		return err
@@ -43,7 +39,8 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	return m.recoverStores(targetHeight)
 }
 
-// recoverStores puts the receipt store and the two halves of state on target.
+// recoverStores aligns the block height of the receipt store, the live state (SC) and the historical
+// state (SS, if enabled) on target, cutting the state WAL back to target as it rolls state back.
 //
 // A target of 0 is no height to converge on, and every store is left as it was found: rolling back to
 // it would drop every receipt the node holds along with every block in its WAL. This is the single
@@ -144,7 +141,8 @@ func recoveryTarget(blockHeight, stateHeight, receiptHeight uint64) uint64 {
 	return target
 }
 
-// openStateDB opens the two halves of state and the WAL they share, converged on the WAL's own head.
+// openStateDB opens the live state (SC), the historical state (SS, if enabled) and the state WAL they
+// share, where it finds them. recoverStores is what puts them on a height.
 func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
 	stateDB, err := giga.NewStateDB(ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig)
 	if err != nil {
