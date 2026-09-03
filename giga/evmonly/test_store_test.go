@@ -1,6 +1,7 @@
 package evmonly
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
@@ -8,19 +9,6 @@ import (
 
 type readOnlyTestStore struct {
 	*MemoryStore
-}
-
-type testStorageManager struct {
-	stateDB   gigastore.StateDB
-	receiptDB receipt.ReceiptStore
-}
-
-func (m testStorageManager) StateDB() gigastore.StateDB {
-	return m.stateDB
-}
-
-func (m testStorageManager) ReceiptDB() receipt.ReceiptStore {
-	return m.receiptDB
 }
 
 func (*readOnlyTestStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
@@ -35,5 +23,6 @@ func withTestState(state StateReader) Option {
 }
 
 func withTestStores(store gigastore.StateDB, receiptStore receipt.ReceiptStore, encoder NamedChangeSetEncoder) Option {
-	return WithStorageManager(testStorageManager{stateDB: store, receiptDB: receiptStore}, encoder)
+	manager := bootstrap.NewGigaStorageManagerWithStores(nil, store, receiptStore)
+	return WithStorageManager(manager, encoder)
 }

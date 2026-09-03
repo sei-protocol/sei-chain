@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -121,10 +122,11 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 
 	startedAt := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
-	storage := evmonly.NewMemoryStorageManager(state)
+	stateStore := evmonly.NewMemoryStore(state)
+	storage := bootstrap.NewGigaStorageManagerWithStores(nil, stateStore, evmonly.NewMemoryReceiptStore())
 	executor := evmonly.NewExecutor(
 		executorConfig(cfg),
-		evmonly.WithStorageManager(storage, storage.StateStore().EncodeChangeSet),
+		evmonly.WithStorageManager(storage, stateStore.EncodeChangeSet),
 		evmonly.WithResultSink(sinks),
 	)
 	defer executor.Close()

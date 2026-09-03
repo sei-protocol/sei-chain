@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -25,7 +26,7 @@ type Executor struct {
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
 	storeMu          sync.Mutex
-	storageManager   StorageManager
+	storageManager   *bootstrap.GigaStorageManager
 	changeSetEncoder NamedChangeSetEncoder
 	closed           atomic.Bool
 }

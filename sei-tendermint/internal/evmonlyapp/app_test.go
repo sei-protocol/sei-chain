@@ -38,7 +38,8 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 
 func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	t.Helper()
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	_, err := app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
 		ConsensusParams: &tmproto.ConsensusParams{
@@ -78,7 +79,7 @@ func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.Equal(t, uint64(1), app.EvmNonce(sender))
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
-	receipt, err := app.(*evmOnlyInMemoryApplication).storage.ReceiptStore().GetReceipt(receiptCtx, tx.Hash())
+	receipt, err := app.(*evmOnlyInMemoryApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
 	require.Equal(t, uint64(1), receipt.BlockNumber)
@@ -115,7 +116,8 @@ func TestEVMOnlyInMemoryApplicationProducesDeterministicRoot(t *testing.T) {
 }
 
 func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
 		Hash: crypto.Keccak256([]byte("block-1")),
@@ -130,7 +132,8 @@ func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
 
 func TestEVMOnlyInMemoryApplicationReturnsConfiguredValidators(t *testing.T) {
 	configured := []abci.ValidatorUpdate{{Power: 7}}
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured, nil)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	configured[0].Power = 11
 
 	first := app.GetValidators()
