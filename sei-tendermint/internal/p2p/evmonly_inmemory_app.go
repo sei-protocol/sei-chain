@@ -31,6 +31,7 @@ type evmOnlyInMemoryApplication struct {
 	chainID     *big.Int
 	chainConfig *params.ChainConfig
 	store       *evmonly.MemoryStore
+	receipts    *evmonly.MemoryReceiptStore
 	validators  []abci.ValidatorUpdate
 	state       utils.Mutex[*evmOnlyInMemoryState]
 }
@@ -64,6 +65,7 @@ func NewEVMOnlyInMemoryApplication(chainID uint64, validators []abci.ValidatorUp
 		chainID:     new(big.Int).SetUint64(chainID),
 		chainConfig: &chainConfig,
 		store:       store,
+		receipts:    evmonly.NewMemoryReceiptStore(),
 		validators:  slices.Clone(validators),
 		state:       utils.NewMutex(&evmOnlyInMemoryState{}),
 	}
@@ -87,7 +89,7 @@ func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abc
 			OCCWorkers:          runtime.GOMAXPROCS(0),
 			ParseWorkers:        runtime.GOMAXPROCS(0),
 			BlockResultPoolSize: 1,
-		}, evmonly.WithStore(a.store, a.store.EncodeChangeSet)))
+		}, evmonly.WithStore(a.store, a.store.EncodeChangeSet), evmonly.WithReceiptStore(a.receipts)))
 		state.gasLimit = gasLimit
 		state.nextHeight = req.InitialHeight
 		state.committedHeight = req.InitialHeight - 1

@@ -334,9 +334,10 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		commitErr := errors.New("commit failed")
 		store := &recordingGigaStore{snapshot: snapshot, commitErr: commitErr}
+		receiptStore := NewMemoryReceiptStore()
 		executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return []*proto.NamedChangeSet{}, nil
-		}))
+		}), WithReceiptStore(receiptStore))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
@@ -345,6 +346,9 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Len(t, store.commits, 1)
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+		_, found, getErr := receiptStore.GetBlockReceipts(t.Context(), blockContext(big.NewInt(testChainID)).Number)
+		require.NoError(t, getErr)
+		require.False(t, found)
 	})
 
 	t.Run("block number overflow", func(t *testing.T) {
