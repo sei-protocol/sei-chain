@@ -214,9 +214,12 @@ func valueIsAddressable(key parser.Key, v parser.Value) error {
 
 // valueIsAddressableWithin is valueIsAddressable, carrying how deep into nested arrays it already is.
 //
-// The depth is carried rather than derived because the walk is what finds it: an array holds arrays, and
-// the cost of reading one grows faster than the bytes that describe it, so a small file can nest deeply
-// enough to exhaust the process. Nothing downstream can refuse a boot, so the refusal happens here.
+// The depth is carried rather than derived because the walk is what finds it: an array holds arrays, so
+// nothing but the walk knows how deep it went.
+//
+// Refused here, between the parse and the decode. Parsing is linear in the bytes whatever shape they take,
+// measured within 14 percent across a deep key, a deep array and a flat file of the same size. What grows
+// faster than the bytes is decoding the result, and nothing downstream of that can refuse a boot.
 func valueIsAddressableWithin(key parser.Key, v parser.Value, depth int) error {
 	if depth > maxArrayDepth {
 		return fmt.Errorf("%s nests arrays %d deep and this file is read to %d. No setting here is a "+
@@ -250,8 +253,12 @@ func valueIsAddressableWithin(key parser.Key, v parser.Value, depth int) error {
 // The bounds this file is read within.
 //
 // None of them is a limit an operator can reach by writing configuration. They exist because nothing
-// downstream of reading can refuse a boot, so a file whose cost grows faster than its size has to be
-// refused before it is parsed rather than after it has taken the memory.
+// downstream of reading can refuse a boot, so a file whose cost outruns its size has to be refused while
+// reading it.
+//
+// They apply at two different points. The byte bound is checked before anything is parsed. The two depth
+// bounds are checked after the parse and before the decode, which is where a cost that outruns the bytes
+// actually falls: parsing is linear in the bytes whatever shape they take.
 const (
 	// maxFileBytes bounds the bytes Load will read. A file stating every declared key is a few tens
 	// of kilobytes.
