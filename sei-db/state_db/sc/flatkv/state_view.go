@@ -1,7 +1,6 @@
 package flatkv
 
 import (
-	"encoding/binary"
 	"fmt"
 	"sync"
 
@@ -48,22 +47,12 @@ func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 	case keys.EVMKeyEmpty:
 		return nil, false
 
-	case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
+	case keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		account := v.accountData(keyBytes)
 		if account == nil {
 			return nil, false
 		}
-		if kind == keys.EVMKeyNonce {
-			nonceBytes := make([]byte, vtype.NonceLen)
-			binary.BigEndian.PutUint64(nonceBytes, account.GetNonce())
-			return nonceBytes, true
-		}
-		codeHash := account.GetCodeHash()
-		var zeroCodeHash vtype.CodeHash
-		if *codeHash == zeroCodeHash {
-			return nil, false
-		}
-		return codeHash[:], true
+		return accountFieldValue(kind, account)
 
 	case keys.EVMKeyStorage:
 		storage := v.storageData(keyBytes)
@@ -102,10 +91,20 @@ func (v *flatKVStateView) GetNonce(addr giga.Address) (uint64, bool) {
 	return account.GetNonce(), true
 }
 
-// GetBalance panics. FlatKV stores no balances, so there is no entry to report as present or absent,
-// and either answer would misdescribe an account that holds one.
-func (v *flatKVStateView) GetBalance(giga.Address) (giga.Hash, bool) {
-	panic("flatkv: GetBalance is unimplemented; FlatKV does not store balances")
+// GetBalance returns addr's balance as a 256-bit big-endian value, and whether a balance is stored for
+// addr. An account that exists and holds nothing stores no balance.
+func (v *flatKVStateView) GetBalance(addr giga.Address) (giga.Hash, bool) {
+	account := v.accountData(addr[:])
+	if account == nil {
+		return giga.Hash{}, false
+	}
+	balance := giga.Hash(*account.GetBalance())
+	if balance == (giga.Hash{}) {
+		// A row only exists while some field is non-zero (see AccountData.IsDelete), and the balance
+		// is not that field here, so this account has a nonce or a code hash and holds nothing.
+		return giga.Hash{}, false
+	}
+	return balance, true
 }
 
 // GetCodeHash returns the hash of addr's contract code, and whether a code hash is stored for addr.

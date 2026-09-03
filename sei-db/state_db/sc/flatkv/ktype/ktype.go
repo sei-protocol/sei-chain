@@ -42,7 +42,7 @@ func StorageKey(addr Address, slot Slot) []byte {
 // ---------------------------------------------------------------------------
 
 // EVMKeyAccount is the canonical EVMKeyKind for the merged account row in
-// accountDB. FlatKV merges nonce (0x0a), codehash (0x08), and future balance
+// accountDB. FlatKV merges nonce (0x0a), codehash (0x08), and balance (0x21)
 // into one physical row. The nonce prefix byte (0x0a) is reused as the
 // canonical type byte so the physical key is "evm/" + 0x0a + addr.
 //
@@ -79,10 +79,10 @@ func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byt
 
 // EVMPhysicalKey returns the physical DB key for an EVM key kind.
 // Format: "evm/" + type_prefix_byte + stripped_key.
-// For account keys (nonce, codehash), canonicalizes to EVMKeyAccount (0x0a)
-// because these fields are merged into one physical row.
+// For account keys (nonce, codehash, balance), canonicalizes to EVMKeyAccount
+// (0x0a) because these fields are merged into one physical row.
 func EVMPhysicalKey(kind keys.EVMKeyKind, strippedKey []byte) []byte {
-	if kind == keys.EVMKeyCodeHash {
+	if kind == keys.EVMKeyCodeHash || kind == keys.EVMKeyBalance {
 		kind = EVMKeyAccount
 	}
 	prefixByte, ok := keys.EVMKeyPrefixByte(kind)

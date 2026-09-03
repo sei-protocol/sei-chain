@@ -1938,11 +1938,15 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	addr := ktype.Address{0xE3}
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	balanceVal := balanceN(0xE7)
 
+	// Both fields live in one row, so both have to be cleared at v2 for the row to go away.
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+			{Key: nonceKey, Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+			{Key: balanceKey, Value: balanceVal[:]},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
@@ -1956,7 +1960,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: nonceKey, Delete: true},
+			{Key: balanceKey, Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
@@ -1965,6 +1970,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	_, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should be gone at v2")
+	_, found = s.Get(keys.EVMStoreKey, balanceKey)
+	require.False(t, found, "balance should be gone at v2")
 
 	// Rollback to v1: row should be restored
 	require.NoError(t, s.Rollback(1))
@@ -1973,6 +1980,10 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be restored after rollback to v1")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
+
+	got, found := s.Get(keys.EVMStoreKey, balanceKey)
+	require.True(t, found, "balance should be restored after rollback to v1")
+	require.Equal(t, balanceVal[:], got)
 
 	require.NoError(t, s.Close())
 }
