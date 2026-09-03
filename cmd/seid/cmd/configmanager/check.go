@@ -6,8 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -91,14 +89,9 @@ func report(out io.Writer, line string) { _, _ = fmt.Fprintln(out, line) }
 // checkSeiToml resolves the node's sei.toml and returns what a boot would refuse, in the order it would.
 // A missing file is not a problem; an unreadable one is.
 func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err error) {
-	home, err := resolveHomeDir(cmd)
+	home, err := theHomeThisCommandRuns(cmd)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("resolve the home directory: %w", err)
-	}
-	// An empty home would read ./config, which may be another node's.
-	if home == "" {
-		return nil, nil, false, fmt.Errorf("no home directory is set, so there is no sei.toml to check. "+
-			"Pass --home, or set %s", theVariableThatSetsTheHome())
+		return nil, nil, false, err
 	}
 	file, err := readSeiTomlAt(home)
 	switch {
@@ -150,34 +143,6 @@ func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err
 	problems = append(problems, whatADecodeWouldRefuse(resolved, own)...)
 	notes = append(notes, whatTheFileLeavesToTheDeclaration(resolved, written, mode))
 	return problems, notes, true, nil
-}
-
-// theVariableThatSetsTheHome names the environment variable the home resolves from, derived as
-// resolveHomeDir derives it.
-func theVariableThatSetsTheHome() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "the home variable for this binary"
-	}
-	return strings.ToUpper(path.Base(exe)) + "_HOME"
-}
-
-// theNodesOwnConfiguration decodes config.toml over the defaults, as a boot does. A missing file yields
-// the defaults; any other failure is an error.
-func theNodesOwnConfiguration(home string) (*tmcfg.Config, error) {
-	cfg := tmcfg.DefaultConfig()
-	v := viper.New()
-	v.SetConfigFile(filepath.Join(home, "config", "config.toml"))
-	switch err := v.ReadInConfig(); {
-	case errors.Is(err, fs.ErrNotExist):
-		return cfg, nil
-	case err != nil:
-		return nil, err
-	}
-	if err := v.Unmarshal(cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
 }
 
 // whatTheFileLeavesToTheDeclaration counts the declared keys the file states, those another source

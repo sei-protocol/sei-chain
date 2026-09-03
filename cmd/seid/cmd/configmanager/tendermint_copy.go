@@ -113,7 +113,21 @@ func join(path, field string) string {
 // describe renders, through mapstructure tags, the value cfg holds for each key as text, and returns the
 // keys it could not find so a caller does not compare them as equal.
 func describe(cfg *tmcfg.Config, keys []string) (values map[string]string, unread []string, err error) {
-	values = map[string]string{}
+	held, unread, err := whatEachKeyHolds(cfg, keys)
+	values = make(map[string]string, len(held))
+	for key, v := range held {
+		values[key] = fmt.Sprint(v)
+	}
+	return values, unread, err
+}
+
+// whatEachKeyHolds reads the value a node's configuration holds for each key, and names the keys that are
+// not in it.
+//
+// The value as the struct holds it. A caller writing one into a file needs the type the key carries, and a
+// number rendered as text reaches its setting as a zero.
+func whatEachKeyHolds(cfg *tmcfg.Config, keys []string) (values map[string]any, unread []string, err error) {
+	values = map[string]any{}
 	if cfg == nil {
 		return values, keys, fmt.Errorf("no configuration to read")
 	}
@@ -129,7 +143,7 @@ func describe(cfg *tmcfg.Config, keys []string) (values map[string]string, unrea
 			unread = append(unread, key)
 			continue
 		}
-		values[key] = fmt.Sprint(v)
+		values[key] = v
 	}
 	sort.Strings(unread)
 	return values, unread, nil
