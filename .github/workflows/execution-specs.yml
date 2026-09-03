@@ -313,14 +313,40 @@ jobs:
           else
             base="/users/${OWNER}/packages/container"
           fi
+
+          retry() {
+            local output
+            for delay in 0 2 4; do
+              sleep "$delay"
+              if output="$("$@")"; then
+                printf '%s' "$output"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          cleanup_failed=0
+
           for package in sei-chain-exec-specs-localnode sei-chain-exec-specs-rpcnode; do
-            versions="$(
+            if ! versions="$(
+              retry \
               gh api --paginate "${base}/${package}/versions" \
-                --jq ".[] | select(.metadata.container.tags | index(\"${RUN_TAG}\")) | .id" ||
-                true
-            )"
+                --jq ".[] | select(.metadata.container.tags | index(\"${RUN_TAG}\")) | .id"
+            )"; then
+              echo "::error::Failed to list versions for ${package}" >&2
+              cleanup_failed=1
+              continue
+            fi
+
             while read -r version; do
               [[ -n "$version" ]] || continue
-              gh api --method DELETE "${base}/${package}/versions/${version}" || true
+              if ! retry \
+                gh api --method DELETE "${base}/${package}/versions/${version}"; then
+                echo "::error::Failed to delete version ${version} of ${package}" >&2
+                cleanup_failed=1
+              fi
             done <<<"$versions"
           done
+
+          exit "$cleanup_failed"
