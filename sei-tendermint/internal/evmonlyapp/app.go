@@ -16,8 +16,10 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -28,11 +30,12 @@ var evmOnlyInMemoryBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 type evmOnlyInMemoryApplication struct {
 	abci.BaseApplication
 
-	chainID     *big.Int
-	chainConfig *params.ChainConfig
-	storage     *evmonly.MemoryStorageManager
-	validators  []abci.ValidatorUpdate
-	state       utils.Mutex[*evmOnlyInMemoryState]
+	chainID          *big.Int
+	chainConfig      *params.ChainConfig
+	storage          *bootstrap.GigaStorageManager
+	changeSetEncoder evmonly.NamedChangeSetEncoder
+	validators       []abci.ValidatorUpdate
+	state            utils.Mutex[*evmOnlyInMemoryState]
 }
 
 type evmOnlyInMemoryState struct {
@@ -53,20 +56,26 @@ type evmOnlyInMemoryPending struct {
 
 var _ abci.Application = (*evmOnlyInMemoryApplication)(nil)
 
-// NewEVMOnlyInMemoryApplication returns an ephemeral raw-Ethereum application for
-// Autobahn Docker load tests.
-func NewEVMOnlyInMemoryApplication(chainID uint64, validators []abci.ValidatorUpdate) abci.Application {
+// NewEVMOnlyInMemoryApplication returns an ephemeral raw-Ethereum application and
+// its storage manager for Autobahn Docker load tests.
+func NewEVMOnlyInMemoryApplication(
+	chainID uint64,
+	validators []abci.ValidatorUpdate,
+	blockStore *blockstore.Store,
+) (abci.Application, *bootstrap.GigaStorageManager) {
 	base := evmOnlyFundedState{}
-	storage := evmonly.NewMemoryStorageManager(base)
+	stateStore := evmonly.NewMemoryStore(base)
+	storage := bootstrap.NewGigaStorageManagerWithStores(blockStore, stateStore, evmonly.NewMemoryReceiptStore())
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	return &evmOnlyInMemoryApplication{
-		chainID:     new(big.Int).SetUint64(chainID),
-		chainConfig: &chainConfig,
-		storage:     storage,
-		validators:  slices.Clone(validators),
-		state:       utils.NewMutex(&evmOnlyInMemoryState{}),
-	}
+		chainID:          new(big.Int).SetUint64(chainID),
+		chainConfig:      &chainConfig,
+		storage:          storage,
+		changeSetEncoder: stateStore.EncodeChangeSet,
+		validators:       slices.Clone(validators),
+		state:            utils.NewMutex(&evmOnlyInMemoryState{}),
+	}, storage
 }
 
 func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -87,7 +96,7 @@ func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abc
 			OCCWorkers:          runtime.GOMAXPROCS(0),
 			ParseWorkers:        runtime.GOMAXPROCS(0),
 			BlockResultPoolSize: 1,
-		}, evmonly.WithStorageManager(a.storage, a.storage.StateStore().EncodeChangeSet)))
+		}, evmonly.WithStorageManager(a.storage, a.changeSetEncoder)))
 		state.gasLimit = gasLimit
 		state.nextHeight = req.InitialHeight
 		state.committedHeight = req.InitialHeight - 1
@@ -185,13 +194,13 @@ func evmOnlyStoreAddress(address common.Address) gigastore.Address {
 }
 
 func (a *evmOnlyInMemoryApplication) EvmNonce(address common.Address) uint64 {
-	snapshot := a.storage.StateStore().OpenView()
+	snapshot := a.storage.StateDB().OpenView()
 	defer snapshot.Close()
 	return snapshot.GetNonce(evmOnlyStoreAddress(address))
 }
 
 func (a *evmOnlyInMemoryApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
-	snapshot := a.storage.StateStore().OpenView()
+	snapshot := a.storage.StateDB().OpenView()
 	defer snapshot.Close()
 	balance := snapshot.GetBalance(evmOnlyStoreAddress(address))
 	return *new(uint256.Int).SetBytes(balance[:])

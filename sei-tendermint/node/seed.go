@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -78,7 +79,7 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, _, err := createRouter(
+	router, peerCloser, err := createRouter(
 		func() *types.NodeInfo { return &nodeInfo },
 		nodeKey,
 		utils.None[atypes.SecretKey](),
@@ -86,6 +87,7 @@ func makeSeedNode(
 		utils.None[*proxy.Proxy](),
 		genDoc,
 		dbProvider,
+		utils.None[*bootstrap.GigaStorageManager](),
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

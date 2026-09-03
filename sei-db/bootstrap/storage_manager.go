@@ -48,6 +48,21 @@ type GigaStorageManager struct {
 	checkpointer *controller.CheckpointScheduler
 }
 
+// NewGigaStorageManagerWithStores returns a manager that owns the supplied block
+// and receipt stores and exposes stateDB. Close does not close resources behind
+// stateDB.
+func NewGigaStorageManagerWithStores(
+	blockStore *blockstore.Store,
+	stateDB giga.StateDB,
+	receiptDB receipt.ReceiptStore,
+) *GigaStorageManager {
+	return &GigaStorageManager{
+		blockStore: blockStore,
+		stateDB:    stateDB,
+		receiptDB:  receiptDB,
+	}
+}
+
 // NewGigaStorageManager runs the steps that bring storage up:
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.

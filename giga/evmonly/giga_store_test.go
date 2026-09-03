@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 )
@@ -244,7 +245,8 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 	})
 
 	t.Run("missing state store", func(t *testing.T) {
-		executor := NewExecutor(Config{}, WithStorageManager(testStorageManager{receiptDB: NewMemoryReceiptStore()}, EncodeMemoryStoreChangeSet))
+		manager := bootstrap.NewGigaStorageManagerWithStores(nil, nil, NewMemoryReceiptStore())
+		executor := NewExecutor(Config{}, WithStorageManager(manager, EncodeMemoryStoreChangeSet))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
@@ -254,7 +256,8 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 	t.Run("missing receipt store", func(t *testing.T) {
 		store := NewMemoryStore(NewMemoryState())
-		executor := NewExecutor(Config{}, WithStorageManager(testStorageManager{stateDB: store}, store.EncodeChangeSet))
+		manager := bootstrap.NewGigaStorageManagerWithStores(nil, store, nil)
+		executor := NewExecutor(Config{}, WithStorageManager(manager, store.EncodeChangeSet))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
