@@ -97,16 +97,24 @@ func TestTheDivergencesFromAGeneratedFileAreTheRecordedOnes(t *testing.T) {
 // started with no configuration file of its own.
 func whatTheBootGenerates(t *testing.T) map[string]string {
 	t.Helper()
+	ctx := theBootWithNoFileOfItsOwn(t)
+	return configmanager.DescribeForTest(t, ctx.Config, keysADecodeDelivers())
+}
+
+// theBootWithNoFileOfItsOwn starts a node with no configuration file of its own and no sei.toml, and
+// returns what it holds. Nothing is delivered, so both deliveries read purely what the boot generated.
+//
+// Booted twice, and the second one is returned. The first writes the file, and a flag bound to a key the
+// writer sets overwrites that value before anything reads it back, because the file has not been read yet.
+// From the second boot the file is read and wins, so what a node runs from its second start onward is what
+// the second boot holds, and a divergence only that boot shows would otherwise be invisible here.
+func theBootWithNoFileOfItsOwn(t *testing.T) *server.Context {
+	t.Helper()
 	home := configtest.NewHome(t)
 	if err := os.MkdirAll(filepath.Join(home.Root, "config"), 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	// Booted twice, and the second one is measured. The first writes the file, and a flag bound to a key
-	// the writer sets overwrites that value before anything reads it back, because the file has not been
-	// read yet. From the second boot the file is read and wins, so what a node runs from its second start
-	// onward is what the second boot holds, and a divergence only that boot shows would otherwise be
-	// invisible here.
 	var ctx *server.Context
 	for boot := 0; boot < 2; boot++ {
 		cmd := server.StartCmd(nil, home.Root, []trace.TracerProviderOption{})
@@ -122,6 +130,199 @@ func whatTheBootGenerates(t *testing.T) map[string]string {
 	if ctx.Config == nil {
 		t.Fatal("the boot produced no node configuration")
 	}
+	if ctx.Viper == nil {
+		t.Fatal("the boot produced no configuration source")
+	}
+	return ctx
+}
 
-	return configmanager.DescribeForTest(t, ctx.Config, keysADecodeDelivers())
+// lookupDivergences is what a lookup answers for each diverging key on a node that has no configuration
+// file of its own and lets the boot generate one, per kind of node.
+//
+// The decode side above has one thing to compare a declaration against. This side has two, so the rows
+// fall in two groups.
+//
+// A key with a flag of its own on the start command is answered by that flag's default whether a file
+// mentions it or not, and the default a flag carries is stated where the flag is declared rather than
+// where the key is. That is pruning, in every kind of node: the declaration keeps all state history and
+// the flag prunes.
+//
+// Every other row is the kind of node. The boot's writer produces one shape for all of them, so a
+// declaration for a kind that shape does not describe disagrees with it. A validator and a seed do not
+// serve queries and the shape opens the listeners that do. A full node keeps a hundred thousand blocks
+// where the shape keeps all of them, and an archive node keeps all state where the shape keeps the
+// hundred thousand most recent.
+//
+// Held as text, because the two sides carry different Go types for the same key often enough that
+// comparing values would be comparing shapes.
+var lookupDivergences = map[registry.Mode]map[string]string{
+	registry.ModeValidator: {
+		"api.enable":            "true",
+		"evm.http_enabled":      "true",
+		"evm.ws_enabled":        "true",
+		"grpc.enable":           "true",
+		"pruning":               "default",
+		"state-store.ss-enable": "true",
+	},
+	registry.ModeFull: {
+		"min-retain-blocks": "0",
+		"pruning":           "default",
+	},
+	registry.ModeSeed: {
+		"api.enable":            "true",
+		"evm.http_enabled":      "true",
+		"evm.ws_enabled":        "true",
+		"grpc.enable":           "true",
+		"pruning":               "default",
+		"state-store.ss-enable": "true",
+	},
+	registry.ModeArchive: {
+		"pruning":                    "default",
+		"state-store.ss-keep-recent": "100000",
+	},
+}
+
+// keysAGeneratedFileLeavesToTheirReader is every declared key a lookup delivers that a boot-generated file
+// does not answer.
+//
+// Each of their readers starts from a default of its own and takes the source's answer only when there is
+// one, so what a node runs for one of these keys is that default and the source states nothing. They are
+// named rather than compared because the comparison above has nothing to read.
+//
+// Every one of these declarations is taken from the same default the reader falls back to, so the value a
+// node runs is the declared one. That is not measured here, and the measurement that reaches it is a
+// writer rendering every declared key into a file and a node started from it.
+//
+// The same in every kind of node. The writer does not vary on the kind, and which keys are declared does
+// not either.
+var keysAGeneratedFileLeavesToTheirReader = []string{
+	"eth_replay.contract_state_checks",
+	"evm.enable_test_api",
+	"evm.max_concurrent_simulation_calls",
+	"evm.max_tx_pool_txs",
+	"evm.rpc_stats_interval",
+	"genesis.import-file",
+	"state-commit.flatkv.enable-read-write-metrics",
+	"state-commit.sc-snapshot-writer-limit",
+	"state-commit.sc-write-mode-enable-auto",
+	"wasm.memory_cache_size",
+	"wasm.simulation_gas_limit",
+}
+
+// TestTheLookupDivergencesFromAGeneratedFileAreTheRecordedOnes is the same measurement as the decode side,
+// over the keys delivered the other way.
+//
+// A declared value is what one writer states for a kind of node, and a key with a flag of its own has a
+// third value stated somewhere else again. Which keys those are is measured rather than described, so a
+// key that starts diverging fails and so does one that stops.
+//
+// Every kind of node, because the declaration varies on the kind and the writer does not. Run against one
+// mode this passes while missing the rows of the other three.
+func TestTheLookupDivergencesFromAGeneratedFileAreTheRecordedOnes(t *testing.T) {
+	configtest.Isolate(t)
+	ctx := theBootWithNoFileOfItsOwn(t)
+
+	decoded := make(map[string]bool)
+	for _, key := range keysADecodeDelivers() {
+		decoded[key] = true
+	}
+
+	for _, mode := range registry.Modes() {
+		t.Run(string(mode), func(t *testing.T) {
+			recorded, records := lookupDivergences[mode]
+			if !records {
+				t.Fatalf("nothing records what a %s node diverges on, so this kind is declared and no "+
+					"measurement covers it", mode)
+			}
+			resolved, err := registry.Resolve(mode, registry.Sources{})
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+
+			var measured []string
+			for key, declared := range resolved.Values {
+				if decoded[key] {
+					continue
+				}
+				// A key the source does not answer reads as its reader's own default, which the source
+				// says nothing about. keysAGeneratedFileLeavesToTheirReader holds that set.
+				answer := ctx.Viper.Get(key)
+				if answer == nil {
+					continue
+				}
+				got := fmt.Sprint(answer)
+				if fmt.Sprint(declared) == got {
+					if _, listed := recorded[key]; listed {
+						t.Errorf("%s no longer diverges on a %s node, both sides being %v. Take it off "+
+							"the record, so the record stays the set of keys the writers state "+
+							"differently", key, mode, declared)
+					}
+					continue
+				}
+				measured = append(measured, key)
+				want, listed := recorded[key]
+				switch {
+				case !listed:
+					t.Errorf("a %s node is declared to run %s as %v and one that let the boot generate "+
+						"its file runs %q, and nothing records that", mode, key, declared, got)
+				case want != got:
+					t.Errorf("a %s node is recorded as running %s as %q and runs %q", mode, key, want, got)
+				}
+			}
+
+			sort.Strings(measured)
+			if len(measured) != len(recorded) {
+				t.Errorf("measured %d divergences for a %s node and %d are recorded: %v",
+					len(measured), mode, len(recorded), measured)
+			}
+		})
+	}
+}
+
+// TestTheKeysAGeneratedFileLeavesToTheirReaderAreTheRecordedOnes holds the set the measurement above skips.
+//
+// Skipping them is sound only while their reader's default is the declared value, and that holds because
+// the declaration is taken from the same default. A key that stops being answered moves into this set and
+// nothing else says so, and one that starts being answered leaves it and belongs in the measurement.
+func TestTheKeysAGeneratedFileLeavesToTheirReaderAreTheRecordedOnes(t *testing.T) {
+	configtest.Isolate(t)
+	ctx := theBootWithNoFileOfItsOwn(t)
+
+	decoded := make(map[string]bool)
+	for _, key := range keysADecodeDelivers() {
+		decoded[key] = true
+	}
+	recorded := make(map[string]bool, len(keysAGeneratedFileLeavesToTheirReader))
+	for _, key := range keysAGeneratedFileLeavesToTheirReader {
+		recorded[key] = true
+	}
+
+	resolved, err := registry.Resolve(registry.ModeValidator, registry.Sources{})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	var measured []string
+	for key := range resolved.Values {
+		if decoded[key] || ctx.Viper.Get(key) != nil {
+			continue
+		}
+		measured = append(measured, key)
+		if !recorded[key] {
+			t.Errorf("%s is declared and a boot-generated file does not answer it, and nothing records "+
+				"that. Its reader's own default is what a node runs for it", key)
+		}
+	}
+	for _, key := range keysAGeneratedFileLeavesToTheirReader {
+		if ctx.Viper.Get(key) != nil {
+			t.Errorf("%s is recorded as unanswered and a boot-generated file answers it %v, so what a "+
+				"node runs for it is measurable and no measurement covers it", key, ctx.Viper.Get(key))
+		}
+	}
+
+	sort.Strings(measured)
+	if len(measured) != len(keysAGeneratedFileLeavesToTheirReader) {
+		t.Errorf("measured %d unanswered keys and %d are recorded: %v",
+			len(measured), len(keysAGeneratedFileLeavesToTheirReader), measured)
+	}
 }
