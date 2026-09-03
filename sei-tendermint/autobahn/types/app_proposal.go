@@ -86,6 +86,9 @@ var AppProposalConv = protoutils.Conv[*AppProposal, *pb.AppProposal]{
 		if m.GlobalNext == nil {
 			return nil, fmt.Errorf("global_next: missing")
 		}
+		if len(m.AppHash) == 0 {
+			return nil, fmt.Errorf("app_hash: missing")
+		}
 		return &AppProposal{
 			epochIndex: EpochIndex(*m.EpochIndex),
 			roadIndex:  RoadIndex(*m.RoadIndex),

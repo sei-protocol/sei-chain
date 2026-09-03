@@ -22,6 +22,15 @@ sc-historical-proof-rate-limit = {{ .StateCommit.HistoricalProofRateLimit }}
 # Historical proof query burst size
 sc-historical-proof-burst = {{ .StateCommit.HistoricalProofBurst }}
 
+# Max concurrent unproven /subspace queries (SS fast path; <=0 resolves to default 2)
+sc-subspace-query-max-inflight = {{ .StateCommit.SubspaceQueryMaxInFlight }}
+
+# Max pairs a /subspace scan may return (<=0 resolves to default 1000; no unlimited setting)
+sc-subspace-max-pairs = {{ .StateCommit.SubspaceMaxPairs }}
+
+# Max key+value bytes a /subspace scan may accumulate (<=0 resolves to default 4 MiB; no unlimited setting)
+sc-subspace-max-bytes = {{ .StateCommit.SubspaceMaxBytes }}
+
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = {{ .StateCommit.MemIAVLConfig.AsyncCommitBuffer }}
@@ -154,7 +163,8 @@ ss-enable-read-write-metrics = {{ .StateStore.EnableReadWriteMetrics }}
 ss-snapshot-enable = {{ .StateStore.SnapshotEnable }}
 
 # EVMDBDirectory defines the directory for the optional EVM state-store DB(s).
-# If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
+# If unset, defaults to <home>/data/state_store/evm/{backend}. Nodes that
+# already have <home>/data/evm_ss keep using that path.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
 
 # EVMSplit controls whether EVM data is routed to a dedicated SS backend.
@@ -176,6 +186,13 @@ const ReceiptStoreConfigTemplate = `
 ###############################################################################
 
 [receipt-store]
+# Enable defines whether the receipt store should be enabled.
+# A node with this set to false keeps no receipt history, and its EVM RPC listeners
+# refuse to start, since most eth_* methods read a block's transactions or receipts.
+# Turning it off requires evm.http_enabled and evm.ws_enabled to both be false.
+# defaults to true
+rs-enable = {{ .ReceiptStore.Enable }}
+
 # Backend defines the receipt store backend.
 # Supported backends: pebble (aka pebbledb)
 # defaults to pebbledb
@@ -194,11 +211,6 @@ async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 # Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
-
-# EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed
-# receipt storage.
-# Default: false.
-enable-read-write-metrics = {{ .ReceiptStore.EnableReadWriteMetrics }}
 
 # LogFilterParallelism bounds how many blocks a single eth_getLogs query scans
 # concurrently. Applies only when rs-backend = "littidx".

@@ -303,7 +303,7 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 // Abort tears down the worker pipeline without finalizing the import.
 // It records reason as the first pipeline error (so any in-flight worker
 // also bails fast) and then runs Close, which observes the non-nil error
-// and skips FinalizeImport / WriteSnapshot. The on-disk FlatKV directory
+// and skips FinalizeImport / outOfBandSnapshot. The on-disk FlatKV directory
 // is left at its pre-import committed version, allowing the operator to
 // retry without --force.
 //
@@ -325,7 +325,7 @@ func (imp *KVImporter) Abort(reason error) error {
 // Close on both the success and error paths.
 //
 // If the first pipeline error has already been recorded (either by a
-// worker or by Abort), Close skips FinalizeImport / WriteSnapshot so the
+// worker or by Abort), Close skips FinalizeImport / outOfBandSnapshot so the
 // store stays at its pre-import version.
 func (imp *KVImporter) Close() error {
 	imp.finishOnce.Do(func() {
@@ -375,7 +375,7 @@ func (imp *KVImporter) Close() error {
 		// Write a snapshot so the imported data survives store reopen / restart.
 		// Import bypasses the WAL, so without a snapshot the next LoadLatest
 		// would clone from the pre-import snapshot and lose all imported data.
-		if err = imp.store.WriteSnapshot(""); err != nil {
+		if err = imp.store.outOfBandSnapshot(); err != nil {
 			err = fmt.Errorf("failed to import when writing snapshot: %w", err)
 			return
 		}

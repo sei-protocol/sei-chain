@@ -51,9 +51,9 @@ func init() {
 // Named by the command, because this binary generates a file two ways and they do not agree. A node
 // starting without one gets a file from a second pipeline that applies no mode rules at all and carries
 // overrides of its own, so it writes the standard pruning strategy where this writes keeping everything,
-// a metric retention of sixty where this writes seven thousand two hundred, the REST interface on for a
-// validator where this writes it off, and a pruning interval drawn at random each time it runs. This
-// follows the command an operator runs to provision a node, not the file a node writes for itself.
+// the REST interface on for a validator where this writes it off, and a pruning interval drawn at random
+// each time it runs. This follows the command an operator runs to provision a node, not the file a node
+// writes for itself.
 //
 // That is what a declared value states, and it is deliberately not what a node with nothing written
 // resolves. Those differ for a good number of these keys, because most are read with no check that the key
@@ -96,7 +96,7 @@ func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 // interface follows and for the same reason. The upstream default is on for every kind, so declaring that
 // would state an open interface on the nodes meant to expose the least.
 //
-// Six of these eleven keys are read only when the key is present. Two more are durations read through a
+// Nine of these fifteen keys are read only when the key is present. Two more are durations read through a
 // clamp that rescues a negative value and does nothing for an absent one, so those two are unguarded and
 // their clobber leaves no trace. The durations are declared as durations and written into a file as text,
 // which is the shape the reader parses back.

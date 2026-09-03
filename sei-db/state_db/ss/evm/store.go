@@ -12,12 +12,14 @@ import (
 
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "ss", "evm")
 
 var _ types.StateStore = (*EVMStateStore)(nil)
 var _ types.ContextIteratorStore = (*EVMStateStore)(nil)
@@ -31,6 +33,10 @@ type EVMStateStore struct {
 	dir         string
 	separateDBs bool
 	snapshotMgr *sssnapshot.Manager
+
+	// checkpoint holds the schedule this store takes its snapshot heights from, and tracks the
+	// snapshots in flight so Close can wait for them.
+	checkpoint checkpointState
 
 	externalPruning bool
 }
@@ -206,6 +212,79 @@ func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) er
 	return nil
 }
 
+// CommitBlock records a committed block and offers its version to the checkpoint schedule. It is the
+// commit path's entry point: the apply methods are raw writes and take no snapshot.
+func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	evmChangesets := filterEVMChangesets(changesets)
+
+	// Separate-DB mode parses and groups the block's pairs exactly once: the grouping both routes the
+	// apply and names the sub-DBs the block never reached. A unified store routes nothing by sub-type —
+	// its one database takes the whole changeset and stamps the version marker in the same batch, so
+	// only a block that wrote nothing leaves that marker to be moved on its own.
+	var unwritten []types.StateStore
+	switch {
+	case s.separateDBs:
+		grouped := s.groupBySubType(evmChangesets)
+		if err := s.ApplyChangesetAsyncGrouped(version, grouped); err != nil {
+			return err
+		}
+		unwritten = s.dbsWithoutWrites(grouped)
+	case len(evmChangesets) > 0:
+		if err := s.ApplyChangesetAsync(version, evmChangesets); err != nil {
+			return err
+		}
+	default:
+		unwritten = s.managedDBs
+	}
+
+	if err := s.advanceUnwrittenHeads(version, unwritten); err != nil {
+		return err
+	}
+	s.scheduleSnapshot(version)
+	return nil
+}
+
+// advanceUnwrittenHeads moves each given database's version marker to version, at that database's own
+// place in its write order.
+//
+// A database that took a batch is not among these: the batch carries the marker alongside the data.
+// The rest would keep the marker of whichever block last routed to them, and the head is the minimum
+// across all of them, so one left behind holds the head — and the GC floor taken from it — below the
+// committed height. Going through the queue rather than around it keeps the marker from overtaking
+// blocks still queued behind it, which stamp their own lower version as they drain.
+func (s *EVMStateStore) advanceUnwrittenHeads(version int64, dbs []types.StateStore) error {
+	for _, db := range dbs {
+		barrier, ok := db.(types.DrainBarrier)
+		if !ok {
+			if err := db.SetLatestVersion(version); err != nil {
+				return err
+			}
+			continue
+		}
+		// Runs on the database's apply goroutine, which a panic would take down with it.
+		barrier.ScheduleAtDrain(func() {
+			if err := db.SetLatestVersion(version); err != nil {
+				logger.Error("failed to advance EVM state store version marker", "version", version, "err", err)
+			}
+		})
+	}
+	return nil
+}
+
+// dbsWithoutWrites returns the sub-DBs that grouped routes no keys to.
+//
+// Separate-DB mode only. A unified store keys every sub-type to the same database, so it would report
+// that one database once per sub-type the block missed.
+func (s *EVMStateStore) dbsWithoutWrites(grouped map[EVMStoreType][]*proto.KVPair) []types.StateStore {
+	unwritten := make([]types.StateStore, 0, len(s.managedDBs))
+	for storeType, db := range s.subDBs {
+		if len(grouped[storeType]) == 0 {
+			unwritten = append(unwritten, db)
+		}
+	}
+	return unwritten
+}
+
 func (s *EVMStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	if !s.separateDBs {
 		db := s.primaryDB()
@@ -239,7 +318,20 @@ func (s *EVMStateStore) ApplyChangesetAsync(version int64, changesets []*proto.N
 		return db.ApplyChangesetAsync(version, evmChangesets)
 	}
 
-	grouped := s.groupBySubType(changesets)
+	return s.ApplyChangesetAsyncGrouped(version, s.groupBySubType(changesets))
+}
+
+// ApplyChangesetAsyncGrouped applies pairs already grouped by sub-type, skipping the filtering and
+// grouping ApplyChangesetAsync does for itself. It is for callers that already hold a grouping and
+// would otherwise pay to parse every key twice — CommitBlock builds one to find the sub-DBs a block
+// did not write, and applies through here.
+//
+// Separate-DB mode only. A unified store keys every sub-type to the same database, so applying a
+// grouping to one would split a block into a batch per sub-type.
+func (s *EVMStateStore) ApplyChangesetAsyncGrouped(
+	version int64,
+	grouped map[EVMStoreType][]*proto.KVPair,
+) error {
 	if len(grouped) == 0 {
 		return nil
 	}
@@ -393,10 +485,6 @@ func (s *EVMStateStore) Prune(version int64) error {
 	return nil
 }
 
-func (s *EVMStateStore) ExternalPruning() bool {
-	return s.externalPruning
-}
-
 func (s *EVMStateStore) snapshotSourceDirs() []string {
 	if !s.separateDBs {
 		return []string{s.dir}
@@ -416,6 +504,10 @@ func subDBPath(base string, storeType EVMStoreType) string {
 }
 
 func (s *EVMStateStore) Close() error {
+	// A snapshot being published reads and stamps these databases, so it has to finish before they
+	// close rather than race the shutdown.
+	s.stopCheckpoints()
+
 	var lastErr error
 	for _, db := range s.managedDBs {
 		if err := db.Close(); err != nil {
@@ -427,7 +519,7 @@ func (s *EVMStateStore) Close() error {
 
 func (s *EVMStateStore) SupportsCheckpoint() bool {
 	for _, db := range s.managedDBs {
-		if !controller.SupportsCheckpoint(db) {
+		if !sssnapshot.SupportsCheckpoint(db) {
 			return false
 		}
 	}
@@ -455,7 +547,7 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 			done(errors.New("EVM state store has no managed DB to checkpoint"))
 			return
 		}
-		controller.ScheduleCheckpoint(db, destDir, shouldRun, done)
+		sssnapshot.ScheduleCheckpoint(db, destDir, shouldRun, done)
 		return
 	}
 
@@ -465,10 +557,10 @@ func (s *EVMStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool
 	}
 
 	storeTypes := AllEVMStoreTypes()
-	report := controller.FanIn(len(storeTypes), done)
+	report := sssnapshot.FanIn(len(storeTypes), done)
 	for _, storeType := range storeTypes {
 		name := StoreTypeName(storeType)
-		controller.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
+		sssnapshot.ScheduleCheckpoint(s.subDBs[storeType], subDBPath(destDir, storeType), shouldRun, func(err error) {
 			if err != nil {
 				err = fmt.Errorf("checkpoint EVM sub-DB %s: %w", name, err)
 			}
@@ -483,11 +575,11 @@ func (s *EVMStateStore) SetCheckpointVersion(destDir string, version int64) erro
 		if db == nil {
 			return errors.New("EVM state store has no managed DB to stamp")
 		}
-		return controller.SetCheckpointVersion(db, destDir, version)
+		return sssnapshot.SetCheckpointVersion(db, destDir, version)
 	}
 	for _, storeType := range AllEVMStoreTypes() {
 		name := StoreTypeName(storeType)
-		if err := controller.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
+		if err := sssnapshot.SetCheckpointVersion(s.subDBs[storeType], subDBPath(destDir, storeType), version); err != nil {
 			return fmt.Errorf("set EVM sub-DB %s checkpoint version: %w", name, err)
 		}
 	}
@@ -506,7 +598,7 @@ func (s *EVMStateStore) StartSnapshots(
 		Backend:         ssConfig.Backend,
 		KeepRecent:      ssConfig.SnapshotKeepRecent,
 		ExternalPruning: ssConfig.ExternalPruning,
-		Scheduler:       s,
+		Checkpointer:    s,
 		Floor:           floor,
 	})
 	if err != nil {

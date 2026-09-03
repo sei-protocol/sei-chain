@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
@@ -18,10 +17,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -32,9 +33,9 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
 
-var _ Store = (*CommitStore)(nil)
+var _ giga.LiveStateStore = (*CommitStore)(nil)
 
-// CommitStore implements flatkv.Store for EVM state.
+// CommitStore implements giga.LiveStateStore for EVM state.
 //
 // Reads, writes and iterator construction are safe to call concurrently. Lifecycle operations
 // (LoadLatest, Rollback, snapshot, import, export, Close) must be serialized by the caller.
@@ -139,10 +140,10 @@ type CommitStore struct {
 	// All four stores, for the paths that treat them uniformly.
 	stores []view.ViewManager
 
-	// The views produced by the most recent commit, one per store and keyed by its name, each still
-	// holding the reservation Commit handed out. flushLatestVersion waits on them, and holding them
-	// keeps any later block out of pebble until the next commit hands them back.
-	lastSealed map[string]view.View
+	// The views of the most recently committed block, one reservation held for as long as they stay
+	// installed, which is what keeps any later block out of pebble. Nil outside the window in which the
+	// view managers exist.
+	lastSealed *atomicStoreView
 
 	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
 	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
@@ -158,7 +159,15 @@ type CommitStore struct {
 	// nor Commit validates its version against this field.
 	pendingBlockHeight int64
 
-	lastSnapshotTime time.Time
+	// Writes snapshots off the execution thread. Built by openStores once the view managers exist and
+	// torn down by closeStores, so its lifetime is exactly the window in which the databases it
+	// checkpoints are open. Nil on a read-only store, which never commits.
+	snapshotWriter *SnapshotWriter
+
+	// The schedule this store takes its checkpoint heights from, nil when it is on its own interval.
+	// Held here as well as on the snapshot writer because the writer is rebuilt by every open, and a
+	// store that lost its schedule to a reopen would drift off the node's shared heights silently.
+	checkpointScheduler *controller.CheckpointScheduler
 
 	// File lock prevents multiple processes from opening the same DB.
 	fileLock filelock.TryLockerSafe
@@ -358,6 +367,23 @@ func (s *CommitStore) flatkvDir() string {
 	return s.config.DataDir
 }
 
+// SetCheckpointScheduler hands this store the schedule it takes its checkpoint heights from, in place
+// of its own SnapshotInterval. Every committed block is then offered to the schedule, which is what
+// holds this store and every other store on it to the same heights.
+//
+// A nil scheduler returns the store to its interval. Safe to call on an open store, and it survives a
+// later reopen.
+func (s *CommitStore) SetCheckpointScheduler(scheduler *controller.CheckpointScheduler) {
+	s.mu.Lock()
+	s.checkpointScheduler = scheduler
+	writer := s.snapshotWriter
+	s.mu.Unlock()
+
+	if writer != nil {
+		writer.setCheckpointScheduler(scheduler)
+	}
+}
+
 // LoadLatest opens the database at the latest persisted version, leaving this store open for writing.
 // It is the only way to obtain a store that can commit.
 func (s *CommitStore) LoadLatest() (retErr error) {
@@ -398,7 +424,7 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 // CleanupOrphanedReadOnlyDirs is called lazily to acquire it and clean up any leftover directories. When the
 // lock is acquired lazily, ownership is transferred to the returned view so that closing the view releases
 // it; this prevents leaking the lock when the caller never explicitly closes this store.
-func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, retErr error) {
+func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened giga.LiveStateStore, retErr error) {
 	logger.Info("FlatKV LoadVersionReadOnly", "targetVersion", targetVersion)
 	obs := s.observeOp("LoadVersionReadOnly", otelMetrics.OpenLatency, "targetVersion", targetVersion).
 		withAttrs(attribute.Bool("read_only", true))
@@ -469,7 +495,9 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 	// marking it here does not block the catch-up that follows.
 	ro.readOnly = true
 
-	if err := ro.openReadOnly(targetVersion); err != nil {
+	// The clone shares this store's flatkv root, so the writer that owns that root — and prunes it —
+	// is this store's, not the clone's. The clone never has one of its own.
+	if err := ro.openReadOnly(targetVersion, s.currentSnapshotWriter()); err != nil {
 		return nil, fmt.Errorf("readonly open: %w", err)
 	}
 
@@ -491,31 +519,17 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened Store, re
 // openReadOnly opens PebbleDBs in readOnlyWorkDir at the snapshot boundary at or below targetVersion,
 // leaving committedVersion at that snapshot version. It never modifies the global "current" symlink.
 //
+// owner is the snapshot writer of the store that owns the snapshot tree being read, which is the
+// primary rather than this clone. Nil means no writer is running against that tree.
+//
 // This clone has a nil WAL of its own, so it does NOT replay: advancing from the snapshot boundary up to
 // targetVersion — and marking the store read-only — is driven by the primary via LoadVersionReadOnly /
 // replayIntoReadOnlyCopy, which feeds the primary's WAL into this clone.
-func (s *CommitStore) openReadOnly(targetVersion int64) (retErr error) {
+func (s *CommitStore) openReadOnly(targetVersion int64, owner *SnapshotWriter) (retErr error) {
 	s.clearPendingBlock()
 
-	dir := s.flatkvDir()
-
-	var snapDir string
-	if targetVersion > 0 {
-		baseVer, err := seekSnapshot(dir, targetVersion)
-		if err != nil {
-			return fmt.Errorf("seek snapshot for readonly: %w", err)
-		}
-		snapDir = filepath.Join(dir, snapshotName(baseVer))
-	} else {
-		var err error
-		snapDir, _, err = currentSnapshotDir(dir)
-		if err != nil {
-			return fmt.Errorf("resolve current snapshot for readonly: %w", err)
-		}
-	}
-
-	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
-		return fmt.Errorf("create readonly working dir: %w", err)
+	if err := s.cloneSnapshotToWorkDir(targetVersion, owner); err != nil {
+		return err
 	}
 
 	dbs, err := s.openRawDBs()
@@ -544,6 +558,31 @@ func (s *CommitStore) openReadOnly(targetVersion int64) (retErr error) {
 
 	logger.Info("FlatKV readonly base opened", "version", s.committedVersion,
 		"dir", s.readOnlyWorkDir)
+	return nil
+}
+
+// cloneSnapshotToWorkDir materializes the snapshot this read-only clone opens against into its
+// working directory.
+//
+// It goes through owner rather than copying here, because the copy has to be serialized against the
+// pruning that owner also performs: a snapshot resolved on this goroutine can be deleted before the
+// copy has finished reading it. A nil owner means no writer is running against that tree, so there
+// is nothing to serialize against and the copy is done inline.
+func (s *CommitStore) cloneSnapshotToWorkDir(targetVersion int64, owner *SnapshotWriter) error {
+	if owner != nil {
+		if err := owner.CloneSnapshot(targetVersion, s.readOnlyWorkDir); err != nil {
+			return fmt.Errorf("create readonly working dir: %w", err)
+		}
+		return nil
+	}
+
+	snapDir, err := resolveSnapshotToClone(s.flatkvDir(), targetVersion)
+	if err != nil {
+		return err
+	}
+	if err := createWorkingDir(snapDir, s.readOnlyWorkDir); err != nil {
+		return fmt.Errorf("create readonly working dir: %w", err)
+	}
 	return nil
 }
 
@@ -869,7 +908,39 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 		return err
 	}
 
+	if !s.readOnly {
+		// Built last, and only here: it checkpoints the databases the view managers above own, so it must
+		// not outlive them. closeStores drains it before those managers go away.
+		s.snapshotWriter = newSnapshotWriter(
+			s.ctx,
+			s.flatkvDir(),
+			s.config.SnapshotKeepRecent,
+			s.config.ExternalPruning,
+			s.config.SnapshotInterval,
+			s.config.MaxSnapshotLagBlocks,
+			s.checkpointables(),
+			s.checkpointScheduler,
+		)
+	}
+
 	return nil
+}
+
+// checkpointables returns the handle each database is checkpointed through, keyed by database
+// directory name. Captured once while the view managers exist, so a snapshot being written off-thread
+// never has to reach back into the store for a handle that teardown may have cleared.
+//
+// A checkpoint addresses a database as a file rather than as a key-value store, which is the one thing
+// a view manager cannot express — so this is the single place FlatKV reaches past one, and the
+// manager's escape hatch names checkpointing as its only sanctioned use.
+func (s *CommitStore) checkpointables() map[string]seidbtypes.Checkpointable {
+	dbs := make(map[string]seidbtypes.Checkpointable, len(dataDBDirs))
+	for _, name := range dataDBDirs {
+		if db, ok := s.rawDBFor(name).(seidbtypes.Checkpointable); ok {
+			dbs[name] = db
+		}
+	}
+	return dbs
 }
 
 // viewManagerFor returns the view manager mediating the named database, or nil before the managers exist.
@@ -913,11 +984,25 @@ func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
 func (s *CommitStore) closeStores() error {
 	var errs []error
 
+	// The writer must stop before anything below runs: closing a view manager closes the database it
+	// owns, and a checkpoint in progress would then be reading a closed handle. This is the choke point
+	// every teardown path reaches — Close directly, Rollback and resetForImport through closeDBsOnly —
+	// so the guard lives here rather than at each of them.
+	if s.snapshotWriter != nil {
+		if err := s.snapshotWriter.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close snapshot writer: %w", err))
+		}
+		s.snapshotWriter = nil
+	}
+
 	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
 	// awaiting a flush on views whose store is already gone.
-	if err := s.releaseLastSealed(); err != nil {
-		errs = append(errs, fmt.Errorf("release sealed views: %w", err))
+	if s.lastSealed != nil {
+		if err := s.lastSealed.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("release sealed views: %w", err))
+		}
+		s.lastSealed = nil
 	}
 
 	for _, store := range s.stores {

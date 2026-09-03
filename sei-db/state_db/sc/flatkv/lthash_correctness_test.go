@@ -968,8 +968,7 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
-	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NoError(t, err)
+	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.NotNil(t, paw, "the staged account row must still be present")
 	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
@@ -1023,8 +1022,7 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	// inspectable — BatchSet turns an IsDelete row into a store-level delete, and reading a key
 	// deleted in the current version reports absent rather than handing back the tombstone — so assert
 	// the observable consequence instead.
-	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NoError(t, err)
+	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.Nil(t, paw, "a fully deleted account row must read back as absent")
 }
 
@@ -1292,7 +1290,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	for i := byte(1); i <= 3; i++ {
 		commitMixedState(t, s1, i)
 	}
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	// Blocks 4-7: more state (will need WAL catchup on reopen)
 	for i := byte(4); i <= 7; i++ {
@@ -1339,7 +1337,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 	for i := byte(1); i <= 5; i++ {
 		commitMixedState(t, s, i)
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	hashAtV5 := rootHash(s)
 
 	for i := byte(6); i <= 8; i++ {
@@ -1418,7 +1416,7 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 	for i := byte(1); i <= 5; i++ {
 		commitMixedState(t, s, i)
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	// Original timeline: blocks 6-8 with round byte as-is
 	for i := byte(6); i <= 8; i++ {

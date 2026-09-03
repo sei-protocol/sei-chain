@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
@@ -29,7 +28,7 @@ import (
 // the backends had applied — makes that label exact without the request having
 // to wait. The barrier orders only the async block-commit queues. Import,
 // recovery, pruning, and direct version-marker writes bypass those queues and
-// must not call ScheduleSnapshot.
+// must not go through CommitBlock.
 //
 // Cross-member pairing is best-effort, not an invariant. Composite stages every
 // member and commits only after all members stage successfully, so the normal
@@ -251,7 +250,7 @@ func (c *snapshotCoordinator) requestSnapshot(version int64, start time.Time) er
 		return c.isRunning() && !canceled.Load()
 	}
 
-	report := controller.FanIn(len(c.members), func(err error) {
+	report := sssnapshot.FanIn(len(c.members), func(err error) {
 		c.startPublish(version, staged, err, start)
 	})
 	for i, member := range c.members {
@@ -295,7 +294,7 @@ func (c *snapshotCoordinator) startPublish(
 		defer c.publishing.Done()
 		defer c.finishSnapshot()
 		if checkpointErr != nil {
-			if errors.Is(checkpointErr, controller.ErrCheckpointCanceled) {
+			if errors.Is(checkpointErr, sssnapshot.ErrCheckpointCanceled) {
 				sssnapshot.RecordCompletion(start, "canceled")
 			} else {
 				sssnapshot.RecordCompletion(start, "failure")

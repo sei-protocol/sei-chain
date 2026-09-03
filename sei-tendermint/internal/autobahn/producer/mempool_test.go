@@ -14,9 +14,9 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -225,7 +225,7 @@ func (env *testEnv) Run(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("app.FinalizeBlock(): %w", err)
 			}
-			if err := env.data.PushAppHash(ctx, i, resp.AppHash); err != nil {
+			if err := env.data.PushAppHash(ctx, i, resp.AppHash, nil); err != nil {
 				return err
 			}
 		}
@@ -576,14 +576,10 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return err
 		}
 
-		epLeave, err := registry.ActivateEpoch(
-			0,
-			map[types.PublicKey]uint64{b.Public(): 1},
-			time.Time{}, registry.FirstBlock(),
-		)
-		if err != nil {
+		if err := registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
 			return err
 		}
+		epLeave := registry.MustEpoch(2)
 		if err := avail.TestDriveAdvance(ctx, availState, keys, epLeave.EpochIndex()); err != nil {
 			return err
 		}
@@ -605,14 +601,10 @@ func TestProducer_LeaveCancelsAndRejoinStartsNewLane(t *testing.T) {
 			return fmt.Errorf("TryInsertTx after leave: got %v, want ErrNotProducing", err)
 		}
 
-		epJoin, err := registry.ActivateEpoch(
-			epLeave.EpochIndex(),
-			map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1},
-			time.Time{}, registry.FirstBlock(),
-		)
-		if err != nil {
+		if err := registry.StageAndActivate(1, map[types.PublicKey]uint64{a.Public(): 1, b.Public(): 1}); err != nil {
 			return err
 		}
+		epJoin := registry.MustEpoch(3)
 		if err := avail.TestDriveAdvance(ctx, availState, keys, epJoin.EpochIndex()); err != nil {
 			return err
 		}
@@ -651,12 +643,8 @@ func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 	// Let InsertTx reach getMempool Wait (mempool still None — producer not running).
 	time.Sleep(20 * time.Millisecond)
 
-	epLeave, err := registry.ActivateEpoch(
-		0,
-		map[types.PublicKey]uint64{b.Public(): 1},
-		time.Time{}, registry.FirstBlock(),
-	)
-	require.NoError(t, err)
+	require.NoError(t, registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}))
+	epLeave := registry.MustEpoch(2)
 	require.NoError(t, scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnBgNamed("avail", func() error {
 			return utils.IgnoreCancel(availState.Run(ctx))

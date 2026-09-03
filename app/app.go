@@ -430,13 +430,15 @@ type App struct {
 	encodingConfig       appparams.EncodingConfig
 	legacyEncodingConfig appparams.EncodingConfig
 	evmRPCConfig         evmrpcconfig.Config
-	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
-	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
-	// FinalizeBlocker calls Stash with the (hash, header, response)
-	// tuple, App.Commit calls PublishStashed after a successful
-	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
-	// defend against stale tuples from prior failed commits or
-	// non-stashing return paths (EthReplay/EthBlockTest).
+	// autobahnEnabled records whether Autobahn was configured for this node.
+	autobahnEnabled bool
+	// blockHeaderNotifier owns the FinalizeBlock→Commit pairing for Autobahn
+	// eth_subscribe("newHeads") and eth_newBlockFilter notifications. It
+	// calls Stash from FinalizeBlocker with the
+	// (hash, header, response) tuple, App.Commit calls PublishStashed
+	// after a successful BaseApp.Commit, and FinalizeBlocker entry
+	// calls ClearStash to defend against stale tuples from prior failed
+	// commits or non-stashing return paths (EthReplay/EthBlockTest).
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
@@ -659,7 +661,9 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading receipt store config: %s", err))
 	}
-	if app.receiptStore == nil {
+	// A nil store is the seam tests inject their own through, and it is also what a disabled
+	// receipt store leaves behind: the EVM keeper reads nil as a node that keeps no receipts.
+	if app.receiptStore == nil && receiptConfig.Enable {
 		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
@@ -691,7 +695,8 @@ func New(
 	// reconcile the encoder so swapping the consumer is a no-op for
 	// non-Autobahn subscribers. Until that's verified, keep this gate
 	// so non-Autobahn newHeads semantics are unchanged by this PR.
-	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
+	app.autobahnEnabled = tmConfig != nil && tmConfig.AutobahnConfigFile != ""
+	if app.autobahnEnabled {
 		app.blockHeaderNotifier = tmutils.Some(evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity))
 	}
 	if app.evmRPCConfig.TraceBakeEnabled {
@@ -1189,7 +1194,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 
 	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
 	if err != nil {
-		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
@@ -1204,7 +1208,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Invariant: at this point nil entries in typedTxs are proto decode failures only.
 	// EVM preprocessing runs later inside ProcessBlock; do not reorder that before this check.
 	if !app.checkTotalBlockGas(checkCtx, typedTxs) {
-		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
@@ -1314,7 +1317,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.optimisticProcessingInfoMutex.RUnlock()
 
 		if !aborted && bytes.Equal(finalHash, req.Hash) {
-			utilmetrics.IncrementOptimisticProcessingCounter(true) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 			appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(attribute.Bool("enabled", true)))
 			app.SetProcessProposalStateToCommit()
@@ -1332,7 +1334,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			return &resp, nil
 		}
 	}
-	utilmetrics.IncrementOptimisticProcessingCounter(false) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 	appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 		otelmetric.WithAttributes(attribute.Bool("enabled", false)))
 	logger.Info("optimistic processing ineligible")
@@ -1368,8 +1369,6 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
-	utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-	utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
 	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
 		otelmetric.WithAttributes(attribute.String("type", "gas_used")))
 	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
@@ -1391,7 +1390,6 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}()
@@ -1401,7 +1399,6 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 		ctx = ctx.WithTxIndex(i)
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}
@@ -1411,7 +1408,6 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessGigaStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}()
@@ -1491,7 +1487,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
 		if fallbackToV2 {
-			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(
 					attribute.String("reason", gigaFallbackStoreIterator),
@@ -1506,7 +1501,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			// Abort errors (validation failure, balance migration, self-destruct,
 			// cosmos-precompile interop) re-run this tx via v2.
 			if gigautils.ShouldExecutionAbort(execErr) {
-				utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 				appMetrics.gigaFallback.Add(ctx.Context(), 1,
 					otelmetric.WithAttributes(
 						attribute.String("reason", gigaFallbackReason(execErr)),
@@ -1525,7 +1519,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		txResults[i] = result
 		ctx.GigaMultiStore().WriteGiga()
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}
@@ -1614,12 +1607,9 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for _, r := range batchResult.Results {
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OccConcurrent) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 
-		utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-		utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
 		appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
 			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
 		appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
@@ -1715,7 +1705,6 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 
 		if fallbackToV2 {
-			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(
 					attribute.String("reason", fallbackReason),
@@ -2593,8 +2582,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
+	headNotifier, _ := app.blockHeaderNotifier.Get()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2608,8 +2598,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		headNotifier, _ := app.blockHeaderNotifier.Get()
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
 		}

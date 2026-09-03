@@ -180,8 +180,9 @@ type RollbackValidator interface {
 
 // The interfaces above are engine capabilities. Deciding when a checkpoint runs,
 // and what version it is labeled with, is coordination rather than engine
-// behavior and lives in sei-db/management: CheckpointScheduler,
-// ScheduleCheckpoint, SetCheckpointVersion and ErrCheckpointCanceled.
+// behavior: sei-db/controller picks the height every store checkpoints at, and
+// sei-db/state_db/ss/snapshot composes these capabilities into the checkpoint an
+// SS member store performs.
 
 // ---------------------------------------------------------------------------
 // SS DB layer
@@ -205,6 +206,13 @@ type StateStore interface {
 	Prune(version int64) error
 	Import(version int64, ch <-chan SnapshotNode) error
 	io.Closer
+}
+
+// BlockCommitter is the live commit path's entry into a state store: one call per committed block,
+// a block that changed nothing included. A store that checkpoints takes its heights from these
+// calls, so every committed version has to arrive here.
+type BlockCommitter interface {
+	CommitBlock(version int64, changesets []*proto.NamedChangeSet) error
 }
 
 // ContextIteratorStore is implemented by StateStores whose iterators can observe

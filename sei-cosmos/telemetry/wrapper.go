@@ -9,10 +9,8 @@ import (
 // Common metric key constants
 const (
 	MetricKeyBeginBlocker = "begin_blocker"
-	MetricKeyMidBlocker   = "mid_blocker"
 	MetricKeyEndBlocker   = "end_blocker"
 	MetricLabelNameModule = "module"
-	MessageCount          = "message"
 	TxCount               = "transaction"
 )
 
@@ -28,17 +26,6 @@ func ModuleMeasureSince(module string, start time.Time, keys ...string) {
 	metrics.MeasureSinceWithLabels(
 		keys,
 		start.UTC(),
-		append([]metrics.Label{NewLabel(MetricLabelNameModule, module)}, globalLabels...),
-	)
-}
-
-// ModuleSetGauge provides a short hand method for emitting a gauge metric for a
-// module with a given set of keys. If any global labels are defined, they will
-// be added to the module label.
-func ModuleSetGauge(module string, val float32, keys ...string) {
-	metrics.SetGaugeWithLabels(
-		keys,
-		val,
 		append([]metrics.Label{NewLabel(MetricLabelNameModule, module)}, globalLabels...),
 	)
 }
@@ -71,12 +58,6 @@ func SetGaugeWithLabels(keys []string, val float32, labels []metrics.Label) {
 // metric with global labels (if any).
 func MeasureSince(start time.Time, keys ...string) {
 	metrics.MeasureSinceWithLabels(keys, start.UTC(), globalLabels)
-}
-
-// MeasureSinceWithLabels provides a wrapper functionality for emitting a a time measure
-// metric with custom labels (if any)
-func MeasureSinceWithLabels(keys []string, start time.Time, labels []metrics.Label) {
-	metrics.MeasureSinceWithLabels(keys, start.UTC(), labels)
 }
 
 // Measure Validator slashing events

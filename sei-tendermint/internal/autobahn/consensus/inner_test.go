@@ -10,9 +10,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -149,7 +149,6 @@ func TestNewInnerEmpty(t *testing.T) {
 func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(0))
 
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
@@ -180,7 +179,6 @@ func TestNewInner_RejectsWALAheadOfSpec(t *testing.T) {
 func TestRestore_BoundaryCatchUpSpecCoversWAL(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(0))
 
 	ds := newTestDataState(registry)
 	av, err := avail.NewState(keys[0], ds, utils.None[string]())

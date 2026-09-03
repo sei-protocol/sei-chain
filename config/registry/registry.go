@@ -265,7 +265,7 @@ func (s Section) detached() Section {
 
 // Sections returns every registered section, sorted by name.
 func Sections() []Section {
-	registered, _ := snapshot()
+	registered, _, _ := snapshot()
 	return registered
 }
 
@@ -277,13 +277,15 @@ func Lookup(name string) (Section, bool) {
 	return s.detached(), ok
 }
 
-// snapshot returns every registered section and every refused registration, read together.
+// snapshot returns every registered section, every defect, and how each section's values reach their
+// reader, read together.
 //
-// One acquisition for both, because the two are halves of one answer: the sections are the key space and
-// the refusals say which keys are missing from it. Read separately, a registration arriving between them
-// is refused in one half and absent from the other, so the answer describes two registries and the report
-// of what is missing does not match what is actually missing.
-func snapshot() ([]Section, []Defect) {
+// One acquisition for all three, because they are parts of one answer: the sections are the key space, the
+// defects say which keys are missing from it, and the delivery declarations say how the rest of them get
+// where they are read. Read separately, a registration arriving between two reads is described by one part
+// and absent from another, so the answer describes two registries and no part of it holds against the
+// others.
+func snapshot() ([]Section, []Defect, map[string]string) {
 	mu.RLock()
 	defer mu.RUnlock()
 	out := make([]Section, 0, len(sections))
@@ -291,14 +293,45 @@ func snapshot() ([]Section, []Defect) {
 		out = append(out, s.detached())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, append([]Defect(nil), defects...)
+	decoded := make(map[string]string, len(decodedNotLookedUp))
+	for name, why := range decodedNotLookedUp {
+		decoded[name] = why
+	}
+	return out, allDefects(), decoded
+}
+
+// allDefects returns the recorded defects and the ones derived from the registry's own state.
+//
+// A declaration naming a section nothing registered is derived at every read rather than recorded when the
+// declaration arrives. A section registers itself and declares how it is delivered from two calls in its
+// own package's initialisation, and nothing fixes the order between them, so refusing at the moment of
+// declaring would refuse a correct pair that happened to declare first.
+//
+// The caller holds mu.
+func allDefects() []Defect {
+	out := append([]Defect(nil), defects...)
+	names := make([]string, 0, len(decodedNotLookedUp))
+	for name := range decodedNotLookedUp {
+		if _, registered := sections[name]; !registered {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		out = append(out, Defect{Section: name, Err: fmt.Errorf(
+			"declared as decoded rather than looked up (%s) and no section of this name is registered. "+
+				"Nothing delivers the section this names, and if the name is a misspelling of a section "+
+				"that is registered, that section's keys install into a source its reader never asks",
+			decodedNotLookedUp[name])})
+	}
+	return out
 }
 
 // Defects returns every registration this package could not use.
 func Defects() []Defect {
 	mu.RLock()
 	defer mu.RUnlock()
-	return append([]Defect(nil), defects...)
+	return allDefects()
 }
 
 // Keys returns every declared key across every section, sorted.
@@ -574,11 +607,16 @@ func isLeaf(t reflect.Type) bool {
 
 // Reset clears the registry. For tests only, so one test's registrations cannot leak into
 // another's declared set.
+//
+// Every piece of registration state, not only the sections. A delivery declaration left behind names a
+// section that no longer exists, which is the one thing a fresh registry is supposed to guarantee cannot
+// happen.
 func Reset() {
 	mu.Lock()
 	defer mu.Unlock()
 	sections = map[string]Section{}
 	defects = nil
+	decodedNotLookedUp = map[string]string{}
 }
 
 // envPrefix is the environment namespace for every derived key.
