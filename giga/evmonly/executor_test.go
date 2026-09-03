@@ -34,6 +34,15 @@ type recordingResultSink struct {
 	releases []func()
 }
 
+type failingReceiptStore struct {
+	*MemoryReceiptStore
+	err error
+}
+
+func (s *failingReceiptStore) SetReceipts(context.Context, uint64, ethtypes.Receipts) error {
+	return s.err
+}
+
 func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64, result *BlockResult, release func()) error {
 	s.heights = append(s.heights, height)
 	s.results = append(s.results, result)
@@ -109,6 +118,57 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 	require.Equal(t, []uint64{ctx.Number}, sink.heights)
 	require.Same(t, result, sink.results[0])
 	sink.releases[0]()
+}
+
+func TestExecutorStoresReceipts(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a9")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+	receiptStore := NewMemoryReceiptStore()
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	executor := NewExecutor(Config{}, withTestState(state), WithReceiptStore(receiptStore))
+	ctx := blockContext(chainID)
+	ctx.Number = 77
+
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 1)
+	stored, found, err := receiptStore.GetReceipt(t.Context(), result.Receipts[0].TxHash)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, result.Receipts[0], stored)
+	blockReceipts, found, err := receiptStore.GetBlockReceipts(t.Context(), ctx.Number)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, result.Receipts, blockReceipts)
+}
+
+func TestExecutorReturnsReceiptStoreError(t *testing.T) {
+	storeErr := errors.New("receipt write failed")
+	receiptStore := &failingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), err: storeErr}
+	sink := &recordingResultSink{}
+	executor := NewExecutor(
+		Config{BlockResultPoolSize: 1},
+		withTestState(NewMemoryState()),
+		WithReceiptStore(receiptStore),
+		WithResultSink(sink),
+	)
+
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+
+	require.ErrorIs(t, err, storeErr)
+	require.Nil(t, result)
+	require.Empty(t, sink.results)
+	require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
 }
 
 func TestExecutorPooledResultRelease(t *testing.T) {

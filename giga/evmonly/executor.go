@@ -21,6 +21,7 @@ import (
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
 	cfg              Config
+	receiptStore     ReceiptStore
 	resultSink       ResultSink
 	occPool          *occWorkerPool
 	resultPool       *blockResultPool
@@ -36,6 +37,13 @@ type Option func(*Executor)
 func WithResultSink(sink ResultSink) Option {
 	return func(e *Executor) {
 		e.resultSink = sink
+	}
+}
+
+// WithReceiptStore selects the store that receives receipts after each state commit.
+func WithReceiptStore(store ReceiptStore) Option {
+	return func(e *Executor) {
+		e.receiptStore = store
 	}
 }
 

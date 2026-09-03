@@ -78,6 +78,11 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := e.store.CommitStateChanges(blockNumber, changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
+	if e.receiptStore != nil {
+		if err := e.receiptStore.SetReceipts(ctx, req.Context.Number, result.Receipts); err != nil {
+			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+		}
+	}
 	ok = true
 	return result, nil
 }

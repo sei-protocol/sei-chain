@@ -51,6 +51,8 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	tx := new(ethtypes.Transaction)
+	require.NoError(t, tx.UnmarshalBinary(raw))
 	check := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
 	require.True(t, check.IsOK())
 	require.True(t, check.IsEVM)
@@ -74,6 +76,11 @@ func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.Equal(t, int64(1), app.LastBlockHeight())
 	require.Equal(t, uint64(1), app.EvmNonce(sender))
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
+	receipt, found, err := app.(*evmOnlyInMemoryApplication).receipts.GetReceipt(t.Context(), tx.Hash())
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, tx.Hash(), receipt.TxHash)
+	require.Equal(t, uint64(1), receipt.BlockNumber.Uint64())
 }
 
 func TestEVMOnlyInMemoryApplicationRejectsWrongChain(t *testing.T) {
