@@ -847,7 +847,7 @@ func testBlockProduction(t *testing.T) {
 // assertTmRPCEndpoints exercises the tmRPC surface that PR #3310 wires up
 // under Autobahn (env.Block, env.BlockResults, env.BlockByHash, env.Validators).
 // One call per endpoint is enough — these handlers are pure RPC translation
-// over the same data.State / GenDoc plumbing, so a single positive case at
+// over data.State / the epoch registry, so a single positive case at
 // a real height catches both wrong-routing (e.g. CometBFT path returning
 // nulls because BlockStore is empty) and shape-drift regressions.
 func assertTmRPCEndpoints(t *testing.T, h int64) {
@@ -891,19 +891,28 @@ func assertTmRPCEndpoints(t *testing.T, h int64) {
 		t.Fatalf("/block_results?height=%d: got height=%d", h, rbr.Height)
 	}
 
-	// /validators at h: committee is fixed at genesis under Autobahn, so
-	// any retained height returns it. block_height in the response must
-	// match the requested height (catches the old "stuck at 1" StateStore
-	// behavior).
+	// /validators at h: committee covering that global block. Omitted
+	// height is Comet's "latest" and must resolve to the app tip
+	// (autobahnCheckAndGetHeight → LastBlockHeight).
 	var rv coretypes.ResultValidators
 	fetchTmRPC(t, fmt.Sprintf("%s/validators?height=%d", tmRPCBase, h), &rv)
 	if rv.BlockHeight != h {
-		t.Fatalf("/validators?height=%d: got block_height=%d (StateStore-stuck-at-1 regression?)",
-			h, rv.BlockHeight)
+		t.Fatalf("/validators?height=%d: got block_height=%d", h, rv.BlockHeight)
 	}
-	if rv.Total < 1 || len(rv.Validators) < 1 {
-		t.Fatalf("/validators?height=%d: empty committee (total=%d, count=%d)",
-			h, rv.Total, len(rv.Validators))
+	if rv.Total != clusterSize || len(rv.Validators) != clusterSize {
+		t.Fatalf("/validators?height=%d: committee size total=%d count=%d, want %d",
+			h, rv.Total, len(rv.Validators), clusterSize)
+	}
+	var latest coretypes.ResultValidators
+	fetchTmRPC(t, tmRPCBase+"/validators", &latest)
+	tip := currentHeight(t)
+	if latest.BlockHeight < h || latest.BlockHeight > tip {
+		t.Fatalf("/validators: got block_height=%d, want in [%d, %d] (requested height, /abci_info last_block_height)",
+			latest.BlockHeight, h, tip)
+	}
+	if latest.Total != clusterSize || len(latest.Validators) != clusterSize {
+		t.Fatalf("/validators: committee size total=%d count=%d, want %d",
+			latest.Total, len(latest.Validators), clusterSize)
 	}
 }
 

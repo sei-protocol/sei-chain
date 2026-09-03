@@ -96,6 +96,9 @@ func (k PublicKey) Compare(other PublicKey) int { return k.key.Compare(other.key
 // Bytes converts the public key to bytes.
 func (k PublicKey) Bytes() []byte { return k.key.Bytes() }
 
+// ED25519 returns the underlying Ed25519 public key.
+func (k PublicKey) ED25519() ed25519.PublicKey { return k.key }
+
 // PublicKeyFromBytes constructs a public key from bytes.
 func PublicKeyFromBytes(b []byte) (PublicKey, error) {
 	k, err := ed25519.PublicKeyFromBytes(b)

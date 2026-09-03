@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"sort"
 	"sync/atomic"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -563,6 +564,52 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 			return nil
 		})
 	})
+}
+
+// Validators returns the Autobahn validator set that certified global height n.
+// Before the first CommitQC, FirstBlock resolves to the genesis committee.
+func (r *gigaRouterCommon) Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, atypes.GlobalBlockNumber, error) {
+	first := r.data.Registry().FirstBlock()
+	qc, err := r.data.TryQC(n)
+	var epochIndex atypes.EpochIndex
+	if errors.Is(err, atypes.ErrNotFound) && n == first {
+		epochIndex = 0
+	} else if err != nil {
+		return nil, 0, heightLookupError(n, err)
+	} else {
+		epochIndex = qc.QC().Proposal().EpochIndex()
+	}
+	ep, err := r.data.Registry().EpochByIndex(epochIndex)
+	if err != nil {
+		return nil, 0, heightLookupError(n, err)
+	}
+	vs, err := committeeValidators(ep.Committee())
+	return vs, n, err
+}
+
+// heightLookupError returns the RPC error for a data lookup at global height n.
+func heightLookupError(n atypes.GlobalBlockNumber, err error) error {
+	switch {
+	case errors.Is(err, atypes.ErrPruned):
+		return coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
+	case errors.Is(err, atypes.ErrNotFound):
+		return fmt.Errorf("%w (requested height: %d)", coretypes.ErrHeightExceedsChainHead, utils.Clamp[int64](n))
+	default:
+		return err
+	}
+}
+
+func committeeValidators(committee *atypes.Committee) ([]*types.Validator, error) {
+	vs := make([]*types.Validator, 0, committee.Lanes().Len())
+	for lane := range committee.Lanes().All() {
+		power, ok := utils.SafeCast[int64](committee.Weight(lane.Validator))
+		if !ok {
+			return nil, fmt.Errorf("committee member %v: weight %d does not fit int64", lane.Validator, committee.Weight(lane.Validator))
+		}
+		vs = append(vs, types.NewValidator(lane.Validator.ED25519(), power))
+	}
+	sort.Sort(types.ValidatorsByVotingPower(vs))
+	return vs, nil
 }
 
 // EvmProxy returns the shard owner's EVMRPC client for an EVM tx sender, or
