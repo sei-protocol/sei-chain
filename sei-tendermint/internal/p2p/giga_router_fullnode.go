@@ -92,6 +92,7 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 			}
 		}
 		if len(validators) == 0 {
+			logger.Error("no commit-committee member in the address book; not dialing", "epoch", ep.EpochIndex())
 			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
 				return err
 			}

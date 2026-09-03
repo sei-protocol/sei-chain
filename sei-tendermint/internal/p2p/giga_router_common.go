@@ -658,8 +658,6 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 // RunInboundConn serves an inbound giga connection. Non-committee peers
 // get the block-sync subset (StreamFullCommitQCs + GetBlock). Committee peers
 // get the full RunServer on validators; on a fullnode the connection is refused.
-// Inbound role still follows nextCommitEpoch only: a departing peer is
-// downgraded even while outbound sessions keep it for AppVotes.
 //
 // The role and the fullnode cap are fixed for the lifetime of the connection: a
 // membership change ends it, and the peer's dialer reconnects into the role it
@@ -678,6 +676,9 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 			break
 		}
 	}
+	// Inbound role follows nextCommitEpoch only. AppVotes are received on the
+	// outbound client stream, not this mux, so a departing peer can be
+	// downgraded here while outbound sessions still collect its votes.
 	isCommittee := false
 	if v, ok := validator.Get(); ok {
 		isCommittee = r.nextCommitEpoch.Load().Committee().HasReplica(v)
