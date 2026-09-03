@@ -15,7 +15,9 @@ import (
 const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var (
-	errMissingStore                 = errors.New("executor requires a giga store")
+	errMissingStorageManager        = errors.New("executor requires a storage manager")
+	errMissingStateStore            = errors.New("storage manager requires a state store")
+	errMissingReceiptStore          = errors.New("storage manager requires a receipt store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
 )
 
@@ -28,8 +30,16 @@ var _ StateReader = gigaSnapshotStateReader{}
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
-	if e.store == nil {
-		return nil, errMissingStore
+	if e.storageManager == nil {
+		return nil, errMissingStorageManager
+	}
+	stateStore := e.storageManager.StateDB()
+	if stateStore == nil {
+		return nil, errMissingStateStore
+	}
+	receiptStore := e.storageManager.ReceiptDB()
+	if receiptStore == nil {
+		return nil, errMissingReceiptStore
 	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
@@ -48,7 +58,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot := e.store.OpenView()
+	snapshot := stateStore.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
@@ -75,13 +85,15 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := e.store.CommitStateChanges(blockNumber, changesets); err != nil {
+	records, err := receiptRecords(req.Context.Number, result)
+	if err != nil {
+		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+	}
+	if err := stateStore.CommitStateChanges(blockNumber, changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
-	if e.receiptStore != nil {
-		if err := e.receiptStore.SetReceipts(ctx, req.Context.Number, result.Receipts); err != nil {
-			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
-		}
+	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
 	return result, nil

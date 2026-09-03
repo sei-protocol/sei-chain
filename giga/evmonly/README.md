@@ -72,34 +72,39 @@ prepare then execute in one call. `PreparedBlock` is trusted executor-produced
 data: callers should pass the result of `PrepareBlock` unchanged, because
 `ExecutePreparedBlock` does not recover senders again.
 
-The executor is always store-backed. `WithStore(...)` selects the `giga.StateDB`
-implementation and its `NamedChangeSetEncoder`; execution fails closed if
-either is missing. For each block the executor opens a current
-`giga.StateView`, executes against its EVM-native read methods, converts the
-resulting `StateChangeSet`, and calls `CommitStateChanges`. Execution and commit
-on an executor are serialized so blocks cannot share a stale snapshot or
-overlap commits; callers must still submit block heights in order. The snapshot
-stays open through the commit and is always closed afterward. An empty block
-still commits an encoded empty changeset so the store can advance its height.
-Stateless preparation can continue concurrently with store-backed execution.
+The executor is always store-backed. `WithStorageManager(...)` selects a manager
+that provides both `giga.StateDB` and the ledger receipt store, plus the
+`NamedChangeSetEncoder` for its state implementation. The production
+`bootstrap.GigaStorageManager` satisfies this contract. Execution fails closed
+if the manager, either store, or the encoder is missing. For each block the
+executor opens a current `giga.StateView`, executes against its EVM-native read
+methods, converts the resulting `StateChangeSet`, and calls
+`CommitStateChanges`. Execution and commit on an executor are serialized so
+blocks cannot share a stale snapshot or overlap commits; callers must still
+submit block heights in order. The snapshot stays open through the commit and
+is always closed afterward. An empty block still commits an encoded empty
+changeset so the store can advance its height. Stateless preparation can
+continue concurrently with store-backed execution.
 
 The encoder is explicit because `giga.StateDB` defines the protobuf commit
 transport but does not define an on-disk key layout. In particular, an encoder
 must preserve `StorageClears` as prefix clears rather than silently dropping
 persisted slots that were not read during execution. Encoding, state commit, or
 receipt-store failures release the block result and return an error without
-invoking `ResultSink`. When configured, `ReceiptStore` persists every block's
-receipts after the state commit, including empty receipt sets. `ResultSink` runs
-after both stores succeed; a persistence error does not roll back the state
-commit.
+invoking `ResultSink`. Ethereum receipts are converted into
+`receipt.ReceiptRecord` values and persisted through the shared
+`receipt.ReceiptStore` interface after the state commit, including for empty
+blocks. `ResultSink` runs after both stores succeed; a persistence error does
+not roll back the state commit.
 
-`MemoryStore` is the non-persistent state implementation used by tests and the
-load harness. It wraps an immutable `StateReader`, encodes changes directly
+`MemoryStorageManager` supplies the non-persistent state and receipt
+implementations used by tests and the load harness. Its `MemoryStore` wraps an
+immutable `StateReader`, encodes changes directly
 into typed `NamedChangeSet` key/value pairs, and retains committed values in
 versioned overlays so current and historical snapshots stay stable without
-copying the complete base state per block. `MemoryReceiptStore` indexes cloned
-receipts by block number and transaction hash. Neither is a production
-implementation. Every base
+copying the complete base state per block. `MemoryReceiptStore` implements the
+shared receipt interface and indexes cloned Sei receipt records by block number
+and transaction hash. Neither is a production implementation. Every base
 `StateReader` method must be safe for concurrent calls, and returned balances
 and code must remain immutable while read. Call `Close()` to disable future OCC
 execution on an executor.

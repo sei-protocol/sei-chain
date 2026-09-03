@@ -1,4 +1,4 @@
-package p2p
+package evmonlyapp
 
 import (
 	"math/big"
@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -76,11 +77,11 @@ func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.Equal(t, int64(1), app.LastBlockHeight())
 	require.Equal(t, uint64(1), app.EvmNonce(sender))
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
-	receipt, found, err := app.(*evmOnlyInMemoryApplication).receipts.GetReceipt(t.Context(), tx.Hash())
+	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
+	receipt, err := app.(*evmOnlyInMemoryApplication).storage.ReceiptStore().GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, tx.Hash(), receipt.TxHash)
-	require.Equal(t, uint64(1), receipt.BlockNumber.Uint64())
+	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
+	require.Equal(t, uint64(1), receipt.BlockNumber)
 }
 
 func TestEVMOnlyInMemoryApplicationRejectsWrongChain(t *testing.T) {

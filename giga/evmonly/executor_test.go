@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 const (
@@ -39,7 +41,7 @@ type failingReceiptStore struct {
 	err error
 }
 
-func (s *failingReceiptStore) SetReceipts(context.Context, uint64, ethtypes.Receipts) error {
+func (s *failingReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) error {
 	return s.err
 }
 
@@ -131,7 +133,8 @@ func TestExecutorStoresReceipts(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	receiptStore := NewMemoryReceiptStore()
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
-	executor := NewExecutor(Config{}, withTestState(state), WithReceiptStore(receiptStore))
+	stateStore := NewMemoryStore(state)
+	executor := NewExecutor(Config{}, withTestStores(stateStore, receiptStore, stateStore.EncodeChangeSet))
 	ctx := blockContext(chainID)
 	ctx.Number = 77
 
@@ -142,14 +145,13 @@ func TestExecutorStoresReceipts(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result.Receipts, 1)
-	stored, found, err := receiptStore.GetReceipt(t.Context(), result.Receipts[0].TxHash)
+	stored, err := receiptStore.GetReceipt(newReceiptContext(t.Context(), int64(ctx.Number)), result.Receipts[0].TxHash)
 	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, result.Receipts[0], stored)
-	blockReceipts, found, err := receiptStore.GetBlockReceipts(t.Context(), ctx.Number)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, result.Receipts, blockReceipts)
+	require.Equal(t, result.Receipts[0].TxHash.Hex(), stored.TxHashHex)
+	require.Equal(t, ctx.Number, stored.BlockNumber)
+	require.Equal(t, sender.Hex(), stored.From)
+	require.Equal(t, recipient.Hex(), stored.To)
+	require.Equal(t, uint64(ethtypes.ReceiptStatusSuccessful), uint64(stored.Status))
 }
 
 func TestExecutorReturnsReceiptStoreError(t *testing.T) {
@@ -158,8 +160,7 @@ func TestExecutorReturnsReceiptStoreError(t *testing.T) {
 	sink := &recordingResultSink{}
 	executor := NewExecutor(
 		Config{BlockResultPoolSize: 1},
-		withTestState(NewMemoryState()),
-		WithReceiptStore(receiptStore),
+		withTestStores(NewMemoryStore(NewMemoryState()), receiptStore, EncodeMemoryStoreChangeSet),
 		WithResultSink(sink),
 	)
 

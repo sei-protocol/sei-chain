@@ -1,4 +1,4 @@
-package p2p
+package evmonlyapp
 
 import (
 	"context"
@@ -30,8 +30,7 @@ type evmOnlyInMemoryApplication struct {
 
 	chainID     *big.Int
 	chainConfig *params.ChainConfig
-	store       *evmonly.MemoryStore
-	receipts    *evmonly.MemoryReceiptStore
+	storage     *evmonly.MemoryStorageManager
 	validators  []abci.ValidatorUpdate
 	state       utils.Mutex[*evmOnlyInMemoryState]
 }
@@ -58,14 +57,13 @@ var _ abci.Application = (*evmOnlyInMemoryApplication)(nil)
 // Autobahn Docker load tests.
 func NewEVMOnlyInMemoryApplication(chainID uint64, validators []abci.ValidatorUpdate) abci.Application {
 	base := evmOnlyFundedState{}
-	store := evmonly.NewMemoryStore(base)
+	storage := evmonly.NewMemoryStorageManager(base)
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	return &evmOnlyInMemoryApplication{
 		chainID:     new(big.Int).SetUint64(chainID),
 		chainConfig: &chainConfig,
-		store:       store,
-		receipts:    evmonly.NewMemoryReceiptStore(),
+		storage:     storage,
 		validators:  slices.Clone(validators),
 		state:       utils.NewMutex(&evmOnlyInMemoryState{}),
 	}
@@ -89,7 +87,7 @@ func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abc
 			OCCWorkers:          runtime.GOMAXPROCS(0),
 			ParseWorkers:        runtime.GOMAXPROCS(0),
 			BlockResultPoolSize: 1,
-		}, evmonly.WithStore(a.store, a.store.EncodeChangeSet), evmonly.WithReceiptStore(a.receipts)))
+		}, evmonly.WithStorageManager(a.storage, a.storage.StateStore().EncodeChangeSet)))
 		state.gasLimit = gasLimit
 		state.nextHeight = req.InitialHeight
 		state.committedHeight = req.InitialHeight - 1
@@ -187,13 +185,13 @@ func evmOnlyStoreAddress(address common.Address) gigastore.Address {
 }
 
 func (a *evmOnlyInMemoryApplication) EvmNonce(address common.Address) uint64 {
-	snapshot := a.store.OpenView()
+	snapshot := a.storage.StateStore().OpenView()
 	defer snapshot.Close()
 	return snapshot.GetNonce(evmOnlyStoreAddress(address))
 }
 
 func (a *evmOnlyInMemoryApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
-	snapshot := a.store.OpenView()
+	snapshot := a.storage.StateStore().OpenView()
 	defer snapshot.Close()
 	balance := snapshot.GetBalance(evmOnlyStoreAddress(address))
 	return *new(uint256.Int).SetBytes(balance[:])
