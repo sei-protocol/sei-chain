@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"iter"
+	"reflect"
 	"sync"
 	"sync/atomic"
 
@@ -124,24 +125,33 @@ func (w *atomicWatch[T]) Wait(ctx context.Context, pred func(T) bool) (T, error)
 	}
 }
 
-// WaitEither waits for pred to hold, waking on updates to either watch.
-// pred takes no value and reads the watches itself, because a condition
-// spanning two of them cannot be expressed over one value.
-func WaitEither[A, B any](ctx context.Context, a AtomicRecv[A], b AtomicRecv[B], pred func() bool) error {
+// WaitAny waits for pred to hold, waking on updates to any supplied watch.
+func WaitAny(ctx context.Context, pred func() bool, watches ...AtomicUpdate) error {
 	for {
-		// Both update channels are read before pred, so a Store landing between
-		// the two still wakes the select rather than being missed.
-		aUpdated, bUpdated := a.ptr.Load().updated, b.ptr.Load().updated
+		// Every update channel is read before pred, so a Store landing between
+		// these reads and pred still wakes the select rather than being missed.
+		cases := make([]reflect.SelectCase, 1, len(watches)+1)
+		cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())}
+		for _, watch := range watches {
+			cases = append(cases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(watch.updated())})
+		}
 		if pred() {
 			return nil
 		}
-		select {
-		case <-ctx.Done():
+		chosen, _, _ := reflect.Select(cases)
+		if chosen == 0 {
 			return ctx.Err()
-		case <-aUpdated:
-		case <-bUpdated:
 		}
 	}
+}
+
+// AtomicUpdate is implemented by AtomicRecv of any T.
+type AtomicUpdate interface {
+	updated() <-chan struct{}
+}
+
+func (w *atomicWatch[T]) updated() <-chan struct{} {
+	return w.ptr.Load().updated
 }
 
 // Iter executes sequentially the function f on each value of the atomic watch.

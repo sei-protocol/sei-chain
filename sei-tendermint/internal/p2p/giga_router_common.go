@@ -619,10 +619,10 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 					}))
 				})
 			}
-			if err := utils.WaitEither(ctx, r.nextCommitEpoch, r.anchor, func() bool {
+			if err := utils.WaitAny(ctx, func() bool {
 				return r.nextCommitEpoch.Load().EpochIndex() != commitEpoch.EpochIndex() ||
 					epochOf(r.anchor.Load()) != epochOf(anchor)
-			}); err != nil {
+			}, r.nextCommitEpoch, r.anchor); err != nil {
 				return err
 			}
 		}
