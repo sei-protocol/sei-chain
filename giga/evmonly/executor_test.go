@@ -644,6 +644,7 @@ func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
 	require.Zero(t, occResult.OCCStats.ConflictCount)
+	require.Equal(t, seqResult.ChangeSet, occResult.ChangeSet)
 	for i := range txCount {
 		require.Equal(t, seqResult.Txs[i].Hash, occResult.Txs[i].Hash)
 		require.Equal(t, seqResult.Txs[i].Status, occResult.Txs[i].Status)
@@ -734,6 +735,7 @@ func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+	require.Equal(t, seqResult.ChangeSet, occResult.ChangeSet)
 
 	seqState.ApplyChangeSet(seqResult.ChangeSet)
 	occState.ApplyChangeSet(occResult.ChangeSet)
