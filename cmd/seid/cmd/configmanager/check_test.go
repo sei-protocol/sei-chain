@@ -676,3 +676,42 @@ func TestTheCheckRefusesWhatTheDeliveryRefuses(t *testing.T) {
 		})
 	}
 }
+
+// TestNoHomeIsRefusedRatherThanAnsweredFromTheWorkingDirectory covers the one case where answering is
+// worse than declining.
+//
+// Every path here joins the home with config/sei.toml. An empty home leaves that relative, so the read
+// lands wherever the command was run from and reports on a file belonging to some other node. An operator
+// runs this to decide whether to restart, so a confident answer about the wrong node is the worst outcome
+// available.
+//
+// The variable this names is read from the running binary, which under a test binary is not the one a node
+// uses, so the message is checked for naming a variable rather than for naming seid's.
+func TestNoHomeIsRefusedRatherThanAnsweredFromTheWorkingDirectory(t *testing.T) {
+	configtest.Isolate(t)
+
+	elsewhere := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(elsewhere, "config"), 0o750); err != nil {
+		t.Fatalf("make a directory holding another node's file: %v", err)
+	}
+	// A complete, valid file for a different node. Nothing about it is wrong; it is simply not ours.
+	if err := os.WriteFile(filepath.Join(elsewhere, "config", seiTomlName),
+		[]byte("schema_version = 1\nnode_mode = \"validator\"\n"), 0o600); err != nil {
+		t.Fatalf("write another node's sei.toml: %v", err)
+	}
+	t.Chdir(elsewhere)
+
+	// No --home flag and nothing in the environment, which is what an exec into a container gives when
+	// the variable that is set is not the one the resolver reads.
+	cmd := &cobra.Command{Use: "check"}
+	cmd.SetContext(context.Background())
+
+	problems, notes, found, err := checkSeiToml(cmd)
+	if err == nil {
+		t.Fatalf("with no home set the check answered from the working directory: found=%v problems=%v "+
+			"notes=%v. It reported on a file belonging to another node", found, problems, notes)
+	}
+	if !strings.Contains(err.Error(), "--home") || !strings.Contains(err.Error(), "_HOME") {
+		t.Errorf("declining is right, but the reason does not name what to set: %v", err)
+	}
+}

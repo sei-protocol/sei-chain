@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -141,6 +142,16 @@ func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("resolve the home directory: %w", err)
 	}
+	// An empty home leaves every path below relative, so the reads land in ./config under whatever
+	// directory this command was run from. That answers for some other node's files, and answering for
+	// the wrong node is worse than not answering: an operator runs this to decide whether to restart.
+	//
+	// The boot declines the same case. Refused rather than reported, because the exit status is this
+	// command's answer and there is nothing here to have an opinion about.
+	if home == "" {
+		return nil, nil, false, fmt.Errorf("no home directory is set, so there is no sei.toml to check. "+
+			"Pass --home, or set %s", theVariableThatSetsTheHome())
+	}
 	file, err := readSeiTomlAt(home)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -200,6 +211,18 @@ func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err
 	problems = append(problems, whatADecodeWouldRefuse(resolved, own)...)
 	notes = append(notes, whatTheFileLeavesToTheDeclaration(resolved, written, mode))
 	return problems, notes, true, nil
+}
+
+// theVariableThatSetsTheHome names the environment variable the home resolves from.
+//
+// Derived from the running binary the same way the resolver derives it, so a message naming it cannot
+// drift from the name that actually works.
+func theVariableThatSetsTheHome() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "the home variable for this binary"
+	}
+	return strings.ToUpper(path.Base(exe)) + "_HOME"
 }
 
 // theNodesOwnConfiguration reads the node's own configuration file into the struct a boot decodes it into.
