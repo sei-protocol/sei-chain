@@ -96,13 +96,9 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("read block store head: %w", err)
 	}
-	stored, _, last, err := statewal.GetRange(flatkv.StateWALConfig(m.cfg.FlatKVConfig))
+	stateHeight, err := m.stateWALHead()
 	if err != nil {
-		return 0, fmt.Errorf("read state WAL head: %w", err)
-	}
-	var stateHeight uint64
-	if stored {
-		stateHeight = last
+		return 0, err
 	}
 	var receiptHeight uint64
 	if m.receiptDB != nil {
@@ -112,6 +108,21 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 		}
 	}
 	return int64(recoveryTarget(blockHeight, stateHeight, receiptHeight)), nil //nolint:gosec // heights fit within int64
+}
+
+// stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
+//
+// It reads the WAL directory rather than an open WAL, which takes that directory's exclusive lock, so
+// it must run before the StateDB opens it.
+func (m *GigaStorageManager) stateWALHead() (uint64, error) {
+	stored, _, last, err := statewal.GetRange(flatkv.StateWALConfig(m.cfg.FlatKVConfig.DataDir))
+	if err != nil {
+		return 0, fmt.Errorf("read state WAL head: %w", err)
+	}
+	if !stored {
+		return 0, nil
+	}
+	return last, nil
 }
 
 // recoveryTarget folds the store heads into the height they converge on: the lowest of them, with a

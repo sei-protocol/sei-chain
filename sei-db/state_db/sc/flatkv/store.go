@@ -1275,7 +1275,7 @@ func (s *CommitStore) reopenWAL() error {
 	if err := s.wal.Close(); err != nil {
 		return fmt.Errorf("close state WAL: %w", err)
 	}
-	w, err := statewal.New(stateWALConfig(s.config.DataDir))
+	w, err := statewal.New(StateWALConfig(s.config.DataDir))
 	if err != nil {
 		return fmt.Errorf("open state WAL: %w", err)
 	}

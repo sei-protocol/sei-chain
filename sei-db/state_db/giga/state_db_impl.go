@@ -29,9 +29,9 @@ type StateDB struct {
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
 
-	// Where wal lives, so a tail truncation can reopen it. A truncation is offline, so the handle above
-	// has to be closed and replaced rather than mutated.
-	walCfg *statewal.Config
+	// What the stores were opened from, and what locates the WAL. A tail truncation is offline, so the
+	// handle above has to be closed and reopened from this rather than mutated.
+	flatkvCfg *flatkvconfig.Config
 
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
@@ -65,7 +65,7 @@ func NewStateDB(
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
 ) (db *StateDB, retErr error) {
-	s := &StateDB{walCfg: flatkv.StateWALConfig(flatkvCfg)}
+	s := &StateDB{flatkvCfg: flatkvCfg}
 	defer func() {
 		if retErr != nil {
 			if closeErr := s.Close(); closeErr != nil {
@@ -74,7 +74,7 @@ func NewStateDB(
 		}
 	}()
 
-	if err := s.openSC(ctx, flatkvCfg); err != nil {
+	if err := s.openSC(ctx); err != nil {
 		return nil, err
 	}
 	if err := s.openWAL(); err != nil {
@@ -93,9 +93,9 @@ func NewStateDB(
 
 // openWAL opens the state WAL this StateDB writes both halves of state through.
 func (s *StateDB) openWAL() error {
-	wal, err := statewal.New(s.walCfg)
+	wal, err := flatkv.OpenStateWAL(s.flatkvCfg)
 	if err != nil {
-		return fmt.Errorf("open state WAL at %s: %w", s.walCfg.Path, err)
+		return fmt.Errorf("open state WAL: %w", err)
 	}
 	s.wal = wal
 	return nil
@@ -104,8 +104,8 @@ func (s *StateDB) openWAL() error {
 // openSC opens the state commit store with no WAL of its own and loads it. The load must precede the
 // WAL being opened, since a store with no WAL reads the WAL directory out of band to resolve its
 // version, and that read takes the directory's exclusive lock.
-func (s *StateDB) openSC(ctx context.Context, cfg *flatkvconfig.Config) error {
-	sc, err := flatkv.NewCommitStore(ctx, cfg, nil)
+func (s *StateDB) openSC(ctx context.Context) error {
+	sc, err := flatkv.NewCommitStore(ctx, s.flatkvCfg, nil)
 	if err != nil {
 		return fmt.Errorf("open state commit store: %w", err)
 	}
@@ -329,14 +329,12 @@ func (s *StateDB) truncateWAL(target int64) error {
 		return fmt.Errorf("close state WAL before truncating it to %d: %w", target, err)
 	}
 	//nolint:gosec // a WAL head above target means target >= 0
-	if err := statewal.PruneAfter(s.walCfg, uint64(target)); err != nil {
+	if err := statewal.PruneAfter(flatkv.StateWALConfig(s.flatkvCfg.DataDir), uint64(target)); err != nil {
 		return fmt.Errorf("truncate state WAL to %d: %w", target, err)
 	}
-	wal, err := statewal.New(s.walCfg)
-	if err != nil {
+	if err := s.openWAL(); err != nil {
 		return fmt.Errorf("reopen state WAL truncated to %d: %w", target, err)
 	}
-	s.wal = wal
 	return nil
 }
 
