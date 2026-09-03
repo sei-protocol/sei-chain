@@ -187,13 +187,14 @@ func evmOnlyStoreAddress(address common.Address) gigastore.Address {
 func (a *evmOnlyInMemoryApplication) EvmNonce(address common.Address) uint64 {
 	snapshot := a.store.OpenView()
 	defer snapshot.Close()
-	return snapshot.GetNonce(evmOnlyStoreAddress(address))
+	nonce, _ := snapshot.GetNonce(evmOnlyStoreAddress(address))
+	return nonce
 }
 
 func (a *evmOnlyInMemoryApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	snapshot := a.store.OpenView()
 	defer snapshot.Close()
-	balance := snapshot.GetBalance(evmOnlyStoreAddress(address))
+	balance, _ := snapshot.GetBalance(evmOnlyStoreAddress(address))
 	return *new(uint256.Int).SetBytes(balance[:])
 }
 

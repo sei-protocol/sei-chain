@@ -93,59 +93,59 @@ func (v *flatKVStateView) AccountExists(addr giga.Address) bool {
 	return v.accountData(addr[:]) != nil
 }
 
-// GetNonce returns addr's account nonce, or 0 when the account does not exist.
-func (v *flatKVStateView) GetNonce(addr giga.Address) uint64 {
+// GetNonce returns addr's account nonce, and whether addr has an account.
+func (v *flatKVStateView) GetNonce(addr giga.Address) (uint64, bool) {
 	account := v.accountData(addr[:])
 	if account == nil {
-		return 0
+		return 0, false
 	}
-	return account.GetNonce()
+	return account.GetNonce(), true
 }
 
-// GetBalance panics. FlatKV has no balance key, so every account row carries a zero balance and
-// there is nothing to read; answering zero would be indistinguishable from a real balance of zero.
-func (v *flatKVStateView) GetBalance(giga.Address) giga.Hash {
+// GetBalance panics. FlatKV stores no balances, so there is no entry to report as present or absent,
+// and either answer would misdescribe an account that holds one.
+func (v *flatKVStateView) GetBalance(giga.Address) (giga.Hash, bool) {
 	panic("flatkv: GetBalance is unimplemented; FlatKV does not store balances")
 }
 
-// GetCodeHash returns the hash of addr's contract code, giga.EmptyCodeHash when the account exists
-// and holds no code, or the zero hash when it does not exist.
-func (v *flatKVStateView) GetCodeHash(addr giga.Address) giga.Hash {
+// GetCodeHash returns the hash of addr's contract code, and whether a code hash is stored for addr.
+// An account that exists and holds no code stores no code hash.
+func (v *flatKVStateView) GetCodeHash(addr giga.Address) (giga.Hash, bool) {
 	account := v.accountData(addr[:])
 	if account == nil {
-		return giga.Hash{}
+		return giga.Hash{}, false
 	}
 	codeHash := giga.Hash(*account.GetCodeHash())
 	if codeHash == (giga.Hash{}) {
 		// A row only exists while some field is non-zero (see AccountData.IsDelete), and the code hash
-		// is not that field here, so this account has a nonce or a balance and no code — the case EVM
-		// semantics answer with the empty-code hash rather than with zero.
-		return giga.EmptyCodeHash
+		// is not that field here, so this account has a nonce or a balance and no code at all.
+		return giga.Hash{}, false
 	}
-	return codeHash
+	return codeHash, true
 }
 
-// GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
-func (v *flatKVStateView) GetStorage(addr giga.Address, key giga.Hash) giga.Hash {
+// GetStorage returns the value at key in addr's storage, and whether that slot is set.
+func (v *flatKVStateView) GetStorage(addr giga.Address, key giga.Hash) (giga.Hash, bool) {
 	storage := v.storageData(ktype.StorageKey(ktype.Address(addr), ktype.Slot(key)))
 	if storage == nil {
-		return giga.Hash{}
+		return giga.Hash{}, false
 	}
-	return giga.Hash(*storage.GetValue())
+	return giga.Hash(*storage.GetValue()), true
 }
 
-// GetCode returns addr's contract code, or nil when it has none.
-func (v *flatKVStateView) GetCode(addr giga.Address) []byte {
+// GetCode returns addr's contract code, and whether addr has code.
+func (v *flatKVStateView) GetCode(addr giga.Address) ([]byte, bool) {
 	code := v.codeData(addr[:])
 	if code == nil {
-		return nil
+		return nil, false
 	}
-	return code.GetBytecode()
+	return code.GetBytecode(), true
 }
 
-// GetCodeSize returns the length of addr's contract code in bytes, or 0 when it has none.
-func (v *flatKVStateView) GetCodeSize(addr giga.Address) int {
-	return len(v.GetCode(addr))
+// GetCodeSize returns the length of addr's contract code in bytes, and whether addr has code.
+func (v *flatKVStateView) GetCodeSize(addr giga.Address) (int, bool) {
+	code, ok := v.GetCode(addr)
+	return len(code), ok
 }
 
 // accountData returns the account row for the 20-byte address in keyBytes, or nil when no account

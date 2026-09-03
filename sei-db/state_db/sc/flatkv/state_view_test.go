@@ -61,7 +61,8 @@ func TestOpenViewReadsCommittedBlock(t *testing.T) {
 	defer stateView.Close()
 
 	require.Equal(t, int64(1), stateView.GetBlockHeight())
-	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)))
+	nonce, _ := stateView.GetNonce(gigaAddr(addr))
+	require.Equal(t, uint64(7), nonce)
 }
 
 // The point of a view is that it is pinned: it keeps answering for the block it was opened on however
@@ -81,13 +82,15 @@ func TestOpenViewIsIsolatedFromLaterCommits(t *testing.T) {
 	}
 
 	require.Equal(t, int64(1), stateView.GetBlockHeight(), "a view must not follow the store forward")
-	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)),
+	pinnedNonce, _ := stateView.GetNonce(gigaAddr(addr))
+	require.Equal(t, uint64(7), pinnedNonce,
 		"a view must not observe writes committed after it was opened")
 
 	latest := s.OpenView()
 	defer latest.Close()
 	require.Equal(t, int64(4), latest.GetBlockHeight())
-	require.Equal(t, uint64(14), latest.GetNonce(gigaAddr(addr)))
+	latestNonce, _ := latest.GetNonce(gigaAddr(addr))
+	require.Equal(t, uint64(14), latestNonce)
 }
 
 // Every OpenView takes a reservation that only Close hands back, and an unreleased view stalls its
@@ -101,7 +104,8 @@ func TestOpenViewCloseReturnsReservation(t *testing.T) {
 
 	for i := 0; i < 50; i++ {
 		stateView := s.OpenView()
-		require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)))
+		nonce, _ := stateView.GetNonce(gigaAddr(addr))
+		require.Equal(t, uint64(7), nonce)
 		stateView.Close()
 	}
 
@@ -134,7 +138,8 @@ func TestOpenViewCloseIsIdempotent(t *testing.T) {
 	commitNonce(t, s, 1, addr, 7)
 
 	stateView := s.OpenView()
-	require.Equal(t, uint64(7), stateView.GetNonce(gigaAddr(addr)))
+	nonce, _ := stateView.GetNonce(gigaAddr(addr))
+	require.Equal(t, uint64(7), nonce)
 	stateView.Close()
 	stateView.Close()
 
@@ -144,7 +149,8 @@ func TestOpenViewCloseIsIdempotent(t *testing.T) {
 
 	latest := s.OpenView()
 	defer latest.Close()
-	require.Equal(t, uint64(9), latest.GetNonce(gigaAddr(addr)))
+	latestNonce, _ := latest.GetNonce(gigaAddr(addr))
+	require.Equal(t, uint64(9), latestNonce)
 }
 
 // The EVM accessors are the read surface the executor actually uses, so each one is pinned against a
@@ -172,40 +178,83 @@ func TestStateViewEVMAccessors(t *testing.T) {
 	t.Run("contract", func(t *testing.T) {
 		addr := gigaAddr(contract)
 		require.True(t, stateView.AccountExists(addr))
-		require.Equal(t, uint64(3), stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash(codeHash), stateView.GetCodeHash(addr))
-		require.Equal(t, bytecode, stateView.GetCode(addr))
-		require.Equal(t, len(bytecode), stateView.GetCodeSize(addr))
-		require.Equal(t, giga.Hash(padLeft32(0xEE)[0:32]), stateView.GetStorage(addr, giga.Hash(slot)))
-		require.Equal(t, giga.Hash{}, stateView.GetStorage(addr, giga.Hash(slotN(9))),
-			"an unset slot reads as zero, not as missing")
+
+		nonce, ok := stateView.GetNonce(addr)
+		require.True(t, ok)
+		require.Equal(t, uint64(3), nonce)
+
+		hash, ok := stateView.GetCodeHash(addr)
+		require.True(t, ok)
+		require.Equal(t, giga.Hash(codeHash), hash)
+
+		code, ok := stateView.GetCode(addr)
+		require.True(t, ok)
+		require.Equal(t, bytecode, code)
+
+		size, ok := stateView.GetCodeSize(addr)
+		require.True(t, ok)
+		require.Equal(t, len(bytecode), size)
+
+		value, ok := stateView.GetStorage(addr, giga.Hash(slot))
+		require.True(t, ok)
+		require.Equal(t, giga.Hash(padLeft32(0xEE)[0:32]), value)
+
+		value, ok = stateView.GetStorage(addr, giga.Hash(slotN(9)))
+		require.False(t, ok, "an unset slot reads as missing")
+		require.Equal(t, giga.Hash{}, value)
 	})
 
 	t.Run("account without code", func(t *testing.T) {
 		addr := gigaAddr(eoa)
 		require.True(t, stateView.AccountExists(addr))
-		require.Equal(t, uint64(9), stateView.GetNonce(addr))
-		require.Equal(t, giga.EmptyCodeHash, stateView.GetCodeHash(addr),
-			"an account that exists with no code hashes as keccak256(\"\"), not as zero")
-		require.Nil(t, stateView.GetCode(addr))
-		require.Zero(t, stateView.GetCodeSize(addr))
+
+		nonce, ok := stateView.GetNonce(addr)
+		require.True(t, ok)
+		require.Equal(t, uint64(9), nonce)
+
+		hash, ok := stateView.GetCodeHash(addr)
+		require.False(t, ok, "an account that exists with no code stores no code hash")
+		require.Equal(t, giga.Hash{}, hash)
+
+		code, ok := stateView.GetCode(addr)
+		require.False(t, ok)
+		require.Nil(t, code)
+
+		size, ok := stateView.GetCodeSize(addr)
+		require.False(t, ok)
+		require.Zero(t, size)
 	})
 
 	t.Run("account that does not exist", func(t *testing.T) {
 		addr := gigaAddr(missing)
 		require.False(t, stateView.AccountExists(addr))
-		require.Zero(t, stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetCodeHash(addr),
-			"an account that does not exist hashes as zero, not as keccak256(\"\")")
-		require.Nil(t, stateView.GetCode(addr))
-		require.Zero(t, stateView.GetCodeSize(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetStorage(addr, giga.Hash(slot)))
+
+		nonce, ok := stateView.GetNonce(addr)
+		require.False(t, ok)
+		require.Zero(t, nonce)
+
+		hash, ok := stateView.GetCodeHash(addr)
+		require.False(t, ok)
+		require.Equal(t, giga.Hash{}, hash)
+
+		code, ok := stateView.GetCode(addr)
+		require.False(t, ok)
+		require.Nil(t, code)
+
+		size, ok := stateView.GetCodeSize(addr)
+		require.False(t, ok)
+		require.Zero(t, size)
+
+		value, ok := stateView.GetStorage(addr, giga.Hash(slot))
+		require.False(t, ok)
+		require.Equal(t, giga.Hash{}, value)
 	})
 }
 
 // Balance has no key kind yet, so nothing can write one (store_apply.go passes nil balance changes).
-// Refusing is the only honest answer: zero would be indistinguishable from a real zero balance, and
-// the caller has no way to tell the two apart. The account below has a nonce, so its row does exist.
+// Refusing is the only honest answer: there is no balance entry to report as present or absent, and
+// either answer would misdescribe an account that holds one. The account below has a nonce, so its row
+// does exist.
 func TestStateViewBalancePanicsUntilWritable(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
@@ -294,7 +343,6 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 
 	t.Run("code hash of an account with no code", func(t *testing.T) {
 		_, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, eoa[:]))
-		require.False(t, found,
-			"Get reports what is stored; substituting EmptyCodeHash here is GetCodeHash's job")
+		require.False(t, found, "an account that exists with no code stores no code hash")
 	})
 }
