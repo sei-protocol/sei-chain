@@ -59,6 +59,33 @@ func TestParseJSONIntAcceptsNumbersAndStrings(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseBroadcastTxHash(t *testing.T) {
+	hash, err := parseBroadcastTxHash(`{"txhash":"ABCDEF","code":0}`)
+	require.NoError(t, err)
+	require.Equal(t, "ABCDEF", hash)
+
+	_, err = parseBroadcastTxHash(`{"code":0}`)
+	require.ErrorContains(t, err, "no txhash")
+}
+
+func TestParseDeliveredTx(t *testing.T) {
+	got, err := parseDeliveredTx(`{
+  "txhash": "ABCDEF",
+  "height": "42",
+  "code": 0,
+  "gas_used": "12345",
+  "raw_log": "[]"
+}`)
+	require.NoError(t, err)
+	require.Equal(t, DeliveredTx{
+		Hash:    "ABCDEF",
+		Height:  42,
+		Code:    0,
+		GasUsed: 12345,
+		RawLog:  "[]",
+	}, got)
+}
+
 func TestParseABCIQueryResponse(t *testing.T) {
 	value, code, log, err := parseABCIQueryResponse([]byte(`{
   "jsonrpc": "2.0",

@@ -4,11 +4,16 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -52,6 +57,10 @@ func testV67OfflineUpgradeTargetFixture(t *testing.T) {
 	artifact.MigratedRoot = offlineUpgradeMigratedDir
 	artifact.UpgradeHash = offlineUpgradeHashString(cleanHash)
 	writeOfflineUpgradeArtifact(t, root, artifact)
+
+	txRoot := filepath.Join(root, "post-upgrade-tx")
+	copyOfflineUpgradeDatabase(t, cleanRoot, txRoot)
+	requireV67OfflineDeliveredBankSend(t, txRoot, artifact.Retained)
 }
 
 func applyV67OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
@@ -217,6 +226,9 @@ func requireV67OfflineRetainedIdentities(t *testing.T, retained offlineUpgradeRe
 	require.NotEmpty(t, retained.VoucherHolder)
 	require.NotEmpty(t, retained.VoucherAmount)
 	require.NotEmpty(t, retained.VoucherSupply)
+	require.NotEmpty(t, retained.TxSender)
+	require.NotEmpty(t, retained.TxSenderKey)
+	require.NotEmpty(t, retained.TxRecipient)
 }
 
 // requireV67OfflineBankState asserts the recorded IBC escrow and voucher bank
@@ -294,4 +306,112 @@ func requireV67OfflineRetainedStoreKeys(
 	case "transfer":
 		requireOfflineUpgradeStoreKey(t, snapshot, "transfer denom trace "+retained.TransferIBCDenom, retained.TransferTraceKey)
 	}
+}
+
+const (
+	v67OfflinePostUpgradeSendAmt int64 = 4242
+	v67OfflinePostUpgradeFee     int64 = 200000
+)
+
+// requireV67OfflineDeliveredBankSend delivers a signed bank send against the
+// migrated database and requires that the committed balances and sequence moved.
+func requireV67OfflineDeliveredBankSend(t *testing.T, root string, retained offlineUpgradeRetainedState) {
+	t.Helper()
+	testApp := openOfflineUpgradeApp(t, root, false)
+	upgradeHeight := testApp.LastBlockHeight()
+
+	privBytes, err := hex.DecodeString(retained.TxSenderKey)
+	require.NoError(t, err)
+	priv := &secp256k1.PrivKey{Key: privBytes}
+	sender, err := sdk.AccAddressFromBech32(retained.TxSender)
+	require.NoError(t, err)
+	require.Equal(t, sender, sdk.AccAddress(priv.PubKey().Address()),
+		"recorded sender key does not match recorded sender address")
+	recipient, err := sdk.AccAddressFromBech32(retained.TxRecipient)
+	require.NoError(t, err)
+
+	beforeCtx := offlineUpgradeReadContext(testApp, upgradeHeight)
+	senderBefore := testApp.BankKeeper.GetBalance(beforeCtx, sender, "usei")
+	recvBefore := testApp.BankKeeper.GetBalance(beforeCtx, recipient, "usei")
+	acc := testApp.AccountKeeper.GetAccount(beforeCtx, sender)
+	require.NotNil(t, acc, "sender account is missing from the migrated database")
+	seqBefore := acc.GetSequence()
+
+	txBz := signV67OfflineBankSend(t, testApp, priv, recipient, v67OfflinePostUpgradeSendAmt, v67OfflinePostUpgradeFee)
+	res, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Hash: []byte("offline-upgrade-tx"),
+		Header: &tmproto.Header{
+			ChainID: offlineUpgradeChainID,
+			Height:  upgradeHeight + 1,
+			Time:    v67OfflineUpgradeBlockTime.Add(time.Second),
+		},
+		Txs: [][]byte{txBz},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.TxResults, 1)
+	require.Equal(t, uint32(abci.CodeTypeOK), res.TxResults[0].Code, res.TxResults[0].Log)
+	require.Positive(t, res.TxResults[0].GasUsed)
+	commitOfflineUpgradeApp(t, testApp)
+	closeOfflineUpgradeApp(t, testApp)
+
+	reopened := openOfflineUpgradeApp(t, root, false)
+	defer closeOfflineUpgradeApp(t, reopened)
+	require.Equal(t, upgradeHeight+1, reopened.LastBlockHeight())
+	afterCtx := offlineUpgradeReadContext(reopened, reopened.LastBlockHeight())
+	require.Equal(t, recvBefore.Add(sdk.NewInt64Coin("usei", v67OfflinePostUpgradeSendAmt)),
+		reopened.BankKeeper.GetBalance(afterCtx, recipient, "usei"),
+		"delivered bank send did not credit the recipient")
+	require.Equal(t, senderBefore.Sub(sdk.NewInt64Coin("usei", v67OfflinePostUpgradeSendAmt+v67OfflinePostUpgradeFee)),
+		reopened.BankKeeper.GetBalance(afterCtx, sender, "usei"),
+		"delivered bank send did not debit the sender including the fee")
+	require.Equal(t, seqBefore+1,
+		reopened.AccountKeeper.GetAccount(afterCtx, sender).GetSequence(),
+		"delivered bank send did not advance the sender sequence")
+}
+
+func signV67OfflineBankSend(t *testing.T, testApp *App, priv *secp256k1.PrivKey, to sdk.AccAddress, amount, fee int64) []byte {
+	t.Helper()
+	from := sdk.AccAddress(priv.PubKey().Address())
+	txConfig := testApp.GetTxConfig()
+	txBuilder := txConfig.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(banktypes.NewMsgSend(from, to, sdk.NewCoins(sdk.NewInt64Coin("usei", amount)))))
+	txBuilder.SetGasLimit(1_000_000)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", fee)))
+
+	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
+	acc := testApp.AccountKeeper.GetAccount(ctx, from)
+	require.NotNil(t, acc, "sender account is missing from the migrated database")
+
+	signerData := xauthsigning.SignerData{
+		ChainID:       offlineUpgradeChainID,
+		AccountNumber: acc.GetAccountNumber(),
+		Sequence:      acc.GetSequence(),
+	}
+	sigData := signing.SingleSignatureData{
+		SignMode:  txConfig.SignModeHandler().DefaultMode(),
+		Signature: nil,
+	}
+	sig := signing.SignatureV2{
+		PubKey:   priv.PubKey(),
+		Data:     &sigData,
+		Sequence: acc.GetSequence(),
+	}
+	require.NoError(t, txBuilder.SetSignatures(sig))
+	bytesToSign, err := txConfig.SignModeHandler().GetSignBytes(txConfig.SignModeHandler().DefaultMode(), signerData, txBuilder.GetTx())
+	require.NoError(t, err)
+	sigBytes, err := priv.Sign(bytesToSign)
+	require.NoError(t, err)
+	sigData = signing.SingleSignatureData{
+		SignMode:  txConfig.SignModeHandler().DefaultMode(),
+		Signature: sigBytes,
+	}
+	sig = signing.SignatureV2{
+		PubKey:   priv.PubKey(),
+		Data:     &sigData,
+		Sequence: acc.GetSequence(),
+	}
+	require.NoError(t, txBuilder.SetSignatures(sig))
+	bz, err := txConfig.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+	return bz
 }

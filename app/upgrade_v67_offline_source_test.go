@@ -192,6 +192,7 @@ func seedV67OfflineUpgradeState(t *testing.T, testApp *App, ctx sdk.Context) off
 	seedV67Feegrant(t, testApp, ctx, &retained)
 	seedV67Capability(t, testApp, ctx, &retained)
 	seedV67IBC(t, testApp, ctx, &retained)
+	seedV67DeliverableTxAccount(t, testApp, ctx, &retained)
 	seedV67Transfer(t, testApp, ctx, &retained)
 	return retained
 }
@@ -383,6 +384,27 @@ func fundOfflineUpgradeAccount(t *testing.T, testApp *App, ctx sdk.Context) sdk.
 	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, addr, coins))
 	require.False(t, testApp.BankKeeper.GetBalance(ctx, addr, "usei").IsZero())
 	return addr
+}
+
+// seedV67DeliverableTxAccount records a funded sender and an empty recipient
+// for a signed bank send after the upgrade.
+func seedV67DeliverableTxAccount(t *testing.T, testApp *App, ctx sdk.Context, retained *offlineUpgradeRetainedState) {
+	t.Helper()
+	priv := secp256k1.GenPrivKey()
+	sender := sdk.AccAddress(priv.PubKey().Address())
+	acc := testApp.AccountKeeper.NewAccountWithAddress(ctx, sender)
+	require.NoError(t, acc.SetPubKey(priv.PubKey()))
+	testApp.AccountKeeper.SetAccount(ctx, acc)
+	coins := sdk.NewCoins(sdk.NewInt64Coin("usei", 1_000_000_000))
+	require.NoError(t, testApp.BankKeeper.MintCoins(ctx, minttypes.ModuleName, coins))
+	require.NoError(t, testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, sender, coins))
+
+	recipient := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	testApp.AccountKeeper.SetAccount(ctx, testApp.AccountKeeper.NewAccountWithAddress(ctx, recipient))
+
+	retained.TxSender = sender.String()
+	retained.TxSenderKey = hex.EncodeToString(priv.Bytes())
+	retained.TxRecipient = recipient.String()
 }
 
 func snapshotV67OfflineUpgradeStores(t *testing.T, testApp *App, ctx sdk.Context) map[string]map[string]string {

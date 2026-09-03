@@ -14,6 +14,7 @@ import (
 	"sort"
 	"testing"
 
+	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -47,7 +48,11 @@ type offlineUpgradeArtifact struct {
 	UpgradeHash    string                       `json:"upgrade_hash"`
 }
 
-// offlineUpgradeRetainedState names the real module keys the source phase wrote.
+// offlineUpgradeRetainedState identifies the state the source phase wrote: the
+// store keys of each retired module, the bank balances behind IBC escrow and
+// voucher denoms, and the accounts a post-upgrade transaction moves funds
+// between. TxSenderKey is a throwaway key generated for the fixture database,
+// which the target phase needs in order to sign as that account.
 type offlineUpgradeRetainedState struct {
 	FeegrantGranter     string `json:"feegrant_granter"`
 	FeegrantGrantee     string `json:"feegrant_grantee"`
@@ -71,6 +76,9 @@ type offlineUpgradeRetainedState struct {
 	VoucherHolder       string `json:"voucher_holder"`
 	VoucherAmount       string `json:"voucher_amount"`
 	VoucherSupply       string `json:"voucher_supply"`
+	TxSender            string `json:"tx_sender"`
+	TxSenderKey         string `json:"tx_sender_key"`
+	TxRecipient         string `json:"tx_recipient"`
 }
 
 func requireOfflineUpgradePhase(t *testing.T, want string) string {
@@ -165,6 +173,7 @@ func openOfflineUpgradeSnapshotApp(t *testing.T, home, chainID string) *App {
 		EmptyWasmOpts,
 		options,
 	)
+	requireOfflineUpgradeExecutionConfig(t, testApp)
 	require.Positive(t, testApp.LastBlockHeight(),
 		"%s opened with LastBlockHeight 0; the application database is empty or unreadable", home)
 	return testApp
@@ -206,10 +215,24 @@ func openOfflineUpgradeApp(t *testing.T, root string, initialize bool) *App {
 		EmptyWasmOpts,
 		options,
 	)
+	requireOfflineUpgradeExecutionConfig(t, testApp)
 	if initialize {
 		initializeOfflineUpgradeApp(t, testApp, genesisStateBytes)
 	}
 	return testApp
+}
+
+// requireOfflineUpgradeExecutionConfig asserts that this harness constructs an
+// app with OCC disabled and DefaultConcurrencyWorkers. The fleet sets
+// occ-enabled = true and the live harness sets concurrency-workers = 4.
+func requireOfflineUpgradeExecutionConfig(t *testing.T, testApp *App) {
+	t.Helper()
+	require.False(t, testApp.OccEnabled(),
+		"offline upgrade tests ran with BaseApp.OccEnabled()=%v, want false; this layer's application-hash determinism is not the fleet's (occ-enabled = true)",
+		testApp.OccEnabled())
+	require.Equal(t, serverconfig.DefaultConcurrencyWorkers, testApp.ConcurrencyWorkers(),
+		"offline upgrade tests ran with BaseApp.ConcurrencyWorkers()=%d, want DefaultConcurrencyWorkers=%d; the live harness sets 4",
+		testApp.ConcurrencyWorkers(), serverconfig.DefaultConcurrencyWorkers)
 }
 
 // initializeOfflineUpgradeApp calls the InitChain signature provided by the

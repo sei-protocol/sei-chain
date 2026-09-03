@@ -4,6 +4,7 @@ package app_test
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -12,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -23,14 +26,16 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/upgradetest"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
 
 // v6.7 retires the feegrant, capability, ibc and transfer modules, and
 // deprecates the oracle handlers. These tests cover opaque writes into the
-// retired stores, transactions aimed at retired surfaces, bank balances left
-// behind by IBC transfer, and the upgrade handler itself.
+// retired stores, transactions aimed at retired surfaces, ordinary
+// transactions after the handler, bank balances left behind by IBC transfer,
+// and the upgrade handler itself.
 
 const (
 	v67UpgradeName     = "v6.7"
@@ -43,11 +48,20 @@ const (
 	v67IBCVoucherShapeAmount int64 = 1_234_567
 	v67EscrowStyleAmount     int64 = 7_777_777
 	v67EscrowStyleSendAmount       = "1234567usei"
+	v67PostUpgradeSendAmt    int64 = 4242
+	v67PostUpgradeSendAmount       = "4242usei"
+	v67EVMNativeSendTo             = "0x0000000000000000000000000000000000000067"
 )
 
 // GetEscrowAddress lives on the pre-upgrade branch; this is not a real escrow account.
 var v67EscrowStyleAddress = sdk.AccAddress{
 	0xec, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x67,
+}
+
+var v67PostUpgradeBankReceiver = sdk.AccAddress{
+	0x42, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x67,
 }
@@ -150,6 +164,23 @@ func fundRetiredModuleTxAccounts(a *processblock.App, phase string) retiredModul
 	return accounts
 }
 
+type ordinaryTxAccounts struct {
+	bankSender   sdk.AccAddress
+	bankReceiver sdk.AccAddress
+	evmSender    sdk.AccAddress
+}
+
+func fundOrdinaryTxAccounts(a *processblock.App, phase string) ordinaryTxAccounts {
+	accounts := ordinaryTxAccounts{
+		bankSender:   a.NewSignableAccount(phase + "/bank-sender"),
+		bankReceiver: a.NewAccount(),
+		evmSender:    a.NewSignableAccount(phase + "/evm-sender"),
+	}
+	a.FundAccount(accounts.bankSender, 1000000000)
+	a.FundAccount(accounts.evmSender, 1000000000)
+	return accounts
+}
+
 // newV67Chain returns a chain whose only registered upgrade is v6.7, so that
 // applying it exercises the handler under test rather than an earlier one. The
 // common preset supplies the bonded validators a block needs a proposer from.
@@ -159,6 +190,7 @@ func newV67Chain(t *testing.T) *processblock.App {
 	a := processblock.NewTestApp(t)
 	processblock.CommonPreset(a)
 	a.RegisterUpgradeHandlers()
+	requireV67GoLayerExecutionConfig(t, a)
 	return a
 }
 
@@ -192,7 +224,21 @@ func newV67ChainWithoutHandler(t *testing.T) *processblock.App {
 	a := processblock.NewTestApp(t)
 	processblock.CommonPreset(a)
 	a.RegisterUpgradeHandlers()
+	requireV67GoLayerExecutionConfig(t, a)
 	return a
+}
+
+// requireV67GoLayerExecutionConfig asserts that in-process upgrade tests run
+// with OCC disabled and DefaultConcurrencyWorkers. The fleet sets occ-enabled
+// = true and the live harness sets concurrency-workers = 4.
+func requireV67GoLayerExecutionConfig(t *testing.T, a *processblock.App) {
+	t.Helper()
+	require.False(t, a.OccEnabled(),
+		"in-process v6.7 tests ran with BaseApp.OccEnabled()=%v, want false; this layer's application-hash determinism is not the fleet's (occ-enabled = true)",
+		a.OccEnabled())
+	require.Equal(t, serverconfig.DefaultConcurrencyWorkers, a.ConcurrencyWorkers(),
+		"in-process v6.7 tests ran with BaseApp.ConcurrencyWorkers()=%d, want DefaultConcurrencyWorkers=%d; the live harness sets 4",
+		a.ConcurrencyWorkers(), serverconfig.DefaultConcurrencyWorkers)
 }
 
 func finalizeV67Block(a *processblock.App, height int64) (*abci.ResponseFinalizeBlock, error) {
@@ -324,6 +370,7 @@ func TestV67CrossVersion(t *testing.T) {
 
 func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v67UpgradeName, chain.UpgradeName(t))
+	chain.Record(t, v67LiveHarnessConfigKey, v67ReadLiveHarnessConfig(t, chain))
 
 	granter := chain.KeyAddress(t, "sei-node-0", "admin")
 	grantee := chain.KeyAddress(t, "sei-node-0", "node_admin")
@@ -341,10 +388,7 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 		"--yes",
 		"--output", "json",
 	)
-	chain.WriteDiagnostic(t, "v66-feegrant-grant.json", []byte(grant.Stdout))
-	chain.WriteDiagnostic(t, "v66-feegrant-grant.stderr", []byte(grant.Stderr))
-	chain.RequireTxSuccess(t, "v6.6 fee allowance grant", grant)
-	chain.WaitForBlocks(t, 3)
+	chain.RequireDeliverTxSuccess(t, "v6.6 fee allowance grant", grant)
 
 	allowanceBefore := chain.MustSeid(t, "",
 		"q", "feegrant", "grant", granter, grantee, "--output", "json")
@@ -362,10 +406,7 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 		"--yes",
 		"--output", "json",
 	)
-	chain.WriteDiagnostic(t, "v66-feegrant-spend.json", []byte(spend.Stdout))
-	chain.WriteDiagnostic(t, "v66-feegrant-spend.stderr", []byte(spend.Stderr))
-	chain.RequireTxSuccess(t, "v6.6 fee-granted bank send", spend)
-	chain.WaitForBlocks(t, 3)
+	chain.RequireDeliverTxSuccess(t, "v6.6 fee-granted bank send", spend)
 
 	allowanceAfter := chain.MustSeid(t, "",
 		"q", "feegrant", "grant", granter, grantee, "--output", "json")
@@ -401,6 +442,11 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 
 func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v67UpgradeName, chain.UpgradeName(t))
+
+	var beforeConfig map[string]v67ValidatorRuntimeConfig
+	chain.Replay(t, v67LiveHarnessConfigKey, &beforeConfig)
+	require.Equal(t, beforeConfig, v67ReadLiveHarnessConfig(t, chain),
+		"the upgrade changed a validator's SeiDB, OCC, or pruning settings; every other assertion in this run is about a configuration the binary is no longer running")
 
 	planName := requireV67RecordedPlanName(t, chain)
 	appliedOutput := chain.MustSeid(t, "",
@@ -484,6 +530,8 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 
 	requireV67EscrowShapedBankState(t, chain)
 	requireV67IBCTransferQueriesGone(t, chain)
+
+	requireV67PostUpgradeTxs(t, chain)
 
 	requireV67CrashRecovery(t, chain)
 	requireV67OldBinaryOnMigratedNode(t, chain)
@@ -687,10 +735,7 @@ func seedV66EscrowShapedBankState(t *testing.T, chain *upgradetest.CrossVersion)
 		"--yes",
 		"--output", "json",
 	)
-	chain.WriteDiagnostic(t, "v66-escrow-style-send.stdout", []byte(send.Stdout))
-	chain.WriteDiagnostic(t, "v66-escrow-style-send.stderr", []byte(send.Stderr))
-	chain.RequireTxSuccess(t, "v6.6 bank send to escrow-shaped address", send)
-	chain.WaitForBlocks(t, 3)
+	chain.RequireDeliverTxSuccess(t, "v6.6 bank send to escrow-shaped address", send)
 
 	balanceOut := chain.MustSeid(t, "",
 		"q", "bank", "balances", escrow, "--denom", "usei", "--output", "json")
@@ -770,6 +815,80 @@ func v67BankCoin(t *testing.T, output string) (denom, amount string) {
 	return coin.Denom, strconv.FormatInt(v67JSONInt(t, coin.Amount), 10)
 }
 
+// requireV67PostUpgradeTxs broadcasts a bank send and an EVM native-send after
+// the upgrade and requires that each is included and changes state.
+func requireV67PostUpgradeTxs(t *testing.T, chain *upgradetest.CrossVersion) {
+	t.Helper()
+	sender := chain.KeyAddress(t, chain.Node(), "admin")
+	receiver := v67PostUpgradeBankReceiver.String()
+
+	seqBefore := v67AccountSequence(t, chain, sender)
+	recvBefore := v67UseiBalance(t, chain, receiver)
+
+	chain.RequireDeliverTxSuccess(t, "v6.7 bank send", chain.Seid(v67KeyringPassword,
+		"tx", "bank", "send", "admin", receiver, v67PostUpgradeSendAmount,
+		"--from", "admin",
+		"--chain-id", "sei",
+		"--fees", "200000usei",
+		"--gas", "2000000",
+		"--broadcast-mode", "sync",
+		"--yes",
+		"--output", "json",
+	))
+	require.Equal(t, seqBefore+1, v67AccountSequence(t, chain, sender),
+		"bank send did not advance the sender sequence")
+	require.Equal(t, recvBefore+v67PostUpgradeSendAmt, v67UseiBalance(t, chain, receiver),
+		"bank send did not credit the receiver")
+
+	evmRecv := v67EVMCastSeiAddress(t, v67EVMNativeSendTo)
+	evmBefore := v67UseiBalance(t, chain, evmRecv)
+	chain.RequireDeliverTxSuccess(t, "v6.7 evm native-send", chain.Seid(v67KeyringPassword,
+		"tx", "evm", "native-send", "admin", v67EVMNativeSendTo, v67PostUpgradeSendAmount,
+		"--from", "admin",
+		"--chain-id", "sei",
+		"--fees", "200000usei",
+		"--gas", "2000000",
+		"--broadcast-mode", "sync",
+		"--yes",
+		"--output", "json",
+	))
+	require.Equal(t, seqBefore+2, v67AccountSequence(t, chain, sender),
+		"evm native-send did not advance the sender sequence")
+	require.Equal(t, evmBefore+v67PostUpgradeSendAmt, v67UseiBalance(t, chain, evmRecv),
+		"evm native-send did not credit the cast Sei address")
+}
+
+func v67AccountSequence(t *testing.T, chain *upgradetest.CrossVersion, address string) int64 {
+	t.Helper()
+	out := chain.MustSeid(t, "", "q", "account", address, "--output", "json")
+	var acc struct {
+		Sequence json.RawMessage `json:"sequence"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &acc), out)
+	if len(acc.Sequence) == 0 {
+		return 0
+	}
+	return v67JSONInt(t, acc.Sequence)
+}
+
+func v67UseiBalance(t *testing.T, chain *upgradetest.CrossVersion, address string) int64 {
+	t.Helper()
+	out := chain.MustSeid(t, "",
+		"q", "bank", "balances", address, "--denom", "usei", "--output", "json")
+	_, amount := v67BankCoin(t, out)
+	value, err := strconv.ParseInt(amount, 10, 64)
+	require.NoError(t, err, "parse usei balance %q", amount)
+	return value
+}
+
+func v67EVMCastSeiAddress(t *testing.T, evmHex string) string {
+	t.Helper()
+	raw, err := hex.DecodeString(strings.TrimPrefix(evmHex, "0x"))
+	require.NoError(t, err, "decode EVM address %s", evmHex)
+	require.Len(t, raw, 20, "EVM address %s is not 20 bytes", evmHex)
+	return sdk.AccAddress(raw).String()
+}
+
 func stringDifference(left, right []string) []string {
 	rightSet := make(map[string]struct{}, len(right))
 	for _, value := range right {
@@ -826,6 +945,50 @@ func runRetiredModuleTxs(t *testing.T, a *processblock.App, phase string, accoun
 	}
 }
 
+// runOrdinaryTxs submits a bank send and an EVM native send in one block and
+// requires each delivered result to succeed and to move balances and sequence.
+func runOrdinaryTxs(t *testing.T, a *processblock.App, phase string, accounts ordinaryTxAccounts) {
+	t.Helper()
+	const sendAmt int64 = 1000
+	evmTo := common.HexToAddress(v67EVMNativeSendTo)
+	evmRecv := sdk.AccAddress(evmTo.Bytes())
+
+	bankSenderBefore := a.BankKeeper.GetBalance(a.Ctx(), accounts.bankSender, "usei")
+	bankRecvBefore := a.BankKeeper.GetBalance(a.Ctx(), accounts.bankReceiver, "usei")
+	bankSeqBefore := a.AccountKeeper.GetAccount(a.Ctx(), accounts.bankSender).GetSequence()
+	evmSenderBefore := a.BankKeeper.GetBalance(a.Ctx(), accounts.evmSender, "usei")
+	evmRecvBefore := a.BankKeeper.GetBalance(a.Ctx(), evmRecv, "usei")
+	evmSeqBefore := a.AccountKeeper.GetAccount(a.Ctx(), accounts.evmSender).GetSequence()
+
+	results := a.RunBlockDetailed([]signing.Tx{
+		a.Sign(accounts.bankSender, txFee, msgs.Send(accounts.bankSender, accounts.bankReceiver, sendAmt)),
+		a.Sign(accounts.evmSender, txFee, evmtypes.NewMsgSend(
+			accounts.evmSender, evmTo, sdk.NewCoins(sdk.NewInt64Coin("usei", sendAmt)))),
+	})
+	require.Len(t, results, 2)
+
+	t.Run(phase+"/bank send", func(t *testing.T) {
+		require.Equal(t, uint32(abci.CodeTypeOK), results[0].Code, results[0].Log)
+		require.Positive(t, results[0].GasUsed)
+		require.Equal(t, sdk.NewInt64Coin("usei", sendAmt),
+			a.BankKeeper.GetBalance(a.Ctx(), accounts.bankReceiver, "usei").Sub(bankRecvBefore))
+		require.Equal(t, sdk.NewInt64Coin("usei", sendAmt+txFee),
+			bankSenderBefore.Sub(a.BankKeeper.GetBalance(a.Ctx(), accounts.bankSender, "usei")))
+		require.Equal(t, bankSeqBefore+1,
+			a.AccountKeeper.GetAccount(a.Ctx(), accounts.bankSender).GetSequence())
+	})
+	t.Run(phase+"/evm native send", func(t *testing.T) {
+		require.Equal(t, uint32(abci.CodeTypeOK), results[1].Code, results[1].Log)
+		require.Positive(t, results[1].GasUsed)
+		require.Equal(t, sdk.NewInt64Coin("usei", sendAmt),
+			a.BankKeeper.GetBalance(a.Ctx(), evmRecv, "usei").Sub(evmRecvBefore))
+		require.Equal(t, sdk.NewInt64Coin("usei", sendAmt+txFee),
+			evmSenderBefore.Sub(a.BankKeeper.GetBalance(a.Ctx(), accounts.evmSender, "usei")))
+		require.Equal(t, evmSeqBefore+1,
+			a.AccountKeeper.GetAccount(a.Ctx(), accounts.evmSender).GetSequence())
+	})
+}
+
 // Transactions aimed at retired modules must follow the v6.7 tombstone
 // behavior after the upgrade handler runs. TestV67CrossVersion covers the
 // behavior transition from the old binary.
@@ -835,6 +998,18 @@ func TestV67RejectsRetiredModuleTxsAfterUpgrade(t *testing.T) {
 
 	applyV67(t, a)
 	runRetiredModuleTxs(t, a, "after-upgrade", afterAccounts)
+}
+
+// TestV67AcceptsOrdinaryTxsAcrossUpgrade delivers a bank send and an EVM native
+// send before and after applyV67.
+func TestV67AcceptsOrdinaryTxsAcrossUpgrade(t *testing.T) {
+	a := newV67Chain(t)
+	before := fundOrdinaryTxAccounts(a, "before-upgrade")
+	after := fundOrdinaryTxAccounts(a, "after-upgrade")
+
+	runOrdinaryTxs(t, a, "before-upgrade", before)
+	applyV67ToCommitStore(t, a)
+	runOrdinaryTxs(t, a, "after-upgrade", after)
 }
 
 // Spamming a retired module is not free. Every oracle transaction is rejected,
@@ -978,7 +1153,156 @@ const (
 	v67UpgradedHomeSnapshot   = "/tmp/v67-upgraded-home"
 	v67OldBinaryHomeSnapshot  = "/tmp/v67-pre-old-binary"
 	v67RunningSeid            = "/root/go/bin/seid"
+	v67LiveHarnessConfigKey   = "validator_runtime_config"
+	v67LiveHarnessPruning     = "nothing"
 )
+
+const v67LiveHarnessPruningMessage = "the live upgrade harness pins pruning = %q so historical queries survive this run; mainnet validators prune, so this suite does not prove that a pruning validator still serves retained retired-store data after v6.7"
+
+// v67ValidatorRuntimeConfig is the subset of a validator's app.toml that an
+// upgrade must not silently change.
+type v67ValidatorRuntimeConfig struct {
+	SCEnable   bool   `json:"sc_enable"`
+	SSEnable   bool   `json:"ss_enable"`
+	OCCEnabled bool   `json:"occ_enabled"`
+	Pruning    string `json:"pruning"`
+}
+
+// v67ReadLiveHarnessConfig reads each validator's running app.toml and requires
+// SeiDB and OCC enabled and pruning = "nothing". Mainnet validators prune, so
+// this cluster does not prove retained retired-store data survives on a pruning node.
+func v67ReadLiveHarnessConfig(t *testing.T, chain *upgradetest.CrossVersion) map[string]v67ValidatorRuntimeConfig {
+	t.Helper()
+	nodes := chain.Nodes()
+	configs := make(map[string]v67ValidatorRuntimeConfig, len(nodes))
+	for _, node := range nodes {
+		cfg := v67ReadValidatorRuntimeConfig(t, chain, node)
+		v67RequireLiveHarnessSettings(t, node, cfg)
+		configs[node] = cfg
+	}
+	return configs
+}
+
+func v67ReadValidatorRuntimeConfig(t *testing.T, chain *upgradetest.CrossVersion, node string) v67ValidatorRuntimeConfig {
+	t.Helper()
+	path := v67ValidatorHome + "/config/app.toml"
+	result := chain.BinaryOn(node, "", "cat", path)
+	chain.WriteDiagnostic(t, node+"-app.toml", []byte(result.Stdout))
+	require.NoError(t, result.Err, "read %s %s: %s", node, path, result.Combined())
+	require.NotEmpty(t, result.Stdout, "%s %s is empty", node, path)
+	return v67ParseValidatorRuntimeConfig(t, node, result.Stdout)
+}
+
+func v67ParseValidatorRuntimeConfig(t *testing.T, node, tomlText string) v67ValidatorRuntimeConfig {
+	t.Helper()
+	return v67ValidatorRuntimeConfig{
+		SCEnable:   v67TomlBool(t, node, tomlText, "sc-enable"),
+		SSEnable:   v67TomlBool(t, node, tomlText, "ss-enable"),
+		OCCEnabled: v67TomlBool(t, node, tomlText, "occ-enabled"),
+		Pruning:    v67TomlScalar(t, node, tomlText, "pruning"),
+	}
+}
+
+func v67RequireLiveHarnessSettings(t *testing.T, node string, cfg v67ValidatorRuntimeConfig) {
+	t.Helper()
+	require.True(t, cfg.SCEnable, "%s sc-enable=%v, want true", node, cfg.SCEnable)
+	require.True(t, cfg.SSEnable, "%s ss-enable=%v, want true", node, cfg.SSEnable)
+	require.True(t, cfg.OCCEnabled,
+		"%s occ-enabled=%v, want true; the live cluster must run OCC because the fleet does",
+		node, cfg.OCCEnabled)
+	require.Equal(t, v67LiveHarnessPruning, cfg.Pruning,
+		"%s pruning=%q, want %q; "+v67LiveHarnessPruningMessage,
+		node, cfg.Pruning, v67LiveHarnessPruning, v67LiveHarnessPruning)
+}
+
+func v67TomlBool(t *testing.T, node, tomlText, key string) bool {
+	t.Helper()
+	raw := v67TomlScalar(t, node, tomlText, key)
+	value, err := strconv.ParseBool(raw)
+	require.NoError(t, err, "%s %s=%q is not a bool", node, key, raw)
+	return value
+}
+
+func v67TomlScalar(t *testing.T, node, tomlText, key string) string {
+	t.Helper()
+	value, ok := v67LastTomlScalar(tomlText, key)
+	require.True(t, ok, "%s app.toml has no %s key", node, key)
+	return value
+}
+
+func v67LastTomlScalar(tomlText, key string) (string, bool) {
+	found := false
+	value := ""
+	for _, line := range strings.Split(tomlText, "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if i := strings.Index(line, " #"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		name, raw, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(name) != key {
+			continue
+		}
+		raw = strings.TrimSpace(raw)
+		if unquoted, err := strconv.Unquote(raw); err == nil {
+			raw = unquoted
+		}
+		value = raw
+		found = true
+	}
+	return value, found
+}
+
+func TestV67TomlScalarParser(t *testing.T) {
+	text := `
+# occ-enabled = false
+pruning = "nothing" # archive
+occ-enabled = true
+sc-enable = true
+ss-enable = true
+
+[giga_executor]
+occ_enabled = false
+
+[state-commit]
+sc-enable = false
+`
+	sc, ok := v67LastTomlScalar(text, "sc-enable")
+	require.True(t, ok)
+	require.Equal(t, "false", sc)
+
+	pruning, ok := v67LastTomlScalar(text, "pruning")
+	require.True(t, ok)
+	require.Equal(t, "nothing", pruning)
+
+	occ, ok := v67LastTomlScalar(text, "occ-enabled")
+	require.True(t, ok)
+	require.Equal(t, "true", occ)
+
+	_, ok = v67LastTomlScalar(text, "occ_enabled")
+	require.True(t, ok)
+
+	_, ok = v67LastTomlScalar(text, "concurrency-workers")
+	require.False(t, ok)
+
+	cfg := v67ParseValidatorRuntimeConfig(t, "fixture", `
+pruning = "nothing"
+occ-enabled = true
+sc-enable = true
+ss-enable = true
+`)
+	require.Equal(t, v67ValidatorRuntimeConfig{
+		SCEnable:   true,
+		SSEnable:   true,
+		OCCEnabled: true,
+		Pruning:    v67LiveHarnessPruning,
+	}, cfg)
+}
 
 func copyV67ValidatorHome(t *testing.T, chain *upgradetest.CrossVersion, node, dst string) {
 	t.Helper()

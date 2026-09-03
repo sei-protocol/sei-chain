@@ -307,8 +307,64 @@ func (c *CrossVersion) KeyAddress(t *testing.T, node, key string, extraArgs ...s
 	return address
 }
 
-// RequireTxSuccess checks the CheckTx result returned by a synchronous broadcast.
-func (c *CrossVersion) RequireTxSuccess(t *testing.T, label string, result CommandResult) {
+// DeliveredTx is the committed DeliverTx result of a broadcast transaction.
+type DeliveredTx struct {
+	Hash    string
+	Height  int64
+	Code    int64
+	GasUsed int64
+	RawLog  string
+}
+
+// RequireDeliverTxSuccess waits until a synchronously broadcast transaction is
+// included in a committed block and requires that its DeliverTx result succeeded.
+func (c *CrossVersion) RequireDeliverTxSuccess(t *testing.T, label string, result CommandResult) DeliveredTx {
+	t.Helper()
+	slug := strings.ReplaceAll(label, " ", "-")
+	c.WriteDiagnostic(t, slug+".broadcast.stdout", []byte(result.Stdout))
+	c.WriteDiagnostic(t, slug+".broadcast.stderr", []byte(result.Stderr))
+	c.requireCheckTxSuccess(t, label, result)
+	hash, err := parseBroadcastTxHash(result.Stdout)
+	if err != nil {
+		t.Fatalf("%s: %v\n%s", label, err, result.Stdout)
+	}
+
+	deadline := time.Now().Add(3 * time.Minute)
+	var last CommandResult
+	for time.Now().Before(deadline) {
+		last = c.Seid("", "q", "tx", hash, "--output", "json")
+		if last.Err == nil {
+			c.WriteDiagnostic(t, slug+".included.json", []byte(last.Stdout))
+			delivered, err := parseDeliveredTx(last.Stdout)
+			if err != nil {
+				t.Fatalf("%s: decode included tx: %v\n%s", label, err, last.Stdout)
+			}
+			if delivered.Hash != "" && !strings.EqualFold(delivered.Hash, hash) {
+				t.Fatalf("%s query returned hash %s, want %s", label, delivered.Hash, hash)
+			}
+			if delivered.Height <= 0 {
+				t.Fatalf("%s was not included in a block (hash %s)", label, hash)
+			}
+			if delivered.Code != 0 {
+				t.Fatalf("%s delivered with code %d: %s", label, delivered.Code, delivered.RawLog)
+			}
+			if delivered.GasUsed <= 0 {
+				t.Fatalf("%s consumed no gas", label)
+			}
+			delivered.Hash = hash
+			return delivered
+		}
+		time.Sleep(time.Second)
+	}
+	c.WriteDiagnostic(t, slug+".query.stdout", []byte(last.Stdout))
+	c.WriteDiagnostic(t, slug+".query.stderr", []byte(last.Stderr))
+	t.Fatalf("%s was not included within 3m (hash %s): %v\n%s",
+		label, hash, last.Err, last.Combined())
+	return DeliveredTx{}
+}
+
+// requireCheckTxSuccess requires that a synchronous broadcast's CheckTx result succeeded.
+func (c *CrossVersion) requireCheckTxSuccess(t *testing.T, label string, result CommandResult) {
 	t.Helper()
 	if result.Err != nil {
 		t.Fatalf("%s failed: %v\n%s", label, result.Err, result.Combined())
@@ -755,6 +811,57 @@ func parseJSONInt(encoded json.RawMessage) (int64, error) {
 		return 0, fmt.Errorf("decode integer %s: %w", encoded, err)
 	}
 	return strconv.ParseInt(text, 10, 64)
+}
+
+func parseBroadcastTxHash(stdout string) (string, error) {
+	var resp struct {
+		TxHash string `json:"txhash"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+		return "", fmt.Errorf("decode broadcast JSON: %w", err)
+	}
+	if resp.TxHash == "" {
+		return "", fmt.Errorf("broadcast JSON has no txhash")
+	}
+	return resp.TxHash, nil
+}
+
+func parseDeliveredTx(stdout string) (DeliveredTx, error) {
+	var resp struct {
+		TxHash  string          `json:"txhash"`
+		Height  json.RawMessage `json:"height"`
+		Code    json.RawMessage `json:"code"`
+		GasUsed json.RawMessage `json:"gas_used"`
+		RawLog  string          `json:"raw_log"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &resp); err != nil {
+		return DeliveredTx{}, fmt.Errorf("decode included tx JSON: %w", err)
+	}
+	var delivered DeliveredTx
+	delivered.Hash = resp.TxHash
+	delivered.RawLog = resp.RawLog
+	if len(resp.Height) > 0 {
+		height, err := parseJSONInt(resp.Height)
+		if err != nil {
+			return DeliveredTx{}, fmt.Errorf("decode height: %w", err)
+		}
+		delivered.Height = height
+	}
+	if len(resp.Code) > 0 {
+		code, err := parseJSONInt(resp.Code)
+		if err != nil {
+			return DeliveredTx{}, fmt.Errorf("decode code: %w", err)
+		}
+		delivered.Code = code
+	}
+	if len(resp.GasUsed) > 0 {
+		gasUsed, err := parseJSONInt(resp.GasUsed)
+		if err != nil {
+			return DeliveredTx{}, fmt.Errorf("decode gas_used: %w", err)
+		}
+		delivered.GasUsed = gasUsed
+	}
+	return delivered, nil
 }
 
 func parseABCIQueryResponse(output []byte) ([]byte, uint32, string, error) {
