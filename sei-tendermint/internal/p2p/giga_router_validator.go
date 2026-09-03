@@ -65,14 +65,6 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Validators dial every committee member in parallel — consensus
-		// voting needs fan-out, not stickiness. Same connections also
-		// serve block sync between committee peers. Self disables GetBlock:
-		// a loopback consumer always returns empty for missing catch-up
-		// heights and can starve the contiguous prefix while higher
-		// gap-fills keep retrying. Compare against the p2p node key
-		// (r.key.Public), not validatorKey (consensus signing key used by
-		// EvmProxy): GigaNodeAddr.Key is a NodePublicKey.
 		s.SpawnNamed("committeeMembers", func() error {
 			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
 		})
@@ -85,7 +77,12 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	})
 }
 
-// runCommitteePeer maintains an outbound connection to a committee member.
+// runCommitteePeer maintains an outbound giga connection to a committee member.
+// Self disables GetBlock: a loopback consumer always returns empty for missing
+// catch-up heights and can starve the contiguous prefix while higher gap-fills
+// keep retrying. Compare against the p2p node key (r.key.Public), not
+// validatorKey (consensus signing key used by EvmProxy): GigaNodeAddr.Key is a
+// NodePublicKey.
 func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
 	getBlock := addr.Key != r.key.Public()
 	for {

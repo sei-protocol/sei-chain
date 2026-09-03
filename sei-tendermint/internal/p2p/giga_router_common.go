@@ -517,7 +517,9 @@ func (r *gigaRouterCommon) dialAndRunConn(
 	})
 }
 
-// committeeMemberTask is work for one reachable committee member.
+// committeeMemberTask is work for one reachable committee member. It must run
+// until ctx is cancelled; returning earlier leaves the member unmarked in live
+// and it is not restarted while it stays in the committee.
 type committeeMemberTask func(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error
 
 // memberSession is a committee member's cancellable task session.
@@ -652,7 +654,9 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	server := rpc.NewServer[giga.API]()
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
+			// Background: a membership change must cancel the mux. Spawn would
+			// keep this scope alive until the peer closes the socket.
+			s.SpawnBg(func() error { return server.Run(ctx, hConn.conn) })
 			Global.gigaNewConnsAt("in").Add(1)
 			Global.gigaConnsAt("in").Add(1)
 			defer Global.gigaConnsAt("in").Add(-1)
