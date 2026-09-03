@@ -37,7 +37,7 @@ func TestClosePruneAfterReopenResetsHead(t *testing.T) {
 	require.NoError(t, w.Flush())
 	require.NoError(t, w.Close())
 
-	require.NoError(t, PruneAfter(cfg.Path, 3))
+	require.NoError(t, PruneAfter(cfg, 3))
 
 	w2 := openWAL(t, cfg)
 	defer func() { require.NoError(t, w2.Close()) }()

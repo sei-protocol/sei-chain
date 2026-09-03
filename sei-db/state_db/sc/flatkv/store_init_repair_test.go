@@ -418,7 +418,7 @@ func TestDataDBAheadOfWALTouchedByReplayIsRebuilt(t *testing.T) {
 
 	// Drop block 3 from the WAL, leaving misc holding its rows and recording version 3.
 	require.NoError(t, s.wal.Close())
-	require.NoError(t, statewal.PruneAfter(stateWALConfig(cfg.DataDir).Path, 2))
+	require.NoError(t, statewal.PruneAfter(stateWALConfig(cfg.DataDir), 2))
 	w, err := statewal.New(stateWALConfig(cfg.DataDir))
 	require.NoError(t, err)
 	s.wal = w

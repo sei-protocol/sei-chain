@@ -223,7 +223,7 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 // WAL is keyed by block number, so its stored range is directly the version
 // range; GetRange reads it offline without a live WAL instance.
 func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error {
-	ok, firstVer, lastVer, err := statewal.GetRange(dstChangelogDir)
+	ok, firstVer, lastVer, err := statewal.GetRange(statewal.DefaultConfig(dstChangelogDir, flatkvStateWALName))
 	if err != nil {
 		return fmt.Errorf("read cloned changelog range: %w", err)
 	}

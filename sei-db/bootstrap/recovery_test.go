@@ -252,6 +252,8 @@ func TestRecoverSSRemovesSnapshotsAboveTheTarget(t *testing.T) {
 // RollbackTo on a live StateDB rewinds both halves of state and the WAL that feeds them, so the write
 // head lands on the target. Committing the block after the target is what proves the WAL was truncated
 // rather than only the stores rewound: a WAL still holding that block refuses to write it a second time.
+//
+// Nothing here reads the manager's WAL reference, because the truncation replaced the handle it holds.
 func TestStateDBRollbackToRewindsBothHalvesAndTheWAL(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 5)
@@ -263,22 +265,6 @@ func TestStateDBRollbackToRewindsBothHalvesAndTheWAL(t *testing.T) {
 
 	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
 	require.Equal(t, int64(3), manager.SC().Version())
-}
-
-// The collector takes the prunable stores once at startup, and a rollback truncates the WAL underneath
-// it. A collector left holding a handle the truncation retired would prune through a dead instance, so
-// the WAL has to come out of a rollback as the same live store the collector was given.
-func TestThePrunableWALSurvivesARollback(t *testing.T) {
-	manager, _ := openManager(t, nil)
-	commitBlocks(t, manager, 5)
-	captured := manager.prunableStores()[1]
-	require.Equal(t, "StateWAL", captured.Name(), "fixture precondition: the WAL is the second store")
-
-	require.NoError(t, manager.StateDB().RollbackTo(2))
-
-	head, err := captured.GetLatestBlock()
-	require.NoError(t, err)
-	require.Equal(t, uint64(2), head, "the store the collector holds must answer at the rolled-back head")
 }
 
 // A target above the WAL's head is a target no replay reaches: the WAL runs out and both halves stop

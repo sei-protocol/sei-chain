@@ -50,10 +50,6 @@ type stateWALImpl struct {
 	// 0 also means no block has completed yet, so a WAL whose only completed block is block 0 is
 	// indistinguishable from an empty one.
 	lastCompletedBlock atomic.Uint64
-
-	// Where this WAL lives, so TruncateAfter can reopen the log it closes. Nil on a WAL built over an
-	// already-open log, which is why TruncateAfter refuses one.
-	cfg *Config
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
@@ -64,16 +60,11 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	w, err := newStateWAL(wal)
-	if err != nil {
-		return nil, err
-	}
-	w.cfg = config
-	return w, nil
+	return newStateWAL(wal)
 }
 
-// GetRange reports the range of block numbers stored in the state WAL directory at path, without
-// constructing a live StateWAL. Like the seiwal function it wraps, it runs the recovery/sanity pass
+// GetRange reports the range of block numbers stored in the state WAL directory configured by config,
+// without constructing a live StateWAL. Like the seiwal function it wraps, it runs the recovery/sanity pass
 // (which seals any unsealed file left by a prior session) before reading, so it mutates the directory.
 //
 // The range is read from sealed file names only, so its cost is a directory listing regardless of how much
@@ -83,107 +74,59 @@ func New(config *Config) (StateWAL, error) {
 // directory: it seals files a running WAL owns. Call it only while no StateWAL is open there (e.g. offline,
 // at startup before New). For a range query against a live WAL use the instance method GetStoredRange
 // instead.
-func GetRange(path string) (bool, uint64, uint64, error) {
-	ok, first, last, err := seiwal.GetRange(path)
+func GetRange(config *Config) (bool, uint64, uint64, error) {
+	ok, first, last, err := seiwal.GetRange(config.Path)
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("failed to read state WAL range: %w", err)
 	}
 	return ok, first, last, nil
 }
 
-// PruneAfter deletes all data for blocks after highestBlockToKeep from the state WAL directory at path,
-// without constructing a live StateWAL. It runs the recovery/sanity pass, applies the rollback, and
+// PruneAfter deletes all data for blocks after highestBlockToKeep from the state WAL directory configured by
+// config, without constructing a live StateWAL. It runs the recovery/sanity pass, applies the rollback, and
 // re-scans the result structurally (file names / sequence contiguity, not contents); blocks with a number
 // <= highestBlockToKeep are kept.
 //
 // NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with another GetRange/PruneAfter, on the same
 // directory: it seals, rewrites, and removes files a running WAL owns. Call it only while no StateWAL is open
 // there (e.g. offline, at startup before New).
-func PruneAfter(path string, highestBlockToKeep uint64) error {
-	if err := seiwal.PruneAfter(path, highestBlockToKeep); err != nil {
+func PruneAfter(config *Config, highestBlockToKeep uint64) error {
+	if err := seiwal.PruneAfter(config.Path, highestBlockToKeep); err != nil {
 		return fmt.Errorf("failed to prune state WAL: %w", err)
 	}
 	return nil
 }
 
-// VerifyIntegrity reads every sealed file in the state WAL directory at path and confirms each record's CRC
-// and each file's name-versus-content range. This is the expensive O(total stored bytes) check that
-// New/GetRange/PruneAfter deliberately skip; call it only when corruption is suspected. It is read-only
+// VerifyIntegrity reads every sealed file in the state WAL directory configured by config and confirms each
+// record's CRC and each file's name-versus-content range. This is the expensive O(total stored bytes) check
+// that New/GetRange/PruneAfter deliberately skip; call it only when corruption is suspected. It is read-only
 // and reports every problem it finds in a single pass, returning nil when the durable log is clean.
 //
 // NOT SAFE FOR CONCURRENT USE with a live StateWAL, or with GetRange/PruneAfter, on the same directory. Call
 // it only while no StateWAL is open there (e.g. offline, at startup before New).
-func VerifyIntegrity(path string) error {
-	if err := seiwal.VerifyIntegrity(path); err != nil {
+func VerifyIntegrity(config *Config) error {
+	if err := seiwal.VerifyIntegrity(config.Path); err != nil {
 		return fmt.Errorf("state WAL integrity check failed: %w", err)
 	}
 	return nil
 }
 
-func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (*stateWALImpl, error) {
-	w := &stateWALImpl{}
-	if err := w.adopt(wal); err != nil {
-		return nil, err
-	}
-	return w, nil
-}
+func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
+	w := &stateWALImpl{wal: wal}
 
-// adopt takes wal as the underlying log and positions the write-ordering state on the highest block
-// already on disk, discarding whatever the previous log left buffered. wal is closed on failure.
-func (w *stateWALImpl) adopt(wal seiwal.WAL[[]*proto.NamedChangeSet]) error {
+	// Recover the write-ordering position from the highest block already on disk.
 	ok, _, last, err := wal.Bounds()
 	if err != nil {
 		_ = wal.Close()
-		return fmt.Errorf("failed to read WAL bounds: %w", err)
+		return nil, fmt.Errorf("failed to read WAL bounds: %w", err)
 	}
-
-	w.wal = wal
-	w.buf = nil
-	w.currentBlock = 0
-	w.currentBlockEnded = false
-	w.hasCurrentBlock = false
-	w.lastCompletedBlock.Store(0)
 	if ok {
 		w.currentBlock = last
 		w.currentBlockEnded = true
 		w.hasCurrentBlock = true
 		w.lastCompletedBlock.Store(last)
 	}
-	w.closed = false
-	return nil
-}
-
-// TruncateAfter drops every block above highestBlockToKeep, leaving this WAL open and ready to accept
-// the block after it.
-//
-// The removal runs against a closed directory, so the underlying log is closed, pruned and reopened
-// while this StateWAL stays the same object. A failure partway leaves it closed rather than open over a
-// directory it no longer matches.
-func (w *stateWALImpl) TruncateAfter(highestBlockToKeep uint64) error {
-	if w.closed {
-		return fmt.Errorf("state WAL is closed")
-	}
-	if w.fatalErr != nil {
-		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
-	}
-	if w.cfg == nil {
-		return fmt.Errorf("state WAL was opened over an existing log, so it cannot be reopened")
-	}
-
-	if err := w.wal.Close(); err != nil {
-		return fmt.Errorf("failed to close state WAL before truncating it: %w", err)
-	}
-	w.closed = true
-
-	if err := seiwal.PruneAfter(w.cfg.Path, highestBlockToKeep); err != nil {
-		return fmt.Errorf("failed to truncate state WAL to %d: %w", highestBlockToKeep, err)
-	}
-	wal, err := seiwal.NewGenericWAL[[]*proto.NamedChangeSet](
-		w.cfg.toSeiwalConfig(), serializeChangesets, deserializeChangesets)
-	if err != nil {
-		return fmt.Errorf("failed to reopen state WAL truncated to %d: %w", highestBlockToKeep, err)
-	}
-	return w.adopt(wal)
+	return w, nil
 }
 
 // Write accumulates a set of changes for the given block number in memory.

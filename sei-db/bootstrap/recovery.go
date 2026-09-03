@@ -96,7 +96,7 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("read block store head: %w", err)
 	}
-	stored, _, last, err := statewal.GetRange(flatkv.StateWALPath(m.cfg.FlatKVConfig.DataDir))
+	stored, _, last, err := statewal.GetRange(flatkv.StateWALConfig(m.cfg.FlatKVConfig))
 	if err != nil {
 		return 0, fmt.Errorf("read state WAL head: %w", err)
 	}
