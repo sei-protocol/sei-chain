@@ -3,9 +3,11 @@ package receipt
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"path/filepath"
 
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/offline"
@@ -69,7 +71,7 @@ func GetRange(cfg dbconfig.ReceiptStoreConfig) (ok bool, lowestBlock uint64, hig
 // Both are checked before any receipt is touched, so a refusal leaves the store's data unchanged.
 //
 // Only a littidx-backed store is supported; any other backend is refused rather than silently left alone.
-func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) error {
+func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err error) {
 	if err := requireLittIdxStore(cfg); err != nil {
 		return err
 	}
@@ -80,20 +82,26 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) erro
 	if err != nil {
 		return fmt.Errorf("failed to open receipt log index: %w", err)
 	}
-	defer func() { _ = index.Close() }()
+	// WriteOptions{} does not fsync, so Close is where this function's writes are committed. A failed
+	// close means they may not have landed, which must not read as a successful prune.
+	defer func() { err = errors.Join(err, index.Close()) }()
 
-	earliest, err := readMetaOffline(index, receiptEarliestVersionKey)
+	earliest, earliestFound, err := readMetaOffline(index, receiptEarliestVersionKey)
 	if err != nil {
 		return err
 	}
-	if earliest > 0 && highestBlockToKeep < earliest {
+	if earliestFound && highestBlockToKeep < earliest {
 		return fmt.Errorf("cannot roll back receipt store to block %d: it is below the retention floor "+
 			"(earliest readable block %d); that data has already been pruned", highestBlockToKeep, earliest)
 	}
 
-	latest, err := readMetaOffline(index, receiptLatestVersionKey)
+	latest, latestFound, err := readMetaOffline(index, receiptLatestVersionKey)
 	if err != nil {
 		return err
+	}
+	if !latestFound {
+		// No head has ever been recorded, so there is nothing above highestBlockToKeep to remove.
+		return nil
 	}
 	if latest <= highestBlockToKeep {
 		return nil
@@ -226,11 +234,21 @@ func decodePartKeyHeight(key []byte) (uint64, error) {
 }
 
 // readMetaOffline reads a version-metadata key directly from the receipt index, without a live store.
-// Returns 0 if the key is absent, malformed, or unreadable, matching littReceiptStore.readMeta's behavior.
-func readMetaOffline(index dbtypes.KeyValueDB, key []byte) (uint64, error) {
+// found is false only when the key is absent, which is the state of a store that has never recorded that
+// version. A failed read, or a value of the wrong width, is an error: this metadata decides which of
+// PruneAfter's refusals apply, so metadata that cannot be trusted has to stop the rollback rather than
+// read as zero.
+func readMetaOffline(index dbtypes.KeyValueDB, key []byte) (version uint64, found bool, err error) {
 	val, err := index.Get(key)
-	if err != nil || len(val) != blockNumLen {
-		return 0, nil
+	if errorutils.IsNotFound(err) {
+		return 0, false, nil
 	}
-	return decodeBlockNumber(val), nil
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to read receipt store metadata key %q: %w", key, err)
+	}
+	if len(val) != blockNumLen {
+		return 0, false, fmt.Errorf("receipt store metadata key %q holds %d bytes, want %d",
+			key, len(val), blockNumLen)
+	}
+	return decodeBlockNumber(val), true, nil
 }
