@@ -10,6 +10,7 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -70,6 +71,38 @@ func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.Com
 
 	wal := &fakeStateWAL{}
 	return &StateDB{wal: wal, sc: liveStateDB}, wal, liveStateDB
+}
+
+// gapWAL reports a stored range beginning above the block a replay has to start from, which is what a
+// WAL pruned past a store's head looks like.
+type gapWAL struct {
+	statewal.StateWAL
+	first, last uint64
+}
+
+func (w *gapWAL) GetStoredRange() (bool, uint64, uint64, error) { return true, w.first, w.last, nil }
+
+// A WAL pruned past a half of state has dropped blocks that half still needs. Applying only the blocks
+// the WAL happens to hold and then reporting the target as reached is silent divergence, so the replay
+// refuses instead.
+//
+// Both halves have to reach this check, which is why they replay through one function rather than each
+// walking the WAL: the half that goes around it is the half that diverges quietly.
+func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
+	const missingBlocks = "missing (data loss or corruption)"
+
+	t.Run("the state commit store", func(t *testing.T) {
+		_, _, sc := newTestStateDB(t)
+		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc}
+
+		require.ErrorContains(t, s.catchUpSC(4), missingBlocks)
+	})
+
+	t.Run("the EVM state store", func(t *testing.T) {
+		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, ss: &evm.EVMStateStore{}}
+
+		require.ErrorContains(t, s.catchUpSS(4), missingBlocks)
+	})
 }
 
 // changeset builds a changeset setting key to value in the test module.

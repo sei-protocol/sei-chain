@@ -63,15 +63,15 @@ func snapshotSSAt(t *testing.T, manager *GigaStorageManager, height byte) {
 		10*time.Second, 10*time.Millisecond, "the snapshot a rollback restores from must be published")
 }
 
-// reconverge re-runs what a restart does to the two halves of state: it closes them, opens a StateDB
-// again — which converges them onto the WAL's head — and rolls that down to target.
+// reconverge re-runs what a restart does: it closes the two halves of state, opens a StateDB again,
+// and recovers every store onto target.
 func reconverge(t *testing.T, manager *GigaStorageManager, target int64) {
 	t.Helper()
 	// Closing first is what a restart does, and it is also required: the stores the new StateDB opens
 	// take file locks the old ones still hold.
 	closeStateDB(t, manager)
 	require.NoError(t, manager.openStateDB(t.Context()))
-	require.NoError(t, manager.recoverState(target))
+	require.NoError(t, manager.recoverStores(target))
 }
 
 // closeStateDB closes the two halves of state and their WAL and drops them from the manager, leaving it
@@ -125,6 +125,20 @@ func TestRecoveryTarget(t *testing.T) {
 			require.Equal(t, tc.want, recoveryTarget(tc.blockHeight, tc.stateHeight, tc.receiptHead))
 		})
 	}
+}
+
+// A target of 0 is no height to converge on, and rolling back to it would drop every receipt the node
+// holds. The guard has to cover receipts and not just state: recoverReceipt rewinds the head, range-
+// deletes the whole tag index and drops every body, none of which a replay can put back.
+func TestRecoverStoresAtAZeroTargetLeavesReceiptsAlone(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+	require.NoError(t, manager.ReceiptDB().SetLatestVersion(5))
+
+	require.NoError(t, manager.recoverStores(0))
+
+	require.Equal(t, int64(5), manager.ReceiptDB().LatestVersion(),
+		"a zero target must leave the receipt store where it was found")
 }
 
 func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
@@ -216,6 +230,23 @@ func TestRecoverSSRollsBackToTheTarget(t *testing.T) {
 	above, err := manager.SS().Get(evm.EVMStoreKey, 3, evmNonceKey(3))
 	require.NoError(t, err)
 	require.Nil(t, above)
+}
+
+// A rollback discards the history a snapshot above the target was taken from. Leaving that snapshot
+// behind lets a later rollback to its height restore it as authoritative with no replay over it, and
+// leaves the retention arithmetic reading a newest version the node has rejected.
+func TestRecoverSSRemovesSnapshotsAboveTheTarget(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+	snapshotSSAt(t, manager, 1)
+	snapshotSSAt(t, manager, 3)
+	require.Equal(t, int64(3), manager.SS().Snapshots().Newest())
+
+	reconverge(t, manager, 2)
+
+	require.Equal(t, int64(1), manager.SS().Snapshots().Newest(),
+		"a snapshot above the target must not survive the rollback")
+	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
 }
 
 // RollbackTo on a live StateDB rewinds both halves of state and the WAL that feeds them, so the write

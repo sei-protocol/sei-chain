@@ -8,73 +8,64 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
-// CatchUpFrom replays EVM changesets from wal onto this store, up to and including target.
-func (s *EVMStateStore) CatchUpFrom(wal statewal.StateWAL, target int64) error {
-	head := s.GetLatestVersion()
-	if head >= target {
-		return nil
-	}
-	if wal == nil {
-		return fmt.Errorf("nil WAL cannot replay from %d to %d", head, target)
-	}
+// Suffixes of the directories a snapshot restore stages beside the one it replaces.
+const (
+	restoreTmpSuffix = ".restore-tmp"
+	restoreBakSuffix = ".restore-bak"
+)
 
-	it, err := wal.Iterator(uint64(head+1), uint64(target)) //nolint:gosec // versions are non-negative
-	if err != nil {
-		return fmt.Errorf("WAL iterator [%d,%d]: %w", head+1, target, err)
-	}
-	defer func() { _ = it.Close() }()
-
-	for {
-		hasNext, nErr := it.Next()
-		if nErr != nil {
-			return fmt.Errorf("WAL iterate: %w", nErr)
-		}
-		if !hasNext {
-			break
-		}
-		block, changesets := it.Entry()
-		if err := s.applyReplayedBlock(int64(block), changesets); err != nil { //nolint:gosec // block heights fit within int64
-			return err
-		}
-	}
-	if got := s.GetLatestVersion(); got < target {
-		if err := s.SetLatestVersion(target); err != nil {
-			return fmt.Errorf("advance EVM state store head from %d to %d: %w", got, target, err)
-		}
-	}
-	return nil
-}
-
-func (s *EVMStateStore) applyReplayedBlock(block int64, changesets []*proto.NamedChangeSet) error {
+// ApplyReplayedBlock applies one WAL block's EVM changesets and moves this store's head to that block.
+//
+// It is the per-block step of a replay, not the replay itself: the range to cover, and the check that
+// the WAL still holds it, belong to the caller that owns the WAL.
+func (s *EVMStateStore) ApplyReplayedBlock(block int64, changesets []*proto.NamedChangeSet) error {
 	evmChangesets := filterEVMChangesets(changesets)
 	if len(evmChangesets) == 0 {
 		return s.SetLatestVersion(block)
 	}
-	return s.ApplyChangesetSync(block, evmChangesets)
-}
-
-// RollbackTo restores the newest snapshot at or below target, then replays wal onto it.
-func (s *EVMStateStore) RollbackTo(target int64, wal statewal.StateWAL) error {
-	if target <= 0 {
-		return fmt.Errorf("invalid rollback target %d", target)
-	}
-	base, err := s.rollbackBaseVersion(target)
-	if err != nil {
+	if err := s.ApplyChangesetSync(block, evmChangesets); err != nil {
 		return err
 	}
+	// A sync apply stamps the version marker only on the databases the block routed to, and the head is
+	// the minimum across all of them, so the rest are moved to the same block here.
+	return s.SetLatestVersion(block)
+}
+
+// RewindToSnapshotAtOrBelow rewinds this store to the newest snapshot at or below version and reports
+// the version it landed on, discarding snapshots above that point. It needs no WAL: it moves only
+// between snapshot boundaries, and replaying forward from the version it returns is the caller's to do.
+//
+// The store must have a snapshot at or below version, which is the one way this differs from the state
+// commit store's rewind: SS restores from its own snapshots and has no base to fall back on.
+func (s *EVMStateStore) RewindToSnapshotAtOrBelow(version int64) (int64, error) {
+	if version <= 0 {
+		return 0, fmt.Errorf("invalid rollback target %d", version)
+	}
+	base, err := s.rollbackBaseVersion(version)
+	if err != nil {
+		return 0, err
+	}
+
+	// A publish in flight reads and stamps the databases this is about to close and replace.
+	resume := s.quiesceCheckpoints()
+	defer resume()
+
 	if err := s.closeDBs(); err != nil {
-		return fmt.Errorf("close EVM state store before rollback: %w", err)
+		return 0, fmt.Errorf("close EVM state store before rewinding to snapshot %d: %w", base, err)
 	}
 	if err := s.restoreSnapshot(base); err != nil {
-		return fmt.Errorf("restore snapshot %d: %w", base, err)
+		return 0, fmt.Errorf("restore snapshot %d: %w", base, err)
+	}
+	if err := s.snapshotMgr.RemoveSnapshotsAbove(version); err != nil {
+		return 0, fmt.Errorf("remove snapshots above %d: %w", version, err)
 	}
 	if err := s.openDBs(); err != nil {
-		return fmt.Errorf("reopen EVM state store after rollback: %w", err)
+		return 0, fmt.Errorf("reopen EVM state store after rewinding to snapshot %d: %w", base, err)
 	}
-	return s.CatchUpFrom(wal, target)
+	s.rewindLastOffered(base)
+	return base, nil
 }
 
 func (s *EVMStateStore) rollbackBaseVersion(target int64) (int64, error) {
@@ -97,6 +88,11 @@ func (s *EVMStateStore) rollbackBaseVersion(target int64) (int64, error) {
 	return base, nil
 }
 
+// restoreSnapshot replaces this store's databases with the contents of the snapshot at version.
+//
+// In separate-DB mode the sub-DBs are replaced one at a time, so an interruption partway can leave
+// them at different versions. The head is the minimum across them, so such a store under-promises and
+// a replay forward puts it right.
 func (s *EVMStateStore) restoreSnapshot(version int64) error {
 	src := filepath.Join(s.snapshotMgr.Root(), sssnapshot.SnapshotDirName(version))
 	if s.separateDBs {
@@ -111,8 +107,8 @@ func (s *EVMStateStore) restoreSnapshot(version int64) error {
 }
 
 func replacePebbleDir(src, dst string) error {
-	tmp := dst + ".restore-tmp"
-	bak := dst + ".restore-bak"
+	tmp := dst + restoreTmpSuffix
+	bak := dst + restoreBakSuffix
 	if err := os.RemoveAll(tmp); err != nil {
 		return err
 	}
@@ -129,4 +125,30 @@ func replacePebbleDir(src, dst string) error {
 		return err
 	}
 	return os.RemoveAll(bak)
+}
+
+// healInterruptedRestore puts dst back when a restore was interrupted between the two renames that
+// swap the new copy in, which is the one window that leaves no directory there at all.
+//
+// An absent directory is otherwise indistinguishable from a store that has never been written: the
+// open creates an empty one, the head reads as 0, and a catch-up stamps its target over almost no
+// state. The staged copy is preferred over the displaced one, since landing on the snapshot is what
+// the interrupted rewind was for.
+func healInterruptedRestore(dst string) error {
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		// Present, or unreadable for a reason opening it will report.
+		return nil
+	}
+	for _, leftover := range []string{dst + restoreTmpSuffix, dst + restoreBakSuffix} {
+		if _, err := os.Stat(leftover); err != nil {
+			continue
+		}
+		if err := os.Rename(leftover, dst); err != nil {
+			return fmt.Errorf("promote %q left by an interrupted snapshot restore: %w", leftover, err)
+		}
+		logger.Info("promoted a directory left by an interrupted snapshot restore",
+			"from", leftover, "to", dst)
+		return nil
+	}
+	return nil
 }

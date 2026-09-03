@@ -154,3 +154,35 @@ func (s *EVMStateStore) stopCheckpoints() {
 	s.checkpoint.mu.Unlock()
 	s.checkpoint.publishing.Wait()
 }
+
+// quiesceCheckpoints refuses further snapshots and waits for the accepted ones to finish publishing,
+// returning the call that lets them resume. A publish in flight reads and stamps the databases, so it
+// has to finish before anything closes or replaces them.
+//
+// It is stopCheckpoints for an operation the store outlives. A store already stopped stays stopped.
+func (s *EVMStateStore) quiesceCheckpoints() (resume func()) {
+	s.checkpoint.mu.Lock()
+	stopped := s.checkpoint.stopped
+	s.checkpoint.stopped = true
+	s.checkpoint.mu.Unlock()
+	s.checkpoint.publishing.Wait()
+
+	return func() {
+		s.checkpoint.mu.Lock()
+		defer s.checkpoint.mu.Unlock()
+		s.checkpoint.stopped = stopped
+	}
+}
+
+// rewindLastOffered drops the newest version handed to the schedule to version, so a height at or
+// below the one a rewind landed on can be offered again.
+//
+// Without it a rewind stands the store's snapshotting down until it climbs back past the height it
+// rewound from, since a version at or below lastOffered is refused as a repeat offer.
+func (s *EVMStateStore) rewindLastOffered(version int64) {
+	s.checkpoint.mu.Lock()
+	defer s.checkpoint.mu.Unlock()
+	if version < s.checkpoint.lastOffered {
+		s.checkpoint.lastOffered = version
+	}
+}

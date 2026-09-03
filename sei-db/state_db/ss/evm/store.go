@@ -67,6 +67,9 @@ func (s *EVMStateStore) openDBs() error {
 	if s.separateDBs {
 		for _, storeType := range AllEVMStoreTypes() {
 			dbDir := filepath.Join(s.dir, StoreTypeName(storeType))
+			if err := healInterruptedRestore(dbDir); err != nil {
+				return err
+			}
 			db, err := opener(dbDir, subDBConfig(s.ssConfig, dbDir))
 			if err != nil {
 				return fmt.Errorf("failed to open EVM MVCC DB for %s: %w", StoreTypeName(storeType), err)
@@ -77,6 +80,9 @@ func (s *EVMStateStore) openDBs() error {
 		return nil
 	}
 
+	if err := healInterruptedRestore(s.dir); err != nil {
+		return err
+	}
 	db, err := opener(s.dir, subDBConfig(s.ssConfig, s.dir))
 	if err != nil {
 		return fmt.Errorf("failed to open unified EVM MVCC DB: %w", err)

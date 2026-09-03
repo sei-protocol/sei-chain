@@ -22,8 +22,8 @@ import (
 // 0 means there is no height to converge on and nothing is moved.
 //
 // The two halves of state and the WAL they share belong to the StateDB, which opens them where it
-// finds them. recoverState is the step that puts them on the target and readies them for the block
-// after it.
+// finds them. recoverStores is the step that puts every store on the target and readies state for the
+// block after it.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openBlockStore(); err != nil {
 		return err
@@ -31,17 +31,31 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openReceiptStore(); err != nil {
 		return err
 	}
+	// The target is read before the StateDB opens, because reading the state WAL's head offline takes
+	// the directory lock an open WAL holds.
 	targetHeight, err := m.findTargetRecoveryHeight()
 	if err != nil {
-		return err
-	}
-	if err := m.recoverReceipt(targetHeight); err != nil {
 		return err
 	}
 	if err := m.openStateDB(ctx); err != nil {
 		return err
 	}
-	return m.recoverState(targetHeight)
+	return m.recoverStores(targetHeight)
+}
+
+// recoverStores puts the receipt store and the two halves of state on target.
+//
+// A target of 0 is no height to converge on, and every store is left as it was found: rolling back to
+// it would drop every receipt the node holds along with every block in its WAL. This is the single
+// guard for that, which is why the two rollbacks below it carry none of their own.
+func (m *GigaStorageManager) recoverStores(target int64) error {
+	if target == 0 {
+		return nil
+	}
+	if err := m.recoverReceipt(target); err != nil {
+		return err
+	}
+	return m.stateDB.RollbackTo(target)
 }
 
 // openBlockStore opens the block ledger consensus reads and writes.
@@ -127,18 +141,6 @@ func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
 	}
 	m.stateDB = stateDB
 	return nil
-}
-
-// recoverState puts the two halves of state and their WAL on target, which the StateDB opened at or
-// above. It is the step that performs state recovery.
-//
-// A target of 0 is no height to converge on and is left alone: rolling back to it would discard every
-// block the WAL holds, and the stores that produced a target of 0 have no history to disagree with.
-func (m *GigaStorageManager) recoverState(target int64) error {
-	if target == 0 {
-		return nil
-	}
-	return m.stateDB.RollbackTo(target)
 }
 
 // recoverReceipt rolls the receipt store back to target. The store has to be closed for the rollback

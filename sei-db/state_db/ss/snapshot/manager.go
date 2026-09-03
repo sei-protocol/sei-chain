@@ -452,6 +452,62 @@ func (m *Manager) PruneSnapshots(cutLine int64) error {
 	return nil
 }
 
+// RemoveSnapshotsAbove deletes every snapshot above version and leaves the current link naming the
+// newest snapshot at or below it.
+//
+// A rollback discards the history those snapshots were taken from, so leaving them lets a later
+// restore resolve through state that was already rejected, and leaves the retention arithmetic reading
+// a newest version that no longer exists.
+func (m *Manager) RemoveSnapshotsAbove(version int64) error {
+	if m == nil {
+		return nil
+	}
+	// Publication renames a directory in and swaps current under this lock, so a removal has to hold
+	// it too: otherwise a snapshot published a moment earlier survives the branch it belongs to.
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	defer m.recordRetentionMetrics()
+
+	versions, err := m.Versions()
+	if err != nil {
+		return err
+	}
+	// current moves off the branch before the branch goes, since removeSnapshots refuses to delete
+	// whatever current names.
+	if err := m.repointCurrentAtOrBelow(versions, version); err != nil {
+		return err
+	}
+	candidates := make([]int64, 0, len(versions))
+	for _, v := range versions {
+		if v > version {
+			candidates = append(candidates, v)
+		}
+	}
+	return m.removeSnapshots(candidates)
+}
+
+// repointCurrentAtOrBelow moves the current link to the newest of versions at or below version, and
+// does nothing when current already names one. versions must be ascending.
+func (m *Manager) repointCurrentAtOrBelow(versions []int64, version int64) error {
+	current, hasCurrent, err := m.currentSnapshotVersion()
+	if err != nil {
+		return err
+	}
+	if !hasCurrent || current <= version {
+		return nil
+	}
+	var base int64
+	for _, v := range versions {
+		if v <= version {
+			base = v
+		}
+	}
+	if base == 0 {
+		return fmt.Errorf("no %s snapshot at or below %d for the current link", m.name, version)
+	}
+	return m.updateCurrentLink(SnapshotDirName(base))
+}
+
 // removeSnapshots deletes each candidate except the current snapshot and the shared floor. Every
 // candidate is attempted, the removals being independent of each other.
 func (m *Manager) removeSnapshots(candidates []int64) error {

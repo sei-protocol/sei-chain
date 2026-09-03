@@ -285,14 +285,17 @@ func (s *StateDB) rewindSC(target int64) error {
 	return nil
 }
 
-// rewindSS drops SS back to target when it sits above it, restoring its own snapshot and replaying the
-// WAL lent for the call.
+// rewindSS drops SS back to a snapshot at or below target when it sits above target, leaving catchUpSS
+// to replay the WAL from there. A store already at or below target is left alone.
+//
+// Like SC, SS moves between snapshot boundaries on its own and replays nothing itself, which is what
+// keeps the WAL on this side of the split.
 func (s *StateDB) rewindSS(target int64) error {
 	if s.ss == nil || s.ss.GetLatestVersion() <= target {
 		return nil
 	}
-	if err := s.ss.RollbackTo(target, s.wal); err != nil {
-		return fmt.Errorf("roll the EVM state store back to %d: %w", target, err)
+	if _, err := s.ss.RewindToSnapshotAtOrBelow(target); err != nil {
+		return fmt.Errorf("rewind the EVM state store to a snapshot at or below %d: %w", target, err)
 	}
 	return nil
 }
@@ -340,15 +343,20 @@ func (s *StateDB) catchUpSC(target int64) error {
 	})
 }
 
-// catchUpSS replays the state WAL into the EVM state store up to target.
+// catchUpSS replays the WAL blocks above SS's version into it, up to target.
+//
+// It goes through replay rather than replaying itself, so the check that the WAL still holds the blocks
+// being asked for covers both halves of state: a WAL pruned past SS's head would otherwise leave it
+// missing blocks while reporting the target as its own.
 func (s *StateDB) catchUpSS(target int64) error {
 	if s.ss == nil {
 		return nil
 	}
-	if err := s.ss.CatchUpFrom(s.wal, target); err != nil {
-		return fmt.Errorf("catch the EVM state store up to %d: %w", target, err)
+	from := s.ss.GetLatestVersion()
+	if from >= target {
+		return nil
 	}
-	return nil
+	return s.replay(from, target, s.ss.ApplyReplayedBlock)
 }
 
 // replay feeds apply every WAL block in (from, target], in order.

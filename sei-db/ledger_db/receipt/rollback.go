@@ -14,6 +14,10 @@ import (
 )
 
 // Rollback drops every receipt above target. The store must not be open.
+//
+// The head and the index are rewound before the bodies are dropped, so an interruption leaves a head
+// below surviving bodies rather than above missing ones: unreachable bodies are collected later, where
+// a head promising receipts that are already gone is served as a lookup failure.
 func Rollback(cfg dbconfig.ReceiptStoreConfig, target int64) error {
 	if target < 0 {
 		return fmt.Errorf("invalid receipt rollback target %d", target)
@@ -21,10 +25,10 @@ func Rollback(cfg dbconfig.ReceiptStoreConfig, target int64) error {
 	if normalizeReceiptBackend(cfg.Backend) != receiptBackendLittIdx {
 		return fmt.Errorf("receipt store rollback is not supported for backend %q", cfg.Backend)
 	}
-	if err := rollbackLittBodies(cfg, uint64(target)); err != nil { //nolint:gosec // target >= 0
+	if err := rewindReceiptIndex(cfg, uint64(target)); err != nil { //nolint:gosec // target >= 0
 		return err
 	}
-	return rewindReceiptIndex(cfg, uint64(target)) //nolint:gosec // target >= 0
+	return rollbackLittBodies(cfg, uint64(target)) //nolint:gosec // target >= 0
 }
 
 func rollbackLittBodies(cfg dbconfig.ReceiptStoreConfig, target uint64) error {
