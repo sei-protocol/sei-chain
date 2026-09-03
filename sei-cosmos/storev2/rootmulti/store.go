@@ -38,7 +38,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -50,24 +49,11 @@ var (
 	_ types.Queryable        = (*Store)(nil)
 )
 
-// stateStoreSnapshotScheduler is the commit path's half of the SS snapshot
-// contract: flush tells the state store which version it has just finished
-// enqueueing, and the store decides whether that version is a boundary.
-type stateStoreSnapshotScheduler interface {
-	ScheduleSnapshot(version int64)
-}
-
-// ss.NewStateStore returns the interface, so the capability is resolved by type
-// assertion at startup. This pins the only implementation, so wrapping the state
-// store without carrying the method through fails the build here rather than
-// silently ending SS snapshots at runtime.
-var _ stateStoreSnapshotScheduler = (*sscomposite.CompositeStateStore)(nil)
-
 type Store struct {
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
 	ssStore        seidbtypes.StateStore
-	ssSnapshots    stateStoreSnapshotScheduler
+	ssCommitter    seidbtypes.BlockCommitter
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -190,16 +176,13 @@ func NewStore(
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
-		scheduler, ok := ssStore.(stateStoreSnapshotScheduler)
+		committer, ok := ssStore.(seidbtypes.BlockCommitter)
 		if !ok {
-			// Unreachable while CompositeStateStore is the only implementation,
-			// which the assertion above pins. Log rather than drop silently, so
-			// a wrapper that loses the method is visible as a boot line instead
-			// of as snapshots that never appear.
-			logger.Error("state store does not schedule snapshots; SS snapshots are disabled",
-				"type", fmt.Sprintf("%T", ssStore))
+			// Unreachable: ss.NewStateStore pins the capability at compile time. Refused here rather
+			// than tolerated, because a state store the commit path cannot reach receives no blocks.
+			panic(fmt.Sprintf("state store %T cannot commit blocks", ssStore))
 		}
-		store.ssSnapshots = scheduler
+		store.ssCommitter = committer
 	}
 	return store
 
@@ -317,33 +300,13 @@ func (rs *Store) flush() error {
 		}
 		rs.changesetCapturedVersion = currentVersion
 	}
-	if len(changeSets) > 0 {
-		if rs.ssStore != nil {
-			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
-				return err
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
+	// The state store takes the block whether or not it carries writes: an empty one still advances
+	// its version marker, and the store decides for itself whether the height is a snapshot boundary.
+	if rs.ssCommitter != nil {
+		if err := rs.ssCommitter.CommitBlock(currentVersion, changeSets); err != nil {
+			return err
 		}
-	} else {
-		// ensure the state store watermark advances even for empty blocks
-		if rs.ssStore != nil {
-			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
-				panic(err)
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
-		}
-	}
-	// Both branches above have finished handing currentVersion to SS and have
-	// enqueued nothing above it, which is what makes an SS snapshot label exact.
-	// Triggering here rather than inside either branch keeps populated and empty
-	// blocks on one path. A repeat within the same block (flush runs twice, and
-	// the second pass sees an empty changeset) is ignored by the state store.
-	if rs.ssSnapshots != nil {
-		rs.ssSnapshots.ScheduleSnapshot(currentVersion)
+		storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
 	}
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
