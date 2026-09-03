@@ -29,10 +29,6 @@ type StateDB struct {
 	// The state WAL a committed block is written to.
 	wal statewal.StateWAL
 
-	// Where wal lives, so a tail truncation can reopen it. A truncation is offline, so the handle above
-	// has to be closed and replaced rather than mutated.
-	walCfg *statewal.Config
-
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
 
@@ -65,7 +61,7 @@ func NewStateDB(
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
 ) (db *StateDB, retErr error) {
-	s := &StateDB{walCfg: flatkv.StateWALConfig(flatkvCfg)}
+	s := &StateDB{}
 	defer func() {
 		if retErr != nil {
 			if closeErr := s.Close(); closeErr != nil {
@@ -77,7 +73,7 @@ func NewStateDB(
 	if err := s.openSC(ctx, flatkvCfg); err != nil {
 		return nil, err
 	}
-	if err := s.openWAL(); err != nil {
+	if err := s.openWAL(flatkv.StateWALConfig(flatkvCfg)); err != nil {
 		return nil, err
 	}
 	if err := s.openSS(ssCfg); err != nil {
@@ -92,10 +88,10 @@ func NewStateDB(
 }
 
 // openWAL opens the state WAL this StateDB writes both halves of state through.
-func (s *StateDB) openWAL() error {
-	wal, err := statewal.New(s.walCfg)
+func (s *StateDB) openWAL(cfg *statewal.Config) error {
+	wal, err := statewal.New(cfg)
 	if err != nil {
-		return fmt.Errorf("open state WAL at %s: %w", s.walCfg.Path, err)
+		return fmt.Errorf("open state WAL at %s: %w", cfg.Path, err)
 	}
 	s.wal = wal
 	return nil
@@ -148,54 +144,26 @@ func (s *StateDB) SC() *flatkv.CommitStore { return s.sc }
 // SS returns the EVM state store, or nil when it is disabled.
 func (s *StateDB) SS() *evm.EVMStateStore { return s.ss }
 
-// WAL returns the state WAL. A tail truncation replaces the handle, so this must be re-read after any
-// call to RollbackTo rather than cached across one.
+// WAL returns the state WAL.
 func (s *StateDB) WAL() statewal.StateWAL { return s.wal }
 
 // CheckpointScheduler returns the schedule both halves of state take their snapshot boundaries from.
 func (s *StateDB) CheckpointScheduler() *controller.CheckpointScheduler { return s.checkpointer }
 
-// PrunableStores returns the opened stores that can join a prune cycle. The WAL joins as a handle that
-// resolves on each call rather than as the one open now, since a rollback replaces it.
+// PrunableStores returns the opened stores that can join a prune cycle.
 func (s *StateDB) PrunableStores() []controller.PrunableStore {
 	stores := make([]controller.PrunableStore, 0, 3)
 	if s.sc != nil {
 		stores = append(stores, s.sc)
 	}
 	if s.wal != nil {
-		stores = append(stores, prunableWAL{db: s})
+		stores = append(stores, s.wal)
 	}
 	if s.ss != nil {
 		stores = append(stores, s.ss)
 	}
 	return stores
 }
-
-// prunableWAL joins the prune cycle on behalf of the state WAL, resolving to whichever handle the
-// StateDB holds when a call arrives.
-//
-// A rollback closes the WAL and opens a replacement, so a collector holding the handle itself would go
-// on pruning a closed one. Replacement still may not overlap a call, which is what confines RollbackTo
-// to a quiesced state DB.
-type prunableWAL struct{ db *StateDB }
-
-func (w prunableWAL) Name() string { return w.db.wal.Name() }
-
-func (w prunableWAL) PruneHistory(blockNumber uint64) error {
-	return w.db.wal.PruneHistory(blockNumber)
-}
-
-func (w prunableWAL) PruneSnapshots(blockNumber uint64) error {
-	return w.db.wal.PruneSnapshots(blockNumber)
-}
-
-func (w prunableWAL) ExternalPruning() bool { return w.db.wal.ExternalPruning() }
-
-func (w prunableWAL) GetRollbackFloor(rollbackWindow uint64) uint64 {
-	return w.db.wal.GetRollbackFloor(rollbackWindow)
-}
-
-func (w prunableWAL) GetLatestBlock() (uint64, error) { return w.db.wal.GetLatestBlock() }
 
 func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
 	if blockNum < 0 {
@@ -272,9 +240,7 @@ func (s *StateDB) walHead() (int64, bool, error) {
 // below it. blockNum must lie within the WAL's stored range, and rewinding SS needs a snapshot at or
 // below it; a blockNum this cannot reach is an error rather than a shortfall.
 //
-// The state WAL ends at blockNum afterwards, on a handle that replaces the one this opened with, so a
-// reference a caller holds to it is invalid after this call. It must not run once the prune cycle has
-// taken the WAL.
+// The state WAL ends at blockNum afterwards, so the next commit is blockNum+1.
 func (s *StateDB) RollbackTo(blockNum int64) error {
 	if err := s.rewindSC(blockNum); err != nil {
 		return err
@@ -340,9 +306,6 @@ func (s *StateDB) rewindSS(target int64) error {
 
 // truncateWAL drops every WAL block above target so the next commit is target+1, and is a no-op when
 // the WAL already ends at or below target.
-//
-// The truncation runs against the directory rather than the open WAL, since a live WAL prunes only from
-// its start, so the handle is closed and replaced by one over the truncated directory.
 func (s *StateDB) truncateWAL(target int64) error {
 	head, ok, err := s.walHead()
 	if err != nil {
@@ -351,19 +314,10 @@ func (s *StateDB) truncateWAL(target int64) error {
 	if !ok || head <= target {
 		return nil
 	}
-
-	if err := s.wal.Close(); err != nil {
-		return fmt.Errorf("close state WAL before truncating it to %d: %w", target, err)
-	}
 	//nolint:gosec // a WAL head above target means target >= 0
-	if err := statewal.PruneAfter(s.walCfg.Path, uint64(target)); err != nil {
+	if err := s.wal.TruncateAfter(uint64(target)); err != nil {
 		return fmt.Errorf("truncate state WAL to %d: %w", target, err)
 	}
-	wal, err := statewal.New(s.walCfg)
-	if err != nil {
-		return fmt.Errorf("reopen state WAL truncated to %d: %w", target, err)
-	}
-	s.wal = wal
 	return nil
 }
 

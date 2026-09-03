@@ -313,6 +313,42 @@ func TestPruneAfter(t *testing.T) {
 	}
 }
 
+// TestTruncateAfter verifies the tail is cut without the WAL being handed back as a new object: the same
+// StateWAL keeps serving, and keeps accepting writes at the block after the truncation point. A caller
+// holding it across the call — the prune cycle among them — would otherwise be left on a closed log.
+func TestTruncateAfter(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	w := openWAL(t, cfg)
+	defer func() { require.NoError(t, w.Close()) }()
+	for block := uint64(1); block <= 6; block++ {
+		writeBlock(t, w, block)
+	}
+
+	require.NoError(t, w.TruncateAfter(3))
+
+	ok, start, end, err := w.GetStoredRange()
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), start)
+	require.Equal(t, uint64(3), end)
+	require.Equal(t, []uint64{1, 2, 3}, collectBlocks(t, w, 1, 3))
+
+	// The write-ordering position moved back with the tail, so the truncated block is writable again.
+	writeBlock(t, w, 4)
+	require.NoError(t, w.Flush())
+	_, _, end, err = w.GetStoredRange()
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), end)
+}
+
+func TestTruncateAfterOnAClosedWAL(t *testing.T) {
+	w := openWAL(t, testConfig(t.TempDir()))
+	writeBlock(t, w, 1)
+	require.NoError(t, w.Close())
+
+	require.ErrorContains(t, w.TruncateAfter(1), "closed")
+}
+
 // TestVerifyIntegrity is a wrapper-level smoke test that VerifyIntegrity passes on a clean log and reports a
 // fault when a sealed file is corrupted (the detailed cases are exercised in the seiwal package).
 func TestVerifyIntegrity(t *testing.T) {

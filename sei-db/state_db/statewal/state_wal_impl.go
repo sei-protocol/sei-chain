@@ -50,6 +50,10 @@ type stateWALImpl struct {
 	// 0 also means no block has completed yet, so a WAL whose only completed block is block 0 is
 	// indistinguishable from an empty one.
 	lastCompletedBlock atomic.Uint64
+
+	// Where this WAL lives, so TruncateAfter can reopen the log it closes. Nil on a WAL built over an
+	// already-open log, which is why TruncateAfter refuses one.
+	cfg *Config
 }
 
 // New opens (or creates) a state WAL in the configured directory, recovering any files left behind by a
@@ -60,7 +64,12 @@ func New(config *Config) (StateWAL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open state WAL: %w", err)
 	}
-	return newStateWAL(wal)
+	w, err := newStateWAL(wal)
+	if err != nil {
+		return nil, err
+	}
+	w.cfg = config
+	return w, nil
 }
 
 // GetRange reports the range of block numbers stored in the state WAL directory at path, without
@@ -111,22 +120,70 @@ func VerifyIntegrity(path string) error {
 	return nil
 }
 
-func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
-	w := &stateWALImpl{wal: wal}
+func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (*stateWALImpl, error) {
+	w := &stateWALImpl{}
+	if err := w.adopt(wal); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
 
-	// Recover the write-ordering position from the highest block already on disk.
+// adopt takes wal as the underlying log and positions the write-ordering state on the highest block
+// already on disk, discarding whatever the previous log left buffered. wal is closed on failure.
+func (w *stateWALImpl) adopt(wal seiwal.WAL[[]*proto.NamedChangeSet]) error {
 	ok, _, last, err := wal.Bounds()
 	if err != nil {
 		_ = wal.Close()
-		return nil, fmt.Errorf("failed to read WAL bounds: %w", err)
+		return fmt.Errorf("failed to read WAL bounds: %w", err)
 	}
+
+	w.wal = wal
+	w.buf = nil
+	w.currentBlock = 0
+	w.currentBlockEnded = false
+	w.hasCurrentBlock = false
+	w.lastCompletedBlock.Store(0)
 	if ok {
 		w.currentBlock = last
 		w.currentBlockEnded = true
 		w.hasCurrentBlock = true
 		w.lastCompletedBlock.Store(last)
 	}
-	return w, nil
+	w.closed = false
+	return nil
+}
+
+// TruncateAfter drops every block above highestBlockToKeep, leaving this WAL open and ready to accept
+// the block after it.
+//
+// The removal runs against a closed directory, so the underlying log is closed, pruned and reopened
+// while this StateWAL stays the same object. A failure partway leaves it closed rather than open over a
+// directory it no longer matches.
+func (w *stateWALImpl) TruncateAfter(highestBlockToKeep uint64) error {
+	if w.closed {
+		return fmt.Errorf("state WAL is closed")
+	}
+	if w.fatalErr != nil {
+		return fmt.Errorf("state WAL failed: %w", w.fatalErr)
+	}
+	if w.cfg == nil {
+		return fmt.Errorf("state WAL was opened over an existing log, so it cannot be reopened")
+	}
+
+	if err := w.wal.Close(); err != nil {
+		return fmt.Errorf("failed to close state WAL before truncating it: %w", err)
+	}
+	w.closed = true
+
+	if err := seiwal.PruneAfter(w.cfg.Path, highestBlockToKeep); err != nil {
+		return fmt.Errorf("failed to truncate state WAL to %d: %w", highestBlockToKeep, err)
+	}
+	wal, err := seiwal.NewGenericWAL[[]*proto.NamedChangeSet](
+		w.cfg.toSeiwalConfig(), serializeChangesets, deserializeChangesets)
+	if err != nil {
+		return fmt.Errorf("failed to reopen state WAL truncated to %d: %w", highestBlockToKeep, err)
+	}
+	return w.adopt(wal)
 }
 
 // Write accumulates a set of changes for the given block number in memory.

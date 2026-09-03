@@ -76,6 +76,13 @@ type StateWAL interface {
 	// called again or for a higher block number.
 	Prune(lowestBlockNumberToKeep uint64) error
 
+	// TruncateAfter drops every block above highestBlockToKeep, leaving the WAL open and ready to accept
+	// the block after it. Unlike Prune it is synchronous, and it cuts the tail rather than the head.
+	//
+	// A WAL that has to be closed and reopened to do this stays the same object across the call, so a
+	// reference to it — including one the prune cycle holds — remains valid. A failure leaves it closed.
+	TruncateAfter(highestBlockToKeep uint64) error
+
 	// Create an iterator over the WAL across the inclusive block range [startingBlockNumber, endingBlockNumber].
 	//
 	// The iterator yields no block below startingBlockNumber or above endingBlockNumber. It is an error for
