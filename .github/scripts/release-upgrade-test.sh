@@ -341,8 +341,13 @@ stage_main_binary() {
   local node
   local actual_hash
 
-  docker exec --user root sei-node-0 \
-    sh -c 'cp /root/go/bin/seid /tmp/seid.release && chmod 0755 /tmp/seid.release'
+  # Every validator keeps its own copy of the binary it is running, because a
+  # test may put the old binary back on any node, not only the one it queries.
+  for ((i = 0; i < NODE_COUNT; i++)); do
+    node="sei-node-$i"
+    docker exec --user root "$node" \
+      sh -c 'cp /root/go/bin/seid /tmp/seid.release && chmod 0755 /tmp/seid.release'
+  done
 
   for ((i = 0; i < NODE_COUNT; i++)); do
     node="sei-node-$i"
