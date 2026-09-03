@@ -29,23 +29,20 @@ import (
 // Both deliveries, because they are read in different places and a file can be right about one of them.
 func TestANodeStartedFromTheGeneratedFileRunsWhatItRanBefore(t *testing.T) {
 	configtest.Isolate(t)
-	home := configtest.NewHome(t)
-	if err := os.MkdirAll(filepath.Join(home.Root, "config"), 0o750); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
+	home := aNodeRunningAs(t, registry.ModeValidator)
 
-	before := whatTheNodeAnswers(t, home.Root)
+	before := whatTheNodeAnswers(t, home)
 
-	out, err := runGenerateThroughRoot(t, home.Root, "--mode", "validator")
+	out, err := runGenerateThroughRoot(t, home, "--mode", "validator")
 	if err != nil {
 		t.Fatalf("generate was refused: %v\n%s", err, out)
 	}
-	seiToml := filepath.Join(home.Root, "config", "sei.toml")
+	seiToml := filepath.Join(home, "config", "sei.toml")
 	if err := os.WriteFile(seiToml, []byte(out), 0o600); err != nil {
 		t.Fatalf("write %s: %v", seiToml, err)
 	}
 
-	after := whatTheNodeAnswers(t, home.Root)
+	after := whatTheNodeAnswers(t, home)
 
 	var moved, lost []string
 	for key, was := range before.lookup {
@@ -91,15 +88,14 @@ func TestANodeStartedFromTheGeneratedFileRunsWhatItRanBefore(t *testing.T) {
 // and the record derives it from a boot.
 func TestTheGeneratedFileStatesTheKeysThatDivergeAndNoOthers(t *testing.T) {
 	configtest.Isolate(t)
-	home := configtest.NewHome(t)
-	if err := os.MkdirAll(filepath.Join(home.Root, "config"), 0o750); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	whatTheNodeAnswers(t, home.Root)
 
 	for _, mode := range registry.Modes() {
 		t.Run(string(mode), func(t *testing.T) {
-			out, err := runGenerateThroughRoot(t, home.Root, "--mode", string(mode))
+			// A node of this kind, because the command refuses a kind the node's own file contradicts.
+			home := aNodeRunningAs(t, mode)
+			whatTheNodeAnswers(t, home)
+
+			out, err := runGenerateThroughRoot(t, home, "--mode", string(mode))
 			if err != nil {
 				t.Fatalf("generate was refused: %v\n%s", err, out)
 			}
@@ -121,6 +117,64 @@ func TestTheGeneratedFileStatesTheKeysThatDivergeAndNoOthers(t *testing.T) {
 			}
 		})
 	}
+}
+
+// theTendermintKind is the kind of node the node's own configuration file records for a declared kind.
+//
+// The kind that keeps every version of history has no name in that file. The command that writes it
+// writes the query-serving name instead, and the delivery accepts that one pairing.
+func theTendermintKind(mode registry.Mode) string {
+	if mode == registry.ModeArchive {
+		return string(registry.ModeFull)
+	}
+	return string(mode)
+}
+
+// aNodeRunningAs prepares a home whose own configuration file records this kind of node.
+//
+// The boot writes both files and then one line is replaced, rather than a file being rendered here. The
+// two writers in this binary disagree on several keys, and rendering a third file would produce a node
+// matching neither, so a measurement against what either writer produces would be measuring this helper.
+//
+// The kind matters because the delivery refuses a sei.toml whose kind disagrees with the kind the node
+// runs as, and it refuses the whole file. A measurement over a node whose file says something else reads
+// the same before and after, and holds for any file at all.
+func aNodeRunningAs(t *testing.T, mode registry.Mode) string {
+	t.Helper()
+	home := configtest.NewHome(t)
+	if err := os.MkdirAll(filepath.Join(home.Root, "config"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	whatTheNodeAnswers(t, home.Root)
+
+	path := filepath.Join(home.Root, "config", "config.toml")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the node's configuration file: %v", err)
+	}
+	lines := strings.Split(string(body), "\n")
+	replaced := false
+	for i, line := range lines {
+		// At the file's root, so the search stops at the first table header. A key of this name inside a
+		// section is a different setting.
+		if strings.HasPrefix(strings.TrimSpace(line), "[") {
+			break
+		}
+		if !strings.HasPrefix(strings.TrimSpace(line), "mode ") {
+			continue
+		}
+		lines[i] = "mode = \"" + theTendermintKind(mode) + "\""
+		replaced = true
+		break
+	}
+	if !replaced {
+		t.Fatal("the node's configuration file records no kind of node at its root, so this helper " +
+			"cannot set one and every test using it would run against whatever kind the writer chose")
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		t.Fatalf("write the node's configuration file: %v", err)
+	}
+	return home.Root
 }
 
 // nodeAnswers is what a node holds, read the way each delivery is read.
@@ -205,22 +259,19 @@ func runGenerateThroughRoot(t *testing.T, home string, extraArgs ...string) (str
 // finish an operator's task is the file landing where the boot looks for it.
 func TestGenerateWritesWhereABootReadsIt(t *testing.T) {
 	configtest.Isolate(t)
-	home := configtest.NewHome(t)
-	if err := os.MkdirAll(filepath.Join(home.Root, "config"), 0o750); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	before := whatTheNodeAnswers(t, home.Root)
+	home := aNodeRunningAs(t, registry.ModeValidator)
+	before := whatTheNodeAnswers(t, home)
 
-	out, err := runGenerateThroughRoot(t, home.Root, "--mode", "validator", "--write")
+	out, err := runGenerateThroughRoot(t, home, "--mode", "validator", "--write")
 	if err != nil {
 		t.Fatalf("generate was refused: %v\n%s", err, out)
 	}
 
-	path := filepath.Join(home.Root, "config", "sei.toml")
+	path := filepath.Join(home, "config", "sei.toml")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("the command reported writing a file and %s is not there: %v\n%s", path, err, out)
 	}
-	after := whatTheNodeAnswers(t, home.Root)
+	after := whatTheNodeAnswers(t, home)
 	for key, was := range before.lookup {
 		if now, answers := after.lookup[key]; !answers || fmt.Sprint(was) != fmt.Sprint(now) {
 			t.Errorf("%s was %v and is %v after the file the command placed, so the file it writes is "+
@@ -230,8 +281,207 @@ func TestGenerateWritesWhereABootReadsIt(t *testing.T) {
 
 	// Run again over the file it just wrote. An operator who repeats the command has a file they did not
 	// decide to replace.
-	second, err := runGenerateThroughRoot(t, home.Root, "--mode", "validator", "--write")
+	second, err := runGenerateThroughRoot(t, home, "--mode", "validator", "--write")
 	if err == nil {
 		t.Errorf("the second run replaced the file the first one wrote:\n%s", second)
 	}
+}
+
+// theTunedSettings are values written into a node's own files by hand, one per shape a writer has to
+// render and per delivery it has to read.
+//
+// Chosen to differ from both writers. A value matching either one would be stated or left out for a
+// reason that has nothing to do with an operator having set it, so the test would pass without covering
+// what it claims.
+//
+// The retention and connection rows also agree with neither: the declaration and the generated file both
+// state something else again, so each of these is a third value.
+var theTunedSettings = []struct {
+	file    string
+	section string
+	key     string
+	written string
+}{
+	// Answered by a flag's default when no file states it, so this covers a written value outranking one.
+	{"app.toml", "", "pruning", `"everything"`},
+	{"app.toml", "api", "max-open-connections", "4321"},
+	{"app.toml", "state-store", "ss-keep-recent", "777"},
+	// The keys a decode delivers, read off a struct rather than by name.
+	{"config.toml", "mempool", "size", "4321"},
+	{"config.toml", "p2p", "max-connections", "55"},
+	{"config.toml", "rpc", "max-subscription-clients", "33"},
+	{"config.toml", "consensus", "create-empty-blocks-interval", `"7s"`},
+}
+
+// TestANodeWhoseFilesWereTunedByHandRunsWhatItRanBefore is the case the command exists for.
+//
+// The measurement above starts from files a boot generated, where every value is one writer or the other.
+// A node worth running this on is not that node: somebody edited its files, and the values they chose
+// agree with neither writer.
+//
+// Those values are also the ones a divergence record cannot cover, because they are not a property of
+// this binary. A key an operator set to the declared value is left out and a key they set to anything
+// else is stated, and which keys those are is known only by reading their files.
+func TestANodeWhoseFilesWereTunedByHandRunsWhatItRanBefore(t *testing.T) {
+	configtest.Isolate(t)
+	home := aNodeRunningAs(t, registry.ModeValidator)
+
+	// Started once so the files exist to edit. What it answers is not measured: the edits below are what
+	// this node runs, and they are applied before anything reads it.
+	whatTheNodeAnswers(t, home)
+	tuneByHand(t, home)
+
+	before := whatTheNodeAnswers(t, home)
+	for _, setting := range theTunedSettings {
+		key := setting.key
+		if setting.section != "" {
+			key = setting.section + "." + setting.key
+		}
+		if _, reads := before.lookup[key]; !reads {
+			if _, decoded := before.decoded[key]; !decoded {
+				t.Fatalf("%s reads as answered by nothing after being written into %s, so the edit did "+
+					"not take and this test measures a node nobody tuned", key, setting.file)
+			}
+		}
+	}
+
+	out, err := runGenerateThroughRoot(t, home, "--mode", "validator")
+	if err != nil {
+		t.Fatalf("generate was refused: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config", "sei.toml"), []byte(out), 0o600); err != nil {
+		t.Fatalf("write sei.toml: %v", err)
+	}
+
+	// Every edited key has to be stated. Each of them differs from the declaration, so one the file leaves
+	// out is a setting an operator chose and the node stops running.
+	stated := whatTheFileStates(t, out)
+	for _, setting := range theTunedSettings {
+		key := setting.key
+		if setting.section != "" {
+			key = setting.section + "." + setting.key
+		}
+		if _, states := stated[key]; !states {
+			t.Errorf("%s was written into %s by hand and the generated file does not state it, so the "+
+				"node moves to the declared value and loses what an operator chose", key, setting.file)
+		}
+	}
+
+	after := whatTheNodeAnswers(t, home)
+	var moved, lost []string
+	for key, was := range before.lookup {
+		now, answers := after.lookup[key]
+		switch {
+		case !answers:
+			lost = append(lost, key)
+		case fmt.Sprint(was) != fmt.Sprint(now):
+			moved = append(moved, fmt.Sprintf("%s was %v and is %v", key, was, now))
+		}
+	}
+	for key, was := range before.decoded {
+		if now := after.decoded[key]; was != now {
+			moved = append(moved, fmt.Sprintf("%s was %q and is %q", key, was, now))
+		}
+	}
+	sort.Strings(moved)
+	sort.Strings(lost)
+	for _, line := range moved {
+		t.Errorf("a tuned node changed across the generated file: %s", line)
+	}
+	for _, key := range lost {
+		t.Errorf("%s was answered before the file and is answered by nothing after it", key)
+	}
+
+	if !t.Failed() {
+		t.Logf("%d hand-written values, %d keys a lookup answers and %d a decode delivers, all unchanged",
+			len(theTunedSettings), len(before.lookup), len(before.decoded))
+	}
+}
+
+// tuneByHand writes theTunedSettings into the node's own files, replacing each key's line where it sits.
+//
+// The line is replaced rather than the file rewritten, because a rewrite from a decoded map is not what an
+// operator does and would drop every comment the file ships with, including the ones naming the keys this
+// test does not touch.
+func tuneByHand(t *testing.T, home string) {
+	t.Helper()
+	for _, name := range []string{"app.toml", "config.toml"} {
+		path := filepath.Join(home, "config", name)
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		lines := strings.Split(string(body), "\n")
+
+		for _, setting := range theTunedSettings {
+			if setting.file != name {
+				continue
+			}
+			replaced := false
+			section := ""
+			for i, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+					section = strings.Trim(trimmed, "[]")
+					continue
+				}
+				if section != setting.section || !strings.HasPrefix(trimmed, setting.key+" ") {
+					continue
+				}
+				lines[i] = setting.key + " = " + setting.written
+				replaced = true
+				break
+			}
+			switch {
+			case replaced:
+			// A key at the file's root that the generator does not write is the flag-answered case, and
+			// writing it is what an operator does. Inserted at the top, because a bare key after a table
+			// header belongs to that table rather than to the root.
+			case setting.section == "":
+				lines = append([]string{setting.key + " = " + setting.written}, lines...)
+			default:
+				t.Fatalf("%s states no %q under %q, so this test would measure a value nobody wrote. The "+
+					"key was renamed, moved section, or is no longer written by the generator",
+					name, setting.key, setting.section)
+			}
+		}
+
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+}
+
+// TestGenerateRefusesAKindTheNodeContradicts covers the file that is written, adopted, and then ignored.
+//
+// The delivery refuses a sei.toml whose kind disagrees with the kind the node runs as, and it refuses the
+// whole file rather than the keys that differ. So a file written under the wrong kind leaves every
+// declared key reading as it did, on a node whose operator has every reason to believe otherwise. The
+// refusal costs a message instead.
+func TestGenerateRefusesAKindTheNodeContradicts(t *testing.T) {
+	configtest.Isolate(t)
+
+	t.Run("a kind the node's own file contradicts", func(t *testing.T) {
+		home := aNodeRunningAs(t, registry.ModeValidator)
+		out, err := runGenerateThroughRoot(t, home, "--mode", "full", "--write")
+		if err == nil {
+			t.Fatalf("the command wrote a file for a full node against one running as a validator, and a "+
+				"boot delivers nothing from it:\n%s", out)
+		}
+		if _, err := os.Stat(filepath.Join(home, "config", "sei.toml")); !os.IsNotExist(err) {
+			t.Error("the refused run left a sei.toml behind, so the next boot reads a file this command " +
+				"declined to stand behind")
+		}
+	})
+
+	// The one pairing that is not a disagreement. Refusing it would leave the kind that keeps every
+	// version of history with no way to run this command at all, because that kind has no name in the
+	// node's own configuration file.
+	t.Run("the kind that keeps all history, whose file says it serves queries", func(t *testing.T) {
+		home := aNodeRunningAs(t, registry.ModeArchive)
+		if _, err := runGenerateThroughRoot(t, home, "--mode", "archive"); err != nil {
+			t.Errorf("the command refused an archive node: %v. Its own file records the query-serving "+
+				"kind because that is the only name it has, and the delivery accepts the pair", err)
+		}
+	})
 }

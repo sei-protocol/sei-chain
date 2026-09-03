@@ -1,7 +1,9 @@
 package configmanager
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/config/registry"
 	"github.com/sei-protocol/sei-chain/config/seitoml"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 )
 
 // flagGenerateMode names the kind of node the written values resolve for.
@@ -70,7 +73,17 @@ func GenerateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			running, err := whatThisNodeAlreadyRuns(cmd, home)
+			if err := theHomeHoldsANodeToDescribe(home); err != nil {
+				return err
+			}
+			own, err := theNodesOwnConfiguration(home)
+			if err != nil {
+				return fmt.Errorf("read this node's own configuration: %w", err)
+			}
+			if err := theKindThisNodeAlreadyRuns(mode, own); err != nil {
+				return err
+			}
+			running, err := whatThisNodeAlreadyRuns(cmd, home, own)
 			if err != nil {
 				return err
 			}
@@ -133,14 +146,10 @@ func modesInOrder() string {
 //
 // A key nothing answers is absent from the result rather than present and empty. Its reader holds a
 // default of its own, and a caller cannot tell an unanswered key from one answered with a zero.
-func whatThisNodeAlreadyRuns(cmd *cobra.Command, home string) (map[string]any, error) {
+func whatThisNodeAlreadyRuns(cmd *cobra.Command, home string, own *tmcfg.Config) (map[string]any, error) {
 	source, err := theSourceThisNodeWouldBuild(cmd, home)
 	if err != nil {
 		return nil, err
-	}
-	own, err := theNodesOwnConfiguration(home)
-	if err != nil {
-		return nil, fmt.Errorf("read this node's own configuration: %w", err)
 	}
 
 	_, ownedByADecode := registry.ResolvedAndOwnedByDecodedSections(registry.Resolved{})
@@ -167,6 +176,45 @@ func whatThisNodeAlreadyRuns(cmd *cobra.Command, home string) (map[string]any, e
 		}
 	}
 	return running, nil
+}
+
+// theHomeHoldsANodeToDescribe refuses a home that no node has been created in.
+//
+// Both files are absent in that case, so every value would come from a flag's default and the file
+// written would describe this binary rather than a node. It would still look like a node's
+// configuration, and the kind recorded in it would be whichever kind was asked for.
+//
+// The node's own configuration file is the one checked, because a boot generates the other one and a
+// home can legitimately hold only the first.
+func theHomeHoldsANodeToDescribe(home string) error {
+	path := filepath.Join(home, "config", "config.toml")
+	switch _, err := os.Stat(path); {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("%s is not there, so this home holds no node to describe and every value "+
+			"written would come from this binary rather than from anything a node runs", path)
+	case err != nil:
+		return err
+	}
+	return nil
+}
+
+// theKindThisNodeAlreadyRuns refuses a kind of node that disagrees with the one this node's own
+// configuration file records.
+//
+// A boot delivers nothing at all from a file whose kind disagrees with the kind the node runs as, so a
+// file written under the wrong kind is not a partly-right file. Every declared key goes on reading as it
+// did, and an operator holds a file they have every reason to believe is in use. Refused here, where it
+// costs a message.
+//
+// One pairing is not a disagreement, and the shared answer is used rather than a second copy of the rule:
+// the kind that keeps every version of history has no name in the node's own file.
+func theKindThisNodeAlreadyRuns(mode registry.Mode, own *tmcfg.Config) error {
+	if own == nil || !modesDisagree(string(mode), own.Mode) {
+		return nil
+	}
+	return fmt.Errorf("this node's own configuration file records it running as %q and --%s says %q. A "+
+		"boot delivers nothing from a file that disagrees, so the file written here would leave every "+
+		"declared key reading as it does now", own.Mode, flagGenerateMode, mode)
 }
 
 // whatTheDeclarationDoesNotAlreadySay returns the keys this node answers differently from the declaration.
