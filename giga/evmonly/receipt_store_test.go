@@ -2,97 +2,103 @@ package evmonly
 
 import (
 	"context"
-	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func TestMemoryReceiptStoreIndexesOwnedReceiptCopies(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	txHash := common.Hash{1}
-	receipt := &ethtypes.Receipt{
-		PostState:         []byte{2},
-		Status:            ethtypes.ReceiptStatusSuccessful,
-		TxHash:            txHash,
-		EffectiveGasPrice: big.NewInt(3),
-		BlobGasPrice:      big.NewInt(4),
-		BlockNumber:       big.NewInt(5),
-		Logs: []*ethtypes.Log{{
-			Address: common.Address{6},
-			Topics:  []common.Hash{{7}},
-			Data:    []byte{8},
-		}},
+	record := receipt.ReceiptRecord{
+		TxHash: txHash,
+		Receipt: &evmtypes.Receipt{
+			TxHashHex:   txHash.Hex(),
+			BlockNumber: 5,
+			LogsBloom:   []byte{2},
+			Logs: []*evmtypes.Log{{
+				Address: common.Address{3}.Hex(),
+				Topics:  []string{common.Hash{4}.Hex()},
+				Data:    []byte{5},
+			}},
+		},
 	}
 
-	require.NoError(t, store.SetReceipts(t.Context(), 5, ethtypes.Receipts{receipt}))
-	receipt.PostState[0] = 12
-	receipt.EffectiveGasPrice.SetUint64(13)
-	receipt.BlobGasPrice.SetUint64(14)
-	receipt.BlockNumber.SetUint64(15)
-	receipt.Logs[0].Address = common.Address{16}
-	receipt.Logs[0].Topics[0] = common.Hash{17}
-	receipt.Logs[0].Data[0] = 18
+	receiptCtx := newReceiptContext(t.Context(), 5)
+	require.NoError(t, store.SetReceipts(receiptCtx, []receipt.ReceiptRecord{record}))
+	record.Receipt.LogsBloom[0] = 12
+	record.Receipt.Logs[0].Address = common.Address{13}.Hex()
+	record.Receipt.Logs[0].Topics[0] = common.Hash{14}.Hex()
+	record.Receipt.Logs[0].Data[0] = 15
 
-	stored, found, err := store.GetReceipt(t.Context(), txHash)
+	stored, err := store.GetReceipt(receiptCtx, txHash)
 	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, []byte{2}, stored.PostState)
-	require.Equal(t, big.NewInt(3), stored.EffectiveGasPrice)
-	require.Equal(t, big.NewInt(4), stored.BlobGasPrice)
-	require.Equal(t, big.NewInt(5), stored.BlockNumber)
-	require.Equal(t, common.Address{6}, stored.Logs[0].Address)
-	require.Equal(t, []common.Hash{{7}}, stored.Logs[0].Topics)
-	require.Equal(t, []byte{8}, stored.Logs[0].Data)
+	require.Equal(t, []byte{2}, stored.LogsBloom)
+	require.Equal(t, common.Address{3}.Hex(), stored.Logs[0].Address)
+	require.Equal(t, []string{common.Hash{4}.Hex()}, stored.Logs[0].Topics)
+	require.Equal(t, []byte{5}, stored.Logs[0].Data)
 
-	blockReceipts, found, err := store.GetBlockReceipts(t.Context(), 5)
+	stored.Status = 1
+	stored.Logs[0].Data[0] = 16
+	storedAgain, err := store.GetReceipt(receiptCtx, txHash)
 	require.NoError(t, err)
-	require.True(t, found)
-	require.Len(t, blockReceipts, 1)
-	blockReceipts[0].Status = ethtypes.ReceiptStatusFailed
-	storedAgain, found, err := store.GetReceipt(t.Context(), txHash)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, uint64(ethtypes.ReceiptStatusSuccessful), storedAgain.Status)
+	require.Zero(t, storedAgain.Status)
+	require.Equal(t, []byte{5}, storedAgain.Logs[0].Data)
+	require.Equal(t, int64(5), store.LatestVersion())
 }
 
-func TestMemoryReceiptStoreReplacesBlocksAndRecordsEmptyBlocks(t *testing.T) {
+func TestMemoryReceiptStoreMovesReceiptsAndRecordsEmptyBlocks(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	txHash := common.Hash{1}
+	first := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 7}
+	second := &evmtypes.Receipt{TxHashHex: txHash.Hex(), BlockNumber: 8}
+
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: first}}))
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8), []receipt.ReceiptRecord{{TxHash: txHash, Receipt: second}}))
+
+	stored, err := store.GetReceipt(newReceiptContext(t.Context(), 8), txHash)
+	require.NoError(t, err)
+	require.Equal(t, uint64(8), stored.BlockNumber)
+	require.NotContains(t, store.blocks, uint64(7))
+	require.Equal(t, int64(8), store.LatestVersion())
+
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 9), nil))
+	require.Equal(t, int64(9), store.LatestVersion())
+}
+
+func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	oldHash := common.Hash{1}
 	newHash := common.Hash{2}
-	require.NoError(t, store.SetReceipts(t.Context(), 7, ethtypes.Receipts{{TxHash: oldHash}}))
-	require.NoError(t, store.SetReceipts(t.Context(), 7, ethtypes.Receipts{{TxHash: newHash}}))
+	records := []receipt.ReceiptRecord{
+		{TxHash: oldHash, Receipt: &evmtypes.Receipt{TxHashHex: oldHash.Hex(), BlockNumber: 3}},
+		{TxHash: newHash, Receipt: &evmtypes.Receipt{TxHashHex: newHash.Hex(), BlockNumber: 4}},
+	}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 4), records))
 
-	_, found, err := store.GetReceipt(t.Context(), oldHash)
+	require.NoError(t, store.PruneHistory(4))
+	_, err := store.GetReceipt(newReceiptContext(t.Context(), 4), oldHash)
+	require.ErrorIs(t, err, receipt.ErrNotFound)
+	_, err = store.GetReceipt(newReceiptContext(t.Context(), 4), newHash)
 	require.NoError(t, err)
-	require.False(t, found)
-	stored, found, err := store.GetReceipt(t.Context(), newHash)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, newHash, stored.TxHash)
-
-	require.NoError(t, store.SetReceipts(t.Context(), 8, nil))
-	empty, found, err := store.GetBlockReceipts(t.Context(), 8)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.NotNil(t, empty)
-	require.Empty(t, empty)
-
-	_, found, err = store.GetBlockReceipts(t.Context(), 9)
-	require.NoError(t, err)
-	require.False(t, found)
+	require.Equal(t, int64(4), store.EarliestVersion())
+	require.Equal(t, uint64(2), store.GetRollbackFloor(2))
 }
 
 func TestMemoryReceiptStoreHonorsCanceledContext(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
+	receiptCtx := newReceiptContext(ctx, 1)
 
-	require.ErrorIs(t, store.SetReceipts(ctx, 1, nil), context.Canceled)
-	_, _, err := store.GetReceipt(ctx, common.Hash{})
+	require.ErrorIs(t, store.SetReceipts(receiptCtx, nil), context.Canceled)
+	_, err := store.GetReceipt(receiptCtx, common.Hash{})
 	require.ErrorIs(t, err, context.Canceled)
-	_, _, err = store.GetBlockReceipts(ctx, 1)
+	_, err = store.FilterLogs(receiptCtx, 1, 1, filters.FilterCriteria{}, nil)
 	require.ErrorIs(t, err, context.Canceled)
 }

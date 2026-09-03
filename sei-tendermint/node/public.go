@@ -9,7 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
@@ -140,7 +140,7 @@ func prepareApplication(conf *config.Config, app abci.Application) (abci.Applica
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
 		logger.Warn("Autobahn EVM-only in-memory execution enabled; state is ephemeral and unsafe for persistent networks")
-		return p2p.NewEVMOnlyInMemoryApplication(config.AutobahnEVMOnlyInMemoryChainID, validators), nil
+		return evmonlyapp.NewEVMOnlyInMemoryApplication(config.AutobahnEVMOnlyInMemoryChainID, validators), nil
 	}
 	if conf.MockApp {
 		return NewMockApp(app), nil
