@@ -48,6 +48,11 @@ type mempoolInner struct {
 	evmTxs    map[common.Hash]tmtypes.Tx
 }
 
+type evmNonceSnapshot struct {
+	first types.BlockNumber
+	nonce uint64
+}
+
 func newMempoolInner(capacity uint64, lane types.LaneID, n types.BlockNumber) *mempoolInner {
 	return &mempoolInner{
 		capacity:  capacity,
@@ -244,63 +249,134 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
-	for m, ctrl := range mp.inner.Lock() {
-		if m.closed {
-			return nil, ErrNotProducing
-		}
-		if m.IsFull() && !waitIfFull {
-			return nil, errMempoolFull
-		}
-		for m.IsFull() {
-			// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
-			// in favor of waiting for smaller txs. This simple algorithm allows us to cap
-			// pending txs to size of a single block. We can refine this rule later if needed.
-			// NOTE: in case there are N concurrent InsertTx calls, this condition is reevaluated N times
-			// every time mempool is updated. Depending on proportion of N to the block size it might get too
-			// expensive.
-			if err := ctrl.Wait(ctx); err != nil {
-				return nil, err
-			}
-			if m.closed {
-				return nil, ErrNotProducing
-			}
-		}
-		if resp.IsEVM {
-			addr := resp.EVMSenderAddress
-			nonce, ok := m.evmNonces[addr]
-			if !ok {
-				nonce = s.app.EvmNonce(addr)
-			}
-			if nonce != resp.EVMNonce {
-				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)
-			}
-			m.evmNonces[addr] = nonce + 1
-		}
-		// If any limit would be exceeded, then construct a payload.
-		// Note that we use subtraction in a way avoiding arithmetic overflows.
-		ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
-		ok = ok && types.MaxTxsBytesPerBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
-		ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
-		ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
-		if !ok {
-			m.SealBlock()
-		}
-		if len(m.nextBlock.txs) == 0 {
-			// We notify that we start a new block.
-			ctrl.Updated()
-		}
-
-		b := m.nextBlock
-		b.gasEstimated += utils.Clamp[uint64](gasEstimated)
-		b.gasWanted += utils.Clamp[uint64](resp.GasWanted)
-		b.sizeBytes += uint64(len(tx))
-		b.txs = append(b.txs, tx)
-		if resp.IsEVM {
-			addr := resp.EVMSenderAddress
-			b.evmNonces[addr] = m.evmNonces[addr]
-			b.evmHashes = append(b.evmHashes, resp.EVMHash)
-			m.evmTxs[resp.EVMHash] = tx
-		}
+	if err := s.insertCheckedTx(ctx, mp, tx, resp, gasWanted, gasEstimated, waitIfFull); err != nil {
+		return nil, err
 	}
 	return resp.ResponseCheckTx, nil
+}
+
+func (s *State) insertCheckedTx(
+	ctx context.Context,
+	mp *mempool,
+	tx tmtypes.Tx,
+	resp *abci.ResponseCheckTxV2,
+	gasWanted uint64,
+	gasEstimated uint64,
+	waitIfFull bool,
+) error {
+	nonceSnapshot := utils.None[evmNonceSnapshot]()
+	for {
+		var nonceReadAt types.BlockNumber
+		readNonce := false
+		for m, ctrl := range mp.inner.Lock() {
+			if err := waitForMempoolCapacity(ctx, m, ctrl, waitIfFull); err != nil {
+				return err
+			}
+			if resp.IsEVM {
+				reserved, err := reserveEVMNonce(m, resp, nonceSnapshot)
+				if err != nil {
+					return err
+				}
+				if !reserved {
+					nonceReadAt = m.first
+					readNonce = true
+					break
+				}
+			}
+			s.appendCheckedTx(m, ctrl, tx, resp, gasWanted, gasEstimated)
+			return nil
+		}
+		if !readNonce {
+			panic("unreachable")
+		}
+		nonceSnapshot = utils.Some(evmNonceSnapshot{
+			first: nonceReadAt,
+			nonce: s.app.EvmNonce(resp.EVMSenderAddress),
+		})
+	}
+}
+
+func waitForMempoolCapacity(
+	ctx context.Context,
+	m *mempoolInner,
+	ctrl *utils.WatchCtrl,
+	waitIfFull bool,
+) error {
+	if m.closed {
+		return ErrNotProducing
+	}
+	if m.IsFull() && !waitIfFull {
+		return errMempoolFull
+	}
+	for m.IsFull() {
+		// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
+		// in favor of waiting for smaller txs. This simple algorithm allows us to cap
+		// pending txs to size of a single block. We can refine this rule later if needed.
+		// NOTE: in case there are N concurrent InsertTx calls, this condition is reevaluated N times
+		// every time mempool is updated. Depending on proportion of N to the block size it might get too
+		// expensive.
+		if err := ctrl.Wait(ctx); err != nil {
+			return err
+		}
+		if m.closed {
+			return ErrNotProducing
+		}
+	}
+	return nil
+}
+
+func reserveEVMNonce(
+	m *mempoolInner,
+	resp *abci.ResponseCheckTxV2,
+	snapshot utils.Option[evmNonceSnapshot],
+) (bool, error) {
+	addr := resp.EVMSenderAddress
+	nonce, ok := m.evmNonces[addr]
+	if !ok {
+		cached, present := snapshot.Get()
+		if !present || cached.first != m.first {
+			return false, nil
+		}
+		nonce = cached.nonce
+	}
+	if nonce != resp.EVMNonce {
+		return false, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)
+	}
+	m.evmNonces[addr] = nonce + 1
+	return true, nil
+}
+
+func (s *State) appendCheckedTx(
+	m *mempoolInner,
+	ctrl *utils.WatchCtrl,
+	tx tmtypes.Tx,
+	resp *abci.ResponseCheckTxV2,
+	gasWanted uint64,
+	gasEstimated uint64,
+) {
+	// If any limit would be exceeded, then construct a payload.
+	// Note that we use subtraction in a way avoiding arithmetic overflows.
+	ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
+	ok = ok && types.MaxTxsBytesPerBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
+	ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
+	ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
+	if !ok {
+		m.SealBlock()
+	}
+	if len(m.nextBlock.txs) == 0 {
+		// We notify that we start a new block.
+		ctrl.Updated()
+	}
+
+	b := m.nextBlock
+	b.gasEstimated += gasEstimated
+	b.gasWanted += utils.Clamp[uint64](resp.GasWanted)
+	b.sizeBytes += uint64(len(tx))
+	b.txs = append(b.txs, tx)
+	if resp.IsEVM {
+		addr := resp.EVMSenderAddress
+		b.evmNonces[addr] = m.evmNonces[addr]
+		b.evmHashes = append(b.evmHashes, resp.EVMHash)
+		m.evmTxs[resp.EVMHash] = tx
+	}
 }

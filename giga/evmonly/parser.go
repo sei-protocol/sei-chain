@@ -6,10 +6,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/sync/errgroup"
 )
 
-func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, workers int) ([]PreparedTx, error) {
+func parseBlockTxs(
+	ctx context.Context,
+	txs [][]byte,
+	signer ethtypes.Signer,
+	workers int,
+	lookup PreparedTxLookup,
+) ([]PreparedTx, error) {
 	parsed := make([]PreparedTx, len(txs))
 	if len(txs) == 0 {
 		return parsed, nil
@@ -19,7 +26,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, wo
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			prepared, err := parsePreparedTx(raw, signer)
+			prepared, err := lookupOrParsePreparedTx(raw, signer, lookup)
 			if err != nil {
 				return nil, fmt.Errorf("parse tx %d: %w", i, err)
 			}
@@ -45,7 +52,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, wo
 	for range workers {
 		g.Go(func() error {
 			for i := range jobs {
-				prepared, err := parsePreparedTx(txs[i], signer)
+				prepared, err := lookupOrParsePreparedTx(txs[i], signer, lookup)
 				if err != nil {
 					return fmt.Errorf("parse tx %d: %w", i, err)
 				}
@@ -58,6 +65,19 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, wo
 		return nil, err
 	}
 	return parsed, nil
+}
+
+func lookupOrParsePreparedTx(raw []byte, signer ethtypes.Signer, lookup PreparedTxLookup) (PreparedTx, error) {
+	if lookup != nil {
+		hash := crypto.Keccak256Hash(raw)
+		if prepared, ok := lookup(hash); ok && prepared.Tx != nil && prepared.Tx.Hash() == hash {
+			if err := validateSupportedTx(prepared.Tx); err != nil {
+				return PreparedTx{}, err
+			}
+			return prepared, nil
+		}
+	}
+	return parsePreparedTx(raw, signer)
 }
 
 func parsePreparedTx(raw []byte, signer ethtypes.Signer) (PreparedTx, error) {

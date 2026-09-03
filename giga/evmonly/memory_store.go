@@ -355,6 +355,17 @@ func (s *MemoryStore) OpenView() gigastore.StateView {
 	return &memoryStoreSnapshot{store: s, height: height}
 }
 
+// OpenExecutorView returns a current StateView that prevents commits until the
+// caller closes it.
+func (s *MemoryStore) OpenExecutorView() gigastore.StateView {
+	s.mu.RLock()
+	height := int64(0)
+	if s.hasCurrentHeight {
+		height = s.currentHeight
+	}
+	return &memoryStoreSnapshot{store: s, height: height, storeReadLockHeld: true}
+}
+
 func (s *MemoryStore) OpenViewAt(blockNum int64) (gigastore.StateView, bool) {
 	s.mu.RLock()
 	_, ok := s.committedHeights[blockNum]
@@ -366,21 +377,22 @@ func (s *MemoryStore) OpenViewAt(blockNum int64) (gigastore.StateView, bool) {
 }
 
 type memoryStoreSnapshot struct {
-	store  *MemoryStore
-	height int64
-	closed atomic.Bool
+	store             *MemoryStore
+	height            int64
+	storeReadLockHeld bool
+	closed            atomic.Bool
 }
 
 var _ gigastore.StateView = (*memoryStoreSnapshot)(nil)
 
 func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
 	s.requireOpen()
-	s.store.mu.RLock()
+	locked := s.lockStoreForRead()
 	_, balanceTouched := latestMemoryStoreValue(s.store.balances[address], s.height)
 	_, nonceTouched := latestMemoryStoreValue(s.store.nonces[address], s.height)
 	_, codeTouched := latestMemoryStoreValue(s.store.code[address], s.height)
 	firstStorageTouch, storageTouched := s.store.storageTouch[address]
-	s.store.mu.RUnlock()
+	s.unlockStoreAfterRead(locked)
 	if balanceTouched || nonceTouched || codeTouched || storageTouched && firstStorageTouch <= s.height {
 		return true
 	}
@@ -394,10 +406,10 @@ func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
 func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
 	s.requireOpen()
 	key := memoryStoreStorageKey{address: address, slot: slot}
-	s.store.mu.RLock()
+	locked := s.lockStoreForRead()
 	value, valueOK := latestMemoryStoreValue(s.store.storage[key], s.height)
 	clearHeight, clearOK := latestHeightAt(s.store.storageClear[address], s.height)
-	s.store.mu.RUnlock()
+	s.unlockStoreAfterRead(locked)
 	if valueOK && (!clearOK || value.height >= clearHeight) {
 		if value.delete {
 			return gigastore.Hash{}
@@ -412,9 +424,9 @@ func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigasto
 
 func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
 	s.requireOpen()
-	s.store.mu.RLock()
+	locked := s.lockStoreForRead()
 	value, ok := latestMemoryStoreValue(s.store.balances[address], s.height)
-	s.store.mu.RUnlock()
+	s.unlockStoreAfterRead(locked)
 	if ok {
 		return value.value
 	}
@@ -431,9 +443,9 @@ func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Ha
 
 func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) uint64 {
 	s.requireOpen()
-	s.store.mu.RLock()
+	locked := s.lockStoreForRead()
 	value, ok := latestMemoryStoreValue(s.store.nonces[address], s.height)
-	s.store.mu.RUnlock()
+	s.unlockStoreAfterRead(locked)
 	if ok {
 		return value.value
 	}
@@ -454,9 +466,9 @@ func (s *memoryStoreSnapshot) GetCodeHash(address gigastore.Address) gigastore.H
 
 func (s *memoryStoreSnapshot) GetCode(address gigastore.Address) []byte {
 	s.requireOpen()
-	s.store.mu.RLock()
+	locked := s.lockStoreForRead()
 	value, ok := latestMemoryStoreValue(s.store.code[address], s.height)
-	s.store.mu.RUnlock()
+	s.unlockStoreAfterRead(locked)
 	if ok {
 		if value.delete {
 			return nil
@@ -483,9 +495,9 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 			return nil, false
 		}
 		address := common.Address(key[1:])
-		s.store.mu.RLock()
+		locked := s.lockStoreForRead()
 		value, ok := latestMemoryStoreValue(s.store.balances[address], s.height)
-		s.store.mu.RUnlock()
+		s.unlockStoreAfterRead(locked)
 		if !ok {
 			return nil, false
 		}
@@ -497,9 +509,9 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 			return nil, false
 		}
 		address := common.Address(key[1:])
-		s.store.mu.RLock()
+		locked := s.lockStoreForRead()
 		value, ok := latestMemoryStoreValue(s.store.nonces[address], s.height)
-		s.store.mu.RUnlock()
+		s.unlockStoreAfterRead(locked)
 		if !ok {
 			return nil, false
 		}
@@ -511,9 +523,9 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 			return nil, false
 		}
 		address := common.Address(key[1:])
-		s.store.mu.RLock()
+		locked := s.lockStoreForRead()
 		value, ok := latestMemoryStoreValue(s.store.code[address], s.height)
-		s.store.mu.RUnlock()
+		s.unlockStoreAfterRead(locked)
 		if !ok || value.delete {
 			return nil, false
 		}
@@ -523,9 +535,9 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 			return nil, false
 		}
 		address := common.Address(key[1:])
-		s.store.mu.RLock()
+		locked := s.lockStoreForRead()
 		_, ok := latestHeightAt(s.store.storageClear[address], s.height)
-		s.store.mu.RUnlock()
+		s.unlockStoreAfterRead(locked)
 		if !ok {
 			return nil, false
 		}
@@ -538,10 +550,10 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 			address: common.Address(key[1:memoryStoreAccountKeyLen]),
 			slot:    common.Hash(key[memoryStoreAccountKeyLen:]),
 		}
-		s.store.mu.RLock()
+		locked := s.lockStoreForRead()
 		value, valueOK := latestMemoryStoreValue(s.store.storage[storageKey], s.height)
 		clearHeight, clearOK := latestHeightAt(s.store.storageClear[storageKey.address], s.height)
-		s.store.mu.RUnlock()
+		s.unlockStoreAfterRead(locked)
 		if !valueOK || value.delete || clearOK && value.height < clearHeight {
 			return nil, false
 		}
@@ -554,7 +566,26 @@ func (s *memoryStoreSnapshot) Get(module string, key []byte) ([]byte, bool) {
 }
 
 func (s *memoryStoreSnapshot) Close() {
-	s.closed.Store(true)
+	if !s.closed.CompareAndSwap(false, true) {
+		return
+	}
+	if s.storeReadLockHeld {
+		s.store.mu.RUnlock()
+	}
+}
+
+func (s *memoryStoreSnapshot) lockStoreForRead() bool {
+	if s.storeReadLockHeld {
+		return false
+	}
+	s.store.mu.RLock()
+	return true
+}
+
+func (s *memoryStoreSnapshot) unlockStoreAfterRead(locked bool) {
+	if locked {
+		s.store.mu.RUnlock()
+	}
 }
 
 func (s *memoryStoreSnapshot) requireOpen() {

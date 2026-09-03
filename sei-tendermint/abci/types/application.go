@@ -45,6 +45,18 @@ type Application interface {
 	ApplySnapshotChunk(context.Context, *RequestApplySnapshotChunk) (*ResponseApplySnapshotChunk, error) // Apply a shapshot chunk
 }
 
+// PreparedBlock is stateless block preparation completed ahead of ordered
+// application finalization.
+type PreparedBlock interface {
+	Finalize(context.Context) (*ResponseFinalizeBlock, error)
+}
+
+// BlockPreparingApplication prepares finalized blocks before their ordered
+// state transition.
+type BlockPreparingApplication interface {
+	PrepareBlock(context.Context, *RequestFinalizeBlock) (PreparedBlock, error)
+}
+
 //-------------------------------------------------------
 // BaseApplication is a base form of Application
 

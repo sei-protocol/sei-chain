@@ -21,6 +21,10 @@ var (
 
 var _ StateReader = gigaSnapshotStateReader{}
 
+type executorViewStore interface {
+	OpenExecutorView() gigastore.StateView
+}
+
 // NamedChangeSetEncoder converts an executor-native state result into the
 // on-disk changesets understood by a giga store. It is called synchronously
 // while the block's read snapshot is still open. It must treat the input as
@@ -48,11 +52,16 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot := e.store.OpenView()
+	snapshot := openExecutorView(e.store)
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
-	defer snapshot.Close()
+	snapshotOpen := true
+	defer func() {
+		if snapshotOpen {
+			snapshot.Close()
+		}
+	}()
 
 	result, err := e.executePreparedBlock(ctx, req, gigaSnapshotStateReader{snapshot: snapshot})
 	if err != nil {
@@ -72,6 +81,8 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err != nil {
 		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
 	}
+	snapshot.Close()
+	snapshotOpen = false
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -80,6 +91,13 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	ok = true
 	return result, nil
+}
+
+func openExecutorView(store gigastore.StateDB) gigastore.StateView {
+	if store, ok := store.(executorViewStore); ok {
+		return store.OpenExecutorView()
+	}
+	return store.OpenView()
 }
 
 type gigaSnapshotStateReader struct {

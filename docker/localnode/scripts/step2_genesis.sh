@@ -2,6 +2,14 @@
 
 # Input parameters
 NODE_ID=${ID:-0}
+AUTOBAHN_EVMONLY_MAX_GAS=${AUTOBAHN_EVMONLY_MAX_GAS:-35000000}
+
+case "$AUTOBAHN_EVMONLY_MAX_GAS" in
+  ''|*[!0-9]*|0)
+    echo "AUTOBAHN_EVMONLY_MAX_GAS must be a positive integer" >&2
+    exit 1
+    ;;
+esac
 
 echo "Preparing genesis file"
 
@@ -19,9 +27,9 @@ override_genesis '.app_state["oracle"]["params"]["vote_period"]="2"'
 override_genesis '.app_state["slashing"]["params"]["signed_blocks_window"]="10000"'
 override_genesis '.app_state["slashing"]["params"]["min_signed_per_window"]="0.050000000000000000"'
 override_genesis '.app_state["staking"]["params"]["max_validators"]="50"'
-override_genesis '.consensus_params["block"]["max_gas"]="35000000"'
+override_genesis ".consensus_params[\"block\"][\"max_gas\"]=\"$AUTOBAHN_EVMONLY_MAX_GAS\""
 # Set MaxGasWanted to be 2x of MaxGas, similar to mainnet, in order to avoid false-positive gas related issue reports. 
-override_genesis '.consensus_params["block"]["max_gas_wanted"]="70000000"'
+override_genesis ".consensus_params[\"block\"][\"max_gas_wanted\"]=\"$((AUTOBAHN_EVMONLY_MAX_GAS * 2))\""
 override_genesis '.app_state["staking"]["params"]["unbonding_time"]="10s"'
 
 # Set a token release schedule for the genesis file

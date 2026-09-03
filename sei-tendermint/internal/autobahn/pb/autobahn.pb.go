@@ -7,13 +7,14 @@
 package pb
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -2506,13 +2507,13 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\b_lane_idB\x0f\n" +
 	"\r_block_numberB\x0e\n" +
 	"\f_parent_hashB\x0f\n" +
-	"\r_payload_hashJ\x04\b\x01\x10\x02R\x04lane\"\xd5\x02\n" +
+	"\r_payload_hashJ\x04\b\x01\x10\x02R\x04lane\"\xd6\x02\n" +
 	"\aPayload\x127\n" +
 	"\n" +
 	"created_at\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x00R\tcreatedAt\x88\x01\x01\x12-\n" +
 	"\x10total_gas_wanted\x18\a \x01(\x04H\x01R\x0etotalGasWanted\x88\x01\x01\x123\n" +
-	"\x13total_gas_estimated\x18\b \x01(\x04H\x02R\x11totalGasEstimated\x88\x01\x01\x12!\n" +
-	"\x03txs\x18\x06 \x03(\fB\x0fЈ\xe2\xab\f\xd0\x0f\xe0\x88\xe2\xab\f\x80\x80}R\x03txs:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\r\n" +
+	"\x13total_gas_estimated\x18\b \x01(\x04H\x02R\x11totalGasEstimated\x88\x01\x01\x12\"\n" +
+	"\x03txs\x18\x06 \x03(\fB\x10Ј\xe2\xab\f\x88'\xe0\x88\xe2\xab\f\x80\xc0\xb8\x02R\x03txs:\fȈ\xe2\xab\f\x01\xe8\x88\xe2\xab\f\x01B\r\n" +
 	"\v_created_atB\x13\n" +
 	"\x11_total_gas_wantedB\x16\n" +
 	"\x14_total_gas_estimatedJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\ttotal_gasR\n" +

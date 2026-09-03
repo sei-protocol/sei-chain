@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"runtime"
 	"slices"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -32,12 +33,13 @@ type evmOnlyInMemoryApplication struct {
 	chainConfig *params.ChainConfig
 	store       *evmonly.MemoryStore
 	validators  []abci.ValidatorUpdate
+	preparedTxs *evmOnlyPreparedTxCache
+	executor    utils.AtomicSend[utils.Option[*evmonly.Executor]]
+	gasLimit    atomic.Uint64
 	state       utils.Mutex[*evmOnlyInMemoryState]
 }
 
 type evmOnlyInMemoryState struct {
-	executor        utils.Option[*evmonly.Executor]
-	gasLimit        uint64
 	nextHeight      int64
 	committedHeight int64
 	appHash         common.Hash
@@ -51,7 +53,17 @@ type evmOnlyInMemoryPending struct {
 	blockHash common.Hash
 }
 
+type evmOnlyInMemoryPreparedBlock struct {
+	app       *evmOnlyInMemoryApplication
+	height    int64
+	number    uint64
+	blockHash common.Hash
+	block     evmonly.PreparedBlock
+}
+
 var _ abci.Application = (*evmOnlyInMemoryApplication)(nil)
+var _ abci.BlockPreparingApplication = (*evmOnlyInMemoryApplication)(nil)
+var _ abci.PreparedBlock = (*evmOnlyInMemoryPreparedBlock)(nil)
 
 // NewEVMOnlyInMemoryApplication returns an ephemeral raw-Ethereum application for
 // Autobahn Docker load tests.
@@ -65,6 +77,8 @@ func NewEVMOnlyInMemoryApplication(chainID uint64, validators []abci.ValidatorUp
 		chainConfig: &chainConfig,
 		store:       store,
 		validators:  slices.Clone(validators),
+		preparedTxs: newEVMOnlyPreparedTxCache(),
+		executor:    utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		state:       utils.NewMutex(&evmOnlyInMemoryState{}),
 	}
 }
@@ -78,17 +92,18 @@ func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abc
 		return nil, err
 	}
 	for state := range a.state.Lock() {
-		if state.executor.IsPresent() {
+		if a.executor.Load().IsPresent() {
 			return nil, fmt.Errorf("EVM-only application already initialized")
 		}
-		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
+		executor := evmonly.NewExecutor(evmonly.Config{
 			ChainConfig:         a.chainConfig,
 			MinGasPrice:         big.NewInt(evmOnlyInMemoryMinGasPrice),
 			OCCWorkers:          runtime.GOMAXPROCS(0),
 			ParseWorkers:        runtime.GOMAXPROCS(0),
 			BlockResultPoolSize: 1,
-		}, evmonly.WithStore(a.store, a.store.EncodeChangeSet)))
-		state.gasLimit = gasLimit
+		}, evmonly.WithStore(a.store, a.store.EncodeChangeSet))
+		a.gasLimit.Store(gasLimit)
+		a.executor.Store(utils.Some(executor))
 		state.nextHeight = req.InitialHeight
 		state.committedHeight = req.InitialHeight - 1
 		return &abci.ResponseInitChain{}, nil
@@ -140,6 +155,8 @@ func (a *evmOnlyInMemoryApplication) CheckTx(_ context.Context, req *abci.Reques
 	if !ok {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
+	hash := tx.Hash()
+	a.preparedTxs.Put(hash, evmonly.PreparedTx{Tx: tx, Sender: sender})
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:         abci.CodeTypeOK,
@@ -148,7 +165,7 @@ func (a *evmOnlyInMemoryApplication) CheckTx(_ context.Context, req *abci.Reques
 		},
 		IsEVM:            true,
 		EVMNonce:         tx.Nonce(),
-		EVMHash:          tx.Hash(),
+		EVMHash:          hash,
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
@@ -198,6 +215,27 @@ func (a *evmOnlyInMemoryApplication) EvmBalance(address common.Address, _ []byte
 }
 
 func (a *evmOnlyInMemoryApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	var parentHash common.Hash
+	for state := range a.state.Lock() {
+		parentHash = state.parentHash
+	}
+	prepared, err := a.prepareBlock(ctx, req, parentHash)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.Finalize(ctx)
+}
+
+// PrepareBlock decodes transactions and recovers their senders before ordered finalization.
+func (a *evmOnlyInMemoryApplication) PrepareBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (abci.PreparedBlock, error) {
+	return a.prepareBlock(ctx, req, common.BytesToHash(req.Header.LastBlockId.Hash))
+}
+
+func (a *evmOnlyInMemoryApplication) prepareBlock(
+	ctx context.Context,
+	req *abci.RequestFinalizeBlock,
+	parentHash common.Hash,
+) (*evmOnlyInMemoryPreparedBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
@@ -211,40 +249,70 @@ func (a *evmOnlyInMemoryApplication) FinalizeBlock(ctx context.Context, req *abc
 		return nil, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Header.Time)
 	}
 	blockHash := common.BytesToHash(req.Hash)
+	executor, ok := a.executor.Load().Get()
+	if !ok {
+		return nil, fmt.Errorf("EVM-only block prepared before InitChain")
+	}
+	prepared, err := executor.PrepareBlockWithLookup(ctx, evmonly.BlockRequest{
+		Context: evmonly.BlockContext{
+			Number:      number,
+			Time:        timestamp,
+			GasLimit:    a.gasLimit.Load(),
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     new(big.Int),
+			BlobBaseFee: new(big.Int),
+			ParentHash:  parentHash,
+			BlockHash:   blockHash,
+			PrevRandao:  crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp)),
+		},
+		Txs: req.Txs,
+	}, a.preparedTxs.Lookup)
+	if err != nil {
+		return nil, err
+	}
+	return &evmOnlyInMemoryPreparedBlock{
+		app:       a,
+		height:    height,
+		number:    number,
+		blockHash: blockHash,
+		block:     prepared,
+	}, nil
+}
+
+// Finalize applies the prepared transactions to the application state.
+func (b *evmOnlyInMemoryPreparedBlock) Finalize(ctx context.Context) (*abci.ResponseFinalizeBlock, error) {
+	return b.app.finalizePreparedBlock(ctx, b)
+}
+
+func (a *evmOnlyInMemoryApplication) finalizePreparedBlock(
+	ctx context.Context,
+	prepared *evmOnlyInMemoryPreparedBlock,
+) (*abci.ResponseFinalizeBlock, error) {
 	for state := range a.state.Lock() {
-		executor, ok := state.executor.Get()
+		executor, ok := a.executor.Load().Get()
 		if !ok {
 			return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 		}
 		if state.pending.IsPresent() {
-			return nil, fmt.Errorf("EVM-only block %d finalized before committing the previous block", height)
+			return nil, fmt.Errorf("EVM-only block %d finalized before committing the previous block", prepared.height)
 		}
-		if height != state.nextHeight {
-			return nil, fmt.Errorf("EVM-only block height %d does not match next height %d", height, state.nextHeight)
+		if prepared.height != state.nextHeight {
+			return nil, fmt.Errorf("EVM-only block height %d does not match next height %d", prepared.height, state.nextHeight)
 		}
-		result, err := executor.ExecuteBlock(ctx, evmonly.BlockRequest{
-			Context: evmonly.BlockContext{
-				Number:      number,
-				Time:        timestamp,
-				GasLimit:    state.gasLimit,
-				ChainID:     new(big.Int).Set(a.chainID),
-				BaseFee:     new(big.Int),
-				BlobBaseFee: new(big.Int),
-				ParentHash:  state.parentHash,
-				BlockHash:   blockHash,
-				PrevRandao:  crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp)),
-			},
-			Txs: req.Txs,
-		})
+		if prepared.block.Context.ParentHash != state.parentHash {
+			return nil, fmt.Errorf("EVM-only block %d parent hash does not match committed parent", prepared.height)
+		}
+		result, err := executor.ExecutePreparedBlock(ctx, prepared.block)
 		if err != nil {
 			return nil, err
 		}
 		defer result.Release()
-		appHash, err := hashEVMOnlyInMemoryResult(state.appHash, number, blockHash, result)
-		if err != nil {
-			return nil, err
-		}
-		state.pending = utils.Some(evmOnlyInMemoryPending{height: height, appHash: appHash, blockHash: blockHash})
+		appHash := hashEVMOnlyInMemoryResult(state.appHash, prepared.number, prepared.blockHash, result)
+		state.pending = utils.Some(evmOnlyInMemoryPending{
+			height:    prepared.height,
+			appHash:   appHash,
+			blockHash: prepared.blockHash,
+		})
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -271,40 +339,59 @@ func (a *evmOnlyInMemoryApplication) Commit(context.Context) (*abci.ResponseComm
 
 func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	txResults := make([]*abci.ExecTxResult, len(result.Txs))
+	values := make([]abci.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
 		gasUsed := utils.Clamp[int64](tx.GasUsed)
-		txResults[i] = &abci.ExecTxResult{
+		values[i] = abci.ExecTxResult{
 			Code:      abci.CodeTypeOK,
 			GasWanted: gasUsed,
 			GasUsed:   gasUsed,
 		}
+		txResults[i] = &values[i]
 	}
 	return txResults
 }
 
-func hashEVMOnlyInMemoryResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+func hashEVMOnlyInMemoryResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) common.Hash {
 	h := sha256.New()
 	_, _ = h.Write(previous[:])
-	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, height))
+	writeEVMOnlyHashUint64(h, height)
 	_, _ = h.Write(blockHash[:])
-	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, result.GasUsed))
-	changesets, err := evmonly.EncodeMemoryStoreChangeSet(result.ChangeSet)
-	if err != nil {
-		return common.Hash{}, err
-	}
-	for _, changeset := range changesets {
-		writeEVMOnlyHashBytes(h, []byte(changeset.Name))
-		for _, pair := range changeset.Changeset.Pairs {
-			writeEVMOnlyHashBytes(h, pair.Key)
-			if pair.Delete {
-				_, _ = h.Write([]byte{1})
-			} else {
-				_, _ = h.Write([]byte{0})
-			}
-			writeEVMOnlyHashBytes(h, pair.Value)
+	writeEVMOnlyHashUint64(h, result.GasUsed)
+
+	changes := result.ChangeSet
+	writeEVMOnlyHashSection(h, 1, len(changes.Balances))
+	for _, change := range changes.Balances {
+		_, _ = h.Write(change.Address[:])
+		var balance [common.HashLength]byte
+		if change.Balance != nil {
+			change.Balance.FillBytes(balance[:])
 		}
+		_, _ = h.Write(balance[:])
 	}
-	return common.BytesToHash(h.Sum(nil)), nil
+	writeEVMOnlyHashSection(h, 2, len(changes.Nonces))
+	for _, change := range changes.Nonces {
+		_, _ = h.Write(change.Address[:])
+		writeEVMOnlyHashUint64(h, change.Nonce)
+	}
+	writeEVMOnlyHashSection(h, 3, len(changes.Code))
+	for _, change := range changes.Code {
+		_, _ = h.Write(change.Address[:])
+		writeEVMOnlyHashBool(h, change.Delete)
+		writeEVMOnlyHashBytes(h, change.Code)
+	}
+	writeEVMOnlyHashSection(h, 4, len(changes.StorageClears))
+	for _, address := range changes.StorageClears {
+		_, _ = h.Write(address[:])
+	}
+	writeEVMOnlyHashSection(h, 5, len(changes.Storage))
+	for _, change := range changes.Storage {
+		_, _ = h.Write(change.Address[:])
+		_, _ = h.Write(change.Key[:])
+		writeEVMOnlyHashBool(h, change.Delete)
+		_, _ = h.Write(change.Value[:])
+	}
+	return common.BytesToHash(h.Sum(nil))
 }
 
 type byteWriter interface {
@@ -312,8 +399,27 @@ type byteWriter interface {
 }
 
 func writeEVMOnlyHashBytes(w byteWriter, value []byte) {
-	_, _ = w.Write(binary.BigEndian.AppendUint64(nil, uint64(len(value))))
+	writeEVMOnlyHashUint64(w, uint64(len(value)))
 	_, _ = w.Write(value)
+}
+
+func writeEVMOnlyHashSection(w byteWriter, kind byte, count int) {
+	_, _ = w.Write([]byte{kind})
+	writeEVMOnlyHashUint64(w, utils.Clamp[uint64](count))
+}
+
+func writeEVMOnlyHashBool(w byteWriter, value bool) {
+	if value {
+		_, _ = w.Write([]byte{1})
+		return
+	}
+	_, _ = w.Write([]byte{0})
+}
+
+func writeEVMOnlyHashUint64(w byteWriter, value uint64) {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], value)
+	_, _ = w.Write(encoded[:])
 }
 
 type evmOnlyFundedState struct{}

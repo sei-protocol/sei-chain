@@ -94,6 +94,12 @@ type testApp struct {
 	inner utils.Mutex[*testAppInner]
 }
 
+type blockingNonceApp struct {
+	*testApp
+	entered chan common.Address
+	release chan struct{}
+}
+
 func newTestApp() *testApp {
 	return &testApp{
 		inner: utils.NewMutex(&testAppInner{
@@ -129,6 +135,12 @@ func (a *testApp) EvmNonce(addr common.Address) uint64 {
 		return inner.nonces[addr]
 	}
 	panic("unreachable")
+}
+
+func (a *blockingNonceApp) EvmNonce(addr common.Address) uint64 {
+	a.entered <- addr
+	<-a.release
+	return a.testApp.EvmNonce(addr)
 }
 
 func (a *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
@@ -366,6 +378,51 @@ func TestMempool_BadNonce(t *testing.T) {
 	tx := env.genTx(rng, addr, nonce)
 	_, err := env.state.InsertTx(ctx, tx.encode())
 	require.NoError(t, err)
+}
+
+func TestMempool_NonceReadsDoNotHoldAdmissionLock(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	firstAddr, firstNonce := app.NewAccount(rng)
+	secondAddr, secondNonce := app.NewAccount(rng)
+	blockingApp := &blockingNonceApp{
+		testApp: app,
+		entered: make(chan common.Address),
+		release: make(chan struct{}),
+	}
+	env := newTestEnv(rng, app.Cfg(), proxy.New(blockingApp))
+	env.alignLocalMempool()
+	firstTx := env.genTx(rng, firstAddr, firstNonce)
+	secondTx := env.genTx(rng, secondAddr, secondNonce)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		defer close(blockingApp.release)
+		s.SpawnNamed("first insert", func() error {
+			_, err := env.state.InsertTx(ctx, firstTx.encode())
+			return err
+		})
+		got, err := utils.Recv(ctx, blockingApp.entered)
+		if err != nil {
+			return err
+		}
+		if got != firstAddr {
+			return fmt.Errorf("first nonce read address = %v, want %v", got, firstAddr)
+		}
+
+		s.SpawnNamed("second insert", func() error {
+			_, err := env.state.InsertTx(ctx, secondTx.encode())
+			return err
+		})
+		got, err = utils.Recv(ctx, blockingApp.entered)
+		if err != nil {
+			return err
+		}
+		if got != secondAddr {
+			return fmt.Errorf("second nonce read address = %v, want %v", got, secondAddr)
+		}
+		return nil
+	}))
 }
 
 type blockStats struct {

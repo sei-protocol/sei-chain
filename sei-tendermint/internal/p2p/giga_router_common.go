@@ -52,6 +52,12 @@ type gigaRouterCommon struct {
 	inboundFullnodeCap   int64
 }
 
+type preparedGlobalBlock struct {
+	block    *atypes.GlobalBlock
+	request  *abci.RequestFinalizeBlock
+	prepared utils.Option[abci.PreparedBlock]
+}
+
 // BuildDataState validates the common config, constructs the committee, and
 // returns an initialised data.State backed by blockStore.
 //
@@ -195,9 +201,12 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+func (r *gigaRouterCommon) prepareBlock(
+	ctx context.Context,
+	b *atypes.GlobalBlock,
+	parentHash atypes.BlockHeaderHash,
+) (preparedGlobalBlock, error) {
 	app := r.app
-	hash := b.Header.Hash()
 	var proposerAddress types.Address
 	if vals := app.GetValidators(); len(vals) > 0 {
 		// Deterministically select a proposer from the app's validator committee.
@@ -205,13 +214,12 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 		key, err := crypto.PubKeyFromProto(proposer.PubKey)
 		if err != nil {
-			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			return preparedGlobalBlock{}, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
 	}
-
-	// TODO: add metrics to understand execution latency.
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	hash := b.Header.Hash()
+	request := &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -220,14 +228,58 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		// and is fed as block hash to EVM contracts.
 		Hash: hash[:],
 		Header: (&types.Header{
-			ChainID: r.cfg.GenDoc.ChainID,
-			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
-			Time:    b.Timestamp,
+			ChainID:     r.cfg.GenDoc.ChainID,
+			LastBlockID: types.BlockID{Hash: tmbytes.HexBytes(parentHash[:])},
+			Height:      int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
+			Time:        b.Timestamp,
 			// WARNING: the reward distribution has corner cases where it forgets the proposer,
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	})
+	}
+	prepared, err := app.PrepareBlock(ctx, request)
+	if err != nil {
+		return preparedGlobalBlock{}, fmt.Errorf("app.PrepareBlock(): %w", err)
+	}
+	return preparedGlobalBlock{block: b, request: request, prepared: prepared}, nil
+}
+
+func (r *gigaRouterCommon) prepareBlocks(
+	ctx context.Context,
+	next atypes.GlobalBlockNumber,
+	parentHash atypes.BlockHeaderHash,
+	out chan<- preparedGlobalBlock,
+) error {
+	for n := next; ; n += 1 {
+		block, err := r.data.GlobalBlock(ctx, n)
+		if err != nil {
+			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+		}
+		prepared, err := r.prepareBlock(ctx, block, parentHash)
+		if err != nil {
+			return fmt.Errorf("r.prepareBlock(%v): %w", n, err)
+		}
+		if err := utils.Send(ctx, out, prepared); err != nil {
+			return err
+		}
+		parentHash = block.Header.Hash()
+	}
+}
+
+func (r *gigaRouterCommon) executeBlock(
+	ctx context.Context,
+	prepared preparedGlobalBlock,
+	hashVault hashvault.HashVault,
+) (*abci.ResponseCommit, error) {
+	app := r.app
+	b := prepared.block
+	var resp *abci.ResponseFinalizeBlock
+	var err error
+	if block, ok := prepared.prepared.Get(); ok {
+		resp, err = app.FinalizePreparedBlock(ctx, block)
+	} else {
+		resp, err = app.FinalizeBlock(ctx, prepared.request)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -387,6 +439,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
 	next := last + 1
+	var parentHash atypes.BlockHeaderHash
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
 		// node.go: shouldHandshake = !stateSync && !gigaEnabled), so we
@@ -442,36 +495,43 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash, weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
+		parentHash = b.Header.Hash()
 	}
 
-	for n := next; ; n += 1 {
-		b, err := r.data.GlobalBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
-		}
-		commitResp, err := r.executeBlock(ctx, b, hashVault)
-		if err != nil {
-			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
-		}
-		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
-		if !ok {
-			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
-		}
-		if err := r.data.PruneBefore(pruneBefore); err != nil {
-			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
-		}
-		// Align the vault's retention with the data layer's prune boundary.
-		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
-			// A canceled context just means we're shutting down between a successful executeBlock
-			// and this prune; that's benign, not a prune failure, so don't alarm operators.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				logger.Info("hashvault prune aborted by context cancellation during shutdown",
-					"prune_before", pruneBefore, "err", err)
-			} else {
-				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		preparedBlocks := make(chan preparedGlobalBlock, 1)
+		s.SpawnNamed("prepareBlocks", func() error {
+			return r.prepareBlocks(ctx, next, parentHash, preparedBlocks)
+		})
+		for n := next; ; n += 1 {
+			prepared, err := utils.Recv(ctx, preparedBlocks)
+			if err != nil {
+				return err
+			}
+			commitResp, err := r.executeBlock(ctx, prepared, hashVault)
+			if err != nil {
+				return fmt.Errorf("r.executeBlock(%v): %w", n, err)
+			}
+			pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
+			if !ok {
+				return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
+			}
+			if err := r.data.PruneBefore(pruneBefore); err != nil {
+				return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
+			}
+			// Align the vault's retention with the data layer's prune boundary.
+			if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
+				// A canceled context just means we're shutting down between a successful executeBlock
+				// and this prune; that's benign, not a prune failure, so don't alarm operators.
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					logger.Info("hashvault prune aborted by context cancellation during shutdown",
+						"prune_before", pruneBefore, "err", err)
+				} else {
+					logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+				}
 			}
 		}
-	}
+	})
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,
