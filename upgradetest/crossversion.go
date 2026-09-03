@@ -486,7 +486,7 @@ type StartObservation struct {
 // StartNodeOn starts seid in a named validator using binary.
 func (c *CrossVersion) StartNodeOn(t *testing.T, node, binary string) {
 	t.Helper()
-	c.launchSeidOn(t, node, binary)
+	c.launchSeidOn(t, node, binary, seidNodeLogPath(node), false)
 	c.waitForSeidState(t, node, "running", time.Minute)
 }
 
@@ -497,7 +497,7 @@ func (c *CrossVersion) StartNodeObserving(t *testing.T, node, binary string, tim
 	if timeout <= 0 {
 		t.Fatalf("observation timeout must be positive, got %s", timeout)
 	}
-	c.launchSeidOn(t, node, binary)
+	c.launchSeidOn(t, node, binary, seidObservedLogPath(node), true)
 
 	deadline := time.Now().Add(timeout)
 	var observed StartObservation
@@ -528,11 +528,11 @@ func (c *CrossVersion) StartNodeObserving(t *testing.T, node, binary string, tim
 	if lastInspectErr != nil && !sawRunning {
 		t.Fatalf("inspect seid in %s: %v", node, lastInspectErr)
 	}
-	observed.Log = c.readRestartLog(node)
+	observed.Log = c.readSeidLog(node, seidObservedLogPath(node))
 	return observed
 }
 
-func (c *CrossVersion) launchSeidOn(t *testing.T, node, binary string) {
+func (c *CrossVersion) launchSeidOn(t *testing.T, node, binary, logPath string, fresh bool) {
 	t.Helper()
 	if node == "" {
 		t.Fatal("node must not be empty")
@@ -548,10 +548,15 @@ func (c *CrossVersion) launchSeidOn(t *testing.T, node, binary string) {
 		t.Fatalf("seid in %s is already running", node)
 	}
 
+	redirect := ">>"
+	if fresh {
+		redirect = ">"
+	}
 	script := fmt.Sprintf(
-		"exec env -u UPGRADE_VERSION_LIST %s start --chain-id sei --inv-check-period 10 >> %s 2>&1",
+		"exec env -u UPGRADE_VERSION_LIST %s start --chain-id sei --inv-check-period 10 %s %s 2>&1",
 		strconv.Quote(binary),
-		seidRestartLogPath(node),
+		redirect,
+		logPath,
 	)
 	result := runDockerDetached(node, "sh", "-c", script)
 	if result.Err != nil {
@@ -559,12 +564,22 @@ func (c *CrossVersion) launchSeidOn(t *testing.T, node, binary string) {
 	}
 }
 
-func seidRestartLogPath(node string) string {
-	return "build/generated/logs/seid-" + strings.TrimPrefix(node, "sei-node-") + "-restart.log"
+// seidNodeLogPath is the log a validator writes from the moment the cluster
+// starts it. The orchestrator reads this file to recognise an upgrade halt, so
+// a restart has to keep appending to it rather than divert output elsewhere.
+func seidNodeLogPath(node string) string {
+	return "build/generated/logs/seid-" + strings.TrimPrefix(node, "sei-node-") + ".log"
 }
 
-func (c *CrossVersion) readRestartLog(node string) string {
-	result := c.BinaryOn(node, "", "cat", seidRestartLogPath(node))
+// seidObservedLogPath is the log a single observed start writes. It is truncated
+// per launch, so a halt found in it belongs to that launch and not to one the
+// validator logged earlier.
+func seidObservedLogPath(node string) string {
+	return "build/generated/logs/seid-" + strings.TrimPrefix(node, "sei-node-") + "-observed.log"
+}
+
+func (c *CrossVersion) readSeidLog(node, path string) string {
+	result := c.BinaryOn(node, "", "cat", path)
 	if result.Err != nil {
 		return result.Combined()
 	}

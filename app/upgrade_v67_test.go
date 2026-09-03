@@ -411,8 +411,9 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 	allowanceAfter := chain.MustSeid(t, "",
 		"q", "feegrant", "grant", granter, grantee, "--output", "json")
 	spendLimitAfter := v67FeegrantSpendLimit(t, allowanceAfter)
-	require.Less(t, spendLimitAfter, spendLimitBefore,
-		"the v6.6 transaction did not spend its fee allowance")
+	require.True(t, spendLimitAfter.LT(spendLimitBefore),
+		"the v6.6 transaction did not spend its fee allowance: %s to %s",
+		spendLimitBefore, spendLimitAfter)
 	chain.WriteDiagnostic(t, "v66-feegrant-after-spend.json", []byte(allowanceAfter))
 
 	oracleQuery := chain.Seid("", "q", "oracle", "exchange-rates", "--output", "json")
@@ -554,7 +555,7 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 		"the fee allowance written by v6.6 did not survive v6.7")
 }
 
-func v67FeegrantSpendLimit(t *testing.T, output string) int64 {
+func v67FeegrantSpendLimit(t *testing.T, output string) sdk.Int {
 	t.Helper()
 	var value any
 	require.NoError(t, json.Unmarshal([]byte(output), &value))
@@ -563,7 +564,7 @@ func v67FeegrantSpendLimit(t *testing.T, output string) int64 {
 	return amount
 }
 
-func findV67SpendLimit(value any) (int64, bool) {
+func findV67SpendLimit(value any) (sdk.Int, bool) {
 	switch value := value.(type) {
 	case map[string]any:
 		if spendLimit, ok := value["spend_limit"].([]any); ok {
@@ -572,8 +573,7 @@ func findV67SpendLimit(value any) (int64, bool) {
 				if !ok || fields["denom"] != "usei" {
 					continue
 				}
-				amount, err := strconv.ParseInt(fmt.Sprint(fields["amount"]), 10, 64)
-				if err == nil {
+				if amount, ok := sdk.NewIntFromString(fmt.Sprint(fields["amount"])); ok {
 					return amount, true
 				}
 			}
@@ -590,7 +590,7 @@ func findV67SpendLimit(value any) (int64, bool) {
 			}
 		}
 	}
-	return 0, false
+	return sdk.Int{}, false
 }
 
 func v67ExportedFeegrantAllowanceCount(t *testing.T, genesis upgradetest.ExportedGenesis) int {
@@ -812,7 +812,17 @@ func v67BankCoin(t *testing.T, output string) (denom, amount string) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(output)), &coin), output)
 	require.NotEmpty(t, coin.Denom, "bank coin JSON has no denom: %s", output)
-	return coin.Denom, strconv.FormatInt(v67JSONInt(t, coin.Amount), 10)
+	return coin.Denom, v67CoinAmount(t, coin.Amount).String()
+}
+
+// v67CoinAmount decodes a coin amount. A chain's supply reaches far beyond an
+// int64, and proto JSON quotes the field as a string.
+func v67CoinAmount(t *testing.T, encoded json.RawMessage) sdk.Int {
+	t.Helper()
+	text := strings.Trim(strings.TrimSpace(string(encoded)), `"`)
+	amount, ok := sdk.NewIntFromString(text)
+	require.True(t, ok, "invalid coin amount %s", encoded)
+	return amount
 }
 
 // requireV67PostUpgradeTxs broadcasts a bank send and an EVM native-send after
@@ -837,7 +847,8 @@ func requireV67PostUpgradeTxs(t *testing.T, chain *upgradetest.CrossVersion) {
 	))
 	require.Equal(t, seqBefore+1, v67AccountSequence(t, chain, sender),
 		"bank send did not advance the sender sequence")
-	require.Equal(t, recvBefore+v67PostUpgradeSendAmt, v67UseiBalance(t, chain, receiver),
+	require.Equal(t, recvBefore.AddRaw(v67PostUpgradeSendAmt).String(),
+		v67UseiBalance(t, chain, receiver).String(),
 		"bank send did not credit the receiver")
 
 	evmRecv := v67EVMCastSeiAddress(t, v67EVMNativeSendTo)
@@ -854,7 +865,8 @@ func requireV67PostUpgradeTxs(t *testing.T, chain *upgradetest.CrossVersion) {
 	))
 	require.Equal(t, seqBefore+2, v67AccountSequence(t, chain, sender),
 		"evm native-send did not advance the sender sequence")
-	require.Equal(t, evmBefore+v67PostUpgradeSendAmt, v67UseiBalance(t, chain, evmRecv),
+	require.Equal(t, evmBefore.AddRaw(v67PostUpgradeSendAmt).String(),
+		v67UseiBalance(t, chain, evmRecv).String(),
 		"evm native-send did not credit the cast Sei address")
 }
 
@@ -871,13 +883,13 @@ func v67AccountSequence(t *testing.T, chain *upgradetest.CrossVersion, address s
 	return v67JSONInt(t, acc.Sequence)
 }
 
-func v67UseiBalance(t *testing.T, chain *upgradetest.CrossVersion, address string) int64 {
+func v67UseiBalance(t *testing.T, chain *upgradetest.CrossVersion, address string) sdk.Int {
 	t.Helper()
 	out := chain.MustSeid(t, "",
 		"q", "bank", "balances", address, "--denom", "usei", "--output", "json")
 	_, amount := v67BankCoin(t, out)
-	value, err := strconv.ParseInt(amount, 10, 64)
-	require.NoError(t, err, "parse usei balance %q", amount)
+	value, ok := sdk.NewIntFromString(amount)
+	require.True(t, ok, "invalid usei balance %q", amount)
 	return value
 }
 

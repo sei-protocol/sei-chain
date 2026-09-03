@@ -192,7 +192,12 @@ func TestSeidSignalScript(t *testing.T) {
 	require.Contains(t, script, `${comm%/comm}`)
 }
 
-func TestSeidRestartLogPath(t *testing.T) {
-	require.Equal(t, "build/generated/logs/seid-2-restart.log", seidRestartLogPath("sei-node-2"))
-	require.Equal(t, "build/generated/logs/seid-0-restart.log", seidRestartLogPath("sei-node-0"))
+// A restarted validator must keep writing to the log the orchestrator greps for
+// an upgrade halt, while an observed start needs a log of its own so a halt
+// found there cannot be one an earlier launch logged.
+func TestSeidLogPaths(t *testing.T) {
+	require.Equal(t, "build/generated/logs/seid-2.log", seidNodeLogPath("sei-node-2"))
+	require.Equal(t, "build/generated/logs/seid-0.log", seidNodeLogPath("sei-node-0"))
+	require.NotEqual(t, seidNodeLogPath("sei-node-3"), seidObservedLogPath("sei-node-3"))
+	require.Equal(t, "build/generated/logs/seid-3-observed.log", seidObservedLogPath("sei-node-3"))
 }
