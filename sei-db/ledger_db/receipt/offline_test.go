@@ -153,3 +153,40 @@ func TestOfflinePruneAfterRefusesBelowRetentionFloor(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(count), r.BlockNumber)
 }
+
+// TestOfflinePruneAfterRefusesBelowOldestReceipt verifies that PruneAfter refuses a target below the
+// oldest receipt on disk — the case an unset retention floor leaves uncovered — and mutates nothing.
+func TestOfflinePruneAfterRefusesBelowOldestReceipt(t *testing.T) {
+	dir := t.TempDir()
+	store, ctx := setupLittIdx(t, dir)
+
+	addr := common.HexToAddress("0xc0de")
+	topic := common.HexToHash("0xdead")
+	const lowest = 3
+	const highest = 9
+	for block := uint64(lowest); block <= highest; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+	require.NoError(t, store.Close())
+
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.DBDirectory = dir
+	err := receipt.PruneAfter(cfg, lowest-1)
+	require.ErrorContains(t, err, "no receipt would survive")
+
+	// The refusal must leave the receipts in place rather than silently emptying the store while rewinding
+	// the index — the failure this guard exists to prevent.
+	store, ctx = setupLittIdx(t, dir)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	require.Equal(t, int64(highest), store.LatestVersion())
+	for block := uint64(lowest); block <= highest; block++ {
+		r, err := store.GetReceiptFromStore(ctx, litTxHash(block, 0))
+		require.NoErrorf(t, err, "block %d should still be readable", block)
+		require.Equal(t, block, r.BlockNumber)
+	}
+
+	logs, err := store.FilterLogs(ctx, 1, highest, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
+	require.NoError(t, err)
+	require.Len(t, logs, highest-lowest+1, "tag index should be untouched")
+}

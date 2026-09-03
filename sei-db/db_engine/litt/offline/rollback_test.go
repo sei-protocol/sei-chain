@@ -133,22 +133,34 @@ func TestRollbackLittDB(t *testing.T) {
 	require.NoError(t, db.Close())
 }
 
-// TestRollbackNoMatch verifies that a table for which the filter never returns true is left untouched.
+// TestRollbackNoMatch verifies that a table for which the filter never returns true retains nothing, and
+// so is deleted outright: its directory is gone from every root and it reopens empty.
 func TestRollbackNoMatch(t *testing.T) {
 	t.Parallel()
 
 	const count = 50
 
-	config, _ := newRollbackTestDB(t)
-	values := writeSequentialKeys(t, config, count)
+	config, rootPaths := newRollbackTestDB(t)
+	writeSequentialKeys(t, config, count)
 
 	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return false, nil
 	})
 	require.NoError(t, err)
 
+	for _, root := range rootPaths {
+		exists, err := util.Exists(filepath.Join(root, rollbackTestTable))
+		require.NoError(t, err)
+		require.Falsef(t, exists, "table directory should be gone from root %s", root)
+	}
+
 	db, table := openTable(t, config)
-	assertSequentialState(t, table, count, count-1, values) // everything survives
+	require.Zero(t, table.KeyCount())
+	for i := 0; i < count; i++ {
+		_, ok, err := table.Get(keyForIndex(i))
+		require.NoError(t, err)
+		require.Falsef(t, ok, "key %d should have been deleted along with the table", i)
+	}
 	require.NoError(t, db.Close())
 }
 

@@ -54,11 +54,13 @@ func GetRange(cfg dbconfig.ReceiptStoreConfig) (ok bool, lowestBlock uint64, hig
 }
 
 // PruneAfter deletes every receipt for a block height greater than highestBlockToKeep from the receipt
-// store described by cfg, without opening the store. It refuses if highestBlockToKeep falls below the
-// store's retention floor, since that data has already been pruned and cannot be faithfully restored —
-// checked before any mutation, so a refusal leaves the store untouched. Otherwise it rolls back the
-// litt-backed receipt bodies, then deletes the pebble tag-index entries above highestBlockToKeep and moves
-// the store's latest-block metadata back to match.
+// store described by cfg, without opening the store. It rolls back the litt-backed receipt bodies, then
+// deletes the pebble tag-index entries above highestBlockToKeep and moves the store's latest-block metadata
+// back to match. A highestBlockToKeep at or above the store's head is a no-op.
+//
+// It refuses a highestBlockToKeep below the store's retention floor, and one below the oldest receipt still
+// on disk: the former names data that has already been pruned, the latter would leave no receipt at all.
+// Both are checked before any receipt is touched, so a refusal leaves the store's data unchanged.
 func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) error {
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, "log-index")
@@ -85,12 +87,23 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) erro
 		return nil
 	}
 
+	if err := requireTargetWithinStoredRange(cfg, highestBlockToKeep, latest); err != nil {
+		return err
+	}
+
 	littConfig, err := litt.DefaultConfig(filepath.Join(cfg.DBDirectory, "littdb"))
 	if err != nil {
 		return fmt.Errorf("failed to build littdb config: %w", err)
 	}
 	filter := func(tableName string, key []byte, isPrimary bool) (bool, error) {
-		if tableName != littReceiptTableName || !isPrimary {
+		if tableName != littReceiptTableName {
+			// RollbackLittDB deletes any table its filter never matches, so returning false for a table
+			// this filter cannot decode would destroy it rather than leave it alone.
+			return false, fmt.Errorf("unexpected table %q under the receipt littdb", tableName)
+		}
+		if !isPrimary {
+			// Secondary keys are tx-hash aliases and carry no height, so they are never rollback points.
+			// Every group has a primary, so this never suppresses a whole table.
 			return false, nil
 		}
 		height, err := decodePartKeyHeight(key)
@@ -115,6 +128,34 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) erro
 	newLatest := encodeBlockNumber(highestBlockToKeep)
 	if err := index.Set(receiptLatestVersionKey, newLatest, dbtypes.WriteOptions{}); err != nil {
 		return fmt.Errorf("failed to update latest block metadata: %w", err)
+	}
+	return nil
+}
+
+// requireTargetWithinStoredRange refuses a rollback target below the oldest receipt still on disk. Such a
+// target retains no receipts, so the caller almost certainly named a height the store never held; a caller
+// that does mean to discard the store entirely can delete its directory. latest is the head the index
+// reports, used only to describe an index that claims receipts the litt store does not have.
+//
+// This must run to completion before the rollback starts: it reads through an offline iterator that holds
+// the same litt directory locks the rollback takes.
+func requireTargetWithinStoredRange(
+	cfg dbconfig.ReceiptStoreConfig,
+	highestBlockToKeep uint64,
+	latest uint64,
+) error {
+	ok, lowestBlock, _, err := GetRange(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to read the receipt store's block range: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("cannot roll back receipt store to block %d: the index reports a head at block "+
+			"%d but no receipts are present on disk", highestBlockToKeep, latest)
+	}
+	if highestBlockToKeep < lowestBlock {
+		return fmt.Errorf("cannot roll back receipt store to block %d: the oldest receipt on disk is for "+
+			"block %d, so no receipt would survive; delete %s to discard the store entirely",
+			highestBlockToKeep, lowestBlock, cfg.DBDirectory)
 	}
 	return nil
 }
