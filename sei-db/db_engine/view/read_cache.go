@@ -125,10 +125,10 @@ type cacheEntry struct {
 	// The value, if known.
 	value []byte
 
-	// If the value is not available when we request it, it will be written to this channel when
-	// it is available. A retire call may nil this field out from under an in-flight read (see
-	// setRetiredLocked/deleteRetiredLocked), so code outside the lock must never dereference this
-	// field directly — it must instead use a channel reference bound at scheduling time.
+	// The channel carrying the result of the read currently in flight for this key. Non-nil
+	// exactly while the status is statusScheduled: set by lookupLocked when it schedules a read,
+	// cleared by setTerminalStateLocked. Code running without the lock must use the channel
+	// reference bound at scheduling time rather than reading this field.
 	valueChan chan readResult
 }
 
@@ -239,6 +239,26 @@ func (c *readCache) readFromDB(key []byte) (value []byte, found bool, err error)
 		return nil, false, fmt.Errorf("failed to read value from database: %w", err)
 	}
 	return val, true, nil
+}
+
+// setTerminalStateLocked records the entry's final status and value for this key and enrolls it in
+// the LRU queue. A failed entry has no value to serve, so it is not enrolled. Eviction is left to
+// the caller, since a bulk insert enforces the size budget once at the end rather than per entry.
+//
+// The Locked postfix indicates that the caller must hold the shared lock.
+func (e *cacheEntry) setTerminalStateLocked(key []byte, status valueStatus, value []byte) {
+	e.status = status
+	e.value = value
+	// Every waiter holds the channel reference it was scheduled with (see injectValue), so
+	// detaching here cannot strand one. It stops the entry from retaining the channel, and the
+	// result buffered in it, for the rest of its life in the cache.
+	e.valueChan = nil
+
+	if status == statusFailed {
+		return
+	}
+	size := uint64(len(key)) + uint64(len(value)) + e.cache.overheadPerEntry
+	e.cache.gcQueue.Push(key, size)
 }
 
 // lookupLocked classifies a read of the given key and returns how to complete it: either an
@@ -379,9 +399,8 @@ func (c *readCache) resolveBatch(pending []pendingRead, results map[string][]byt
 }
 
 // This method is called by the read scheduler when a value becomes available. ch is the channel
-// bound at scheduling time (see resolve), not e.valueChan directly: a retire may have nil'd that
-// field by the time this runs, but ch still refers to the same channel object any waiters are
-// blocked on.
+// bound at scheduling time (see resolve), which is the one every waiter on this read is blocked
+// on; e.valueChan may already have been detached by then.
 func (e *cacheEntry) injectValue(key []byte, ch chan readResult, result readResult) {
 	c := e.cache
 	c.lock.Lock()
@@ -390,19 +409,13 @@ func (e *cacheEntry) injectValue(key []byte, ch chan readResult, result readResu
 		if result.err != nil {
 			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
-			// over valueChan, not from the entry.
-			e.status = statusFailed
+			// over the bound channel, not from the entry.
+			e.setTerminalStateLocked(key, statusFailed, nil)
 		} else if result.value == nil {
-			e.status = statusDeleted
-			e.value = nil
-			size := uint64(len(key)) + c.overheadPerEntry
-			c.gcQueue.Push(key, size)
+			e.setTerminalStateLocked(key, statusDeleted, nil)
 			c.evictLocked()
 		} else {
-			e.status = statusAvailable
-			e.value = result.value
-			size := uint64(len(key)) + uint64(len(result.value)) + c.overheadPerEntry
-			c.gcQueue.Push(key, size)
+			e.setTerminalStateLocked(key, statusAvailable, result.value)
 			c.evictLocked()
 		}
 	}
@@ -439,22 +452,17 @@ func (c *readCache) bulkInjectValues(reads []pendingRead) {
 		if entry.status != statusScheduled {
 			continue
 		}
+		key := []byte(reads[i].key)
 		result := reads[i].result
 		if result.err != nil {
 			// Terminal state so readers already waiting on this entry are not stranded. The manager
 			// is bricked below, so the entry is never consulted again — the error reaches the waiter
-			// over valueChan, not from the entry.
-			entry.status = statusFailed
+			// over the bound channel, not from the entry.
+			entry.setTerminalStateLocked(key, statusFailed, nil)
 		} else if result.value == nil {
-			entry.status = statusDeleted
-			entry.value = nil
-			size := uint64(len(reads[i].key)) + c.overheadPerEntry
-			c.gcQueue.Push([]byte(reads[i].key), size)
+			entry.setTerminalStateLocked(key, statusDeleted, nil)
 		} else {
-			entry.status = statusAvailable
-			entry.value = result.value
-			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + c.overheadPerEntry
-			c.gcQueue.Push([]byte(reads[i].key), size)
+			entry.setTerminalStateLocked(key, statusAvailable, result.value)
 		}
 	}
 	if failure != nil {
@@ -513,15 +521,7 @@ func (c *readCache) putRetiredLocked(data map[string][]byte) {
 // The Locked postfix indicates that the caller must hold the shared lock.
 func (c *readCache) setRetiredLocked(key []byte, value []byte) {
 	entry := c.entryLocked(key, true)
-	// Any in-flight read already holds its own bound reference to the old channel (see
-	// injectValue), so clearing this field can't strand it — it just stops this entry from
-	// retaining a stale buffered value indefinitely.
-	entry.valueChan = nil
-	entry.status = statusAvailable
-	entry.value = value
-
-	size := uint64(len(key)) + uint64(len(value)) + c.overheadPerEntry
-	c.gcQueue.Push(key, size)
+	entry.setTerminalStateLocked(key, statusAvailable, value)
 }
 
 // Delete a retired value.
@@ -533,15 +533,7 @@ func (c *readCache) deleteRetiredLocked(key []byte) {
 		// Key is not in the cache, so nothing to do.
 		return
 	}
-	// Any in-flight read already holds its own bound reference to the old channel (see
-	// injectValue), so clearing this field can't strand it — it just stops this entry from
-	// retaining a stale buffered value indefinitely.
-	entry.valueChan = nil
-	entry.status = statusDeleted
-	entry.value = nil
-
-	size := uint64(len(key)) + c.overheadPerEntry
-	c.gcQueue.Push(key, size)
+	entry.setTerminalStateLocked(key, statusDeleted, nil)
 }
 
 // Evicts least recently used entries until the cache is within its size budget.

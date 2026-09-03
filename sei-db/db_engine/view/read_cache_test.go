@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A retire (setRetiredLocked/deleteRetiredLocked) overwrites an entry's status/value but must not
-// leave a stale value reachable through the entry's valueChan — whether the entry was already
-// resolved, or still had a read in flight (statusScheduled) at the moment of retirement.
+// A cacheEntry holds its valueChan for exactly as long as a read is in flight for it. Once the
+// entry reaches a terminal state — whether by the read completing or by a retire landing on it —
+// the channel is detached, so it never keeps a channel, or the result buffered in it, alive.
 
 // TestResolveDeliversThroughBoundChannel exercises the real resolve()/readPool path (no gating,
 // no simulated interleaving) to confirm injectValue's bound-channel parameter still wires
@@ -24,29 +24,16 @@ func TestResolveDeliversThroughBoundChannel(t *testing.T) {
 	require.Equal(t, []byte("v"), v)
 }
 
-// peekChannel non-destructively inspects a single-slot buffered channel: if it holds a value, the
-// value is returned and immediately put back. Only safe with no concurrent sender/receiver, which
-// holds here since the fuzz loop below never submits a real async read.
-func peekChannel(ch chan readResult) (readResult, bool) {
-	select {
-	case v := <-ch:
-		ch <- v
-		return v, true
-	default:
-		return readResult{}, false
-	}
-}
-
-// TestRetireNeverLeavesStaleChannelValue runs a long randomized sequence of reads, retirements,
-// and evictions against a small keyspace and checks, after every step, that no entry retains a
-// channel whose buffered value diverges from the entry's current value.
+// TestValueChannelAttachedOnlyWhileScheduled runs a long randomized sequence of reads,
+// retirements, and evictions against a small keyspace and checks, after every step, that every
+// entry holds a valueChan exactly when its status is statusScheduled.
 //
 // AdHocPool.Submit spawns a goroutine, so a fuzz loop that went through resolve() end to end would
 // always block until the read had already completed and could never observe a statusScheduled
 // entry — there would be no window to race a retire against. Driving lookupLocked/injectValue
 // directly instead makes that interleaving deterministic and reproducible without any goroutines,
 // gates, or timing dependency.
-func TestRetireNeverLeavesStaleChannelValue(t *testing.T) {
+func TestValueChannelAttachedOnlyWhileScheduled(t *testing.T) {
 	db := newTestDB(nil)
 	shard := newTestShard(t, 1<<30, db)
 
@@ -64,15 +51,9 @@ func TestRetireNeverLeavesStaleChannelValue(t *testing.T) {
 		shard.lock.Lock()
 		defer shard.lock.Unlock()
 		for key, entry := range shard.cache.entries {
-			if entry.status == statusScheduled || entry.valueChan == nil {
-				continue
-			}
-			result, ok := peekChannel(entry.valueChan)
-			if !ok {
-				continue
-			}
-			require.Equal(t, entry.value, result.value,
-				"entry %q retains a stale channel value diverging from its current value", key)
+			require.Equal(t, entry.status == statusScheduled, entry.valueChan != nil,
+				"entry %q has status %v with valueChan != nil == %v",
+				key, entry.status, entry.valueChan != nil)
 		}
 	}
 
