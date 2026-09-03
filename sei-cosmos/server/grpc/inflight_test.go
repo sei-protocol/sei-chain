@@ -12,6 +12,9 @@ import (
 	gogogrpc "github.com/gogo/protobuf/grpc"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -191,11 +194,11 @@ func TestStartGRPCServer_InFlightCapRejectsBeyondLimit(t *testing.T) {
 	server := startBlockingGRPCServer(t, inFlightLimitedGRPCConfig(2))
 	client := server.dial(t)
 
-	first := server.echoAsync(context.Background(), client)
-	second := server.echoAsync(context.Background(), client)
+	first := server.echoAsync(t.Context(), client)
+	second := server.echoAsync(t.Context(), client)
 	server.query.waitEntered(t, 2)
 
-	_, err := client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	_, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 
 	// The rejection is attributed to the concurrency limit, not the bucket, so
@@ -215,18 +218,18 @@ func TestStartGRPCServer_InFlightSlotReleasedWhenRPCEnds(t *testing.T) {
 	server := startBlockingGRPCServer(t, inFlightLimitedGRPCConfig(1))
 	client := server.dial(t)
 
-	first := server.echoAsync(context.Background(), client)
+	first := server.echoAsync(t.Context(), client)
 	server.query.waitEntered(t, 1)
 	server.requireHeldSlots(t, 1)
 
-	_, err := client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	_, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 
 	server.query.releaseAll()
 	require.NoError(t, requireEchoErr(t, first))
 	server.requireEventuallyNoHeldSlots(t)
 
-	res, err := client.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	res, err := client.Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.NoError(t, err)
 	require.Equal(t, "hello", res.Message)
 }
@@ -239,7 +242,7 @@ func TestStartGRPCServer_InFlightSlotReleasedOnClientCancel(t *testing.T) {
 	server := startBlockingGRPCServer(t, inFlightLimitedGRPCConfig(1))
 	client := server.dial(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	first := server.echoAsync(ctx, client)
 	server.query.waitEntered(t, 1)
 	server.requireHeldSlots(t, 1)
@@ -264,7 +267,7 @@ func TestStartGRPCServer_UnknownMethodCannotLeakInFlightSlots(t *testing.T) {
 	// service segment, and a well-formed name for a service nobody registered.
 	for _, method := range []string{"/nope", "/nope.Service/Nope"} {
 		for range 10 {
-			err := conn.Invoke(context.Background(), method, &testdata.EchoRequest{}, &testdata.EchoResponse{})
+			err := conn.Invoke(t.Context(), method, &testdata.EchoRequest{}, &testdata.EchoResponse{})
 			require.Equal(t, codes.Unimplemented, status.Code(err), "method %q", method)
 		}
 	}
@@ -274,7 +277,7 @@ func TestStartGRPCServer_UnknownMethodCannotLeakInFlightSlots(t *testing.T) {
 	// The address still has its whole allowance, which is what a leak would have
 	// taken away.
 	server.query.releaseAll()
-	_, err = testdata.NewQueryClient(conn).Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
+	_, err = testdata.NewQueryClient(conn).Echo(t.Context(), &testdata.EchoRequest{Message: "hello"})
 	require.NoError(t, err)
 }
 
@@ -294,7 +297,7 @@ func TestStartGRPCWeb_SharesInFlightSlotsWithGRPC(t *testing.T) {
 	t.Cleanup(func() { _ = webSrv.Close() })
 
 	// The native plane holds the address's only slot.
-	first := server.echoAsync(context.Background(), client)
+	first := server.echoAsync(t.Context(), client)
 	server.query.waitEntered(t, 1)
 	require.Equal(t, http.StatusTooManyRequests, postGRPCWeb(t, webAddr))
 
@@ -316,7 +319,7 @@ func TestStartGRPCServer_InFlightCapDisabledAdmitsOverlappingRPCs(t *testing.T) 
 
 	running := make([]<-chan error, 0, 5)
 	for range 5 {
-		running = append(running, server.echoAsync(context.Background(), client))
+		running = append(running, server.echoAsync(t.Context(), client))
 	}
 	server.query.waitEntered(t, 5)
 
@@ -341,6 +344,78 @@ func TestStartGRPCServer_ConnectionsPerIPCapRefusesExcess(t *testing.T) {
 	// Closing a connection returns its slot.
 	require.NoError(t, held.Close())
 	requireConnAlive(t, dialRaw(t, server.addr))
+}
+
+// TestStartGRPCServer_ConnectionsPerIPCapAppliesWithRateLimitingDisabled pins
+// that the connection cap is independent of rate-limiting-enabled: it wraps the
+// listener, which is below every control the rate-limit switch installs.
+func TestStartGRPCServer_ConnectionsPerIPCapAppliesWithRateLimitingDisabled(t *testing.T) {
+	cfg := inFlightLimitedGRPCConfig(0)
+	cfg.RateLimitingEnabled = false
+	cfg.MaxConnectionsPerIP = 1
+	server := startBlockingGRPCServer(t, cfg)
+	require.Nil(t, server.registry, "rate limiting is off, so there is no registry to admit against")
+
+	requireConnAlive(t, dialRaw(t, server.addr))
+	requireServerHungUp(t, dialRaw(t, server.addr))
+}
+
+// TestStartGRPCWeb_ConnectionsPerIPCapRefusesExcess covers the :9091 listener,
+// which takes its cap from a config key of its own and enforces it with a
+// counter of its own, so :9090 passing proves nothing about it.
+func TestStartGRPCWeb_ConnectionsPerIPCapRefusesExcess(t *testing.T) {
+	reader := collectRejectionMetrics(t)
+	before := connRejectedCountsByPlane(t, reader)
+
+	server := startBlockingGRPCServer(t, inFlightLimitedGRPCConfig(0))
+	webAddr := freeTCPAddr(t)
+	webSrv, err := StartGRPCWeb(server.srv, server.registry, config.Config{
+		GRPCWeb: config.GRPCWebConfig{
+			Enable:              true,
+			Address:             webAddr,
+			MaxConnectionsPerIP: 2,
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = webSrv.Close() })
+
+	held := dialRaw(t, webAddr)
+	requireConnAlive(t, dialRaw(t, webAddr))
+	requireServerHungUp(t, dialRaw(t, webAddr))
+
+	// The refusal names the listener that made it, which is the only way an
+	// operator can tell a :9091 cap from the :9090 one.
+	after := connRejectedCountsByPlane(t, reader)
+	require.Equal(t, before[ratelimiter.PlaneGRPCWeb]+1, after[ratelimiter.PlaneGRPCWeb])
+	require.Equal(t, before[ratelimiter.PlaneGRPC], after[ratelimiter.PlaneGRPC])
+
+	// Closing a connection returns its slot on this listener too.
+	require.NoError(t, held.Close())
+	requireConnAlive(t, dialRaw(t, webAddr))
+}
+
+// connRejectedCountsByPlane returns the connection-rejection counter's value per
+// plane label. The counter carries no method label, so rejectionCounts, which
+// keys on method_namespace, cannot read it.
+func connRejectedCountsByPlane(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+
+	counts := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != connRejectedMetric {
+				continue
+			}
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				if v, ok := dp.Attributes.Value(attribute.Key("plane")); ok {
+					counts[v.AsString()] += dp.Value
+				}
+			}
+		}
+	}
+	return counts
 }
 
 func dialRaw(t *testing.T, addr string) net.Conn {

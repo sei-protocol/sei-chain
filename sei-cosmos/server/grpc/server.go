@@ -44,19 +44,25 @@ func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *rateli
 			"ip-rate-limit-burst", cfg.IPRateLimitBurst,
 		)
 	}
-	return []grpc.ServerOption{
+	opts := []grpc.ServerOption{
 		// Admission happens before the request is decoded: the tap handler
 		// covers native gRPC, and RateLimitHTTPMiddleware covers gRPC-Web,
 		// which reaches this server through ServeHTTP. The interceptors charge
 		// what neither can see, each message on an established stream, and
 		// admit any RPC that arrived uncharged.
 		grpc.InTapHandle(RateLimitTapHandle(registry)),
-		// The tap handler takes a per-IP concurrency slot alongside the token;
-		// this is what gives it back, on every path a stream can end.
-		grpc.StatsHandler(InFlightStatsHandler(registry)),
 		grpc.ChainUnaryInterceptor(UnaryRateLimitInterceptor(registry)),
 		grpc.ChainStreamInterceptor(StreamRateLimitInterceptor(registry)),
-	}, registry, nil
+	}
+	// The tap handler takes a per-IP concurrency slot alongside the token, and
+	// the stats handler is what gives it back, on every path a stream can end.
+	// Registering one at all makes grpc-go build and dispatch a stats event for
+	// every phase of every RPC, so with the cap off it is left out rather than
+	// left inert.
+	if cfg.MaxInFlightPerIP > 0 {
+		opts = append(opts, grpc.StatsHandler(InFlightStatsHandler(registry)))
+	}
+	return opts, registry, nil
 }
 
 // clampToMaxInt returns n as an int, saturating rather than wrapping.

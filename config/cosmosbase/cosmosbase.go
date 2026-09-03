@@ -96,10 +96,11 @@ func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 // interface follows and for the same reason. The upstream default is on for every kind, so declaring that
 // would state an open interface on the nodes meant to expose the least.
 //
-// Eleven of these seventeen keys are read only when the key is present. Two more are durations read through
-// a clamp that rescues a negative value and does nothing for an absent one, so those two are unguarded and
-// their clobber leaves no trace. The durations are declared as durations and written into a file as text,
-// which is the shape the reader parses back.
+// Most gRPC settings preserve their in-code defaults when the key is absent because the reader only reads
+// them after an IsSet check. The connection-age durations are the exception: they are read unconditionally
+// and clamped only when negative. Their default is zero, and Viper also returns zero for an absent duration,
+// so an omitted key resolves to the same value as the declared default. Duration defaults are rendered as
+// text in the config file, matching the shape the reader parses back.
 func grpcDefaults(mode registry.Mode) any { return forMode(mode).GRPC }
 
 // stateSyncDefaults is what the snapshot settings resolve to for a node of this kind.

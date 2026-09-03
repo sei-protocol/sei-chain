@@ -18,9 +18,11 @@ import (
 // share of the global connection budget. Wrap the raw listener with this before
 // the global cap, so a connection this rejects never spends a global slot.
 //
-// Addresses are keyed the way rate-limit buckets are, so a client rotating
-// within an IPv6 /64 does not get a fresh allowance per address, and every
-// client sharing an address shares one allowance.
+// Addresses are keyed on the TCP peer, normalized the way rate-limit buckets
+// are: a client rotating within an IPv6 /64 does not get a fresh allowance per
+// address, and every client sharing an address shares one allowance.
+// trusted-proxy-cidrs does not apply here, so on a node behind a proxy or load
+// balancer maxPerIP bounds that proxy as a whole rather than its clients.
 func ConnLimitListener(inner net.Listener, plane string, maxPerIP int) net.Listener {
 	if maxPerIP <= 0 {
 		return inner
@@ -52,6 +54,9 @@ func (l *connLimitListener) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The peer address is all a listener has: nothing has been read off the
+		// socket yet, so there is no X-Forwarded-For to resolve a client behind
+		// a trusted proxy to.
 		key := bucketKey(stripPort(conn.RemoteAddr().String()))
 		if l.counter.acquire(key) {
 			return &limitedConn{Conn: conn, release: func() { l.counter.release(key) }}, nil

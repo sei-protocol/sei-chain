@@ -126,6 +126,7 @@ func TestStartGRPCServer_RateLimitingEnabledInstallsInterceptors(t *testing.T) {
 const (
 	rateLimitRejectedMetric = "rpc_rate_limit_rejected_total"
 	inFlightRejectedMetric  = "rpc_inflight_rejected_total"
+	connRejectedMetric      = "rpc_connection_rejected_total"
 )
 
 var (

@@ -47,7 +47,7 @@ func StartGRPCWeb(grpcSrv *grpc.Server, registry *ratelimiter.Registry, config c
 	}
 	// Same ordering as :9090: the per-IP cap sits below the global one, so an
 	// address at its limit cannot consume the shared budget to be refused.
-	listener = ratelimiter.ConnLimitListener(listener, ratelimiter.PlaneGRPC, clampToMaxInt(config.GRPCWeb.MaxConnectionsPerIP))
+	listener = ratelimiter.ConnLimitListener(listener, ratelimiter.PlaneGRPCWeb, clampToMaxInt(config.GRPCWeb.MaxConnectionsPerIP))
 	if config.GRPCWeb.MaxOpenConnections > 0 {
 		listener = netutil.LimitListener(listener, clampToMaxInt(config.GRPCWeb.MaxOpenConnections))
 	}
