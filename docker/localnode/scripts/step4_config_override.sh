@@ -8,6 +8,30 @@ GIGA_EXECUTOR=${GIGA_EXECUTOR:-true}
 GIGA_OCC=${GIGA_OCC:-true}
 AUTOBAHN=${AUTOBAHN:-false}
 AUTOBAHN_EVMONLY_IN_MEMORY=${AUTOBAHN_EVMONLY_IN_MEMORY:-false}
+AUTOBAHN_EVMONLY_MAX_TXS_PER_BLOCK=${AUTOBAHN_EVMONLY_MAX_TXS_PER_BLOCK:-2000}
+AUTOBAHN_EVMONLY_BLOCK_INTERVAL=${AUTOBAHN_EVMONLY_BLOCK_INTERVAL:-400ms}
+AUTOBAHN_EVMONLY_MEMPOOL_SIZE=${AUTOBAHN_EVMONLY_MEMPOOL_SIZE:-5000}
+AUTOBAHN_EVMONLY_ENABLE_EVM_PROXY=${AUTOBAHN_EVMONLY_ENABLE_EVM_PROXY:-true}
+
+validate_positive_integer() {
+  case "$2" in
+    ''|*[!0-9]*|0)
+      echo "$1 must be a positive integer" >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_positive_integer AUTOBAHN_EVMONLY_MAX_TXS_PER_BLOCK "$AUTOBAHN_EVMONLY_MAX_TXS_PER_BLOCK"
+validate_positive_integer AUTOBAHN_EVMONLY_MEMPOOL_SIZE "$AUTOBAHN_EVMONLY_MEMPOOL_SIZE"
+
+case "$AUTOBAHN_EVMONLY_ENABLE_EVM_PROXY" in
+  true|false) ;;
+  *)
+    echo "AUTOBAHN_EVMONLY_ENABLE_EVM_PROXY must be true or false" >&2
+    exit 1
+    ;;
+esac
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 # GIGA_FLATKV_ONLY=true boots the cluster directly in the terminal v3
 # steady state: all SC writes route to FlatKV and memiavl is not allocated.
@@ -171,7 +195,17 @@ if [ "$AUTOBAHN" = "true" ]; then
 
   if [ "$AUTOBAHN_EVMONLY_IN_MEMORY" = "true" ]; then
     seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG" --persistent-state-dir=
+    jq \
+      --argjson max_txs_per_block "$AUTOBAHN_EVMONLY_MAX_TXS_PER_BLOCK" \
+      --arg block_interval "$AUTOBAHN_EVMONLY_BLOCK_INTERVAL" \
+      --argjson enable_evm_proxy "$AUTOBAHN_EVMONLY_ENABLE_EVM_PROXY" \
+      '.max_txs_per_block = $max_txs_per_block |
+       .block_interval = $block_interval |
+       .enable_evm_proxy = $enable_evm_proxy' \
+      "$AUTOBAHN_CONFIG" > "$AUTOBAHN_CONFIG.tmp"
+    mv "$AUTOBAHN_CONFIG.tmp" "$AUTOBAHN_CONFIG"
     sed -i 's/^evm-only-in-memory = .*/evm-only-in-memory = true/' ~/.sei/config/config.toml
+    sed -i "s/^size = .*/size = $AUTOBAHN_EVMONLY_MEMPOOL_SIZE/" ~/.sei/config/config.toml
     sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml
     sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
     sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml

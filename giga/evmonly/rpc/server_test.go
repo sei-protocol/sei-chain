@@ -18,15 +18,22 @@ import (
 )
 
 type testBackend struct {
-	broadcast func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
-	proxy     utils.Option[*ethrpc.Client]
+	broadcast    func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	proxyEnabled bool
+	proxyChecks  int
+	proxy        utils.Option[*ethrpc.Client]
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 	return b.broadcast(ctx, req)
 }
 
+func (b *testBackend) EvmProxyEnabled() bool {
+	return b.proxyEnabled
+}
+
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
+	b.proxyChecks++
 	return b.proxy
 }
 
@@ -53,6 +60,7 @@ func TestSendRawTransaction(t *testing.T) {
 	require.NoError(t, client.CallContext(t.Context(), &got, "eth_sendRawTransaction", hexutil.Bytes(raw)))
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, raw, broadcastRaw)
+	require.Zero(t, backend.proxyChecks)
 
 	var chainID hexutil.Big
 	err = client.CallContext(t.Context(), &chainID, "eth_chainId")
@@ -107,12 +115,14 @@ func TestProxiesTransactionToShardOwner(t *testing.T) {
 			t.Fatal("proxied transaction reached local broadcaster")
 			return nil, nil
 		},
-		proxy: utils.Some(remoteClient),
+		proxyEnabled: true,
+		proxy:        utils.Some(remoteClient),
 	}
 	got, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, hexutil.Bytes(raw), proxiedRaw)
+	require.Equal(t, 1, backend.proxyChecks)
 }
 
 type testRemoteSendAPI struct {

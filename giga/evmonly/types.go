@@ -42,6 +42,10 @@ type BlockRequest struct {
 	Txs     [][]byte
 }
 
+// PreparedTxLookup returns a previously validated transaction preparation by
+// the Keccak-256 hash of its raw Ethereum encoding.
+type PreparedTxLookup func(common.Hash) (PreparedTx, bool)
+
 // PreparedBlock contains decoded transactions with recovered senders. It is a
 // trusted executor-produced value: ExecutePreparedBlock assumes callers pass the
 // result of PrepareBlock unchanged and does not recover senders again.

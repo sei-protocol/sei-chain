@@ -106,6 +106,49 @@ func TestEVMOnlyInMemoryApplicationProducesDeterministicRoot(t *testing.T) {
 	require.Equal(t, firstResponse.AppHash, secondResponse.AppHash)
 }
 
+func TestEVMOnlyInMemoryApplicationPreparesNextBlockBeforeFinalization(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	preparer, ok := app.(abci.BlockPreparingApplication)
+	require.True(t, ok)
+	firstRaw, firstSender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	secondRaw, secondSender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	firstHash := crypto.Keccak256([]byte("prepared-block-1"))
+	secondHash := crypto.Keccak256([]byte("prepared-block-2"))
+
+	first, err := preparer.PrepareBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{firstRaw},
+		Hash: firstHash,
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+	second, err := preparer.PrepareBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{secondRaw},
+		Hash: secondHash,
+		Header: &tmproto.Header{
+			Height:      2,
+			Time:        time.Unix(1_700_000_002, 0),
+			LastBlockId: tmproto.BlockID{Hash: firstHash},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = first.Finalize(t.Context())
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	_, err = second.Finalize(t.Context())
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	require.Equal(t, int64(2), app.LastBlockHeight())
+	require.Equal(t, uint64(1), app.EvmNonce(firstSender))
+	require.Equal(t, uint64(1), app.EvmNonce(secondSender))
+}
+
 func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
 	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil)
 

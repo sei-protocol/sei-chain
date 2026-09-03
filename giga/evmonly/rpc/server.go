@@ -32,6 +32,7 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 // Autobahn shard owner.
 type Backend interface {
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	EvmProxyEnabled() bool
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 }
 
@@ -48,12 +49,14 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 	}
 	hash := tx.Hash()
 
-	if sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx); err == nil {
-		if client, ok := api.backend.EvmProxy(sender).Get(); ok {
-			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-				return hash, err
+	if api.backend.EvmProxyEnabled() {
+		if sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx); err == nil {
+			if client, ok := api.backend.EvmProxy(sender).Get(); ok {
+				if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
+					return hash, err
+				}
+				return hash, nil
 			}
-			return hash, nil
 		}
 	}
 

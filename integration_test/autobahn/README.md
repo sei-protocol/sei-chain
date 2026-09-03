@@ -79,6 +79,29 @@ together when using another architecture. `--repo-url` and `--ref` select the
 source deployed remotely; they default to the current checkout's origin and
 commit.
 
+The in-memory topology can be tuned through environment variables passed to
+the cluster start target:
+
+```sh
+AUTOBAHN=true \
+AUTOBAHN_EVMONLY_IN_MEMORY=true \
+AUTOBAHN_EVMONLY_MAX_TXS_PER_BLOCK=5000 \
+AUTOBAHN_EVMONLY_BLOCK_INTERVAL=100ms \
+AUTOBAHN_EVMONLY_MAX_GAS=120000000 \
+AUTOBAHN_EVMONLY_MEMPOOL_SIZE=100000 \
+AUTOBAHN_EVMONLY_GOGC=200 \
+AUTOBAHN_EVMONLY_GOMAXPROCS=16 \
+AUTOBAHN_EVMONLY_ENABLE_EVM_PROXY=false \
+DOCKER_DETACH=true \
+make docker-cluster-start-skipbuild
+```
+
+The defaults remain 2,000 transactions per block, a 400 ms block interval,
+35,000,000 gas, and 5,000 mempool entries. `GOGC` and `GOMAXPROCS` retain the
+Go runtime defaults unless set explicitly. EVM RPC proxying defaults to true;
+disable it only for load tests that can submit independent sender streams to
+every validator.
+
 If provisioning fails after AWS resources are created, the state is retained
 with status `failed`. Run `list` to inspect it and `teardown` to remove the
 instance, security group, and any managed key pair.

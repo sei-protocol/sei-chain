@@ -69,6 +69,18 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 		}
 		return nil, err
 	}
+	validation, conflictFree, err := validateInitialOCCResults(ctx, runner, results)
+	if err != nil {
+		return nil, err
+	}
+	if conflictFree {
+		result, err := e.mergeConflictFreeOCCResults(ctx, results, source)
+		if err != nil {
+			return nil, err
+		}
+		result.OCCStats = validation.stats(false)
+		return result, nil
+	}
 
 	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, source, results)
 	if errors.Is(err, errOCCMaxIncarnation) || errors.Is(err, errOCCWorkerPoolClosed) {
@@ -90,6 +102,48 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	}
 	result.OCCStats = validation.stats(false)
 	return result, nil
+}
+
+// validateInitialOCCResults reports whether all initial speculative results are
+// valid in transaction order.
+func validateInitialOCCResults(
+	ctx context.Context,
+	runner occSpeculativeRunner,
+	results []occTxExecution,
+) (occValidationResult, bool, error) {
+	writes := newStateAccessIndex()
+	validation := occValidationResult{}
+	var cumulativeGasUsed uint64
+	for txIndex, result := range results {
+		if err := ctx.Err(); err != nil {
+			return validation, false, err
+		}
+		validation.validationCount++
+		needsRerun, err := needsSTMRerun(
+			&validation,
+			writes,
+			result,
+			cumulativeGasUsed,
+			runner.blockGasLimit,
+			result.sourcePrefix,
+			txIndex,
+			txIndex,
+		)
+		if err != nil {
+			return validation, false, err
+		}
+		if needsRerun {
+			return occValidationResult{}, false, nil
+		}
+		if result.gasUsed > math.MaxUint64-cumulativeGasUsed {
+			validation.fallbackReason = occFallbackReasonGasOverflow
+			return validation, false, errors.New(occFallbackReasonGasOverflow)
+		}
+		cumulativeGasUsed += result.gasUsed
+		writes.addAllAt(txIndex, result.writeSet)
+		writes.addCommutativeBalanceDeltasAt(txIndex, result.commutativeBalanceDeltas)
+	}
+	return validation, true, nil
 }
 
 func (e *Executor) executeBlockOCCSequentialFallback(ctx context.Context, req PreparedBlock, source StateReader, validation occValidationResult, reason string) (*BlockResult, error) {
@@ -563,6 +617,28 @@ func (k stateAccessKind) String() string {
 }
 
 func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution, finalState *blockSTMState) (*BlockResult, error) {
+	blockResult, err := e.mergeOCCTransactionResults(ctx, results)
+	if err != nil {
+		return nil, err
+	}
+	finalState.ChangeSetInto(&blockResult.ChangeSet)
+	return blockResult, nil
+}
+
+func (e *Executor) mergeConflictFreeOCCResults(
+	ctx context.Context,
+	results []occTxExecution,
+	source StateReader,
+) (*BlockResult, error) {
+	blockResult, err := e.mergeOCCTransactionResults(ctx, results)
+	if err != nil {
+		return nil, err
+	}
+	mergeConflictFreeStateChanges(&blockResult.ChangeSet, results, source)
+	return blockResult, nil
+}
+
+func (e *Executor) mergeOCCTransactionResults(ctx context.Context, results []occTxExecution) (*BlockResult, error) {
 	blockResult, err := e.acquireBlockResult(ctx, len(results))
 	if err != nil {
 		return nil, err
@@ -580,8 +656,61 @@ func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution
 		blockResult.Txs[i] = result.txResult
 		blockResult.Receipts[i] = result.receipt
 	}
-	finalState.ChangeSetInto(&blockResult.ChangeSet)
 	return blockResult, nil
+}
+
+func mergeConflictFreeStateChanges(changes *StateChangeSet, results []occTxExecution, source StateReader) {
+	changes.resetForReuse()
+	balanceIndexes := make(map[common.Address]int)
+	for _, result := range results {
+		for _, change := range result.changeSet.Balances {
+			delta := result.commutativeBalanceDeltas[change.Address]
+			_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
+			if delta != nil && !normalWrite {
+				if index, ok := balanceIndexes[change.Address]; ok {
+					changes.Balances[index].Balance.Add(changes.Balances[index].Balance, delta)
+					continue
+				}
+				balance := cloneBig(source.GetBalance(change.Address))
+				balance.Add(balance, delta)
+				balanceIndexes[change.Address] = len(changes.Balances)
+				changes.Balances = append(changes.Balances, BalanceChange{Address: change.Address, Balance: balance})
+				continue
+			}
+			balance := cloneBig(change.Balance)
+			if index, ok := balanceIndexes[change.Address]; ok {
+				changes.Balances[index].Balance = balance
+				continue
+			}
+			balanceIndexes[change.Address] = len(changes.Balances)
+			changes.Balances = append(changes.Balances, BalanceChange{Address: change.Address, Balance: balance})
+		}
+		changes.Nonces = append(changes.Nonces, result.changeSet.Nonces...)
+		for _, change := range result.changeSet.Code {
+			change.Code = cloneBytes(change.Code)
+			changes.Code = append(changes.Code, change)
+		}
+		changes.StorageClears = append(changes.StorageClears, result.changeSet.StorageClears...)
+		changes.Storage = append(changes.Storage, result.changeSet.Storage...)
+	}
+	sort.Slice(changes.Balances, func(i, j int) bool {
+		return bytes.Compare(changes.Balances[i].Address[:], changes.Balances[j].Address[:]) < 0
+	})
+	sort.Slice(changes.Nonces, func(i, j int) bool {
+		return bytes.Compare(changes.Nonces[i].Address[:], changes.Nonces[j].Address[:]) < 0
+	})
+	sort.Slice(changes.Code, func(i, j int) bool {
+		return bytes.Compare(changes.Code[i].Address[:], changes.Code[j].Address[:]) < 0
+	})
+	sort.Slice(changes.StorageClears, func(i, j int) bool {
+		return bytes.Compare(changes.StorageClears[i][:], changes.StorageClears[j][:]) < 0
+	})
+	sort.Slice(changes.Storage, func(i, j int) bool {
+		if cmp := bytes.Compare(changes.Storage[i].Address[:], changes.Storage[j].Address[:]); cmp != 0 {
+			return cmp < 0
+		}
+		return bytes.Compare(changes.Storage[i].Key[:], changes.Storage[j].Key[:]) < 0
+	})
 }
 
 type blockSTMState struct {

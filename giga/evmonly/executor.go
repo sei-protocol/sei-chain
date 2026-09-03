@@ -95,12 +95,26 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 }
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
+	return e.prepareBlock(ctx, req, nil)
+}
+
+// PrepareBlockWithLookup prepares a block while reusing transaction preparation
+// results validated under the same chain rules.
+func (e *Executor) PrepareBlockWithLookup(
+	ctx context.Context,
+	req BlockRequest,
+	lookup PreparedTxLookup,
+) (PreparedBlock, error) {
+	return e.prepareBlock(ctx, req, lookup)
+}
+
+func (e *Executor) prepareBlock(ctx context.Context, req BlockRequest, lookup PreparedTxLookup) (PreparedBlock, error) {
 	chainConfig := e.chainConfig(req.Context)
 	if err := validateBlockContext(chainConfig, req.Context); err != nil {
 		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, e.cfg.ParseWorkers)
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer, e.cfg.ParseWorkers, lookup)
 	if err != nil {
 		return PreparedBlock{}, err
 	}

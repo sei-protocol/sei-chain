@@ -4,6 +4,28 @@ NODE_ID=${ID:-0}
 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL:-0}
 FREEZE_HEIGHT=${FREEZE_HEIGHT:-0}
 
+if [ "${AUTOBAHN_EVMONLY_IN_MEMORY:-false}" = "true" ]; then
+  if [ -n "${AUTOBAHN_EVMONLY_GOGC:-}" ]; then
+    case "$AUTOBAHN_EVMONLY_GOGC" in
+      off) ;;
+      *[!0-9]*|0)
+        echo "AUTOBAHN_EVMONLY_GOGC must be off or a positive integer" >&2
+        exit 1
+        ;;
+    esac
+    export GOGC="$AUTOBAHN_EVMONLY_GOGC"
+  fi
+  if [ -n "${AUTOBAHN_EVMONLY_GOMAXPROCS:-}" ]; then
+    case "$AUTOBAHN_EVMONLY_GOMAXPROCS" in
+      *[!0-9]*|0)
+        echo "AUTOBAHN_EVMONLY_GOMAXPROCS must be a positive integer" >&2
+        exit 1
+        ;;
+    esac
+    export GOMAXPROCS="$AUTOBAHN_EVMONLY_GOMAXPROCS"
+  fi
+fi
+
 LOG_DIR="build/generated/logs"
 mkdir -p $LOG_DIR
 

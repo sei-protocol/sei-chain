@@ -98,6 +98,10 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	})
 }
 
+func (r *gigaValidatorRouter) EvmProxyEnabled() bool {
+	return r.cfg.EnableEvmProxy
+}
+
 // EvmProxy on the validator returns None when the sender's shard owner is
 // us (handle locally via mempool). For remote
 // shards, we proxy only while the target validator is currently connected;

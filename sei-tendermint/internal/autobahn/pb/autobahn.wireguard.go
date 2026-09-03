@@ -2,9 +2,10 @@
 package pb
 
 import (
+	reflect "reflect"
+
 	runtime "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/runtime"
 	utils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	reflect "reflect"
 )
 
 func (*Timestamp) MaxSize() int {
@@ -28,11 +29,11 @@ func (*BlockHeader) MaxSize() int {
 }
 
 func (*Payload) MaxSize() int {
-	return 2056046
+	return 5140046
 }
 
 func (*Block) MaxSize() int {
-	return 2056181
+	return 5140182
 }
 
 func (*LaneQC) MaxSize() int {
@@ -88,7 +89,7 @@ func (*AppProposal) MaxSize() int {
 }
 
 func (*Msg) MaxSize() int {
-	return 2056185
+	return 5140187
 }
 
 func (*SignedProposal) MaxSize() int {
@@ -104,7 +105,7 @@ func (*SignedAppVote) MaxSize() int {
 }
 
 func (*SignedBlock) MaxSize() int {
-	return 2056289
+	return 5140291
 }
 
 func (*SignedBlockHeader) MaxSize() int {
@@ -202,7 +203,7 @@ func init() {
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*Timestamp]())},
 		7: {MaxCount: 1},
 		8: {MaxCount: 1},
-		6: {MaxCount: 2000, MaxTotalSize: 2048000},
+		6: {MaxCount: 5000, MaxTotalSize: 5120000},
 	})
 
 	// Register the wireguard.Schema generated for autobahn.Block.

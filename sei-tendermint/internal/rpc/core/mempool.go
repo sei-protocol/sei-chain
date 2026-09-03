@@ -16,6 +16,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+// EvmProxyEnabled reports whether EVM transactions require sender-based RPC
+// routing.
+func (env *Environment) EvmProxyEnabled() bool {
+	if r, ok := env.gigaRouter().Get(); ok {
+		return r.EvmProxyEnabled()
+	}
+	return false
+}
+
 // EvmProxy returns the EVM RPC client of the autobahn validator that owns the
 // sender shard, or None if the sender maps to the local validator (handle
 // locally) or autobahn isn't configured.

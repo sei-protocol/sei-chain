@@ -416,6 +416,58 @@ func TestPrepareBlockParallelParsePreservesOrderAndReturnsIndexedError(t *testin
 	require.ErrorContains(t, err, "parse tx 1")
 }
 
+func TestPrepareBlockWithLookupReusesValidatedTransaction(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := testAddress(0xe8)
+	raw := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
+	var tx ethtypes.Transaction
+	require.NoError(t, tx.UnmarshalBinary(raw))
+	cachedSender := testAddress(0xe9)
+	lookedUp := false
+
+	prepared, err := NewExecutor(Config{ParseWorkers: 4}).PrepareBlockWithLookup(
+		t.Context(),
+		BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}},
+		func(hash common.Hash) (PreparedTx, bool) {
+			lookedUp = true
+			require.Equal(t, tx.Hash(), hash)
+			return PreparedTx{Tx: &tx, Sender: cachedSender}, true
+		},
+	)
+
+	require.NoError(t, err)
+	require.True(t, lookedUp)
+	require.Len(t, prepared.Txs, 1)
+	require.Same(t, &tx, prepared.Txs[0].Tx)
+	require.Equal(t, cachedSender, prepared.Txs[0].Sender)
+}
+
+func TestPrepareBlockWithLookupIgnoresMismatchedTransaction(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	wantSender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xeb)
+	raw := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
+	otherRaw := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(1), nil)
+	otherTx := new(ethtypes.Transaction)
+	require.NoError(t, otherTx.UnmarshalBinary(otherRaw))
+
+	prepared, err := NewExecutor(Config{}).PrepareBlockWithLookup(
+		t.Context(),
+		BlockRequest{Context: blockContext(chainID), Txs: [][]byte{raw}},
+		func(common.Hash) (PreparedTx, bool) {
+			return PreparedTx{Tx: otherTx, Sender: testAddress(0xec)}, true
+		},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, prepared.Txs, 1)
+	require.Equal(t, wantSender, prepared.Txs[0].Sender)
+}
+
 func TestExecutorDynamicFeeTx(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
@@ -592,6 +644,7 @@ func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
 	require.Zero(t, occResult.OCCStats.ConflictCount)
+	require.Equal(t, seqResult.ChangeSet, occResult.ChangeSet)
 	for i := range txCount {
 		require.Equal(t, seqResult.Txs[i].Hash, occResult.Txs[i].Hash)
 		require.Equal(t, seqResult.Txs[i].Status, occResult.Txs[i].Status)
@@ -682,6 +735,7 @@ func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
 	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
+	require.Equal(t, seqResult.ChangeSet, occResult.ChangeSet)
 
 	seqState.ApplyChangeSet(seqResult.ChangeSet)
 	occState.ApplyChangeSet(occResult.ChangeSet)

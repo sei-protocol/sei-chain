@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -37,6 +38,26 @@ func (app *Proxy) ProcessProposal(ctx context.Context, req *types.RequestProcess
 func (app *Proxy) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
 	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
 	return app.app.FinalizeBlock(ctx, req)
+}
+
+// PrepareBlock prepares req when the application supports pipelined block preparation.
+func (app *Proxy) PrepareBlock(ctx context.Context, req *types.RequestFinalizeBlock) (utils.Option[types.PreparedBlock], error) {
+	preparer, ok := app.app.(types.BlockPreparingApplication)
+	if !ok {
+		return utils.None[types.PreparedBlock](), nil
+	}
+	defer addTimeSample(Global.MethodTimingAt("prepare_block", "sync"))()
+	prepared, err := preparer.PrepareBlock(ctx, req)
+	if err != nil {
+		return utils.None[types.PreparedBlock](), err
+	}
+	return utils.Some(prepared), nil
+}
+
+// FinalizePreparedBlock applies a previously prepared block.
+func (app *Proxy) FinalizePreparedBlock(ctx context.Context, prepared types.PreparedBlock) (*types.ResponseFinalizeBlock, error) {
+	defer addTimeSample(Global.MethodTimingAt("finalize_block", "sync"))()
+	return prepared.Finalize(ctx)
 }
 
 func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {

@@ -79,10 +79,10 @@ func (h *BlockHeader) Verify(c *Committee) error {
 const standardTxBytes uint64 = 1024
 
 // Maximum number of transactions in a block.
-const MaxTxsPerBlock uint64 = 2000
+const MaxTxsPerBlock uint64 = 5000
 
 // Maximum total size of all the transactions.
-// It can be split arbitrarily across transactions (1 large, 2000 small ones, etc.)
+// It can be split arbitrarily across transactions (1 large, 5000 small ones, etc.)
 // up to MaxTxsPerBlock limit.
 const MaxTxsBytesPerBlock = MaxTxsPerBlock * standardTxBytes
 

@@ -139,6 +139,19 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	afterDelete.Close()
 }
 
+func TestMemoryStoreExecutorViewClosesOnce(t *testing.T) {
+	store := NewMemoryStore(NewMemoryState())
+	view := store.OpenExecutorView()
+	require.Equal(t, int64(0), view.GetBlockHeight())
+
+	view.Close()
+	view.Close()
+
+	changesets, err := store.EncodeChangeSet(StateChangeSet{})
+	require.NoError(t, err)
+	require.NoError(t, store.CommitStateChanges(1, changesets))
+}
+
 func TestMemoryStoreRejectsInvalidCommits(t *testing.T) {
 	store := NewMemoryStore(NewMemoryState())
 	changesets, err := store.EncodeChangeSet(StateChangeSet{})
