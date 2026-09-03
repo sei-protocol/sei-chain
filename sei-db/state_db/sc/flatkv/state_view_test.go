@@ -90,7 +90,7 @@ func TestOpenViewIsIsolatedFromLaterCommits(t *testing.T) {
 	require.Equal(t, uint64(14), latest.GetNonce(gigaAddr(addr)))
 }
 
-// Every OpenView takes a reservation that only Close hands back, and an unreleased view stalls its
+// Every OpenView takes a reservation that only Close releases, and an unreleased view stalls its
 // store's flushes forever. So a leak here does not fail an assertion — it hangs the flush below.
 func TestOpenViewCloseReturnsReservation(t *testing.T) {
 	s := setupTestStore(t)
@@ -121,7 +121,7 @@ func TestOpenViewOnClosedStoreReportsTheStoreIsNotOpen(t *testing.T) {
 		func() { s.OpenView() })
 }
 
-// A second Close must not hand back a reservation this view no longer owns. The damaging case is
+// A second Close must not release a reservation this view no longer owns. The damaging case is
 // silent: while the store still has the same block installed, the extra release takes that
 // reservation's count to zero with no error reported, retiring a view the store believes is live. The
 // commits below are what surface it — sealing the next block reserves the installed view, which now

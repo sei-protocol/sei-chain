@@ -358,7 +358,7 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 	require.Equal(t, int64(4), s.Version())
 
 	// What each database recorded at block 4, which is the state it must keep.
-	before := make(map[string]*ktype.LocalMeta, len(dataDBDirs))
+	before := make(map[string]*LocalMeta, len(dataDBDirs))
 	for _, dir := range dataDBDirs {
 		meta, err := loadLocalMeta(s.rawDBFor(dir))
 		require.NoError(t, err)

@@ -111,7 +111,7 @@ func TestNewCommitStoreLeavesCallerConfigUntouched(t *testing.T) {
 
 	before := *cfg
 
-	s, err := NewCommitStore(t.Context(), cfg, nil)
+	s, err := NewCommitStore(t.Context(), cfg, nil, nil)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -377,7 +377,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1, version1 := s.RootHash()
+	hash1, version1 := rootHashAndVersion(s)
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 	require.Equal(t, int64(0), version1)
@@ -393,7 +393,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	committed := commitAndCheck(t, s)
 
 	// Committing a block that changes state changes the hash, and the height moves with it.
-	hash2, version2 := s.RootHash()
+	hash2, version2 := rootHashAndVersion(s)
 	require.NotEqual(t, hash1, hash2)
 	require.Equal(t, committed, version2)
 }
@@ -403,7 +403,7 @@ func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1, version1 := s.RootHash()
+	hash1, version1 := rootHashAndVersion(s)
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 
@@ -416,7 +416,7 @@ func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// A block that has not been sealed has no hash, so the store still describes the previous height.
-	hash2, version2 := s.RootHash()
+	hash2, version2 := rootHashAndVersion(s)
 	require.Equal(t, hash1, hash2, "staging a block must not move the hash")
 	require.Equal(t, version1, version2)
 }
@@ -433,14 +433,14 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	committed := commitAndCheck(t, s)
-	committedHash, committedVersion := s.RootHash()
+	committedHash, committedVersion := rootHashAndVersion(s)
 	require.Equal(t, committed, committedVersion)
 
 	// Staging the next block must leave the committed hash exactly where it is.
 	next := makeChangeSet(key, padLeft32(0x78), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{next}))
 
-	stagedHash, stagedVersion := s.RootHash()
+	stagedHash, stagedVersion := rootHashAndVersion(s)
 	require.Equal(t, committedHash, stagedHash)
 	require.Equal(t, committedVersion, stagedVersion)
 }
@@ -477,7 +477,7 @@ func TestFileLockPreventsDoubleOpen(t *testing.T) {
 	// conflict would instead surface at construction, from the WAL's own directory lock.)
 	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
-	s2, err := NewCommitStore(t.Context(), cfg, nil)
+	s2, err := NewCommitStore(t.Context(), cfg, nil, nil)
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "second open on same dir should fail due to file lock")
@@ -977,7 +977,7 @@ func TestCleanupOrphanedReadOnlyDirsHoldsWriterLock(t *testing.T) {
 
 	// nil WAL on the second store so its construction does not take the WAL's changelog-directory lock;
 	// this isolates the flatkv writer LOCK that CleanupOrphanedReadOnlyDirs must find held by s1.
-	s2, err := NewCommitStore(t.Context(), cfg, nil)
+	s2, err := NewCommitStore(t.Context(), cfg, nil, nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, s2.Close()) }()
 
@@ -1282,13 +1282,16 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	require.Equal(t, int64(6), s.Version())
 
 	// Save the correct per-DB LtHash for accountDB before skewing version.
-	savedAccountLtHash := s.perDBWorkingLtHash[accountDBDir].Clone()
+	savedAccountLtHash := s.maintainedHashes().PerDB[accountDBDir].Clone()
 
 	// Skew accountDB's local meta version to 4 while keeping the correct
 	// LtHash. This simulates a crash where the version watermark wasn't
 	// persisted but the actual data and hash are intact.
 	batch := s.rawDBFor(accountDBDir).NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash, s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir]))
+	maintained := s.maintainedHashes()
+	require.NoError(t, writeLocalMetaToBatch(
+		batch, 4, savedAccountLtHash,
+		maintained.PerModule[accountDBDir], maintained.PerModuleStats[accountDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1338,11 +1341,14 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	}
 
 	// Save the correct storageDB per-DB LtHash before skewing.
-	savedStorageLtHash := s.perDBWorkingLtHash[storageDBDir].Clone()
+	savedStorageLtHash := s.maintainedHashes().PerDB[storageDBDir].Clone()
 
 	// Simulate crash: storageDB only flushed v3 (version watermark behind).
 	batch := s.rawDBFor(storageDBDir).NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash, s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir]))
+	maintained := s.maintainedHashes()
+	require.NoError(t, writeLocalMetaToBatch(
+		batch, 3, savedStorageLtHash,
+		maintained.PerModule[storageDBDir], maintained.PerModuleStats[storageDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1585,7 +1591,7 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	// Reopen without a WAL. With one, replay would rewrite this account from block 1's changeset and
 	// heal the row before anything read it — correct system behavior, but it would leave this test with
 	// nothing to observe. A nil WAL leaves the corruption in place so the read path is what meets it.
-	s2, err := NewCommitStore(t.Context(), cfg, nil)
+	s2, err := NewCommitStore(t.Context(), cfg, nil, nil)
 	require.NoError(t, err)
 	defer s2.Close()
 	require.NoError(t, s2.LoadLatest())

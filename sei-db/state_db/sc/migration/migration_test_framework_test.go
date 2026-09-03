@@ -626,7 +626,7 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 	if err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: OpenStateWAL: %v", err)
 	}
-	s, err := flatkv.NewCommitStore(t.Context(), cfg, stateWAL)
+	s, err := flatkv.NewCommitStore(t.Context(), cfg, stateWAL, nil)
 	if err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: NewCommitStore: %v", err)
 	}

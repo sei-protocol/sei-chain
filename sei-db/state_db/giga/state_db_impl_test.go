@@ -62,7 +62,7 @@ func (w *fakeStateWAL) SignalEndOfBlock() error {
 func newTestStateDB(t *testing.T) (giga.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
 	t.Helper()
 
-	liveStateDB, err := flatkv.NewCommitStore(t.Context(), config.DefaultTestConfig(t), nil)
+	liveStateDB, err := flatkv.NewCommitStore(t.Context(), config.DefaultTestConfig(t), nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, liveStateDB.LoadLatest())
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })

@@ -126,8 +126,22 @@ func NewStore(
 	if scConfig.HistoricalProofRateLimit > 0 {
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
+	// Opened before the store it is handed to: flatKV reports its hashes from its own finalization
+	// goroutine, so it needs the logger at construction rather than per block.
+	hashLoggingOn := scConfig.HashLogger.Enable
+	var hashLogger hashlog.HashLogger
+	if hashLoggingOn {
+		hl, err := openHashLogger(scDir, scConfig.HashLogger)
+		if err != nil {
+			logger.Error("failed to open hash logger; disabling hash logging", "err", err)
+			hashLoggingOn = false
+		} else {
+			hashLogger = hl
+		}
+	}
+
 	ctx := context.Background()
-	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig, hashLogger)
 	if err != nil {
 		panic(err)
 	}
@@ -152,7 +166,8 @@ func NewStore(
 			MaxBytes: scConfig.SubspaceMaxBytes,
 		},
 		hashLoggerConfig:   scConfig.HashLogger,
-		hashLoggerDisabled: !scConfig.HashLogger.Enable,
+		hashLogger:         hashLogger,
+		hashLoggerDisabled: !hashLoggingOn,
 		scDir:              scDir,
 		// No height has been flushed yet, and the first block is 1, so -1 cannot collide with it.
 		flushedVersion: -1,

@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -406,7 +406,9 @@ func TestStoreWriteMiscKeys(t *testing.T) {
 
 	commitAndCheck(t, s)
 
-	// Verify miscDB LocalMeta is updated
+	// Verify miscDB LocalMeta is updated. Read it back: the finalizer writes it, so the store's
+	// in-memory copy is only what load saw.
+	require.NoError(t, s.reloadLocalMeta())
 	require.Equal(t, int64(1), s.localMeta[miscDBDir].CommittedVersion)
 
 	// Verify data persisted (via Store.Get which deserializes)
@@ -635,7 +637,7 @@ func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
 		"the error must name the snapshot as the cause rather than being swallowed")
 }
 
-// The store's contract makes every error fatal, so a hand-back failure during teardown has to reach the
+// The store's contract makes every error fatal, so a release failure during teardown has to reach the
 // caller of Close rather than only the log.
 func TestCloseReportsReleaseFailure(t *testing.T) {
 	s := setupTestStore(t)
@@ -644,7 +646,7 @@ func TestCloseReportsReleaseFailure(t *testing.T) {
 	// left holding anything when they are torn down below.
 	require.NoError(t, s.lastSealed.Close())
 	sealed, _ := bricksOnRelease(t, s.Version())
-	installed, err := newAtomicStoreView(sealed)
+	installed, err := sview.NewAtomicStoreView(sealed)
 	require.NoError(t, err)
 	s.lastSealed = installed
 
@@ -1550,6 +1552,9 @@ func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 
 func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver int64) {
 	t.Helper()
+	// A block's metadata is written by the finalizer, so the store's in-memory copy is only what load
+	// saw. Read back what was actually recorded.
+	require.NoError(t, s.reloadLocalMeta())
 	require.Equal(t, ver, s.localMeta[storageDBDir].CommittedVersion)
 	require.Equal(t, ver, s.localMeta[accountDBDir].CommittedVersion)
 	require.Equal(t, ver, s.localMeta[codeDBDir].CommittedVersion)
@@ -1800,18 +1805,22 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 	// (the AppHash input) stayed put.
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.True(t, s.committedLtHash.Equal(before.global))
+	require.True(t, s.maintainedHashes().Global.Equal(before.global))
 	_, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	require.False(t, ok, "nonce row from the failed apply must not be persisted")
 	_, ok = s.Get(keys.EVMStoreKey, storageKey)
 	require.False(t, ok, "storage row from the failed apply must not be persisted")
 }
 
-// TestCommitFailsCleanlyOnHashError pins that a hash failure does not leave the store believing it
-// committed.
-func TestCommitFailsCleanlyOnHashError(t *testing.T) {
+// A hash failure is no longer a commit failure: hashing happens after the block is committed, so the
+// commit succeeds and the failure surfaces where the hash does.
+//
+// What must not happen is the failure being lost. It has to reach both a caller waiting for hashes to
+// catch up and a consumer reading the stream, and no hash may be published after it — once a block has
+// failed, the running accumulator describes nothing a later block could be derived from.
+func TestHashFailureSurfacesOnTheStream(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	seedAddr := addrN(0xAC)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -1819,28 +1828,62 @@ func TestCommitFailsCleanlyOnHashError(t *testing.T) {
 		{Name: "gov", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("params"), Value: []byte{0x03}}}}},
 	}))
 	commitAndCheck(t, s)
-	committed := s.Version()
-	before := captureWorkingHashes(s)
 
-	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
+	hashes, err := s.HashChan()
+	require.NoError(t, err)
+	require.NoError(t, (<-hashes).Error, "the good block hashes normally")
+
+	s.moduleOf = func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
-	})
+	}
 
-	addr := addrN(0xDD)
-	slot := slotN(0x03)
-	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0xDD), slotN(0x03)))
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		makeChangeSet(storageKey, padLeft32(0xEE), false),
 	}))
 
-	_, err := s.Commit(s.Version() + 1)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "injected moduleOf failure")
+	committed, err := s.Commit(s.Version() + 1)
+	require.NoError(t, err, "hashing runs after the commit, so the commit itself still succeeds")
+	require.Equal(t, int64(2), committed)
 
-	// The store must not look like the block landed.
-	require.Equal(t, committed, s.Version(), "a failed commit must not advance the version")
-	requireWorkingHashesUnchanged(t, s, before)
+	failed := <-hashes
+	require.Error(t, failed.Error, "the failure must reach the stream")
+	require.ErrorContains(t, failed.Error, "injected moduleOf failure")
+
+	_, open := <-hashes
+	require.False(t, open, "nothing may be published after a failed block")
+
+	require.ErrorContains(t, s.FlushHashes(), "injected moduleOf failure",
+		"a caller waiting for hashes must be told they failed, not that they are done")
+}
+
+// A read-only store does hash blocks — it replays them to reach its target height — but it reads that
+// stream itself, so it has none to hand out. Handing back a live channel that stays empty would leave a
+// consumer waiting forever, and an empty one is indistinguishable from a store that finished.
+func TestReadOnlyStoreRefusesItsHashChan(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(evmStorageKey(ktype.Address{0x11}, ktype.Slot{0x22}), padLeft32(0x33), false),
+	}))
+	commitAndCheck(t, s)
+
+	stream, err := s.HashChan()
+	require.NoError(t, err, "a committing store hands out its stream")
+	require.NotNil(t, stream)
+
+	ro, err := s.LoadVersionReadOnly(0)
+	require.NoError(t, err)
+	defer func() { _ = ro.Close() }()
+
+	roStream, err := ro.HashChan()
+	require.Error(t, err, "a read-only store must refuse rather than return a stream that stays empty")
+	require.ErrorContains(t, err, "read-only")
+	require.Nil(t, roStream)
+
+	// The height is still readable, which is what a caller wanting a read-only store's hash actually needs.
+	require.Equal(t, ro.Version(), ro.PublishedHash().BlockNumber)
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {

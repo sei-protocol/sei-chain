@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -147,6 +149,17 @@ func setupTestStore(t *testing.T) *CommitStore {
 	return s
 }
 
+// setupTestStoreWithHashLogger creates a test store that reports each finalized block's hashes to hl.
+func setupTestStoreWithHashLogger(t *testing.T, cfg *config.Config, hl hashlog.HashLogger) *CommitStore {
+	t.Helper()
+	stateWAL, err := OpenStateWAL(cfg)
+	require.NoError(t, err)
+	s, err := NewCommitStore(t.Context(), cfg, stateWAL, hl)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	return s
+}
+
 // setupTestStoreWithConfig creates a test store with custom config
 func setupTestStoreWithConfig(t *testing.T, cfg *config.Config) *CommitStore {
 	t.Helper()
@@ -178,11 +191,33 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 	return v
 }
 
-// rootHash returns the store's committed root hash, discarding the height it describes. Tests that
-// care about the height assert on it directly rather than through this.
+// rootHash returns the store's root hash once hashing has caught up with what was committed.
+//
+// Hashing is asynchronous, so nearly every assertion about a hash needs that barrier first; putting it
+// here rather than at each call site is what keeps the suite from racing the pipeline.
 func rootHash(s giga.LiveStateStore) []byte {
-	hash, _ := s.RootHash()
-	return hash
+	if err := s.FlushHashes(); err != nil {
+		panic(fmt.Sprintf("flatkv: flush hashes before reading the root: %v", err))
+	}
+	checksum := s.PublishedHash().Global.Checksum()
+	return checksum[:]
+}
+
+// rootHashAndVersion is rootHash paired with the height it describes, for the tests that assert on
+// both. Reading them after the same flush is what makes them describe one moment.
+func rootHashAndVersion(s giga.LiveStateStore) ([]byte, int64) {
+	return rootHash(s), s.Version()
+}
+
+// maintainedHashes returns the hash state the store maintains, with the pipeline caught up first.
+//
+// This is what the store's synchronous accumulator fields used to be, and it is a method on the store
+// so a test can read it the same way.
+func (s *CommitStore) maintainedHashes() *lthash.BlockHash {
+	if err := s.FlushHashes(); err != nil {
+		panic(fmt.Sprintf("flatkv: flush hashes before reading maintained state: %v", err))
+	}
+	return s.PublishedHash()
 }
 
 // ---------- helpers to build prefix-encoded changeset pairs ----------
@@ -305,24 +340,24 @@ type workingHashes struct {
 }
 
 func captureWorkingHashes(s *CommitStore) workingHashes {
-	perDB := make(map[string]*lthash.LtHash, len(s.perDBWorkingLtHash))
-	for dir, h := range s.perDBWorkingLtHash {
+	perDB := make(map[string]*lthash.LtHash, len(s.maintainedHashes().PerDB))
+	for dir, h := range s.maintainedHashes().PerDB {
 		perDB[dir] = h.Clone()
 	}
-	perModule := make(map[string]map[string]*lthash.LtHash, len(s.perDBModuleWorkingLtHash))
-	for dir, mods := range s.perDBModuleWorkingLtHash {
+	perModule := make(map[string]map[string]*lthash.LtHash, len(s.maintainedHashes().PerModule))
+	for dir, mods := range s.maintainedHashes().PerModule {
 		cloned := make(map[string]*lthash.LtHash, len(mods))
 		for module, h := range mods {
 			cloned[module] = h.Clone()
 		}
 		perModule[dir] = cloned
 	}
-	perModuleStats := make(map[string]map[string]lthash.ModuleStats, len(s.perDBModuleWorkingStats))
-	for dir, mods := range s.perDBModuleWorkingStats {
+	perModuleStats := make(map[string]map[string]lthash.ModuleStats, len(s.maintainedHashes().PerModuleStats))
+	for dir, mods := range s.maintainedHashes().PerModuleStats {
 		perModuleStats[dir] = maps.Clone(mods)
 	}
 	return workingHashes{
-		global:         s.workingLtHash.Clone(),
+		global:         s.maintainedHashes().Global.Clone(),
 		perDB:          perDB,
 		perModule:      perModule,
 		perModuleStats: perModuleStats,
@@ -334,16 +369,17 @@ func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingH
 	// Compute clones prev* before folding; a regression that mutates those
 	// clones in place or swaps them onto the store on the error path must
 	// fail these checks. Global equality alone cannot catch a per-module rewrite.
-	require.True(t, s.workingLtHash.Equal(before.global), "workingLtHash mutated on failed Apply")
-	require.Equal(t, len(before.perDB), len(s.perDBWorkingLtHash), "perDBWorkingLtHash dir set changed")
+	require.True(t, s.maintainedHashes().Global.Equal(before.global), "workingLtHash mutated on failed Apply")
+	require.Equal(t, len(before.perDB), len(s.maintainedHashes().PerDB), "perDBWorkingLtHash dir set changed")
 	for dir, want := range before.perDB {
-		got := s.perDBWorkingLtHash[dir]
+		got := s.maintainedHashes().PerDB[dir]
 		require.NotNil(t, got, "perDBWorkingLtHash[%s] missing", dir)
 		require.True(t, got.Equal(want), "perDBWorkingLtHash[%s] mutated on failed Apply", dir)
 	}
-	require.Equal(t, len(before.perModule), len(s.perDBModuleWorkingLtHash), "perDBModuleWorkingLtHash dir set changed")
+	require.Equal(t, len(before.perModule), len(s.maintainedHashes().PerModule),
+		"maintained per-module dir set changed")
 	for dir, wantMods := range before.perModule {
-		gotMods := s.perDBModuleWorkingLtHash[dir]
+		gotMods := s.maintainedHashes().PerModule[dir]
 		require.Equal(t, len(wantMods), len(gotMods), "perDBModuleWorkingLtHash[%s] module set changed", dir)
 		for module, want := range wantMods {
 			got := gotMods[module]
@@ -351,7 +387,8 @@ func requireWorkingHashesUnchanged(t *testing.T, s *CommitStore, before workingH
 			require.True(t, got.Equal(want), "perDBModuleWorkingLtHash[%s][%s] mutated on failed Apply", dir, module)
 		}
 	}
-	require.Equal(t, before.perModuleStats, s.perDBModuleWorkingStats, "perDBModuleWorkingStats mutated on failed Apply")
+	require.Equal(t, before.perModuleStats, s.maintainedHashes().PerModuleStats,
+		"maintained per-module stats mutated on failed Apply")
 }
 
 // stagedRow reads a physical key back through its store and decodes it. The store reports whatever

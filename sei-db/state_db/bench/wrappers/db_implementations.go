@@ -81,7 +81,7 @@ func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkvConfi
 	if err != nil {
 		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
 	}
-	cs, err := flatkv.NewCommitStore(ctx, config, stateWAL)
+	cs, err := flatkv.NewCommitStore(ctx, config, stateWAL, nil)
 	if err != nil {
 		_ = stateWAL.Close()
 		return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
@@ -101,7 +101,7 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode sctype
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
+	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, cfg, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create composite commit store: %w", err)
 	}

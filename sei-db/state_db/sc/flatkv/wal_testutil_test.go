@@ -19,7 +19,7 @@ func newCommitStoreWithWAL(ctx context.Context, cfg *config.Config) (*CommitStor
 	if err != nil {
 		return nil, err
 	}
-	return NewCommitStore(ctx, cfg, stateWAL)
+	return NewCommitStore(ctx, cfg, stateWAL, nil)
 }
 
 // resetWALForTest closes the store's WAL, removes its directory and reopens an empty one in place, leaving the

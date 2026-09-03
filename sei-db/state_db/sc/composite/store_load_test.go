@@ -38,7 +38,7 @@ func TestCorruptFlatKVDirFailsOnLoad(t *testing.T) {
 	require.NoError(t, os.RemoveAll(miscDir))
 	require.NoError(t, os.WriteFile(miscDir, []byte("not a pebble db"), 0o600))
 
-	reopened, err := NewCompositeCommitStore(t.Context(), dir, autoExportConfig())
+	reopened, err := NewCompositeCommitStore(t.Context(), dir, autoExportConfig(), nil)
 	require.NoError(t, err, "construction does not open the DBs, so it cannot detect this")
 	defer func() { _ = reopened.Close() }()
 
@@ -67,7 +67,7 @@ func TestDerivedStoreRefusesLoads(t *testing.T) {
 	require.Nil(t, cs.flatKV, "fixture precondition: flatkv must not be materialized")
 	require.NoError(t, cs.Close())
 
-	fresh, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	fresh, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
 	require.NoError(t, err)
 	defer func() { _ = fresh.Close() }()
 	require.NoError(t, fresh.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))

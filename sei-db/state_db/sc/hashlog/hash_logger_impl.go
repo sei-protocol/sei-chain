@@ -93,17 +93,6 @@ type hashLoggerImpl struct {
 	// The software version embedded in each file name (sanitized to be filename-safe at construction).
 	version string
 
-	// The ordered set of hash columns recorded per block; the changeset column is prepended when changeset hashing is
-	// enabled. Mutated only by the control loop (handling a ctrlColumnChange), so the loop reads len(hashTypes) for
-	// block completion without synchronization. Register/UnregisterHashType change it through that message.
-	hashTypes []string
-
-	// The membership set over hashTypes, for O(1) validation of caller-supplied hash types in ReportHash. Written
-	// only by the control loop (handling ctrlColumnChange) and read by the caller in Register/Unregister/ReportHash.
-	// These callers are serialized (Register/Unregister block on the loop's ack via the done channel, establishing
-	// happens-before), so the read is race-free as long as callers do not invoke the API concurrently.
-	hashTypeSet map[string]struct{}
-
 	// When true, changeset hashing is disabled: no hasher thread, ReportChangeset is a no-op, and no changeset column is
 	// recorded or awaited.
 	changesetHashingDisabled bool
@@ -183,6 +172,13 @@ type hashLoggerImpl struct {
 
 	// The following fields are the control loop's private bookkeeping, owned exclusively by the control loop
 	// goroutine, so they need no synchronization.
+
+	// The ordered set of hash columns recorded per block; the changeset column is prepended when changeset hashing
+	// is enabled. The loop reads len(hashTypes) to decide whether a block is complete.
+	hashTypes []string
+
+	// The membership set over hashTypes, for deciding whether a reported column already exists.
+	hashTypeSet map[string]struct{}
 
 	// Blocks being assembled, keyed by block number.
 	pendingBlocks map[uint64]*HashLog
@@ -362,9 +358,6 @@ func (h *hashLoggerImpl) RegisterHashType(hashType string) error {
 		return fmt.Errorf("hash type %q contains illegal characters (must match %s)",
 			hashType, legalHashTypeRegex.String())
 	}
-	if _, ok := h.hashTypeSet[hashType]; ok {
-		return nil // already registered; idempotent no-op (no rotation)
-	}
 	return h.sendColumnChange(hashType, true)
 }
 
@@ -375,17 +368,14 @@ func (h *hashLoggerImpl) UnregisterHashType(hashType string) error {
 	if !h.changesetHashingDisabled && hashType == ChangesetHashType {
 		return fmt.Errorf("hash type %q is the logger-computed changeset column and cannot be removed", hashType)
 	}
-	if _, ok := h.hashTypeSet[hashType]; !ok {
-		return nil // not registered; idempotent no-op (no rotation)
-	}
 	return h.sendColumnChange(hashType, false)
 }
 
 // sendColumnChange forwards a column add/remove to the control loop and waits for it to be applied (the
-// loop flushes/seals/rotates and updates hashTypes/hashTypeSet before acking). The synchronous handshake
-// guarantees that a subsequent ReportHash for the new column is accepted, and establishes happens-before
-// for the caller's later reads of hashTypeSet. If the logger is shutting down before the change is
-// applied, it returns the relevant context error so the caller knows the registration did not land.
+// loop flushes/seals/rotates and updates hashTypes/hashTypeSet before acking). Waiting is what lets a
+// caller declare a column before reporting anything, so the first file's header already carries it and no
+// early block is written without it. If the logger is shutting down before the change is applied, it
+// returns the relevant context error so the caller knows the registration did not land.
 func (h *hashLoggerImpl) sendColumnChange(hashType string, add bool) error {
 	if h.closed.Load() {
 		return fmt.Errorf("hash logger is closed")
@@ -437,9 +427,9 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 	if !h.changesetHashingDisabled && hashType == ChangesetHashType {
 		return fmt.Errorf("hash type %q is reserved for the logger-computed changeset; use ReportChangeset", hashType)
 	}
-	if _, ok := h.hashTypeSet[hashType]; !ok {
-		return fmt.Errorf("unknown hash type %q", hashType)
-	}
+	// An unregistered type is not rejected here: whether it is registered is the control loop's to know, and
+	// asking would mean reading the loop's state from this goroutine. The loop creates the column instead.
+	//
 	// Blocking send to the control loop, which normally drains controlChan quickly; it can backpressure only
 	// if the downstream writer is itself stalled on a slow disk.
 	h.sendControl(controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: hashType, hash: hash})
@@ -595,10 +585,41 @@ func (h *hashLoggerImpl) handleColumnChange(hashType string, add bool) {
 
 // handleHashReport records a caller-reported hash, discarding it if the block has already been flushed.
 func (h *hashLoggerImpl) handleHashReport(blockNumber uint64, hashType string, hash []byte) {
+	// Adopting the column first, and re-checking the high water after, is what keeps this block from being
+	// written twice: adopting flushes every block that is complete under the old column set, which can
+	// include this one, and ensurePending would then rebuild the entry that flush just emitted.
+	if !h.adoptReportedColumn(hashType) {
+		return
+	}
 	if h.hasFlushedAtLeastOnce && blockNumber <= h.flushedHighWater {
 		return // already on disk: a duplicate/late report, or a re-execution without reopening the logger
 	}
 	h.ensurePending(blockNumber).Hashes[hashType] = hash
+}
+
+// adoptReportedColumn makes hashType a recorded column if it is not one already, reporting whether a hash
+// may be recorded under it.
+//
+// A caller reporting a column that was never registered is a wiring mistake, and this is a logging
+// utility: losing the hash would trade an observability problem for a blind spot. Adding the column keeps
+// the hash and self-heals a registration that never happened, and it bounds the complaint to one line per
+// column rather than one per block.
+//
+// An illegal name is the exception, and is dropped. Column names are joined into the CSV header and rows
+// with no quoting, so a name carrying a separator would shift every column in the archive.
+func (h *hashLoggerImpl) adoptReportedColumn(hashType string) bool {
+	if _, ok := h.hashTypeSet[hashType]; ok {
+		return true
+	}
+	if !legalHashTypeRegex.MatchString(hashType) {
+		logger.Error("discarding a hash reported under an illegal column name",
+			"hashType", hashType, "mustMatch", legalHashTypeRegex.String())
+		return false
+	}
+	logger.Warn("recording a hash reported under a column that was never registered; adding it",
+		"hashType", hashType)
+	h.handleColumnChange(hashType, true)
+	return true
 }
 
 // handleChangesetRequest records that a block is awaiting a changeset hash and holds the work for dispatch to

@@ -337,21 +337,21 @@ const lthashBatchCap = 8192
 // committed LtHash.
 type bucketLtHasher struct {
 	acc   *lthash.LtHash
-	batch []lthash.KVPairWithLastValue
+	batch []lthash.KeyMutation
 	count uint64
 }
 
 func newBucketLtHasher() *bucketLtHasher {
 	return &bucketLtHasher{
 		acc:   lthash.New(),
-		batch: make([]lthash.KVPairWithLastValue, 0, lthashBatchCap),
+		batch: make([]lthash.KeyMutation, 0, lthashBatchCap),
 	}
 }
 
 // add buffers one (key, value) pair. The iterator may reuse the underlying
 // slices on Next(), so both are cloned before being retained in the batch.
 func (h *bucketLtHasher) add(key, val []byte) {
-	h.batch = append(h.batch, lthash.KVPairWithLastValue{
+	h.batch = append(h.batch, lthash.KeyMutation{
 		Key:   bytes.Clone(key),
 		Value: bytes.Clone(val),
 	})
@@ -365,7 +365,7 @@ func (h *bucketLtHasher) flush() {
 	if len(h.batch) == 0 {
 		return
 	}
-	delta, _ := lthash.ComputeLtHash(nil, h.batch)
+	delta := lthash.ComputeLtHash(nil, h.batch)
 	h.acc.MixIn(delta)
 	h.batch = h.batch[:0]
 }
@@ -389,7 +389,10 @@ func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
 // root. A PASS means the physical bytes on disk hash to exactly the root the store reports at this
 // version. Returns an error on mismatch so the CLI exits non-zero.
 func verifyFlatKVLtHash(store giga.LiveStateStore, hashers map[string]*bucketLtHasher) error {
-	committedTotal, _ := store.RootHash()
+	// A dump reads a store at rest, so the published hash already describes everything it holds.
+	published := store.PublishedHash()
+	committedChecksum := published.Global.Checksum()
+	committedTotal := committedChecksum[:]
 
 	// A store holding no state reports the checksum of the zero LtHash. Treat that as "nothing to
 	// verify against" rather than a spurious failure.

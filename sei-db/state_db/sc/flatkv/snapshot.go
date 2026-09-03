@@ -15,6 +15,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -389,6 +390,13 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 		return errReadOnly
 	}
 
+	// A block's hash metadata is written when the finalizer records it, in the same atomic batch as the
+	// rows it describes. Checkpointing before that lands would capture the rows and not the metadata,
+	// and the snapshot would reopen with its databases disagreeing with their own bookkeeping.
+	if err := s.FlushHashes(); err != nil {
+		return fmt.Errorf("await pending hashes: %w", err)
+	}
+
 	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
 	// tree this is about to publish into, and only one writer of that tree may run at a time.
 	//
@@ -401,11 +409,11 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 		}
 	}
 
-	blockView, err := s.lastSealed.get()
+	blockView, err := s.lastSealed.Get()
 	if err != nil {
 		return fmt.Errorf("read latest sealed view: %w", err)
 	}
-	version := blockView.blockHeight
+	version := blockView.BlockHeight()
 
 	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", version)
 	defer obs.done(&err, func() {
@@ -418,7 +426,7 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 		// Error is fatal; leaking reservations doesn't make it worse.
 		return fmt.Errorf("checkpoint databases at version %d: %w", version, err)
 	}
-	if err := blockView.release(); err != nil {
+	if err := blockView.Release(); err != nil {
 		return fmt.Errorf("release latest sealed view: %w", err)
 	}
 	pruned, err := publishSnapshot(
@@ -445,16 +453,16 @@ func (s *CommitStore) outOfBandSnapshot() (err error) {
 func checkpointDatabases(
 	ctx context.Context,
 	dir string,
-	blockView *storeView,
+	blockView *sview.StoreView,
 	dbs map[string]types.Checkpointable,
 	phaseTimer *metrics.PhaseTimer,
 ) (_ string, err error) {
-	version := blockView.blockHeight
+	version := blockView.BlockHeight()
 
 	// The databases are already flushing this block in the background; this waits for them to finish.
 	// On return Pebble holds exactly this block, and stays there while the reservations are held.
 	phaseTimer.SetPhase("snapshot_await_flush")
-	if flushErr := blockView.awaitFlush(ctx); flushErr != nil {
+	if flushErr := blockView.AwaitFlush(ctx); flushErr != nil {
 		return "", fmt.Errorf("await flush at version %d: %w", version, flushErr)
 	}
 	phaseTimer.SetPhase("snapshot_copy_databases")

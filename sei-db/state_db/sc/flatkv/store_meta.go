@@ -14,6 +14,35 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
+// LocalMeta stores one data DB's own view of its committed state, held at
+// _meta/version, _meta/hash and _meta/x:<module>/hash.
+//
+// The version and the root are written together or not at all, so a DB either
+// reports both or has never had metadata written to it: a brand-new DB reports
+// neither, a seeded DB reports a version with the identity root, and a DB that
+// has committed a block reports its real root.
+type LocalMeta struct {
+	// CommittedVersion is the version this DB last committed. It reads as 0 when
+	// no metadata has been written, which is indistinguishable from a genuine 0.
+	CommittedVersion int64
+
+	// LtHash is this DB's root over its own keys. nil only when no metadata has
+	// been written; writeLocalMetaToBatch refuses to record a version without one.
+	LtHash *lthash.LtHash
+
+	// ModuleLtHashes holds the LtHash of each module's keys within this DB,
+	// keyed by module name (e.g. "evm", "gov"). The per-DB root (LtHash)
+	// equals the homomorphic sum of these module hashes. nil/empty when the
+	// DB has never been written (fresh store).
+	ModuleLtHashes map[string]*lthash.LtHash
+
+	// ModuleStats holds the auxiliary key-count / byte totals of each module's
+	// keys within this DB, keyed by module name and mirroring ModuleLtHashes.
+	// Consensus-irrelevant; per-DB / global totals are derived on demand.
+	// nil/empty when the DB has never been written (fresh store).
+	ModuleStats map[string]lthash.ModuleStats
+}
+
 // versionToBytes encodes a non-negative version as 8-byte big-endian.
 // Panics on negative input to catch programming errors early.
 // Only called from internal commit/test paths — never with untrusted input.
@@ -28,8 +57,8 @@ func versionToBytes(v int64) []byte {
 
 // loadLocalMeta loads per-DB metadata by reading separate keys. A DB missing its version record is
 // reported as one that has never been written, and rejected if it carries any other metadata.
-func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
-	meta := &ktype.LocalMeta{}
+func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
+	meta := &LocalMeta{}
 
 	versionData, err := db.Get(ktype.MetaVersionKey)
 	if err != nil {
@@ -45,7 +74,7 @@ func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
 			if err := requireNoMetadata(db); err != nil {
 				return nil, err
 			}
-			return &ktype.LocalMeta{CommittedVersion: 0}, nil
+			return &LocalMeta{CommittedVersion: 0}, nil
 		}
 		return nil, fmt.Errorf("could not read meta version: %w", err)
 	}
@@ -234,7 +263,7 @@ func encodeLocalMeta(
 //     per-DB root and thus the global store hash / AppHash.
 //
 // Fail loudly at load instead of corrupting consensus-critical state.
-func validatePerModuleMetadata(dbDir string, meta *ktype.LocalMeta) error {
+func validatePerModuleMetadata(dbDir string, meta *LocalMeta) error {
 	if meta == nil || meta.LtHash == nil {
 		return nil
 	}
@@ -354,8 +383,8 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	seededVersion := initialVersion - 1
 
 	for _, dir := range dataDBDirs {
-		if s.perDBWorkingLtHash[dir] == nil {
-			s.perDBWorkingLtHash[dir] = lthash.New()
+		if s.loadedHashes.PerDB[dir] == nil {
+			s.loadedHashes.PerDB[dir] = lthash.New()
 		}
 	}
 
@@ -364,15 +393,22 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	for _, dir := range dataDBDirs {
-		s.localMeta[dir] = &ktype.LocalMeta{
+		s.localMeta[dir] = &LocalMeta{
 			CommittedVersion: seededVersion,
-			LtHash:           s.perDBWorkingLtHash[dir].Clone(),
-			ModuleLtHashes:   cloneModuleHashes(s.perDBModuleWorkingLtHash[dir]),
-			ModuleStats:      cloneModuleStats(s.perDBModuleWorkingStats[dir]),
+			LtHash:           s.loadedHashes.PerDB[dir].Clone(),
+			ModuleLtHashes:   cloneModuleHashes(s.loadedHashes.PerModule[dir]),
+			ModuleStats:      cloneModuleStats(s.loadedHashes.PerModuleStats[dir]),
 		}
 	}
 
 	s.committedVersion = seededVersion
+	s.loadedHashes.BlockNumber = seededVersion
+
+	// The engine must carry back what this established, or the first real block would be measured
+	// against different state than was persisted.
+	if err := s.restartHashing(); err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: %w", err)
+	}
 
 	// The seal only stages the records; the view managers flush asynchronously. Wait for them so the seed is
 	// durable across a restart, as this method promises. For a non-genesis seed the snapshot below supplies

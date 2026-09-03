@@ -102,7 +102,7 @@ func (m *GigaStorageManager) openDBs(ctx context.Context, cfg config.GigaStorage
 	}
 
 	// StateDB writes the WAL; a store that held one would record every block twice.
-	sc, err := flatkv.NewCommitStore(ctx, cfg.FlatKVConfig, nil)
+	sc, err := flatkv.NewCommitStore(ctx, cfg.FlatKVConfig, nil, nil)
 	if err != nil {
 		return fmt.Errorf("open state commit store: %w", err)
 	}

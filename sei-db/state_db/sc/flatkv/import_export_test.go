@@ -797,7 +797,7 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 	_ = batch.Close()
 	require.NoError(t, corrupt.Close())
 
-	s, err := NewCommitStore(t.Context(), cfg, nil)
+	s, err := NewCommitStore(t.Context(), cfg, nil, nil)
 	require.NoError(t, err)
 	defer s.Close()
 	require.NoError(t, s.LoadLatest())

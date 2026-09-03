@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -27,7 +26,7 @@ func (s *CommitStore) closeDBsOnly() error {
 	if err := s.closeStores(); err != nil {
 		return fmt.Errorf("stores close: %w", err)
 	}
-	s.localMeta = make(map[string]*ktype.LocalMeta)
+	s.localMeta = make(map[string]*LocalMeta)
 	return nil
 }
 
@@ -60,10 +59,6 @@ func (s *CommitStore) Close() error {
 		s.ltHashPool.Close()
 		s.ltHashPool = nil
 	}
-	// Calculator is bound to ltHashPool; drop it so a post-Close use cannot
-	// submit to a closed pool. resetPools recreates both together.
-	s.ltCalc = nil
-
 	err := errors.Join(storeErr, s.closeDBsOnly())
 
 	// FlatKV owns Close of whatever WAL instance it currently holds (the injected one, or a replacement made

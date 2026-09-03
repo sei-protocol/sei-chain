@@ -26,18 +26,18 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 	require.NoError(t, err)
 	defer iter.Close()
 
-	var pairs []lthash.KVPairWithLastValue
+	var pairs []lthash.KeyMutation
 	for ; iter.Valid(); iter.Next() {
 		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
-		pairs = append(pairs, lthash.KVPairWithLastValue{
+		pairs = append(pairs, lthash.KeyMutation{
 			Key:   bytes.Clone(iter.Key()),
 			Value: bytes.Clone(iter.Value()),
 		})
 	}
 	require.NoError(t, iter.Error())
-	result, _ := lthash.ComputeLtHash(nil, pairs)
+	result := lthash.ComputeLtHash(nil, pairs)
 	if result == nil {
 		return lthash.New()
 	}
@@ -66,9 +66,9 @@ func verifyPerDBLtHash(t *testing.T, s *CommitStore) {
 	t.Helper()
 	scanned := fullScanPerDBLtHash(t, s)
 	for dbDir, scanHash := range scanned {
-		require.True(t, s.perDBWorkingLtHash[dbDir].Equal(scanHash),
+		require.True(t, s.maintainedHashes().PerDB[dbDir].Equal(scanHash),
 			"per-DB LtHash mismatch for %s:\n  working:  %x\n  fullscan: %x",
-			dbDir, s.perDBWorkingLtHash[dbDir].Checksum(), scanHash.Checksum())
+			dbDir, s.maintainedHashes().PerDB[dbDir].Checksum(), scanHash.Checksum())
 	}
 }
 
@@ -117,7 +117,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	wantRoot := bytes.Clone(rootHash(s1))
 	wantPerDB := make(map[string][32]byte, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
-		wantPerDB[dbDir] = s1.perDBWorkingLtHash[dbDir].Checksum()
+		wantPerDB[dbDir] = s1.maintainedHashes().PerDB[dbDir].Checksum()
 	}
 	// Rewind accountDB's version record to 1, leaving its data — and every other DB — at 2. The
 	// store must open at 1 and replay block 2. The rewind goes into the working dir, which is what a
@@ -139,7 +139,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	require.Equal(t, wantRoot, rootHash(s2),
 		"replaying an already-applied block must reproduce the same global root")
 	for _, dbDir := range dataDBDirs {
-		require.Equal(t, wantPerDB[dbDir], s2.perDBWorkingLtHash[dbDir].Checksum(),
+		require.Equal(t, wantPerDB[dbDir], s2.maintainedHashes().PerDB[dbDir].Checksum(),
 			"%s per-DB root must be bit-identical after replay", dbDir)
 	}
 	require.Equal(t, int64(2), s2.Version())
@@ -181,7 +181,7 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	verifyLtHashAtHeight(t, s2, 10)
 
 	for _, dbDir := range dataDBDirs {
-		wh := s2.perDBWorkingLtHash[dbDir]
+		wh := s2.maintainedHashes().PerDB[dbDir]
 		meta := s2.localMeta[dbDir]
 		require.NotNil(t, meta.LtHash,
 			"LocalMeta LtHash should be loaded for %s", dbDir)
@@ -252,12 +252,12 @@ func TestPerDBLtHashSumEqualsGlobal(t *testing.T) {
 
 	sumHash := lthash.New()
 	for _, dbDir := range []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir} {
-		sumHash.MixIn(s.perDBWorkingLtHash[dbDir])
+		sumHash.MixIn(s.maintainedHashes().PerDB[dbDir])
 	}
 
-	require.True(t, s.workingLtHash.Equal(sumHash),
+	require.True(t, s.maintainedHashes().Global.Equal(sumHash),
 		"sum of per-DB LtHashes should equal global LtHash:\n  global: %x\n  sum:    %x",
-		s.workingLtHash.Checksum(), sumHash.Checksum())
+		s.maintainedHashes().Global.Checksum(), sumHash.Checksum())
 }
 
 // Test: per-DB hashes are correct after catchup with WAL replay.
@@ -283,7 +283,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 	verifyPerDBLtHash(t, s1)
 
 	expectedPerDB := make(map[string][32]byte, 4)
-	for dbDir, h := range s1.perDBWorkingLtHash {
+	for dbDir, h := range s1.maintainedHashes().PerDB {
 		expectedPerDB[dbDir] = h.Checksum()
 	}
 	require.NoError(t, s1.Close())
@@ -299,7 +299,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 
 	require.Equal(t, int64(5), s2.Version())
 	for dbDir, expectedCS := range expectedPerDB {
-		actualCS := s2.perDBWorkingLtHash[dbDir].Checksum()
+		actualCS := s2.maintainedHashes().PerDB[dbDir].Checksum()
 		require.Equal(t, expectedCS, actualCS,
 			"per-DB LtHash mismatch for %s after catchup", dbDir)
 	}
@@ -313,7 +313,7 @@ func TestPerDBLtHashEmptyBlocks(t *testing.T) {
 
 	commitMixedState(t, s, 1)
 	checksums := make(map[string][32]byte)
-	for dbDir, h := range s.perDBWorkingLtHash {
+	for dbDir, h := range s.maintainedHashes().PerDB {
 		checksums[dbDir] = h.Checksum()
 	}
 
@@ -323,7 +323,7 @@ func TestPerDBLtHashEmptyBlocks(t *testing.T) {
 	}
 
 	for dbDir, expected := range checksums {
-		actual := s.perDBWorkingLtHash[dbDir].Checksum()
+		actual := s.maintainedHashes().PerDB[dbDir].Checksum()
 		require.Equal(t, expected, actual,
 			"empty blocks should not change per-DB LtHash for %s", dbDir)
 	}
@@ -359,7 +359,7 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 1)
 
 	for _, dbDir := range dataDBDirs {
-		wh := s.perDBWorkingLtHash[dbDir]
+		wh := s.maintainedHashes().PerDB[dbDir]
 		meta := s.localMeta[dbDir]
 		require.NotNil(t, meta.LtHash,
 			"LocalMeta LtHash should exist after import for %s", dbDir)
@@ -425,7 +425,7 @@ func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 		require.NoError(t, err, "LocalMeta should be readable for %s", dbDirName)
 		require.NotNil(t, meta.LtHash,
 			"LocalMeta LtHash should be non-nil for %s", dbDirName)
-		require.True(t, s.perDBWorkingLtHash[dbDirName].Equal(meta.LtHash),
+		require.True(t, s.maintainedHashes().PerDB[dbDirName].Equal(meta.LtHash),
 			"LocalMeta LtHash should match working hash for %s", dbDirName)
 	}
 
@@ -479,13 +479,13 @@ func TestPerDBLtHashPartialKeyTypeOperations(t *testing.T) {
 	commitAndCheck(t, s)
 
 	zeroChecksum := lthash.New().Checksum()
-	require.NotEqual(t, zeroChecksum, s.perDBWorkingLtHash[storageDBDir].Checksum(),
+	require.NotEqual(t, zeroChecksum, s.maintainedHashes().PerDB[storageDBDir].Checksum(),
 		"storageDB hash should be non-zero")
-	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[accountDBDir].Checksum(),
+	require.Equal(t, zeroChecksum, s.maintainedHashes().PerDB[accountDBDir].Checksum(),
 		"accountDB hash should remain zero")
-	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[codeDBDir].Checksum(),
+	require.Equal(t, zeroChecksum, s.maintainedHashes().PerDB[codeDBDir].Checksum(),
 		"codeDB hash should remain zero")
-	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[miscDBDir].Checksum(),
+	require.Equal(t, zeroChecksum, s.maintainedHashes().PerDB[miscDBDir].Checksum(),
 		"miscDB hash should remain zero")
 }
 
@@ -500,7 +500,7 @@ func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	nonZeroHash := s.perDBWorkingLtHash[storageDBDir].Checksum()
+	nonZeroHash := s.maintainedHashes().PerDB[storageDBDir].Checksum()
 	zeroChecksum := lthash.New().Checksum()
 	require.NotEqual(t, zeroChecksum, nonZeroHash)
 
@@ -510,7 +510,7 @@ func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// After deleting all keys from a DB, its hash should return to zero.
-	require.Equal(t, zeroChecksum, s.perDBWorkingLtHash[storageDBDir].Checksum(),
+	require.Equal(t, zeroChecksum, s.maintainedHashes().PerDB[storageDBDir].Checksum(),
 		"storageDB hash should be zero after deleting all keys")
 
 	// Verify via full scan.
@@ -526,9 +526,9 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 		t.Helper()
 		globalHash := lthash.New()
 		for _, dir := range dataDBDirs {
-			globalHash.MixIn(s.perDBWorkingLtHash[dir])
+			globalHash.MixIn(s.maintainedHashes().PerDB[dir])
 		}
-		require.Equal(t, s.workingLtHash.Checksum(), globalHash.Checksum(),
+		require.Equal(t, s.maintainedHashes().Global.Checksum(), globalHash.Checksum(),
 			"sum(perDB) should equal global workingLtHash: %s", msg)
 	}
 
@@ -628,9 +628,9 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	verifyPerDBLtHash(t, s1)
 	wantPerDB := make(map[string]*lthash.LtHash, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
-		wantPerDB[dbDir] = s1.perDBWorkingLtHash[dbDir].Clone()
+		wantPerDB[dbDir] = s1.maintainedHashes().PerDB[dbDir].Clone()
 	}
-	wantGlobal := s1.workingLtHash.Clone()
+	wantGlobal := s1.maintainedHashes().Global.Clone()
 	require.NoError(t, s1.Close())
 
 	// Rewind only the storage database's recorded height, leaving the others at 3. On reopen the stores
@@ -656,10 +656,10 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	// Every store ends level, at the height they collectively reached before the forged skew.
 	require.Equal(t, int64(3), s2.Version())
 	for _, dbDir := range dataDBDirs {
-		require.True(t, wantPerDB[dbDir].Equal(s2.perDBWorkingLtHash[dbDir]),
+		require.True(t, wantPerDB[dbDir].Equal(s2.maintainedHashes().PerDB[dbDir]),
 			"per-DB LtHash for %s must be restored exactly, not double-mixed:\n  want: %x\n  got:  %x",
-			dbDir, wantPerDB[dbDir].Checksum(), s2.perDBWorkingLtHash[dbDir].Checksum())
+			dbDir, wantPerDB[dbDir].Checksum(), s2.maintainedHashes().PerDB[dbDir].Checksum())
 	}
-	require.True(t, wantGlobal.Equal(s2.workingLtHash), "global LtHash must be restored exactly")
+	require.True(t, wantGlobal.Equal(s2.maintainedHashes().Global), "global LtHash must be restored exactly")
 	verifyPerDBLtHash(t, s2)
 }

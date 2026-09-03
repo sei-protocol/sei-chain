@@ -242,6 +242,9 @@ func CompareHashes(
 	// and run for a long time, the number of deviant blocks may be very large. This always returns the first
 	// diffs encountered if it does not return all diffs.
 	maxDiffCount int,
+	// when true, both archives must hold a report for every block in the compared range, and two archives
+	// that are both empty are rejected rather than reported as agreeing.
+	requireEveryBlock bool,
 ) ([]*HashLogPair, error) {
 	readerA, readerB, err := openArchiveReaders(pathA, pathB)
 	if err != nil {
@@ -249,14 +252,21 @@ func CompareHashes(
 	}
 	lowBlock, highBlock, ok := globalBlockRange(readerA, readerB)
 	if !ok {
+		if requireEveryBlock {
+			return nil, fmt.Errorf("neither archive holds any blocks")
+		}
 		return nil, nil
 	}
-	return compareBlockRange(readerA, readerB, lowBlock, highBlock, maxDiffCount)
+	return compareBlockRange(readerA, readerB, lowBlock, highBlock, maxDiffCount, requireEveryBlock)
 }
 
 // CompareHashesInRange is CompareHashes restricted to the inclusive block range [lowBlock, highBlock], for
-// zooming in on a region of interest. The requested window is clamped to the blocks actually present in the
-// archives, and files entirely below the window are never read, so it is cheap even far from block zero.
+// zooming in on a region of interest. Files entirely below the window are never read, so it is cheap even far
+// from block zero.
+//
+// Without requireEveryBlock the window is clamped to the blocks the archives actually hold, since nothing
+// outside that range can differ. With it the window is compared as asked, so a window reaching past either
+// archive is reported as a missing block.
 func CompareHashesInRange(
 	pathA string,
 	pathB string,
@@ -266,6 +276,8 @@ func CompareHashesInRange(
 	highBlock uint64,
 	// the maximum number of diffs to return, or -1 for all (see CompareHashes)
 	maxDiffCount int,
+	// when true, both archives must hold a report for every block in [lowBlock, highBlock] (see CompareHashes)
+	requireEveryBlock bool,
 ) ([]*HashLogPair, error) {
 	if lowBlock > highBlock {
 		return nil, fmt.Errorf("lowBlock (%d) must not exceed highBlock (%d)", lowBlock, highBlock)
@@ -276,15 +288,20 @@ func CompareHashesInRange(
 	}
 	globalLow, globalHigh, ok := globalBlockRange(readerA, readerB)
 	if !ok {
+		if requireEveryBlock {
+			return nil, fmt.Errorf("neither archive holds any blocks")
+		}
 		return nil, nil
 	}
-	// Clamp the requested window to the blocks actually present; nothing outside that range can differ.
+	if requireEveryBlock {
+		return compareBlockRange(readerA, readerB, lowBlock, highBlock, maxDiffCount, true)
+	}
 	low := max(lowBlock, globalLow)
 	high := min(highBlock, globalHigh)
 	if low > high {
 		return nil, nil
 	}
-	return compareBlockRange(readerA, readerB, low, high, maxDiffCount)
+	return compareBlockRange(readerA, readerB, low, high, maxDiffCount, false)
 }
 
 // openArchiveReaders opens both archives for streaming comparison.
@@ -315,14 +332,17 @@ func globalBlockRange(readerA *archiveReader, readerB *archiveReader) (low uint6
 }
 
 // compareBlockRange streams the comparison over the inclusive range [lowBlock, highBlock], which the caller
-// must have already validated and clamped. Both readers are advanced in lockstep, in non-decreasing block
-// order, as required by archiveReader.at.
+// must have already validated. Both readers are advanced in lockstep, in non-decreasing block order, as
+// required by archiveReader.at.
+//
+// requireEveryBlock rejects a range the archives do not both cover, rather than reporting it as agreement.
 func compareBlockRange(
 	readerA *archiveReader,
 	readerB *archiveReader,
 	lowBlock uint64,
 	highBlock uint64,
 	maxDiffCount int,
+	requireEveryBlock bool,
 ) ([]*HashLogPair, error) {
 	var diffs []*HashLogPair
 	for block := lowBlock; block <= highBlock; block++ {
@@ -334,6 +354,12 @@ func compareBlockRange(
 		if err != nil {
 			return nil, fmt.Errorf("failed to read block %d from archive B: %w", block, err)
 		}
+		if requireEveryBlock {
+			// Checked before the comparison below, which reads two absent blocks as agreement.
+			if err := requireBothPresent(block, hashesA, hashesB); err != nil {
+				return nil, err
+			}
+		}
 		if hashLogsDiffer(hashesA, hashesB) {
 			if maxDiffCount >= 0 && len(diffs) >= maxDiffCount {
 				break
@@ -342,6 +368,19 @@ func compareBlockRange(
 		}
 	}
 	return diffs, nil
+}
+
+// requireBothPresent reports an error naming the archive that has no report for the given block.
+func requireBothPresent(block uint64, hashesA []*HashLog, hashesB []*HashLog) error {
+	switch {
+	case len(hashesA) == 0 && len(hashesB) == 0:
+		return fmt.Errorf("block %d is missing from both archives", block)
+	case len(hashesA) == 0:
+		return fmt.Errorf("block %d is missing from archive A", block)
+	case len(hashesB) == 0:
+		return fmt.Errorf("block %d is missing from archive B", block)
+	}
+	return nil
 }
 
 // hashLogsDiffer reports whether the reports for a single block differ between two archives.

@@ -67,13 +67,45 @@ func TestImplEmitsInBlockOrderDespiteLaggingType(t *testing.T) {
 	}
 }
 
-func TestImplReportHashUnknownType(t *testing.T) {
+// A hash reported under a column nobody registered is kept, not lost: the column is created and the block
+// completes on the wider set. Losing the hash would turn a caller's wiring mistake into a blind spot in the
+// very record used to diagnose it.
+func TestImplReportHashAdoptsUnregisteredType(t *testing.T) {
 	dir := t.TempDir()
 	l, err := NewHashLogger(testConfig(dir))
 	require.NoError(t, err)
-	defer func() { require.NoError(t, l.Close()) }()
 
-	require.ErrorContains(t, l.ReportHash(1, "nonexistent", []byte{0x01}), "unknown hash type")
+	require.NoError(t, l.ReportHash(1, "unregistered", []byte{0x01}))
+	require.NoError(t, l.ReportHash(1, "a", []byte{0x02}))
+	require.NoError(t, l.ReportHash(1, "b", []byte{0x03}))
+	require.NoError(t, l.Close())
+
+	logs := readAllLogs(t, dir)
+	require.Len(t, logs, 1)
+	require.Equal(t, uint64(1), logs[0].BlockNumber)
+	require.Equal(t, []byte{0x01}, logs[0].Hashes["unregistered"])
+	require.Equal(t, []byte{0x02}, logs[0].Hashes["a"])
+	require.Equal(t, []byte{0x03}, logs[0].Hashes["b"])
+}
+
+// An illegal column name is the one report that is dropped: names are joined into the CSV header and rows
+// unquoted, so one carrying a separator would shift every column in the archive.
+func TestImplReportHashDropsIllegalTypeName(t *testing.T) {
+	dir := t.TempDir()
+	l, err := NewHashLogger(testConfig(dir))
+	require.NoError(t, err)
+
+	require.NoError(t, l.ReportHash(1, "has,comma", []byte{0x01}))
+	require.NoError(t, l.ReportHash(1, "a", []byte{0x02}))
+	require.NoError(t, l.ReportHash(1, "b", []byte{0x03}))
+	require.NoError(t, l.Close())
+
+	// The block still completes on its declared columns alone, and the bogus name is nowhere.
+	logs := readAllLogs(t, dir)
+	require.Len(t, logs, 1)
+	require.Equal(t, []byte{0x02}, logs[0].Hashes["a"])
+	require.Equal(t, []byte{0x03}, logs[0].Hashes["b"])
+	require.NotContains(t, logs[0].Hashes, "has,comma")
 }
 
 func TestImplReportHashRejectsReservedChangesetType(t *testing.T) {
