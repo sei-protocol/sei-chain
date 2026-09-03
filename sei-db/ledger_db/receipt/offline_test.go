@@ -13,11 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// offlineCfg returns the config the offline entry points expect for a littidx store at dir. The backend
+// must be set explicitly: the default is pebbledb, which these operations refuse.
+func offlineCfg(dir string) dbconfig.ReceiptStoreConfig {
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = dir
+	return cfg
+}
+
 // TestOfflineGetRangeEmpty verifies that GetRange on a directory with no receipt store reports no data,
 // rather than erroring.
 func TestOfflineGetRangeEmpty(t *testing.T) {
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.DBDirectory = t.TempDir()
+	cfg := offlineCfg(t.TempDir())
 	ok, lowest, highest, err := receipt.GetRange(cfg)
 	require.NoError(t, err)
 	require.False(t, ok)
@@ -38,8 +46,7 @@ func TestOfflineGetRange(t *testing.T) {
 	}
 	require.NoError(t, store.Close())
 
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.DBDirectory = dir
+	cfg := offlineCfg(dir)
 	ok, lowest, highest, err := receipt.GetRange(cfg)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -63,8 +70,7 @@ func TestOfflinePruneAfter(t *testing.T) {
 	}
 	require.NoError(t, store.Close())
 
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.DBDirectory = dir
+	cfg := offlineCfg(dir)
 	require.NoError(t, receipt.PruneAfter(cfg, keepThrough))
 
 	store, ctx = setupLittIdx(t, dir)
@@ -101,8 +107,7 @@ func TestOfflinePruneAfterNoOp(t *testing.T) {
 	}
 	require.NoError(t, store.Close())
 
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.DBDirectory = dir
+	cfg := offlineCfg(dir)
 	require.NoError(t, receipt.PruneAfter(cfg, count+10))
 
 	store, ctx = setupLittIdx(t, dir)
@@ -123,9 +128,7 @@ func TestOfflinePruneAfterRefusesBelowRetentionFloor(t *testing.T) {
 	tkey := storetypes.NewTransientStoreKey("evm_transient")
 	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
 
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "littidx"
-	cfg.DBDirectory = dir
+	cfg := offlineCfg(dir)
 	cfg.ExternalPruning = true // drive PruneHistory directly, no jittered background pruner racing the test
 	store, err := receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
@@ -169,8 +172,7 @@ func TestOfflinePruneAfterRefusesBelowOldestReceipt(t *testing.T) {
 	}
 	require.NoError(t, store.Close())
 
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.DBDirectory = dir
+	cfg := offlineCfg(dir)
 	err := receipt.PruneAfter(cfg, lowest-1)
 	require.ErrorContains(t, err, "no receipt would survive")
 
