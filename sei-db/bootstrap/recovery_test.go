@@ -267,6 +267,32 @@ func TestStateDBRollbackToRewindsBothHalvesAndTheWAL(t *testing.T) {
 	require.Equal(t, int64(3), manager.SC().Version())
 }
 
+// The collector takes the prunable stores once at startup, and a rollback closes the WAL and opens a
+// replacement underneath it. A collector left holding the closed handle prunes through a dead instance,
+// so the WAL joins the cycle as something that resolves per call rather than as the handle open then.
+func TestThePrunableWALFollowsARollback(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 5)
+	captured := manager.prunableStores()[1]
+	require.Equal(t, "StateWAL", captured.Name(), "fixture precondition: the WAL is the second store")
+
+	require.NoError(t, manager.StateDB().RollbackTo(2))
+
+	head, err := captured.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), head, "the captured handle must answer from the WAL the rollback left")
+}
+
+// A target above the WAL's head is a target no replay reaches: the WAL runs out and both halves stop
+// below it with every step reporting success. Answering yes there hands callers a state DB they believe
+// is on a height it is not, so the landing height is checked rather than assumed.
+func TestStateDBRollbackToAboveTheWALHeadFails(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+
+	require.ErrorContains(t, manager.StateDB().RollbackTo(5), "left the state commit store on 3")
+}
+
 func TestRecoverReceiptRewindsTheHead(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	require.NoError(t, manager.ReceiptDB().SetLatestVersion(5))

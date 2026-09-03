@@ -680,6 +680,18 @@ func TestRollbackRejectsVersionZero(t *testing.T) {
 	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
 }
 
+// TestRewindToSnapshotAtOrBelowRejectsVersionZero verifies the snapshot-only rewind refuses version 0 as
+// Rollback does. A store keeps a snapshot at 0, so 0 is a version this would otherwise land on and then
+// delete every snapshot above — which is all of them.
+func TestRewindToSnapshotAtOrBelowRejectsVersionZero(t *testing.T) {
+	s := rollbackFixture(t)
+
+	_, err := s.RewindToSnapshotAtOrBelow(0)
+
+	require.ErrorContains(t, err, "nothing to rewind to")
+	require.Equal(t, int64(5), s.Version(), "a refused rewind must leave the store where it was")
+}
+
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
 // its WAL holds 10-12 — a store that legally started mid-chain and has no history behind its first WAL block.
 func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {

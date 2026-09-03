@@ -155,20 +155,47 @@ func (s *StateDB) WAL() statewal.StateWAL { return s.wal }
 // CheckpointScheduler returns the schedule both halves of state take their snapshot boundaries from.
 func (s *StateDB) CheckpointScheduler() *controller.CheckpointScheduler { return s.checkpointer }
 
-// PrunableStores returns the opened stores that can join a prune cycle.
+// PrunableStores returns the opened stores that can join a prune cycle. The WAL joins as a handle that
+// resolves on each call rather than as the one open now, since a rollback replaces it.
 func (s *StateDB) PrunableStores() []controller.PrunableStore {
 	stores := make([]controller.PrunableStore, 0, 3)
 	if s.sc != nil {
 		stores = append(stores, s.sc)
 	}
 	if s.wal != nil {
-		stores = append(stores, s.wal)
+		stores = append(stores, prunableWAL{db: s})
 	}
 	if s.ss != nil {
 		stores = append(stores, s.ss)
 	}
 	return stores
 }
+
+// prunableWAL joins the prune cycle on behalf of the state WAL, resolving to whichever handle the
+// StateDB holds when a call arrives.
+//
+// A rollback closes the WAL and opens a replacement, so a collector holding the handle itself would go
+// on pruning a closed one. Replacement still may not overlap a call, which is what confines RollbackTo
+// to a quiesced state DB.
+type prunableWAL struct{ db *StateDB }
+
+func (w prunableWAL) Name() string { return w.db.wal.Name() }
+
+func (w prunableWAL) PruneHistory(blockNumber uint64) error {
+	return w.db.wal.PruneHistory(blockNumber)
+}
+
+func (w prunableWAL) PruneSnapshots(blockNumber uint64) error {
+	return w.db.wal.PruneSnapshots(blockNumber)
+}
+
+func (w prunableWAL) ExternalPruning() bool { return w.db.wal.ExternalPruning() }
+
+func (w prunableWAL) GetRollbackFloor(rollbackWindow uint64) uint64 {
+	return w.db.wal.GetRollbackFloor(rollbackWindow)
+}
+
+func (w prunableWAL) GetLatestBlock() (uint64, error) { return w.db.wal.GetLatestBlock() }
 
 func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
 	if blockNum < 0 {
@@ -242,18 +269,12 @@ func (s *StateDB) walHead() (int64, bool, error) {
 }
 
 // RollbackTo puts both halves of state on blockNum, rewinding a half above it and replaying a half
-// below it. Handling the two directions independently is what lets them have crashed at different
-// heights, and is what makes this the call that readies a freshly opened StateDB as well as the one
-// that rewinds a running one.
+// below it. blockNum must lie within the WAL's stored range, and rewinding SS needs a snapshot at or
+// below it; a blockNum this cannot reach is an error rather than a shortfall.
 //
-// blockNum must be a height the WAL can reach: at or below its head, and at or above the earliest
-// block it still holds. Rolling a half of state back needs a snapshot at or below blockNum to restore
-// from, which SC always has and SS has only where a checkpoint landed there.
-//
-// The state WAL ends at blockNum afterwards, so the next commit is blockNum+1. Truncating its tail is
-// offline, which closes the handle and opens a replacement, so any reference a caller holds to the WAL
-// is invalid after this call and nothing re-hands the new one out. It must therefore not run once the
-// prune cycle has taken the WAL, which would leave the collector pruning through a closed instance.
+// The state WAL ends at blockNum afterwards, on a handle that replaces the one this opened with, so a
+// reference a caller holds to it is invalid after this call. It must not run once the prune cycle has
+// taken the WAL.
 func (s *StateDB) RollbackTo(blockNum int64) error {
 	if err := s.rewindSC(blockNum); err != nil {
 		return err
@@ -267,7 +288,24 @@ func (s *StateDB) RollbackTo(blockNum int64) error {
 	if err := s.catchUpSC(blockNum); err != nil {
 		return err
 	}
-	return s.catchUpSS(blockNum)
+	if err := s.catchUpSS(blockNum); err != nil {
+		return err
+	}
+	return s.matchHeight(blockNum)
+}
+
+// matchHeight checks both halves of state against blockNum and reports the one that is not on it.
+func (s *StateDB) matchHeight(blockNum int64) error {
+	if got := s.sc.Version(); got != blockNum {
+		return fmt.Errorf("rollback to %d left the state commit store on %d", blockNum, got)
+	}
+	if s.ss == nil {
+		return nil
+	}
+	if got := s.ss.GetLatestVersion(); got != blockNum {
+		return fmt.Errorf("rollback to %d left the EVM state store on %d", blockNum, got)
+	}
+	return nil
 }
 
 // rewindSC drops SC back to a snapshot boundary at or below target when it sits above target, leaving

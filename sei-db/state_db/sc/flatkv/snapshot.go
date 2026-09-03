@@ -778,6 +778,12 @@ func (s *CommitStore) RewindToSnapshotAtOrBelow(version int64) (landed int64, re
 	if s.readOnly {
 		return 0, errReadOnly
 	}
+	if version < 1 {
+		// Left to run, this would land on the initial snapshot and then delete every snapshot above it,
+		// which is the whole set.
+		return 0, fmt.Errorf("rewind target %d is invalid: version 0 means no state, so there is nothing "+
+			"to rewind to", version)
+	}
 
 	dir := s.flatkvDir()
 	baseVersion, err := seekSnapshot(dir, version)

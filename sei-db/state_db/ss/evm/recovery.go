@@ -55,11 +55,15 @@ func (s *EVMStateStore) RewindToSnapshotAtOrBelow(version int64) (int64, error) 
 	if err := s.closeDBs(); err != nil {
 		return 0, fmt.Errorf("close EVM state store before rewinding to snapshot %d: %w", base, err)
 	}
-	if err := s.restoreSnapshot(base); err != nil {
-		return 0, fmt.Errorf("restore snapshot %d: %w", base, err)
-	}
+	// Before the restore, not after: it is what decides which way an interrupted rewind points. The
+	// databases still hold a version above the target until the restore lands, so a crash here leaves
+	// the next rewind to redo it. Restoring first would leave the databases at base and the discarded
+	// snapshots on disk, and a store already at the target is one the next rewind skips.
 	if err := s.snapshotMgr.RemoveSnapshotsAbove(version); err != nil {
 		return 0, fmt.Errorf("remove snapshots above %d: %w", version, err)
+	}
+	if err := s.restoreSnapshot(base); err != nil {
+		return 0, fmt.Errorf("restore snapshot %d: %w", base, err)
 	}
 	if err := s.openDBs(); err != nil {
 		return 0, fmt.Errorf("reopen EVM state store after rewinding to snapshot %d: %w", base, err)
@@ -90,9 +94,11 @@ func (s *EVMStateStore) rollbackBaseVersion(target int64) (int64, error) {
 
 // restoreSnapshot replaces this store's databases with the contents of the snapshot at version.
 //
-// In separate-DB mode the sub-DBs are replaced one at a time, so an interruption partway can leave
-// them at different versions. The head is the minimum across them, so such a store under-promises and
-// a replay forward puts it right.
+// A unified store is one directory, and the single window where an interruption leaves none is healed
+// on the next open. Separate-DB mode replaces each sub-DB in turn, and an interruption partway leaves
+// them on different branches with no recovery: the head reads as the lowest of them, so the store looks
+// merely behind, and replaying forward cannot delete the rows an untouched sub-DB holds above it. That
+// mode is off by default.
 func (s *EVMStateStore) restoreSnapshot(version int64) error {
 	src := filepath.Join(s.snapshotMgr.Root(), sssnapshot.SnapshotDirName(version))
 	if s.separateDBs {
@@ -128,13 +134,29 @@ func replacePebbleDir(src, dst string) error {
 }
 
 // healInterruptedRestore puts dst back when a restore was interrupted between the two renames that
-// swap the new copy in, which is the one window that leaves no directory there at all.
+// swap the new copy in, and clears whatever that restore left beside it.
 //
-// An absent directory is otherwise indistinguishable from a store that has never been written: the
-// open creates an empty one, the head reads as 0, and a catch-up stamps its target over almost no
-// state. The staged copy is preferred over the displaced one, since landing on the snapshot is what
-// the interrupted rewind was for.
+// An absent dst is otherwise indistinguishable from a store that has never been written: the open
+// creates an empty one, the head reads as 0, and a catch-up stamps its target over almost no state.
+// The staged copy is preferred over the displaced one, since landing on the snapshot is what the
+// interrupted rewind was for.
 func healInterruptedRestore(dst string) error {
+	if err := promoteInterruptedRestore(dst); err != nil {
+		return err
+	}
+	// Each leftover is a full copy of the store, and only a later restore of this same directory would
+	// clear it. A node that crashed once and never rewinds again would carry it forever.
+	for _, leftover := range []string{dst + restoreTmpSuffix, dst + restoreBakSuffix} {
+		if err := os.RemoveAll(leftover); err != nil {
+			return fmt.Errorf("remove %q left by an interrupted snapshot restore: %w", leftover, err)
+		}
+	}
+	return nil
+}
+
+// promoteInterruptedRestore moves a copy left by an interrupted restore into dst, and does nothing
+// when dst is already there.
+func promoteInterruptedRestore(dst string) error {
 	if _, err := os.Stat(dst); !os.IsNotExist(err) {
 		// Present, or unreadable for a reason opening it will report.
 		return nil

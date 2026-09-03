@@ -483,7 +483,29 @@ func (m *Manager) RemoveSnapshotsAbove(version int64) error {
 			candidates = append(candidates, v)
 		}
 	}
-	return m.removeSnapshots(candidates)
+	if err := m.removeSnapshots(candidates); err != nil {
+		return err
+	}
+	return m.requireNoneAbove(version)
+}
+
+// requireNoneAbove reports a snapshot still above version once a removal has run.
+//
+// removeSnapshots holds back whatever the current link and the shared floor name, so a floor above
+// version leaves one standing and the removal itself reports nothing. A caller told the branch is gone
+// while it is still resolvable is the failure this catches.
+func (m *Manager) requireNoneAbove(version int64) error {
+	versions, err := m.Versions()
+	if err != nil {
+		return err
+	}
+	for _, v := range versions {
+		if v > version {
+			return fmt.Errorf("%s snapshot %d is still above %d after removing the snapshots above it",
+				m.name, v, version)
+		}
+	}
+	return nil
 }
 
 // repointCurrentAtOrBelow moves the current link to the newest of versions at or below version, and
