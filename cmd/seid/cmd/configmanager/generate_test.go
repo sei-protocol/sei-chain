@@ -29,6 +29,24 @@ func runGenerate(t *testing.T, home string, args ...string) (string, error) {
 	return out.String(), err
 }
 
+// aHomeHoldingANode returns a home with the one file this command requires, recording the kind of node
+// the file's own default records.
+//
+// Enough to get past the checks that come before the one under test, and no more. A full node's own file
+// is what a bare default carries, so the kind passed alongside is that one.
+func aHomeHoldingANode(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(home, "config", "config.toml")
+	if err := os.WriteFile(path, []byte("mode = \"full\"\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	return home
+}
+
 // TestGenerateRefusesWhatItCannotAnswerFrom covers the states where writing a file would be worse than
 // writing none.
 //
@@ -47,12 +65,20 @@ func TestGenerateRefusesWhatItCannotAnswerFrom(t *testing.T) {
 		}
 	})
 
-	t.Run("no start command to read flag defaults off", func(t *testing.T) {
-		home := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(home, "config"), 0o750); err != nil {
-			t.Fatalf("mkdir: %v", err)
+	t.Run("this home holds no node", func(t *testing.T) {
+		_, err := runGenerate(t, t.TempDir(), "--mode", "validator")
+		if err == nil {
+			t.Fatal("the command described a home no node was created in, so every value in the file " +
+				"came from this binary rather than from a node")
 		}
-		_, err := runGenerate(t, home, "--mode", "validator")
+		if !strings.Contains(err.Error(), "config.toml") {
+			t.Errorf("the refusal says %q, and it has to name the file it looked for", err)
+		}
+	})
+
+	t.Run("no start command to read flag defaults off", func(t *testing.T) {
+		home := aHomeHoldingANode(t)
+		_, err := runGenerate(t, home, "--mode", "full")
 		if err == nil {
 			t.Fatal("the command answered without the start command's flags, so a key answered only by " +
 				"a flag's default read as answered by nothing and the file would leave it out")
