@@ -39,9 +39,9 @@ import (
 //	                      value is four times what a node runs, so a sparse file raises both.
 //	connection policy     p2p.max-connections is ten times higher declared than a seed runs, and
 //	                      p2p.allow-duplicate-ip is declared on where a seed has it off.
-//	service switches      api.enable, grpc.enable, evm.http_enabled, evm.ws_enabled and
-//	                      state-store.ss-enable are open on the node and declared closed for a validator
-//	                      and a seed, which serve no queries. A sparse file closes them.
+//	service switches      api.enable, grpc.enable, grpc-web.enable, evm.http_enabled, evm.ws_enabled
+//	                      and state-store.ss-enable are open on the node and declared closed for a
+//	                      validator and a seed, which serve no queries. A sparse file closes them.
 //	retention             pruning is the flag-default row, in every kind: the flag prunes and the
 //	                      declaration keeps all state history. min-retain-blocks and
 //	                      state-store.ss-keep-recent are the block and state halves of the same choice,
@@ -58,6 +58,7 @@ var divergences = map[registry.Mode]map[string]string{
 		"api.enable":            "true",
 		"evm.http_enabled":      "true",
 		"evm.ws_enabled":        "true",
+		"grpc-web.enable":       "true",
 		"grpc.enable":           "true",
 		"p2p.recv-rate":         "5120000",
 		"p2p.send-rate":         "5120000",
@@ -79,6 +80,7 @@ var divergences = map[registry.Mode]map[string]string{
 		"api.enable":             "true",
 		"evm.http_enabled":       "true",
 		"evm.ws_enabled":         "true",
+		"grpc-web.enable":        "true",
 		"grpc.enable":            "true",
 		"p2p.allow-duplicate-ip": "false",
 		"p2p.max-connections":    "100",

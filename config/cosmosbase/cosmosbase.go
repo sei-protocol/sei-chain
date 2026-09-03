@@ -1,6 +1,6 @@
 // Package cosmosbase registers the configuration sections whose keys belong to the Cosmos server.
 //
-// These five register here rather than beside the structs they describe, and the reason is an import edge.
+// These six register here rather than beside the structs they describe, and the reason is an import edge.
 // The mode rules their defaults answer through live in app/params, which imports the upstream server
 // configuration, so that package cannot ask for them without a cycle. A vendored tree is not itself the
 // obstacle: other sections do register inside one.
@@ -25,6 +25,7 @@ const (
 	GRPCSectionName      = "grpc"
 	TelemetrySectionName = "telemetry"
 	StateSyncSectionName = "state-sync"
+	GRPCWebSectionName   = "grpc-web"
 )
 
 // globalLabelsKey is the metric label set, which is the one key here no environment variable can supply.
@@ -32,12 +33,13 @@ const globalLabelsKey = TelemetrySectionName + ".global-labels"
 
 // Registration puts the upstream server's configuration sections in the registry.
 //
-// Four of the five register the upstream struct directly, because their mapstructure tags already name the
+// Five of the six register the upstream struct directly, because their mapstructure tags already name the
 // keys their reader resolves.
 func init() {
 	registry.RegisterRootKeys(BaseSectionName, &srvconfig.BaseConfig{}, baseDefaults)
 	registry.RegisterSection(APISectionName, &srvconfig.APIConfig{}, apiDefaults)
 	registry.RegisterSection(GRPCSectionName, &srvconfig.GRPCConfig{}, grpcDefaults)
+	registry.RegisterSection(GRPCWebSectionName, &srvconfig.GRPCWebConfig{}, grpcWebDefaults)
 	registry.RegisterSection(TelemetrySectionName, &telemetrySchema{}, telemetryDefaults)
 	registry.RegisterSection(StateSyncSectionName, &srvconfig.StateSyncConfig{}, stateSyncDefaults)
 }
@@ -101,6 +103,17 @@ func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 // their clobber leaves no trace. The durations are declared as durations and written into a file as text,
 // which is the shape the reader parses back.
 func grpcDefaults(mode registry.Mode) any { return forMode(mode).GRPC }
+
+// grpcWebDefaults is what the gRPC-web settings resolve to for a node of this kind.
+//
+// On for a full node and an archive node, off for a validator and a seed, which is the rule the REST
+// interface and gRPC follow and for the same reason. The upstream default is on for every kind.
+//
+// Three of these four keys are read with a casting getter and no check that the key was present, and the
+// fourth, the connection ceiling, is read only when the key is set. The three unguarded ones are safe in
+// one direction only: whether the interface starts at all is one of them, so an absent key casts to false
+// and the interface does not come up rather than coming up on an address cast from nothing.
+func grpcWebDefaults(mode registry.Mode) any { return forMode(mode).GRPCWeb }
 
 // stateSyncDefaults is what the snapshot settings resolve to for a node of this kind.
 //
