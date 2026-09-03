@@ -1327,7 +1327,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
+			resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txRes, endBlockResp, consensusParamUpdates)
 			if hasHeadNotifier {
 				headNotifier.Stash(req, &resp)
 			}
@@ -1357,7 +1357,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
+	resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txResults, endBlockResp, consensusParamUpdates)
 	if hasHeadNotifier {
 		headNotifier.Stash(req, &resp)
 	}
@@ -2318,6 +2318,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 }
 
 func (app *App) getFinalizeBlockResponse(
+	ctx context.Context,
 	appHash []byte,
 	events []abci.Event,
 	txResults []*abci.ExecTxResult,
@@ -2327,6 +2328,14 @@ func (app *App) getFinalizeBlockResponse(
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
 	}
+
+	// Both FinalizeBlocker paths that build a response converge here, so this records once
+	// per finalized block; ProcessBlock runs twice for a height whose optimistic result is
+	// discarded.
+	if gasUsed, ok := sumBlockGasUsed(txResults); ok {
+		appMetrics.blockGasUsed.Record(ctx, gasUsed)
+	}
+
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
@@ -2339,6 +2348,24 @@ func (app *App) getFinalizeBlockResponse(
 		ConsensusParamUpdates: cloneConsensusParams(consensusParamUpdates),
 		AppHash:               appHash,
 	}
+}
+
+// sumBlockGasUsed totals the gas consumed by every non-nil transaction result in a block.
+// It reports false when a result carries negative gas or when the total overflows int64;
+// the total is then meaningless and callers must discard it.
+func sumBlockGasUsed(txResults []*abci.ExecTxResult) (int64, bool) {
+	var total int64
+	for _, txResult := range txResults {
+		if txResult == nil {
+			continue
+		}
+		gasUsed := txResult.GasUsed
+		if gasUsed < 0 || total > math.MaxInt64-gasUsed {
+			return 0, false
+		}
+		total += gasUsed
+	}
+	return total, true
 }
 
 func cloneConsensusParams(params *tmproto.ConsensusParams) *tmproto.ConsensusParams {
