@@ -1,16 +1,22 @@
 package bootstrap
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func evmNonceKey(addr byte) []byte {
@@ -34,6 +40,29 @@ func commitBlocks(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
 	for block := byte(1); block <= through; block++ {
 		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+	}
+}
+
+// writeReceipts writes one receipt per block into the receipt store, for blocks 1 through through.
+//
+// A rollback refuses a store whose index promises receipts its bodies do not have, so a test that rolls
+// receipts back has to write bodies rather than only stamp a head with SetLatestVersion.
+func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
+	t.Helper()
+	storeKey := storetypes.NewKVStoreKey("evm")
+	ctx := testutil.DefaultContext(storeKey, storetypes.NewTransientStoreKey("evm_transient"))
+	for block := uint64(1); block <= through; block++ {
+		txHash := common.BigToHash(new(big.Int).SetUint64(block))
+		records := []receipt.ReceiptRecord{{
+			TxHash: txHash,
+			Receipt: &evmtypes.Receipt{
+				TxHashHex:   txHash.Hex(),
+				BlockNumber: block,
+				GasUsed:     21000,
+			},
+		}}
+		//nolint:gosec // small test heights
+		require.NoError(t, manager.ReceiptDB().SetReceipts(ctx.WithBlockHeight(int64(block)), records))
 	}
 }
 
@@ -63,15 +92,18 @@ func snapshotSSAt(t *testing.T, manager *GigaStorageManager, height byte) {
 		10*time.Second, 10*time.Millisecond, "the snapshot a rollback restores from must be published")
 }
 
-// reconverge re-runs what a restart does: it closes the two halves of state, opens a StateDB again,
-// and recovers every store onto target.
+// reconverge re-runs what a restart does: it closes every store recovery touches, opens a StateDB
+// again, recovers every store onto target, and reopens the receipt store on the far side.
 func reconverge(t *testing.T, manager *GigaStorageManager, target int64) {
 	t.Helper()
-	// Closing first is what a restart does, and it is also required: the stores the new StateDB opens
-	// take file locks the old ones still hold.
+	// Closing first is what a restart does, and it is also required: recovery takes file locks the
+	// open stores hold — the StateDB's for the state it opens, the receipt store's for the rollback
+	// that runs against its files.
 	closeStateDB(t, manager)
+	closeReceiptDB(t, manager)
 	require.NoError(t, manager.openStateDB(t.Context()))
 	require.NoError(t, manager.recoverStores(target))
+	require.NoError(t, manager.openReceiptStore())
 }
 
 // closeStateDB closes the two halves of state and their WAL and drops them from the manager, leaving it
@@ -80,6 +112,17 @@ func closeStateDB(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
 	require.NoError(t, manager.StateDB().Close())
 	manager.stateDB = nil
+}
+
+// closeReceiptDB closes the receipt store and drops it from the manager, leaving it as it was before
+// openReceiptStore ran. Manager.Close tolerates that, so a test may still defer it.
+func closeReceiptDB(t *testing.T, manager *GigaStorageManager) {
+	t.Helper()
+	if manager.ReceiptDB() == nil {
+		return
+	}
+	require.NoError(t, manager.ReceiptDB().Close())
+	manager.receiptDB = nil
 }
 
 // snapshotSCAt commits block height so SC snapshots it, leaving a snapshot a later rollback can rewind
@@ -133,10 +176,12 @@ func TestRecoveryTarget(t *testing.T) {
 func TestRecoverStoresAtAZeroTargetLeavesReceiptsAlone(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
-	require.NoError(t, manager.ReceiptDB().SetLatestVersion(5))
+	writeReceipts(t, manager, 5)
+	closeReceiptDB(t, manager)
 
 	require.NoError(t, manager.recoverStores(0))
 
+	require.NoError(t, manager.openReceiptStore())
 	require.Equal(t, int64(5), manager.ReceiptDB().LatestVersion(),
 		"a zero target must leave the receipt store where it was found")
 }
@@ -145,8 +190,10 @@ func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
 	require.NoError(t, manager.ReceiptDB().SetLatestVersion(3))
-	// findTargetRecoveryHeight reads the WAL directory offline, so the handle has to be closed.
+	// findTargetRecoveryHeight reads the state and receipt directories offline, so both stores have
+	// to be closed for it.
 	closeStateDB(t, manager)
+	closeReceiptDB(t, manager)
 
 	got, err := manager.findTargetRecoveryHeight()
 	require.NoError(t, err)
@@ -277,12 +324,16 @@ func TestStateDBRollbackToAboveTheWALHeadFails(t *testing.T) {
 	require.ErrorContains(t, manager.StateDB().RollbackTo(5), "left the state commit store on 3")
 }
 
+// recoverReceipt rolls the store back through its files, so it runs while the store is closed and a
+// store opened on the far side is what reports the result.
 func TestRecoverReceiptRewindsTheHead(t *testing.T) {
 	manager, _ := openManager(t, nil)
-	require.NoError(t, manager.ReceiptDB().SetLatestVersion(5))
+	writeReceipts(t, manager, 5)
+	closeReceiptDB(t, manager)
 
 	require.NoError(t, manager.recoverReceipt(3))
 
+	require.NoError(t, manager.openReceiptStore())
 	require.Equal(t, int64(3), manager.ReceiptDB().LatestVersion())
 }
 

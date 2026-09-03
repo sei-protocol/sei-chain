@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"os"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
@@ -14,6 +16,38 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
+
+// GetLatestBlock reports the head of the receipt store described by cfg — the highest block a lookup
+// reaches — without opening the store. A store that has never recorded a head reads as 0.
+//
+// This is the head the store records rather than the highest block GetRange finds on disk. Bodies are
+// written before the index entries that reach them, so a crash can leave bodies above the head that no
+// lookup finds, and it is the head that says what the store serves.
+//
+// Only a littidx-backed store is supported; any other backend is refused rather than reported as empty.
+func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (block uint64, err error) {
+	if err := requireLittIdxStore(cfg); err != nil {
+		return 0, err
+	}
+
+	indexDir := filepath.Join(cfg.DBDirectory, littIndexDirName)
+	// Opening the index would create it. A store that was never written has no head to read, and
+	// creating its directories here would leave a half-made store behind on a failed startup.
+	if _, statErr := os.Stat(indexDir); os.IsNotExist(statErr) {
+		return 0, nil
+	}
+
+	indexCfg := pebbledb.DefaultConfig()
+	indexCfg.DataDir = indexDir
+	index, err := pebbledb.Open(context.Background(), &indexCfg)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open receipt log index: %w", err)
+	}
+	defer func() { err = errors.Join(err, index.Close()) }()
+
+	block, _, err = readMetaOffline(index, receiptLatestVersionKey)
+	return block, err
+}
 
 // GetRange reports the lowest and highest block heights present on disk for the receipt store described
 // by cfg, without opening the store. ok is false if no receipts are present.

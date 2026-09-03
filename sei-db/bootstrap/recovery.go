@@ -24,11 +24,6 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openBlockStore(); err != nil {
 		return err
 	}
-	if err := m.openReceiptStore(); err != nil {
-		return err
-	}
-	// The target is read before the StateDB opens, because reading the state WAL's head offline takes
-	// the directory lock an open WAL holds.
 	targetHeight, err := m.findTargetRecoveryHeight()
 	if err != nil {
 		return err
@@ -36,7 +31,12 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openStateDB(ctx); err != nil {
 		return err
 	}
-	return m.recoverStores(targetHeight)
+	if err := m.recoverStores(targetHeight); err != nil {
+		return err
+	}
+	// The receipt store opens last because its rollback runs against its files: it is the one store
+	// recovery reaches without opening, so opening it earlier would only be to close it again.
+	return m.openReceiptStore()
 }
 
 // recoverStores aligns the block height of the receipt store, the live state (SC) and the historical
@@ -88,6 +88,9 @@ func (m *GigaStorageManager) openReceiptStore() error {
 // findTargetRecoveryHeight returns the height every store is recovered to, read from the heads of the
 // block store, the state WAL and the receipt store. A disabled receipt store reads as 0, which is the
 // same as an empty one: no opinion on the height.
+//
+// The state and receipt heads are read from their directories, which takes the locks their open stores
+// hold, so this must run before either of those stores opens.
 func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	blockHeight, err := m.blockStore.GetLatestBlock()
 	if err != nil {
@@ -98,8 +101,8 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 		return 0, err
 	}
 	var receiptHeight uint64
-	if m.receiptDB != nil {
-		receiptHeight, err = m.receiptDB.GetLatestBlock()
+	if m.cfg.ReceiptDBConfig.Enable {
+		receiptHeight, err = receipt.GetLatestBlock(m.cfg.ReceiptDBConfig)
 		if err != nil {
 			return 0, fmt.Errorf("read receipt store head: %w", err)
 		}
@@ -152,28 +155,17 @@ func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
 	return nil
 }
 
-// recoverReceipt rolls the receipt store back to target. The store has to be closed for the rollback
-// to rewrite it, so this closes it, rolls it back offline, and reopens it.
+// recoverReceipt drops every receipt above target, working on the store's files rather than through an
+// open store. A store already at or below target is left alone.
+//
+// It takes the locks an open receipt store holds, so it must run before openReceiptStore.
 func (m *GigaStorageManager) recoverReceipt(target int64) error {
-	if m.receiptDB == nil {
+	if !m.cfg.ReceiptDBConfig.Enable {
 		return nil
 	}
-	head := m.receiptDB.LatestVersion()
-	if head <= target {
-		return nil
-	}
-	if err := m.receiptDB.Close(); err != nil {
-		return fmt.Errorf("close receipt store before rolling it back to %d: %w", target, err)
-	}
-	m.receiptDB = nil
-
-	if err := receipt.Rollback(m.cfg.ReceiptDBConfig, target); err != nil {
+	//nolint:gosec // recoverStores guards target > 0
+	if err := receipt.PruneAfter(m.cfg.ReceiptDBConfig, uint64(target)); err != nil {
 		return fmt.Errorf("roll the receipt store back to %d: %w", target, err)
 	}
-	db, err := receipt.NewReceiptStore(m.cfg.ReceiptDBConfig, nil)
-	if err != nil {
-		return fmt.Errorf("reopen receipt store rolled back to %d: %w", target, err)
-	}
-	m.receiptDB = db
 	return nil
 }
