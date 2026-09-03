@@ -124,6 +124,26 @@ func (w *atomicWatch[T]) Wait(ctx context.Context, pred func(T) bool) (T, error)
 	}
 }
 
+// WaitEither waits for pred to hold, waking on updates to either watch.
+// pred takes no value and reads the watches itself, because a condition
+// spanning two of them cannot be expressed over one value.
+func WaitEither[A, B any](ctx context.Context, a AtomicRecv[A], b AtomicRecv[B], pred func() bool) error {
+	for {
+		// Both update channels are read before pred, so a Store landing between
+		// the two still wakes the select rather than being missed.
+		aUpdated, bUpdated := a.ptr.Load().updated, b.ptr.Load().updated
+		if pred() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-aUpdated:
+		case <-bUpdated:
+		}
+	}
+}
+
 // Iter executes sequentially the function f on each value of the atomic watch.
 // Context passed to f is canceled when the next value is available.
 // Exits when the returned error is different from nil and context.Canceled,

@@ -45,6 +45,9 @@ type gigaRouterCommon struct {
 	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
 	// EvmProxy can Load() without taking the data lock on every call.
 	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
+	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
+	// the lowest row data.State still holds.
+	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Optimistic Add(1) + compare against cap;
@@ -528,12 +531,37 @@ type memberSession struct {
 	done   chan struct{}
 }
 
-// stopDepartingMembers stops sessions for validators outside committee.
-func stopDepartingMembers(ctx context.Context, live map[atypes.PublicKey]*memberSession, committee *atypes.Committee) error {
+// keepReplicas is commitEpoch's committee, plus the committee Anchor covers when present.
+func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
+	keep := map[atypes.PublicKey]struct{}{}
+	for lane := range commitEpoch.Committee().Lanes().All() {
+		keep[lane.Validator] = struct{}{}
+	}
+	if a, ok := anchor.Get(); ok {
+		for lane := range a.Epoch.Committee().Lanes().All() {
+			keep[lane.Validator] = struct{}{}
+		}
+	}
+	return keep
+}
+
+// stopDepartingMembers stops sessions for validators outside keepReplicas once
+// Anchor is at most one epoch behind commitEpoch.
+func stopDepartingMembers(
+	ctx context.Context,
+	live map[atypes.PublicKey]*memberSession,
+	anchor utils.Option[data.Anchor],
+	commitEpoch *atypes.Epoch,
+) error {
+	a, ok := anchor.Get()
+	if !ok || commitEpoch.EpochIndex() > a.Epoch.EpochIndex()+1 {
+		return nil
+	}
+	keep := keepReplicas(anchor, commitEpoch)
 	var departing []*memberSession
 	// Cancel every departing session before waiting for any of them.
 	for validator, session := range live {
-		if committee.HasReplica(validator) {
+		if _, ok := keep[validator]; ok {
 			continue
 		}
 		session.cancel()
@@ -548,8 +576,7 @@ func stopDepartingMembers(ctx context.Context, live map[atypes.PublicKey]*member
 	return nil
 }
 
-// runPerCommitteeMember runs tasks for each reachable member of the
-// committee covering the next CommitQC.
+// runPerCommitteeMember runs tasks for each reachable member needed by the commit epoch or Anchor.
 func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...committeeMemberTask) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		live := map[atypes.PublicKey]*memberSession{}
@@ -559,13 +586,18 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 				session.cancel()
 			}
 		}()
-		return r.nextCommitEpoch.Iter(ctx, func(_ context.Context, epoch *atypes.Epoch) error {
-			committee := epoch.Committee()
-			if err := stopDepartingMembers(ctx, live, committee); err != nil {
+		// Anchor is republished on every persist batch; only its epoch can
+		// change the keep set.
+		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
+			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
+		}
+		for ctx.Err() == nil {
+			commitEpoch := r.nextCommitEpoch.Load()
+			anchor := r.anchor.Load()
+			if err := stopDepartingMembers(ctx, live, anchor, commitEpoch); err != nil {
 				return err
 			}
-			for lane := range committee.Lanes().All() {
-				validator := lane.Validator
+			for validator := range keepReplicas(anchor, commitEpoch) {
 				if _, ok := live[validator]; ok {
 					continue
 				}
@@ -587,8 +619,14 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 					}))
 				})
 			}
-			return nil
-		})
+			if err := utils.WaitEither(ctx, r.nextCommitEpoch, r.anchor, func() bool {
+				return r.nextCommitEpoch.Load().EpochIndex() != commitEpoch.EpochIndex() ||
+					epochOf(r.anchor.Load()) != epochOf(anchor)
+			}); err != nil {
+				return err
+			}
+		}
+		return ctx.Err()
 	})
 }
 
@@ -620,6 +658,8 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 // RunInboundConn serves an inbound giga connection. Non-committee peers
 // get the block-sync subset (StreamFullCommitQCs + GetBlock). Committee peers
 // get the full RunServer on validators; on a fullnode the connection is refused.
+// Inbound role still follows nextCommitEpoch only: a departing peer is
+// downgraded even while outbound sessions keep it for AppVotes.
 //
 // The role and the fullnode cap are fixed for the lifetime of the connection: a
 // membership change ends it, and the peer's dialer reconnects into the role it

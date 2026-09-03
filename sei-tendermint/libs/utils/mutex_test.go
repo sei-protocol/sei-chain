@@ -10,6 +10,36 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
+func TestWaitEither(t *testing.T) {
+	ctx := t.Context()
+	nums := utils.NewAtomicSend(0)
+	strs := utils.NewAtomicSend("")
+	recvNums, recvStrs := nums.Subscribe(), strs.Subscribe()
+
+	require.NoError(t, utils.WaitEither(ctx, recvNums, recvStrs, func() bool { return true }))
+
+	for _, store := range []func(){
+		func() { nums.Store(1) },
+		func() { strs.Store("go") },
+	} {
+		require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error {
+				return utils.WaitEither(ctx, recvNums, recvStrs, func() bool {
+					return recvNums.Load() == 1 || recvStrs.Load() == "go"
+				})
+			})
+			store()
+			return nil
+		}))
+		nums.Store(0)
+		strs.Store("")
+	}
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.Equal(t, context.Canceled, utils.WaitEither(canceled, recvNums, recvStrs, func() bool { return false }))
+}
+
 func TestAtomicSend(t *testing.T) {
 	ctx := t.Context()
 	v := 5
