@@ -137,6 +137,15 @@ func init() {
 		selfRemediationDefaults, reachesNoReactor)
 	declareRootKeys(RootSectionName, &nodeRootSchema{}, rootDefaults,
 		append(append([]string{}, notWritableInThisFile...), removedFromTheNode...)...)
+
+	// Every section here reaches its reader by a decode rather than a lookup, so the boot has to deliver
+	// them a second way. Walked over what the registrations recorded rather than a list beside them, so a
+	// section registered above cannot be left undelivered.
+	for _, name := range registeredHere {
+		registry.DeclareDecodedNotLookedUp(name,
+			"decoded into the node's own configuration struct by the boot's handler, which reads that "+
+				"file once; nothing looks these keys up afterwards")
+	}
 }
 
 // registeredHere are the sections this package put in the registry, recorded as each one is registered.
