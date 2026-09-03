@@ -104,17 +104,41 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.False(t, ok)
 
 	require.Equal(t, int64(0), initial.GetBlockHeight())
-	require.Equal(t, big.NewInt(10), gigaHashToBig(initial.GetBalance(address)))
-	require.Equal(t, uint64(1), initial.GetNonce(address))
-	require.Equal(t, common.HexToHash("0xaa"), initial.GetStorage(address, baseSlot))
+
+	initialBalance, ok := initial.GetBalance(address)
+	require.True(t, ok)
+	require.Equal(t, big.NewInt(10), gigaHashToBig(initialBalance))
+
+	initialNonce, ok := initial.GetNonce(address)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), initialNonce)
+
+	initialSlot, ok := initial.GetStorage(address, baseSlot)
+	require.True(t, ok)
+	require.Equal(t, common.HexToHash("0xaa"), initialSlot)
 
 	for _, snapshot := range []gigastore.StateView{current, historical} {
 		require.Equal(t, int64(7), snapshot.GetBlockHeight())
-		require.Equal(t, big.NewInt(20), gigaHashToBig(snapshot.GetBalance(address)))
-		require.Equal(t, uint64(2), snapshot.GetNonce(address))
-		require.Equal(t, []byte{0x60, 0x01}, snapshot.GetCode(address))
-		require.Equal(t, gigastore.Hash{}, snapshot.GetStorage(address, baseSlot))
-		require.Equal(t, common.HexToHash("0xbb"), snapshot.GetStorage(address, newSlot))
+
+		balance, ok := snapshot.GetBalance(address)
+		require.True(t, ok)
+		require.Equal(t, big.NewInt(20), gigaHashToBig(balance))
+
+		nonce, ok := snapshot.GetNonce(address)
+		require.True(t, ok)
+		require.Equal(t, uint64(2), nonce)
+
+		code, ok := snapshot.GetCode(address)
+		require.True(t, ok)
+		require.Equal(t, []byte{0x60, 0x01}, code)
+
+		clearedSlot, ok := snapshot.GetStorage(address, baseSlot)
+		require.False(t, ok, "a storage clear leaves the slot unset, not set to zero")
+		require.Equal(t, gigastore.Hash{}, clearedSlot)
+
+		value, ok := snapshot.GetStorage(address, newSlot)
+		require.True(t, ok)
+		require.Equal(t, common.HexToHash("0xbb"), value)
 	}
 
 	deleteChanges, err := store.EncodeChangeSet(StateChangeSet{
@@ -128,10 +152,22 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.CommitStateChanges(8, deleteChanges))
 	afterDelete := store.OpenView()
-	require.Empty(t, afterDelete.GetCode(address))
-	require.Equal(t, gigastore.Hash{}, afterDelete.GetStorage(address, newSlot))
-	require.Equal(t, []byte{0x60, 0x01}, historical.GetCode(address))
-	require.Equal(t, common.HexToHash("0xbb"), historical.GetStorage(address, newSlot))
+
+	deletedCode, ok := afterDelete.GetCode(address)
+	require.False(t, ok, "a deleted entry reads as missing, not as empty")
+	require.Empty(t, deletedCode)
+
+	deletedSlot, ok := afterDelete.GetStorage(address, newSlot)
+	require.False(t, ok)
+	require.Equal(t, gigastore.Hash{}, deletedSlot)
+
+	historicalCode, ok := historical.GetCode(address)
+	require.True(t, ok)
+	require.Equal(t, []byte{0x60, 0x01}, historicalCode)
+
+	historicalSlot, ok := historical.GetStorage(address, newSlot)
+	require.True(t, ok)
+	require.Equal(t, common.HexToHash("0xbb"), historicalSlot)
 
 	initial.Close()
 	current.Close()
@@ -215,8 +251,14 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 	snapshot := store.OpenView()
 	defer snapshot.Close()
 	require.Equal(t, int64(2), snapshot.GetBlockHeight())
-	require.Equal(t, uint64(2), snapshot.GetNonce(sender))
-	require.Equal(t, big.NewInt(2), gigaHashToBig(snapshot.GetBalance(recipient)))
+
+	nonce, ok := snapshot.GetNonce(sender)
+	require.True(t, ok)
+	require.Equal(t, uint64(2), nonce)
+
+	balance, ok := snapshot.GetBalance(recipient)
+	require.True(t, ok)
+	require.Equal(t, big.NewInt(2), gigaHashToBig(balance))
 }
 
 func gigaHashToBig(value gigastore.Hash) *big.Int {

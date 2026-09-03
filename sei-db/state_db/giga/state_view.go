@@ -37,9 +37,6 @@ type StateView interface {
 
 	// Get returns the value stored under key in this view, and whether it
 	// was found. It never observes writes made after the view was opened.
-	//
-	// Get reports what is stored, not what EVM semantics substitute for it: a code-hash key for an
-	// account that exists with no code is not found, where GetCodeHash reports EmptyCodeHash.
 	Get(module string, key []byte) ([]byte, bool)
 
 	// Close releases the view's underlying ref counting.
@@ -49,34 +46,35 @@ type StateView interface {
 }
 
 // EVMStateView is the EVM-specific read surface embedded by StateView, and carries the same contract.
+//
+// Every getter reports whether the state entry it reads was found. The bool speaks to that entry's
+// existence and not to its contents: an account that exists with a nonce of 0 reads as (0, true).
+// A getter that reports false returns the zero value, so a caller with no use for the distinction can
+// discard the bool and read a missing entry as zero.
 type EVMStateView interface {
 
 	// AccountExists reports whether addr has an account in state,
 	// including accounts that have self-destructed in the current block.
 	AccountExists(addr Address) bool
 
-	// GetStorage returns the value stored at key in addr's storage.
-	// Returns the zero Hash if the slot is unset.
-	GetStorage(addr Address, key Hash) Hash
+	// GetStorage returns the value stored at key in addr's storage, and whether that slot is set.
+	GetStorage(addr Address, key Hash) (Hash, bool)
 
-	// GetBalance returns addr's balance, as a 256-bit big-endian value.
-	GetBalance(addr Address) Hash
+	// GetBalance returns addr's balance as a 256-bit big-endian value, and whether a balance is
+	// stored for addr.
+	GetBalance(addr Address) (Hash, bool)
 
-	// GetNonce returns addr's account nonce. Returns 0 if unset / the
-	// account does not exist.
-	GetNonce(addr Address) uint64
+	// GetNonce returns addr's account nonce, and whether addr has an account.
+	GetNonce(addr Address) (uint64, bool)
 
-	// GetCodeSize returns the length in bytes of addr's contract code.
-	// Returns 0 for accounts with no code.
-	GetCodeSize(addr Address) int
+	// GetCodeSize returns the length in bytes of addr's contract code, and whether addr has code.
+	GetCodeSize(addr Address) (int, bool)
 
-	// GetCodeHash returns the hash of addr's contract code.
-	// Returns EmptyCodeHash for an account that exists with no code, and the zero
-	// Hash for an account that does not exist or has been deleted.
-	// Matches EXTCODEHASH / keeper.GetCodeHash.
-	GetCodeHash(addr Address) Hash
+	// GetCodeHash returns the hash of addr's contract code, and whether a code hash is stored for
+	// addr. An account that exists and holds no code stores no code hash; EVM semantics answer
+	// EmptyCodeHash for that case, which the caller must substitute for itself.
+	GetCodeHash(addr Address) (Hash, bool)
 
-	// GetCode returns addr's contract code. Returns nil/empty for
-	// accounts with no code.
-	GetCode(addr Address) []byte
+	// GetCode returns addr's contract code, and whether addr has code.
+	GetCode(addr Address) ([]byte, bool)
 }

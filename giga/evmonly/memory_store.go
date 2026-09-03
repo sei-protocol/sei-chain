@@ -391,7 +391,7 @@ func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
 	return balance != nil && balance.Sign() != 0 || s.store.base.GetNonce(address) != 0 || len(s.store.base.GetCode(address)) != 0
 }
 
-func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) (gigastore.Hash, bool) {
 	s.requireOpen()
 	key := memoryStoreStorageKey{address: address, slot: slot}
 	s.store.mu.RLock()
@@ -400,70 +400,83 @@ func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigasto
 	s.store.mu.RUnlock()
 	if valueOK && (!clearOK || value.height >= clearHeight) {
 		if value.delete {
-			return gigastore.Hash{}
+			return gigastore.Hash{}, false
 		}
-		return value.value
+		return value.value, true
 	}
 	if clearOK {
-		return gigastore.Hash{}
+		return gigastore.Hash{}, false
 	}
-	return s.store.base.GetState(address, slot)
+	baseValue := s.store.base.GetState(address, slot)
+	// The base reader reports no presence of its own, so an unset slot is indistinguishable from one
+	// holding zero.
+	return baseValue, baseValue != (gigastore.Hash{})
 }
 
-func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) (gigastore.Hash, bool) {
 	s.requireOpen()
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.balances[address], s.height)
 	s.store.mu.RUnlock()
 	if ok {
-		return value.value
+		return value.value, true
+	}
+	baseBalance := s.store.base.GetBalance(address)
+	if baseBalance == nil {
+		return gigastore.Hash{}, false
+	}
+	if err := validateMemoryStoreBalance(baseBalance); err != nil {
+		panic(err)
 	}
 	var balance common.Hash
-	baseBalance := s.store.base.GetBalance(address)
-	if baseBalance != nil {
-		if err := validateMemoryStoreBalance(baseBalance); err != nil {
-			panic(err)
-		}
-		baseBalance.FillBytes(balance[:])
-	}
-	return balance
+	baseBalance.FillBytes(balance[:])
+	// The base reader reports no presence of its own, so an account with no balance is
+	// indistinguishable from one holding zero.
+	return balance, baseBalance.Sign() != 0
 }
 
-func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) uint64 {
+func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) (uint64, bool) {
 	s.requireOpen()
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.nonces[address], s.height)
 	s.store.mu.RUnlock()
 	if ok {
-		return value.value
+		return value.value, true
 	}
-	return s.store.base.GetNonce(address)
+	baseNonce := s.store.base.GetNonce(address)
+	// The base reader reports no presence of its own, so a missing account is indistinguishable from
+	// one whose nonce is zero.
+	return baseNonce, baseNonce != 0
 }
 
-func (s *memoryStoreSnapshot) GetCodeSize(address gigastore.Address) int {
-	return len(s.GetCode(address))
+func (s *memoryStoreSnapshot) GetCodeSize(address gigastore.Address) (int, bool) {
+	code, ok := s.GetCode(address)
+	return len(code), ok
 }
 
-func (s *memoryStoreSnapshot) GetCodeHash(address gigastore.Address) gigastore.Hash {
-	s.requireOpen()
-	if !s.AccountExists(address) {
-		return gigastore.Hash{}
+func (s *memoryStoreSnapshot) GetCodeHash(address gigastore.Address) (gigastore.Hash, bool) {
+	code, ok := s.GetCode(address)
+	if !ok {
+		return gigastore.Hash{}, false
 	}
-	return crypto.Keccak256Hash(s.GetCode(address))
+	return crypto.Keccak256Hash(code), true
 }
 
-func (s *memoryStoreSnapshot) GetCode(address gigastore.Address) []byte {
+func (s *memoryStoreSnapshot) GetCode(address gigastore.Address) ([]byte, bool) {
 	s.requireOpen()
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.code[address], s.height)
 	s.store.mu.RUnlock()
 	if ok {
 		if value.delete {
-			return nil
+			return nil, false
 		}
-		return cloneBytes(value.value)
+		return cloneBytes(value.value), true
 	}
-	return cloneBytes(s.store.base.GetCode(address))
+	baseCode := s.store.base.GetCode(address)
+	// The base reader reports no presence of its own, so an account with no code is indistinguishable
+	// from one holding empty code.
+	return cloneBytes(baseCode), len(baseCode) != 0
 }
 
 func (s *memoryStoreSnapshot) GetBlockHeight() int64 {

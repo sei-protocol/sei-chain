@@ -82,23 +82,28 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	return result, nil
 }
 
+// gigaSnapshotStateReader adapts a giga state view to StateReader, which has no way to report that a
+// value is absent, so every read here answers a missing entry with the zero value.
 type gigaSnapshotStateReader struct {
 	snapshot gigastore.EVMStateView
 }
 
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {
-	balance := r.snapshot.GetBalance(addr)
+	balance, _ := r.snapshot.GetBalance(addr)
 	return new(big.Int).SetBytes(balance[:])
 }
 
 func (r gigaSnapshotStateReader) GetNonce(addr common.Address) uint64 {
-	return r.snapshot.GetNonce(addr)
+	nonce, _ := r.snapshot.GetNonce(addr)
+	return nonce
 }
 
 func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
-	return cloneBytes(r.snapshot.GetCode(addr))
+	code, _ := r.snapshot.GetCode(addr)
+	return cloneBytes(code)
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
-	return r.snapshot.GetStorage(addr, key)
+	value, _ := r.snapshot.GetStorage(addr, key)
+	return value
 }

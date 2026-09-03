@@ -33,7 +33,7 @@ type PhysicalKVPair struct {
 // is empty so it does not merge with prior DB values.
 //
 // Storage / code / misc / non-EVM pairs are emitted directly from each
-// Translate call. Account-related entries (nonce, codehash) are buffered
+// Translate call. Account-related entries (nonce, codehash, balance) are buffered
 // across all Translate calls so that each address is written exactly once
 // with its fully-merged AccountData; flush them by calling Finalize.
 //
@@ -57,7 +57,7 @@ func NewImportTranslator(blockHeight int64) *ImportTranslator {
 }
 
 // Translate returns the storage / code / misc / non-EVM physical pairs
-// encoded from cs. Account fragments (nonce, codehash) are buffered
+// encoded from cs. Account fragments (nonce, codehash, balance) are buffered
 // internally; flush them via Finalize after all changesets have been fed in.
 //
 // nil or empty changesets return (nil, nil).
@@ -112,7 +112,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	}
 	out = appendNonDeletes(out, miscChanges)
 
-	// Accumulate nonce + codeHash entries from this batch into the
+	// Accumulate nonce + codeHash + balance entries from this batch into the
 	// translator-level pending account map. Multiple Translate calls
 	// naturally fold updates for the same address together: the SetXxx
 	// methods on PendingAccountWrite mutate the pointer in place when the
@@ -120,7 +120,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	batchAccts, err := mergeAccountUpdates(
 		changesByType[keys.EVMKeyNonce],
 		changesByType[keys.EVMKeyCodeHash],
-		nil, // TODO: balance, when balance key kind is introduced
+		changesByType[keys.EVMKeyBalance],
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge account changes: %w", err)

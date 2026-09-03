@@ -73,31 +73,37 @@ func (s *memoryGigaSnapshot) AccountExists(address gigastore.Address) bool {
 	return false
 }
 
-func (s *memoryGigaSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
-	return s.storage[gigaStorageKey{address: address, key: slot}]
+func (s *memoryGigaSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) (gigastore.Hash, bool) {
+	value, ok := s.storage[gigaStorageKey{address: address, key: slot}]
+	return value, ok
 }
 
-func (s *memoryGigaSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
-	return s.balances[address]
+func (s *memoryGigaSnapshot) GetBalance(address gigastore.Address) (gigastore.Hash, bool) {
+	value, ok := s.balances[address]
+	return value, ok
 }
 
-func (s *memoryGigaSnapshot) GetNonce(address gigastore.Address) uint64 {
-	return s.nonces[address]
+func (s *memoryGigaSnapshot) GetNonce(address gigastore.Address) (uint64, bool) {
+	value, ok := s.nonces[address]
+	return value, ok
 }
 
-func (s *memoryGigaSnapshot) GetCodeSize(address gigastore.Address) int {
-	return len(s.code[address])
+func (s *memoryGigaSnapshot) GetCodeSize(address gigastore.Address) (int, bool) {
+	code, ok := s.GetCode(address)
+	return len(code), ok
 }
 
-func (s *memoryGigaSnapshot) GetCodeHash(address gigastore.Address) gigastore.Hash {
-	if !s.AccountExists(address) {
-		return gigastore.Hash{}
+func (s *memoryGigaSnapshot) GetCodeHash(address gigastore.Address) (gigastore.Hash, bool) {
+	code, ok := s.GetCode(address)
+	if !ok {
+		return gigastore.Hash{}, false
 	}
-	return crypto.Keccak256Hash(s.code[address])
+	return crypto.Keccak256Hash(code), true
 }
 
-func (s *memoryGigaSnapshot) GetCode(address gigastore.Address) []byte {
-	return s.code[address]
+func (s *memoryGigaSnapshot) GetCode(address gigastore.Address) ([]byte, bool) {
+	code, ok := s.code[address]
+	return code, ok
 }
 
 func (s *memoryGigaSnapshot) GetBlockHeight() int64 {
