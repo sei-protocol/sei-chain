@@ -15,10 +15,11 @@ import (
 // OpenDBWithRecovery opens every store and brings them onto one height after an unclean shutdown.
 // After recovery:
 //  1. Every store is at or below the block store's height.
-//  2. Every store other than the block store is on the same height.
+//  2. Every store other than the block store is on the same height, unless it holds no history at all,
+//     in which case it is left empty to fill forward from that height.
 //
-// The target is the lowest of the block store, the state WAL, and the receipt store. A target of 0
-// means a fresh node with nothing to converge on, and nothing is moved.
+// The target is the lowest head among the block store, the state WAL and the receipt store. A target of
+// 0 means there is no height to converge on and nothing is moved.
 //
 // The two halves of state and the WAL they share belong to the StateDB, which opens them where it
 // finds them. recoverState is the step that puts them on the target and readies them for the block
@@ -73,9 +74,9 @@ func (m *GigaStorageManager) openReceiptStore() error {
 	return nil
 }
 
-// findTargetRecoveryHeight returns the height every store is recovered to: the lowest head among the
-// block store, the state WAL and the receipt store, receipts being skipped when disabled. It returns 0
-// when there is no height to converge on.
+// findTargetRecoveryHeight returns the height every store is recovered to, read from the heads of the
+// block store, the state WAL and the receipt store. A disabled receipt store reads as 0, which is the
+// same as an empty one: no opinion on the height.
 func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	blockHeight, err := m.blockStore.GetLatestBlock()
 	if err != nil {
@@ -89,18 +90,33 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	if stored {
 		stateHeight = last
 	}
-	if blockHeight == 0 || stateHeight == 0 {
-		return 0, nil
-	}
-	target := min(blockHeight, stateHeight)
+	var receiptHeight uint64
 	if m.receiptDB != nil {
-		receiptHeight, err := m.receiptDB.GetLatestBlock()
+		receiptHeight, err = m.receiptDB.GetLatestBlock()
 		if err != nil {
 			return 0, fmt.Errorf("read receipt store head: %w", err)
 		}
+	}
+	return int64(recoveryTarget(blockHeight, stateHeight, receiptHeight)), nil //nolint:gosec // heights fit within int64
+}
+
+// recoveryTarget folds the store heads into the height they converge on: the lowest of them, with a
+// receipt store that holds nothing left out rather than dragging the target down to 0. Receipts newly
+// enabled on a node with history have nothing to disagree with, and start filling at the target.
+//
+// An empty block store or state WAL instead yields 0, which skips recovery. Neither is unambiguous the
+// way an empty receipt store is: state whose WAL was pruned away behind a snapshot still exists with an
+// empty WAL, and converging on a target derived from the other stores would discard it with no WAL left
+// to replay it from.
+func recoveryTarget(blockHeight, stateHeight, receiptHeight uint64) uint64 {
+	if blockHeight == 0 || stateHeight == 0 {
+		return 0
+	}
+	target := min(blockHeight, stateHeight)
+	if receiptHeight > 0 {
 		target = min(target, receiptHeight)
 	}
-	return int64(target), nil //nolint:gosec // block heights fit within int64
+	return target
 }
 
 // openStateDB opens the two halves of state and the WAL they share, converged on the WAL's own head.
