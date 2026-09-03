@@ -6,13 +6,11 @@ import (
 	"io"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"cosmossdk.io/errors"
-	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -28,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -38,7 +35,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -50,24 +46,11 @@ var (
 	_ types.Queryable        = (*Store)(nil)
 )
 
-// stateStoreSnapshotScheduler is the commit path's half of the SS snapshot
-// contract: flush tells the state store which version it has just finished
-// enqueueing, and the store decides whether that version is a boundary.
-type stateStoreSnapshotScheduler interface {
-	ScheduleSnapshot(version int64)
-}
-
-// ss.NewStateStore returns the interface, so the capability is resolved by type
-// assertion at startup. This pins the only implementation, so wrapping the state
-// store without carrying the method through fails the build here rather than
-// silently ending SS snapshots at runtime.
-var _ stateStoreSnapshotScheduler = (*sscomposite.CompositeStateStore)(nil)
-
 type Store struct {
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
 	ssStore        seidbtypes.StateStore
-	ssSnapshots    stateStoreSnapshotScheduler
+	ssCommitter    seidbtypes.BlockCommitter
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -190,16 +173,13 @@ func NewStore(
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
-		scheduler, ok := ssStore.(stateStoreSnapshotScheduler)
+		committer, ok := ssStore.(seidbtypes.BlockCommitter)
 		if !ok {
-			// Unreachable while CompositeStateStore is the only implementation,
-			// which the assertion above pins. Log rather than drop silently, so
-			// a wrapper that loses the method is visible as a boot line instead
-			// of as snapshots that never appear.
-			logger.Error("state store does not schedule snapshots; SS snapshots are disabled",
-				"type", fmt.Sprintf("%T", ssStore))
+			// Unreachable: ss.NewStateStore pins the capability at compile time. Refused here rather
+			// than tolerated, because a state store the commit path cannot reach receives no blocks.
+			panic(fmt.Sprintf("state store %T cannot commit blocks", ssStore))
 		}
-		store.ssSnapshots = scheduler
+		store.ssCommitter = committer
 	}
 	return store
 
@@ -213,8 +193,6 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	commitStartTime := time.Now()
 	defer func() {
 		storev2Metrics.scCommitLatency.Record(context.Background(), time.Since(commitStartTime).Seconds())
-		// TODO(PLT-353): remove once storev2_sc_commit_latency verified
-		telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
 	}()
 	if err := rs.flush(); err != nil {
 		panic(err)
@@ -317,33 +295,13 @@ func (rs *Store) flush() error {
 		}
 		rs.changesetCapturedVersion = currentVersion
 	}
-	if len(changeSets) > 0 {
-		if rs.ssStore != nil {
-			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
-				return err
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
+	// The state store takes the block whether or not it carries writes: an empty one still advances
+	// its version marker, and the store decides for itself whether the height is a snapshot boundary.
+	if rs.ssCommitter != nil {
+		if err := rs.ssCommitter.CommitBlock(currentVersion, changeSets); err != nil {
+			return err
 		}
-	} else {
-		// ensure the state store watermark advances even for empty blocks
-		if rs.ssStore != nil {
-			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
-				panic(err)
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
-		}
-	}
-	// Both branches above have finished handing currentVersion to SS and have
-	// enqueued nothing above it, which is what makes an SS snapshot label exact.
-	// Triggering here rather than inside either branch keeps populated and empty
-	// blocks on one path. A repeat within the same block (flush runs twice, and
-	// the second pass sees an empty changeset) is ignored by the state store.
-	if rs.ssSnapshots != nil {
-		rs.ssSnapshots.ScheduleSnapshot(currentVersion)
+		storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
 	}
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
@@ -1041,26 +999,12 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 				attribute.Bool("success", false),
 				attribute.Bool("proof", needProof),
 			))
-			// TODO(PLT-353): remove once storev2_historical_abci_query verified
-			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("success", "false"),
-					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
-				})
 			return sdkerrors.QueryResult(err)
 		} else {
 			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
 				attribute.Bool("success", true),
 				attribute.Bool("proof", needProof),
 			))
-			// TODO(PLT-353): remove once storev2_historical_abci_query verified
-			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("success", "true"),
-					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
-				})
 		}
 		defer rs.releaseHistProofPermit()
 
@@ -1374,30 +1318,12 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			if err == commonerrors.ErrorExportDone {
 				for k, v := range keySizePerStore {
 					storev2Metrics.iavlTotalKeyBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_key_bytes verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_key_bytes"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				for k, v := range valueSizePerStore {
 					storev2Metrics.iavlTotalValueBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_value_bytes verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_value_bytes"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				for k, v := range numKeysPerStore {
 					storev2Metrics.iavlTotalNumKeys.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_num_keys verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_num_keys"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				break
 			}
@@ -1421,8 +1347,6 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			valueSizePerStore[currentStoreName] += int64(len(item.Value))
 			numKeysPerStore[currentStoreName] += 1
 			storev2Metrics.stateSyncKeysExported.Add(context.Background(), 1)
-			// TODO(PLT-353): remove once storev2_state_sync_keys_exported verified
-			telemetry.IncrCounter(1, "state_sync", "num_keys_exported")
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 				Item: &snapshottypes.SnapshotItem_Store{

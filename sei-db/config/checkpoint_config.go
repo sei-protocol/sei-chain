@@ -1,10 +1,6 @@
 package config
 
-import (
-	"time"
-
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-)
+import "time"
 
 // CheckpointConfig configures a CheckpointScheduler: how far apart the heights it picks are.
 //
@@ -19,11 +15,18 @@ type CheckpointConfig struct {
 	BlockInterval int64
 }
 
-// DefaultCheckpointConfig returns a cadence mirroring the state-commit snapshot settings: a
-// checkpoint every 10,000 blocks, and no more than one an hour.
+// Enabled reports whether any interval is set, and so whether a scheduler built from this config
+// picks heights at all.
+func (c CheckpointConfig) Enabled() bool {
+	return c.TimeInterval > 0 || c.BlockInterval > 0
+}
+
+// DefaultCheckpointConfig returns a checkpoint no more often than every 10 minutes, taken at
+// whatever height first clears that gap. No block interval is set, so no height is refused for
+// landing off a boundary.
 func DefaultCheckpointConfig() CheckpointConfig {
 	return CheckpointConfig{
-		TimeInterval:  time.Duration(memiavl.DefaultSnapshotMinTimeInterval) * time.Second,
-		BlockInterval: memiavl.DefaultSnapshotInterval,
+		TimeInterval:  10 * time.Minute,
+		BlockInterval: 0,
 	}
 }

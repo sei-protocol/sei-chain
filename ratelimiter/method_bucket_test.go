@@ -8,21 +8,21 @@ import (
 )
 
 func TestBucketRPCMethod_KnownNamespaces(t *testing.T) {
-	require.Equal(t, "eth", bucketRPCMethod("evm", "eth_call"))
-	require.Equal(t, "eth", bucketRPCMethod("evm", "eth_getBalance"))
-	require.Equal(t, "debug", bucketRPCMethod("evm", "debug_traceTransaction"))
-	require.Equal(t, "web3", bucketRPCMethod("evm", "web3_clientVersion"))
+	require.Equal(t, "eth", bucketRPCMethod("evm", "eth_call", nil))
+	require.Equal(t, "eth", bucketRPCMethod("evm", "eth_getBalance", nil))
+	require.Equal(t, "debug", bucketRPCMethod("evm", "debug_traceTransaction", nil))
+	require.Equal(t, "web3", bucketRPCMethod("evm", "web3_clientVersion", nil))
 }
 
 func TestBucketRPCMethod_UnknownOrMalformed(t *testing.T) {
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", ""))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "notnamespaced"))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "eth"))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "_eth_call"))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "eth_"))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "bogus_method"))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "eth_BAD-chars"))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", strings.Repeat("a", maxRPCMethodLen+1)))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "notnamespaced", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "eth", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "_eth_call", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "eth_", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "bogus_method", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", "eth_BAD-chars", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod("evm", strings.Repeat("a", maxRPCMethodLen+1), nil))
 }
 
 func TestBucketRPCMethod_ValidAndInvalidMethods(t *testing.T) {
@@ -32,7 +32,7 @@ func TestBucketRPCMethod_ValidAndInvalidMethods(t *testing.T) {
 		"eth_random-uuid-1",
 		"eth_random-uuid-2",
 	} {
-		seen[bucketRPCMethod("evm", method)] = struct{}{}
+		seen[bucketRPCMethod("evm", method, nil)] = struct{}{}
 	}
 	require.Len(t, seen, 2)
 	require.Contains(t, seen, "eth")
@@ -48,17 +48,37 @@ func TestBucketRPCMethod_CometBFTKnownMethods(t *testing.T) {
 		"catalog",
 		"websocket",
 	} {
-		require.Equal(t, method, bucketRPCMethod(PlaneCometBFT, method), method)
+		require.Equal(t, method, bucketRPCMethod(PlaneCometBFT, method, nil), method)
 	}
 }
 
 func TestBucketRPCMethod_CometBFTUnknownMethods(t *testing.T) {
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneCometBFT, ""))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneCometBFT, "bogus"))
-	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneCometBFT, strings.Repeat("a", maxRPCMethodLen+1)))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneCometBFT, "", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneCometBFT, "bogus", nil))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneCometBFT, strings.Repeat("a", maxRPCMethodLen+1), nil))
 }
 
 func TestBucketRPCMethod_Invalid(t *testing.T) {
-	require.Equal(t, MethodInvalid, bucketRPCMethod("evm", MethodInvalid))
-	require.Equal(t, MethodInvalid, bucketRPCMethod(PlaneCometBFT, MethodInvalid))
+	require.Equal(t, MethodInvalid, bucketRPCMethod("evm", MethodInvalid, nil))
+	require.Equal(t, MethodInvalid, bucketRPCMethod(PlaneCometBFT, MethodInvalid, nil))
+	require.Equal(t, MethodInvalid, bucketRPCMethod(PlaneGRPC, MethodInvalid, nil))
+}
+
+func TestBucketRPCMethod_GrpcKnownMethods(t *testing.T) {
+	known := map[string]struct{}{
+		"cosmos.bank.v1beta1.Query/Balance":  {},
+		"cosmos.tx.v1beta1.Service/Simulate": {},
+	}
+	require.Equal(t, "cosmos.bank.v1beta1.Query/Balance", bucketRPCMethod(PlaneGRPC, "/cosmos.bank.v1beta1.Query/Balance", known))
+	require.Equal(t, "cosmos.tx.v1beta1.Service/Simulate", bucketRPCMethod(PlaneGRPC, "/cosmos.tx.v1beta1.Service/Simulate", known))
+}
+
+func TestBucketRPCMethod_GrpcUnknownMethods(t *testing.T) {
+	known := map[string]struct{}{"cosmos.bank.v1beta1.Query/Balance": {}}
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, "", known))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, "/cosmos.bank.v1beta1.Query/AllBalances", known))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, "/bogus.Service/Call", known))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, "not-a-grpc-path", known))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, strings.Repeat("a", maxRPCMethodLen+1), known))
+	require.Equal(t, rpcMethodBucketOther, bucketRPCMethod(PlaneGRPC, "/cosmos.bank.v1beta1.Query/Balance", nil))
 }

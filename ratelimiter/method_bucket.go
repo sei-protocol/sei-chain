@@ -5,6 +5,8 @@ import "strings"
 const (
 	// PlaneCometBFT is the rate-limit plane label for Tendermint RPC HTTP.
 	PlaneCometBFT = "cometbft"
+	// PlaneGRPC is the rate-limit plane label for native gRPC (:9090).
+	PlaneGRPC = "grpc"
 
 	// rpcMethodBucketOther is the fallback label for unrecognized methods.
 	rpcMethodBucketOther = "other"
@@ -77,15 +79,30 @@ var knownCometBFTRPCMethods = map[string]struct{}{
 
 // bucketRPCMethod maps a raw JSON-RPC method name to a low-cardinality label
 // suitable for OTel/Prometheus metrics. Attacker-controlled method strings
-// collapse to rpcMethodBucketOther.
-func bucketRPCMethod(plane, method string) string {
+// collapse to rpcMethodBucketOther. knownGRPCMethods bounds the PlaneGRPC label
+// set; the other planes ignore it.
+func bucketRPCMethod(plane, method string, knownGRPCMethods map[string]struct{}) string {
 	if method == MethodInvalid {
 		return MethodInvalid
 	}
 	if plane == PlaneCometBFT {
 		return bucketCometBFTRPCMethod(method)
 	}
+	if plane == PlaneGRPC {
+		return bucketGRPCMethod(method, knownGRPCMethods)
+	}
 	return bucketNamespacedRPCMethod(method)
+}
+
+func bucketGRPCMethod(fullMethod string, known map[string]struct{}) string {
+	if fullMethod == "" || len(fullMethod) > maxRPCMethodLen {
+		return rpcMethodBucketOther
+	}
+	name := strings.TrimPrefix(fullMethod, "/")
+	if _, ok := known[name]; ok {
+		return name
+	}
+	return rpcMethodBucketOther
 }
 
 func bucketCometBFTRPCMethod(method string) string {

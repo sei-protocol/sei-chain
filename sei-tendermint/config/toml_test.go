@@ -70,6 +70,7 @@ func checkConfig(t *testing.T, configFile string) {
 		"send",
 		"fast-check-tx = false",
 		"mock-app = false",
+		"evm-only-in-memory = false",
 		"addr",
 		"wal",
 		"max",

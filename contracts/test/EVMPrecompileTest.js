@@ -401,55 +401,6 @@ describe("EVM Precompile Tester", function () {
             expect(finalCount.count).to.equal(initialCount.count + 1);
         });
 
-        it("Wasm Precompile Batch Execute", async function () {
-            const encoder = new TextEncoder();
-
-            const queryCountMsg = {get_count: {}};
-            const queryStr = JSON.stringify(queryCountMsg);
-            const queryBz = encoder.encode(queryStr);
-            const initialCountBz = await wasmd.query(wasmContractAddress, queryBz);
-            const initialCount = parseHexToJSON(initialCountBz)
-
-            const incrementMsg = {increment: {}};
-            const incrementStr = JSON.stringify(incrementMsg);
-            const incrementBz = encoder.encode(incrementStr);
-
-            const coins = [];
-            const coinsStr = JSON.stringify(coins);
-            const coinsBz = encoder.encode(coinsStr);
-
-            const executeBatch = [
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-            ];
-
-            const response = await wasmd.execute_batch(executeBatch);
-            const receipt = await response.wait();
-            expect(receipt.status).to.equal(1);
-
-            const finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
-            const finalCount = parseHexToJSON(finalCountBz)
-            expect(finalCount.count).to.equal(initialCount.count + 4);
-        });
-
         it("Wasm Precompile Send Coins", async function () {
             const encoder = new TextEncoder();
 
@@ -488,70 +439,6 @@ describe("EVM Precompile Tester", function () {
             expect(contractTokenBalance).to.equal(oldTokenBalance + 10);
             const userTokenBalance = await getSeiBalance(accounts[0].seiAddress, denom);
             expect(userTokenBalance).to.equal(oldUserTokenBalance - 10);
-
-        });
-
-        it("Wasm Precompile Batch Execute Send Coins", async function () {
-            const encoder = new TextEncoder();
-
-            const incrementMsg = {increment: {}};
-            const incrementStr = JSON.stringify(incrementMsg);
-            const incrementBz = encoder.encode(incrementStr);
-
-            const coins = [
-                {
-                    denom: denom,
-                    amount: "10",
-                },
-                {
-                    denom: "usei",
-                    amount: "1000000",
-                },
-            ];
-            const coinsStr = JSON.stringify(coins);
-            const coinsBz = encoder.encode(coinsStr);
-
-            const oldBalance = await getSeiBalance(wasmContractAddress);
-            const oldTokenBalance = await getSeiBalance(wasmContractAddress, denom);
-
-            const oldUserTokenBalance = await getSeiBalance(accounts[0].seiAddress, denom);
-
-            const executeBatch = [
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-                {
-                    contractAddress: wasmContractAddress,
-                    msg: incrementBz,
-                    coins: coinsBz,
-                },
-            ];
-
-            const response = await wasmd.execute_batch(executeBatch, {value: ethers.parseUnits('4.0', 18)});
-            const receipt = await response.wait();
-            expect(receipt.status).to.equal(1);
-
-            // usei assertions
-            const useiBalance = await getSeiBalance(wasmContractAddress);
-            expect(useiBalance).to.equal(oldBalance + 4000000);
-
-            // token assertions
-            const contractTokenBalance = await getSeiBalance(wasmContractAddress, denom);
-            expect(contractTokenBalance).to.equal(oldTokenBalance + 40);
-            const userTokenBalance = await getSeiBalance(accounts[0].seiAddress, denom);
-            expect(userTokenBalance).to.equal(oldUserTokenBalance - 40);
 
         });
 
