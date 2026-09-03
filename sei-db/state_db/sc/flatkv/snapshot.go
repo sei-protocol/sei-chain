@@ -689,18 +689,8 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 		return err
 	}
 
-	if err := s.closeDBsOnly(); err != nil {
-		return fmt.Errorf("close before rollback: %w", err)
-	}
-
-	if err := updateCurrentSymlink(dir, snapshotName(baseVersion)); err != nil {
-		return fmt.Errorf("update current symlink for rollback: %w", err)
-	}
-
-	// Force a fresh working dir clone from the rollback snapshot: the
-	// current working dir may contain data beyond targetVersion.
-	if err := os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove SNAPSHOT_BASE for rollback: %w", err)
+	if err := s.repointAtSnapshot(dir, baseVersion); err != nil {
+		return err
 	}
 
 	if err := removeSnapshotsAbove(dir, targetVersion); err != nil {
@@ -725,7 +715,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
 		}
-		if err := statewal.PruneAfter(cfg.Path, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0}
+		if err := statewal.PruneAfter(cfg.Path, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0
 			return fmt.Errorf("rollback to version %d (from snapshot %d): prune WAL at %s: %w; "+
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
@@ -752,6 +742,67 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 		"version", s.committedVersion,
 		"elapsed", obs.elapsed())
 	return nil
+}
+
+// repointAtSnapshot closes the databases and repoints the store at the snapshot named by version,
+// discarding the working copy so the next open clones it fresh. It leaves the databases closed: the
+// caller reopens once it has finished mutating the snapshot tree.
+func (s *CommitStore) repointAtSnapshot(dir string, version int64) error {
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("close before rewinding to snapshot %d: %w", version, err)
+	}
+	if err := updateCurrentSymlink(dir, snapshotName(version)); err != nil {
+		return fmt.Errorf("update current symlink to snapshot %d: %w", version, err)
+	}
+	// The working dir may hold data beyond the snapshot being rewound to, so its clone marker goes and
+	// the next open rebuilds it from that snapshot.
+	if err := os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove SNAPSHOT_BASE for rewind to snapshot %d: %w", version, err)
+	}
+	return nil
+}
+
+// RewindToSnapshotAtOrBelow rewinds this store to the highest snapshot at or below version and reports
+// the version it landed on, discarding committed state and snapshots above that point. It needs no WAL:
+// it moves only between snapshot boundaries, and replaying forward from the version it returns is the
+// caller's to do.
+//
+// It is Rollback for a store whose WAL an outer context owns, split so that no WAL crosses this API. The
+// store must be quiesced, and it stays open for writing at the returned version.
+func (s *CommitStore) RewindToSnapshotAtOrBelow(version int64) (landed int64, retErr error) {
+	obs := s.observeOp("RewindToSnapshotAtOrBelow", otelMetrics.RollbackLatency, "targetVersion", version)
+	defer obs.done(&retErr, func() {
+		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+	})
+
+	if s.readOnly {
+		return 0, errReadOnly
+	}
+
+	dir := s.flatkvDir()
+	baseVersion, err := seekSnapshot(dir, version)
+	if err != nil {
+		return 0, fmt.Errorf("seek snapshot at or below version %d: %w", version, err)
+	}
+	if baseVersion == s.committedVersion {
+		return baseVersion, nil
+	}
+
+	if err := s.repointAtSnapshot(dir, baseVersion); err != nil {
+		return 0, err
+	}
+	if err := removeSnapshotsAbove(dir, baseVersion); err != nil {
+		return 0, err
+	}
+	if err := s.open(); err != nil {
+		return 0, fmt.Errorf("open after rewinding to snapshot %d: %w", baseVersion, err)
+	}
+	if s.committedVersion != baseVersion {
+		return 0, fmt.Errorf("rewind to snapshot %d reached version %d instead", baseVersion, s.committedVersion)
+	}
+
+	logger.Info("FlatKV rewound to snapshot", "version", baseVersion, "elapsed", obs.elapsed())
+	return baseVersion, nil
 }
 
 // removeSnapshotsAbove deletes every snapshot directory above targetVersion.

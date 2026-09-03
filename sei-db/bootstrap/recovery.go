@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
-
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
@@ -22,6 +19,10 @@ import (
 //
 // The target is the lowest of the block store, the state WAL, and the receipt store. A target of 0
 // means a fresh node with nothing to converge on, and nothing is moved.
+//
+// The two halves of state and the WAL they share belong to the StateDB, which opens them where it
+// finds them. recoverState is the step that puts them on the target and readies them for the block
+// after it.
 func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.openBlockStore(); err != nil {
 		return err
@@ -36,26 +37,10 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err := m.recoverReceipt(targetHeight); err != nil {
 		return err
 	}
-	if err := m.truncateStateWAL(targetHeight); err != nil {
+	if err := m.openStateDB(ctx); err != nil {
 		return err
 	}
-	if err := m.openStateWal(); err != nil {
-		return err
-	}
-	if err := m.openSC(ctx, m.stateWAL); err != nil {
-		return err
-	}
-	if err := m.recoverSC(targetHeight); err != nil {
-		return err
-	}
-	if err := m.openSS(); err != nil {
-		return err
-	}
-	if err := m.recoverSS(targetHeight); err != nil {
-		return err
-	}
-	m.stateDB = giga.NewStateDB(m.stateWAL, m.sc, m.ss)
-	return nil
+	return m.recoverState(targetHeight)
 }
 
 // openBlockStore opens the block ledger consensus reads and writes.
@@ -84,42 +69,6 @@ func (m *GigaStorageManager) openReceiptStore() error {
 			return fmt.Errorf("open receipt store: %w", err)
 		}
 		m.receiptDB = receiptDB
-	}
-	return nil
-}
-
-// openStateWal opens the state WAL that StateDB writes and SC replays.
-func (m *GigaStorageManager) openStateWal() error {
-	stateWAL, err := flatkv.OpenStateWAL(m.cfg.FlatKVConfig)
-	if err != nil {
-		return fmt.Errorf("open state WAL: %w", err)
-	}
-	m.stateWAL = stateWAL
-	return nil
-}
-
-// openSC opens the state commit store over stateWal.
-func (m *GigaStorageManager) openSC(ctx context.Context, stateWal statewal.StateWAL) error {
-	sc, err := flatkv.NewCommitStore(ctx, m.cfg.FlatKVConfig, stateWal)
-	if err != nil {
-		return fmt.Errorf("open state commit store: %w", err)
-	}
-	m.sc = sc
-	return nil
-}
-
-// openSS opens the EVM state store and its snapshot manager, leaving it nil when the state store is
-// disabled.
-func (m *GigaStorageManager) openSS() error {
-	if m.cfg.SSConfig.Enable {
-		ss, err := evm.NewEVMStateStore(m.cfg.SSConfig.EVMDBDirectory, m.cfg.SSConfig)
-		if err != nil {
-			return fmt.Errorf("open EVM state store: %w", err)
-		}
-		m.ss = ss
-		if err := m.ss.StartSnapshots(utils.GetStateStoreSnapshotsSiblingPath(ss.Dir()), m.cfg.SSConfig, nil); err != nil {
-			return fmt.Errorf("start EVM state store snapshot manager: %w", err)
-		}
 	}
 	return nil
 }
@@ -154,49 +103,26 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 	return int64(target), nil //nolint:gosec // block heights fit within int64
 }
 
-// truncateStateWAL drops every state WAL block above target, so the first live write after startup
-// is the block after target.
-func (m *GigaStorageManager) truncateStateWAL(target int64) error {
-	if err := statewal.PruneAfter(flatkv.StateWALPath(m.cfg.FlatKVConfig.DataDir), uint64(target)); err != nil { //nolint:gosec // target > 0}
-		return fmt.Errorf("truncate state WAL to %d: %w", target, err)
+// openStateDB opens the two halves of state and the WAL they share, converged on the WAL's own head.
+func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
+	stateDB, err := giga.NewStateDB(ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig)
+	if err != nil {
+		return err
 	}
+	m.stateDB = stateDB
 	return nil
 }
 
-// recoverSC loads the commit store from the truncated WAL, then rolls it back if latest height is above target.
-func (m *GigaStorageManager) recoverSC(target int64) error {
-	if err := m.sc.LoadLatest(); err != nil {
-		return fmt.Errorf("load state commit store: %w", err)
-	}
-	if err := m.sc.CleanupOrphanedReadOnlyDirs(); err != nil {
-		return fmt.Errorf("clean up orphaned state commit read-only dirs: %w", err)
-	}
-	if m.sc.Version() > target {
-		if err := m.sc.Rollback(target); err != nil {
-			return fmt.Errorf("recover state commit store: %w", err)
-		}
-	}
-	return nil
-}
-
-// recoverSS brings the EVM state store onto target, replaying the WAL when it is behind and
-// restoring a snapshot when it is ahead.
-func (m *GigaStorageManager) recoverSS(target int64) error {
-	if m.ss == nil {
+// recoverState puts the two halves of state and their WAL on target, which the StateDB opened at or
+// above. It is the step that performs state recovery.
+//
+// A target of 0 is no height to converge on and is left alone: rolling back to it would discard every
+// block the WAL holds, and the stores that produced a target of 0 have no history to disagree with.
+func (m *GigaStorageManager) recoverState(target int64) error {
+	if target == 0 {
 		return nil
 	}
-	head := m.ss.GetLatestVersion()
-	switch {
-	case head < target:
-		if err := m.ss.CatchUpFrom(m.stateWAL, target); err != nil {
-			return fmt.Errorf("catch the EVM state store up from %d to %d: %w", head, target, err)
-		}
-	case head > target:
-		if err := m.ss.RollbackTo(target, m.stateWAL); err != nil {
-			return fmt.Errorf("roll the EVM state store back from %d to %d: %w", head, target, err)
-		}
-	}
-	return nil
+	return m.stateDB.RollbackTo(target)
 }
 
 // recoverReceipt rolls the receipt store back to target. The store has to be closed for the rollback

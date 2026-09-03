@@ -128,8 +128,9 @@ Tests run with the race detector and coverage. CI shards them into groups; while
 iterating, run a single package directly:
 
 ```bash
-make test-group-0       # one CI test shard (race + coverage)
-go test ./<pkg>/...     # run a single package
+make test-group-0               # one CI test shard (race + coverage)
+scripts/ramtest.sh ./<pkg>/...  # any package that opens stores — see below
+go test ./<pkg>/...             # only for packages that touch no on-disk resources
 ```
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
@@ -138,10 +139,10 @@ runs `go test -race` on Go 1.25.6.
 
 ### Running tests on a RAM disk
 
-If you are running tests that use on-disk resources, consider using a RAM disk to
-speed it up. Tests under sei-db/* are very likely to benefit from this. Other tests
-may or may not benefit depending on disk utilization. Tests that do not use on-disk
-resources are unlikely to experience significant benefit from using a RAM disk.
+Always run tests that use on-disk resources on a RAM disk rather than reaching for a
+bare `go test`. That covers everything under `sei-db/`, plus any package that opens a
+store. Other tests may or may not benefit depending on disk utilization, and tests
+that use no on-disk resources will not.
 
 `scripts/ramtest.sh` runs `go test` with `GOTMPDIR` and `TMPDIR` on a RAM-backed
 filesystem. Arguments that are not its own flags pass through to `go test`, so

@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -26,6 +27,9 @@ const (
 // fakeStateWAL stands in for the state WAL so a test can watch the WAL half of the fan-out and fail it
 // on demand. It embeds StateWAL without implementing it, so any method the fan-out is not expected to
 // call panics on the nil interface rather than answering with a zero value.
+//
+// It reports an empty range, which is what makes it usable here: NewStateDB converges the stores onto
+// the WAL's head, and an empty WAL has none, so construction leaves the store where it found it.
 type fakeStateWAL struct {
 	statewal.StateWAL
 
@@ -57,18 +61,24 @@ func (w *fakeStateWAL) SignalEndOfBlock() error {
 	return w.endOfBlockErr
 }
 
-// newTestStateDB builds a StateDB over a fake WAL and a real FlatKV store. The store is opened with no
-// WAL of its own, which is the arrangement StateDB requires: it writes the WAL on the store's behalf.
-func newTestStateDB(t *testing.T) (giga.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
+func (w *fakeStateWAL) GetStoredRange() (bool, uint64, uint64, error) {
+	return false, 0, 0, nil
+}
+
+// newTestStateDB builds a StateDB over a fake WAL and a real FlatKV store. The store is constructed
+// with no WAL of its own, which is the arrangement StateDB requires: it writes the WAL on the store's
+// behalf, and replays that WAL into the store to catch it up.
+func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
 	t.Helper()
 
 	liveStateDB, err := flatkv.NewCommitStore(t.Context(), config.DefaultTestConfig(t), nil)
 	require.NoError(t, err)
-	require.NoError(t, liveStateDB.LoadLatest())
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })
 
 	wal := &fakeStateWAL{}
-	return giga.NewStateDB(wal, liveStateDB, nil), wal, liveStateDB
+	stateDB, err := giga.NewStateDBOverWAL(wal, liveStateDB, nil)
+	require.NoError(t, err)
+	return stateDB, wal, liveStateDB
 }
 
 // changeset builds a changeset setting key to value in the test module.

@@ -27,6 +27,13 @@ func StateWALPath(parentDir string) string {
 	return filepath.Join(parentDir, changelogDir)
 }
 
+// StateWALConfig returns the configuration of the state WAL belonging to a store configured by cfg. It
+// is how an outer context that owns the WAL itself locates and reopens it without repeating FlatKV's
+// layout convention.
+func StateWALConfig(cfg *config.Config) *statewal.Config {
+	return stateWALConfig(cfg.DataDir)
+}
+
 // stateWALConfig builds the state WAL configuration for a store whose data directory is dir: a
 // "changelog" subdirectory of it, with a fixed instance name used only to label metrics. It is the
 // single definition of that layout convention, and GetLatestVersion reads the WAL's range through it
