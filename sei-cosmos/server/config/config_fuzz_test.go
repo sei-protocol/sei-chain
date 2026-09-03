@@ -13,24 +13,21 @@ import (
 	"github.com/spf13/viper"
 )
 
-// GetConfig is the second parser of app.toml, and the one that feeds api, grpc,
-// grpc-web, rosetta, telemetry and state-sync. app/seidb.go parses [state-commit]
-// and [state-store] out of the same viper for the store; GetConfig parses them
-// again, by a different mechanism (viper.IsSet plus typed getters rather than
-// appOpts.Get plus cast), into a Config nobody hands to the store.
+// GetConfig is the second parser of app.toml, feeding api, grpc, grpc-web, rosetta,
+// telemetry and state-sync. app/seidb.go parses [state-commit] and [state-store] out
+// of the same viper for the store; GetConfig parses them again through a different
+// mechanism (viper.IsSet plus typed getters) into a Config the store never sees.
 //
-// Two parsers of one section is the drift risk, and the reason this file exists: it
-// pins GetConfig's own resolution rules so a change that unified the parsers would
-// show up as a diff here rather than as two components disagreeing about the same
-// key at runtime.
+// Two parsers of one section is the drift risk this file exists to pin: a change that
+// unified them shows up as a diff here rather than as two components disagreeing at
+// runtime.
 //
-// Everything below drives a bare viper.New, which is what GetConfig takes. That
-// deliberately excludes flag binding and env resolution — those belong to Apply and
-// are exercised in cmd/seid/cmd. What is left is the parse itself.
+// Everything below drives a bare viper.New, which is what GetConfig takes. Flag
+// binding and env resolution belong to Apply and are exercised in cmd/seid/cmd.
 
 // newAppViper returns a viper holding the one key GetConfig unconditionally
 // requires, plus whatever the caller adds. telemetry.global-labels has no default
-// and no presence guard, so nothing can be parsed without it.
+// and no presence guard, so nothing parses without it.
 func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 	t.Helper()
 	v := viper.New()
@@ -41,24 +38,19 @@ func newAppViper(t testing.TB, keys map[string]any) *viper.Viper {
 	return v
 }
 
-// FuzzGetConfigGlobalLabels pins the one key that can stop a node booting by being
-// absent rather than wrong.
+// FuzzGetConfigGlobalLabels pins telemetry.global-labels, the key that stops a node
+// booting by being absent rather than wrong.
 //
-// telemetry.global-labels is read as a bare type assertion to []interface{} with no
-// presence check, so an app.toml that omits the key entirely fails GetConfig
-// outright — a node provisioned before the key existed does not start. Inside, each
-// label is asserted to []interface{} and then its two elements to string with no
-// checked assertion, so a label list holding a non-string panics rather than
-// erroring.
-//
-// The shape rules are otherwise permissive in a way no operator would guess: a
-// label whose length is not exactly 2 is silently dropped, not rejected.
+// It is read as a bare type assertion with no presence check, so an app.toml that
+// omits it fails GetConfig outright. Each label's elements are asserted to string
+// unchecked, so a non-string label panics rather than erroring, and a label whose
+// length is not exactly 2 is dropped silently rather than rejected.
 func FuzzGetConfigGlobalLabels(f *testing.F) {
 	f.Add(0, 0, "chain")   // no labels
 	f.Add(1, 2, "chain")   // one well-formed pair
 	f.Add(3, 2, "chain")   // several pairs
-	f.Add(1, 1, "chain")   // one element: silently dropped
-	f.Add(1, 3, "chain")   // three elements: silently dropped
+	f.Add(1, 1, "chain")   // too few elements: silently dropped
+	f.Add(1, 3, "chain")   // too many elements: silently dropped
 	f.Add(1, 0, "chain")   // empty label
 	f.Add(2, 2, "")        // empty strings are legal label content
 	f.Add(1, 2, "a=b,c=d") // punctuation is not special
@@ -98,8 +90,8 @@ func FuzzGetConfigGlobalLabels(f *testing.F) {
 	})
 }
 
-// TestGetConfigRequiresGlobalLabels pins the absent-key failure on its own. This is
-// what turns a missing telemetry section into a node that will not start.
+// TestGetConfigRequiresGlobalLabels pins the absent-key failure on its own: a missing
+// telemetry section is a node that will not start.
 func TestGetConfigRequiresGlobalLabels(t *testing.T) {
 	_, err := GetConfig(viper.New())
 	if err == nil {
@@ -112,9 +104,8 @@ func TestGetConfigRequiresGlobalLabels(t *testing.T) {
 }
 
 // TestGetConfigPanicsOnNonStringLabel records that the inner element assertions are
-// unchecked. A label list of the right shape but the wrong element type takes the
-// node down with a raw interface-conversion panic rather than an error naming
-// telemetry.
+// unchecked: a label of the right shape but the wrong element type takes the node down
+// with a raw interface-conversion panic rather than an error naming telemetry.
 func TestGetConfigPanicsOnNonStringLabel(t *testing.T) {
 	v := viper.New()
 	v.Set("telemetry.global-labels", []any{[]any{1, 2}})
@@ -152,15 +143,12 @@ var grpcClamps = []grpcClamp{
 //
 // gRPC accepts a negative keepalive verbatim and behaves pathologically, so GetConfig
 // substitutes the in-code default instead of passing it through. Only a negative is
-// clamped, uniformly across all six keys: zero passes through everywhere, which matters
-// most on the two age keys where gRPC reads zero as "no limit". Distinguishing negative
-// from zero rather than treating both as unset is what this target holds in place.
+// clamped, uniformly across the keys in grpcClamps: zero passes through, which matters
+// on the age keys where gRPC reads zero as "no limit".
 //
-// Each value is driven in two shapes, because a typed time.Duration is not a shape any
-// app.toml can produce. A file gives "30s" or a bare integer and an environment variable
-// always gives a string, so the typed form skips the cast.ToDuration step that sits between
-// the file layer and this comparison. The string spelling is the one an operator actually
-// writes, and "-1s" is how they would express the boundary that matters here.
+// Each value is driven both typed and as its own String() spelling, because app.toml and
+// the environment only ever produce text; the typed form skips the cast.ToDuration step
+// that sits between the file layer and this comparison.
 func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 	f.Add(uint(0), int64(0), false)
 	f.Add(uint(0), int64(-1), false)
@@ -180,15 +168,12 @@ func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 		d := time.Duration(nanos)
 
 		// A typed duration and its own String() spelling must resolve identically, since
-		// viper.GetDuration casts the text back. Any divergence is in cast, not in the clamp,
-		// and it belongs to this key because the file layer only ever produces the text.
+		// viper.GetDuration casts the text back. Any divergence is in cast, not in the clamp.
 		var raw any = d
 		if asString {
-			// Only a spelling that parses back to the same duration is a faithful stand-in for
-			// the typed value. Duration.String has not always round-tripped at the int64
-			// boundary, and a spelling the parser rejects would resolve to zero and fail this
-			// case with a message about the clamp rather than about the encoding, so a value
-			// with no faithful text form is declined instead.
+			// Duration.String has not always round-tripped at the int64 boundary, and a
+			// spelling the parser rejects would resolve to zero and fail with a message about
+			// the clamp rather than about the encoding, so such a value is declined instead.
 			spelled := d.String()
 			if back, perr := time.ParseDuration(spelled); perr != nil || back != d {
 				return // no faithful text spelling; the typed shape already covers this value
@@ -222,10 +207,10 @@ func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 //
 // The rules match app/seidb.go — always parse, then let sc-write-mode-enable-auto
 // (default true, flipped only by an explicit key) decide whether the parsed mode is
-// honored — but the mechanism differs: GetConfig returns an error where seidb.go
-// panics. Both parsers must agree on the resolved mode for a node's store choice
-// and its reported config to describe the same thing, so the agreement is asserted
-// against the shared helpers rather than restated.
+// honored — but GetConfig returns an error where seidb.go panics. Both parsers must
+// agree on the resolved mode for a node's store choice and its reported config to
+// describe the same thing, so the agreement is asserted against the shared helpers
+// rather than restated.
 func FuzzGetConfigWriteMode(f *testing.F) {
 	f.Add("memiavl_only", true, true)
 	f.Add("memiavl_only", true, false)
@@ -289,15 +274,14 @@ type guardedKey struct {
 	// Set is a value distinguishable from the default, used to prove the guard
 	// admits an explicit value as well as protecting an absent one.
 	Set any
-	// DefaultIsZero marks a key whose in-code default is already the zero value.
-	// The guard still matters there — it is what lets an operator set a non-zero
-	// value — but an absent key resolving to zero is correct rather than a clobber,
-	// so the two cases need different assertions.
+	// DefaultIsZero marks a key whose in-code default is already the zero value, so an
+	// absent key resolving to zero is correct rather than a clobber. The guard still
+	// matters there — it is what lets an operator set a non-zero value.
 	DefaultIsZero bool
 }
 
-// guardedKeys are the GetConfig reads wrapped in viper.IsSet. They are the same
-// zero-clobber class app/seidb.go guards, expressed through a different mechanism.
+// guardedKeys are GetConfig reads wrapped in viper.IsSet: the same zero-clobber class
+// app/seidb.go guards, expressed through a different mechanism.
 var guardedKeys = []guardedKey{
 	{Key: "state-commit.sc-async-commit-buffer", Path: "StateCommit.MemIAVLConfig.AsyncCommitBuffer", Set: 7},
 	{Key: "state-commit.sc-keep-recent", Path: "StateCommit.MemIAVLConfig.SnapshotKeepRecent", Set: 9},
@@ -329,11 +313,10 @@ var guardedKeys = []guardedKey{
 // absent key resolves to the in-code default rather than to the zero value viper's
 // typed getters would otherwise return.
 //
-// The keys that matter most are the bounded ones. grpc.max-recv-msg-size,
-// grpc.max-open-connections and grpc-web.max-open-connections all default to a
-// finite limit, and an unguarded read of an absent key would resolve 0 — which
-// gRPC reads as unlimited. A node upgrading with an older app.toml would go from
-// bounded to unbounded connections and message sizes with nothing said about it.
+// The bounded gRPC keys matter most. They default to a finite limit, and an unguarded
+// read of an absent key would resolve 0 — which gRPC reads as unlimited, so a node
+// upgrading with an older app.toml would go from bounded to unbounded connections and
+// message sizes with nothing said about it.
 func FuzzGetConfigGuardedKeysPreserveDefaults(f *testing.F) {
 	for i := range len(guardedKeys) {
 		f.Add(uint(i), false)
@@ -353,13 +336,10 @@ func FuzzGetConfigGuardedKeysPreserveDefaults(f *testing.F) {
 		}
 
 		if !present {
-			// Whether the guard is doing anything is decided by comparing an absent key
-			// against an explicit zero, not against a synthesized zero literal. A
-			// synthesized one has to guess the field's Go type, and guessing wrong makes
-			// the comparison unsatisfiable and the assertion vacuous — which is exactly
-			// what an int-typed literal did for every uint, uint32 and float64 row here,
-			// including both gRPC connection bounds. Reading the reader twice needs no
-			// type knowledge at all.
+			// An absent key is compared against an explicit zero rather than a synthesized
+			// zero literal: a literal has to guess the field's Go type, and guessing wrong
+			// makes the comparison unsatisfiable and the assertion vacuous. Reading the
+			// reader twice needs no type knowledge at all.
 			explicitZero, zeroErr := GetConfig(newAppViper(t, map[string]any{row.Key: 0}))
 			if zeroErr != nil {
 				t.Fatalf("%s = 0 must parse, got %v", row.Key, zeroErr)
@@ -398,17 +378,15 @@ func FuzzGetConfigGuardedKeysPreserveDefaults(f *testing.F) {
 	})
 }
 
-// TestGetConfigGuardedKeyDefaultsMatchTheTable keeps guardedKeys' DefaultIsZero
-// column honest in both directions.
+// TestGetConfigGuardedKeyDefaultsMatchTheTable keeps guardedKeys' DefaultIsZero column
+// honest in both directions, which is what stops the guard assertions above from going
+// vacuous: a key marked non-zero whose default moves to zero makes its clobber check
+// meaningless, and a key marked zero whose default becomes non-zero leaves a real
+// clobber unchecked.
 //
-// It is what stops the guard assertions above from going vacuous. A key marked
-// non-zero whose default moves to zero would make its clobber check meaningless;
-// a key marked zero whose default becomes non-zero would leave a real clobber
-// unchecked. Either way the table, not the assertion, is what needs updating.
-//
-// "Is the default zero" is answered by resolving the key explicitly as 0 and
-// comparing, for the same reason the target above does it that way: a literal 0
-// carries Go's int type and would never compare equal to a uint or float64 leaf.
+// "Is the default zero" is answered by resolving the key explicitly as 0 and comparing,
+// for the same reason the target above does it that way: a literal 0 carries Go's int
+// type and would never compare equal to a uint or float64 leaf.
 func TestGetConfigGuardedKeyDefaultsMatchTheTable(t *testing.T) {
 	absent, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
@@ -442,11 +420,10 @@ func TestGetConfigGuardedKeyDefaultsMatchTheTable(t *testing.T) {
 	}
 }
 
-// TestGetConfigGenesisKeyDivergesFromTheAppSideKey records that the two genesis
-// parsers read different keys for the same value. GetConfig reads
-// genesis.genesis-stream-file; app/genesis.go reads genesis.import-file. Setting
-// one leaves the other empty, so a stream-import node configured through the key
-// the template renders streams from "".
+// TestGetConfigGenesisKeyDivergesFromTheAppSideKey records that the two genesis parsers
+// read different keys for the same value: GetConfig reads genesis.genesis-stream-file
+// while app/genesis.go reads genesis.import-file. Setting one leaves the other empty, so
+// a stream-import node configured through the key the template renders streams from "".
 func TestGetConfigGenesisKeyDivergesFromTheAppSideKey(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, map[string]any{
 		"genesis.stream-import": true,
@@ -475,11 +452,10 @@ func TestGetConfigGenesisKeyDivergesFromTheAppSideKey(t *testing.T) {
 	}
 }
 
-// TestGetConfigStateStoreReadsAreUnguarded records that GetConfig's [state-store]
-// parse has no presence checks, matching app/seidb.go's parseSSConfigs. An absent
-// section resolves every field to its zero value, so the reported config says
-// ss-enable false and an empty backend on a node whose app.toml simply predates the
-// section.
+// TestGetConfigStateStoreReadsAreUnguarded records that GetConfig's [state-store] parse
+// has no presence checks, matching app/seidb.go's parseSSConfigs. An absent section
+// resolves every field to its zero value, so the reported config says ss-enable false
+// and an empty backend on a node whose app.toml predates the section.
 func TestGetConfigStateStoreReadsAreUnguarded(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
@@ -502,16 +478,16 @@ func TestGetConfigStateStoreReadsAreUnguarded(t *testing.T) {
 // TestGetConfigStateSyncReadsAreUnguarded records the [state-sync] clobber as a divergence
 // rather than as two facts that happen to disagree.
 //
-// snapshot-keep-recent is a registered flag defaulting to 2 (server/start.go:234) and
-// DefaultConfig declares 2, but GetConfig reads it with a bare v.GetUint32, so a viper that
-// never saw the key resolves 0 — which toml.go:78 documents as "keep all". That viper is this
-// file's layer and not a booted node's: start.go:117 binds the flag in PreRunE, ahead of both
-// production calls (start.go:168 and :303), so there the same read takes the flag's 2 whenever
-// app.toml is silent.
+// snapshot-keep-recent is a registered flag with a non-zero default and DefaultConfig
+// declares the same, but GetConfig reads it with a bare v.GetUint32, so a viper that never
+// saw the key resolves 0 — which toml.go documents as "keep all". That viper is this file's
+// layer and not a booted node's: server/start.go binds the flag in PreRunE ahead of both
+// production calls, so there the same read takes the flag's value whenever app.toml is
+// silent.
 //
-// Either side moving fails this assertion — a guard makes the absent read return 2, and a
-// default moved to 0 makes the clobber stop being one — so the divergence can neither close
-// nor widen without a diff.
+// Either side moving fails this assertion — a guard makes the absent read return the
+// default, and a default moved to 0 makes the clobber stop being one — so the divergence
+// can neither close nor widen without a diff.
 func TestGetConfigStateSyncReadsAreUnguarded(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
@@ -526,8 +502,8 @@ func TestGetConfigStateSyncReadsAreUnguarded(t *testing.T) {
 	if cfg.StateSync.SnapshotKeepRecent != 0 {
 		t.Fatalf("an absent state-sync.snapshot-keep-recent resolved to %d rather than 0, so the "+
 			"read is no longer unguarded. That is a fine end state and a no-op for a booted node, "+
-			"which takes 2 from the bound flag either way (start.go:117 and :234); what it changes "+
-			"is this assertion, so update it in the PR that adds the guard",
+			"which takes the bound flag's value either way; what it changes is this assertion, so "+
+			"update it in the PR that adds the guard",
 			cfg.StateSync.SnapshotKeepRecent)
 	}
 	if cfg.StateSync.SnapshotInterval != 0 || cfg.StateSync.SnapshotDirectory != "" {
@@ -540,13 +516,12 @@ func TestGetConfigStateSyncReadsAreUnguarded(t *testing.T) {
 // readers of [state-sync], which is what a guard on GetConfig would close.
 //
 // Handed the same flagless viper, ParseConfig unmarshals over a DefaultConfig base and keeps
-// snapshot-keep-recent at 2 while GetConfig's bare v.GetUint32 resolves 0. Nothing else in the
-// tree states that — TestParseConfig (config_test.go:358) asserts only MinGasPrices.
+// snapshot-keep-recent at its declared default while GetConfig's bare v.GetUint32 resolves 0.
+// Nothing else in the tree states that — TestParseConfig asserts only MinGasPrices.
 //
 // The disagreement is between the two readers and not between two nodes. GetConfig's production
-// calls (start.go:168 and :303) run with the flag bound, where it takes the same 2, and the one
-// non-test caller of ParseConfig is server/util.go:308's empty-template branch, which no binary in
-// this tree reaches.
+// calls run with the flag bound, where it takes the declared value, and the one non-test caller
+// of ParseConfig is server/util.go's empty-template branch, which no binary in this tree reaches.
 func TestParseConfigAndGetConfigDisagree(t *testing.T) {
 	v := newAppViper(t, nil)
 	parsed, err := ParseConfig(v)
@@ -562,10 +537,8 @@ func TestParseConfigAndGetConfigDisagree(t *testing.T) {
 			"%d through GetConfig, want 2 and 0. If GetConfig gained the guard the two readers now "+
 			"agree, which is the end state — update this test and "+
 			"TestGetConfigStateSyncReadsAreUnguarded together. If ParseConfig stopped resolving the "+
-			"section over DefaultConfig, there is no implemented guard left to copy, and whoever "+
-			"adds one is choosing a retention rather than matching one. A third cause is that the "+
-			"in-code default moved off 2, which this literal does not name: a default of 3 reaches "+
-			"here rather than the unguarded-read check, whose guard fires only at exactly 0",
+			"section over DefaultConfig, there is no implemented guard left to copy. If the in-code "+
+			"default moved off 2, update this literal to match it",
 			parsed.StateSync.SnapshotKeepRecent, direct.StateSync.SnapshotKeepRecent)
 	}
 }
@@ -573,11 +546,11 @@ func TestParseConfigAndGetConfigDisagree(t *testing.T) {
 // FuzzConfigValidateBasic pins the two conditions that reject an otherwise
 // parseable app.toml.
 //
-// An empty minimum-gas-prices fails, because a validator accepting zero-fee
-// transactions is a misconfiguration rather than a choice. And pruning
-// "everything" with state-sync snapshots enabled fails, because a node cannot
-// serve a snapshot of state it has already pruned. Both are the rare case in this
-// surface where a bad combination is refused rather than absorbed.
+// An empty minimum-gas-prices fails, because a validator accepting zero-fee transactions
+// is a misconfiguration rather than a choice, and pruning "everything" with state-sync
+// snapshots enabled fails, because a node cannot serve a snapshot of state it has already
+// pruned. Both are the rare case here where a bad combination is refused rather than
+// absorbed.
 func FuzzConfigValidateBasic(f *testing.F) {
 	f.Add("0.01usei", "default", uint64(0))
 	f.Add("", "default", uint64(0))
@@ -613,17 +586,16 @@ func FuzzConfigValidateBasic(f *testing.F) {
 // declared default when the section is absent from app.toml.
 //
 // One table for all of them, because the divergence is one property and a reader comparing sections
-// wants them side by side. It puts api.max-open-connections and api.rpc-max-body-bytes beside the
-// guarded grpc-web.max-open-connections, which is the contrast worth seeing.
+// wants them side by side: the unguarded api.max-open-connections sits beside the guarded
+// grpc-web.max-open-connections, which is the contrast worth seeing.
 //
-// The diverges column asserts both directions, so a key is anchored whether or not it moves today. A
-// declared default later shifting onto the getter's zero, or off it, fails here rather than changing
-// the divergence set quietly. The rows set false are the keys whose declared default already equals
-// that zero.
+// The diverges column asserts both directions, so a key is anchored whether or not it moves today; a
+// declared default shifting onto the getter's zero, or off it, fails here rather than changing the
+// divergence set quietly. Rows set false are the keys whose declared default already equals that
+// zero.
 //
-// Compared with reflect.DeepEqual rather than !=, because != on two any values panics rather than
-// reporting when either side holds a slice or a map. index-events already holds a []string, and a
-// field type changing to one later would otherwise turn this table into a panic.
+// Compared with reflect.DeepEqual rather than !=, because != on two any values panics when either
+// side holds a slice or a map, as index-events does.
 func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
 	if err != nil {
@@ -642,19 +614,16 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"rosetta.retries", cfg.Rosetta.Retries, def.Rosetta.Retries, true},
 		{"grpc-web.enable", cfg.GRPCWeb.Enable, def.GRPCWeb.Enable, true},
 		{"grpc-web.address", cfg.GRPCWeb.Address, def.GRPCWeb.Address, true},
-		// The [grpc] keys read as plain casts. keepalive-permit-without-stream is the third, further
-		// down with the other rows whose default is already the zero. Its remaining eight are guarded
-		// or clamped and held by TestGetConfigGRPCAbsentReads.
+		// The [grpc] keys read as plain casts. The rest of the section is guarded or clamped, and
+		// held by TestGetConfigGRPCAbsentReads.
 		{"grpc.enable", cfg.GRPC.Enable, def.GRPC.Enable, true},
 		{"grpc.address", cfg.GRPC.Address, def.GRPC.Address, true},
 		{"telemetry.enabled", cfg.Telemetry.Enabled, def.Telemetry.Enabled, true},
-		{
-			"telemetry.prometheus-retention-time",
-			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, true,
-		},
+		{"telemetry.prometheus-retention-time",
+			cfg.Telemetry.PrometheusRetentionTime, def.Telemetry.PrometheusRetentionTime, false},
 
-		// [api]. Five diverge. The three set false have a declared default that is already the
-		// getter's zero, so nothing about the resolved value distinguishes a guard from its absence.
+		// [api]. The rows set false have a declared default that is already the getter's zero, so
+		// nothing about the resolved value distinguishes a guard from its absence.
 		{"api.swagger", cfg.API.Swagger, def.API.Swagger, true},
 		{"api.address", cfg.API.Address, def.API.Address, true},
 		{"api.max-open-connections", cfg.API.MaxOpenConnections, def.API.MaxOpenConnections, true},
@@ -680,16 +649,19 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 		{"min-retain-blocks", cfg.MinRetainBlocks, def.MinRetainBlocks, false},
 		{"compaction-interval", cfg.CompactionInterval, def.CompactionInterval, false},
 
-		// The remaining plain casts. Every row from here down has a declared default equal to its
-		// getter's zero, so none diverges today, and each is here for the reason api.enable is. This
-		// table is the only thing tying these sections' absent-key resolution to their declared
-		// defaults.
+		// The remaining plain casts, each here for the reason api.enable is: a declared default equal
+		// to its getter's zero, anchored so that a default moving off it fails here. This table is
+		// the only thing tying these sections' absent-key resolution to their declared defaults.
 		{"rosetta.enable", cfg.Rosetta.Enable, def.Rosetta.Enable, false},
 		{"rosetta.offline", cfg.Rosetta.Offline, def.Rosetta.Offline, false},
 		{"grpc-web.enable-unsafe-cors", cfg.GRPCWeb.EnableUnsafeCORS, def.GRPCWeb.EnableUnsafeCORS, false},
 		{
 			"grpc.keepalive-permit-without-stream",
 			cfg.GRPC.KeepalivePermitWithoutStream, def.GRPC.KeepalivePermitWithoutStream, false,
+		},
+		{
+			"grpc.rate-limiting-enabled",
+			cfg.GRPC.RateLimitingEnabled, def.GRPC.RateLimitingEnabled, false,
 		},
 		{"telemetry.service-name", cfg.Telemetry.ServiceName, def.Telemetry.ServiceName, false},
 		{"telemetry.enable-hostname", cfg.Telemetry.EnableHostname, def.Telemetry.EnableHostname, false},
@@ -702,8 +674,8 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 			cfg.Telemetry.EnableServiceLabel, def.Telemetry.EnableServiceLabel, false,
 		},
 
-		// index-events resolves to a []string, which is why the comparison is reflect.DeepEqual rather
-		// than !=. Both sides are nil today, so it is a false row.
+		// index-events resolves to a []string, which is why the comparison is reflect.DeepEqual. Both
+		// sides are nil today, so it is a false row.
 		{"index-events", cfg.IndexEvents, def.IndexEvents, false},
 		// The guarded read. Its absent value is the declared default, which is the property the
 		// guard exists to provide.
@@ -728,10 +700,10 @@ func TestGetConfigAbsentSectionDivergences(t *testing.T) {
 // reads apart from the two that only look guarded.
 //
 // The split matters because the two groups fail for different reasons and a reader needs the right
-// one. Six keys are read behind v.IsSet, so a guard is what returns the declared default and losing
-// it is the failure. max-connection-age and max-connection-age-grace have no guard at all: they are
-// read unconditionally and clamped, so an absent key resolves 0 and that happens to equal their
-// declared default. Moving either default off 0 turns them into a visible clobber, which is a
+// one. The guarded keys are read behind v.IsSet, so a guard is what returns the declared default and
+// losing it is the failure. max-connection-age and max-connection-age-grace have no guard at all:
+// they are read unconditionally and clamped, so an absent key resolves 0 and that happens to equal
+// their declared default. Moving either default off 0 turns them into a visible clobber, which is a
 // different event from a guard disappearing.
 func TestGetConfigGRPCAbsentReads(t *testing.T) {
 	cfg, err := GetConfig(newAppViper(t, nil))
@@ -752,12 +724,18 @@ func TestGetConfigGRPCAbsentReads(t *testing.T) {
 		{"grpc.keepalive-time", got.KeepaliveTime, def.KeepaliveTime},
 		{"grpc.keepalive-timeout", got.KeepaliveTimeout, def.KeepaliveTimeout},
 		{"grpc.keepalive-min-time", got.KeepaliveMinTime, def.KeepaliveMinTime},
+		{"grpc.ip-rate-limit-rps", got.IPRateLimitRPS, def.IPRateLimitRPS},
+		{"grpc.ip-rate-limit-burst", got.IPRateLimitBurst, def.IPRateLimitBurst},
 	} {
 		if c.absent != c.declared {
 			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its v.IsSet guard "+
-				"is gone. That is the failure the guard exists to prevent, and config.go:519-521 says "+
-				"why: a node upgrading with an older app.toml stays bounded", c.key, c.absent, c.declared)
+				"is gone. That is the failure the guard exists to prevent: a node upgrading with an "+
+				"older app.toml stays bounded", c.key, c.absent, c.declared)
 		}
+	}
+
+	if got.TrustedProxyCIDRs != nil {
+		t.Errorf("an absent grpc.trusted-proxy-cidrs resolved to %v rather than nil", got.TrustedProxyCIDRs)
 	}
 
 	// Read unconditionally and clamped. Nothing guards these, so the assertion is on the coincidence

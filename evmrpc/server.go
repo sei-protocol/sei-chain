@@ -52,6 +52,8 @@ func NewEVMHTTPServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	autobahnEnabled bool,
+	blockHeaderNotifier *BlockHeaderNotifier,
 	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
 	if err := requireReceiptStoreForServing(k); err != nil {
@@ -102,7 +104,7 @@ func NewEVMHTTPServer(
 
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
-	sendAPI := NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
+	sendAPI := NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, autobahnEnabled), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks)
 
 	ctx := ctxProvider(LatestCtxHeight)
 	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
@@ -166,7 +168,7 @@ func NewEVMHTTPServer(
 				k,
 				ctxProvider,
 				txConfigProvider,
-				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog},
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes},
 				ConnectionTypeHTTP,
 				"eth",
 				dbReadSemaphore,
@@ -174,6 +176,7 @@ func NewEVMHTTPServer(
 				cacheCreationMutex,
 				globalLogSlicePool,
 				watermarks,
+				blockHeaderNotifier,
 			),
 		},
 		{
@@ -246,6 +249,7 @@ func NewEVMWebSocketServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	autobahnEnabled bool,
 	blockHeaderNotifier *BlockHeaderNotifier,
 ) (EVMServer, error) {
 	if err := requireReceiptStoreForServing(k); err != nil {
@@ -307,7 +311,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
+			Service:   NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, autobahnEnabled), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "eth",
@@ -329,7 +333,7 @@ func NewEVMWebSocketServer(
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead, logLimit: config.MaxSubscriptionsLogs}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",
