@@ -16,16 +16,18 @@ const (
 	GRPCSectionName      = "grpc"
 	TelemetrySectionName = "telemetry"
 	StateSyncSectionName = "state-sync"
+	GRPCWebSectionName   = "grpc-web"
 )
 
 // globalLabelsKey is the metric label set, the one key here no environment variable can supply.
 const globalLabelsKey = TelemetrySectionName + ".global-labels"
 
-// Four sections register the upstream struct directly; telemetry registers telemetrySchema.
+// Five sections register the upstream struct directly; telemetry registers telemetrySchema.
 func init() {
 	registry.RegisterRootKeys(BaseSectionName, &srvconfig.BaseConfig{}, baseDefaults)
 	registry.RegisterSection(APISectionName, &srvconfig.APIConfig{}, apiDefaults)
 	registry.RegisterSection(GRPCSectionName, &srvconfig.GRPCConfig{}, grpcDefaults)
+	registry.RegisterSection(GRPCWebSectionName, &srvconfig.GRPCWebConfig{}, grpcWebDefaults)
 	registry.RegisterSection(TelemetrySectionName, &telemetrySchema{}, telemetryDefaults)
 	registry.RegisterSection(StateSyncSectionName, &srvconfig.StateSyncConfig{}, stateSyncDefaults)
 }
@@ -48,6 +50,10 @@ func apiDefaults(mode registry.Mode) any { return forMode(mode).API }
 
 // grpcDefaults is the gRPC settings' default for a mode: on for full and archive nodes, off otherwise.
 func grpcDefaults(mode registry.Mode) any { return forMode(mode).GRPC }
+
+// grpcWebDefaults is the gRPC-web settings' default for a mode: on for full and archive nodes, off
+// otherwise.
+func grpcWebDefaults(mode registry.Mode) any { return forMode(mode).GRPCWeb }
 
 // stateSyncDefaults is the snapshot settings' default for a mode. An absent snapshot-keep-recent reads
 // as zero, which keeps every snapshot, where the default keeps two.
