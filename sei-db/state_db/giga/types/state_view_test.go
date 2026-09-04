@@ -1,4 +1,4 @@
-package giga
+package types
 
 import (
 	"testing"

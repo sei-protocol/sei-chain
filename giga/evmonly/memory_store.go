@@ -12,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // MemoryStoreChangeSetName identifies MemoryStore's direct key/value format.
@@ -29,7 +29,7 @@ const (
 	memoryStoreStorageKeyLen = memoryStoreAccountKeyLen + common.HashLength
 )
 
-var _ gigastore.StateDB = (*MemoryStore)(nil)
+var _ gigatypes.StateDB = (*MemoryStore)(nil)
 
 // MemoryStore adapts an immutable StateReader to the giga StateDB interface. It
 // is intended for tests and load generation, not production persistence.
@@ -345,7 +345,7 @@ func (s *MemoryStore) touchStorageAccountLocked(height int64, address common.Add
 	}
 }
 
-func (s *MemoryStore) OpenView() gigastore.StateView {
+func (s *MemoryStore) OpenView() gigatypes.StateView {
 	s.mu.RLock()
 	height := int64(0)
 	if s.hasCurrentHeight {
@@ -355,7 +355,7 @@ func (s *MemoryStore) OpenView() gigastore.StateView {
 	return &memoryStoreSnapshot{store: s, height: height}
 }
 
-func (s *MemoryStore) OpenViewAt(blockNum int64) (gigastore.StateView, bool) {
+func (s *MemoryStore) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 	s.mu.RLock()
 	_, ok := s.committedHeights[blockNum]
 	s.mu.RUnlock()
@@ -365,15 +365,25 @@ func (s *MemoryStore) OpenViewAt(blockNum int64) (gigastore.StateView, bool) {
 	return &memoryStoreSnapshot{store: s, height: blockNum}, true
 }
 
+// RollbackTo reports that this store cannot rewind. Its committed overlays are what keep open and
+// historical views stable, and discarding them is outside what a test and load-generation store stands
+// in for.
+func (s *MemoryStore) RollbackTo(blockNum int64) error {
+	return fmt.Errorf("evmonly: MemoryStore cannot roll back to block %d", blockNum)
+}
+
+// Close releases nothing. This store holds no handle outside its own maps, which go with it.
+func (s *MemoryStore) Close() error { return nil }
+
 type memoryStoreSnapshot struct {
 	store  *MemoryStore
 	height int64
 	closed atomic.Bool
 }
 
-var _ gigastore.StateView = (*memoryStoreSnapshot)(nil)
+var _ gigatypes.StateView = (*memoryStoreSnapshot)(nil)
 
-func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
+func (s *memoryStoreSnapshot) AccountExists(address gigatypes.Address) bool {
 	s.requireOpen()
 	s.store.mu.RLock()
 	_, balanceTouched := latestMemoryStoreValue(s.store.balances[address], s.height)
@@ -391,7 +401,7 @@ func (s *memoryStoreSnapshot) AccountExists(address gigastore.Address) bool {
 	return balance != nil && balance.Sign() != 0 || s.store.base.GetNonce(address) != 0 || len(s.store.base.GetCode(address)) != 0
 }
 
-func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetStorage(address gigatypes.Address, slot gigatypes.Hash) gigatypes.Hash {
 	s.requireOpen()
 	key := memoryStoreStorageKey{address: address, slot: slot}
 	s.store.mu.RLock()
@@ -400,17 +410,17 @@ func (s *memoryStoreSnapshot) GetStorage(address gigastore.Address, slot gigasto
 	s.store.mu.RUnlock()
 	if valueOK && (!clearOK || value.height >= clearHeight) {
 		if value.delete {
-			return gigastore.Hash{}
+			return gigatypes.Hash{}
 		}
 		return value.value
 	}
 	if clearOK {
-		return gigastore.Hash{}
+		return gigatypes.Hash{}
 	}
 	return s.store.base.GetState(address, slot)
 }
 
-func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetBalance(address gigatypes.Address) gigatypes.Hash {
 	s.requireOpen()
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.balances[address], s.height)
@@ -429,7 +439,7 @@ func (s *memoryStoreSnapshot) GetBalance(address gigastore.Address) gigastore.Ha
 	return balance
 }
 
-func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) uint64 {
+func (s *memoryStoreSnapshot) GetNonce(address gigatypes.Address) uint64 {
 	s.requireOpen()
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.nonces[address], s.height)
@@ -440,19 +450,19 @@ func (s *memoryStoreSnapshot) GetNonce(address gigastore.Address) uint64 {
 	return s.store.base.GetNonce(address)
 }
 
-func (s *memoryStoreSnapshot) GetCodeSize(address gigastore.Address) int {
+func (s *memoryStoreSnapshot) GetCodeSize(address gigatypes.Address) int {
 	return len(s.GetCode(address))
 }
 
-func (s *memoryStoreSnapshot) GetCodeHash(address gigastore.Address) gigastore.Hash {
+func (s *memoryStoreSnapshot) GetCodeHash(address gigatypes.Address) gigatypes.Hash {
 	s.requireOpen()
 	if !s.AccountExists(address) {
-		return gigastore.Hash{}
+		return gigatypes.Hash{}
 	}
 	return crypto.Keccak256Hash(s.GetCode(address))
 }
 
-func (s *memoryStoreSnapshot) GetCode(address gigastore.Address) []byte {
+func (s *memoryStoreSnapshot) GetCode(address gigatypes.Address) []byte {
 	s.requireOpen()
 	s.store.mu.RLock()
 	value, ok := latestMemoryStoreValue(s.store.code[address], s.height)

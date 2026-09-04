@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -13,7 +13,7 @@ import (
 // OpenView returns a read-only view of the most recently committed block. It is the Giga StateDB entry
 // point for reads served out of SC. The caller must Close the view, which is what hands back the
 // reservation holding the block readable.
-func (s *CommitStore) OpenView() giga.StateView {
+func (s *CommitStore) OpenView() gigatypes.StateView {
 	blockView, err := s.lastSealed.get()
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: OpenView: %v", err))

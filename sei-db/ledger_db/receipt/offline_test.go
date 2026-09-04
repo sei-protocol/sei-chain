@@ -1,6 +1,7 @@
 package receipt_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -31,6 +32,48 @@ func TestOfflineGetRangeEmpty(t *testing.T) {
 	require.False(t, ok)
 	require.Zero(t, lowest)
 	require.Zero(t, highest)
+}
+
+// TestOfflineGetLatestBlockOnAFreshStore verifies that GetLatestBlock reports no head for a directory
+// that holds no store, and creates nothing while finding that out. Recovery reads the head on every
+// startup, including a node's first, so it must not leave a half-made store behind.
+func TestOfflineGetLatestBlockOnAFreshStore(t *testing.T) {
+	dir := t.TempDir()
+	cfg := offlineCfg(dir)
+
+	block, err := receipt.GetLatestBlock(cfg)
+	require.NoError(t, err)
+	require.Zero(t, block)
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "reading the head of a store that does not exist must not create one")
+}
+
+// TestOfflineGetLatestBlock verifies that GetLatestBlock reports the store's head without opening the
+// store, both as written and after a rollback moves it.
+func TestOfflineGetLatestBlock(t *testing.T) {
+	dir := t.TempDir()
+	store, ctx := setupLittIdx(t, dir)
+
+	addr := common.HexToAddress("0xc0de")
+	topic := common.HexToHash("0xdead")
+	const highest = 7
+	for block := uint64(1); block <= highest; block++ {
+		writeLitBlock(t, store, ctx, block, litReceipt(block, 0, addr, topic))
+	}
+	require.NoError(t, store.Close())
+
+	cfg := offlineCfg(dir)
+	block, err := receipt.GetLatestBlock(cfg)
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest), block)
+
+	const keepThrough = 4
+	require.NoError(t, receipt.PruneAfter(cfg, keepThrough))
+	block, err = receipt.GetLatestBlock(cfg)
+	require.NoError(t, err)
+	require.Equal(t, uint64(keepThrough), block)
 }
 
 // TestOfflineGetRange verifies that GetRange reports the lowest and highest block heights written to

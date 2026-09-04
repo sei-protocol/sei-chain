@@ -137,6 +137,36 @@ func TestManagerRetentionKeepsTheSharedFloor(t *testing.T) {
 	require.Equal(t, []int64{30}, versions)
 }
 
+func TestRemoveSnapshotsAboveDropsTheBranch(t *testing.T) {
+	root := t.TempDir()
+	for _, version := range []int64{10, 20, 30} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
+	}
+	manager := openManager(t, root, &controlledScheduler{pending: make(chan func(), 1)}, 10, false)
+
+	require.NoError(t, manager.RemoveSnapshotsAbove(20))
+
+	versions, err := manager.Versions()
+	require.NoError(t, err)
+	require.Equal(t, []int64{10, 20}, versions)
+}
+
+// Removal holds back whatever the shared floor names, so a floor above the version leaves a snapshot
+// standing on the branch a rollback discarded, where a later restore can still resolve through it.
+// Answering yes to a removal that did not happen is what puts it there, so the outcome is checked.
+func TestRemoveSnapshotsAboveReportsASurvivor(t *testing.T) {
+	root := t.TempDir()
+	for _, version := range []int64{10, 20, 30} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
+	}
+	scheduler := &controlledScheduler{pending: make(chan func(), 1)}
+	manager := openManagerWithFloor(t, root, scheduler, 10, false, NewFloor(30))
+
+	err := manager.RemoveSnapshotsAbove(20)
+
+	require.ErrorContains(t, err, "still above 20")
+}
+
 // A hardlink probe left by a crash is reclaimed rather than accumulating, in the source directory and in
 // the snapshot root alike.
 func TestOpenClearsLeftoverHardlinkProbes(t *testing.T) {

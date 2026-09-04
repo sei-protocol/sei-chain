@@ -8,14 +8,14 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
 // gigaAddr converts a test address to the Giga API's address type. Both are [20]byte.
-func gigaAddr(addr ktype.Address) giga.Address {
-	return giga.Address(addr)
+func gigaAddr(addr ktype.Address) gigatypes.Address {
+	return gigatypes.Address(addr)
 }
 
 // commitNonce writes addr's nonce as a whole block through the Giga write entry point.
@@ -173,11 +173,11 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(contract)
 		require.True(t, stateView.AccountExists(addr))
 		require.Equal(t, uint64(3), stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash(codeHash), stateView.GetCodeHash(addr))
+		require.Equal(t, gigatypes.Hash(codeHash), stateView.GetCodeHash(addr))
 		require.Equal(t, bytecode, stateView.GetCode(addr))
 		require.Equal(t, len(bytecode), stateView.GetCodeSize(addr))
-		require.Equal(t, giga.Hash(padLeft32(0xEE)[0:32]), stateView.GetStorage(addr, giga.Hash(slot)))
-		require.Equal(t, giga.Hash{}, stateView.GetStorage(addr, giga.Hash(slotN(9))),
+		require.Equal(t, gigatypes.Hash(padLeft32(0xEE)[0:32]), stateView.GetStorage(addr, gigatypes.Hash(slot)))
+		require.Equal(t, gigatypes.Hash{}, stateView.GetStorage(addr, gigatypes.Hash(slotN(9))),
 			"an unset slot reads as zero, not as missing")
 	})
 
@@ -185,7 +185,7 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(eoa)
 		require.True(t, stateView.AccountExists(addr))
 		require.Equal(t, uint64(9), stateView.GetNonce(addr))
-		require.Equal(t, giga.EmptyCodeHash, stateView.GetCodeHash(addr),
+		require.Equal(t, gigatypes.EmptyCodeHash, stateView.GetCodeHash(addr),
 			"an account that exists with no code hashes as keccak256(\"\"), not as zero")
 		require.Nil(t, stateView.GetCode(addr))
 		require.Zero(t, stateView.GetCodeSize(addr))
@@ -195,11 +195,11 @@ func TestStateViewEVMAccessors(t *testing.T) {
 		addr := gigaAddr(missing)
 		require.False(t, stateView.AccountExists(addr))
 		require.Zero(t, stateView.GetNonce(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetCodeHash(addr),
+		require.Equal(t, gigatypes.Hash{}, stateView.GetCodeHash(addr),
 			"an account that does not exist hashes as zero, not as keccak256(\"\")")
 		require.Nil(t, stateView.GetCode(addr))
 		require.Zero(t, stateView.GetCodeSize(addr))
-		require.Equal(t, giga.Hash{}, stateView.GetStorage(addr, giga.Hash(slot)))
+		require.Equal(t, gigatypes.Hash{}, stateView.GetStorage(addr, gigatypes.Hash(slot)))
 	})
 }
 
