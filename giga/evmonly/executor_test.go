@@ -41,8 +41,11 @@ type failingReceiptStore struct {
 	err error
 }
 
-func (s *failingReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) error {
-	return s.err
+func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+	if s.err != nil {
+		return s.err
+	}
+	return s.MemoryReceiptStore.SetReceipts(ctx, records)
 }
 
 func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64, result *BlockResult, release func()) error {
@@ -157,19 +160,32 @@ func TestExecutorStoresReceipts(t *testing.T) {
 func TestExecutorReturnsReceiptStoreError(t *testing.T) {
 	storeErr := errors.New("receipt write failed")
 	receiptStore := &failingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), err: storeErr}
+	stateStore := NewMemoryStore(NewMemoryState())
 	sink := &recordingResultSink{}
 	executor := NewExecutor(
 		Config{BlockResultPoolSize: 1},
-		withTestStores(NewMemoryStore(NewMemoryState()), receiptStore, EncodeMemoryStoreChangeSet),
+		withTestStores(stateStore, receiptStore, EncodeMemoryStoreChangeSet),
 		WithResultSink(sink),
 	)
+	request := BlockRequest{Context: blockContext(big.NewInt(testChainID))}
 
-	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+	result, err := executor.ExecuteBlock(t.Context(), request)
 
 	require.ErrorIs(t, err, storeErr)
 	require.Nil(t, result)
 	require.Empty(t, sink.results)
 	require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+	view := stateStore.OpenView()
+	require.Zero(t, view.GetBlockHeight())
+	view.Close()
+
+	receiptStore.err = nil
+	result, err = executor.ExecuteBlock(t.Context(), request)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, sink.results, 1)
+	result.Release()
+	sink.releases[0]()
 }
 
 func TestExecutorPooledResultRelease(t *testing.T) {

@@ -368,7 +368,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Len(t, store.commits, 1)
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
-		require.Zero(t, receiptStore.LatestVersion())
+		require.Equal(t, int64(blockContext(big.NewInt(testChainID)).Number), receiptStore.LatestVersion())
 	})
 
 	t.Run("block number overflow", func(t *testing.T) {
