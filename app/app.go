@@ -583,9 +583,8 @@ func New(
 
 	// register the staking hooks
 	// NOTE: stakingKeeper above is passed by reference, so that it will contain these hooks
-	app.StakingKeeper = *stakingKeeper.SetHooks(
-		stakingtypes.NewMultiStakingHooks(app.DistrKeeper.Hooks(), app.SlashingKeeper.Hooks()),
-	)
+	stakingHooks := stakingtypes.NewMultiStakingHooks(app.DistrKeeper.Hooks(), app.SlashingKeeper.Hooks())
+	app.StakingKeeper = *stakingKeeper.SetHooks(&stakingHooks)
 
 	// ... other modules keepers
 
@@ -806,6 +805,7 @@ func New(
 		appCodec, keys[govtypes.StoreKey], app.GetSubspace(govtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
 		&stakingKeeper, app.ParamsKeeper, govRouter,
 	)
+	stakingHooks.AddHooks(app.GovKeeper.StakingHooks())
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
 
@@ -848,6 +848,7 @@ func New(
 		DistrKeeper:    &app.DistrKeeper,
 		SlashingKeeper: &app.SlashingKeeper,
 		EvidenceKeeper: &app.EvidenceKeeper,
+		GovKeeper:      &app.GovKeeper,
 		StakingKeeper:  &app.StakingKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 	}
