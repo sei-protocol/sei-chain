@@ -27,7 +27,8 @@ type pebbleDB struct {
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
-// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB
+// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB.
+// ctx is unused: metrics collection is stopped by Close, not by cancellation.
 func Open(
 	ctx context.Context,
 	config *PebbleDBConfig,
@@ -85,14 +86,14 @@ func Open(
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	var metricsCancel func()
 	if config.EnableMetrics {
-		NewPebbleMetrics(ctx, db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
+		metricsCancel = NewPebbleMetrics(db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
 	}
 
 	return &pebbleDB{
 		db:               db,
-		metricsCancel:    cancel,
+		metricsCancel:    metricsCancel,
 		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
 	}, nil
 }
