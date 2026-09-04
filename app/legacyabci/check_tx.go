@@ -10,10 +10,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	gometrics "github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
@@ -56,14 +54,6 @@ func CheckTx(
 	txStart := time.Now()
 	defer func() {
 		legacyAbciMetrics.txDuration.Record(ctx.Context(), time.Since(txStart).Seconds(), otelmetric.WithAttributes(attribute.String("mode", label)))
-		// TODO(PLT-343): remove once tx_duration verified
-		telemetry.MeasureThroughputSinceWithLabels(
-			telemetry.TxCount,
-			[]gometrics.Label{
-				telemetry.NewLabel("mode", label),
-			},
-			txStart,
-		)
 	}()
 	spanCtx, span := tracingInfo.StartWithContext("CheckTx", ctx.TraceSpanContext())
 	defer span.End()
