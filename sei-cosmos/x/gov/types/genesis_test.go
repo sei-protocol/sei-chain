@@ -93,6 +93,23 @@ func TestValidateGenesisRequiresSnapshotsForFrozenElectorateVotes(t *testing.T) 
 	require.NoError(t, ValidateGenesis(state))
 }
 
+func TestValidateGenesisRejectsUninitializedVoteDelegationSnapshotShares(t *testing.T) {
+	voter := sdk.AccAddress(bytes.Repeat([]byte{1}, 20))
+	validator := sdk.ValAddress(bytes.Repeat([]byte{2}, 20))
+	state := DefaultGenesisState()
+	state.Proposals = Proposals{{ProposalId: 1, Status: StatusVotingPeriod}}
+	state.Votes = Votes{NewVote(1, voter, NewNonSplitVoteOption(OptionYes))}
+	state.VoteDelegationSnapshots = []VoteDelegationSnapshot{{
+		ProposalId: 1,
+		Voter:      voter.String(),
+		Delegations: []VoteDelegation{{
+			Validator: validator.String(),
+		}},
+	}}
+
+	require.ErrorContains(t, ValidateGenesis(state), "vote delegation snapshot shares are not initialized")
+}
+
 func TestValidateGenesisAllowsInactiveBondedStakeInTallyElectorate(t *testing.T) {
 	state := DefaultGenesisState()
 	state.Proposals = Proposals{{ProposalId: 1, Status: StatusVotingPeriod}}
