@@ -44,7 +44,7 @@ func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *rateli
 			"ip-rate-limit-burst", cfg.IPRateLimitBurst,
 		)
 	}
-	return []grpc.ServerOption{
+	opts := []grpc.ServerOption{
 		// Admission happens before the request is decoded: the tap handler
 		// covers native gRPC, and RateLimitHTTPMiddleware covers gRPC-Web,
 		// which reaches this server through ServeHTTP. The interceptors charge
@@ -53,7 +53,29 @@ func rateLimitServerOptions(cfg config.GRPCConfig) ([]grpc.ServerOption, *rateli
 		grpc.InTapHandle(RateLimitTapHandle(registry)),
 		grpc.ChainUnaryInterceptor(UnaryRateLimitInterceptor(registry)),
 		grpc.ChainStreamInterceptor(StreamRateLimitInterceptor(registry)),
-	}, registry, nil
+	}
+	// The tap handler takes a per-IP concurrency slot alongside the token, and
+	// the stats handler is what gives it back, on every path a stream can end.
+	// Registering one at all makes grpc-go build and dispatch a stats event for
+	// every phase of every RPC, so with the cap off it is left out rather than
+	// left inert.
+	if cfg.MaxInFlightPerIP > 0 {
+		opts = append(opts, grpc.StatsHandler(InFlightStatsHandler(registry)))
+	}
+	return opts, registry, nil
+}
+
+// clampToMaxInt returns n as an int, saturating rather than wrapping.
+//
+// The connection limits are configured as unsigned and consumed as signed, and a
+// value above the signed maximum would otherwise wrap to a negative one, which
+// both listeners read as "no limit" — the opposite of what an operator writing a
+// very large number asked for.
+func clampToMaxInt(n uint) int {
+	if n > math.MaxInt {
+		return math.MaxInt
+	}
+	return int(n) //nolint:gosec // G115: clamped to math.MaxInt above
 }
 
 // registeredMethods returns the "service/Method" name of every method served by
@@ -136,12 +158,12 @@ func StartGRPCServer(clientCtx client.Context, app types.Application, cfg config
 	if err != nil {
 		return nil, nil, err
 	}
+	// The per-IP cap wraps the raw listener and the global cap wraps that, so a
+	// connection one address is refused never occupies a slot in the global
+	// budget it would otherwise be able to hold whole.
+	listener = ratelimiter.ConnLimitListener(listener, ratelimiter.PlaneGRPC, clampToMaxInt(cfg.MaxConnectionsPerIP))
 	if cfg.MaxOpenConnections > 0 {
-		maxConn := cfg.MaxOpenConnections
-		if maxConn > math.MaxInt {
-			maxConn = math.MaxInt
-		}
-		listener = netutil.LimitListener(listener, int(maxConn)) //nolint:gosec // G115: clamped to math.MaxInt above
+		listener = netutil.LimitListener(listener, clampToMaxInt(cfg.MaxOpenConnections))
 	}
 
 	errCh := make(chan error)
