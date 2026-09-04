@@ -252,6 +252,9 @@ func (s *StateDB) RollbackTo(blockNum int64) error {
 	if err := s.rewindSC(blockNum); err != nil {
 		return err
 	}
+	if err := s.dropSCSnapshotsAbove(blockNum); err != nil {
+		return err
+	}
 	if err := s.truncateWAL(blockNum); err != nil {
 		return err
 	}
@@ -292,6 +295,19 @@ func (s *StateDB) rewindSC(target int64) error {
 	}
 	if _, err := s.sc.RewindToSnapshotAtOrBelow(target); err != nil {
 		return fmt.Errorf("rewind the state commit store to a snapshot at or below %d: %w", target, err)
+	}
+	return nil
+}
+
+// dropSCSnapshotsAbove removes SC's snapshots above target, whether or not the rewind above ran.
+//
+// It is unconditional because rewindSC skips a store already at or below target, and an interrupted
+// rewind leaves exactly that: SC reads as the snapshot it was repointed at, with the branch above it
+// still on disk. Left there, a later rollback seeks a snapshot at or below its own target, lands on one
+// from the branch this rollback abandoned, and replays this branch's blocks over it.
+func (s *StateDB) dropSCSnapshotsAbove(target int64) error {
+	if err := s.sc.RemoveSnapshotsAbove(target); err != nil {
+		return fmt.Errorf("remove state commit snapshots above %d: %w", target, err)
 	}
 	return nil
 }

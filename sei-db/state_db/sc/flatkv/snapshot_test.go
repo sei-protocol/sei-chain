@@ -1164,6 +1164,80 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
+// snapshotVersionsOnDisk lists the snapshot versions under the store's directory, ascending.
+func snapshotVersionsOnDisk(t *testing.T, s *CommitStore) []int64 {
+	t.Helper()
+	var versions []int64
+	require.NoError(t, traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+		versions = append(versions, v)
+		return false, nil
+	}))
+	return versions
+}
+
+// interruptedRewindFixture returns a store in the state a rewind leaves behind when it is interrupted
+// after repointing at the base snapshot but before removing the branch above it: the store reads as the
+// base, and the discarded snapshot is still on disk.
+//
+// The store holds snapshots at 3 and 6 and was committed to 8, and the rewind it is partway through
+// targets 5, whose base is 3.
+func interruptedRewindFixture(t *testing.T) *CommitStore {
+	t.Helper()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	t.Cleanup(func() { _ = s.Close() })
+
+	for i := byte(1); i <= 8; i++ {
+		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
+		if i == 3 || i == 6 {
+			require.NoError(t, s.outOfBandSnapshot())
+		}
+	}
+	require.Equal(t, []int64{3, 6}, snapshotVersionsOnDisk(t, s))
+
+	// The first half of RewindToSnapshotAtOrBelow(5), then the reopen a restart performs. What the
+	// removal that would have followed never got to do is the point of the tests below.
+	require.NoError(t, s.repointAtSnapshot(s.flatkvDir(), 3))
+	require.NoError(t, s.open())
+	require.Equal(t, int64(3), s.Version(), "fixture precondition: the store reads as the base snapshot")
+	require.Contains(t, snapshotVersionsOnDisk(t, s), int64(6),
+		"fixture precondition: the discarded snapshot is still on disk")
+	return s
+}
+
+// TestRemoveSnapshotsAboveFinishesAnInterruptedRewind covers the repair an unconditional removal buys.
+//
+// A store left mid-rewind reads as the base snapshot, which is at or below the target, so the rewind is
+// skipped when it is retried and never removes the branch it abandoned. A later rollback would then seek
+// a snapshot at or below its own target, land on one from that abandoned branch, and replay over it.
+func TestRemoveSnapshotsAboveFinishesAnInterruptedRewind(t *testing.T) {
+	s := interruptedRewindFixture(t)
+
+	require.NoError(t, s.RemoveSnapshotsAbove(5))
+
+	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+		"the discarded branch must not survive the rollback that abandoned it")
+	require.Equal(t, int64(3), s.Version(), "removing snapshots must not move the store")
+}
+
+// TestRemoveSnapshotsAboveRefusesToDangleCurrent verifies the removal refuses to delete the snapshot the
+// current link names. Deleting it leaves the link dangling, which createWorkingDir resolves to an empty
+// working directory rather than to a failure, so the store would come up holding no state at all.
+func TestRemoveSnapshotsAboveRefusesToDangleCurrent(t *testing.T) {
+	s := rollbackFixture(t)
+	_, current, err := currentSnapshotDir(s.flatkvDir())
+	require.NoError(t, err)
+	require.Positive(t, current, "fixture precondition: current must name a snapshot above the target below")
+
+	require.ErrorContains(t, s.RemoveSnapshotsAbove(current-1), "would leave the current link dangling")
+
+	require.Contains(t, snapshotVersionsOnDisk(t, s), current,
+		"a refused removal must leave the snapshot in place")
+}
+
 func TestRemoveSnapshotsAboveKeepsTargetAndBelow(t *testing.T) {
 	dir := t.TempDir()
 	for _, v := range []int64{3, 5, 7, 9} {

@@ -837,6 +837,30 @@ func removeSnapshotsAbove(dir string, targetVersion int64) error {
 	return errors.Join(errs...)
 }
 
+// RemoveSnapshotsAbove deletes every snapshot above version, leaving the store's committed version and
+// its databases untouched. It is idempotent, so it can be run to finish a rewind that was interrupted
+// before its own cleanup did.
+//
+// It refuses while the current link names a snapshot above version, since removing that snapshot would
+// leave the link dangling, and the next open resolves a dangling link to an empty working directory
+// rather than to a failure. Rewind the store first: a store at or below version has a current link at
+// or below it too.
+func (s *CommitStore) RemoveSnapshotsAbove(version int64) error {
+	if s.readOnly {
+		return errReadOnly
+	}
+	dir := s.flatkvDir()
+	_, current, err := currentSnapshotDir(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read the current snapshot to remove snapshots above %d: %w", version, err)
+	}
+	if err == nil && current > version {
+		return fmt.Errorf("cannot remove snapshots above %d: the current snapshot is %d, and removing "+
+			"it would leave the current link dangling", version, current)
+	}
+	return removeSnapshotsAbove(dir, version)
+}
+
 // tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for
 // rollback to any retained snapshot. Skipped when there is no snapshot to truncate against.
 //
