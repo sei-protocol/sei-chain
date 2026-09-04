@@ -462,7 +462,7 @@ func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Co
 }
 
 func removeFutureGovernanceActivation(ctx sdk.Context, a *app.App, version string) {
-	if semver.Compare(version, "v6.7") < 0 {
+	if semver.Compare(version, "v6.8") < 0 {
 		ctx.KVStore(a.GetKey(govtypes.StoreKey)).Delete(govtypes.IncrementalTallyEnabledKey)
 	}
 }
