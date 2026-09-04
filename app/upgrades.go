@@ -102,6 +102,9 @@ func (app *App) RegisterUpgradeHandlers() {
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, capabilityModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
 				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
+				if err := migrateDelegationByValIndex(ctx, app); err != nil {
+					return nil, err
+				}
 				return newVM, nil
 			}
 
@@ -111,3 +114,24 @@ func (app *App) RegisterUpgradeHandlers() {
 }
 
 const v606UpgradeHeight = 151573570
+
+// migrateDelegationByValIndex populates the validator-indexed delegation store and
+// marks it ready, so the staking precompile's validatorDelegations can answer from a
+// per-validator prefix instead of scanning every delegation.
+//
+// It runs on an infinite gas meter: the cost is a property of chain size at the
+// upgrade height, not of anything a transaction chose to spend.
+func migrateDelegationByValIndex(ctx sdk.Context, app *App) error {
+	result, err := app.StakingKeeper.MigrateDelegationByValIndex(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
+	if err != nil {
+		return err
+	}
+	logger.Info(
+		"populated delegation-by-validator index",
+		"total_delegations", result.TotalDelegations,
+		"index_written", result.IndexWritten,
+		"already_ready", result.AlreadyReady,
+		"elapsed", result.Elapsed.String(),
+	)
+	return nil
+}

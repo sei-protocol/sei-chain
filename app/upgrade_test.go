@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -113,4 +114,35 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		// require.Equal(t, res.Status, abci.ResponseProcessProposal_ACCEPT)
 		require.False(t, testWrapper.App.GetOptimisticProcessingInfo().Aborted)
 	})
+}
+
+func TestV67PopulatesDelegationByValIndex(t *testing.T) {
+	t.Setenv("UPGRADE_VERSION_LIST", "v6.7")
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	testWrapper.App.RegisterUpgradeHandlers()
+
+	ctx := testWrapper.Ctx
+	stakingKeeper := testWrapper.App.StakingKeeper
+	delAddr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+	valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
+	delegation := stakingtypes.NewDelegation(delAddr, valAddr, sdk.NewDec(1))
+
+	// Seed through the store rather than SetDelegation, so the index entry can only
+	// come from the upgrade handler.
+	store := ctx.KVStore(stakingKeeper.GetStoreKey())
+	store.Set(
+		stakingtypes.GetDelegationKey(delAddr, valAddr),
+		stakingtypes.MustMarshalDelegation(testWrapper.App.AppCodec(), delegation),
+	)
+	require.False(t, stakingKeeper.DelegationByValIndexReady(ctx))
+
+	testWrapper.App.UpgradeKeeper.ApplyUpgrade(ctx, types.Plan{
+		Name:   "v6.7",
+		Height: ctx.BlockHeight(),
+	})
+
+	require.True(t, stakingKeeper.DelegationByValIndexReady(ctx))
+	require.True(t, store.Has(stakingtypes.GetDelegationByValIndexKey(delAddr, valAddr)))
 }

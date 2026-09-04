@@ -1004,7 +1004,7 @@ func (p PrecompileExecutor) validatorDelegations(ctx sdk.Context, method *abi.Me
 		},
 	}
 
-	response, err := p.stakingQuerier.ValidatorDelegations(sdk.WrapSDKContext(ctx), request)
+	response, err := p.stakingQuerier.ValidatorDelegationsIndexed(sdk.WrapSDKContext(ctx), request)
 	if err != nil {
 		return nil, 0, err
 	}

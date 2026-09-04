@@ -135,6 +135,61 @@ func (k Querier) ValidatorDelegations(c context.Context, req *types.QueryValidat
 		DelegationResponses: delResponses, Pagination: pageRes}, nil
 }
 
+// ValidatorDelegationsIndexed queries delegate info for a given validator, reading the
+// validator-indexed delegation store when it is populated.
+//
+// The indexed prefix holds only this validator's delegations, so iteration tracks page
+// size instead of the total delegation count. That keeps the scan inside the limit
+// query.FilteredPaginateV66 enforces on consensus execution.
+func (k Querier) ValidatorDelegationsIndexed(c context.Context, req *types.QueryValidatorDelegationsRequest) (*types.QueryValidatorDelegationsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+
+	if req.ValidatorAddr == "" {
+		return nil, status.Error(codes.InvalidArgument, "validator address cannot be empty")
+	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+	if !k.DelegationByValIndexReady(ctx) {
+		// Below the height that populated the index the entries do not exist, so the
+		// full scan is the only readable source. It reverts on validators too large to
+		// scan within the limit, which is what the same query did at those heights.
+		return k.ValidatorDelegations(c, req)
+	}
+
+	valAddr, err := sdk.ValAddressFromBech32(req.ValidatorAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	var delegations []types.Delegation
+	store := ctx.KVStore(k.storeKey)
+	valPrefix := types.GetDelegationsByValIndexKey(valAddr)
+	indexStore := prefix.NewStore(store, valPrefix)
+
+	pageRes, err := query.Paginate(indexStore, req.Pagination, func(key []byte, _ []byte) error {
+		storeKey := types.GetDelegationKeyFromValIndexKey(append(valPrefix, key...))
+		delegation, err := types.UnmarshalDelegation(k.cdc, store.Get(storeKey))
+		if err != nil {
+			return err
+		}
+		delegations = append(delegations, delegation)
+		return nil
+	})
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	delResponses, err := DelegationsToDelegationResponses(ctx, k.Keeper, delegations)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &types.QueryValidatorDelegationsResponse{
+		DelegationResponses: delResponses, Pagination: pageRes}, nil
+}
+
 // ValidatorUnbondingDelegations queries unbonding delegations of a validator
 func (k Querier) ValidatorUnbondingDelegations(c context.Context, req *types.QueryValidatorUnbondingDelegationsRequest) (*types.QueryValidatorUnbondingDelegationsResponse, error) {
 	if req == nil {
