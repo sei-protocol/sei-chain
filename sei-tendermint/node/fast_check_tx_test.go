@@ -106,7 +106,7 @@ func TestPrepareApplicationEVMOnlyInMemory(t *testing.T) {
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.NotNil(t, manager.BlockStore())
-	require.NotNil(t, manager.StateDB())
+	require.NotNil(t, manager.StateStore())
 	require.NotNil(t, manager.ReceiptDB())
 
 	require.Equal(t, "evmonly-in-memory", prepared.Info().Data)
@@ -176,8 +176,7 @@ func TestValidateNodeSetupConfigRejectsEVMOnlyInMemorySeed(t *testing.T) {
 		AutobahnConfigFile: "/tmp/autobahn.json",
 	})
 
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not supported in seed mode")
+	require.ErrorIs(t, err, errEVMOnlyInMemorySeed)
 }
 
 type checkTxCountingApp struct {

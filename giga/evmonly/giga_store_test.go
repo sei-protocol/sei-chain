@@ -12,11 +12,11 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 type recordingGigaStore struct {
-	snapshot    gigastore.StateView
+	snapshot    gigatypes.StateView
 	openCount   int
 	commitErr   error
 	commitBlock []int64
@@ -29,14 +29,18 @@ func (s *recordingGigaStore) CommitStateChanges(blockNum int64, changeset []*pro
 	return s.commitErr
 }
 
-func (s *recordingGigaStore) OpenView() gigastore.StateView {
+func (s *recordingGigaStore) OpenView() gigatypes.StateView {
 	s.openCount++
 	return s.snapshot
 }
 
-func (s *recordingGigaStore) OpenViewAt(int64) (gigastore.StateView, bool) {
+func (s *recordingGigaStore) OpenViewAt(int64) (gigatypes.StateView, bool) {
 	return nil, false
 }
+
+func (s *recordingGigaStore) RollbackTo(int64) error { return errors.ErrUnsupported }
+
+func (s *recordingGigaStore) Close() error { return nil }
 
 type memoryGigaSnapshot struct {
 	height     int64
@@ -62,7 +66,7 @@ func newMemoryGigaSnapshot(height int64) *memoryGigaSnapshot {
 	}
 }
 
-func (s *memoryGigaSnapshot) AccountExists(address gigastore.Address) bool {
+func (s *memoryGigaSnapshot) AccountExists(address gigatypes.Address) bool {
 	if s.balances[address] != (common.Hash{}) || s.nonces[address] != 0 || len(s.code[address]) != 0 {
 		return true
 	}
@@ -74,30 +78,30 @@ func (s *memoryGigaSnapshot) AccountExists(address gigastore.Address) bool {
 	return false
 }
 
-func (s *memoryGigaSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetStorage(address gigatypes.Address, slot gigatypes.Hash) gigatypes.Hash {
 	return s.storage[gigaStorageKey{address: address, key: slot}]
 }
 
-func (s *memoryGigaSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetBalance(address gigatypes.Address) gigatypes.Hash {
 	return s.balances[address]
 }
 
-func (s *memoryGigaSnapshot) GetNonce(address gigastore.Address) uint64 {
+func (s *memoryGigaSnapshot) GetNonce(address gigatypes.Address) uint64 {
 	return s.nonces[address]
 }
 
-func (s *memoryGigaSnapshot) GetCodeSize(address gigastore.Address) int {
+func (s *memoryGigaSnapshot) GetCodeSize(address gigatypes.Address) int {
 	return len(s.code[address])
 }
 
-func (s *memoryGigaSnapshot) GetCodeHash(address gigastore.Address) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetCodeHash(address gigatypes.Address) gigatypes.Hash {
 	if !s.AccountExists(address) {
-		return gigastore.Hash{}
+		return gigatypes.Hash{}
 	}
 	return crypto.Keccak256Hash(s.code[address])
 }
 
-func (s *memoryGigaSnapshot) GetCode(address gigastore.Address) []byte {
+func (s *memoryGigaSnapshot) GetCode(address gigatypes.Address) []byte {
 	return s.code[address]
 }
 

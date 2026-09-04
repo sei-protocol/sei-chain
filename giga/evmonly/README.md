@@ -28,7 +28,7 @@ The `evmonly` package currently provides:
 - go-ethereum `core.ApplyMessage` execution against an SDK-free `vm.StateDB`
 - key-addressable state reads for balance, nonce, code, and storage
 - deterministic post-block `StateChangeSet` construction
-- direct snapshot reads and ordered state commits through `giga.StateDB`
+- direct snapshot reads and ordered state commits through the Giga `StateDB`
 - optional executor-internal Block-STM-style execution for optimistic parallel
   transaction execution with granular validation and reruns
 - Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
@@ -73,7 +73,7 @@ data: callers should pass the result of `PrepareBlock` unchanged, because
 `ExecutePreparedBlock` does not recover senders again.
 
 The executor is always store-backed. `WithStorageManager(...)` selects the
-`bootstrap.GigaStorageManager` that provides both `giga.StateDB` and the ledger
+`bootstrap.GigaStorageManager` that provides both the Giga `StateDB` and the ledger
 receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
 Execution fails closed if the manager, either store, or the encoder is missing.
 For each block the executor opens a current `giga.StateView`, executes against
@@ -85,7 +85,7 @@ is always closed afterward. An empty block still commits an encoded empty
 changeset so the store can advance its height. Stateless preparation can
 continue concurrently with store-backed execution.
 
-The encoder is explicit because `giga.StateDB` defines the protobuf commit
+The encoder is explicit because the Giga `StateDB` defines the protobuf commit
 transport but does not define an on-disk key layout. In particular, an encoder
 must preserve `StorageClears` as prefix clears rather than silently dropping
 persisted slots that were not read during execution. Encoding, state commit, or

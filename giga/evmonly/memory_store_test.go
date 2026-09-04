@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 func TestEncodeMemoryStoreChangeSetUsesOwnedDirectPairs(t *testing.T) {
@@ -108,12 +108,12 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.Equal(t, uint64(1), initial.GetNonce(address))
 	require.Equal(t, common.HexToHash("0xaa"), initial.GetStorage(address, baseSlot))
 
-	for _, snapshot := range []gigastore.StateView{current, historical} {
+	for _, snapshot := range []gigatypes.StateView{current, historical} {
 		require.Equal(t, int64(7), snapshot.GetBlockHeight())
 		require.Equal(t, big.NewInt(20), gigaHashToBig(snapshot.GetBalance(address)))
 		require.Equal(t, uint64(2), snapshot.GetNonce(address))
 		require.Equal(t, []byte{0x60, 0x01}, snapshot.GetCode(address))
-		require.Equal(t, gigastore.Hash{}, snapshot.GetStorage(address, baseSlot))
+		require.Equal(t, gigatypes.Hash{}, snapshot.GetStorage(address, baseSlot))
 		require.Equal(t, common.HexToHash("0xbb"), snapshot.GetStorage(address, newSlot))
 	}
 
@@ -129,7 +129,7 @@ func TestMemoryStoreSnapshotsRemainVersionedAcrossCommits(t *testing.T) {
 	require.NoError(t, store.CommitStateChanges(8, deleteChanges))
 	afterDelete := store.OpenView()
 	require.Empty(t, afterDelete.GetCode(address))
-	require.Equal(t, gigastore.Hash{}, afterDelete.GetStorage(address, newSlot))
+	require.Equal(t, gigatypes.Hash{}, afterDelete.GetStorage(address, newSlot))
 	require.Equal(t, []byte{0x60, 0x01}, historical.GetCode(address))
 	require.Equal(t, common.HexToHash("0xbb"), historical.GetStorage(address, newSlot))
 
@@ -219,6 +219,6 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 	require.Equal(t, big.NewInt(2), gigaHashToBig(snapshot.GetBalance(recipient)))
 }
 
-func gigaHashToBig(value gigastore.Hash) *big.Int {
+func gigaHashToBig(value gigatypes.Hash) *big.Int {
 	return new(big.Int).SetBytes(value[:])
 }

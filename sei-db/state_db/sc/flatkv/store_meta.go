@@ -438,7 +438,7 @@ func walTailVersion(dir string, wal statewal.StateWAL) (int64, error) {
 		}
 		// Reading out-of-band takes the changelog's exclusive lock, so it fails against a store that
 		// holds the WAL — which is why a caller with a handle passes it rather than relying on dir.
-		return statewal.GetRange(stateWALConfig(dir))
+		return statewal.GetRange(StateWALConfig(dir))
 	}
 	stored, _, last, err := readRange()
 	if err != nil {

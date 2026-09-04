@@ -27,6 +27,8 @@ type options struct {
 	freezeHeight uint64
 }
 
+var errEVMOnlyInMemorySeed = errors.New("evm-only-in-memory is not supported in seed mode")
+
 // Option configures optional node behavior.
 type Option func(*options)
 
@@ -146,7 +148,7 @@ func validateFreezeMode(mode string, freezeHeight uint64) error {
 
 func validateNodeSetupConfig(conf *config.Config) error {
 	if conf.EVMOnlyInMemory && conf.Mode == config.ModeSeed {
-		return fmt.Errorf("evm-only-in-memory is not supported in seed mode")
+		return errEVMOnlyInMemorySeed
 	}
 	if conf.MockApp && conf.AutobahnConfigFile == "" {
 		return fmt.Errorf("mock-app requires autobahn-config-file")
