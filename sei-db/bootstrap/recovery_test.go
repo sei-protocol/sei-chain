@@ -314,14 +314,39 @@ func TestStateDBRollbackToRewindsBothHalvesAndTheWAL(t *testing.T) {
 	require.Equal(t, int64(3), manager.SC().Version())
 }
 
-// A target above the WAL's head is a target no replay reaches: the WAL runs out and both halves stop
-// below it with every step reporting success. Answering yes there hands callers a state DB they believe
-// is on a height it is not, so the landing height is checked rather than assumed.
+// A target above the WAL's head is a target no replay reaches, and it is refused before the rollback
+// moves anything. Every step of a rollback is irreversible while the replay that needs the blocks runs
+// last, so a shortfall found there would have already cut the WAL and dropped the snapshots that a
+// second attempt at a reachable height would need.
 func TestStateDBRollbackToAboveTheWALHeadFails(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
 
-	require.ErrorContains(t, manager.StateDB().RollbackTo(5), "left the state commit store on 3")
+	require.ErrorContains(t, manager.StateDB().RollbackTo(5), "needs blocks 4-5, but the state WAL only holds 1-3")
+
+	require.Equal(t, int64(3), manager.SC().Version(), "a refused rollback must not have moved anything")
+	requireWALTail(t, manager, 3)
+}
+
+// A rollback establishes that both halves can reach the target before it moves either of them, because
+// every step it takes is irreversible and the replays that need the WAL run last.
+//
+// SS is the half that can fail outright here: it restores from its own snapshots and has no base to fall
+// back on, so one sitting above the target with no snapshot at or below it cannot be rewound at all.
+// Discovering that after SC had been rewound, its snapshots above the target deleted and the WAL cut back
+// would leave a node that will not start and no longer holds the blocks a second attempt would need.
+func TestStateDBRollbackToRefusesAnUnreachableTargetBeforeMovingAnything(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+	applySSThrough(t, manager, 3)
+
+	require.ErrorContains(t, manager.StateDB().RollbackTo(2), "no snapshot at or below the target")
+
+	require.Equal(t, int64(3), manager.SC().Version(), "SC must not have been rewound")
+	require.Equal(t, int64(3), manager.SS().GetLatestVersion(), "SS must not have been rewound")
+	requireWALTail(t, manager, 3)
+	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)),
+		"a refused rollback must leave the state DB writable")
 }
 
 // A target of 0 has to be refused by RollbackTo itself, because neither rewind it delegates to is

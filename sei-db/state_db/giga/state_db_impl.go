@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/sei-protocol/seilog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
@@ -16,6 +18,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
+
+var logger = seilog.NewLogger("db", "state-db", "giga")
 
 var _ gigatypes.StateDB = (*StateDB)(nil)
 
@@ -243,8 +247,9 @@ func (s *StateDB) walHead() (int64, bool, error) {
 }
 
 // RollbackTo puts both halves of state on blockNum, rewinding a half above it and replaying a half
-// below it. blockNum must be positive and lie within the WAL's stored range, and rewinding SS needs a
-// snapshot at or below it; a blockNum this cannot reach is an error rather than a shortfall.
+// below it. blockNum must be positive, and a blockNum the surviving snapshots and the WAL cannot span
+// is refused before anything moves. A half that holds no history takes no part and is left empty to
+// fill forward from blockNum.
 //
 // The state WAL ends at blockNum afterwards, on a handle that replaces the one this opened with, so a
 // reference a caller holds to it is invalid after this call. It must not run once the prune cycle has
@@ -256,6 +261,9 @@ func (s *StateDB) RollbackTo(blockNum int64) error {
 		// prune empties the WAL, and the snapshot removal takes every snapshot.
 		return fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is nothing "+
 			"to roll back to", blockNum)
+	}
+	if err := s.requireReachable(blockNum); err != nil {
+		return err
 	}
 	if err := s.rewindSC(blockNum); err != nil {
 		return err
@@ -278,12 +286,99 @@ func (s *StateDB) RollbackTo(blockNum int64) error {
 	return s.matchHeight(blockNum)
 }
 
+// requireReachable establishes that target can be reached, and names what is missing when it cannot.
+//
+// It runs before the rollback moves anything because every step of one is irreversible — snapshots above
+// the target are deleted and the WAL is cut back to it — while the replay that needs the blocks in
+// between runs last. Failing there leaves a node that will not start and no longer holds what a second
+// attempt at a different height would need.
+func (s *StateDB) requireReachable(target int64) error {
+	base, err := s.rollbackBase(target)
+	if err != nil {
+		return err
+	}
+	if base >= target {
+		return nil
+	}
+
+	stored, first, last, err := s.wal.GetStoredRange()
+	if err != nil {
+		return fmt.Errorf("read state WAL range: %w", err)
+	}
+	//nolint:gosec // base >= 0 and target > 0
+	from, to := uint64(base)+1, uint64(target)
+	if !stored {
+		return fmt.Errorf("cannot roll back to %d: replaying onto %d needs blocks %d-%d, but the state "+
+			"WAL is empty", target, base, from, to)
+	}
+	if first > from || last < to {
+		return fmt.Errorf("cannot roll back to %d: replaying onto %d needs blocks %d-%d, but the state "+
+			"WAL only holds %d-%d", target, base, from, to, first, last)
+	}
+	return nil
+}
+
+// rollbackBase returns the height a rollback to target replays forward from: the lower of the heights
+// the two halves start at, which for a half sitting above target is the snapshot its rewind lands on.
+//
+// A half with no snapshot at or below target is what makes a target unreachable outright, since there is
+// no state to replay onto, and it is reported here rather than by the rewind that would have found it
+// after the other half had already moved.
+func (s *StateDB) rollbackBase(target int64) (int64, error) {
+	base := s.sc.Version()
+	if base > target {
+		landing, err := s.sc.SnapshotAtOrBelow(target)
+		if err != nil {
+			return 0, fmt.Errorf("cannot roll back to %d: the state commit store is on %d and has no "+
+				"snapshot at or below the target: %w", target, base, err)
+		}
+		base = landing
+	}
+	// An SS holding nothing is not rewound and replays either the whole WAL or none of it, so it asks
+	// nothing of the WAL that this could refuse. catchUpSS decides between those two.
+	if s.ss == nil || s.ss.GetLatestVersion() == 0 {
+		return base, nil
+	}
+
+	ssBase := s.ss.GetLatestVersion()
+	if ssBase > target {
+		landing, err := s.ss.SnapshotAtOrBelow(target)
+		if err != nil {
+			return 0, fmt.Errorf("cannot roll back to %d: the EVM state store is on %d and has no "+
+				"snapshot at or below the target: %w", target, ssBase, err)
+		}
+		ssBase = landing
+	}
+	return min(base, ssBase), nil
+}
+
+// ssFillsForward reports whether SS holds no history that the WAL can still rebuild, which leaves it
+// out of convergence: it stays empty and starts filling at the block after the target.
+//
+// A store that holds nothing has nothing to disagree with, which is the treatment recoveryTarget gives
+// an empty receipt store. Replaying one the WAL still covers is better, since it comes out holding real
+// history, so this is the answer only for a WAL that has had a retention cut — where the alternative is
+// refusing to start and calling a store that is merely new data loss.
+func (s *StateDB) ssFillsForward() (bool, error) {
+	if s.ss == nil || s.ss.GetLatestVersion() > 0 {
+		return false, nil
+	}
+	stored, first, _, err := s.wal.GetStoredRange()
+	if err != nil {
+		return false, fmt.Errorf("read state WAL range: %w", err)
+	}
+	return !stored || first > 1, nil
+}
+
 // matchHeight checks both halves of state against blockNum and reports the one that is not on it.
+//
+// An SS still holding nothing is one catchUpSS left to fill forward, since any replay of it would have
+// landed on blockNum, so it is not held to the height it was deliberately left off.
 func (s *StateDB) matchHeight(blockNum int64) error {
 	if got := s.sc.Version(); got != blockNum {
 		return fmt.Errorf("rollback to %d left the state commit store on %d", blockNum, got)
 	}
-	if s.ss == nil {
+	if s.ss == nil || s.ss.GetLatestVersion() == 0 {
 		return nil
 	}
 	if got := s.ss.GetLatestVersion(); got != blockNum {
@@ -377,7 +472,8 @@ func (s *StateDB) catchUpSC(target int64) error {
 	})
 }
 
-// catchUpSS replays the WAL blocks above SS's version into it, up to target.
+// catchUpSS replays the WAL blocks above SS's version into it, up to target. A store holding nothing
+// the WAL can rebuild is left empty to fill forward instead.
 //
 // It goes through replay rather than replaying itself, so the check that the WAL still holds the blocks
 // being asked for covers both halves of state: a WAL pruned past SS's head would otherwise leave it
@@ -388,6 +484,15 @@ func (s *StateDB) catchUpSS(target int64) error {
 	}
 	from := s.ss.GetLatestVersion()
 	if from >= target {
+		return nil
+	}
+	fillForward, err := s.ssFillsForward()
+	if err != nil {
+		return err
+	}
+	if fillForward {
+		logger.Info("EVM state store left empty to fill forward: it holds no history and the state WAL "+
+			"no longer reaches block 1", "target", target)
 		return nil
 	}
 	return s.replay(from, target, s.ss.ApplyReplayedBlock)

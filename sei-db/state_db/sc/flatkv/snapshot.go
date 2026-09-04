@@ -762,6 +762,13 @@ func (s *CommitStore) repointAtSnapshot(dir string, version int64) error {
 	return nil
 }
 
+// SnapshotAtOrBelow returns the highest snapshot version at or below version, which is where a rewind
+// to version lands. It reads only, so a caller can establish that a target is reachable before a
+// rewind moves anything.
+func (s *CommitStore) SnapshotAtOrBelow(version int64) (int64, error) {
+	return seekSnapshot(s.flatkvDir(), version)
+}
+
 // RewindToSnapshotAtOrBelow rewinds this store to the highest snapshot at or below version and reports
 // the version it landed on, discarding committed state and snapshots above that point. It needs no WAL:
 // it moves only between snapshot boundaries, and replaying forward from the version it returns is the

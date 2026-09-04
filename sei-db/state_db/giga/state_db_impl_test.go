@@ -99,10 +99,39 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 	})
 
 	t.Run("the EVM state store", func(t *testing.T) {
-		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, ss: &evm.EVMStateStore{}}
+		_, _, sc := newTestStateDB(t)
+		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
 
-		require.ErrorContains(t, s.catchUpSS(4), missingBlocks)
+		// The store holds nothing, so the gap is its whole history rather than a hole in it. Refusing
+		// here would report data loss for a store that is merely new, and would do it on every node
+		// past its first retention cut, so it is left empty to fill forward from the target.
+		require.NoError(t, s.catchUpSS(4))
+		require.Zero(t, s.ss.GetLatestVersion())
 	})
+}
+
+// A half left to fill forward is not held to the target afterwards. Holding it there would fail the
+// rollback over exactly the state catchUpSS had just decided was the right outcome.
+func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
+	_, _, sc := newTestStateDB(t)
+	for block := int64(1); block <= 4; block++ {
+		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
+	}
+	s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
+
+	require.NoError(t, s.matchHeight(4))
+}
+
+// A store that holds nothing is only left empty when the WAL cannot rebuild it. One the WAL still
+// reaches back far enough for comes out of recovery holding real history, which is strictly better, and
+// is how SS is populated at all while the live commit path does not write it.
+func TestCatchUpRebuildsAnEmptyStoreTheWALStillCovers(t *testing.T) {
+	_, _, sc := newTestStateDB(t)
+	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
+
+	fillForward, err := s.ssFillsForward()
+	require.NoError(t, err)
+	require.False(t, fillForward, "a WAL starting at block 1 can rebuild an empty store")
 }
 
 // changeset builds a changeset setting key to value in the test module.

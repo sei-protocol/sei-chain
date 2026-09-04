@@ -33,6 +33,13 @@ func (s *EVMStateStore) ApplyReplayedBlock(block int64, changesets []*proto.Name
 	return s.SetLatestVersion(block)
 }
 
+// SnapshotAtOrBelow returns the newest snapshot version at or below version, which is where a rewind
+// to version lands. It reads only, so a caller can establish that a target is reachable before a
+// rewind moves anything.
+func (s *EVMStateStore) SnapshotAtOrBelow(version int64) (int64, error) {
+	return s.rollbackBaseVersion(version)
+}
+
 // RewindToSnapshotAtOrBelow rewinds this store to the newest snapshot at or below version and reports
 // the version it landed on, discarding snapshots above that point. It needs no WAL: it moves only
 // between snapshot boundaries, and replaying forward from the version it returns is the caller's to do.
