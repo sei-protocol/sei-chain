@@ -253,11 +253,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	database.asyncWriteWG.Add(1)
 	go database.writeAsyncInBackground()
 
-	// Start background metrics collection for Pebble-internal stats
-	// (compaction, flush, sstable, memtable, WAL, cache).
-	metricsCtx, metricsCancel := context.WithCancel(context.Background())
-	database.metricsCancel = metricsCancel
-	pebbledbmetrics.NewPebbleMetrics(metricsCtx, db, dbName, 10*time.Second)
+	// Refresh Pebble-internal stats (compaction, flush, sstable, memtable, WAL, cache).
+	database.metricsCancel = pebbledbmetrics.NewPebbleMetrics(db, dbName, 10*time.Second)
 
 	return database, nil
 }
