@@ -89,11 +89,11 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err != nil {
 		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
 	}
-	if err := stateStore.CommitStateChanges(blockNumber, changesets); err != nil {
-		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
-	}
 	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
 		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+	}
+	if err := stateStore.CommitStateChanges(blockNumber, changesets); err != nil {
+		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
 	return result, nil

@@ -167,6 +167,19 @@ func TestValidateNodeSetupConfigAllowsEVMOnlyInMemoryWithAutobahn(t *testing.T) 
 	require.NoError(t, err)
 }
 
+func TestValidateNodeSetupConfigRejectsEVMOnlyInMemorySeed(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			Mode:            config.ModeSeed,
+			EVMOnlyInMemory: true,
+		},
+		AutobahnConfigFile: "/tmp/autobahn.json",
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not supported in seed mode")
+}
+
 type checkTxCountingApp struct {
 	abci.BaseApplication
 	called bool

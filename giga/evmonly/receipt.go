@@ -3,12 +3,12 @@ package evmonly
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -22,8 +22,13 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 		if ethReceipt == nil {
 			return nil, fmt.Errorf("receipt %d is nil", i)
 		}
-		if uint64(ethReceipt.TransactionIndex) > math.MaxUint32 {
+		transactionIndex, ok := utils.SafeCast[uint32](ethReceipt.TransactionIndex)
+		if !ok {
 			return nil, fmt.Errorf("receipt %d transaction index %d exceeds uint32", i, ethReceipt.TransactionIndex)
+		}
+		status, ok := utils.SafeCast[uint32](ethReceipt.Status)
+		if !ok {
+			return nil, fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
 		}
 		txResult := result.Txs[i]
 		stored := &evmtypes.Receipt{
@@ -32,8 +37,8 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 			TxHashHex:         ethReceipt.TxHash.Hex(),
 			GasUsed:           ethReceipt.GasUsed,
 			BlockNumber:       blockNumber,
-			TransactionIndex:  uint32(ethReceipt.TransactionIndex),
-			Status:            uint32(ethReceipt.Status),
+			TransactionIndex:  transactionIndex,
+			Status:            status,
 			From:              txResult.Sender.Hex(),
 			Logs:              evmtypes.NewLogsFromEth(ethReceipt.Logs),
 			LogsBloom:         append([]byte(nil), ethReceipt.Bloom[:]...),

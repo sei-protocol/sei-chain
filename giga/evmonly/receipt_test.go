@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"errors"
+	"math"
 	"math/big"
 	"testing"
 
@@ -77,4 +78,10 @@ func TestReceiptRecordsRejectMalformedBlockResult(t *testing.T) {
 
 	_, err = receiptRecords(1, &BlockResult{Receipts: ethtypes.Receipts{nil}, Txs: []TxResult{{}}})
 	require.ErrorContains(t, err, "receipt 0 is nil")
+
+	_, err = receiptRecords(1, &BlockResult{
+		Receipts: ethtypes.Receipts{{Status: uint64(math.MaxUint32) + 1}},
+		Txs:      []TxResult{{}},
+	})
+	require.ErrorContains(t, err, "status")
 }
