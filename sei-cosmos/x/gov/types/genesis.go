@@ -312,6 +312,9 @@ func validateVoteDelegationSnapshots(votes Votes, snapshots []VoteDelegationSnap
 			if _, err := sdk.ValAddressFromBech32(delegation.Validator); err != nil {
 				return fmt.Errorf("invalid vote delegation snapshot validator %q: %w", delegation.Validator, err)
 			}
+			if delegation.Shares.IsNil() {
+				return fmt.Errorf("vote delegation snapshot shares are not initialized")
+			}
 			if !delegation.Shares.IsPositive() {
 				return fmt.Errorf("vote delegation snapshot shares must be positive: %s", delegation.Shares)
 			}
