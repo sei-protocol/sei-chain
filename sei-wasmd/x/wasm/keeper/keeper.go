@@ -758,7 +758,7 @@ func (k Keeper) contractInstance(ctx sdk.Context, contractAddress sdk.AccAddress
 
 	contractBz := store.Get(types.GetContractAddressKey(contractAddress))
 	if contractBz == nil {
-		return types.ContractInfo{}, types.CodeInfo{}, types.NewStoreAdapter(prefix.Store{}), sdkerrors.Wrap(types.ErrNotFound, "contract")
+		return types.ContractInfo{}, types.CodeInfo{}, types.NewStoreAdapter(prefix.Store{}), sdkerrors.Wrap(types.ErrNotFound, contractLabel)
 	}
 	var contractInfo types.ContractInfo
 	k.cdc.MustUnmarshal(contractBz, &contractInfo)

@@ -85,9 +85,8 @@
 // The LLD's eventual target is for Start to back the SDK's sei.Provider so
 // suites written against sei.Open(ctx, "local") run unchanged. That wiring is
 // deferred: the SDK lives in the github.com/sei-protocol/sei-k8s-controller
-// module, which declares `go >= 1.26.0`, while sei-chain runs go 1.25.6 — so
-// importing it would force a chain-wide toolchain bump and pull the controller's
-// controller-runtime/AWS dep graph into the seid build. The handle methods here
+// module, and importing it would pull the controller's controller-runtime/AWS
+// dependency graph into the seid build. The handle methods here
 // intentionally mirror sei.NodeHandle / sei.NetworkHandle so a thin adapter can
 // satisfy the SDK interface once the skew is resolved — see Node and Network.
 package inprocess

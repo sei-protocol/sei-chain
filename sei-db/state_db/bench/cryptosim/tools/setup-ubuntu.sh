@@ -26,7 +26,7 @@ case "$ARCH" in
 	*) echo "Error: Unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
 
-GO_VERSION="1.26.0"
+GO_VERSION="1.27.1"
 GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
 GO_URL="https://go.dev/dl/${GO_TAR}"
 

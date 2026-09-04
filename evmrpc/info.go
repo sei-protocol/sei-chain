@@ -154,10 +154,12 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	}
 
 	// validate reward percentiles
-	for i, p := range rewardPercentiles {
-		if p < 0 || p > 100 || (i > 0 && p <= rewardPercentiles[i-1]) {
+	previous := -1.0
+	for _, p := range rewardPercentiles {
+		if p < 0 || p > 100 || p <= previous {
 			return nil, errors.New("invalid reward percentiles: must be ascending and between 0 and 100")
 		}
+		previous = p
 	}
 
 	lastBlockNumber := lastBlock.Int64()

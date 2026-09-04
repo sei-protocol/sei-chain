@@ -18,6 +18,7 @@ var globalLabels = []metrics.Label{}
 
 // Metrics supported format types.
 const (
+	cosmosNamespace  = "cosmos"
 	FormatDefault    = ""
 	FormatPrometheus = "prometheus"
 	FormatText       = "text"
@@ -119,7 +120,7 @@ func (m *Metrics) setupPrometheus(cfg Config) (*metricsprom.PrometheusSink, erro
 		// will mean the metrics are stored in memory.
 		GaugeDefinitions: []metricsprom.GaugeDefinition{
 			{
-				Name: []string{"cosmos", "upgrade", "plan", "height"},
+				Name: []string{cosmosNamespace, "upgrade", "plan", "height"},
 				Help: "Next upgrade height",
 			},
 		},

@@ -132,7 +132,7 @@ func (registry *legacyInterfaceRegistry) UnpackAny(any *Any, iface interface{}) 
 	}
 
 	rv := reflect.ValueOf(iface)
-	if rv.Kind() != reflect.Ptr {
+	if rv.Kind() != reflect.Pointer {
 		return fmt.Errorf("UnpackAny expects a pointer")
 	}
 

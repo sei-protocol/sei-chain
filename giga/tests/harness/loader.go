@@ -110,7 +110,7 @@ func GetStateTestsPath() (string, error) {
 
 // extractArchive extracts a .tgz archive to the destination directory
 func extractArchive(archivePath, destDir string) error {
-	cmd := exec.Command("tar", "-xzf", archivePath, "-C", destDir)
+	cmd := exec.Command("tar", "-xzf", archivePath, "-C", destDir) //nolint:gosec // arguments are fixed repository fixture paths and are passed directly without a shell.
 	if _, err := cmd.CombinedOutput(); err != nil {
 		return err
 	}

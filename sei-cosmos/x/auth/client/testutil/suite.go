@@ -34,6 +34,11 @@ import (
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
+const (
+	accountSequenceType = "--type=acc_seq"
+	signatureType       = "--type=signature"
+)
+
 type IntegrationTestSuite struct {
 	suite.Suite
 
@@ -358,7 +363,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 		{
 			"--type=acc_seq with no addr+seq",
 			[]string{
-				"--type=acc_seq",
+				accountSequenceType,
 				"",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -367,7 +372,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 		{
 			"non-existing addr+seq combo",
 			[]string{
-				"--type=acc_seq",
+				accountSequenceType,
 				"foobar",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -376,7 +381,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 		{
 			"addr+seq happy case",
 			[]string{
-				"--type=acc_seq",
+				accountSequenceType,
 				fmt.Sprintf("%s/%d", val.Address, protoTx.AuthInfo.SignerInfos[0].Sequence),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -385,7 +390,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 		{
 			"--type=signature with no signature",
 			[]string{
-				"--type=signature",
+				signatureType,
 				"",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -394,7 +399,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 		{
 			"non-existing signatures",
 			[]string{
-				"--type=signature",
+				signatureType,
 				"foo",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -403,7 +408,7 @@ func (s *IntegrationTestSuite) TestCLIQueryTxCmdByEvents() {
 		{
 			"with --signatures happy case",
 			[]string{
-				"--type=signature",
+				signatureType,
 				base64.StdEncoding.EncodeToString(protoTx.Signatures[0]),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},

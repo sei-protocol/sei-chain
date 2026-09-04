@@ -169,7 +169,7 @@ func makeMultiSignCmd() func(cmd *cobra.Command, args []string) (err error) {
 
 			req := BroadcastReq{
 				Tx:   stdTx,
-				Mode: "block|sync|async",
+				Mode: broadcastModeValues,
 			}
 
 			json, err = clientCtx.LegacyAmino.MarshalAsJSON(req)
@@ -360,7 +360,7 @@ func makeBatchMultisignCmd() func(cmd *cobra.Command, args []string) error {
 
 				req := BroadcastReq{
 					Tx:   stdTx,
-					Mode: "block|sync|async",
+					Mode: broadcastModeValues,
 				}
 
 				json, _ = clientCtx.LegacyAmino.MarshalAsJSON(req)

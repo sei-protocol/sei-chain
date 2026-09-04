@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -155,6 +156,10 @@ func (r *Router) Giga() utils.Option[GigaRouter] { return r.giga }
 
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
+	if chDesc.ID > math.MaxUint8 {
+		return nil, fmt.Errorf("channel ID %d exceeds the one-byte wire limit", chDesc.ID)
+	}
+
 	for channels := range r.channels.Lock() {
 		id := chDesc.ID
 		if _, ok := channels[id]; ok {

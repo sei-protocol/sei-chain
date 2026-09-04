@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/alitto/pond"
-	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -123,7 +122,7 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 	if elapsed > slowLoadThreshold {
 		logger.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
 	}
-	slices.Sort(treeNames)
+	sort.Strings(treeNames)
 
 	trees := make([]NamedTree, len(treeNames))
 	treesByName := make(map[string]int, len(trees))
@@ -247,6 +246,15 @@ func (t *MultiTree) apply(entry proto.ChangelogEntry) error {
 }
 
 // ApplyUpgrades store name upgrades
+func indexNamedTree(trees []NamedTree, name string) int {
+	for i, tree := range trees {
+		if tree.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	if len(upgrades) == 0 {
 		return nil
@@ -257,9 +265,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	for _, upgrade := range upgrades {
 		switch {
 		case upgrade.Delete:
-			i := slices.IndexFunc(t.trees, func(entry NamedTree) bool {
-				return entry.Name == upgrade.Name
-			})
+			i := indexNamedTree(t.trees, upgrade.Name)
 			if i < 0 {
 				return fmt.Errorf("unknown tree name %s", upgrade.Name)
 			}
@@ -268,9 +274,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			t.trees = t.trees[:len(t.trees)-1]
 		case upgrade.RenameFrom != "":
 			// rename tree
-			i := slices.IndexFunc(t.trees, func(entry NamedTree) bool {
-				return entry.Name == upgrade.RenameFrom
-			})
+			i := indexNamedTree(t.trees, upgrade.RenameFrom)
 			if i < 0 {
 				return fmt.Errorf("unknown tree name %s", upgrade.RenameFrom)
 			}

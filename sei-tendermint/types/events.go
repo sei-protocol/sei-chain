@@ -141,7 +141,8 @@ func (EventDataNewBlock) TypeTag() string { return "tendermint/event/NewBlock_ne
 
 // ABCIEvents implements the eventlog.ABCIEventer interface.
 func (e EventDataNewBlock) ABCIEvents() []abci.Event {
-	base := []abci.Event{eventWithAttr(BlockHeightKey, fmt.Sprint(e.Block.Height))}
+	base := make([]abci.Event, 1, 1+len(e.ResultFinalizeBlock.Events))
+	base[0] = eventWithAttr(BlockHeightKey, fmt.Sprint(e.Block.Height))
 	return append(base, e.ResultFinalizeBlock.Events...)
 }
 
@@ -251,7 +252,8 @@ func (EventDataNewBlockHeader) TypeTag() string { return "tendermint/event/NewBl
 
 // ABCIEvents implements the eventlog.ABCIEventer interface.
 func (e EventDataNewBlockHeader) ABCIEvents() []abci.Event {
-	base := []abci.Event{eventWithAttr(BlockHeightKey, fmt.Sprint(e.Header.Height))}
+	base := make([]abci.Event, 1, 1+len(e.ResultFinalizeBlock.Events))
+	base[0] = eventWithAttr(BlockHeightKey, fmt.Sprint(e.Header.Height))
 	return append(base, e.ResultFinalizeBlock.Events...)
 }
 
@@ -282,10 +284,9 @@ func (EventDataTx) TypeTag() string { return "tendermint/event/Tx_new" }
 
 // ABCIEvents implements the eventlog.ABCIEventer interface.
 func (e EventDataTx) ABCIEvents() []abci.Event {
-	base := []abci.Event{
-		eventWithAttr(TxHashKey, fmt.Sprintf("%X", Tx(e.Tx).Hash())),
-		eventWithAttr(TxHeightKey, fmt.Sprintf("%d", e.Height)),
-	}
+	base := make([]abci.Event, 2, 2+len(e.Result.Events))
+	base[0] = eventWithAttr(TxHashKey, fmt.Sprintf("%X", Tx(e.Tx).Hash()))
+	base[1] = eventWithAttr(TxHeightKey, fmt.Sprintf("%d", e.Height))
 	return append(base, e.Result.Events...)
 }
 

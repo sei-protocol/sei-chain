@@ -83,12 +83,12 @@ func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteC
 	}
 	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
 	if err != nil {
-		return nil, sdkerrors.Wrap(err, "contract")
+		return nil, sdkerrors.Wrap(err, contractLabel)
 	}
 	defer metrics.MeasureSinceWithLabels(
-		[]string{"wasmd", "execute", "contract", "latency"},
+		[]string{"wasmd", "execute", contractLabel, "latency"},
 		time.Now(),
-		[]metrics.Label{{Name: "contract", Value: contractAddr.String()}},
+		[]metrics.Label{{Name: contractLabel, Value: contractAddr.String()}},
 	)
 
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
@@ -115,7 +115,7 @@ func (m msgServer) MigrateContract(goCtx context.Context, msg *types.MsgMigrateC
 	}
 	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
 	if err != nil {
-		return nil, sdkerrors.Wrap(err, "contract")
+		return nil, sdkerrors.Wrap(err, contractLabel)
 	}
 
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
@@ -142,7 +142,7 @@ func (m msgServer) UpdateAdmin(goCtx context.Context, msg *types.MsgUpdateAdmin)
 	}
 	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
 	if err != nil {
-		return nil, sdkerrors.Wrap(err, "contract")
+		return nil, sdkerrors.Wrap(err, contractLabel)
 	}
 	newAdminAddr, err := sdk.AccAddressFromBech32(msg.NewAdmin)
 	if err != nil {
@@ -170,7 +170,7 @@ func (m msgServer) ClearAdmin(goCtx context.Context, msg *types.MsgClearAdmin) (
 	}
 	contractAddr, err := sdk.AccAddressFromBech32(msg.Contract)
 	if err != nil {
-		return nil, sdkerrors.Wrap(err, "contract")
+		return nil, sdkerrors.Wrap(err, contractLabel)
 	}
 
 	ctx.EventManager().EmitEvent(sdk.NewEvent(

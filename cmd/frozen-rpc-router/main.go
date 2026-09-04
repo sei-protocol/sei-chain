@@ -49,7 +49,7 @@ func run() error {
 	defer stop()
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("frozen RPC router listening on %s", cfg.listenAddress)
+		log.Printf("frozen RPC router listening on %s", cfg.listenAddress) //nolint:gosec // listenAddress is trusted local process configuration.
 		serveErr <- server.ListenAndServe()
 	}()
 

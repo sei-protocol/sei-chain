@@ -6,6 +6,7 @@ import (
 	"math/big"
 )
 
+//nolint:staticcheck // This versioned precompile must preserve its historical consensus verification behavior.
 func newPublicKey(x, y *big.Int) *ecdsa.PublicKey {
 	// Check if the given coordinates are valid
 	if x == nil || y == nil || !elliptic.P256().IsOnCurve(x, y) {

@@ -19,6 +19,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
+const (
+	jsonOutputCase          = "json output"
+	withoutProposalIDCase   = "without proposal id"
+	invalidProposalVoteCase = "vote for invalid proposal"
+	yesVote                 = "yes"
+)
+
 type IntegrationTestSuite struct {
 	suite.Suite
 
@@ -49,7 +56,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	s.Require().NoError(err)
 
 	// vote for proposal
-	_, err = MsgVote(val.ClientCtx, val.Address.String(), "1", "yes")
+	_, err = MsgVote(val.ClientCtx, val.Address.String(), "1", yesVote)
 	s.Require().NoError(err)
 
 	// create a proposal without deposit
@@ -86,7 +93,7 @@ func (s *IntegrationTestSuite) TestCmdParams() {
 		expectedOutput string
 	}{
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{fmt.Sprintf("--%s=json", tmcli.OutputFlag)},
 			`{"voting_params":{"voting_period":"172800000000000"},"tally_params":{"quorum":"0.334000000000000000","threshold":"0.500000000000000000","veto_threshold":"0.334000000000000000"},"deposit_params":{"min_deposit":[{"denom":"usei","amount":"10000000"}],"max_deposit_period":"172800000000000"}, "min_expedited_deposit":[{"denom":"usei","amount":"20000000"}]}`,
 		},
@@ -184,7 +191,7 @@ func (s *IntegrationTestSuite) TestCmdProposer() {
 		expectedOutput string
 	}{
 		{
-			"without proposal id",
+			withoutProposalIDCase,
 			[]string{
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -192,7 +199,7 @@ func (s *IntegrationTestSuite) TestCmdProposer() {
 			``,
 		},
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{
 				"1",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -230,7 +237,7 @@ func (s *IntegrationTestSuite) TestCmdTally() {
 		expectedOutput types.TallyResult
 	}{
 		{
-			"without proposal id",
+			withoutProposalIDCase,
 			[]string{
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -238,7 +245,7 @@ func (s *IntegrationTestSuite) TestCmdTally() {
 			types.TallyResult{},
 		},
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{
 				"2",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -247,7 +254,7 @@ func (s *IntegrationTestSuite) TestCmdTally() {
 			types.NewTallyResult(sdk.NewInt(0), sdk.NewInt(0), sdk.NewInt(0), sdk.NewInt(0)),
 		},
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{
 				"1",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -574,7 +581,7 @@ func (s *IntegrationTestSuite) TestNewCmdDeposit() {
 		expectedCode uint32
 	}{
 		{
-			"without proposal id",
+			withoutProposalIDCase,
 			[]string{
 				sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(10)).String(), // 10stake
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -663,7 +670,7 @@ func (s *IntegrationTestSuite) TestCmdQueryVotes() {
 			true,
 		},
 		{
-			"vote for invalid proposal",
+			invalidProposalVoteCase,
 			[]string{
 				"1",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -787,10 +794,10 @@ func (s *IntegrationTestSuite) TestNewCmdVote() {
 			true, 0,
 		},
 		{
-			"vote for invalid proposal",
+			invalidProposalVoteCase,
 			[]string{
 				"10",
-				"yes",
+				yesVote,
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -802,7 +809,7 @@ func (s *IntegrationTestSuite) TestNewCmdVote() {
 			"valid vote",
 			[]string{
 				"1",
-				"yes",
+				yesVote,
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -847,10 +854,10 @@ func (s *IntegrationTestSuite) TestNewCmdWeightedVote() {
 			true, 0,
 		},
 		{
-			"vote for invalid proposal",
+			invalidProposalVoteCase,
 			[]string{
 				"10",
-				"yes",
+				yesVote,
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -862,7 +869,7 @@ func (s *IntegrationTestSuite) TestNewCmdWeightedVote() {
 			"valid vote",
 			[]string{
 				"1",
-				"yes",
+				yesVote,
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),

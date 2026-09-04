@@ -32,7 +32,7 @@ func cw20Initializer(mnemonic string, pointer bool) func(ctx sdk.Context, a *app
 		}
 		contractAddr, _, err := a.EvmKeeper.WasmKeeper().Instantiate(ctx, codeID, creator, creator,
 			[]byte(fmt.Sprintf("{\"name\":\"test\",\"symbol\":\"test\",\"decimals\":6,\"initial_balances\":[{\"address\":\"%s\",\"amount\":\"1000000000\"}]}",
-				creator.String())), "test", sdk.NewCoins())
+				creator.String())), mockChainID, sdk.NewCoins())
 		if err != nil {
 			panic(err)
 		}
@@ -42,7 +42,7 @@ func cw20Initializer(mnemonic string, pointer bool) func(ctx sdk.Context, a *app
 		if pointer {
 			// Upsert writes via StateDB; Finalize so pointer registry persists.
 			err = a.EvmKeeper.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-				_, err := a.EvmKeeper.UpsertERCCW20Pointer(ctx, e, contractAddr.String(), utils.ERCMetadata{Name: "test", Symbol: "test"})
+				_, err := a.EvmKeeper.UpsertERCCW20Pointer(ctx, e, contractAddr.String(), utils.ERCMetadata{Name: mockChainID, Symbol: mockChainID})
 				return err
 			}, func(step, msg string) {
 				panic(fmt.Sprintf("UpsertERCCW20Pointer %s: %s", step, msg))
@@ -65,7 +65,7 @@ func cwIterInitializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
 		if err != nil {
 			panic(err)
 		}
-		contractAddr, _, err := a.EvmKeeper.WasmKeeper().Instantiate(ctx, codeID, creator, creator, []byte("{}"), "test", sdk.NewCoins())
+		contractAddr, _, err := a.EvmKeeper.WasmKeeper().Instantiate(ctx, codeID, creator, creator, []byte("{}"), mockChainID, sdk.NewCoins())
 		if err != nil {
 			panic(err)
 		}

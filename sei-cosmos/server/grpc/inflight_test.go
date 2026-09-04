@@ -343,7 +343,7 @@ func TestStartGRPCServer_ConnectionsPerIPCapRefusesExcess(t *testing.T) {
 
 	// Closing a connection returns its slot.
 	require.NoError(t, held.Close())
-	requireConnAlive(t, dialRaw(t, server.addr))
+	requireEventuallyConnAlive(t, server.addr)
 }
 
 // TestStartGRPCServer_ConnectionsPerIPCapAppliesWithRateLimitingDisabled pins
@@ -391,7 +391,7 @@ func TestStartGRPCWeb_ConnectionsPerIPCapRefusesExcess(t *testing.T) {
 
 	// Closing a connection returns its slot on this listener too.
 	require.NoError(t, held.Close())
-	requireConnAlive(t, dialRaw(t, webAddr))
+	requireEventuallyConnAlive(t, webAddr)
 }
 
 // connRejectedCountsByPlane returns the connection-rejection counter's value per
@@ -443,4 +443,26 @@ func requireConnAlive(t *testing.T, conn net.Conn) {
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
 	_, err := conn.Read(make([]byte, 1))
 	require.NotErrorIs(t, err, io.EOF)
+}
+
+// requireEventuallyConnAlive requires addr to accept and retain a connection within five seconds.
+func requireEventuallyConnAlive(t *testing.T, addr string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err != nil {
+			return false
+		}
+		defer conn.Close()
+
+		if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			return false
+		}
+		_, err = conn.Read(make([]byte, 1))
+		if err == nil {
+			return true
+		}
+		netErr, ok := err.(net.Error)
+		return ok && netErr.Timeout()
+	}, 5*time.Second, 10*time.Millisecond)
 }

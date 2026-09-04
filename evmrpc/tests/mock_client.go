@@ -24,6 +24,10 @@ import (
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 )
 
+const (
+	mockChainID = "test"
+)
+
 type MockClient struct {
 	rpcclient.Client
 	blocks           [][][]byte
@@ -231,7 +235,7 @@ func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.Res
 }
 
 func mockHash(height int64, prefix int64) tmbytes.HexBytes {
-	heightBz, prefixBz := make([]byte, 8), make([]byte, 8)
+	heightBz, prefixBz := make([]byte, 8), make([]byte, 8, 16)
 	binary.BigEndian.PutUint64(heightBz, uint64(height)) //nolint:gosec
 	binary.BigEndian.PutUint64(prefixBz, uint64(prefix)) //nolint:gosec
 	return tmbytes.HexBytes(append(prefixBz, heightBz...))
@@ -239,7 +243,7 @@ func mockHash(height int64, prefix int64) tmbytes.HexBytes {
 
 func mockBlockHeader(height int64) *tmtypes.Header {
 	header := tmtypes.Header{
-		ChainID:            "test",
+		ChainID:            mockChainID,
 		Height:             height,
 		Time:               time.Unix(1696941649+height, 0),
 		DataHash:           mockHash(height, 1),

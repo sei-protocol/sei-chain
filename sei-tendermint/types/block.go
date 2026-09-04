@@ -778,6 +778,9 @@ func (cs *CommitSig) ToProto() *tmproto.CommitSig {
 // FromProto sets a protobuf CommitSig to the given pointer.
 // It returns an error if the CommitSig is invalid.
 func (cs *CommitSig) FromProto(csp tmproto.CommitSig) error {
+	if csp.BlockIdFlag < tmproto.BlockIDFlagAbsent || csp.BlockIdFlag > tmproto.BlockIDFlagNil {
+		return fmt.Errorf("invalid block ID flag: %d", csp.BlockIdFlag)
+	}
 	cs.BlockIDFlag = BlockIDFlag(csp.BlockIdFlag)
 	cs.ValidatorAddress = csp.ValidatorAddress
 	cs.Timestamp = csp.Timestamp

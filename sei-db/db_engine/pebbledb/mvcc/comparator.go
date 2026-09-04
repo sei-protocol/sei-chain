@@ -258,11 +258,7 @@ func MVCCEncodeAscending(key []byte, version int64) (dst []byte) {
 // versions sort before older versions for the same logical key.
 func encodeUint64Descending(dst []byte, v uint64) []byte {
 	v = ^v
-	return append(
-		dst,
-		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
-		byte(v>>24), byte(v>>16), byte(v>>8), byte(v),
-	)
+	return binary.BigEndian.AppendUint64(dst, v)
 }
 
 // decodeUint64Descending decodes a descending-encoded int64 from the input
@@ -285,11 +281,7 @@ func decodeUint64Descending(b []byte) (int64, error) {
 // representation. The bytes are appended to the supplied buffer and
 // the final buffer is returned.
 func encodeUint64Ascending(dst []byte, v uint64) []byte {
-	return append(
-		dst,
-		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
-		byte(v>>24), byte(v>>16), byte(v>>8), byte(v),
-	)
+	return binary.BigEndian.AppendUint64(dst, v)
 }
 
 // decodeUint64Ascending decodes a int64 from the input buffer, treating

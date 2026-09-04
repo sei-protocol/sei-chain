@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	jsonRPCParseError       = -32700
-	jsonRPCInvalidRequest   = -32600
-	jsonRPCUnsupportedError = -32000
-	jsonRPCUpstreamError    = -32001
-	rpcRouteHeader          = "Sei-RPC-Route"
+	jsonRPCParseError            = -32700
+	jsonRPCInvalidRequest        = -32600
+	jsonRPCUnsupportedError      = -32000
+	jsonRPCInvalidRequestMessage = "invalid request"
+	jsonRPCUpstreamError         = -32001
+	rpcRouteHeader               = "Sei-RPC-Route"
 )
 
 var blockParameterIndexes = map[string]int{
@@ -201,14 +202,14 @@ func (r *router) serveSingle(w http.ResponseWriter, request *http.Request, body 
 	call, err := decodeCall(body)
 	if err != nil {
 		if json.Valid(body) {
-			writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"})
+			writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage})
 		} else {
 			writeRPCError(w, nil, rpcError{Code: jsonRPCParseError, Message: "parse error"})
 		}
 		return
 	}
 	if !call.isValid {
-		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"})
+		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage})
 		return
 	}
 	target, routingErr := r.route(call)
@@ -236,7 +237,7 @@ func (r *router) serveBatch(w http.ResponseWriter, request *http.Request, body [
 		return
 	}
 	if len(calls) == 0 {
-		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"})
+		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage})
 		return
 	}
 
@@ -345,7 +346,7 @@ func (r *router) groupBatch(calls []rpcCall) ([]*batchGroup, []json.RawMessage) 
 	localResponses := make([]json.RawMessage, 0)
 	for _, call := range calls {
 		if !call.isValid {
-			localResponses = append(localResponses, marshalRPCError(nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"}))
+			localResponses = append(localResponses, marshalRPCError(nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage}))
 			continue
 		}
 		target, routingErr := r.route(call)
@@ -585,7 +586,7 @@ func (r *router) proxy(w http.ResponseWriter, request *http.Request, target *ups
 	if err != nil {
 		return err
 	}
-	response, err := r.client.Do(upstreamRequest)
+	response, err := r.client.Do(upstreamRequest) //nolint:gosec // upstream URLs come from operator configuration; request data only supplies the proxied path and query.
 	if err != nil {
 		return err
 	}
@@ -610,7 +611,7 @@ func (r *router) callUpstream(request *http.Request, target *upstream, body []by
 	if err != nil {
 		return nil, err
 	}
-	response, err := r.client.Do(upstreamRequest)
+	response, err := r.client.Do(upstreamRequest) //nolint:gosec // upstream URLs come from operator configuration; request data only supplies the proxied path and query.
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +628,7 @@ func (r *router) callUpstream(request *http.Request, target *upstream, body []by
 
 func (r *router) newUpstreamRequest(request *http.Request, target *upstream, body []byte) (*http.Request, error) {
 	endpoint := joinedURL(target.endpoint, request.URL)
-	upstreamRequest, err := http.NewRequestWithContext(request.Context(), request.Method, endpoint.String(), bytes.NewReader(body))
+	upstreamRequest, err := http.NewRequestWithContext(request.Context(), request.Method, endpoint.String(), bytes.NewReader(body)) //nolint:gosec // endpoint is rooted at an operator-configured upstream URL.
 	if err != nil {
 		return nil, err
 	}

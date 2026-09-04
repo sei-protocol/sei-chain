@@ -128,7 +128,7 @@ func ValidVoteOption(option VoteOption) bool {
 
 // Marshal needed for protobuf compatibility.
 func (vo VoteOption) Marshal() ([]byte, error) {
-	return []byte{byte(vo)}, nil
+	return []byte{byte(vo)}, nil //nolint:gosec // VoteOption is a protobuf enum whose defined values fit in one byte.
 }
 
 // Unmarshal needed for protobuf compatibility.
@@ -143,6 +143,6 @@ func (vo VoteOption) Format(s fmt.State, verb rune) {
 	case 's':
 		_, _ = s.Write([]byte(vo.String()))
 	default:
-		_, _ = fmt.Fprintf(s, "%v", byte(vo))
+		_, _ = fmt.Fprintf(s, "%v", byte(vo)) //nolint:gosec // VoteOption is a protobuf enum whose defined values fit in one byte.
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -88,12 +87,15 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 }
 
 func (c *LoadTestClient) SetValidators() {
-	if slices.Contains(c.LoadTestConfig.MessageTypes, "staking") {
-		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
-		if err != nil {
-			panic(err)
+	for _, messageType := range c.LoadTestConfig.MessageTypes {
+		if messageType == "staking" {
+			resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
+			if err != nil {
+				panic(err)
+			}
+			c.Validators = resp.Validators
+			return
 		}
-		c.Validators = resp.Validators
 	}
 }
 

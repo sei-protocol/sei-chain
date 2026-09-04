@@ -18,6 +18,14 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
+const (
+	jsonOutputCase       = "json output"
+	textOutputCase       = "text output"
+	invalidValidatorCase = "invalid validator address"
+	invalidAddress       = "foo"
+	validTransactionCase = "valid transaction"
+)
+
 type IntegrationTestSuite struct {
 	suite.Suite
 
@@ -66,12 +74,12 @@ func (s *IntegrationTestSuite) TestGetCmdQueryParams() {
 		expectedOutput string
 	}{
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{fmt.Sprintf("--%s=json", tmcli.OutputFlag)},
 			`{"community_tax":"0.020000000000000000","base_proposer_reward":"0.010000000000000000","bonus_proposer_reward":"0.040000000000000000","withdraw_addr_enabled":true}`,
 		},
 		{
-			"text output",
+			textOutputCase,
 			[]string{fmt.Sprintf("--%s=text", tmcli.OutputFlag)},
 			`base_proposer_reward: "0.010000000000000000"
 bonus_proposer_reward: "0.040000000000000000"
@@ -107,16 +115,16 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorOutstandingRewards() {
 		expectedOutput string
 	}{
 		{
-			"invalid validator address",
+			invalidValidatorCase,
 			[]string{
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
-				"foo",
+				invalidAddress,
 			},
 			true,
 			"",
 		},
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
 				sdk.ValAddress(val.Address).String(),
@@ -126,7 +134,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorOutstandingRewards() {
 			`{"rewards":[{"denom":"usei","amount":"1164.240000000000000000"}]}`,
 		},
 		{
-			"text output",
+			textOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=text", tmcli.OutputFlag),
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
@@ -170,16 +178,16 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorCommission() {
 		expectedOutput string
 	}{
 		{
-			"invalid validator address",
+			invalidValidatorCase,
 			[]string{
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
-				"foo",
+				invalidAddress,
 			},
 			true,
 			"",
 		},
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
 				sdk.ValAddress(val.Address).String(),
@@ -189,7 +197,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorCommission() {
 			`{"commission":[{"denom":"usei","amount":"464.520000000000000000"}]}`,
 		},
 		{
-			"text output",
+			textOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=text", tmcli.OutputFlag),
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
@@ -233,10 +241,10 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorSlashes() {
 		expectedOutput string
 	}{
 		{
-			"invalid validator address",
+			invalidValidatorCase,
 			[]string{
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
-				"foo", "1", "3",
+				invalidAddress, "1", "3",
 			},
 			true,
 			"",
@@ -260,7 +268,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorSlashes() {
 			"",
 		},
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
 				sdk.ValAddress(val.Address).String(), "1", "3",
@@ -270,7 +278,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorSlashes() {
 			"{\"slashes\":[],\"pagination\":{\"next_key\":null,\"total\":\"0\"}}",
 		},
 		{
-			"text output",
+			textOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=text", tmcli.OutputFlag),
 				fmt.Sprintf("--%s=3", flags.FlagHeight),
@@ -317,22 +325,22 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDelegatorRewards() {
 			"invalid delegator address",
 			[]string{
 				fmt.Sprintf("--%s=5", flags.FlagHeight),
-				"foo", valAddr.String(),
+				invalidAddress, valAddr.String(),
 			},
 			true,
 			"",
 		},
 		{
-			"invalid validator address",
+			invalidValidatorCase,
 			[]string{
 				fmt.Sprintf("--%s=5", flags.FlagHeight),
-				addr.String(), "foo",
+				addr.String(), invalidAddress,
 			},
 			true,
 			"",
 		},
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=5", flags.FlagHeight),
 				addr.String(),
@@ -352,7 +360,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDelegatorRewards() {
 			`{"rewards":[{"denom":"usei","amount":"387.100000000000000000"}]}`,
 		},
 		{
-			"text output",
+			textOutputCase,
 			[]string{
 				fmt.Sprintf("--%s=text", tmcli.OutputFlag),
 				fmt.Sprintf("--%s=5", flags.FlagHeight),
@@ -412,12 +420,12 @@ func (s *IntegrationTestSuite) TestGetCmdQueryCommunityPool() {
 		expectedOutput string
 	}{
 		{
-			"json output",
+			jsonOutputCase,
 			[]string{fmt.Sprintf("--%s=3", flags.FlagHeight), fmt.Sprintf("--%s=json", tmcli.OutputFlag)},
 			`{"pool":[{"denom":"usei","amount":"4.740000000000000000"}]}`,
 		},
 		{
-			"text output",
+			textOutputCase,
 			[]string{fmt.Sprintf("--%s=text", tmcli.OutputFlag), fmt.Sprintf("--%s=3", flags.FlagHeight)},
 			`pool:
 - amount: "4.740000000000000000"
@@ -451,7 +459,7 @@ func (s *IntegrationTestSuite) TestNewWithdrawRewardsCmd() {
 		respType     proto.Message
 	}{
 		{
-			"invalid validator address",
+			invalidValidatorCase,
 			val.Address,
 			[]string{
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -462,7 +470,7 @@ func (s *IntegrationTestSuite) TestNewWithdrawRewardsCmd() {
 			true, 0, nil,
 		},
 		{
-			"valid transaction",
+			validTransactionCase,
 			sdk.ValAddress(val.Address),
 			[]string{
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -527,7 +535,7 @@ func (s *IntegrationTestSuite) TestNewWithdrawAllRewardsCmd() {
 			true, 0, nil,
 		},
 		{
-			"valid transaction",
+			validTransactionCase,
 			[]string{
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
@@ -572,7 +580,7 @@ func (s *IntegrationTestSuite) TestNewSetWithdrawAddrCmd() {
 		{
 			"invalid withdraw address",
 			[]string{
-				"foo",
+				invalidAddress,
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -581,7 +589,7 @@ func (s *IntegrationTestSuite) TestNewSetWithdrawAddrCmd() {
 			true, 0, nil,
 		},
 		{
-			"valid transaction",
+			validTransactionCase,
 			[]string{
 				val.Address.String(),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -636,7 +644,7 @@ func (s *IntegrationTestSuite) TestNewFundCommunityPoolCmd() {
 			true, 0, nil,
 		},
 		{
-			"valid transaction",
+			validTransactionCase,
 			[]string{
 				sdk.NewCoins(sdk.NewCoin(s.cfg.BondDenom, sdk.NewInt(5431))).String(),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -674,7 +682,7 @@ func (s *IntegrationTestSuite) TestGetCmdSubmitProposal() {
 	invalidProp := `{
   "title": "",
   "description": "Pay me some Atoms!",
-  "recipient": "foo",
+  "recipient": invalidAddress,
   "amount": "-343foocoin",
   "deposit": -324foocoin
 }`
@@ -709,7 +717,7 @@ func (s *IntegrationTestSuite) TestGetCmdSubmitProposal() {
 			true, 0, nil,
 		},
 		{
-			"valid transaction",
+			validTransactionCase,
 			[]string{
 				validPropFile.Name(),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),

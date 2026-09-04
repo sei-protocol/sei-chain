@@ -317,7 +317,7 @@ func TestWriteUserDataUsesSelectedSSHUser(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Contains(t, string(data), "usermod -aG docker ec2-user")
-	require.Contains(t, string(data), "go1.25.6")
+	require.Contains(t, string(data), "go1.27.1")
 	require.Contains(t, string(data), "/var/lib/autobahn-e2e-ready")
 }
 

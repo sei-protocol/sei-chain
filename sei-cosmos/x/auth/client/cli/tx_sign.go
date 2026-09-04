@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	broadcastModeValues = "block|sync|async"
 	flagMultisig        = "multisig"
 	flagOverwrite       = "overwrite"
 	flagSigOnly         = "signature-only"
@@ -291,7 +292,7 @@ func makeSignCmd() func(cmd *cobra.Command, args []string) error {
 			}
 			req := BroadcastReq{
 				Tx:   stdTx,
-				Mode: "block|sync|async",
+				Mode: broadcastModeValues,
 			}
 			json, err = clientCtx.LegacyAmino.MarshalAsJSON(req)
 			if err != nil {

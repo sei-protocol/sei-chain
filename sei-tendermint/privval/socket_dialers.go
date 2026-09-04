@@ -9,6 +9,8 @@ import (
 	tmnet "github.com/sei-protocol/sei-chain/sei-tendermint/libs/net"
 )
 
+const unixNetwork = "unix"
+
 // Socket errors.
 var (
 	ErrDialRetryMax = errors.New("dialed maximum retries")
@@ -36,7 +38,7 @@ func DialTCPFn(addr string, timeoutReadWrite time.Duration, privKey crypto.PrivK
 // DialUnixFn dials the given unix socket.
 func DialUnixFn(addr string) SocketDialer {
 	return func() (net.Conn, error) {
-		unixAddr := &net.UnixAddr{Name: addr, Net: "unix"}
-		return net.DialUnix("unix", nil, unixAddr)
+		unixAddr := &net.UnixAddr{Name: addr, Net: unixNetwork}
+		return net.DialUnix(unixNetwork, nil, unixAddr)
 	}
 }

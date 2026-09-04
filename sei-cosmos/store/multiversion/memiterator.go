@@ -96,11 +96,10 @@ func (store *Store) newMVSValidationIterator(
 }
 
 func (vi *validationIterator) hasCurrentValue(key []byte) bool {
-	strKey := string(key)
-	if _, ok := vi.writeset[strKey]; ok {
+	if _, ok := vi.writeset[string(key)]; ok {
 		return true
 	}
-	if _, ok := vi.readCache[strKey]; ok {
+	if _, ok := vi.readCache[string(key)]; ok {
 		return true
 	}
 	return vi.mvStore.GetLatestBeforeIndex(vi.index, key) != nil

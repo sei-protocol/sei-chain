@@ -10,12 +10,21 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+const (
+	sourceFlagName      = "src"
+	sourceFlagUsage     = "Source paths where the DB data is found, at least one is required."
+	rebaseSourceUsage   = "Source paths where the data is found, at least one is required."
+	destinationFlagName = "dst"
+	quietFlagName       = "quiet"
+	quietFlagUsage      = "Reduces the verbosity of the output."
+)
+
 // TODO (cody.littley): convert all commands to use flags stored in these variables
 var (
 	srcFlag = &cli.StringSliceFlag{
-		Name:     "src",
+		Name:     sourceFlagName,
 		Aliases:  []string{"s"},
-		Usage:    "Source paths where the DB data is found, at least one is required.",
+		Usage:    sourceFlagUsage,
 		Required: true,
 	}
 	forceFlag = &cli.BoolFlag{
@@ -63,9 +72,9 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 				ArgsUsage: "--src <path1> ... --src <pathN>",
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{
-						Name:     "src",
+						Name:     sourceFlagName,
 						Aliases:  []string{"s"},
-						Usage:    "Source paths where the DB data is found, at least one is required.",
+						Usage:    sourceFlagUsage,
 						Required: true,
 					},
 				},
@@ -79,9 +88,9 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 				Args:      true,
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{
-						Name:     "src",
+						Name:     sourceFlagName,
 						Aliases:  []string{"s"},
-						Usage:    "Source paths where the DB data is found, at least one is required.",
+						Usage:    sourceFlagUsage,
 						Required: true,
 					},
 				},
@@ -94,13 +103,13 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 					"--dest <destination-path1> ... --dest <destination-pathN> [--preserve] [--quiet]",
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{
-						Name:     "src",
+						Name:     sourceFlagName,
 						Aliases:  []string{"s"},
-						Usage:    "Source paths where the data is found, at least one is required.",
+						Usage:    rebaseSourceUsage,
 						Required: true,
 					},
 					&cli.StringSliceFlag{
-						Name:     "dst",
+						Name:     destinationFlagName,
 						Aliases:  []string{"d"},
 						Usage:    "Destination paths for the rebased LittDB, at least one is required.",
 						Required: true,
@@ -111,9 +120,9 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 						Usage:   "If enabled, then the old files are not removed.",
 					},
 					&cli.BoolFlag{
-						Name:    "quiet",
+						Name:    quietFlagName,
 						Aliases: []string{"q"},
-						Usage:   "Reduces the verbosity of the output.",
+						Usage:   quietFlagUsage,
 					},
 				},
 				Action: rebaseCommand,
@@ -132,9 +141,9 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 					"[--table <table1> ... --table <tableN>]",
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{
-						Name:     "src",
+						Name:     sourceFlagName,
 						Aliases:  []string{"s"},
-						Usage:    "Source paths where the DB data is found, at least one is required.",
+						Usage:    sourceFlagUsage,
 						Required: true,
 					},
 					&cli.StringSliceFlag{
@@ -162,13 +171,13 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 				Args: true,
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{
-						Name:     "src",
+						Name:     sourceFlagName,
 						Aliases:  []string{"s"},
-						Usage:    "Source paths where the data is found, at least one is required.",
+						Usage:    rebaseSourceUsage,
 						Required: true,
 					},
 					&cli.StringSliceFlag{
-						Name:     "dst",
+						Name:     destinationFlagName,
 						Aliases:  []string{"d"},
 						Usage:    "Remote destination paths, at least one is required.",
 						Required: true,
@@ -192,9 +201,9 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 						Usage:   "If true, do not delete files pushed to the remote host.",
 					},
 					&cli.BoolFlag{
-						Name:    "quiet",
+						Name:    quietFlagName,
 						Aliases: []string{"q"},
-						Usage:   "Reduces the verbosity of the output.",
+						Usage:   quietFlagUsage,
 					},
 					&cli.Uint64Flag{
 						Name:    "threads",
@@ -223,13 +232,13 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 					"<user>@<host>",
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{
-						Name:     "src",
+						Name:     sourceFlagName,
 						Aliases:  []string{"s"},
-						Usage:    "Source paths where the data is found, at least one is required.",
+						Usage:    rebaseSourceUsage,
 						Required: true,
 					},
 					&cli.StringSliceFlag{
-						Name:     "dst",
+						Name:     destinationFlagName,
 						Aliases:  []string{"d"},
 						Usage:    "Remote destination paths, at least one is required.",
 						Required: true,
@@ -253,9 +262,9 @@ func buildCLIParser(logger *slog.Logger) *cli.App {
 						Usage:   "If true, do not delete files pushed to the remote host.",
 					},
 					&cli.BoolFlag{
-						Name:    "quiet",
+						Name:    quietFlagName,
 						Aliases: []string{"q"},
-						Usage:   "Reduces the verbosity of the output.",
+						Usage:   quietFlagUsage,
 					},
 					&cli.Uint64Flag{
 						Name:    "threads",
