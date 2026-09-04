@@ -242,13 +242,20 @@ func (s *StateDB) walHead() (int64, bool, error) {
 }
 
 // RollbackTo puts both halves of state on blockNum, rewinding a half above it and replaying a half
-// below it. blockNum must lie within the WAL's stored range, and rewinding SS needs a snapshot at or
-// below it; a blockNum this cannot reach is an error rather than a shortfall.
+// below it. blockNum must be positive and lie within the WAL's stored range, and rewinding SS needs a
+// snapshot at or below it; a blockNum this cannot reach is an error rather than a shortfall.
 //
 // The state WAL ends at blockNum afterwards, on a handle that replaces the one this opened with, so a
 // reference a caller holds to it is invalid after this call. It must not run once the prune cycle has
 // taken the WAL, which would leave the collector pruning through a closed instance.
 func (s *StateDB) RollbackTo(blockNum int64) error {
+	if blockNum <= 0 {
+		// Neither rewind below can catch this, since each skips a store already at or below the target
+		// and 0 is at or below every version. The steps between them are destructive at 0: the WAL
+		// prune empties the WAL, and the snapshot removal takes every snapshot.
+		return fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is nothing "+
+			"to roll back to", blockNum)
+	}
 	if err := s.rewindSC(blockNum); err != nil {
 		return err
 	}

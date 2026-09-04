@@ -324,6 +324,24 @@ func TestStateDBRollbackToAboveTheWALHeadFails(t *testing.T) {
 	require.ErrorContains(t, manager.StateDB().RollbackTo(5), "left the state commit store on 3")
 }
 
+// A target of 0 has to be refused by RollbackTo itself, because neither rewind it delegates to is
+// reached: each skips a store already at or below the target, and every store is at or below 0.
+//
+// The fixture is the state NewStateDB leaves — SC opened on snapshot 0, replaying nothing, with the WAL
+// holding blocks — so every step between the two rewinds runs. Ungated, the WAL prune empties the WAL,
+// the snapshot removal takes every snapshot, and the landing check passes because both halves really
+// are on 0. The only thing standing between that and a wipe is recoverStores' own target check, and
+// RollbackTo is exported on the StateDB contract.
+func TestStateDBRollbackToZeroIsRefused(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	writeWALOnly(t, manager.StateWAL(), 1, evmBlock(1, 1))
+	require.Zero(t, manager.SC().Version(), "fixture precondition: SC must read as 0 under a populated WAL")
+
+	require.ErrorContains(t, manager.StateDB().RollbackTo(0), "nothing to roll back to")
+
+	requireWALTail(t, manager, 1)
+}
+
 // recoverReceipt rolls the store back through its files, so it runs while the store is closed and a
 // store opened on the far side is what reports the result.
 func TestRecoverReceiptRewindsTheHead(t *testing.T) {
