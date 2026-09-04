@@ -2,6 +2,7 @@ package composite
 
 import (
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"testing"
 
@@ -1217,4 +1218,49 @@ func TestComposite_MigrateBank_RollbackAcrossCompletionBoundary(t *testing.T) {
 	require.Equal(t, target, cs.Version())
 	requireCommitInfoEqual(t, canonicalTarget, cs.LastCommitInfo(),
 		"post-restart commit info across the bank-completion boundary must re-include memiavl")
+}
+
+// TestMigrateEVMBeforeTheBoundaryDrainsTheHashStream pins the drain a committing flatkv needs while it
+// is still outside the AppHash.
+//
+// With the migration paused no block advances the boundary, so no commit info carries evm_lattice — but
+// flatkv commits, and publishes a hash, every block regardless. Left unread the stream fills, publish
+// blocks, and block commit stops for good. The stream is shrunk here so that halt lands within the
+// block count rather than a thousand blocks later.
+func TestMigrateEVMBeforeTheBoundaryDrainsTheHashStream(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = types.MigrateEVM
+	cfg.FlatKVConfig.HashChanSize = 2
+	cfg.FlatKVConfig.FinalizationQueueSize = 1
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
+	require.NoError(t, err)
+	// 0 leaves the migration paused: nothing pulls keys forward, so the boundary metadata that opens the
+	// lattice gate is never written.
+	require.NoError(t, cs.SetMigrationBatchSize(0))
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	require.NoError(t, cs.LoadLatest())
+	defer cs.Close()
+
+	require.NotNil(t, cs.flatKV, "MigrateEVM must allocate a flatkv store")
+
+	const blocks = 16
+	for i := 0; i < blocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte(fmt.Sprintf("evm_%d", i)), Value: []byte{byte(i)}},
+			}}},
+		}))
+		next := cs.Version() + 1
+		require.False(t, containsLatticeStoreInfo(cs.WorkingCommitInfo(next).StoreInfos),
+			"a paused migration must keep evm_lattice out of the AppHash at block %d", next)
+		_, err := cs.Commit(next)
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, int64(blocks), cs.Version())
+	require.False(t, containsLatticeStoreInfo(cs.LastCommitInfo().StoreInfos),
+		"a paused migration must keep evm_lattice out of the AppHash")
 }

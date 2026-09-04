@@ -460,3 +460,46 @@ func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
 	require.Equal(t, wantAccount, gotAccount)
 	require.NoError(t, VerifyLtHash(s3))
 }
+
+// TestReplayDrainsHashStreamPastItsDepth pins the drain that keeps a writable WAL replay from wedging.
+//
+// Replay seals a block per WAL record and every sealed block publishes a hash, but the store is still
+// inside open(), so nothing outside it is reading the stream yet. Left unread, a replay longer than the
+// stream is deep blocks in Offer and never returns.
+func TestReplayDrainsHashStreamPastItsDepth(t *testing.T) {
+	dir := t.TempDir()
+
+	// The WAL is built at the default stream depth: the setup commits have no consumer either, and they
+	// are not what this test is about.
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+
+	const blocks = 24
+	for i := byte(1); i <= blocks; i++ {
+		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
+	}
+	require.Equal(t, int64(blocks), s.Version())
+	expected := append([]byte(nil), rootHash(s)...)
+
+	// Lower the watermark far enough that replay has many more blocks to re-apply than the stream below
+	// can hold.
+	rewindVersionRecords(t, s, 4)
+	require.NoError(t, s.Close())
+
+	replayCfg := config.DefaultTestConfig(t)
+	replayCfg.DataDir = cfg.DataDir
+	replayCfg.HashChanSize = 4
+	replayCfg.FinalizationQueueSize = 2
+
+	reopened, err := newCommitStoreWithWAL(t.Context(), replayCfg)
+	require.NoError(t, err)
+	defer reopened.Close()
+
+	require.NoError(t, reopened.LoadLatest())
+	require.Equal(t, int64(blocks), reopened.Version())
+	require.Equal(t, expected, rootHash(reopened))
+}

@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
+
+// stallReportInterval is how often a publish that the hash stream has no room for reports itself.
+const stallReportInterval = 30 * time.Second
 
 // FinalizationManager records each block's lattice hashes onto that block's own views, in the same
 // atomic batch as the data they describe, off the execution goroutine.
@@ -334,7 +338,42 @@ func (fm *FinalizationManager) drainHashes() {
 func (fm *FinalizationManager) publish(hash *lthash.BlockHash) {
 	select {
 	case fm.publishedHashChan <- hash:
-	case <-fm.ctx.Done():
+		return
+	default:
+	}
+	fm.publishStalled(hash)
+}
+
+// publishStalled publishes a hash the stream had no room for, reporting it every stallReportInterval
+// until it lands or the manager stops.
+//
+// The reporting exists to make misuse of the stream's threading requirement obvious rather than let it
+// deadlock silently. A store that hands out HashChan() needs a consumer: the stream has finite depth,
+// and a full one blocks this goroutine, then the queue behind it, and finally Offer, which stops block
+// commit. Nothing about that halt names its cause — a stalled node presents a stack sitting in Offer,
+// several frames from the channel nobody is reading — and this is the one place that can tell. It
+// repeats where reportingFailed logs once because a stalled publish is a halt rather than a
+// degradation, and whoever investigates arrives long after the first line scrolled away.
+func (fm *FinalizationManager) publishStalled(hash *lthash.BlockHash) {
+	stalledSince := time.Now()
+	ticker := time.NewTicker(stallReportInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case fm.publishedHashChan <- hash:
+			logger.Warn("flatkv hash stream took a stalled block; commits are moving again",
+				"version", hash.BlockNumber, "stalledFor", time.Since(stalledSince))
+			return
+		case <-fm.ctx.Done():
+			return
+		case <-ticker.C:
+			logger.Error("flatkv hash stream is full and nothing is draining it, so block commit has "+
+				"stopped; a store that hands out HashChan() needs a consumer reading it",
+				"version", hash.BlockNumber,
+				"stalledFor", time.Since(stalledSince),
+				"streamDepth", cap(fm.publishedHashChan))
+		}
 	}
 }
 

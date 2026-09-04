@@ -330,8 +330,7 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 	// does. No commit info observed here actually changes — memiavl reports its pre-commit version either
 	// way and a seeded flatkv still hashes to the identity — so this is the rule holding uniformly rather
 	// than a case with a test behind it.
-	cs.refreshLastCommitInfo()
-	return nil
+	return cs.refreshLastCommitInfo()
 }
 
 // LoadVersion implements types.Committer.
@@ -411,8 +410,7 @@ func (cs *CompositeCommitStore) LoadLatest() error {
 	}
 	// After the router, because the gating this reads gets its answer from migration metadata through
 	// the backends the router was just built against.
-	cs.refreshLastCommitInfo()
-	return nil
+	return cs.refreshLastCommitInfo()
 }
 
 // LoadVersionReadOnly returns an isolated read-only composite view at targetVersion (0 = latest). This store
@@ -481,7 +479,9 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	if err := ro.buildRouter(); err != nil {
 		return nil, fmt.Errorf("failed to build router for read-only handle: %w", err)
 	}
-	ro.refreshLastCommitInfo()
+	if err := ro.refreshLastCommitInfo(); err != nil {
+		return nil, fmt.Errorf("failed to build commit info for read-only handle: %w", err)
+	}
 	return ro, nil
 }
 
@@ -820,6 +820,14 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}
+		// Taken whether or not this block's hash reaches the AppHash. shouldAppendLatticeHash answers a
+		// consensus question; taking the hash is a lifecycle obligation of a backend that publishes one.
+		// flatKV's stream has finite depth and blocks commit once full, so a committing flatKV whose
+		// hashes nobody reads halts the node. This is the one place every flatKV block commit passes
+		// through, which is why the obligation is discharged here rather than at the readers below.
+		if _, err := cs.latticeHash(flatkvVersion); err != nil {
+			return 0, fmt.Errorf("failed to obtain flatkv hash for block %d: %w", flatkvVersion, err)
+		}
 	}
 
 	// Reset the per-block migration-advance gate so the next block's
@@ -839,7 +847,9 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 
 	// Every active backend has committed this block and they agree on its height, which is the only
 	// moment their combined commit info describes one block.
-	cs.refreshLastCommitInfo()
+	if err := cs.refreshLastCommitInfo(); err != nil {
+		return 0, fmt.Errorf("failed to refresh commit info after committing block %d: %w", version, err)
+	}
 
 	committed := cosmosVersion
 	if committed < 0 {
@@ -1132,14 +1142,21 @@ func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitIn
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		return cs.appendEvmLatticeHash(ci, cs.mustLatticeHash(version))
+		hash, err := cs.latticeHash(version)
+		if err != nil {
+			// types.Committer pins this signature, so this is the one lattice-hash caller with nowhere
+			// to return to. A store that cannot produce a hash cannot produce a trustworthy one either,
+			// and letting the chain proceed on a stale hash is the worse failure.
+			panic(fmt.Sprintf("composite: failed to obtain flatkv hash for block %d: %v", version, err))
+		}
+		return cs.appendEvmLatticeHash(ci, hash)
 	}
 
 	return ci
 }
 
 // latticeHash returns flatKV's lattice hash for the height the chain is building, sealing that block
-// first if it is still being applied.
+// first if it is still being applied. It returns nil when no flatKV backend is configured.
 //
 // Cosmos asks for a block's hash before it calls Commit, and flatKV has a hash only once the block is
 // committed, so the commit happens here; the Commit that follows finds the block already committed and
@@ -1155,22 +1172,13 @@ func (cs *CompositeCommitStore) WorkingCommitInfo(version int64) *proto.CommitIn
 // Post-Cosmos this goes away along with rootmulti: a single call will supply a block's writes and
 // commit them, and nothing will ask for a hash mid-block.
 func (cs *CompositeCommitStore) latticeHash(version int64) ([]byte, error) {
+	if cs.flatKV == nil {
+		return nil, nil
+	}
 	if cs.flatKVHashes == nil {
 		cs.flatKVHashes = newFlatKVHashCache()
 	}
 	return cs.flatKVHashes.hashAtVersion(cs.flatKV, version)
-}
-
-// mustLatticeHash is latticeHash for the Cosmos paths that cannot carry an error.
-//
-// Consensus-critical: a store that cannot produce a hash cannot produce a trustworthy one either, and
-// returning a stale hash would let the chain proceed on it.
-func (cs *CompositeCommitStore) mustLatticeHash(version int64) []byte {
-	hash, err := cs.latticeHash(version)
-	if err != nil {
-		panic(fmt.Sprintf("composite: failed to obtain flatkv hash for block %d: %v", version, err))
-	}
-	return hash
 }
 
 // LastCommitInfo returns the commit info for the block the backends last committed, or nil before the
@@ -1184,7 +1192,9 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 // Every point that moves the committed height must call this: Commit, the two load paths, Rollback and
 // SetInitialVersion. The stored value is the only thing LastCommitInfo reports, so a mutation that
 // skips the call serves a stale block until the next one that does not.
-func (cs *CompositeCommitStore) refreshLastCommitInfo() {
+//
+// It reports the failure to obtain flatKV's hash, which leaves the stored commit info untouched.
+func (cs *CompositeCommitStore) refreshLastCommitInfo() error {
 	var ci *proto.CommitInfo
 	if cs.shouldIncludeMemiavlInfos() {
 		ci = cs.memIAVL.LastCommitInfo()
@@ -1195,11 +1205,16 @@ func (cs *CompositeCommitStore) refreshLastCommitInfo() {
 	}
 
 	if cs.shouldAppendLatticeHash() {
-		ci = cs.appendEvmLatticeHash(ci, cs.mustLatticeHash(ci.Version))
+		hash, err := cs.latticeHash(ci.Version)
+		if err != nil {
+			return fmt.Errorf("obtain flatkv hash for block %d: %w", ci.Version, err)
+		}
+		ci = cs.appendEvmLatticeHash(ci, hash)
 	}
 	// Cloned because this is held until the next refresh, and memiavl's hashes point into a snapshot
 	// mapping it is free to drop before then.
 	cs.lastCommitInfo = cloneCommitInfo(ci)
+	return nil
 }
 
 // cloneCommitInfo deep-copies ci, hashes included, so the result survives a commit or a reopen of the
@@ -1363,9 +1378,7 @@ func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 
 	// After the latch resets above, so the rebuilt info reflects the rolled-back metadata rather than
 	// the gating that was latched at the pre-rollback height.
-	cs.refreshLastCommitInfo()
-
-	return nil
+	return cs.refreshLastCommitInfo()
 }
 
 // exportNeedsMetadataGating reports whether the configured mode allows
