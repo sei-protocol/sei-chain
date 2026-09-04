@@ -981,23 +981,28 @@ func (c *fixedBlockClient) Validators(context.Context, *int64, *int, *int) (*cor
 }
 
 func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.T) {
-	const activationHeight = int64(200)
+	const (
+		v67UpgradeHeight = int64(200)
+		v68UpgradeHeight = int64(201)
+	)
 
 	testApp := app.Setup(t, false, false, false)
-	activationTime := time.Now().UTC().Add(time.Minute)
-	nextBlockTime := activationTime.Add(10 * time.Second)
+	v67UpgradeTime := time.Now().UTC().Add(time.Minute)
+	v68UpgradeTime := v67UpgradeTime.Add(time.Second)
+	nextBlockTime := v68UpgradeTime.Add(10 * time.Second)
 	baseCtx := testApp.BaseApp.NewContext(false, tenderminttypes.Header{
-		Height: activationHeight - 1,
-		Time:   activationTime.Add(-time.Second),
-	}).WithIsTracing(true).WithClosestUpgradeName("v6.7")
+		Height: v67UpgradeHeight - 1,
+		Time:   v67UpgradeTime.Add(-time.Second),
+	}).WithIsTracing(true).WithClosestUpgradeName("v6.8")
 	govStore := baseCtx.KVStore(testApp.GetKey(govtypes.StoreKey))
 	govStore.Delete(govtypes.IncrementalTallyEnabledKey)
 	govStore.Delete(govtypes.VoteDelegationBackfillCutoffKey)
 	govStore.Delete(govtypes.DeadlineBoundaryBlockTimeKey)
 
-	latestCtx := baseCtx.WithIsTracing(false).WithBlockHeight(activationHeight + 1).WithBlockTime(nextBlockTime)
-	testApp.UpgradeKeeper.SetDone(latestCtx.WithBlockHeight(activationHeight), "v6.7")
-	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), activationHeight+1)
+	latestCtx := baseCtx.WithIsTracing(false).WithBlockHeight(v68UpgradeHeight + 1).WithBlockTime(nextBlockTime)
+	testApp.UpgradeKeeper.SetDone(latestCtx.WithBlockHeight(v67UpgradeHeight), "v6.7")
+	testApp.UpgradeKeeper.SetDone(latestCtx.WithBlockHeight(v68UpgradeHeight), "v6.8")
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), v68UpgradeHeight+1)
 	parentCtx := baseCtx
 	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
@@ -1039,10 +1044,13 @@ func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.
 		return stateDB.(*state.DBImpl)
 	}
 
-	activationState := stateAtBlock(activationHeight, activationTime)
+	v67State := stateAtBlock(v67UpgradeHeight, v67UpgradeTime)
+	require.False(t, testApp.GovKeeper.IncrementalTallyEnabled(v67State.Ctx()))
+
+	activationState := stateAtBlock(v68UpgradeHeight, v68UpgradeTime)
 	activationCtx := activationState.Ctx()
 	require.True(t, testApp.GovKeeper.IncrementalTallyEnabled(activationCtx))
-	require.Equal(t, sdk.FormatTimeBytes(activationTime), activationCtx.KVStore(testApp.GetKey(govtypes.StoreKey)).Get(govtypes.DeadlineBoundaryBlockTimeKey))
+	require.Equal(t, sdk.FormatTimeBytes(v68UpgradeTime), activationCtx.KVStore(testApp.GetKey(govtypes.StoreKey)).Get(govtypes.DeadlineBoundaryBlockTimeKey))
 	cutoff, found := testApp.GovKeeper.GetVoteDelegationBackfillCutoff(activationCtx)
 	require.True(t, found)
 	require.Equal(t, uint64(1), cutoff)
@@ -1051,13 +1059,13 @@ func TestStateAtBlockReplaysIncrementalTallyActivationAndGapBoundary(t *testing.
 	require.NoError(t, err)
 	testApp.GovKeeper.RemoveFromInactiveProposalQueue(activationCtx, proposal.ProposalId, proposal.DepositEndTime)
 	proposal.Status = govtypes.StatusVotingPeriod
-	proposal.VotingStartTime = activationTime
-	proposal.VotingEndTime = activationTime.Add(5 * time.Second)
+	proposal.VotingStartTime = v68UpgradeTime
+	proposal.VotingEndTime = v68UpgradeTime.Add(5 * time.Second)
 	testApp.GovKeeper.SetProposal(activationCtx, proposal)
 	testApp.GovKeeper.InsertActiveProposalQueue(activationCtx, proposal.ProposalId, proposal.VotingEndTime)
 	parentCtx = activationCtx
 
-	nextState := stateAtBlock(activationHeight+1, nextBlockTime)
+	nextState := stateAtBlock(v68UpgradeHeight+1, nextBlockTime)
 	nextStore := nextState.Ctx().KVStore(testApp.GetKey(govtypes.StoreKey))
 	require.True(t, nextStore.Has(govtypes.GapTallyBoundaryKey(nextBlockTime)))
 }

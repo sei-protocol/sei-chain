@@ -313,6 +313,11 @@ func (b *Backend) isV67ActiveAtHeight(height int64) bool {
 	return b.keeper.UpgradeKeeper().IsUpgradeActiveAtHeight(ctx, "v6.7", height)
 }
 
+func (b *Backend) isV68ActiveAtHeight(height int64) bool {
+	ctx := b.ctxProvider(LatestCtxHeight).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	return b.keeper.UpgradeKeeper().IsUpgradeActiveAtHeight(ctx, "v6.8", height)
+}
+
 func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
 	if provider != nil {
 		b.traceCtxProvider = provider
@@ -755,8 +760,8 @@ func (b *Backend) activateIncrementalTallyForTrace(ctx sdk.Context, height int64
 	}
 	govKeeper := *b.beginBlockKeepers.GovKeeper
 	if govKeeper.IncrementalTallyEnabled(ctx) ||
-		!b.isV67ActiveAtHeight(height) ||
-		b.isV67ActiveAtHeight(height-1) {
+		!b.isV68ActiveAtHeight(height) ||
+		b.isV68ActiveAtHeight(height-1) {
 		return nil
 	}
 	return govkeeper.NewMigrator(govKeeper).Migrate3to4(ctx)
