@@ -42,7 +42,20 @@ export type CosmosQueryClient = QueryClient &
     GovExtension &
     DistributionExtension;
 
+let tendermintPromise: Promise<Tendermint34Client> | undefined;
 let clientPromise: Promise<CosmosQueryClient> | undefined;
+
+/**
+ * The suite's shared Tendermint RPC connection (`SEI_COSMOS_RPC`). Every
+ * Cosmos-side read goes through it, including the raw `abci_query` calls in
+ * moduleQueries.
+ */
+export async function tendermintClient(): Promise<Tendermint34Client> {
+    if (!tendermintPromise) {
+        tendermintPromise = Tendermint34Client.connect(Endpoints.sei.cosmosRpc);
+    }
+    return tendermintPromise;
+}
 
 /**
  * The suite's Cosmos-side parity oracle: one shared query client over the
@@ -52,7 +65,7 @@ let clientPromise: Promise<CosmosQueryClient> | undefined;
 export async function cosmosQuery(): Promise<CosmosQueryClient> {
     if (!clientPromise) {
         clientPromise = (async () => {
-            const tm = await Tendermint34Client.connect(Endpoints.sei.cosmosRpc);
+            const tm = await tendermintClient();
             return QueryClient.withExtensions(
                 tm,
                 setupBankExtension,
