@@ -650,10 +650,21 @@ upgrade-test:
 		boundary=$$(go run ./upgradetest/cmd/boundary); \
 		tag=$$(go run ./upgradetest/cmd/boundary tag) && \
 		tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' 0; \
-		go test -list '^Test' ./app 2>/dev/null | awk '/^Test/ { print }' | sort > "$$tmp/base"; \
-		go test -tags "$$tag" -list '^Test' ./app 2>/dev/null | awk '/^Test/ { print }' | sort > "$$tmp/tagged"; \
+		if ! go test -list '^Test' ./app > "$$tmp/base.stdout" 2> "$$tmp/base.stderr"; then \
+			echo "failed to list untagged app tests:" >&2; \
+			cat "$$tmp/base.stdout" "$$tmp/base.stderr" >&2; \
+			exit 1; \
+		fi; \
+		awk '/^Test/ { print }' "$$tmp/base.stdout" | sort > "$$tmp/base"; \
+		if ! go test -tags "$$tag" -list '^Test' ./app > "$$tmp/tagged.stdout" 2> "$$tmp/tagged.stderr"; then \
+			echo "failed to list app tests with build tag $$tag:" >&2; \
+			cat "$$tmp/tagged.stdout" "$$tmp/tagged.stderr" >&2; \
+			exit 1; \
+		fi; \
+		awk '/^Test/ { print }' "$$tmp/tagged.stdout" | sort > "$$tmp/tagged"; \
 		comm -13 "$$tmp/base" "$$tmp/tagged" > "$$tmp/selected"; \
 		if [ ! -s "$$tmp/selected" ]; then \
+			cat "$$tmp/tagged.stderr" >&2; \
 			echo "no tests were added by build tag $$tag" >&2; \
 			exit 1; \
 		fi; \
@@ -684,7 +695,8 @@ upgrade-test-cross-version:
 .PHONY: upgrade-test-cross-version
 
 # Compile every version-specific app upgrade test, including versions that have
-# already shipped. Untagged type-checking cannot see these files.
+# already shipped. Offline phase files are compiled against their release side
+# because source-only APIs may no longer exist in the current checkout.
 upgrade-test-vet:
 	@set -e; \
 		for file in app/upgrade_v*_test.go; do \
@@ -693,7 +705,8 @@ upgrade-test-vet:
 			tag=$$(basename "$$file" _test.go); \
 			echo "=== Compiling $$file (-tags $$tag) ==="; \
 			go test -tags "$$tag" -run '^$$' ./app; \
-		done
+		done; \
+		bash upgradetest/compile_offline.sh
 .PHONY: upgrade-test-vet
 
 

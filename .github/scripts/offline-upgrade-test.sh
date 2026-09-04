@@ -131,15 +131,21 @@ run_phase() {
   (
     cd "$worktree"
     local tests
-    tests="$(
-      go test \
-        -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$file_phase" \
-        -list "^Test.*OfflineUpgrade${test_suffix}$" \
-        ./app 2>/dev/null |
-        awk '/^Test.*OfflineUpgrade(Source|Target|Reopen)$/ { print }'
-    )"
-    [[ -n "$tests" ]] ||
+    local listing_stdout="$ARTIFACT_ROOT/$phase-list.stdout"
+    local listing_stderr="$ARTIFACT_ROOT/$phase-list.stderr"
+    if ! go test \
+      -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$file_phase" \
+      -list "^Test.*OfflineUpgrade${test_suffix}$" \
+      ./app >"$listing_stdout" 2>"$listing_stderr"; then
+      cat "$listing_stdout" "$listing_stderr" >&2
+      die "$UPGRADE_TAG $phase phase failed to list offline tests"
+    fi
+    tests="$(awk '/^Test.*OfflineUpgrade(Source|Target|Reopen)$/ { print }' "$listing_stdout")"
+    if [[ -z "$tests" ]]; then
+      cat "$listing_stderr" >&2
       die "$UPGRADE_TAG $phase phase selected no offline test"
+    fi
+    rm -f "$listing_stdout" "$listing_stderr"
 
     UPGRADE_TEST_PHASE="$phase" \
       UPGRADE_TEST_ARTIFACT="$STATE_ARTIFACT" \

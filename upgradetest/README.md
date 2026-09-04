@@ -38,8 +38,10 @@ make upgrade-test-vet
 `upgrade-test` reads the last two minor versions from `app/tags`, derives the
 current build tag, and runs the app tests with that file enabled.
 
-`upgrade-test-vet` type-checks every `app/upgrade_v*_test.go` under the tag
-implied by its filename, including tests for upgrades that already shipped.
+`upgrade-test-vet` type-checks every `app/upgrade_v*_test.go`, including tests
+for upgrades that already shipped. Historical offline phases compile in
+detached worktrees at their release refs, while the current target phase
+compiles in the current checkout, so each can keep using branch-specific APIs.
 
 ## Run the real boundary
 

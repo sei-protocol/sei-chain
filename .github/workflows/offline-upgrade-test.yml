@@ -8,6 +8,7 @@ on:
       - .github/scripts/offline-upgrade-test.sh
       - .github/workflows/offline-upgrade-test.yml
       - Makefile
+      - app/app.go
       - app/tags
       - app/upgrade_*_offline_*_test.go
       - app/upgrade_offline_harness_test.go

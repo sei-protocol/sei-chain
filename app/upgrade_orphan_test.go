@@ -42,6 +42,9 @@ func owningModuleName(storeKey string) string {
 // removal that forgets the call fails here instead of leaving a version entry
 // on chain forever.
 func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
+	previousUpgrades := upgradesList
+	t.Cleanup(func() { upgradesList = previousUpgrades })
+
 	t.Setenv("UPGRADE_VERSION_LIST", LatestUpgrade)
 	testApp := Setup(t, false, false, false)
 	testApp.RegisterUpgradeHandlers()

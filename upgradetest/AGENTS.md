@@ -31,9 +31,11 @@ Appending `v6.7` to `app/tags` makes that pair the current boundary.
 `make upgrade-test` derives the build tag from the embedded list and runs the
 app package with the file enabled. The workflow must not name a version.
 
-`make upgrade-test-vet` compiles every version-specific app test with the tag
-implied by its filename. This is required because ordinary untagged tests and
-`golangci-lint run` do not type-check build-tagged files.
+`make upgrade-test-vet` compiles every version-specific app test. It compiles
+historical offline phases in detached worktrees at their release refs and the
+current target phase in the current checkout because those files may use APIs
+available only on one side of the boundary. Ordinary untagged tests and
+`golangci-lint run` do not type-check these build-tagged files.
 
 Run a real branch boundary with:
 

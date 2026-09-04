@@ -495,27 +495,32 @@ func snapshotCommittedOfflineUpgradeStore(t *testing.T, testApp *App, storeName 
 	return entries
 }
 
+// requireOfflineUpgradeStoreProof verifies a commitment proof for the
+// lexicographically first encoded key in snapshot.
 func requireOfflineUpgradeStoreProof(t *testing.T, testApp *App, storeName string, snapshot map[string]string) {
 	t.Helper()
 	require.NotEmpty(t, snapshot, "%s snapshot is empty; a proof query would be vacuous", storeName)
-	for encodedKey, encodedValue := range snapshot {
-		key, err := base64.StdEncoding.DecodeString(encodedKey)
-		require.NoError(t, err)
-		want, err := base64.StdEncoding.DecodeString(encodedValue)
-		require.NoError(t, err)
-		queryable, ok := testApp.CommitMultiStore().(sdk.Queryable)
-		require.True(t, ok, "commit multistore does not support queries")
-		resp := queryable.Query(context.Background(), abci.RequestQuery{
-			Path:  "/" + storeName + "/key",
-			Data:  key,
-			Prove: true,
-		})
-		require.Equal(t, uint32(0), resp.Code, "query /%s/key: %s", storeName, resp.Log)
-		require.Equal(t, want, resp.Value, "query /%s/key returned a different value", storeName)
-		require.NotNil(t, resp.ProofOps, "%s is missing from the commitment set", storeName)
-		require.NotEmpty(t, resp.ProofOps.Ops, "%s is missing from the commitment set", storeName)
-		return
+	encodedKeys := make([]string, 0, len(snapshot))
+	for encodedKey := range snapshot {
+		encodedKeys = append(encodedKeys, encodedKey)
 	}
+	sort.Strings(encodedKeys)
+	encodedKey := encodedKeys[0]
+	key, err := base64.StdEncoding.DecodeString(encodedKey)
+	require.NoError(t, err)
+	want, err := base64.StdEncoding.DecodeString(snapshot[encodedKey])
+	require.NoError(t, err)
+	queryable, ok := testApp.CommitMultiStore().(sdk.Queryable)
+	require.True(t, ok, "commit multistore does not support queries")
+	resp := queryable.Query(context.Background(), abci.RequestQuery{
+		Path:  "/" + storeName + "/key",
+		Data:  key,
+		Prove: true,
+	})
+	require.Equal(t, uint32(0), resp.Code, "query /%s/key: %s", storeName, resp.Log)
+	require.Equal(t, want, resp.Value, "query /%s/key returned a different value", storeName)
+	require.NotNil(t, resp.ProofOps, "%s is missing from the commitment set", storeName)
+	require.NotEmpty(t, resp.ProofOps.Ops, "%s is missing from the commitment set", storeName)
 }
 
 func requireOfflineUpgradeRetainedStores(t *testing.T, testApp *App, want map[string]map[string]string) {

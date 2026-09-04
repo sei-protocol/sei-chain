@@ -141,12 +141,19 @@ prepare_upgrade_name() {
 
 discover_cross_version_tests() {
   local listed
-  listed="$(
-    go test -tags "$UPGRADE_TAG" -list '^Test.*CrossVersion$' ./app 2>/dev/null |
-      awk '/^Test.*CrossVersion$/ { print }'
-  )"
-  [[ -n "$listed" ]] ||
+  local listing_stdout="$ARTIFACT_ROOT/cross-version-list.stdout"
+  local listing_stderr="$ARTIFACT_ROOT/cross-version-list.stderr"
+  if ! go test -tags "$UPGRADE_TAG" -list '^Test.*CrossVersion$' ./app \
+    >"$listing_stdout" 2>"$listing_stderr"; then
+    cat "$listing_stdout" "$listing_stderr" >&2
+    die "failed to list Test*CrossVersion assertions for build tag $UPGRADE_TAG"
+  fi
+  listed="$(awk '/^Test.*CrossVersion$/ { print }' "$listing_stdout")"
+  if [[ -z "$listed" ]]; then
+    cat "$listing_stderr" >&2
     die "build tag $UPGRADE_TAG defines no Test*CrossVersion assertion"
+  fi
+  rm -f "$listing_stdout" "$listing_stderr"
   CROSS_VERSION_TESTS="$(paste -sd'|' - <<<"$listed")"
 }
 
@@ -521,12 +528,22 @@ verify_post_upgrade() {
 
   assert_all_nodes_progress 3 "post-upgrade"
 
+  local minimum=
+  local maximum=0
   local current
   for ((i = 0; i < NODE_COUNT; i++)); do
     current="$(height "sei-node-$i")"
+    if ((current > maximum)); then
+      maximum="$current"
+    fi
+    if [[ -z "$minimum" ]] || ((current < minimum)); then
+      minimum="$current"
+    fi
     printf 'post_upgrade_node_%s_height=%s\n' "$i" "$current" |
       tee -a "$ARTIFACT_ROOT/revisions.txt"
   done
+  ((maximum - minimum <= 3)) ||
+    die "validators are not synchronized after upgrade (min=$minimum max=$maximum)"
 
   run_cross_version_phase after
   log "Upgrade $UPGRADE_NAME succeeded"
