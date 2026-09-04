@@ -794,6 +794,108 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	require.Equal(t, codeHash[:], chVal)
 }
 
+// A balance write carries only the balance, so it has to be merged onto the account as it already
+// stands. This is the case that breaks first if the balance kind is left out of the set of kinds whose
+// accounts are read back before the merge: the write lands on an empty account and takes the nonce and
+// the code hash with it.
+func TestBalanceWritePreservesOtherAccountFields(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0xBB}
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	codeHash := codeHashN(0x7C)
+	balance := balanceN(42)
+
+	cs1 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: nonceKey, Value: nonceBytes(9)},
+				{Key: codeHashKey, Value: codeHash[:]},
+			},
+		},
+	}
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1,
+		[]*proto.NamedChangeSet{makeChangeSet(balanceKey, balance[:], false)}))
+	commitAndCheck(t, s)
+
+	nonceVal, ok := s.Get(keys.EVMStoreKey, nonceKey)
+	require.True(t, ok)
+	require.Equal(t, nonceBytes(9), nonceVal, "nonce should be preserved after balance update")
+
+	chVal, ok := s.Get(keys.EVMStoreKey, codeHashKey)
+	require.True(t, ok)
+	require.Equal(t, codeHash[:], chVal, "code hash should be preserved after balance update")
+
+	balVal, ok := s.Get(keys.EVMStoreKey, balanceKey)
+	require.True(t, ok)
+	require.Equal(t, balance[:], balVal)
+}
+
+// All three account fields written in one block land in one physical row.
+func TestAccountFieldsMergeIntoOneRow(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0xCD}
+	codeHash := codeHashN(0x11)
+	balance := balanceN(7)
+
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: nonceBytes(3)},
+				{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Value: codeHash[:]},
+				{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]), Value: balance[:]},
+			},
+		},
+	}
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+
+	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
+	require.NotNil(t, accountWrite)
+	require.Equal(t, uint64(3), accountWrite.GetNonce())
+	require.Equal(t, &codeHash, accountWrite.GetCodeHash())
+	require.Equal(t, &balance, accountWrite.GetBalance())
+}
+
+// A balance is the only field an account needs to exist, and zeroing it is how one is deleted, so the
+// row goes away with it.
+func TestBalanceOnlyAccountDeletedWhenZeroed(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0xCE}
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	balance := balanceN(5)
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1,
+		[]*proto.NamedChangeSet{makeChangeSet(balanceKey, balance[:], false)}))
+	commitAndCheck(t, s)
+
+	count, err := CountKeys(s)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1,
+		[]*proto.NamedChangeSet{makeChangeSet(balanceKey, nil, true)}))
+	commitAndCheck(t, s)
+
+	_, ok := s.Get(keys.EVMStoreKey, balanceKey)
+	require.False(t, ok)
+
+	count, err = CountKeys(s)
+	require.NoError(t, err)
+	require.Zero(t, count, "zeroing the last field must remove the account row")
+}
+
 // =============================================================================
 // LtHash determinism
 // =============================================================================

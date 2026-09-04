@@ -470,7 +470,7 @@ func stripEVMFromChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedCh
 // convertFlatKVNodes transforms a single FlatKV physical-key snapshot node
 // into one or more SS nodes by stripping the module prefix from the key,
 // deserializing the vtype metadata from the value, and (for merged account
-// rows) splitting into separate nonce and codeHash nodes.
+// rows) splitting into separate nonce, codeHash and balance nodes.
 //
 // For EVM-specific keys (account, storage, code) the output StoreKey is "evm".
 // For legacy keys the original module name is preserved so they route back to
@@ -527,6 +527,13 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 				StoreKey: evm.EVMStoreKey,
 				Key:      keys.BuildEVMKey(keys.EVMKeyCodeHash, strippedKey),
 				Value:    append([]byte(nil), codeHash[:]...),
+			})
+		}
+		if balance := acct.GetBalance(); *balance != (vtype.Balance{}) {
+			nodes = append(nodes, types.SnapshotNode{
+				StoreKey: evm.EVMStoreKey,
+				Key:      keys.BuildEVMKey(keys.EVMKeyBalance, strippedKey),
+				Value:    append([]byte(nil), balance[:]...),
 			})
 		}
 		return nodes, nil

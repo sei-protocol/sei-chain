@@ -93,6 +93,7 @@ func coreEVMRawPairs() []*proto.KVPair {
 	slot := bytesOfLen(32, 0x07)
 	storageKeyBytes := append(append([]byte{}, addr...), slot...)
 	codeHash := bytesOfLen(32, 0xAB)
+	balance := bytesOfLen(32, 0x5E)
 	storageValue := bytesOfLen(32, 0x2A)
 	code := []byte{0x60, 0x2A, 0x60, 0x00}
 	miscKey := append([]byte{0x09}, addr...)
@@ -101,6 +102,7 @@ func coreEVMRawPairs() []*proto.KVPair {
 	return []*proto.KVPair{
 		{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: nonceBytes(7)},
 		{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: codeHash},
+		{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr), Value: balance},
 		{Key: keys.BuildEVMKey(keys.EVMKeyStorage, storageKeyBytes), Value: storageValue},
 		{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr), Value: code},
 		{Key: miscKey, Value: miscValue},

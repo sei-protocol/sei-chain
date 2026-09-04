@@ -225,7 +225,7 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
-	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		return accountDBDir, nil
 	case keys.EVMKeyCode:
 		return codeDBDir, nil
