@@ -1,4 +1,4 @@
-package rollback
+package offline
 
 import (
 	"fmt"
@@ -116,10 +116,10 @@ func TestRollbackLittDB(t *testing.T) {
 	const count = 200
 	const keepThrough = 137
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		require.Equal(t, rollbackTestTable, tableName) // filter is invoked per table
 		require.True(t, isPrimary)                     // these are all standalone primary keys
 		return indexFromKey(t, key) <= keepThrough, nil
@@ -133,22 +133,34 @@ func TestRollbackLittDB(t *testing.T) {
 	require.NoError(t, db.Close())
 }
 
-// TestRollbackNoMatch verifies that a table for which the filter never returns true is left untouched.
+// TestRollbackNoMatch verifies that a table for which the filter never returns true retains nothing, and
+// so is deleted outright: its directory is gone from every root and it reopens empty.
 func TestRollbackNoMatch(t *testing.T) {
 	t.Parallel()
 
 	const count = 50
 
-	config, roots := newRollbackTestDB(t)
-	values := writeSequentialKeys(t, config, count)
+	config, rootPaths := newRollbackTestDB(t)
+	writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return false, nil
 	})
 	require.NoError(t, err)
 
+	for _, root := range rootPaths {
+		exists, err := util.Exists(filepath.Join(root, rollbackTestTable))
+		require.NoError(t, err)
+		require.Falsef(t, exists, "table directory should be gone from root %s", root)
+	}
+
 	db, table := openTable(t, config)
-	assertSequentialState(t, table, count, count-1, values) // everything survives
+	require.Zero(t, table.KeyCount())
+	for i := 0; i < count; i++ {
+		_, ok, err := table.Get(keyForIndex(i))
+		require.NoError(t, err)
+		require.Falsef(t, ok, "key %d should have been deleted along with the table", i)
+	}
 	require.NoError(t, db.Close())
 }
 
@@ -158,10 +170,10 @@ func TestRollbackKeepsEverything(t *testing.T) {
 
 	const count = 50
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return true, nil // the very first key visited (the newest) matches
 	})
 	require.NoError(t, err)
@@ -175,11 +187,11 @@ func TestRollbackKeepsEverything(t *testing.T) {
 func TestRollbackPropagatesFilterError(t *testing.T) {
 	t.Parallel()
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	writeSequentialKeys(t, config, 20)
 
 	wantErr := fmt.Errorf("boom")
-	err := RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err := RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return false, wantErr
 	})
 	require.ErrorIs(t, err, wantErr)
@@ -194,7 +206,7 @@ func TestRollbackWithSecondaryKeys(t *testing.T) {
 	const count = 60
 	const keepThrough = 28
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -217,7 +229,7 @@ func TestRollbackWithSecondaryKeys(t *testing.T) {
 	require.NoError(t, table.Flush())
 	require.NoError(t, db.Close())
 
-	err = RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err = RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		// Only primary keys carry an index we want to stop on; secondaries are reported with isPrimary=false.
 		if !isPrimary {
 			require.True(t, strings.HasPrefix(string(key), "sk-"))
@@ -276,7 +288,7 @@ func TestRollbackRefusesBelowGCWatermark(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, existsBefore)
 
-	err = RollbackLittDB(roots, func(tableName string, key []byte, isPrimary bool) (bool, error) {
+	err = RollbackLittDB(config, func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return indexFromKey(t, key) <= 10, nil
 	})
 	require.Error(t, err)
@@ -296,15 +308,15 @@ func TestRollbackIsIdempotent(t *testing.T) {
 	const count = 120
 	const keepThrough = 71
 
-	config, roots := newRollbackTestDB(t)
+	config, _ := newRollbackTestDB(t)
 	values := writeSequentialKeys(t, config, count)
 
 	filter := func(tableName string, key []byte, isPrimary bool) (bool, error) {
 		return indexFromKey(t, key) <= keepThrough, nil
 	}
 
-	require.NoError(t, RollbackLittDB(roots, filter))
-	require.NoError(t, RollbackLittDB(roots, filter)) // second run must be a safe no-op
+	require.NoError(t, RollbackLittDB(config, filter))
+	require.NoError(t, RollbackLittDB(config, filter)) // second run must be a safe no-op
 
 	db, table := openTable(t, config)
 	assertSequentialState(t, table, count, keepThrough, values)

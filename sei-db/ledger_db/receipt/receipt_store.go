@@ -150,15 +150,27 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	}
 
 	backend := normalizeReceiptBackend(config.Backend)
+	if err := requireSupportedBackend(backend); err != nil {
+		return nil, err
+	}
+	if backend == receiptBackendPebble && config.ExternalPruning {
+		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
+		// pruner with nothing in its place.
+		return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q",
+			receiptBackendPebble, receiptBackendLittIdx)
+	}
+
+	// Runs after every config rejection above, and before either backend touches the directory: a config
+	// that is about to be rejected must not leave a recorded type behind that then refuses the corrected
+	// one.
+	if err := recordBackendType(config.DBDirectory, backend); err != nil {
+		return nil, err
+	}
+
 	switch backend {
 	case receiptBackendLittIdx:
 		return newLittReceiptStore(config, storeKey)
 	case receiptBackendPebble:
-		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
-		// pruner with nothing in its place.
-		if config.ExternalPruning {
-			return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q", receiptBackendPebble, receiptBackendLittIdx)
-		}
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
 		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer

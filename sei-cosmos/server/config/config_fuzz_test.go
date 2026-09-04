@@ -720,12 +720,14 @@ func TestGetConfigGRPCAbsentReads(t *testing.T) {
 	}{
 		{"grpc.max-recv-msg-size", got.MaxRecvMsgSize, def.MaxRecvMsgSize},
 		{"grpc.max-open-connections", got.MaxOpenConnections, def.MaxOpenConnections},
+		{"grpc.max-connections-per-ip", got.MaxConnectionsPerIP, def.MaxConnectionsPerIP},
 		{"grpc.max-connection-idle", got.MaxConnectionIdle, def.MaxConnectionIdle},
 		{"grpc.keepalive-time", got.KeepaliveTime, def.KeepaliveTime},
 		{"grpc.keepalive-timeout", got.KeepaliveTimeout, def.KeepaliveTimeout},
 		{"grpc.keepalive-min-time", got.KeepaliveMinTime, def.KeepaliveMinTime},
 		{"grpc.ip-rate-limit-rps", got.IPRateLimitRPS, def.IPRateLimitRPS},
 		{"grpc.ip-rate-limit-burst", got.IPRateLimitBurst, def.IPRateLimitBurst},
+		{"grpc.max-in-flight-per-ip", got.MaxInFlightPerIP, def.MaxInFlightPerIP},
 	} {
 		if c.absent != c.declared {
 			t.Errorf("an absent %s resolved to %v rather than the declared %v, so its v.IsSet guard "+

@@ -1,4 +1,4 @@
-package giga_test
+package giga
 
 import (
 	"errors"
@@ -7,9 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -57,18 +58,80 @@ func (w *fakeStateWAL) SignalEndOfBlock() error {
 	return w.endOfBlockErr
 }
 
-// newTestStateDB builds a StateDB over a fake WAL and a real FlatKV store. The store is opened with no
-// WAL of its own, which is the arrangement StateDB requires: it writes the WAL on the store's behalf.
-func newTestStateDB(t *testing.T) (giga.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
+// newTestStateDB builds a StateDB over a fake WAL and a real FlatKV store. The store is constructed
+// with no WAL of its own, which is the arrangement StateDB requires: it writes the WAL on the store's
+// behalf, and replays that WAL into the store to catch it up.
+func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
 	t.Helper()
 
-	liveStateDB, err := flatkv.NewCommitStore(t.Context(), config.DefaultTestConfig(t), nil)
+	liveStateDB, err := flatkv.NewCommitStore(t.Context(), flatkvconfig.DefaultTestConfig(t), nil)
 	require.NoError(t, err)
-	require.NoError(t, liveStateDB.LoadLatest())
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })
+	require.NoError(t, liveStateDB.LoadLatest())
 
 	wal := &fakeStateWAL{}
-	return giga.NewStateDB(wal, liveStateDB), wal, liveStateDB
+	return &StateDB{wal: wal, sc: liveStateDB}, wal, liveStateDB
+}
+
+// gapWAL reports a stored range beginning above the block a replay has to start from, which is what a
+// WAL pruned past a store's head looks like.
+type gapWAL struct {
+	statewal.StateWAL
+	first, last uint64
+}
+
+func (w *gapWAL) GetStoredRange() (bool, uint64, uint64, error) { return true, w.first, w.last, nil }
+
+// A WAL pruned past a half of state has dropped blocks that half still needs. Applying only the blocks
+// the WAL happens to hold and then reporting the target as reached is silent divergence, so the replay
+// refuses instead.
+//
+// Both halves have to reach this check, which is why they replay through one function rather than each
+// walking the WAL: the half that goes around it is the half that diverges quietly.
+func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
+	const missingBlocks = "missing (data loss or corruption)"
+
+	t.Run("the state commit store", func(t *testing.T) {
+		_, _, sc := newTestStateDB(t)
+		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc}
+
+		require.ErrorContains(t, s.catchUpSC(4), missingBlocks)
+	})
+
+	t.Run("the EVM state store", func(t *testing.T) {
+		_, _, sc := newTestStateDB(t)
+		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
+
+		// The store holds nothing, so the gap is its whole history rather than a hole in it. Refusing
+		// here would report data loss for a store that is merely new, and would do it on every node
+		// past its first retention cut, so it is left empty to fill forward from the target.
+		require.NoError(t, s.catchUpSS(4))
+		require.Zero(t, s.ss.GetLatestVersion())
+	})
+}
+
+// A half left to fill forward is not held to the target afterwards. Holding it there would fail the
+// rollback over exactly the state catchUpSS had just decided was the right outcome.
+func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
+	_, _, sc := newTestStateDB(t)
+	for block := int64(1); block <= 4; block++ {
+		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
+	}
+	s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
+
+	require.NoError(t, s.matchHeight(4))
+}
+
+// A store that holds nothing is only left empty when the WAL cannot rebuild it. One the WAL still
+// reaches back far enough for comes out of recovery holding real history, which is strictly better, and
+// is how SS is populated at all while the live commit path does not write it.
+func TestCatchUpRebuildsAnEmptyStoreTheWALStillCovers(t *testing.T) {
+	_, _, sc := newTestStateDB(t)
+	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
+
+	fillForward, err := s.ssFillsForward()
+	require.NoError(t, err)
+	require.False(t, fillForward, "a WAL starting at block 1 can rebuild an empty store")
 }
 
 // changeset builds a changeset setting key to value in the test module.

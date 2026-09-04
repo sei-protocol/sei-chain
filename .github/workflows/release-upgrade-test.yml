@@ -1,4 +1,4 @@
-name: Release to Main Upgrade Test
+name: Minor Release Upgrade Test
 
 on:
   pull_request:
@@ -7,12 +7,23 @@ on:
     paths:
       - .github/workflows/release-upgrade-test.yml
       - .github/scripts/release-upgrade-test.sh
+      - Makefile
+      - app/app.go
+      - app/tags
+      - app/upgrade_v*_test.go
+      - app/upgrades.go
+      - docker/**
+      - upgradetest/**
   schedule:
     - cron: '17 7 * * *'
   workflow_dispatch:
     inputs:
       release_branch:
-        description: Official release branch to test (empty selects the latest)
+        description: Source branch (empty derives release/vMAJOR.MINOR from the tagged boundary)
+        required: false
+        type: string
+      target_ref:
+        description: Target branch or commit (empty uses this workflow commit)
         required: false
         type: string
       upgrade_lead_seconds:
@@ -39,10 +50,11 @@ defaults:
 
 jobs:
   release-to-main:
-    name: Latest release to main
+    name: Minor release boundary
     runs-on: ubuntu-large
     timeout-minutes: 90
     env:
+      MAIN_REF: ${{ inputs.target_ref || github.sha }}
       RELEASE_BRANCH: ${{ inputs.release_branch || '' }}
       UPGRADE_LEAD_SECONDS: ${{ inputs.upgrade_lead_seconds || '60' }}
       POST_UPGRADE_BLOCKS: ${{ inputs.post_upgrade_blocks || '10' }}
@@ -75,6 +87,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-upgrade-${{ github.run_id }}
-          path: artifacts/release-upgrade
+          path: ${{ runner.temp }}/sei-release-upgrade-${{ github.run_id }}/artifacts
           if-no-files-found: warn
           retention-days: 7

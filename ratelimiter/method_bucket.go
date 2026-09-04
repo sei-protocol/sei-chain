@@ -7,6 +7,11 @@ const (
 	PlaneCometBFT = "cometbft"
 	// PlaneGRPC is the rate-limit plane label for native gRPC (:9090).
 	PlaneGRPC = "grpc"
+	// PlaneGRPCWeb is the plane label for gRPC-Web (:9091) connection
+	// rejections. The two planes share PlaneGRPC everywhere they share a
+	// per-IP pool; the connection cap is configured and enforced per listener,
+	// so its metric names the listener that refused.
+	PlaneGRPCWeb = "grpc-web"
 
 	// rpcMethodBucketOther is the fallback label for unrecognized methods.
 	rpcMethodBucketOther = "other"
