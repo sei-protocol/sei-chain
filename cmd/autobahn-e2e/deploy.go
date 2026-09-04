@@ -13,6 +13,7 @@ import (
 )
 
 const dockerClusterSize = 4
+const awsClusterSize = 4
 
 type deployOptions struct {
 	name         string
@@ -21,6 +22,7 @@ type deployOptions struct {
 	region       string
 	profile      string
 	instanceType string
+	architecture string
 	amiID        string
 	subnetID     string
 	sshCIDR      string
@@ -28,6 +30,8 @@ type deployOptions struct {
 	keyName      string
 	sshKeyPath   string
 	volumeSize   int
+	goMaxProcs   int
+	goGC         string
 	repoURL      string
 	ref          string
 }
@@ -48,13 +52,16 @@ func (a *application) newDeployCommand() *cobra.Command {
 	flags.StringVar(&options.region, "region", "us-west-2", "AWS region")
 	flags.StringVar(&options.profile, "profile", "", "AWS CLI profile")
 	flags.StringVar(&options.instanceType, "instance-type", "c7g.2xlarge", "EC2 instance type")
-	flags.StringVar(&options.amiID, "ami-id", "", "EC2 AMI ID; defaults to Ubuntu 24.04 ARM64")
+	flags.StringVar(&options.architecture, "architecture", "arm64", "EC2 architecture used to resolve the default AMI: arm64 or amd64")
+	flags.StringVar(&options.amiID, "ami-id", "", "EC2 AMI ID; defaults to Ubuntu 24.04 for --architecture")
 	flags.StringVar(&options.subnetID, "subnet-id", "", "EC2 subnet; defaults to a default VPC subnet")
 	flags.StringVar(&options.sshCIDR, "ssh-cidr", "", "CIDR allowed to SSH; defaults to the caller's public IP")
 	flags.StringVar(&options.sshUser, "ssh-user", "ubuntu", "EC2 SSH user")
 	flags.StringVar(&options.keyName, "key-name", "", "existing EC2 key pair name; omitted creates a managed key")
 	flags.StringVar(&options.sshKeyPath, "ssh-key", "", "private key for --key-name")
 	flags.IntVar(&options.volumeSize, "volume-size", 100, "EC2 root volume size in GiB")
+	flags.IntVar(&options.goMaxProcs, "gomaxprocs", 0, "GOMAXPROCS for each validator; 0 uses all instance CPUs")
+	flags.StringVar(&options.goGC, "gogc", "200", "GOGC for each validator, or off")
 	flags.StringVar(&options.repoURL, "repo-url", "", "Git repository cloned on EC2; defaults to origin")
 	flags.StringVar(&options.ref, "ref", "", "Git ref deployed on EC2; defaults to the current commit")
 	return cmd

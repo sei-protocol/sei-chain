@@ -38,9 +38,15 @@ inside its container, so cluster inspection does not require Tendermint RPC.
 
 ## AWS EC2
 
-The AWS target provisions one Ubuntu EC2 host and runs the identical four-node
-Docker topology on it. Only SSH is opened in the managed security group; EVM
-JSON-RPC remains private and is reached with `forward`.
+The AWS target provisions four Ubuntu EC2 instances, one per validator. Each
+instance builds the selected revision and runs `seid` directly as a systemd
+service. Docker is not installed or used on the validator hosts. Builds run in
+parallel, then node 0 generates the shared genesis and Autobahn configuration
+that the command distributes to all four hosts.
+
+Only SSH is exposed from the managed security group to the configured caller
+CIDR. The instances may communicate with each other inside the security group;
+EVM JSON-RPC remains private and is reached with `forward`.
 
 ```sh
 ./autobahn-e2e deploy --target aws \
@@ -74,11 +80,26 @@ deployment time. Use `--ssh-cidr` when running behind a VPN, through NAT with a
 different egress address, or from an IPv6 network.
 
 The default EC2 shape is `c7g.2xlarge` with the current Ubuntu 24.04 ARM64 AMI
-resolved from AWS Systems Manager. Override `--instance-type` and `--ami-id`
-together when using another architecture. `--repo-url` and `--ref` select the
-source deployed remotely; they default to the current checkout's origin and
-commit.
+resolved from AWS Systems Manager. For the throughput-test topology, select an
+AMD64 compute instance explicitly and cap the Go scheduler at the measured
+knee:
+
+```sh
+./autobahn-e2e deploy --target aws \
+  --name throughput \
+  --region us-east-2 \
+  --architecture amd64 \
+  --instance-type c8i.48xlarge \
+  --gomaxprocs 24 \
+  --gogc 200
+```
+
+Use `--ami-id` to override the Ubuntu image selected for `--architecture`.
+`--repo-url` and `--ref` select the source deployed remotely; they default to
+the current checkout's origin and commit. `--gomaxprocs 0` uses every logical
+CPU on each instance. `--gogc off` is accepted for short ceiling tests but can
+consume hundreds of GiB under sustained native-transfer load.
 
 If provisioning fails after AWS resources are created, the state is retained
 with status `failed`. Run `list` to inspect it and `teardown` to remove the
-instance, security group, and any managed key pair.
+instances, security group, and any managed key pair.

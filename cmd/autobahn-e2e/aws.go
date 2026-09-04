@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +15,10 @@ import (
 	"time"
 )
 
-const ubuntuARM64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id"
+const (
+	ubuntuARM64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id"
+	ubuntuAMD64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+)
 
 var sshUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 
@@ -41,6 +45,12 @@ func (c awsClient) environment() []string {
 }
 
 func (a *application) deployAWS(ctx context.Context, options deployOptions) error {
+	if options.architecture == "" {
+		options.architecture = "arm64"
+	}
+	if options.goGC == "" {
+		options.goGC = "200"
+	}
 	if options.volumeSize < 20 {
 		return fmt.Errorf("--volume-size must be at least 20 GiB")
 	}
@@ -50,7 +60,17 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if !sshUserPattern.MatchString(options.sshUser) {
 		return fmt.Errorf("invalid --ssh-user %q", options.sshUser)
 	}
-	for _, name := range []string{"aws", "git", "ssh"} {
+	amiParameter, err := ubuntuAMIParameter(options.architecture)
+	if err != nil {
+		return err
+	}
+	if options.goMaxProcs < 0 {
+		return fmt.Errorf("--gomaxprocs cannot be negative")
+	}
+	if err := validateGoGC(options.goGC); err != nil {
+		return err
+	}
+	for _, name := range []string{"aws", "git", "scp", "ssh"} {
 		if err := a.runner.lookPath(name); err != nil {
 			return err
 		}
@@ -67,7 +87,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if amiID == "" {
 		amiID, err = client.output(ctx,
 			"ssm", "get-parameter",
-			"--name", ubuntuARM64AMIParameter,
+			"--name", amiParameter,
 			"--query", "Parameter.Value",
 			"--output", "text",
 		)
@@ -91,14 +111,17 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		Target:    targetAWS,
 		Status:    "provisioning",
 		CreatedAt: time.Now().UTC(),
-		Nodes:     clusterNodes(dockerClusterSize),
+		Nodes:     nativeClusterNodes(awsClusterSize),
 		AWS: &awsState{
-			Region:    options.region,
-			Profile:   options.profile,
-			SSHUser:   options.sshUser,
-			RemoteDir: filepath.Join("/home", options.sshUser, "sei-chain-"+options.name),
-			RepoURL:   repoURL,
-			Ref:       ref,
+			Region:       options.region,
+			Profile:      options.profile,
+			SSHUser:      options.sshUser,
+			RemoteDir:    filepath.Join("/home", options.sshUser, "sei-chain-"+options.name),
+			RepoURL:      repoURL,
+			Ref:          ref,
+			GoMaxProcs:   options.goMaxProcs,
+			GoGC:         options.goGC,
+			Architecture: options.architecture,
 		},
 	}
 	fail := func(cause error) error {
@@ -129,6 +152,13 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		"ec2", "create-tags",
 		"--resources", state.AWS.SecurityGroupID,
 		"--tags", "Key=sei-autobahn-e2e-cluster,Value="+options.name,
+	); err != nil {
+		return fail(err)
+	}
+	if _, err := client.output(ctx,
+		"ec2", "authorize-security-group-ingress",
+		"--group-id", state.AWS.SecurityGroupID,
+		"--ip-permissions", fmt.Sprintf("IpProtocol=-1,UserIdGroupPairs=[{GroupId=%s}]", state.AWS.SecurityGroupID),
 	); err != nil {
 		return fail(err)
 	}
@@ -173,7 +203,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		return err
 	}
 
-	userDataPath, err := writeUserData(a.stateDir, options.name, options.sshUser)
+	userDataPath, err := writeUserData(a.stateDir, options.name)
 	if err != nil {
 		return fail(err)
 	}
@@ -188,39 +218,61 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		"--metadata-options", "HttpTokens=required,HttpEndpoint=enabled",
 		"--block-device-mappings", fmt.Sprintf("DeviceName=/dev/sda1,Ebs={VolumeSize=%d,VolumeType=gp3,DeleteOnTermination=true}", options.volumeSize),
 		"--user-data", "file://" + userDataPath,
+		"--count", fmt.Sprint(awsClusterSize),
 		"--tag-specifications", fmt.Sprintf("ResourceType=instance,Tags=[{Key=Name,Value=sei-autobahn-e2e-%s},{Key=sei-autobahn-e2e-cluster,Value=%s}]", options.name, options.name),
-		"--query", "Instances[0].InstanceId",
+		"--query", "Instances[].InstanceId",
 		"--output", "text",
 	}
 	if options.subnetID != "" {
 		runArgs = append(runArgs, "--subnet-id", options.subnetID)
 	}
-	instanceID, err := client.output(ctx, runArgs...)
+	instanceIDsOutput, err := client.output(ctx, runArgs...)
 	if err != nil {
 		return fail(err)
 	}
-	state.AWS.InstanceID = strings.TrimSpace(instanceID)
+	instanceIDs := strings.Fields(instanceIDsOutput)
+	if len(instanceIDs) != awsClusterSize {
+		return fail(fmt.Errorf("AWS returned %d instances, expected %d", len(instanceIDs), awsClusterSize))
+	}
+	state.AWS.Instances = make([]awsInstanceState, len(instanceIDs))
+	for nodeIndex, instanceID := range instanceIDs {
+		state.AWS.Instances[nodeIndex] = awsInstanceState{NodeIndex: nodeIndex, InstanceID: instanceID}
+		if _, err := client.output(ctx,
+			"ec2", "create-tags",
+			"--resources", instanceID,
+			"--tags", fmt.Sprintf("Key=Name,Value=sei-autobahn-e2e-%s-node-%d", options.name, nodeIndex),
+		); err != nil {
+			return fail(err)
+		}
+	}
 	if err := a.store().save(state); err != nil {
 		return err
 	}
-	if err := client.stream(ctx, "ec2", "wait", "instance-running", "--instance-ids", state.AWS.InstanceID); err != nil {
+	waitArgs := append([]string{"ec2", "wait", "instance-running", "--instance-ids"}, instanceIDs...)
+	if err := client.stream(ctx, waitArgs...); err != nil {
 		return fail(err)
 	}
-	if err := client.stream(ctx, "ec2", "wait", "instance-status-ok", "--instance-ids", state.AWS.InstanceID); err != nil {
+	waitArgs = append([]string{"ec2", "wait", "instance-status-ok", "--instance-ids"}, instanceIDs...)
+	if err := client.stream(ctx, waitArgs...); err != nil {
 		return fail(err)
 	}
-	publicIP, err := client.output(ctx,
-		"ec2", "describe-instances",
-		"--instance-ids", state.AWS.InstanceID,
-		"--query", "Reservations[0].Instances[0].PublicIpAddress",
-		"--output", "text",
-	)
+	instances, err := describeAWSInstances(ctx, client, instanceIDs)
 	if err != nil {
 		return fail(err)
 	}
-	state.AWS.PublicIP = strings.TrimSpace(publicIP)
-	if state.AWS.PublicIP == "" || state.AWS.PublicIP == "None" {
-		return fail(fmt.Errorf("ec2 instance has no public IP; choose a subnet that assigns public addresses"))
+	for nodeIndex, instanceID := range instanceIDs {
+		instance, ok := instances[instanceID]
+		if !ok {
+			return fail(fmt.Errorf("describe-instances omitted %s", instanceID))
+		}
+		if instance.PublicIP == "" {
+			return fail(fmt.Errorf("ec2 instance %s has no public IP; choose a subnet that assigns public addresses", instanceID))
+		}
+		if instance.PrivateIP == "" {
+			return fail(fmt.Errorf("ec2 instance %s has no private IP", instanceID))
+		}
+		instance.NodeIndex = nodeIndex
+		state.AWS.Instances[nodeIndex] = instance
 	}
 	if err := a.store().save(state); err != nil {
 		return err
@@ -241,8 +293,66 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err := a.store().save(state); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready on EC2 instance %s (%s).\n", state.Name, state.AWS.InstanceID, state.AWS.PublicIP)
+	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready on %d native EC2 instances.\n", state.Name, len(state.AWS.Instances))
 	return nil
+}
+
+func ubuntuAMIParameter(architecture string) (string, error) {
+	switch architecture {
+	case "arm64":
+		return ubuntuARM64AMIParameter, nil
+	case "amd64":
+		return ubuntuAMD64AMIParameter, nil
+	default:
+		return "", fmt.Errorf("unsupported --architecture %q; use arm64 or amd64", architecture)
+	}
+}
+
+func validateGoGC(value string) error {
+	if value == "off" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return fmt.Errorf("--gogc must be a non-negative integer or off")
+	}
+	return nil
+}
+
+func describeAWSInstances(ctx context.Context, client awsClient, instanceIDs []string) (map[string]awsInstanceState, error) {
+	args := append([]string{"ec2", "describe-instances", "--instance-ids"}, instanceIDs...)
+	args = append(args,
+		"--query", "Reservations[].Instances[].{InstanceID:InstanceId,PublicIP:PublicIpAddress,PrivateIP:PrivateIpAddress}",
+		"--output", "json",
+	)
+	value, err := client.output(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var instances []struct {
+		InstanceID string  `json:"InstanceID"`
+		PublicIP   *string `json:"PublicIP"`
+		PrivateIP  *string `json:"PrivateIP"`
+	}
+	if err := json.Unmarshal([]byte(value), &instances); err != nil {
+		return nil, fmt.Errorf("decode EC2 instance addresses: %w", err)
+	}
+	result := make(map[string]awsInstanceState, len(instances))
+	for _, instance := range instances {
+		result[instance.InstanceID] = awsInstanceState{
+			InstanceID: instance.InstanceID,
+			PublicIP:   optionalString(instance.PublicIP),
+			PrivateIP:  optionalString(instance.PrivateIP),
+		}
+	}
+	return result, nil
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (a *application) ensureAWSCredentials(ctx context.Context, client awsClient) error {
@@ -366,7 +476,7 @@ func cidrFlag(cidr string) string {
 	return "--cidr"
 }
 
-func writeUserData(dir, clusterName, sshUser string) (string, error) {
+func writeUserData(dir, clusterName string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create state directory: %w", err)
 	}
@@ -376,13 +486,11 @@ func writeUserData(dir, clusterName, sshUser string) (string, error) {
 	}
 	path := file.Name()
 	defer func() { _ = file.Close() }()
-	script := fmt.Sprintf(`#!/usr/bin/env bash
+	script := `#!/usr/bin/env bash
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git jq make build-essential docker.io docker-compose-v2
-systemctl enable --now docker
-usermod -aG docker %s
+apt-get install -y ca-certificates curl git jq make build-essential python3
 case "$(uname -m)" in
   aarch64|arm64) go_arch=arm64 ;;
   x86_64|amd64) go_arch=amd64 ;;
@@ -393,7 +501,7 @@ rm -rf /usr/local/go
 tar -C /usr/local -xzf /tmp/go.tgz
 ln -sf /usr/local/go/bin/go /usr/local/bin/go
 touch /var/lib/autobahn-e2e-ready
-`, sshUser)
+`
 	if _, err := file.WriteString(script); err != nil {
 		_ = os.Remove(path)
 		return "", fmt.Errorf("write EC2 user data: %w", err)
@@ -406,64 +514,163 @@ touch /var/lib/autobahn-e2e-ready
 }
 
 func (a *application) waitForEC2Bootstrap(ctx context.Context, state clusterState) error {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	for {
-		_, err := a.runner.output(ctx, sshCommand(state, "test -f /var/lib/autobahn-e2e-ready"))
-		if err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for EC2 bootstrap: %w", ctx.Err())
-		case <-ticker.C:
+	for _, instance := range state.AWS.Instances {
+		if err := a.waitForRemoteCommand(ctx, state, instance, "test -f /var/lib/autobahn-e2e-ready"); err != nil {
+			return fmt.Errorf("wait for EC2 bootstrap on node-%d: %w", instance.NodeIndex, err)
 		}
 	}
+	return nil
 }
 
 func (a *application) startRemoteCluster(ctx context.Context, state clusterState) error {
 	aws := state.AWS
-	command := strings.Join([]string{
-		"git clone --filter=blob:none " + shellQuote(aws.RepoURL) + " " + shellQuote(aws.RemoteDir),
-		"cd " + shellQuote(aws.RemoteDir),
-		"git checkout --detach " + shellQuote(aws.Ref),
-		"AUTOBAHN=true AUTOBAHN_EVMONLY_IN_MEMORY=true DOCKER_DETACH=true make docker-cluster-start",
-	}, " && ")
-	if err := a.runner.stream(ctx, sshCommand(state, command)); err != nil {
-		return fmt.Errorf("start remote cluster: %w", err)
+	for _, instance := range aws.Instances {
+		command := strings.Join([]string{
+			"if test ! -d " + shellQuote(filepath.Join(aws.RemoteDir, ".git")) + "; then git clone --filter=blob:none " + shellQuote(aws.RepoURL) + " " + shellQuote(aws.RemoteDir) + "; fi",
+			"cd " + shellQuote(aws.RemoteDir),
+			"git fetch --depth=1 origin " + shellQuote(aws.Ref),
+			"git checkout --detach FETCH_HEAD",
+			"mkdir -p build",
+			"rm -f build/autobahn-native-build.ready",
+			"nohup integration_test/autobahn/scripts/build_native_node.sh " + shellQuote(aws.RemoteDir) + " </dev/null >build/autobahn-native-build.log 2>&1 &",
+		}, " && ")
+		if err := a.runner.stream(ctx, sshCommandForInstance(state, instance, command)); err != nil {
+			return fmt.Errorf("start native build on node-%d: %w", instance.NodeIndex, err)
+		}
+	}
+	for _, instance := range aws.Instances {
+		if err := a.waitForRemoteCommand(ctx, state, instance, "test -f "+shellQuote(filepath.Join(aws.RemoteDir, "build", "autobahn-native-build.ready"))); err != nil {
+			return fmt.Errorf("wait for native build on node-%d: %w", instance.NodeIndex, err)
+		}
+	}
+
+	privateIPs := make([]string, len(aws.Instances))
+	for _, instance := range aws.Instances {
+		privateIPs[instance.NodeIndex] = instance.PrivateIP
+	}
+	coordinator := aws.Instances[0]
+	prepareArgs := []string{
+		"integration_test/autobahn/scripts/prepare_native_cluster.sh",
+		shellQuote(filepath.Join("/home", aws.SSHUser)),
+	}
+	for _, privateIP := range privateIPs {
+		prepareArgs = append(prepareArgs, shellQuote(privateIP))
+	}
+	prepareCommand := "cd " + shellQuote(aws.RemoteDir) + " && " + strings.Join(prepareArgs, " ")
+	if err := a.runner.stream(ctx, sshCommandForInstance(state, coordinator, prepareCommand)); err != nil {
+		return fmt.Errorf("prepare native cluster configuration: %w", err)
+	}
+
+	stagingDir, err := os.MkdirTemp("", "autobahn-e2e-native-*")
+	if err != nil {
+		return fmt.Errorf("create native cluster staging directory: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(stagingDir) }()
+	for _, instance := range aws.Instances {
+		archiveName := fmt.Sprintf("node-%d.tgz", instance.NodeIndex)
+		localArchive := filepath.Join(stagingDir, archiveName)
+		remoteArchive := filepath.Join(aws.RemoteDir, "build", "autobahn-native", archiveName)
+		if err := a.runner.stream(ctx, scpDownloadCommand(state, coordinator, remoteArchive, localArchive)); err != nil {
+			return fmt.Errorf("download configuration for node-%d: %w", instance.NodeIndex, err)
+		}
+		targetArchive := filepath.Join("/tmp", state.Name+"-"+archiveName)
+		if err := a.runner.stream(ctx, scpUploadCommand(state, instance, localArchive, targetArchive)); err != nil {
+			return fmt.Errorf("upload configuration for node-%d: %w", instance.NodeIndex, err)
+		}
+		installCommand := strings.Join([]string{
+			"cd " + shellQuote(aws.RemoteDir),
+			"integration_test/autobahn/scripts/install_native_node.sh " + shellQuote(targetArchive) + " " + shellQuote(aws.SSHUser) + " " + fmt.Sprint(aws.GoMaxProcs) + " " + shellQuote(aws.GoGC),
+		}, " && ")
+		if err := a.runner.stream(ctx, sshCommandForInstance(state, instance, installCommand)); err != nil {
+			return fmt.Errorf("install native validator node-%d: %w", instance.NodeIndex, err)
+		}
+	}
+	for _, instance := range aws.Instances {
+		if err := a.runner.stream(ctx, sshCommandForInstance(state, instance, "sudo systemctl start seid.service")); err != nil {
+			return fmt.Errorf("start native validator node-%d: %w", instance.NodeIndex, err)
+		}
 	}
 	return nil
 }
 
 func (a *application) waitForRemoteCluster(ctx context.Context, state clusterState) error {
-	command := "test \"$(wc -l < " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/launch.complete")) + ")\" -ge " + strconv.Itoa(dockerClusterSize)
+	command := "systemctl is-active --quiet seid.service && curl -fsS -X POST -H 'content-type: application/json' --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_sendRawTransaction\",\"params\":[\"0x01\"]}' http://127.0.0.1:8545 >/dev/null"
+	for _, instance := range state.AWS.Instances {
+		if err := a.waitForRemoteCommand(ctx, state, instance, command); err != nil {
+			return fmt.Errorf("wait for native validator node-%d: %w", instance.NodeIndex, err)
+		}
+	}
+	return nil
+}
+
+func (a *application) waitForRemoteCommand(ctx context.Context, state clusterState, instance awsInstanceState, command string) error {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
-		if _, err := a.runner.output(ctx, sshCommand(state, command)); err == nil {
+		if _, err := a.runner.output(ctx, sshCommandForInstance(state, instance, command)); err == nil {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for remote cluster: %w", ctx.Err())
+			return ctx.Err()
 		case <-ticker.C:
 		}
 	}
 }
 
-func sshCommand(state clusterState, remoteCommand string) commandSpec {
-	return commandSpec{name: "ssh", args: append(sshBaseArgs(state), remoteCommand)}
+func sshCommandForInstance(state clusterState, instance awsInstanceState, remoteCommand string) commandSpec {
+	return commandSpec{name: "ssh", args: append(sshBaseArgs(state, instance), remoteCommand)}
 }
 
-func sshBaseArgs(state clusterState) []string {
+func sshBaseArgs(state clusterState, instance awsInstanceState) []string {
 	aws := state.AWS
 	return []string{
 		"-i", expandHome(aws.SSHKeyPath),
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=10",
 		"-o", "StrictHostKeyChecking=accept-new",
-		aws.SSHUser + "@" + aws.PublicIP,
+		aws.SSHUser + "@" + instance.PublicIP,
 	}
+}
+
+func scpDownloadCommand(state clusterState, instance awsInstanceState, remotePath, localPath string) commandSpec {
+	args := scpBaseArgs(state)
+	args = append(args, state.AWS.SSHUser+"@"+instance.PublicIP+":"+remotePath, localPath)
+	return commandSpec{name: "scp", args: args}
+}
+
+func scpUploadCommand(state clusterState, instance awsInstanceState, localPath, remotePath string) commandSpec {
+	args := scpBaseArgs(state)
+	args = append(args, localPath, state.AWS.SSHUser+"@"+instance.PublicIP+":"+remotePath)
+	return commandSpec{name: "scp", args: args}
+}
+
+func scpBaseArgs(state clusterState) []string {
+	return []string{
+		"-i", expandHome(state.AWS.SSHKeyPath),
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+}
+
+func awsInstanceForNode(state clusterState, node node) (awsInstanceState, error) {
+	if state.AWS == nil {
+		return awsInstanceState{}, fmt.Errorf("aws metadata is missing")
+	}
+	for _, instance := range state.AWS.Instances {
+		if instance.NodeIndex == node.Index {
+			return instance, nil
+		}
+	}
+	if state.AWS.InstanceID != "" {
+		return awsInstanceState{
+			NodeIndex:  node.Index,
+			InstanceID: state.AWS.InstanceID,
+			PublicIP:   state.AWS.PublicIP,
+		}, nil
+	}
+	return awsInstanceState{}, fmt.Errorf("AWS instance for %s is missing", node.Name)
 }
 
 func shellQuote(value string) string {
