@@ -68,8 +68,10 @@ type shardEntry struct {
 	// The value, if known.
 	value []byte
 
-	// If the value is not available when we request it,
-	// it will be written to this channel when it is available.
+	// The channel carrying the result of the read currently in flight for this key. Non-nil
+	// exactly while the status is statusScheduled: set when a read is scheduled, cleared by
+	// setTerminalStateUnlocked(). Code running without the lock must use the channel reference
+	// bound at scheduling time rather than reading this field.
 	valueChan chan readResult
 }
 
@@ -185,7 +187,7 @@ func (s *shard) getUnknown(read Reader, entry *shardEntry, key []byte) ([]byte, 
 	startTime := time.Now()
 	s.readPool.Submit(func() {
 		value, _, readErr := read(key)
-		entry.injectValue(key, readResult{value: value, err: readErr})
+		entry.injectValue(key, valueChan, readResult{value: value, err: readErr})
 	})
 	result, err := threading.InterruptiblePull(s.ctx, valueChan)
 	s.metrics.reportCacheMissLatency(time.Since(startTime))
@@ -199,8 +201,10 @@ func (s *shard) getUnknown(read Reader, entry *shardEntry, key []byte) ([]byte, 
 	return result.value, result.value != nil, nil
 }
 
-// This method is called by the read scheduler when a value becomes available.
-func (se *shardEntry) injectValue(key []byte, result readResult) {
+// This method is called by the read scheduler when a value becomes available. ch is the channel
+// bound at scheduling time, which is the one every waiter on this read is blocked on;
+// se.valueChan may already have been detached by then.
+func (se *shardEntry) injectValue(key []byte, ch chan readResult, result readResult) {
 	se.shard.lock.Lock()
 
 	if se.status == statusScheduled {
@@ -208,23 +212,34 @@ func (se *shardEntry) injectValue(key []byte, result readResult) {
 			// Don't cache errors — reset so the next caller retries.
 			delete(se.shard.data, string(key))
 		} else if result.value == nil {
-			se.status = statusDeleted
-			se.value = nil
-			size := uint64(len(key)) + se.shard.estimatedOverheadPerEntry
-			se.shard.gcQueue.Push(key, size)
+			se.setTerminalStateUnlocked(key, statusDeleted, nil)
 			se.shard.evictUnlocked()
 		} else {
-			se.status = statusAvailable
-			se.value = result.value
-			size := uint64(len(key)) + uint64(len(result.value)) + se.shard.estimatedOverheadPerEntry
-			se.shard.gcQueue.Push(key, size)
+			se.setTerminalStateUnlocked(key, statusAvailable, result.value)
 			se.shard.evictUnlocked()
 		}
 	}
 
 	se.shard.lock.Unlock()
 
-	se.valueChan <- result
+	ch <- result
+}
+
+// setTerminalStateUnlocked records the entry's final status and value for this key and enrolls it
+// in the LRU queue. Eviction is left to the caller, since a bulk insert enforces the size budget
+// once at the end rather than per entry.
+//
+// The Unlocked postfix indicates that the caller must hold the shard's lock.
+func (se *shardEntry) setTerminalStateUnlocked(key []byte, status valueStatus, value []byte) {
+	se.status = status
+	se.value = value
+	// Every waiter holds the channel reference it was scheduled with (see injectValue), so
+	// detaching here cannot strand one. It stops the entry from retaining the channel, and the
+	// result buffered in it, for the rest of its life in the cache.
+	se.valueChan = nil
+
+	size := uint64(len(key)) + uint64(len(value)) + se.shard.estimatedOverheadPerEntry
+	se.shard.gcQueue.Push(key, size)
 }
 
 // Get a shard entry for a given key. Caller is responsible for holding the shard's lock
@@ -306,7 +321,7 @@ func (s *shard) BatchGet(read Reader, keys map[string]types.BatchGetResult) erro
 			p := &pending[i]
 			s.readPool.Submit(func() {
 				value, _, readErr := read([]byte(p.key))
-				p.entry.valueChan <- readResult{value: value, err: readErr}
+				p.valueChan <- readResult{value: value, err: readErr}
 			})
 		}
 	}
@@ -340,20 +355,15 @@ func (s *shard) bulkInjectValues(reads []pendingRead) {
 		if entry.status != statusScheduled {
 			continue
 		}
+		key := []byte(reads[i].key)
 		result := reads[i].result
 		if result.err != nil {
 			// Don't cache errors — reset so the next caller retries.
 			delete(s.data, reads[i].key)
 		} else if result.value == nil {
-			entry.status = statusDeleted
-			entry.value = nil
-			size := uint64(len(reads[i].key)) + s.estimatedOverheadPerEntry
-			s.gcQueue.Push([]byte(reads[i].key), size)
+			entry.setTerminalStateUnlocked(key, statusDeleted, nil)
 		} else {
-			entry.status = statusAvailable
-			entry.value = result.value
-			size := uint64(len(reads[i].key)) + uint64(len(result.value)) + s.estimatedOverheadPerEntry
-			s.gcQueue.Push([]byte(reads[i].key), size)
+			entry.setTerminalStateUnlocked(key, statusAvailable, result.value)
 		}
 	}
 	s.evictUnlocked()
@@ -387,11 +397,7 @@ func (s *shard) Set(key []byte, value []byte) {
 // Set a value. Caller is required to hold the lock.
 func (s *shard) setUnlocked(key []byte, value []byte) {
 	entry := s.getEntry(key, true)
-	entry.status = statusAvailable
-	entry.value = value
-
-	size := uint64(len(key)) + uint64(len(value)) + s.estimatedOverheadPerEntry
-	s.gcQueue.Push(key, size)
+	entry.setTerminalStateUnlocked(key, statusAvailable, value)
 }
 
 // BatchSet sets the values for a batch of keys.
@@ -423,9 +429,5 @@ func (s *shard) deleteUnlocked(key []byte) {
 		// Key is not in the cache, so nothing to do.
 		return
 	}
-	entry.status = statusDeleted
-	entry.value = nil
-
-	size := uint64(len(key)) + s.estimatedOverheadPerEntry
-	s.gcQueue.Push(key, size)
+	entry.setTerminalStateUnlocked(key, statusDeleted, nil)
 }

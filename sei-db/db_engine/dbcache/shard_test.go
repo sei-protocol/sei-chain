@@ -901,3 +901,176 @@ func TestSetDeleteThenBatchGet(t *testing.T) {
 	require.NoError(t, s.BatchGet(read, keys))
 	require.False(t, keys["k"].IsFound())
 }
+
+// ---------------------------------------------------------------------------
+// valueChan retention
+// ---------------------------------------------------------------------------
+
+// An entry holds its valueChan for exactly as long as a read is in flight for it. Once the entry
+// reaches a terminal state — whether by the read completing or by a write landing on it — the
+// channel is detached, so the entry never keeps a channel, or the result buffered in it, alive.
+func requireChannelInvariant(t *testing.T, s *shard) {
+	t.Helper()
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for key, entry := range s.data {
+		require.Equal(t, entry.status == statusScheduled, entry.valueChan != nil,
+			"entry %q has status %v with valueChan != nil == %v", key, entry.status, entry.valueChan != nil)
+	}
+}
+
+// Returns a Reader that blocks until the returned gate is closed, holding a read in flight.
+func gatedReader(store map[string][]byte) (Reader, chan struct{}) {
+	gate := make(chan struct{})
+	read := Reader(func(key []byte) ([]byte, bool, error) {
+		<-gate
+		v, ok := store[string(key)]
+		if !ok {
+			return nil, false, nil
+		}
+		return v, true, nil
+	})
+	return read, gate
+}
+
+// Blocks until the shard has a read in flight for the given key.
+func awaitScheduled(t *testing.T, s *shard, key string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		s.lock.Lock()
+		defer s.lock.Unlock()
+		entry, ok := s.data[key]
+		return ok && entry.status == statusScheduled
+	}, time.Second, time.Millisecond, "no read was scheduled for %q", key)
+}
+
+// Blocks until no read is in flight in the shard.
+func awaitNoneScheduled(t *testing.T, s *shard) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		s.lock.Lock()
+		defer s.lock.Unlock()
+		for _, entry := range s.data {
+			if entry.status == statusScheduled {
+				return false
+			}
+		}
+		return true
+	}, time.Second, time.Millisecond, "a read is still in flight")
+}
+
+func TestReadCompletionDetachesChannel(t *testing.T) {
+	s, read := newTestShard(t, 4096, map[string][]byte{"hit": []byte("v")})
+
+	_, found, err := s.Get(read, []byte("hit"), true)
+	require.NoError(t, err)
+	require.True(t, found)
+
+	_, found, err = s.Get(read, []byte("miss"), true)
+	require.NoError(t, err)
+	require.False(t, found)
+
+	requireChannelInvariant(t, s)
+	s.lock.Lock()
+	require.Equal(t, statusAvailable, s.data["hit"].status)
+	require.Equal(t, statusDeleted, s.data["miss"].status)
+	s.lock.Unlock()
+}
+
+func TestSetDuringInFlightReadDetachesChannel(t *testing.T) {
+	const overhead = 100
+	s, err := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+	require.NoError(t, err)
+	read, gate := gatedReader(map[string][]byte{"k": []byte("stale-db-value")})
+
+	readErr := make(chan error, 1)
+	go func() {
+		_, _, err := s.Get(read, []byte("k"), true)
+		readErr <- err
+	}()
+	awaitScheduled(t, s, "k")
+
+	s.Set([]byte("k"), []byte("new"))
+
+	// The shard now accounts for the new value alone — 1 + 3 + 100 = 104 — so the entry must not
+	// still be holding the value the in-flight read is carrying.
+	requireChannelInvariant(t, s)
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries)
+	require.Equal(t, uint64(104), bytes)
+
+	close(gate)
+	// The read publishes over the channel it was scheduled with, so detaching did not strand it.
+	require.NoError(t, <-readErr)
+
+	val, found, err := s.Get(read, []byte("k"), true)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "new", string(val))
+	requireChannelInvariant(t, s)
+}
+
+func TestDeleteDuringInFlightReadDetachesChannel(t *testing.T) {
+	const overhead = 100
+	s, err := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, overhead)
+	require.NoError(t, err)
+	read, gate := gatedReader(map[string][]byte{"k": []byte("stale-db-value")})
+
+	readErr := make(chan error, 1)
+	go func() {
+		_, _, err := s.Get(read, []byte("k"), true)
+		readErr <- err
+	}()
+	awaitScheduled(t, s, "k")
+
+	s.Delete([]byte("k"))
+
+	// A deleted entry has no value to account for — 1 + 100 = 101.
+	requireChannelInvariant(t, s)
+	bytes, entries := s.getSizeInfo()
+	require.Equal(t, uint64(1), entries)
+	require.Equal(t, uint64(101), bytes)
+
+	close(gate)
+	require.NoError(t, <-readErr)
+
+	_, found, err := s.Get(read, []byte("k"), true)
+	require.NoError(t, err)
+	require.False(t, found)
+	requireChannelInvariant(t, s)
+}
+
+func TestBatchGetCompletionDetachesChannel(t *testing.T) {
+	s, read := newTestShard(t, 100_000, map[string][]byte{"x": []byte("1"), "y": []byte("2")})
+
+	keys := map[string]types.BatchGetResult{"x": {}, "y": {}, "z": {}}
+	require.NoError(t, s.BatchGet(read, keys))
+
+	awaitNoneScheduled(t, s)
+	requireChannelInvariant(t, s)
+}
+
+func TestBatchSetDuringInFlightBatchReadDoesNotStrandRead(t *testing.T) {
+	s, err := NewShard(context.Background(), threading.NewAdHocPool(), 100_000, 0)
+	require.NoError(t, err)
+	read, gate := gatedReader(map[string][]byte{"k": []byte("stale-db-value")})
+
+	batchErr := make(chan error, 1)
+	go func() {
+		batchErr <- s.BatchGet(read, map[string]types.BatchGetResult{"k": {}})
+	}()
+	awaitScheduled(t, s, "k")
+
+	s.BatchSet([]CacheUpdate{{Key: []byte("k"), Value: []byte("new")}})
+	requireChannelInvariant(t, s)
+
+	close(gate)
+	// The batch scheduler publishes over the channel it bound, not the entry's detached field.
+	require.NoError(t, <-batchErr)
+
+	val, found, err := s.Get(read, []byte("k"), true)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "new", string(val))
+	requireChannelInvariant(t, s)
+}
