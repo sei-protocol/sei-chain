@@ -94,6 +94,8 @@ func (pk *PubKey) MarshalTo(dAtA []byte) (int, error) {
 }
 
 // Unmarshal implements proto.Marshaler interface.
+//
+//nolint:staticcheck // Legacy key decoding is consensus-sensitive and must retain its elliptic-coordinate behavior.
 func (pk *PubKey) Unmarshal(bz []byte, curve elliptic.Curve, expectedSize int) error {
 	if len(bz) != expectedSize {
 		return errors.Wrapf(errors.ErrInvalidPubKey, "wrong ECDSA PK bytes, expecting %d bytes, got %d", expectedSize, len(bz))

@@ -44,6 +44,10 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
+const (
+	baseDenom = "usei"
+)
+
 var TestConfig EncodingConfig
 
 const (
@@ -334,7 +338,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		// TODO: Potentially just hard code the Funds amount here
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
-		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
+		amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), baseDenom))
 		if err != nil {
 			panic(err)
 		}
@@ -351,7 +355,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			Label:  "test",
 			Msg:    wasmtypes.RawContractMessage([]byte(config.WasmMsgTypes.Instantiate.Payload)),
 			Funds: sdk.NewCoins(sdk.Coin{
-				Denom:  "usei",
+				Denom:  baseDenom,
 				Amount: sdk.NewInt(1),
 			}), // maybe make this configurable as well in the future
 		}}
@@ -363,7 +367,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 				Amount: sdk.NewCoins(sdk.Coin{
-					Denom:  "usei",
+					Denom:  baseDenom,
 					Amount: sdk.NewInt(1),
 				}),
 			})
@@ -374,7 +378,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			FromAddress: sdk.AccAddress(adminKey.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
-				Denom:  "usei",
+				Denom:  baseDenom,
 				Amount: sdk.NewInt(10000000),
 			}),
 		}}
@@ -460,7 +464,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 			Amount: sdk.NewCoins(sdk.Coin{
-				Denom:  "usei",
+				Denom:  baseDenom,
 				Amount: sdk.NewInt(amountUsei),
 			}),
 		}}
@@ -533,7 +537,7 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 		msg = &stakingtypes.MsgDelegate{
 			DelegatorAddress: delegatorAddr,
 			ValidatorAddress: chosenValidator,
-			Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+			Amount:           sdk.Coin{Denom: baseDenom, Amount: sdk.NewInt(1)},
 		}
 		c.DelegationMap[delegatorAddr] = map[string]int{}
 		c.DelegationMap[delegatorAddr][chosenValidator] = 1
@@ -543,14 +547,14 @@ func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidato
 				DelegatorAddress:    delegatorAddr,
 				ValidatorSrcAddress: srcAddr,
 				ValidatorDstAddress: chosenValidator,
-				Amount:              sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+				Amount:              sdk.Coin{Denom: baseDenom, Amount: sdk.NewInt(1)},
 			}
 			c.DelegationMap[delegatorAddr][chosenValidator]++
 		} else {
 			msg = &stakingtypes.MsgUndelegate{
 				DelegatorAddress: delegatorAddr,
 				ValidatorAddress: srcAddr,
-				Amount:           sdk.Coin{Denom: "usei", Amount: sdk.NewInt(1)},
+				Amount:           sdk.Coin{Denom: baseDenom, Amount: sdk.NewInt(1)},
 			}
 		}
 		// Update delegation map

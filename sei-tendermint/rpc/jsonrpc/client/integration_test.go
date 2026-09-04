@@ -8,6 +8,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net"
 	"regexp"
@@ -24,7 +25,7 @@ func TestWSClientReconnectWithJitter(t *testing.T) {
 
 	ctx := t.Context()
 
-	failDialer := func(net, addr string) (net.Conn, error) {
+	failDialer := func(_ context.Context, net, addr string) (net.Conn, error) {
 		return nil, errors.New("not connected")
 	}
 

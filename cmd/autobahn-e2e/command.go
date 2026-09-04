@@ -11,6 +11,11 @@ import (
 )
 
 const (
+	commandDocker = "docker"
+	commandGit    = "git"
+	commandMake   = "make"
+	commandSSH    = "ssh"
+
 	defaultClusterName = "autobahn-evmonly"
 	targetLocal        = "local"
 	targetAWS          = "aws"

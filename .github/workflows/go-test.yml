@@ -13,7 +13,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
 env:
-  GO_VERSION: '1.25.6'
+  GO_VERSION: '1.27.1'
   GO_TEST_TIMEOUT: 30m
   # state_db tests run in their own workflow (sei-db-tests.yml); exclude
   # that subtree everywhere in this workflow to avoid double-running them.
@@ -31,7 +31,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
@@ -76,7 +76,7 @@ jobs:
           # Depth 0 for PRs so merge-base diff against the base branch works.
           fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         if: github.event_name != 'merge_group'
         with:
           go-version: ${{ env.GO_VERSION }}

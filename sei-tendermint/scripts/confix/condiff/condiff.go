@@ -45,7 +45,7 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() != 2 {
-		log.Fatalf("Usage: %[1]s <lhs> <rhs>", filepath.Base(os.Args[0]))
+		log.Fatal("Usage: condiff <lhs> <rhs>")
 	}
 	lhs := mustParse(flag.Arg(0))
 	rhs := mustParse(flag.Arg(1))

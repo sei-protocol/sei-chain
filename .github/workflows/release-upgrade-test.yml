@@ -61,10 +61,10 @@ jobs:
       - name: Relocate Go caches to /mnt
         run: bash .github/scripts/ci-relocate-go-cache.sh
 
-      # See: https://github.com/actions/setup-go/releases/tag/v6
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      # See: https://github.com/actions/setup-go/releases/tag/v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: '1.25.6'
+          go-version: '1.27.1'
 
       - name: Run coordinated release upgrade
         run: bash .github/scripts/release-upgrade-test.sh

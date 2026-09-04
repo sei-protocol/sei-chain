@@ -30,10 +30,10 @@ func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.
 
 // first half of go-ethereum/core/types/transaction_signing.go:recoverPlain
 func RecoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]byte, error) {
-	if Vb.BitLen() > 8 {
+	if Vb.BitLen() > 8 || Vb.Uint64() < 27 {
 		return []byte{}, ethtypes.ErrInvalidSig
 	}
-	V := byte(Vb.Uint64() - 27)
+	V := byte(Vb.Uint64() - 27) //nolint:gosec // the bit-length and lower-bound checks make the subtraction fit in one byte.
 	if !crypto.ValidateSignatureValues(V, R, S, homestead) {
 		return []byte{}, ethtypes.ErrInvalidSig
 	}

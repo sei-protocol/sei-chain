@@ -98,7 +98,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"Invalid granter Address",
 			[]string{
 				"grantee_addr",
-				"send",
+				sendCase,
 				fmt.Sprintf("--%s=100steak", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, "granter"),
 				fmt.Sprintf("--%s=true", flags.FlagGenerateOnly),
@@ -111,7 +111,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"Invalid grantee Address",
 			[]string{
 				"grantee_addr",
-				"send",
+				sendCase,
 				fmt.Sprintf("--%s=100steak", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagGenerateOnly),
@@ -124,7 +124,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"Invalid expiration time",
 			[]string{
 				grantee.String(),
-				"send",
+				sendCase,
 				fmt.Sprintf("--%s=100steak", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
@@ -137,7 +137,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"fail with error invalid msg-type",
 			[]string{
 				grantee.String(),
-				"generic",
+				genericCase,
 				fmt.Sprintf("--%s=invalid-msg-type", cli.FlagMsgType),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -152,7 +152,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"failed with error both validators not allowed",
 			[]string{
 				grantee.String(),
-				"delegate",
+				delegateCase,
 				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -169,7 +169,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"valid tx delegate authorization allowed validators",
 			[]string{
 				grantee.String(),
-				"delegate",
+				delegateCase,
 				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -185,7 +185,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"valid tx delegate authorization deny validators",
 			[]string{
 				grantee.String(),
-				"delegate",
+				delegateCase,
 				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -201,7 +201,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"valid tx undelegate authorization",
 			[]string{
 				grantee.String(),
-				"unbond",
+				unbondCase,
 				fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -233,7 +233,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"Valid tx send authorization",
 			[]string{
 				grantee.String(),
-				"send",
+				sendCase,
 				fmt.Sprintf("--%s=100steak", cli.FlagSpendLimit),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -248,7 +248,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"Valid tx generic authorization",
 			[]string{
 				grantee.String(),
-				"generic",
+				genericCase,
 				fmt.Sprintf("--%s=%s", cli.FlagMsgType, typeMsgVote),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -263,7 +263,7 @@ func (s *IntegrationTestSuite) TestCLITxGrantAuthorization() {
 			"Valid tx with amino",
 			[]string{
 				grantee.String(),
-				"generic",
+				genericCase,
 				fmt.Sprintf("--%s=%s", cli.FlagMsgType, typeMsgVote),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -314,7 +314,7 @@ func (s *IntegrationTestSuite) TestCmdRevokeAuthorizations() {
 		val,
 		[]string{
 			grantee.String(),
-			"send",
+			sendCase,
 			fmt.Sprintf("--%s=100steak", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address),
@@ -330,7 +330,7 @@ func (s *IntegrationTestSuite) TestCmdRevokeAuthorizations() {
 		val,
 		[]string{
 			grantee.String(),
-			"generic",
+			genericCase,
 			fmt.Sprintf("--%s=%s", cli.FlagMsgType, typeMsgVote),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address),
@@ -346,7 +346,7 @@ func (s *IntegrationTestSuite) TestCmdRevokeAuthorizations() {
 		val,
 		[]string{
 			grantee.String(),
-			"generic",
+			genericCase,
 			fmt.Sprintf("--%s=%s", cli.FlagMsgType, typeMsgSubmitProposal),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address),
@@ -368,7 +368,7 @@ func (s *IntegrationTestSuite) TestCmdRevokeAuthorizations() {
 		{
 			"invalid grantee address",
 			[]string{
-				"invalid grantee",
+				invalidGranteeCase,
 				typeMsgSend,
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 				fmt.Sprintf("--%s=true", flags.FlagGenerateOnly),
@@ -459,7 +459,7 @@ func (s *IntegrationTestSuite) TestExecAuthorizationWithExpiration() {
 		val,
 		[]string{
 			grantee.String(),
-			"generic",
+			genericCase,
 			fmt.Sprintf("--%s=%s", cli.FlagMsgType, typeMsgVote),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -499,7 +499,7 @@ func (s *IntegrationTestSuite) TestNewExecGenericAuthorized() {
 		val,
 		[]string{
 			grantee.String(),
-			"generic",
+			genericCase,
 			fmt.Sprintf("--%s=%s", cli.FlagMsgType, typeMsgVote),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -545,7 +545,7 @@ func (s *IntegrationTestSuite) TestNewExecGenericAuthorized() {
 			true,
 		},
 		{
-			"valid txn",
+			validTransactionCase,
 			[]string{
 				execMsg.Name(),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, grantee.String()),
@@ -601,7 +601,7 @@ func (s *IntegrationTestSuite) TestNewExecGrantAuthorized() {
 		val,
 		[]string{
 			grantee.String(),
-			"send",
+			sendCase,
 			fmt.Sprintf("--%s=12%stoken", cli.FlagSpendLimit, val.Moniker),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -633,7 +633,7 @@ func (s *IntegrationTestSuite) TestNewExecGrantAuthorized() {
 		expectErr    bool
 	}{
 		{
-			"valid txn",
+			validTransactionCase,
 			[]string{
 				execMsg.Name(),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, grantee.String()),
@@ -686,7 +686,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 		val,
 		[]string{
 			grantee.String(),
-			"delegate",
+			delegateCase,
 			fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -778,7 +778,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 		val,
 		[]string{
 			grantee.String(),
-			"delegate",
+			delegateCase,
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 			fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -804,7 +804,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 		errMsg       string
 	}{
 		{
-			"valid txn",
+			validTransactionCase,
 			[]string{
 				execMsg.Name(),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, grantee.String()),
@@ -817,7 +817,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 			"",
 		},
 		{
-			"valid txn",
+			validTransactionCase,
 			[]string{
 				execMsg.Name(),
 				fmt.Sprintf("--%s=%s", flags.FlagFrom, grantee.String()),
@@ -855,7 +855,7 @@ func (s *IntegrationTestSuite) TestExecDelegateAuthorization() {
 		val,
 		[]string{
 			grantee.String(),
-			"delegate",
+			delegateCase,
 			fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -890,7 +890,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 		val,
 		[]string{
 			grantee.String(),
-			"unbond",
+			unbondCase,
 			fmt.Sprintf("--%s=100usei", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
@@ -999,7 +999,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 		val,
 		[]string{
 			grantee.String(),
-			"unbond",
+			unbondCase,
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address.String()),
 			fmt.Sprintf("--%s=%s", flags.FlagBroadcastMode, flags.BroadcastBlock),
@@ -1025,7 +1025,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 		errMsg       string
 	}{
 		{
-			"valid txn",
+			validTransactionCase,
 			[]string{
 				execMsg.Name(),
 				fmt.Sprintf("--%s=%s", flags.FlagGas, "250000"),
@@ -1039,7 +1039,7 @@ func (s *IntegrationTestSuite) TestExecUndelegateAuthorization() {
 			"",
 		},
 		{
-			"valid txn",
+			validTransactionCase,
 			[]string{
 				execMsg.Name(),
 				fmt.Sprintf("--%s=%s", flags.FlagGas, "250000"),

@@ -53,6 +53,8 @@ import (
 const TestContract = "TEST"
 const TestUser = "sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y"
 
+const testChainID = "sei-test"
+
 type TestTx struct {
 	msgs []sdk.Msg
 }
@@ -82,7 +84,7 @@ type TestAppOpts struct {
 
 func (t TestAppOpts) Get(s string) interface{} {
 	if s == "chain-id" {
-		return "sei-test"
+		return testChainID
 	}
 	if s == FlagSCEnable {
 		return true
@@ -194,7 +196,7 @@ func newTestWrapper(tb testing.TB, tm time.Time, valPub cryptotypes.PubKey, enab
 	} else {
 		appPtr = Setup(tb, false, enableEVMCustomPrecompiles, false, baseAppOptions...)
 	}
-	ctx := appPtr.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
+	ctx := appPtr.NewContext(false, tmproto.Header{Height: 1, ChainID: testChainID, Time: tm})
 	wrapper := &TestWrapper{
 		App:  appPtr,
 		Ctx:  ctx,
@@ -399,7 +401,7 @@ func SetupWithAppOptsAndDefaultHome(isCheckTx bool, appOpts TestAppOpts, enableE
 
 		_, err = res.InitChain(&abci.RequestInitChain{
 			ConsensusParams: DefaultConsensusParams,
-			ChainId:         "sei-test",
+			ChainId:         testChainID,
 			AppStateBytes:   stateBytes,
 		},
 		)
@@ -467,7 +469,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 
 		_, err = res.InitChain(&abci.RequestInitChain{
 			ConsensusParams: DefaultConsensusParams,
-			ChainId:         "sei-test",
+			ChainId:         testChainID,
 			AppStateBytes:   stateBytes,
 		},
 		)
@@ -514,7 +516,7 @@ func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPre
 
 		_, err = res.InitChain(&abci.RequestInitChain{
 			ConsensusParams: DefaultConsensusParams,
-			ChainId:         "sei-test",
+			ChainId:         testChainID,
 			AppStateBytes:   stateBytes,
 		},
 		)
@@ -612,7 +614,7 @@ func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPre
 
 		_, err = app.InitChain(&abci.RequestInitChain{
 			ConsensusParams: DefaultConsensusParams,
-			ChainId:         "sei-test",
+			ChainId:         testChainID,
 			AppStateBytes:   stateBytes,
 		},
 		)
@@ -738,7 +740,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	// init chain will set the validator set and initialize the genesis accounts
 	_, _ = app.InitChain(&abci.RequestInitChain{
 		ConsensusParams: DefaultConsensusParams,
-		ChainId:         "sei-test",
+		ChainId:         testChainID,
 		AppStateBytes:   stateBytes,
 	},
 	)
@@ -748,7 +750,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Hash: app.LastCommitID().Hash,
 		Header: &tmproto.Header{
-			ChainID:            "sei-test",
+			ChainID:            testChainID,
 			Height:             app.LastBlockHeight() + 1,
 			NextValidatorsHash: valSet.Hash(),
 		},
@@ -779,13 +781,13 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 
 	_, _ = app.InitChain(&abci.RequestInitChain{
 		ConsensusParams: DefaultConsensusParams,
-		ChainId:         "sei-test",
+		ChainId:         testChainID,
 		AppStateBytes:   stateBytes,
 	},
 	)
 
 	_, _ = app.Commit(context.Background())
-	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: "sei-test", Height: app.LastBlockHeight() + 1}})
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: testChainID, Height: app.LastBlockHeight() + 1}})
 
 	return app
 }

@@ -58,8 +58,7 @@ type metricsList []parsedMetric
 func main() {
 	flag.Parse()
 	if flag.NArg() != 2 {
-		log.Fatalf("Usage is '%s <path1> <path2>', got %d arguments",
-			filepath.Base(os.Args[0]), flag.NArg())
+		log.Fatalf("Usage is 'metricsdiff <path1> <path2>', got %d arguments", flag.NArg())
 	}
 	fa, err := os.Open(flag.Arg(0))
 	if err != nil {

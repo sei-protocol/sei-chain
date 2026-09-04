@@ -488,11 +488,11 @@ func encodeReceipt(
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
 		"transactionIndex":  hexutil.Uint64(evmTxIndex), //nolint:gosec
-		"from":              common.HexToAddress(receipt.From),
-		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
+		rpcFieldFrom:        common.HexToAddress(receipt.From),
+		rpcFieldGasUsed:     hexutil.Uint64(receipt.GasUsed),
 		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
 		"logs":              logs,
-		"logsBloom":         bloom,
+		rpcFieldLogsBloom:   bloom,
 		"type":              hexutil.Uint(receipt.TxType),
 		"effectiveGasPrice": (*hexutil.Big)(big.NewInt(int64(receipt.EffectiveGasPrice))), // nolint:gosec
 		"status":            hexutil.Uint(receipt.Status),
@@ -500,7 +500,7 @@ func encodeReceipt(
 	if etx != nil && receipt.From == "" {
 		from, err := rpcutils.RecoverEVMSender(etx, block.Block.Height, block.Block.Time.Unix())
 		if err == nil {
-			fields["from"] = from
+			fields[rpcFieldFrom] = from
 		}
 		to := etx.To()
 		if to != nil {

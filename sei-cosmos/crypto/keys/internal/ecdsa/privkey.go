@@ -115,6 +115,8 @@ func (sk *PrivKey) MarshalTo(dAtA []byte) (int, error) {
 }
 
 // Unmarshal implements proto.Marshaler interface.
+//
+//nolint:staticcheck // Legacy key decoding is consensus-sensitive and must retain its elliptic-coordinate behavior.
 func (sk *PrivKey) Unmarshal(bz []byte, curve elliptic.Curve, expectedSize int) error {
 	if len(bz) != expectedSize {
 		return fmt.Errorf("wrong ECDSA SK bytes, expecting %d bytes", expectedSize)

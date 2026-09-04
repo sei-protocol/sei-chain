@@ -43,7 +43,7 @@ type WSClient struct {
 
 	Address  string // IP:PORT or /path/to/socket
 	Endpoint string // /websocket/url/endpoint
-	Dialer   func(string, string) (net.Conn, error)
+	Dialer   func(context.Context, string, string) (net.Conn, error)
 
 	// Single user facing channel to read RPCResponses from, closed only when the
 	// client is being stopped.
@@ -207,8 +207,8 @@ func (c *WSClient) nextRequestID() int {
 
 func (c *WSClient) dial() error {
 	dialer := &websocket.Dialer{
-		NetDial: c.Dialer,
-		Proxy:   http.ProxyFromEnvironment,
+		NetDialContext: c.Dialer,
+		Proxy:          http.ProxyFromEnvironment,
 	}
 	rHeader := http.Header{}
 	conn, _, err := dialer.Dial(c.protocol+"://"+c.Address+c.Endpoint, rHeader) // nolint:bodyclose

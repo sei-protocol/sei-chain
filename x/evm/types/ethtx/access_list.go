@@ -31,6 +31,9 @@ func NewAccessList(ethAccessList *ethtypes.AccessList) AccessList {
 
 func (al AccessList) ToEthAccessList() *ethtypes.AccessList {
 	var ethAccessList ethtypes.AccessList
+	if len(al) > 0 {
+		ethAccessList = make(ethtypes.AccessList, 0, len(al))
+	}
 
 	for _, tuple := range al {
 		storageKeys := make([]common.Hash, len(tuple.StorageKeys))

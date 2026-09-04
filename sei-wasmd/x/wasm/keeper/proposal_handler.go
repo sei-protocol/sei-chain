@@ -105,7 +105,7 @@ func handleMigrateProposal(ctx sdk.Context, k types.ContractOpsKeeper, p types.M
 
 	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
 	if err != nil {
-		return sdkerrors.Wrap(err, "contract")
+		return sdkerrors.Wrap(err, contractLabel)
 	}
 	if err != nil {
 		return sdkerrors.Wrap(err, "run as address")
@@ -130,7 +130,7 @@ func handleSudoProposal(ctx sdk.Context, k types.ContractOpsKeeper, p types.Sudo
 
 	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
 	if err != nil {
-		return sdkerrors.Wrap(err, "contract")
+		return sdkerrors.Wrap(err, contractLabel)
 	}
 	data, err := k.Sudo(ctx, contractAddr, p.Msg)
 	if err != nil {
@@ -151,7 +151,7 @@ func handleExecuteProposal(ctx sdk.Context, k types.ContractOpsKeeper, p types.E
 
 	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
 	if err != nil {
-		return sdkerrors.Wrap(err, "contract")
+		return sdkerrors.Wrap(err, contractLabel)
 	}
 	runAsAddr, err := sdk.AccAddressFromBech32(p.RunAs)
 	if err != nil {
@@ -175,7 +175,7 @@ func handleUpdateAdminProposal(ctx sdk.Context, k types.ContractOpsKeeper, p typ
 	}
 	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
 	if err != nil {
-		return sdkerrors.Wrap(err, "contract")
+		return sdkerrors.Wrap(err, contractLabel)
 	}
 	newAdminAddr, err := sdk.AccAddressFromBech32(p.NewAdmin)
 	if err != nil {
@@ -192,7 +192,7 @@ func handleClearAdminProposal(ctx sdk.Context, k types.ContractOpsKeeper, p type
 
 	contractAddr, err := sdk.AccAddressFromBech32(p.Contract)
 	if err != nil {
-		return sdkerrors.Wrap(err, "contract")
+		return sdkerrors.Wrap(err, contractLabel)
 	}
 	if err := k.ClearContractAdmin(ctx, contractAddr, nil); err != nil {
 		return err

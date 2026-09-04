@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"strings"
@@ -143,6 +144,10 @@ func (info NodeInfo) CompatibleWith(other NodeInfo) error {
 
 // AddChannel is used by the router when a channel is opened to add it to the node info
 func (info *NodeInfo) AddChannel(channel uint16) {
+	if channel > math.MaxUint8 {
+		return
+	}
+
 	// check that the channel doesn't already exist
 	for _, ch := range info.Channels {
 		if ch == byte(channel) {

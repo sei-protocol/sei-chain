@@ -35,6 +35,8 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
+const runTxModeSimulateName = "simulate"
+
 const (
 	runTxModeCheck    runTxMode = iota // Check a transaction
 	runTxModeReCheck                   // Recheck a (pending) transaction after a commit
@@ -45,7 +47,7 @@ const (
 var modeKeyToString = map[runTxMode]string{
 	runTxModeCheck:    "check",
 	runTxModeReCheck:  "recheck",
-	runTxModeSimulate: "simulate",
+	runTxModeSimulate: runTxModeSimulateName,
 	runTxModeDeliver:  "deliver",
 }
 

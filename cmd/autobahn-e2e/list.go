@@ -109,7 +109,7 @@ func (a *application) inspectLocalCluster(ctx context.Context, state clusterStat
 	reports := make([]nodeReport, len(state.Nodes))
 	for i, node := range state.Nodes {
 		status, err := a.runner.output(ctx, commandSpec{
-			name: "docker",
+			name: commandDocker,
 			args: []string{"inspect", "--format", "{{.State.Status}}", node.Container},
 		})
 		if err != nil {
@@ -119,7 +119,7 @@ func (a *application) inspectLocalCluster(ctx context.Context, state clusterStat
 		height := "-"
 		if status == "running" {
 			metrics, metricsErr := a.runner.output(ctx, commandSpec{
-				name: "docker",
+				name: commandDocker,
 				args: []string{"exec", node.Container, "curl", "-fsS", "http://127.0.0.1:26660/metrics"},
 			})
 			if metricsErr == nil {

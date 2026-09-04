@@ -34,7 +34,7 @@ func (a *application) teardown(ctx context.Context, options teardownOptions) err
 	}
 	switch state.Target {
 	case targetLocal:
-		if err := a.runner.stream(ctx, commandSpec{dir: state.RepoRoot, name: "make", args: []string{"docker-cluster-stop"}}); err != nil {
+		if err := a.runner.stream(ctx, commandSpec{dir: state.RepoRoot, name: commandMake, args: []string{"docker-cluster-stop"}}); err != nil {
 			return err
 		}
 	case targetAWS:

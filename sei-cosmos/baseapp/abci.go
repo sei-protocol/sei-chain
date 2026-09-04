@@ -826,7 +826,7 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	if len(path) >= 2 {
 		switch path[1] {
-		case "simulate":
+		case runTxModeSimulateName:
 			txBytes := req.Data
 
 			gInfo, res, err := app.Simulate(txBytes)

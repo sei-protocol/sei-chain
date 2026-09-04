@@ -129,9 +129,9 @@ jobs:
           source .github/scripts/docker-registry-retry.sh
           docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
           push_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.25.6'
+          go-version: '1.27.1'
       - name: Build seid and frozen RPC router binaries in localnode container
         env:
           DOCKER_PLATFORM: linux/amd64
@@ -189,9 +189,9 @@ jobs:
         run: sudo apt-get install -y jq
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.25.6'
+          go-version: '1.27.1'
       - name: Login to GitHub Container Registry
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
@@ -339,9 +339,9 @@ jobs:
         run: bash .github/scripts/ci-relocate-docker-data-root.sh
       - name: Relocate Go caches to /mnt
         run: bash .github/scripts/ci-relocate-go-cache.sh
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.25.6'
+          go-version: '1.27.1'
       - name: Install jq
         run: sudo apt-get install -y jq
       - name: Login to Docker Hub

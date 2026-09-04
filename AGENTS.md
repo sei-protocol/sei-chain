@@ -1,7 +1,7 @@
 # Sei Chain
 
 `github.com/sei-protocol/sei-chain` is a Cosmos SDK / Tendermint blockchain with
-a native EVM. It targets **Go 1.25.6**.
+a native EVM. It targets **Go 1.27.1**.
 
 ## Nested guides
 
@@ -112,7 +112,7 @@ run.
 ## Lint, build & test
 
 Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
-(golangci-lint v2.8.0; enabled linters include `errcheck`, `gosec`, `govet`,
+(golangci-lint v2.13.2; enabled linters include `errcheck`, `gosec`, `govet`,
 `staticcheck`, `ineffassign`, `goconst`, `prealloc`, `unconvert`, `misspell`,
 `bodyclose`, and `dogsled`; generated `*.pb.go` files are excluded).
 
@@ -134,8 +134,8 @@ go test ./<pkg>/...             # only for packages that touch no on-disk resour
 ```
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
-v2.8.0 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
-runs `go test -race` on Go 1.25.6.
+v2.13.2 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
+runs `go test -race` on Go 1.27.1.
 
 ### Running tests on a RAM disk
 

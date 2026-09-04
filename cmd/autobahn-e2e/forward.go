@@ -69,7 +69,7 @@ func (a *application) forward(ctx context.Context, options forwardOptions) error
 			"-L", fmt.Sprintf("%s:127.0.0.1:%d", localAddress, node.EVMHostPort),
 			destination,
 		)
-		return a.runner.stream(ctx, commandSpec{name: "ssh", args: args})
+		return a.runner.stream(ctx, commandSpec{name: commandSSH, args: args})
 	default:
 		return fmt.Errorf("unsupported target %q", state.Target)
 	}

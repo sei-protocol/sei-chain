@@ -1,4 +1,4 @@
-FROM golang:1.25.6-bookworm AS go-dist
+FROM golang:1.27.1-bookworm AS go-dist
 
 FROM ubuntu:24.04
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"

@@ -26,6 +26,32 @@ import (
 )
 
 const EthNamespace = "eth"
+const (
+	seiNamespace             = "sei"
+	rpcFieldNumber           = "number"
+	rpcFieldHash             = "hash"
+	rpcFieldParentHash       = "parentHash"
+	rpcFieldNonce            = "nonce"
+	rpcFieldMixHash          = "mixHash"
+	rpcFieldSHA3Uncles       = "sha3Uncles"
+	rpcFieldLogsBloom        = "logsBloom"
+	rpcFieldStateRoot        = "stateRoot"
+	rpcFieldMiner            = "miner"
+	rpcFieldDifficulty       = "difficulty"
+	rpcFieldExtraData        = "extraData"
+	rpcFieldGasLimit         = "gasLimit"
+	rpcFieldGasUsed          = "gasUsed"
+	rpcFieldTimestamp        = "timestamp"
+	rpcFieldMilliTimestamp   = "milliTimestamp"
+	rpcFieldTransactionsRoot = "transactionsRoot"
+	rpcFieldReceiptsRoot     = "receiptsRoot"
+	rpcFieldBaseFeePerGas    = "baseFeePerGas"
+	rpcFieldFrom             = "from"
+	rpcFieldError            = "error"
+	rpcFieldJSONRPC          = "jsonrpc"
+	rpcFieldCode             = "code"
+	rpcFieldMessage          = "message"
+)
 
 // maxBlockReceiptsConcurrency is a hard cap on the number of goroutines
 // eth_getBlockReceipts will fan out to when fetching per-tx receipts.
@@ -42,27 +68,27 @@ var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u
 
 func encodeGenesisBlock() map[string]any {
 	return map[string]any{
-		"number":           (*hexutil.Big)(big.NewInt(0)),
-		"hash":             genesisBlockHashHex,
-		"parentHash":       common.Hash{},
-		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-		"mixHash":          common.Hash{},           // inapplicable to Sei
-		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        ethtypes.Bloom{},
-		"stateRoot":        common.Hash{},
-		"miner":            common.Address{},
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(0),
-		"gasUsed":          hexutil.Uint64(0),
-		"timestamp":        hexutil.Uint64(0),
-		"milliTimestamp":   hexutil.Uint64(0), // BEP-520-compatible, see EncodeTmBlock
-		"transactionsRoot": common.Hash{},
-		"receiptsRoot":     common.Hash{},
-		"size":             hexutil.Uint64(0),
-		"uncles":           []common.Hash{}, // inapplicable to Sei
-		"transactions":     []any{},
-		"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
+		rpcFieldNumber:           (*hexutil.Big)(big.NewInt(0)),
+		rpcFieldHash:             genesisBlockHashHex,
+		rpcFieldParentHash:       common.Hash{},
+		rpcFieldNonce:            ethtypes.BlockNonce{},   // inapplicable to Sei
+		rpcFieldMixHash:          common.Hash{},           // inapplicable to Sei
+		rpcFieldSHA3Uncles:       ethtypes.EmptyUncleHash, // inapplicable to Sei
+		rpcFieldLogsBloom:        ethtypes.Bloom{},
+		rpcFieldStateRoot:        common.Hash{},
+		rpcFieldMiner:            common.Address{},
+		rpcFieldDifficulty:       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+		rpcFieldExtraData:        hexutil.Bytes{},               // inapplicable to Sei
+		rpcFieldGasLimit:         hexutil.Uint64(0),
+		rpcFieldGasUsed:          hexutil.Uint64(0),
+		rpcFieldTimestamp:        hexutil.Uint64(0),
+		rpcFieldMilliTimestamp:   hexutil.Uint64(0), // BEP-520-compatible, see EncodeTmBlock
+		rpcFieldTransactionsRoot: common.Hash{},
+		rpcFieldReceiptsRoot:     common.Hash{},
+		"size":                   hexutil.Uint64(0),
+		"uncles":                 []common.Hash{}, // inapplicable to Sei
+		"transactions":           []any{},
+		rpcFieldBaseFeePerGas:    (*hexutil.Big)(big.NewInt(0)),
 	}
 }
 
@@ -426,32 +452,32 @@ func EncodeTmBlock(
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 		gasLimit = cp.Block.MaxGas
 	}
-	// "timestamp" stays in whole seconds because every Ethereum client reads it
+	// rpcFieldTimestamp stays in whole seconds because every Ethereum client reads it
 	// that way, and Sei block intervals are shorter than a second, so it repeats
-	// across consecutive blocks. "milliTimestamp" is the BEP-520-compatible
+	// across consecutive blocks. rpcFieldMilliTimestamp is the BEP-520-compatible
 	// companion exposing the sub-second precision the Tendermint header already carries.
 	result := map[string]any{
-		"number":           (*hexutil.Big)(number),
-		"hash":             blockhash,
-		"parentHash":       lastHash,
-		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-		"mixHash":          common.Hash{},           // inapplicable to Sei
-		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        ethtypes.BytesToBloom(blockBloom),
-		"stateRoot":        appHash,
-		"miner":            miner,
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)),                // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},                              // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),                     //nolint:gosec
-		"gasUsed":          hexutil.Uint64(blockGasUsed),                 //nolint:gosec
-		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),      //nolint:gosec
-		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec
-		"transactionsRoot": txHash,
-		"receiptsRoot":     resultHash,
-		"size":             hexutil.Uint64(block.Block.Size()), //nolint:gosec
-		"uncles":           []common.Hash{},                    // inapplicable to Sei
-		"transactions":     transactions,
-		"baseFeePerGas":    (*hexutil.Big)(baseFeePerGas),
+		rpcFieldNumber:           (*hexutil.Big)(number),
+		rpcFieldHash:             blockhash,
+		rpcFieldParentHash:       lastHash,
+		rpcFieldNonce:            ethtypes.BlockNonce{},   // inapplicable to Sei
+		rpcFieldMixHash:          common.Hash{},           // inapplicable to Sei
+		rpcFieldSHA3Uncles:       ethtypes.EmptyUncleHash, // inapplicable to Sei
+		rpcFieldLogsBloom:        ethtypes.BytesToBloom(blockBloom),
+		rpcFieldStateRoot:        appHash,
+		rpcFieldMiner:            miner,
+		rpcFieldDifficulty:       (*hexutil.Big)(big.NewInt(0)),                // inapplicable to Sei
+		rpcFieldExtraData:        hexutil.Bytes{},                              // inapplicable to Sei
+		rpcFieldGasLimit:         hexutil.Uint64(gasLimit),                     //nolint:gosec
+		rpcFieldGasUsed:          hexutil.Uint64(blockGasUsed),                 //nolint:gosec
+		rpcFieldTimestamp:        hexutil.Uint64(block.Block.Time.Unix()),      //nolint:gosec
+		rpcFieldMilliTimestamp:   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec
+		rpcFieldTransactionsRoot: txHash,
+		rpcFieldReceiptsRoot:     resultHash,
+		"size":                   hexutil.Uint64(block.Block.Size()), //nolint:gosec
+		"uncles":                 []common.Hash{},                    // inapplicable to Sei
+		"transactions":           transactions,
+		rpcFieldBaseFeePerGas:    (*hexutil.Big)(baseFeePerGas),
 	}
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei

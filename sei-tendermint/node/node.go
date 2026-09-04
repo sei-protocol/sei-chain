@@ -586,7 +586,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		go func() {
 			select {
 			case <-ctx.Done():
-				sctx, scancel := context.WithTimeout(context.Background(), time.Second)
+				sctx, scancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 				defer scancel()
 				_ = srv.Shutdown(sctx)
 			case <-signal:

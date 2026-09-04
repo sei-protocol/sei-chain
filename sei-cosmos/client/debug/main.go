@@ -118,7 +118,7 @@ $ %s debug raw-bytes [72 101 108 108 111 44 32 112 108 97 121 103 114 111 117 11
 
 			byteArray := []byte{}
 			for _, s := range spl {
-				b, err := strconv.ParseInt(s, 10, 8)
+				b, err := strconv.ParseUint(s, 10, 8)
 				if err != nil {
 					return err
 				}

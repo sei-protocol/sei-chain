@@ -115,7 +115,7 @@ func (voteSet *VoteSet) Type() byte {
 	if voteSet == nil {
 		return 0x00
 	}
-	return byte(voteSet.signedMsgType)
+	return byte(voteSet.signedMsgType) //nolint:gosec // SignedMsgType is a protobuf enum with one-byte consensus values.
 }
 
 // Implements VoteSetReader.

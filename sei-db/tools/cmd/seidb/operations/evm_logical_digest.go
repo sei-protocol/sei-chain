@@ -30,6 +30,12 @@ import (
 // never to memiavl. It therefore shows up in the FlatKV misc bucket but is
 // absent from a memiavl-only node, so excluding it lets the FlatKV digest be
 // compared apples-to-apples against memiavl-only output.
+const (
+	compositeBackend = "composite"
+	flatKVBackend    = "flatkv"
+	memIAVLBackend   = "memiavl"
+)
+
 var migrationVersionPhysKey = []byte(migration.MigrationStore + "/" + migration.MigrationVersionKey)
 
 // migrationBoundaryPhysKey is the FlatKV physical key of the in-progress
@@ -409,7 +415,7 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 	flatKVDir, _ := cmd.Flags().GetString("flatkv-dir")
 	memIAVLDir, _ := cmd.Flags().GetString("memiavl-dir")
 	height, _ := cmd.Flags().GetInt64("height")
-	if dbDir == "" && backend != "composite" {
+	if dbDir == "" && backend != compositeBackend {
 		return errors.New("must provide --db-dir")
 	}
 	inspectBucket, _ := cmd.Flags().GetString("inspect-bucket")
@@ -436,11 +442,11 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 	}
 
 	switch backend {
-	case "flatkv":
+	case flatKVBackend:
 		return digestFlatKV(dbDir, height, findTarget)
-	case "memiavl":
+	case memIAVLBackend:
 		return digestMemIAVL(dbDir, height, findTarget, memiavlNormalization, memiavlOpenMode)
-	case "composite":
+	case compositeBackend:
 		if flatKVDir == "" || memIAVLDir == "" {
 			return errors.New("--backend composite requires --flatkv-dir and --memiavl-dir")
 		}
@@ -463,7 +469,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 	}
 
 	ctx := digestPrintContext{
-		backend:         "composite",
+		backend:         compositeBackend,
 		mode:            "migrate_evm",
 		dbDir:           fmt.Sprintf("flatkv=%s memiavl=%s", flatKVDir, memIAVLDir),
 		requestedHeight: height,
@@ -515,7 +521,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 		} else {
 			if err := consumeCompositeMemiavl(func(fn func(rawKey, rawVal []byte) error) error {
 				return scanMemiavlSnapshotEVMLeaves(memEvmSnapshotDir, fn)
-			}, "memiavl", boundary, &d, accounts); err != nil {
+			}, memIAVLBackend, boundary, &d, accounts); err != nil {
 				return err
 			}
 		}
@@ -647,7 +653,7 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 
 	d := evmDigest{findTarget: findTarget}
 	ctx := digestPrintContext{
-		backend:         "flatkv",
+		backend:         flatKVBackend,
 		mode:            "native",
 		dbDir:           dbDir,
 		source:          "isolated FlatKV clone opened from snapshot + changelog WAL replay",
@@ -724,9 +730,9 @@ func runEvmLogicalInspect(cmd *cobra.Command, backend, dbDir string, height int6
 	}
 
 	switch backend {
-	case "flatkv":
+	case flatKVBackend:
 		return inspectFlatKV(dbDir, height, acc)
-	case "memiavl":
+	case memIAVLBackend:
 		return inspectMemIAVL(dbDir, height, acc, memiavlNormalization)
 	default:
 		return fmt.Errorf("unknown --backend %q (want flatkv|memiavl)", backend)
@@ -1303,7 +1309,7 @@ func runMemiavlTranslatorDigest(ctx digestPrintContext, modeLabel, totalLabel st
 
 func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, findTarget []byte) error {
 	ctx := digestPrintContext{
-		backend:         "memiavl",
+		backend:         memIAVLBackend,
 		mode:            "semantic-replay",
 		dbDir:           dbDir,
 		source:          "read-only memiavl DB opened from snapshot + changelog replay",
@@ -1320,7 +1326,7 @@ func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, fin
 
 func digestMemIAVLReplayTranslator(dbDir string, height int64, db *memiavl.DB, findTarget []byte) error {
 	ctx := digestPrintContext{
-		backend:         "memiavl",
+		backend:         memIAVLBackend,
 		mode:            "translator-replay",
 		dbDir:           dbDir,
 		source:          "read-only memiavl DB opened from snapshot + changelog replay",
@@ -1345,7 +1351,7 @@ func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) erro
 		return err
 	}
 	ctx := digestPrintContext{
-		backend:         "memiavl",
+		backend:         memIAVLBackend,
 		mode:            memiavlNormTranslator,
 		dbDir:           dbDir,
 		source:          evmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",
@@ -1406,7 +1412,7 @@ func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error 
 		return err
 	}
 	ctx := digestPrintContext{
-		backend:         "memiavl",
+		backend:         memIAVLBackend,
 		mode:            memiavlNormSemantic,
 		dbDir:           dbDir,
 		source:          evmSnapshotDir + " (snapshot/current only; no memiavl WAL replay)",

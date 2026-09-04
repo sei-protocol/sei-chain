@@ -60,7 +60,7 @@ var platforms = []Platform{
 //  5. Run: go run download_evmone.go <output-dir>
 func main() {
 	if len(os.Args) != 2 {
-		log.Fatalf("Usage: %s <output-dir>\n", os.Args[0])
+		log.Fatal("Usage: evmone-lib-generator <output-dir>")
 	}
 	outDir := filepath.Clean(os.Args[1])
 
@@ -195,7 +195,7 @@ func downloadAndExtract(ctx context.Context, p Platform, outDir string) error {
 			return fmt.Errorf("close: %w", err)
 		}
 
-		log.Printf("  Extracted: %s\n", outPath)
+		log.Printf("  Extracted: %s\n", outPath) //nolint:gosec // outPath is the explicit destination of this local generator CLI.
 		return nil
 	}
 	return ctx.Err()

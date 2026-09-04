@@ -9,6 +9,12 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
+const (
+	fixtureDenom       = "stake"
+	fixtureTitle       = "Foo"
+	fixtureDescription = "Bar"
+)
+
 func GenesisFixture(mutators ...func(*GenesisState)) GenesisState {
 	const (
 		numCodes     = 2
@@ -147,7 +153,7 @@ func MsgInstantiateContractFixture(mutators ...func(*MsgInstantiateContract)) *M
 		Label:  "testing",
 		Msg:    []byte(`{"foo":"bar"}`),
 		Funds: sdk.Coins{{
-			Denom:  "stake",
+			Denom:  fixtureDenom,
 			Amount: sdk.NewInt(1),
 		}},
 	}
@@ -167,7 +173,7 @@ func MsgExecuteContractFixture(mutators ...func(*MsgExecuteContract)) *MsgExecut
 		Contract: firstContractAddress,
 		Msg:      []byte(`{"do":"something"}`),
 		Funds: sdk.Coins{{
-			Denom:  "stake",
+			Denom:  fixtureDenom,
 			Amount: sdk.NewInt(1),
 		}},
 	}
@@ -180,8 +186,8 @@ func MsgExecuteContractFixture(mutators ...func(*MsgExecuteContract)) *MsgExecut
 func StoreCodeProposalFixture(mutators ...func(*StoreCodeProposal)) *StoreCodeProposal {
 	const anyAddress = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
 	p := &StoreCodeProposal{
-		Title:        "Foo",
-		Description:  "Bar",
+		Title:        fixtureTitle,
+		Description:  fixtureDescription,
 		RunAs:        anyAddress,
 		WASMByteCode: []byte{0x0},
 	}
@@ -210,8 +216,8 @@ func InstantiateContractProposalFixture(mutators ...func(p *InstantiateContractP
 		panic(err)
 	}
 	p := &InstantiateContractProposal{
-		Title:       "Foo",
-		Description: "Bar",
+		Title:       fixtureTitle,
+		Description: fixtureDescription,
 		RunAs:       anyAddress,
 		Admin:       anyAddress,
 		CodeID:      1,
@@ -244,8 +250,8 @@ func MigrateContractProposalFixture(mutators ...func(p *MigrateContractProposal)
 		anyAddress   = "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"
 	)
 	p := &MigrateContractProposal{
-		Title:       "Foo",
-		Description: "Bar",
+		Title:       fixtureTitle,
+		Description: fixtureDescription,
 		Contract:    contractAddr,
 		CodeID:      1,
 		Msg:         migMsgBz,
@@ -263,8 +269,8 @@ func SudoContractProposalFixture(mutators ...func(p *SudoContractProposal)) *Sud
 	)
 
 	p := &SudoContractProposal{
-		Title:       "Foo",
-		Description: "Bar",
+		Title:       fixtureTitle,
+		Description: fixtureDescription,
 		Contract:    contractAddr,
 		Msg:         []byte(`{"do":"something"}`),
 	}
@@ -282,13 +288,13 @@ func ExecuteContractProposalFixture(mutators ...func(p *ExecuteContractProposal)
 	)
 
 	p := &ExecuteContractProposal{
-		Title:       "Foo",
-		Description: "Bar",
+		Title:       fixtureTitle,
+		Description: fixtureDescription,
 		Contract:    contractAddr,
 		RunAs:       anyAddress,
 		Msg:         []byte(`{"do":"something"}`),
 		Funds: sdk.Coins{{
-			Denom:  "stake",
+			Denom:  fixtureDenom,
 			Amount: sdk.NewInt(1),
 		}},
 	}
@@ -306,8 +312,8 @@ func UpdateAdminProposalFixture(mutators ...func(p *UpdateAdminProposal)) *Updat
 	)
 
 	p := &UpdateAdminProposal{
-		Title:       "Foo",
-		Description: "Bar",
+		Title:       fixtureTitle,
+		Description: fixtureDescription,
 		NewAdmin:    anyAddress,
 		Contract:    contractAddr,
 	}
@@ -320,8 +326,8 @@ func UpdateAdminProposalFixture(mutators ...func(p *UpdateAdminProposal)) *Updat
 func ClearAdminProposalFixture(mutators ...func(p *ClearAdminProposal)) *ClearAdminProposal {
 	const contractAddr = "sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"
 	p := &ClearAdminProposal{
-		Title:       "Foo",
-		Description: "Bar",
+		Title:       fixtureTitle,
+		Description: fixtureDescription,
 		Contract:    contractAddr,
 	}
 	for _, m := range mutators {

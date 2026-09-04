@@ -18,7 +18,6 @@ import (
 	"github.com/cockroachdb/pebble/v2/sstable"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -803,7 +802,7 @@ func (db *Database) compactPrunedRange(first, last []byte) error {
 	// start < end. Appending a zero byte extends the user-key portion of last,
 	// yielding a key strictly greater than it under both the MVCC and default
 	// comparers, so the entire deleted span is covered.
-	end := append(slices.Clone(last), 0)
+	end := append(bytes.Clone(last), 0)
 	return db.storage.Compact(context.Background(), first, end, true)
 }
 
@@ -949,7 +948,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 	for itr.First(); itr.Valid(); {
 		scanReads++
-		currKeyEncoded := slices.Clone(itr.Key())
+		currKeyEncoded := bytes.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
 		if isMetadataKey(currKeyEncoded) {
@@ -988,7 +987,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 		// Reset per-logical-key state when the logical key changes.
 		if !bytes.Equal(prevKey, currKey) {
-			prevKey = slices.Clone(currKey)
+			prevKey = bytes.Clone(currKey)
 			keptBelowPrune = false
 
 			// Fast path: under descending encoding, versions of a key are stored
@@ -1178,7 +1177,7 @@ func decodeMVCCEntryDescending(rawIterKey, rawIterValue, prefixedKey []byte, ver
 	if keyVersion > version {
 		return nil, errorutils.ErrRecordNotFound
 	}
-	return slices.Clone(rawIterValue), nil
+	return bytes.Clone(rawIterValue), nil
 }
 
 func visibleValueAtVersionDescending(prefixedVal []byte, targetVersion int64) ([]byte, error) {

@@ -10,12 +10,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
+const seiwalBackend = "seiwal"
+
 var _ utils.Config = (*WalsimConfig)(nil)
 
 // WalsimConfig is the configuration for the walsim benchmark.
 type WalsimConfig struct {
 
-	// The WAL implementation to benchmark. One of "seiwal" (the new WAL) or "legacy" (the old
+	// The WAL implementation to benchmark. One of seiwalBackend (the new WAL) or "legacy" (the old
 	// sei-db/wal WAL, driven through a throwaway adapter).
 	Backend string
 
@@ -41,11 +43,11 @@ type WalsimConfig struct {
 	TargetDiskSizeBytes uint64
 
 	// For the "legacy" backend only: coalesce prune requests, forwarding only every Nth PruneBefore
-	// to the underlying (expensive) TruncateBefore. Ignored by the "seiwal" backend. Must be at
+	// to the underlying (expensive) TruncateBefore. Ignored by the seiwalBackend backend. Must be at
 	// least 1.
 	PruneRelaxationFactor uint64
 
-	// The configuration for the "seiwal" backend, used only when Backend is "seiwal". Path and Name
+	// The configuration for the seiwalBackend backend, used only when Backend is seiwalBackend. Path and Name
 	// are owned by walsim (Path is taken from DataDir); any values supplied for them here are
 	// overwritten.
 	Seiwal seiwal.Config
@@ -111,7 +113,7 @@ type WalsimConfig struct {
 // DefaultWalsimConfig returns the default configuration for the walsim benchmark.
 func DefaultWalsimConfig() *WalsimConfig {
 	return &WalsimConfig{
-		Backend:                   "seiwal",
+		Backend:                   seiwalBackend,
 		RecordSizeBytes:           1 * unit.MB,
 		RandomDataBufferSizeBytes: unit.GB,
 		StagedRecordQueueSize:     16,
@@ -146,7 +148,7 @@ func DefaultWalsimConfig() *WalsimConfig {
 // Validate checks that the configuration is sane and returns an error if not.
 func (c *WalsimConfig) Validate() error {
 	switch c.Backend {
-	case "seiwal", "legacy":
+	case seiwalBackend, "legacy":
 	default:
 		return fmt.Errorf("invalid Backend %q, must be one of seiwal, legacy", c.Backend)
 	}

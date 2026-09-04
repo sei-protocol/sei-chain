@@ -26,7 +26,7 @@ func Unlock(logger *slog.Logger, sourcePaths []string) error {
 
 			if strings.HasSuffix(path, util.LockfileName) {
 				logger.Info("Removing lock file", "path", path)
-				if removeErr := os.Remove(path); removeErr != nil {
+				if removeErr := os.Remove(path); removeErr != nil { //nolint:gosec // Unlock is an explicit administrative operation over operator-selected LittDB paths.
 					logger.Error("Failed to remove lock file", "path", path, "error", removeErr)
 					return fmt.Errorf("failed to remove lock file %s: %w", path, removeErr)
 				}

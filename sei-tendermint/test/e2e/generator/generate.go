@@ -10,11 +10,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
+const largeTopology = "large"
+
 var (
 	// testnetCombinations defines global testnet options, where we generate a
 	// separate testnet for each combination (Cartesian product) of options.
 	testnetCombinations = map[string][]interface{}{
-		"topology":      {"single", "quad", "large"},
+		"topology":      {"single", "quad", largeTopology},
 		"initialHeight": {0, 1000},
 		"initialState": {
 			map[string]string{},
@@ -67,7 +69,7 @@ var (
 	txSize     = uniformChoice{1024, 4096} // either 1kb or 4kb
 	ipv6       = uniformChoice{false, true}
 	keyType    = uniformChoice{types.ABCIPubKeyTypeEd25519}
-	abciDelays = uniformChoice{"none", "small", "large"}
+	abciDelays = uniformChoice{"none", "small", largeTopology}
 )
 
 // Generate generates random testnets using the given RNG.
@@ -129,7 +131,7 @@ func generateTestnet(r *rand.Rand, opt map[string]interface{}) (e2e.Manifest, er
 		manifest.PrepareProposalDelayMS = 100
 		manifest.ProcessProposalDelayMS = 100
 		manifest.FinalizeBlockDelayMS = 200
-	case "large":
+	case largeTopology:
 		manifest.PrepareProposalDelayMS = 200
 		manifest.ProcessProposalDelayMS = 200
 		manifest.CheckTxDelayMS = 20
@@ -142,7 +144,7 @@ func generateTestnet(r *rand.Rand, opt map[string]interface{}) (e2e.Manifest, er
 		numValidators = 1
 	case "quad":
 		numValidators = 4
-	case "large":
+	case largeTopology:
 		// FIXME Networks are kept small since large ones use too much CPU.
 		numSeeds = r.Intn(2)
 		numLightClients = r.Intn(2)

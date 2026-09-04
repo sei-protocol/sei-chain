@@ -412,7 +412,7 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 // encodeCommittedBlock builds the eth_newHeads payload for an Autobahn-
 // committed block. It differs from encodeTmHeader in two notable ways:
 //
-//  1. "hash" is the explicit Autobahn block-header hash from evt.hash
+//  1. rpcFieldHash is the explicit Autobahn block-header hash from evt.hash
 //     (the same value the EVM receipt store records as blockHash). See
 //     blockHeaderEvent's doc for the rationale.
 //  2. parentHash, receiptsRoot, and transactionsRoot are zero. The
@@ -444,28 +444,28 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 		totalGasUsed += txRes.GasUsed
 	}
 	return map[string]interface{}{
-		"difficulty":            (*hexutil.Big)(utils.Big0),   // inapplicable to Sei
-		"extraData":             hexutil.Bytes{},              // inapplicable to Sei
-		"gasLimit":              hexutil.Uint64(gasLimit),     //nolint:gosec
-		"gasUsed":               hexutil.Uint64(totalGasUsed), //nolint:gosec
-		"logsBloom":             ethtypes.Bloom{},             // TODO(autobahn): derive from receipts so newHeads subscribers can pre-filter logs
-		"miner":                 miner,
-		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
-		"number":                (*hexutil.Big)(number),
-		"parentHash":            common.Hash{}, // see function doc
-		"receiptsRoot":          common.Hash{}, // see function doc
-		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
-		"stateRoot":             appHash,
-		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()),      //nolint:gosec
-		"milliTimestamp":        hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
-		"transactionsRoot":      common.Hash{},                               // see function doc
-		"mixHash":               common.Hash{},                               // inapplicable to Sei
-		"excessBlobGas":         hexutil.Uint64(0),                           // inapplicable to Sei
-		"parentBeaconBlockRoot": common.Hash{},                               // inapplicable to Sei
-		"hash":                  blockHash,
-		"baseFeePerGas":         (*hexutil.Big)(baseFee),
-		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
-		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
+		rpcFieldDifficulty:       (*hexutil.Big)(utils.Big0),   // inapplicable to Sei
+		rpcFieldExtraData:        hexutil.Bytes{},              // inapplicable to Sei
+		rpcFieldGasLimit:         hexutil.Uint64(gasLimit),     //nolint:gosec
+		rpcFieldGasUsed:          hexutil.Uint64(totalGasUsed), //nolint:gosec
+		rpcFieldLogsBloom:        ethtypes.Bloom{},             // TODO(autobahn): derive from receipts so newHeads subscribers can pre-filter logs
+		rpcFieldMiner:            miner,
+		rpcFieldNonce:            ethtypes.BlockNonce{}, // inapplicable to Sei
+		rpcFieldNumber:           (*hexutil.Big)(number),
+		rpcFieldParentHash:       common.Hash{}, // see function doc
+		rpcFieldReceiptsRoot:     common.Hash{}, // see function doc
+		rpcFieldSHA3Uncles:       common.Hash{}, // inapplicable to Sei
+		rpcFieldStateRoot:        appHash,
+		rpcFieldTimestamp:        hexutil.Uint64(evt.header.Time.Unix()),      //nolint:gosec
+		rpcFieldMilliTimestamp:   hexutil.Uint64(evt.header.Time.UnixMilli()), //nolint:gosec
+		rpcFieldTransactionsRoot: common.Hash{},                               // see function doc
+		rpcFieldMixHash:          common.Hash{},                               // inapplicable to Sei
+		"excessBlobGas":          hexutil.Uint64(0),                           // inapplicable to Sei
+		"parentBeaconBlockRoot":  common.Hash{},                               // inapplicable to Sei
+		rpcFieldHash:             blockHash,
+		rpcFieldBaseFeePerGas:    (*hexutil.Big)(baseFee),
+		"withdrawalsRoot":        common.Hash{},     // inapplicable to Sei
+		"blobGasUsed":            hexutil.Uint64(0), // inapplicable to Sei
 	}
 }
 
@@ -486,29 +486,29 @@ func encodeTmHeader(
 	}
 	gasLimit := uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
 	result := map[string]interface{}{
-		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
-		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
-		"gasLimit":              hexutil.Uint64(gasLimit),
-		"gasUsed":               hexutil.Uint64(gasWanted), //nolint:gosec
-		"logsBloom":             ethtypes.Bloom{},          // inapplicable to Sei
-		"miner":                 miner,
-		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
-		"number":                (*hexutil.Big)(number),
-		"parentHash":            lastHash,
-		"receiptsRoot":          resultHash,
-		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
-		"stateRoot":             appHash,
-		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),      //nolint:gosec
-		"milliTimestamp":        hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
-		"transactionsRoot":      txHash,
-		"mixHash":               common.Hash{},     // inapplicable to Sei
-		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei
-		"parentBeaconBlockRoot": common.Hash{},     // inapplicable to Sei
-		"hash":                  blockHash,
-		"withdrawlsRoot":        common.Hash{}, // inapplicable to Sei
-		"baseFeePerGas":         (*hexutil.Big)(baseFee),
-		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
-		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
+		rpcFieldDifficulty:       (*hexutil.Big)(utils.Big0), // inapplicable to Sei
+		rpcFieldExtraData:        hexutil.Bytes{},            // inapplicable to Sei
+		rpcFieldGasLimit:         hexutil.Uint64(gasLimit),
+		rpcFieldGasUsed:          hexutil.Uint64(gasWanted), //nolint:gosec
+		rpcFieldLogsBloom:        ethtypes.Bloom{},          // inapplicable to Sei
+		rpcFieldMiner:            miner,
+		rpcFieldNonce:            ethtypes.BlockNonce{}, // inapplicable to Sei
+		rpcFieldNumber:           (*hexutil.Big)(number),
+		rpcFieldParentHash:       lastHash,
+		rpcFieldReceiptsRoot:     resultHash,
+		rpcFieldSHA3Uncles:       common.Hash{}, // inapplicable to Sei
+		rpcFieldStateRoot:        appHash,
+		rpcFieldTimestamp:        hexutil.Uint64(header.Header.Time.Unix()),      //nolint:gosec
+		rpcFieldMilliTimestamp:   hexutil.Uint64(header.Header.Time.UnixMilli()), //nolint:gosec
+		rpcFieldTransactionsRoot: txHash,
+		rpcFieldMixHash:          common.Hash{},     // inapplicable to Sei
+		"excessBlobGas":          hexutil.Uint64(0), // inapplicable to Sei
+		"parentBeaconBlockRoot":  common.Hash{},     // inapplicable to Sei
+		rpcFieldHash:             blockHash,
+		"withdrawlsRoot":         common.Hash{}, // inapplicable to Sei
+		rpcFieldBaseFeePerGas:    (*hexutil.Big)(baseFee),
+		"withdrawalsRoot":        common.Hash{},     // inapplicable to Sei
+		"blobGasUsed":            hexutil.Uint64(0), // inapplicable to Sei
 	}
 	return result, nil
 }

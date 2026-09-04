@@ -439,12 +439,12 @@ func profiledErrorTrace(err error, tx *gethtypes.Transaction, message *core.Mess
 		switch *config.Tracer {
 		case "callTracer":
 			errTrace := map[string]interface{}{
-				"from":    message.From.Hex(),
-				"gas":     hexutil.Uint64(message.GasLimit),
-				"gasUsed": "0x0",
-				"input":   "0x",
-				"error":   err.Error(),
-				"type":    "CALL",
+				rpcFieldFrom:    message.From.Hex(),
+				"gas":           hexutil.Uint64(message.GasLimit),
+				rpcFieldGasUsed: "0x0",
+				"input":         "0x",
+				rpcFieldError:   err.Error(),
+				"type":          "CALL",
 			}
 			if message.Value != nil {
 				errTrace["value"] = hexutil.Big(*message.Value)
@@ -464,10 +464,10 @@ func profiledErrorTrace(err error, tx *gethtypes.Transaction, message *core.Mess
 			return json.RawMessage(bz), nil
 		case "flatCallTracer":
 			action := map[string]interface{}{
-				"callType": "call",
-				"from":     message.From.Hex(),
-				"gas":      hexutil.Uint64(message.GasLimit),
-				"input":    "0x",
+				"callType":   "call",
+				rpcFieldFrom: message.From.Hex(),
+				"gas":        hexutil.Uint64(message.GasLimit),
+				"input":      "0x",
 			}
 			if message.Value != nil {
 				action["value"] = hexutil.Big(*message.Value)
@@ -483,14 +483,14 @@ func profiledErrorTrace(err error, tx *gethtypes.Transaction, message *core.Mess
 				"blockHash":   txctx.BlockHash,
 				"blockNumber": txctx.BlockNumber,
 				"result": map[string]interface{}{
-					"gasUsed": "0x0",
-					"output":  "0x",
+					rpcFieldGasUsed: "0x0",
+					"output":        "0x",
 				},
 				"subtraces":           0,
 				"traceAddress":        []string{},
 				"transactionHash":     tx.Hash(),
 				"transactionPosition": txctx.TxIndex,
-				"error":               err.Error(),
+				rpcFieldError:         err.Error(),
 			}
 			bz, marshalErr := json.Marshal([]map[string]interface{}{errTrace})
 			if marshalErr != nil {

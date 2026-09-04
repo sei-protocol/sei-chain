@@ -115,13 +115,12 @@ func startUptimeSampling(ctx context.Context, gauge metric.Float64Gauge) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		bg := context.Background()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				gauge.Record(bg, time.Since(startTime).Seconds())
+				gauge.Record(ctx, time.Since(startTime).Seconds())
 			}
 		}
 	}()

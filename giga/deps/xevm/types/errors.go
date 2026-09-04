@@ -19,7 +19,7 @@ func (e AssociationMissingErr) Error() string {
 
 func (e AssociationMissingErr) AddressType() string {
 	if strings.HasPrefix(e.Address, "0x") {
-		return "evm"
+		return ModuleName
 	}
 	return "sei"
 }

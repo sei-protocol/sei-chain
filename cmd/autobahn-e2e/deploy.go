@@ -86,7 +86,7 @@ func (a *application) deploy(ctx context.Context, options deployOptions) error {
 }
 
 func (a *application) deployLocal(ctx context.Context, options deployOptions) error {
-	for _, name := range []string{"docker", "make"} {
+	for _, name := range []string{commandDocker, commandMake} {
 		if err := a.runner.lookPath(name); err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func (a *application) deployLocal(ctx context.Context, options deployOptions) er
 		return err
 	}
 	existing, err := a.runner.output(ctx, commandSpec{
-		name: "docker",
+		name: commandDocker,
 		args: []string{"ps", "-a", "--filter", "name=sei-node-", "--format", "{{.Names}}"},
 	})
 	if err != nil {
@@ -133,7 +133,7 @@ func (a *application) deployLocal(ctx context.Context, options deployOptions) er
 			"AUTOBAHN_EVMONLY_IN_MEMORY=true",
 			"DOCKER_DETACH=true",
 		},
-		name: "make",
+		name: commandMake,
 		args: []string{"docker-cluster-start"},
 	}); err != nil {
 		return fail(err)

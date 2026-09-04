@@ -134,27 +134,27 @@ func NewEVMHTTPServer(
 			Service:   NewEchoAPI(),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   txAPI,
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP, watermarks),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP, txConfigProvider(LatestCtxHeight).TxDecoder(), watermarks),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   sendAPI,
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewSimulationAPI(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
@@ -162,7 +162,7 @@ func NewEVMHTTPServer(
 			Service:   NewNetAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service: NewFilterAPI(
 				tmClient,
 				k,
@@ -170,7 +170,7 @@ func NewEVMHTTPServer(
 				txConfigProvider,
 				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxLogBytes: config.MaxLogBytes, maxBlock: config.MaxBlocksForLog, maxFilters: config.MaxFilters, maxBlockFilterHashes: config.MaxBlockFilterHashes},
 				ConnectionTypeHTTP,
-				"eth",
+				EthNamespace,
 				dbReadSemaphore,
 				globalBlockCache,
 				cacheCreationMutex,
@@ -180,7 +180,7 @@ func NewEVMHTTPServer(
 			),
 		},
 		{
-			Namespace: "sei",
+			Namespace: seiNamespace,
 			Service:   NewAssociationAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP, watermarks),
 		},
 		{
@@ -294,27 +294,27 @@ func NewEVMWebSocketServer(
 			Service:   NewEchoAPI(),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeWS, watermarks),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS, txConfigProvider(LatestCtxHeight).TxDecoder(), watermarks),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewSendAPI(tmClient, txConfigProvider, NewSendConfig(config.Slow, config.EnableSimulation, autobahnEnabled), k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, methodTimeout, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service:   NewSimulationAPI(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
@@ -322,7 +322,7 @@ func NewEVMWebSocketServer(
 			Service:   NewNetAPI(tmClient, k, ctxProvider, ConnectionTypeWS),
 		},
 		{
-			Namespace: "eth",
+			Namespace: EthNamespace,
 			Service: NewSubscriptionAPI(tmClient, k, ctxProvider, &LogFetcher{
 				tmClient:           tmClient,
 				k:                  k,

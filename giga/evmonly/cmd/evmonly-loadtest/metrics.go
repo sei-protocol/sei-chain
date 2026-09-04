@@ -14,6 +14,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 )
 
+const metricLabelKind = "kind"
+
 type loadMetrics struct {
 	inputBlocks     atomic.Uint64
 	preparedBlocks  atomic.Uint64
@@ -173,19 +175,19 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		occConflictAccessTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_occ_conflict_accesses_total",
 			Help: "OCC conflict accesses by access type and state kind.",
-		}, []string{"access", "kind"}),
+		}, []string{"access", metricLabelKind}),
 		sinkEnqueuedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_result_sink_records_enqueued_total",
 			Help: "Total records accepted by the result sink.",
-		}, []string{"kind"}),
+		}, []string{metricLabelKind}),
 		sinkWrittenTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_result_sink_records_written_total",
 			Help: "Total records written by the result sink.",
-		}, []string{"kind"}),
+		}, []string{metricLabelKind}),
 		sinkBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_result_sink_bytes_written_total",
 			Help: "Total bytes written by the result sink, including record framing.",
-		}, []string{"kind"}),
+		}, []string{metricLabelKind}),
 		sinkEnqueueWaitTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_result_sink_enqueue_wait_seconds_total",
 			Help: "Total time executor workers spent blocked enqueueing result sink records.",
@@ -197,7 +199,7 @@ func newLoadMetrics(registry *prometheus.Registry) *loadMetrics {
 		sinkWriteSecondsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "evmonly_loadtest_result_sink_write_seconds_total",
 			Help: "Total time spent by result sink writers serializing, writing, flushing, and optionally syncing records.",
-		}, []string{"kind"}),
+		}, []string{metricLabelKind}),
 		inputBlockRate: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "evmonly_loadtest_block_input_throughput",
 			Help: "Most recent measured block input throughput in blocks per second.",

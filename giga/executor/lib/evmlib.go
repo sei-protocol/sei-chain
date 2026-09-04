@@ -74,7 +74,7 @@ func resolveLibPath() (string, error) {
 
 	for _, dir := range dirs {
 		candidate := filepath.Join(dir, libName)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() { //nolint:gosec // candidates are operator-controlled library locations and the selected file is digest-verified before loading.
 			return candidate, nil
 		}
 	}

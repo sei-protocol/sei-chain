@@ -25,6 +25,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
+const (
+	wrongDelegatorAddress = "wrongDelAddr"
+	wrongValidatorAddress = "wrongValAddr"
+	wrongValidatorCase    = "wrong validator address"
+	wrongDelegatorCase    = "wrong delegator address"
+	validRequestCase      = "valid request"
+)
+
 type IntegrationTestSuite struct {
 	suite.Suite
 
@@ -315,7 +323,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDelegation() {
 		{
 			"with wrong delegator address",
 			[]string{
-				"wrongDelAddr",
+				wrongDelegatorAddress,
 				val2.ValAddress.String(),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
@@ -325,7 +333,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDelegation() {
 			"with wrong validator address",
 			[]string{
 				val.Address.String(),
-				"wrongValAddr",
+				wrongValidatorAddress,
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true, nil, nil,
@@ -385,7 +393,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDelegations() {
 		},
 		{
 			"with wrong delegator address",
-			[]string{"wrongDelAddr"},
+			[]string{wrongDelegatorAddress},
 			true, nil, nil,
 		},
 		{
@@ -440,8 +448,8 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorDelegations() {
 			true, nil, nil,
 		},
 		{
-			"wrong validator address",
-			[]string{"wrongValAddr"},
+			wrongValidatorCase,
+			[]string{wrongValidatorAddress},
 			true, nil, nil,
 		},
 		{
@@ -489,15 +497,15 @@ func (s *IntegrationTestSuite) TestGetCmdQueryUnbondingDelegations() {
 		expErr bool
 	}{
 		{
-			"wrong delegator address",
+			wrongDelegatorCase,
 			[]string{
-				"wrongDelAddr",
+				wrongDelegatorAddress,
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true,
 		},
 		{
-			"valid request",
+			validRequestCase,
 			[]string{
 				val.Address.String(),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -537,25 +545,25 @@ func (s *IntegrationTestSuite) TestGetCmdQueryUnbondingDelegation() {
 		expErr bool
 	}{
 		{
-			"wrong delegator address",
+			wrongDelegatorCase,
 			[]string{
-				"wrongDelAddr",
+				wrongDelegatorAddress,
 				val.ValAddress.String(),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true,
 		},
 		{
-			"wrong validator address",
+			wrongValidatorCase,
 			[]string{
 				val.Address.String(),
-				"wrongValAddr",
+				wrongValidatorAddress,
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true,
 		},
 		{
-			"valid request",
+			validRequestCase,
 			[]string{
 				val.Address.String(),
 				val.ValAddress.String(),
@@ -597,15 +605,15 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorUnbondingDelegations() {
 		expErr bool
 	}{
 		{
-			"wrong validator address",
+			wrongValidatorCase,
 			[]string{
-				"wrongValAddr",
+				wrongValidatorAddress,
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true,
 		},
 		{
-			"valid request",
+			validRequestCase,
 			[]string{
 				val.ValAddress.String(),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -646,7 +654,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryRedelegations() {
 		expErr bool
 	}{
 		{
-			"wrong delegator address",
+			wrongDelegatorCase,
 			[]string{
 				"wrongdeladdr",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -654,7 +662,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryRedelegations() {
 			true,
 		},
 		{
-			"valid request",
+			validRequestCase,
 			[]string{
 				val.Address.String(),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -698,7 +706,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryRedelegation() {
 		expErr bool
 	}{
 		{
-			"wrong delegator address",
+			wrongDelegatorCase,
 			[]string{
 				"wrongdeladdr",
 				val.ValAddress.String(),
@@ -728,7 +736,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryRedelegation() {
 			true,
 		},
 		{
-			"valid request",
+			validRequestCase,
 			[]string{
 				val.Address.String(),
 				val.ValAddress.String(),
@@ -774,15 +782,15 @@ func (s *IntegrationTestSuite) TestGetCmdQueryValidatorRedelegations() {
 		expErr bool
 	}{
 		{
-			"wrong validator address",
+			wrongValidatorCase,
 			[]string{
-				"wrongValAddr",
+				wrongValidatorAddress,
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true,
 		},
 		{
-			"valid request",
+			validRequestCase,
 			[]string{
 				val.ValAddress.String(),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
@@ -833,7 +841,7 @@ func (s *IntegrationTestSuite) TestGetCmdQueryHistoricalInfo() {
 			true,
 		},
 		{
-			"valid request",
+			validRequestCase,
 			[]string{
 				"1",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),

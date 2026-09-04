@@ -52,7 +52,7 @@ esac
 
 echo "build-static: target linux/$ARCH, libgcc pin $LIBGCC_DIR"
 
-docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src golang:1.25.6-alpine@sha256:98e6cffc31ccc44c7c15d83df1d69891efee8115a5bb7ede2bf30a38af3e3c92 sh -c '
+docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 sh -c '
   set -e
   apk add --no-cache build-base git
   git config --global --add safe.directory /src

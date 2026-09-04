@@ -17,6 +17,18 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
+const (
+	atomName        = "Cosmos Hub Atom"
+	atomSymbol      = "ATOM"
+	atomDescription = "The native staking token of the Cosmos Hub."
+	uatomDenom      = "uatom"
+	microatomAlias  = "microatom"
+	atomDenom       = "atom"
+	ethSymbol       = "ETH"
+	weiDenom        = "wei"
+	ethDenom        = "eth"
+)
+
 type IntegrationTestSuite struct {
 	suite.Suite
 
@@ -37,41 +49,41 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 	bankGenesis.DenomMetadata = []types.Metadata{
 		{
-			Name:        "Cosmos Hub Atom",
-			Symbol:      "ATOM",
-			Description: "The native staking token of the Cosmos Hub.",
+			Name:        atomName,
+			Symbol:      atomSymbol,
+			Description: atomDescription,
 			DenomUnits: []*types.DenomUnit{
 				{
-					Denom:    "uatom",
+					Denom:    uatomDenom,
 					Exponent: 0,
-					Aliases:  []string{"microatom"},
+					Aliases:  []string{microatomAlias},
 				},
 				{
-					Denom:    "atom",
+					Denom:    atomDenom,
 					Exponent: 6,
-					Aliases:  []string{"ATOM"},
+					Aliases:  []string{atomSymbol},
 				},
 			},
-			Base:    "uatom",
-			Display: "atom",
+			Base:    uatomDenom,
+			Display: atomDenom,
 		},
 		{
 			Name:        "Ethereum",
-			Symbol:      "ETH",
+			Symbol:      ethSymbol,
 			Description: "Ethereum mainnet token",
 			DenomUnits: []*types.DenomUnit{
 				{
-					Denom:    "wei",
+					Denom:    weiDenom,
 					Exponent: 0,
 				},
 				{
-					Denom:    "eth",
+					Denom:    ethDenom,
 					Exponent: 6,
-					Aliases:  []string{"ETH"},
+					Aliases:  []string{ethSymbol},
 				},
 			},
-			Base:    "wei",
-			Display: "eth",
+			Base:    weiDenom,
+			Display: ethDenom,
 		},
 	}
 
@@ -254,42 +266,42 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDenomsMetadata() {
 			expected: &types.QueryDenomsMetadataResponse{
 				Metadatas: []types.Metadata{
 					{
-						Name:        "Cosmos Hub Atom",
-						Symbol:      "ATOM",
-						Description: "The native staking token of the Cosmos Hub.",
+						Name:        atomName,
+						Symbol:      atomSymbol,
+						Description: atomDescription,
 						DenomUnits: []*types.DenomUnit{
 							{
-								Denom:    "uatom",
+								Denom:    uatomDenom,
 								Exponent: 0,
-								Aliases:  []string{"microatom"},
+								Aliases:  []string{microatomAlias},
 							},
 							{
-								Denom:    "atom",
+								Denom:    atomDenom,
 								Exponent: 6,
-								Aliases:  []string{"ATOM"},
+								Aliases:  []string{atomSymbol},
 							},
 						},
-						Base:    "uatom",
-						Display: "atom",
+						Base:    uatomDenom,
+						Display: atomDenom,
 					},
 					{
 						Name:        "Ethereum",
-						Symbol:      "ETH",
+						Symbol:      ethSymbol,
 						Description: "Ethereum mainnet token",
 						DenomUnits: []*types.DenomUnit{
 							{
-								Denom:    "wei",
+								Denom:    weiDenom,
 								Exponent: 0,
 								Aliases:  []string{},
 							},
 							{
-								Denom:    "eth",
+								Denom:    ethDenom,
 								Exponent: 6,
-								Aliases:  []string{"ETH"},
+								Aliases:  []string{ethSymbol},
 							},
 						},
-						Base:    "wei",
-						Display: "eth",
+						Base:    weiDenom,
+						Display: ethDenom,
 					},
 				},
 				Pagination: &query.PageResponse{Total: 2},
@@ -299,29 +311,29 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDenomsMetadata() {
 			name: "client metadata of a specific denomination",
 			args: []string{
 				fmt.Sprintf("--%s=1", flags.FlagHeight),
-				fmt.Sprintf("--%s=%s", cli.FlagDenom, "uatom"),
+				fmt.Sprintf("--%s=%s", cli.FlagDenom, uatomDenom),
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			respType: &types.QueryDenomMetadataResponse{},
 			expected: &types.QueryDenomMetadataResponse{
 				Metadata: types.Metadata{
-					Name:        "Cosmos Hub Atom",
-					Symbol:      "ATOM",
-					Description: "The native staking token of the Cosmos Hub.",
+					Name:        atomName,
+					Symbol:      atomSymbol,
+					Description: atomDescription,
 					DenomUnits: []*types.DenomUnit{
 						{
-							Denom:    "uatom",
+							Denom:    uatomDenom,
 							Exponent: 0,
-							Aliases:  []string{"microatom"},
+							Aliases:  []string{microatomAlias},
 						},
 						{
-							Denom:    "atom",
+							Denom:    atomDenom,
 							Exponent: 6,
-							Aliases:  []string{"ATOM"},
+							Aliases:  []string{atomSymbol},
 						},
 					},
-					Base:    "uatom",
-					Display: "atom",
+					Base:    uatomDenom,
+					Display: atomDenom,
 				},
 			},
 		},
