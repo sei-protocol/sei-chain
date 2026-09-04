@@ -23,7 +23,8 @@ func TestAllEVMStoreTypes(t *testing.T) {
 	require.True(t, typeSet[StoreStorage], "StoreStorage should be in AllEVMStoreTypes")
 	require.True(t, typeSet[StoreMisc], "StoreMisc should be in AllEVMStoreTypes")
 
-	require.True(t, typeSet[StoreBalance], "StoreBalance should be in AllEVMStoreTypes")
+	// Balance should NOT be present (reserved for future)
+	require.False(t, typeSet[StoreBalance], "StoreBalance should not be in AllEVMStoreTypes yet")
 }
 
 func TestStoreTypeName(t *testing.T) {

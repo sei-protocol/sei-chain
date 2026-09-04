@@ -334,7 +334,6 @@ func TestEVMStateStoreMultipleSubDBs(t *testing.T) {
 	codeKey := append([]byte{0x07}, addr...)
 	storageKey := append([]byte{0x03}, append(addr, slot...)...)
 	legacyKey := append([]byte{0x01}, addr...)
-	balanceKey := append([]byte{0x21}, addr...)
 
 	cs := []*proto.NamedChangeSet{
 		{
@@ -346,7 +345,6 @@ func TestEVMStateStoreMultipleSubDBs(t *testing.T) {
 					{Key: codeKey, Value: []byte{0x60, 0x80}},
 					{Key: storageKey, Value: []byte("slot_val")},
 					{Key: legacyKey, Value: []byte("sei1abc")},
-					{Key: balanceKey, Value: []byte("balance_val")},
 				},
 			},
 		},
@@ -363,7 +361,6 @@ func TestEVMStateStoreMultipleSubDBs(t *testing.T) {
 		{"Code", codeKey, []byte{0x60, 0x80}},
 		{"Storage", storageKey, []byte("slot_val")},
 		{"Legacy", legacyKey, []byte("sei1abc")},
-		{"Balance", balanceKey, []byte("balance_val")},
 	}
 
 	for _, tc := range tests {
@@ -484,15 +481,6 @@ func TestParseKey(t *testing.T) {
 		require.Equal(t, addr, stripped)
 	})
 
-	t.Run("Parse balance key", func(t *testing.T) {
-		addr := make([]byte, 20)
-		key := append([]byte{0x21}, addr...)
-
-		storeType, stripped := commonevm.ParseEVMKey(key)
-		require.Equal(t, StoreBalance, storeType)
-		require.Equal(t, addr, stripped)
-	})
-
 	t.Run("Unknown key prefix goes to legacy", func(t *testing.T) {
 		key := []byte{0xff, 0x01, 0x02}
 
@@ -563,7 +551,6 @@ func TestEVMStateStoreSeparatedBucketIteration(t *testing.T) {
 	nonceAddr := make([]byte, 20)
 	nonceAddr[0] = 0x33
 	nonceKey := append([]byte{0x0a}, nonceAddr...)
-	balanceKey := append([]byte{0x21}, nonceAddr...)
 
 	cs := []*proto.NamedChangeSet{{
 		Name: EVMStoreKey,
@@ -572,7 +559,6 @@ func TestEVMStateStoreSeparatedBucketIteration(t *testing.T) {
 				{Key: v1Key, Value: []byte("addr_v1")},
 				{Key: v2Key, Value: []byte("addr_v2")},
 				{Key: nonceKey, Value: []byte{0x07}},
-				{Key: balanceKey, Value: []byte{0x2A}},
 			},
 		},
 	}}

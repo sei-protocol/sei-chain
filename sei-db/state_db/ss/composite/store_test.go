@@ -1034,12 +1034,7 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 	slot[31] = 0xAA
 
 	storageVal := [32]byte{0: 0xBB}
-	balance := vtype.Balance{31: 0xDD}
-	acctVal := vtype.NewAccountData().
-		SetNonce(42).
-		SetCodeHash(&vtype.CodeHash{0: 0xCC}).
-		SetBalance(&balance).
-		Serialize()
+	acctVal := vtype.NewAccountData().SetNonce(42).SetCodeHash(&vtype.CodeHash{0: 0xCC}).Serialize()
 	storVal := vtype.NewStorageData().SetValue(&storageVal).Serialize()
 
 	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr1)
@@ -1047,7 +1042,6 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 
 	nonceKey := commonevm.BuildEVMKey(commonevm.EVMKeyNonce, addr1)
 	codeHashKey := commonevm.BuildEVMKey(commonevm.EVMKeyCodeHash, addr1)
-	balanceKey := commonevm.BuildEVMKey(commonevm.EVMKeyBalance, addr1)
 	storageKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr2, slot...))
 
 	nonceBuf := make([]byte, 8)
@@ -1082,10 +1076,6 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, vtype.CodeHash{0: 0xCC}, vtype.CodeHash(evmCodeHash))
 
-				evmBalance, err := store.evmStore.Get(evm.EVMStoreKey, 1, balanceKey)
-				require.NoError(t, err)
-				require.Equal(t, balance, vtype.Balance(evmBalance))
-
 				evmStor, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
 				require.NoError(t, err)
 				require.Equal(t, storageVal[:], evmStor)
@@ -1096,31 +1086,6 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 			}
 		})
 	}
-}
-
-// An account row carries a balance field whether or not a balance was ever written to it, so the split
-// has to emit a balance node only where the field is set. Emitting a zero would invent a key that no
-// balance write produced.
-func TestImport_ZeroBalanceEmitsNoBalanceKey(t *testing.T) {
-	addr := make([]byte, 20)
-	addr[19] = 0x07
-
-	acctVal := vtype.NewAccountData().SetNonce(11).Serialize()
-	physAcct := ktype.EVMPhysicalKey(commonevm.EVMKeyNonce, addr)
-	balanceKey := commonevm.BuildEVMKey(commonevm.EVMKeyBalance, addr)
-
-	store, cleanup := setupImportTestStore(t, true)
-	defer cleanup()
-
-	ch := make(chan types.SnapshotNode, 2)
-	go feedNodes(ch, []types.SnapshotNode{
-		{StoreKey: commonevm.FlatKVStoreKey, Key: physAcct, Value: acctVal},
-	})
-	require.NoError(t, store.Import(1, ch))
-
-	found, err := store.evmStore.Has(evm.EVMStoreKey, 1, balanceKey)
-	require.NoError(t, err)
-	require.False(t, found)
 }
 
 func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
