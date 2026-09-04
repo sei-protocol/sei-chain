@@ -60,13 +60,14 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(&config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
 		},
 	}, app)
 	require.NoError(t, err)
+	require.False(t, storage.IsPresent())
 
 	_, ok := prepared.(*MockApp)
 	require.True(t, ok)
@@ -75,12 +76,13 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(&config.Config{
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
 	}, app)
 	require.NoError(t, err)
+	require.False(t, storage.IsPresent())
 
 	_, ok := prepared.(fastCheckTxApplication)
 	require.True(t, ok)
@@ -91,7 +93,7 @@ func TestPrepareApplicationEVMOnlyInMemory(t *testing.T) {
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(&config.Config{
 		BaseConfig: config.BaseConfig{
 			EVMOnlyInMemory: true,
 			MockApp:         true,
@@ -100,6 +102,12 @@ func TestPrepareApplicationEVMOnlyInMemory(t *testing.T) {
 		AutobahnConfigFile: autobahnConfigFile,
 	}, app)
 	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.NotNil(t, manager.BlockStore())
+	require.NotNil(t, manager.StateStore())
+	require.NotNil(t, manager.ReceiptDB())
 
 	require.Equal(t, "evmonly-in-memory", prepared.Info().Data)
 	validators := prepared.GetValidators()
@@ -109,7 +117,7 @@ func TestPrepareApplicationEVMOnlyInMemory(t *testing.T) {
 }
 
 func TestPrepareApplicationEVMOnlyInMemoryRequiresReadableAutobahnConfig(t *testing.T) {
-	_, err := prepareApplication(&config.Config{
+	_, _, err := prepareApplication(&config.Config{
 		BaseConfig:         config.BaseConfig{EVMOnlyInMemory: true},
 		AutobahnConfigFile: "/missing/autobahn.json",
 	}, abci.BaseApplication{})
@@ -157,6 +165,18 @@ func TestValidateNodeSetupConfigAllowsEVMOnlyInMemoryWithAutobahn(t *testing.T) 
 	})
 
 	require.NoError(t, err)
+}
+
+func TestValidateNodeSetupConfigRejectsEVMOnlyInMemorySeed(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			Mode:            config.ModeSeed,
+			EVMOnlyInMemory: true,
+		},
+		AutobahnConfigFile: "/tmp/autobahn.json",
+	})
+
+	require.ErrorIs(t, err, errEVMOnlyInMemorySeed)
 }
 
 type checkTxCountingApp struct {

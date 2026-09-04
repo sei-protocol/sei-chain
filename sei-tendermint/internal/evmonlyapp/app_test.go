@@ -1,4 +1,4 @@
-package p2p
+package evmonlyapp
 
 import (
 	"math/big"
@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -37,7 +38,8 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 
 func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	t.Helper()
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	_, err := app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
 		ConsensusParams: &tmproto.ConsensusParams{
@@ -51,6 +53,8 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	tx := new(ethtypes.Transaction)
+	require.NoError(t, tx.UnmarshalBinary(raw))
 	check := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
 	require.True(t, check.IsOK())
 	require.True(t, check.IsEVM)
@@ -74,6 +78,11 @@ func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.Equal(t, int64(1), app.LastBlockHeight())
 	require.Equal(t, uint64(1), app.EvmNonce(sender))
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
+	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
+	receipt, err := app.(*evmOnlyInMemoryApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
+	require.Equal(t, uint64(1), receipt.BlockNumber)
 }
 
 func TestEVMOnlyInMemoryApplicationRejectsWrongChain(t *testing.T) {
@@ -107,7 +116,8 @@ func TestEVMOnlyInMemoryApplicationProducesDeterministicRoot(t *testing.T) {
 }
 
 func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
 		Hash: crypto.Keccak256([]byte("block-1")),
@@ -122,7 +132,8 @@ func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
 
 func TestEVMOnlyInMemoryApplicationReturnsConfiguredValidators(t *testing.T) {
 	configured := []abci.ValidatorUpdate{{Power: 7}}
-	app := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured, nil)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	configured[0].Power = 11
 
 	first := app.GetValidators()

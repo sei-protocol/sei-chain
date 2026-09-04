@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
@@ -33,9 +34,24 @@ type GigaStorageManager struct {
 	// stateDB owns the state commit store, the EVM state store and the state WAL they share, along
 	// with the checkpoint schedule the two halves run on.
 	stateDB *giga.StateDB
+	// stateStore is stateDB for configured storage and may be another implementation for injected stores.
+	stateStore gigatypes.StateDB
 
 	// gc is nil until startGarbageCollector succeeds.
 	gc *controller.StorageGarbageCollector
+}
+
+// NewGigaStorageManagerWithStores returns a manager that owns the supplied stores.
+func NewGigaStorageManagerWithStores(
+	blockStore *blockstore.Store,
+	stateStore gigatypes.StateDB,
+	receiptDB receipt.ReceiptStore,
+) *GigaStorageManager {
+	return &GigaStorageManager{
+		blockStore: blockStore,
+		stateStore: stateStore,
+		receiptDB:  receiptDB,
+	}
 }
 
 // NewGigaStorageManager runs the steps that bring storage up:
@@ -100,6 +116,9 @@ func (m *GigaStorageManager) ReceiptDB() receipt.ReceiptStore { return m.receipt
 // not reach it.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }
 
+// StateStore returns the state store used for execution, or nil when none is configured.
+func (m *GigaStorageManager) StateStore() gigatypes.StateDB { return m.stateStore }
+
 // StateWAL returns the state WAL that StateDB writes, or nil before the StateDB is open.
 func (m *GigaStorageManager) StateWAL() statewal.StateWAL {
 	if m.stateDB == nil {
@@ -149,11 +168,10 @@ func (m *GigaStorageManager) Close() error {
 	return errors.Join(errs, m.closeState())
 }
 
-// closeState closes the two halves of state and the WAL they share, which the StateDB owns. It is nil
-// when the open failed before reaching it, and closes its own partial state when it failed partway.
+// closeState closes the state store owned by the manager.
 func (m *GigaStorageManager) closeState() error {
-	if m.stateDB == nil {
+	if m.stateStore == nil {
 		return nil
 	}
-	return m.stateDB.Close()
+	return m.stateStore.Close()
 }

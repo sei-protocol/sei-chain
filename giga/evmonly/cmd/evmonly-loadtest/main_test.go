@@ -23,12 +23,14 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func withGeneratedState(state evmonly.StateReader) evmonly.Option {
 	store := evmonly.NewMemoryStore(state)
-	return evmonly.WithStore(store, store.EncodeChangeSet)
+	storage := bootstrap.NewGigaStorageManagerWithStores(nil, store, evmonly.NewMemoryReceiptStore())
+	return evmonly.WithStorageManager(storage, store.EncodeChangeSet)
 }
 
 type readOnlyGeneratedStore struct {
@@ -41,7 +43,8 @@ func (*readOnlyGeneratedStore) CommitStateChanges(int64, []*proto.NamedChangeSet
 
 func withReadOnlyGeneratedState(state evmonly.StateReader) evmonly.Option {
 	store := &readOnlyGeneratedStore{MemoryStore: evmonly.NewMemoryStore(state)}
-	return evmonly.WithStore(store, store.EncodeChangeSet)
+	storage := bootstrap.NewGigaStorageManagerWithStores(nil, store, evmonly.NewMemoryReceiptStore())
+	return evmonly.WithStorageManager(storage, store.EncodeChangeSet)
 }
 
 func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {

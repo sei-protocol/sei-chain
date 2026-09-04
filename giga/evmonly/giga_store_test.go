@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -174,7 +175,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = 41
-	executor := NewExecutor(Config{}, WithStore(store, encoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), encoder))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockCtx,
 		Txs:     [][]byte{rawTx},
@@ -219,7 +220,7 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 	}
 	executor := NewExecutor(
 		Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2},
-		WithStore(store, encoder),
+		withTestStores(store, NewMemoryReceiptStore(), encoder),
 	)
 	defer executor.Close()
 	blockCtx := blockContext(chainID)
@@ -238,19 +239,40 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 }
 
 func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
-	t.Run("missing store", func(t *testing.T) {
+	t.Run("missing storage manager", func(t *testing.T) {
 		executor := NewExecutor(Config{})
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.ErrorIs(t, err, errMissingStore)
+		require.ErrorIs(t, err, errMissingStorageManager)
+		require.Nil(t, result)
+	})
+
+	t.Run("missing state store", func(t *testing.T) {
+		manager := bootstrap.NewGigaStorageManagerWithStores(nil, nil, NewMemoryReceiptStore())
+		executor := NewExecutor(Config{}, WithStorageManager(manager, EncodeMemoryStoreChangeSet))
+
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+
+		require.ErrorIs(t, err, errMissingStateStore)
+		require.Nil(t, result)
+	})
+
+	t.Run("missing receipt store", func(t *testing.T) {
+		store := NewMemoryStore(NewMemoryState())
+		manager := bootstrap.NewGigaStorageManagerWithStores(nil, store, nil)
+		executor := NewExecutor(Config{}, WithStorageManager(manager, store.EncodeChangeSet))
+
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+
+		require.ErrorIs(t, err, errMissingReceiptStore)
 		require.Nil(t, result)
 	})
 
 	t.Run("missing encoder", func(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
-		executor := NewExecutor(Config{}, WithStore(store, nil))
+		executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), nil))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
@@ -262,7 +284,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 	t.Run("nil snapshot", func(t *testing.T) {
 		store := &recordingGigaStore{}
-		executor := NewExecutor(Config{}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return nil, nil
 		}))
 
@@ -277,7 +299,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
 		encodeErr := errors.New("encode failed")
-		executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return nil, encodeErr
 		}))
 
@@ -299,7 +321,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
 		encodeCalls := 0
-		executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			encodeCalls++
 			return nil, nil
 		}))
@@ -320,7 +342,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
 		ctx, cancel := context.WithCancel(t.Context())
-		executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			cancel()
 			return []*proto.NamedChangeSet{}, nil
 		}))
@@ -338,7 +360,8 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		commitErr := errors.New("commit failed")
 		store := &recordingGigaStore{snapshot: snapshot, commitErr: commitErr}
-		executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		receiptStore := NewMemoryReceiptStore()
+		executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, receiptStore, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return []*proto.NamedChangeSet{}, nil
 		}))
 
@@ -349,12 +372,13 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Len(t, store.commits, 1)
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+		require.Equal(t, int64(blockContext(big.NewInt(testChainID)).Number), receiptStore.LatestVersion())
 	})
 
 	t.Run("block number overflow", func(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
-		executor := NewExecutor(Config{}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return nil, nil
 		}))
 		blockCtx := blockContext(big.NewInt(testChainID))

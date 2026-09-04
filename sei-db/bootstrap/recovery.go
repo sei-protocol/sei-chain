@@ -152,6 +152,7 @@ func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
 		return err
 	}
 	m.stateDB = stateDB
+	m.stateStore = stateDB
 	return nil
 }
 
