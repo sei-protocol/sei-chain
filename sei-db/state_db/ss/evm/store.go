@@ -31,6 +31,7 @@ type EVMStateStore struct {
 	subDBs      map[EVMStoreType]types.StateStore
 	managedDBs  []types.StateStore
 	dir         string
+	ssConfig    config.StateStoreConfig
 	separateDBs bool
 	snapshotMgr *sssnapshot.Manager
 
@@ -44,41 +45,65 @@ type EVMStateStore struct {
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
 // or one MVCC DB per EVM sub-type.
 func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateStore, error) {
-	opener := backend.ResolveBackend(ssConfig.Backend)
-
 	store := &EVMStateStore{
 		subDBs:          make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
 		dir:             dir,
+		ssConfig:        ssConfig,
 		separateDBs:     ssConfig.SeparateEVMSubDBs,
 		externalPruning: ssConfig.ExternalPruning,
 	}
-
-	if ssConfig.SeparateEVMSubDBs {
-		for _, storeType := range AllEVMStoreTypes() {
-			dbDir := filepath.Join(dir, StoreTypeName(storeType))
-			subCfg := subDBConfig(ssConfig, dbDir)
-			db, err := opener(dbDir, subCfg)
-			if err != nil {
-				_ = store.Close()
-				return nil, fmt.Errorf("failed to open EVM MVCC DB for %s: %w", StoreTypeName(storeType), err)
-			}
-			store.subDBs[storeType] = db
-			store.managedDBs = append(store.managedDBs, db)
-		}
-		return store, nil
+	if err := store.openDBs(); err != nil {
+		_ = store.Close()
+		return nil, err
 	}
-
-	cfg := subDBConfig(ssConfig, dir)
-	db, err := opener(dir, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open unified EVM MVCC DB: %w", err)
-	}
-	store.managedDBs = append(store.managedDBs, db)
-	for _, storeType := range AllEVMStoreTypes() {
-		store.subDBs[storeType] = db
-	}
-
 	return store, nil
+}
+
+func (s *EVMStateStore) openDBs() error {
+	opener := backend.ResolveBackend(s.ssConfig.Backend)
+	s.subDBs = make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes)
+	s.managedDBs = nil
+
+	if s.separateDBs {
+		for _, storeType := range AllEVMStoreTypes() {
+			dbDir := filepath.Join(s.dir, StoreTypeName(storeType))
+			if err := healInterruptedRestore(dbDir); err != nil {
+				return err
+			}
+			db, err := opener(dbDir, subDBConfig(s.ssConfig, dbDir))
+			if err != nil {
+				return fmt.Errorf("failed to open EVM MVCC DB for %s: %w", StoreTypeName(storeType), err)
+			}
+			s.subDBs[storeType] = db
+			s.managedDBs = append(s.managedDBs, db)
+		}
+		return nil
+	}
+
+	if err := healInterruptedRestore(s.dir); err != nil {
+		return err
+	}
+	db, err := opener(s.dir, subDBConfig(s.ssConfig, s.dir))
+	if err != nil {
+		return fmt.Errorf("failed to open unified EVM MVCC DB: %w", err)
+	}
+	s.managedDBs = append(s.managedDBs, db)
+	for _, storeType := range AllEVMStoreTypes() {
+		s.subDBs[storeType] = db
+	}
+	return nil
+}
+
+func (s *EVMStateStore) closeDBs() error {
+	var lastErr error
+	for _, db := range s.managedDBs {
+		if err := db.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	s.managedDBs = nil
+	s.subDBs = make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes)
+	return lastErr
 }
 
 func subDBConfig(parent config.StateStoreConfig, dbDir string) config.StateStoreConfig {
@@ -507,14 +532,7 @@ func (s *EVMStateStore) Close() error {
 	// A snapshot being published reads and stamps these databases, so it has to finish before they
 	// close rather than race the shutdown.
 	s.stopCheckpoints()
-
-	var lastErr error
-	for _, db := range s.managedDBs {
-		if err := db.Close(); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return s.closeDBs()
 }
 
 func (s *EVMStateStore) SupportsCheckpoint() bool {

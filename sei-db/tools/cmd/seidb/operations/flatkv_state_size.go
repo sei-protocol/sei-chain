@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 )
@@ -39,7 +39,7 @@ type FlatKVDBSize struct {
 
 // collectFlatKVStateSize iterates every physical row in the FlatKV store and
 // aggregates size stats per logical DB, plus a top-100 EVM contract table.
-func collectFlatKVStateSize(store giga.LiveStateStore) (*FlatKVStateSizeResult, error) {
+func collectFlatKVStateSize(store gigatypes.LiveStateStore) (*FlatKVStateSizeResult, error) {
 	result := &FlatKVStateSizeResult{
 		DBSizes:       make(map[string]*FlatKVDBSize),
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),

@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -180,7 +180,7 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 
 // rootHash returns the store's committed root hash, discarding the height it describes. Tests that
 // care about the height assert on it directly rather than through this.
-func rootHash(s giga.LiveStateStore) []byte {
+func rootHash(s gigatypes.LiveStateStore) []byte {
 	hash, _ := s.RootHash()
 	return hash
 }

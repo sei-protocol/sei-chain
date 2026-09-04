@@ -560,6 +560,22 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	return s.blockFromDB(n)
 }
 
+// TryQC returns the FullCommitQC covering global height n without waiting.
+// Returns ErrNotFound if n is not yet covered (n >= nextQC).
+// Returns ErrPruned if BlockStore no longer has an evicted height.
+func (s *State) TryQC(n types.GlobalBlockNumber) (*types.FullCommitQC, error) {
+	for inner := range s.inner.Lock() {
+		if n >= inner.nextQC {
+			return nil, types.ErrNotFound
+		}
+		if n < inner.first {
+			break
+		}
+		return inner.qcs[n].qc, nil
+	}
+	return s.qcFromDB(n)
+}
+
 // NeedBlock reports whether catch-up still needs to fetch height n.
 // False when n is already past nextBlock (including heights pruned or
 // evicted from RAM) or an in-memory gap-fill is present. Unlike TryBlock,
