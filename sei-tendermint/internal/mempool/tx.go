@@ -91,45 +91,6 @@ type evmAccount struct {
 	balance    uint256.Int
 	firstNonce uint64
 	nextNonce  uint64
-	// readyCost is the sum of requiredBalance over all nonces in
-	// [firstNonce, nextNonce) currently marked ready for this account.
-	readyCost uint256.Int
-}
-
-// hasSufficientBalance reports whether committing cost on top of everything
-// already ready for this account still fits within its balance.
-func (a *evmAccount) hasSufficientBalance(cost *uint256.Int) bool {
-	sum, overflow := new(uint256.Int).AddOverflow(&a.readyCost, cost)
-	return !overflow && a.balance.Cmp(sum) >= 0
-}
-
-// canReplace reports whether swapping a ready nonce's committed cost from
-// oldCost to newCost keeps the account within balance. oldCost must already
-// be included in readyCost, i.e. the tx being replaced must itself be ready.
-func (a *evmAccount) canReplace(oldCost, newCost *uint256.Int) bool {
-	remaining, underflow := new(uint256.Int).SubOverflow(&a.readyCost, oldCost)
-	if underflow {
-		return false
-	}
-	sum, overflow := new(uint256.Int).AddOverflow(remaining, newCost)
-	return !overflow && a.balance.Cmp(sum) >= 0
-}
-
-// commitReady records that cost is now committed against a newly-ready nonce.
-func (a *evmAccount) commitReady(cost *uint256.Int) {
-	a.readyCost.Add(&a.readyCost, cost)
-}
-
-// replaceReady swaps the committed cost of an already-ready nonce. Callers
-// must have already validated the swap via canReplace with the same costs.
-func (a *evmAccount) replaceReady(oldCost, newCost *uint256.Int) {
-	if _, underflow := new(uint256.Int).SubOverflow(&a.readyCost, oldCost); underflow {
-		// canReplace should have rejected this swap already; treat as a
-		// no-op rather than corrupting readyCost for the account's lifetime.
-		return
-	}
-	a.readyCost.Sub(&a.readyCost, oldCost)
-	a.readyCost.Add(&a.readyCost, newCost)
 }
 
 type txCounter struct {
@@ -381,7 +342,7 @@ func (inner *txStoreInner) shouldReject(txHash types.TxHash) bool {
 	oldEvm := old.evm.OrPanic("non-evm tx")
 	oldReady := oldEvm.nonce < account.nextNonce
 	// If the old tx is ready but the new tx is not, then reject the new tx.
-	if oldReady && !account.canReplace(&oldEvm.requiredBalance, &evm.requiredBalance) {
+	if oldReady && account.balance.Cmp(&evm.requiredBalance) < 0 {
 		return true
 	}
 	// If the old tx has >= priority, then reject new tx.
@@ -404,7 +365,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 			// TODO(gprusak): consider whether we should move these queries out of the mutex.
 			b := s.app.EvmBalance(evm.address, evm.seiAddress)
 			n := s.app.EvmNonce(evm.address)
-			account = &evmAccount{balance: b, firstNonce: n, nextNonce: n}
+			account = &evmAccount{b, n, n}
 			inner.accounts[evm.address] = account
 		}
 		// Reject transactions with old nonces.
@@ -430,7 +391,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 			oldEvm := old.evm.OrPanic("non-evm tx")
 			oldReady := oldEvm.nonce < account.nextNonce
 			// If the old tx is ready but the new tx is not, then reject the new tx.
-			if oldReady && !account.canReplace(&oldEvm.requiredBalance, &evm.requiredBalance) {
+			if oldReady && account.balance.Cmp(&evm.requiredBalance) < 0 {
 				return errSameNonce
 			}
 			// If the old tx has >= priority, then reject new tx.
@@ -446,7 +407,6 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 				s.readyTxs.Remove(el)
 			}
 			if oldReady {
-				account.replaceReady(&oldEvm.requiredBalance, &evm.requiredBalance)
 				state.ready.Dec(old.Size())
 				state.ready.Inc(wtx.Size())
 				s.priorityReservoir.Add(wtx.priority)
@@ -464,10 +424,9 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 				break
 			}
 			requiredBalance := wtx.evm.OrPanic("non-evm tx").requiredBalance
-			if !account.hasSufficientBalance(&requiredBalance) {
+			if account.balance.Cmp(&requiredBalance) < 0 {
 				break
 			}
-			account.commitReady(&requiredBalance)
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
 			if !wtx.readyEl.IsPresent() {
@@ -582,7 +541,6 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	}
 	for _, account := range inner.accounts {
 		account.nextNonce = account.firstNonce
-		account.readyCost = uint256.Int{}
 	}
 	for _, wtx := range wtxs {
 		total := inner.state.Load().total
