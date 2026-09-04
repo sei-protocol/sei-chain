@@ -132,8 +132,9 @@ func (s *StateDB) openSS(cfg config.StateStoreConfig) error {
 	return nil
 }
 
-// startCheckpointSchedule puts both halves of state on one snapshot cadence. It is in place before the
-// StateDB is put on a height, so a replay that crosses a boundary snapshots there.
+// startCheckpointSchedule puts both halves of state on one snapshot cadence. It is wired before either
+// half is on a height, so SC's catch-up commits ask it as live blocks do, while SS replays outside its
+// commit path and asks nothing.
 func (s *StateDB) startCheckpointSchedule(cfg config.CheckpointConfig) {
 	s.checkpointer = controller.NewCheckpointScheduler(cfg)
 	s.sc.SetCheckpointScheduler(s.checkpointer)
@@ -364,7 +365,8 @@ func (s *StateDB) truncateWAL(target int64) error {
 // catchUpSC replays the WAL blocks above SC's version into it, up to target.
 //
 // SC owns no WAL, so committing these blocks appends nothing: re-writing blocks that were read from the
-// WAL is the double-append this split exists to prevent.
+// WAL is the double-append this split exists to prevent. They do run SC's commit path otherwise, so the
+// checkpoint schedule is asked at each of them.
 func (s *StateDB) catchUpSC(target int64) error {
 	from := s.sc.Version()
 	if from >= target {
