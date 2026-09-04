@@ -88,7 +88,7 @@ git clone https://github.com/sei-protocol/sei-chain.git
 2. Install dependencies
 
 ```
-cd ./sei-chain/sei-db/state_db/bench/cryptosim
+cd ./sei-chain/sei-db/bench/cryptosim
 ./tools/setup-ubuntu.sh
 ```
 
@@ -105,7 +105,7 @@ Optional: start a tmux session (the install script installs tmux). This will all
 even if your connection is interrupted.
 
 ```
-cd sei-chain/sei-db/state_db/bench/cryptosim
+cd sei-chain/sei-db/bench/cryptosim
 ./cryptosim.sh ./config/basic-config.json
 ```
 

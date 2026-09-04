@@ -53,6 +53,7 @@ ignore:
   - "precompiles/**/legacy/**/*"
   - "**/cli/**/*"
   - "sei-db/state_db/bench"
+  - "sei-db/bench"
 
 flags:
   sei-chain:
