@@ -97,7 +97,7 @@ func NewAtomicSend[T any](value T) (w AtomicSend[T]) {
 	return
 }
 
-// Store updates the value of the atomic watch.
+// Store publishes a new version and wakes waiters of the previous one.
 func (w *AtomicSend[T]) Store(value T) {
 	close(w.ptr.Swap(newVersion(value)).updated)
 }
@@ -128,8 +128,10 @@ func (w *atomicWatch[T]) Wait(ctx context.Context, pred func(T) bool) (T, error)
 // WaitAny waits for pred to hold, waking on updates to any supplied watch.
 func WaitAny(ctx context.Context, pred func() bool, watches ...AtomicUpdate) error {
 	for {
-		// Every update channel is read before pred, so a Store landing between
-		// these reads and pred still wakes the select rather than being missed.
+		// Store swaps in a new version and closes the previous updated
+		// channel, so these cases cannot be reused across iterations.
+		// They are also loaded before pred so a Store between the load and
+		// pred still wakes the select rather than being missed.
 		cases := make([]reflect.SelectCase, 1, len(watches)+1)
 		cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ctx.Done())}
 		for _, watch := range watches {
