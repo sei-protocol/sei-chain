@@ -11,7 +11,6 @@ const (
 	MetricKeyBeginBlocker = "begin_blocker"
 	MetricKeyEndBlocker   = "end_blocker"
 	MetricLabelNameModule = "module"
-	TxCount               = "transaction"
 )
 
 // NewLabel creates a new instance of Label with name and value
@@ -42,12 +41,6 @@ func IncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
 	metrics.IncrCounterWithLabels(keys, val, append(labels, globalLabels...))
 }
 
-// SetGauge provides a wrapper functionality for emitting a gauge metric with
-// global labels (if any).
-func SetGauge(val float32, keys ...string) {
-	metrics.SetGaugeWithLabels(keys, val, globalLabels)
-}
-
 // SetGaugeWithLabels provides a wrapper functionality for emitting a gauge
 // metric with global labels (if any) along with the provided labels.
 func SetGaugeWithLabels(keys []string, val float32, labels []metrics.Label) {
@@ -70,17 +63,5 @@ func IncrValidatorSlashedCounter(validator string, slashingType string) {
 			NewLabel("type", slashingType),
 			NewLabel("validator", validator),
 		},
-	)
-}
-
-// Measures throughput
-// Metric Name:
-//
-//	sei_throughput_<metric_name>
-func MeasureThroughputSinceWithLabels(metricName string, labels []metrics.Label, start time.Time) {
-	metrics.MeasureSinceWithLabels(
-		[]string{"sei", "cosmos", "throughput", metricName},
-		start.UTC(),
-		labels,
 	)
 }
