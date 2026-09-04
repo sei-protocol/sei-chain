@@ -115,6 +115,15 @@ func TestParseABCIQueryResponse(t *testing.T) {
 	require.Equal(t, uint32(0), code)
 	require.Empty(t, value)
 	require.Empty(t, log)
+
+	_, _, _, err = parseABCIQueryResponse([]byte(`{
+  "result": {
+    "response": {
+      "code": 4294967296
+    }
+  }
+}`))
+	require.ErrorContains(t, err, "outside the uint32 range")
 }
 
 func TestCrossVersionNodes(t *testing.T) {

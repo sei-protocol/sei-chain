@@ -11,6 +11,7 @@ on:
       - app/app.go
       - app/tags
       - app/upgrade_*_offline_*_test.go
+      - app/testdata/upgrade_*_offline_source_test.go
       - app/upgrade_offline_harness_test.go
       - app/upgrades.go
       - upgradetest/**

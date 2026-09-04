@@ -11,7 +11,9 @@ From the repository root:
 make new-upgrade-test FROM=v6.6 TO=v6.7
 ```
 
-This creates `app/upgrade_v67_test.go` and its offline source/target files with:
+This creates `app/upgrade_v67_test.go`, an offline source fixture at
+`app/testdata/upgrade_v67_offline_source_test.go`, and an offline target file
+at `app/upgrade_v67_offline_target_test.go`, with:
 
 - the `upgrade_v67` build tag;
 - the `newV67Chain` / `applyV67` structure;
@@ -42,6 +44,8 @@ current build tag, and runs the app tests with that file enabled.
 for upgrades that already shipped. Historical offline phases compile in
 detached worktrees at their release refs, while the current target phase
 compiles in the current checkout, so each can keep using branch-specific APIs.
+The source fixture stays under `app/testdata` so `go mod tidy` on the target
+branch does not treat APIs removed by the upgrade as current dependencies.
 
 ## Run the real boundary
 

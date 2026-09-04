@@ -701,7 +701,7 @@ upgrade-test-vet:
 	@set -e; \
 		for file in app/upgrade_v*_test.go; do \
 			[ -f "$$file" ] || continue; \
-			case "$$file" in *_offline_source_test.go|*_offline_target_test.go) continue ;; esac; \
+			case "$$file" in *_offline_target_test.go) continue ;; esac; \
 			tag=$$(basename "$$file" _test.go); \
 			echo "=== Compiling $$file (-tags $$tag) ==="; \
 			go test -tags "$$tag" -run '^$$' ./app; \

@@ -37,11 +37,11 @@ func TestCurrentBoundaryHasOfflinePhaseFiles(t *testing.T) {
 	target, err := boundary.OfflineTargetTestFile()
 	require.NoError(t, err)
 
-	for _, file := range []string{source, target} {
+	for _, file := range []string{filepath.Join("testdata", source), target} {
 		_, err := os.Stat(filepath.Join(appDir, file))
 		require.NoError(t, err,
 			"the %s boundary has no app/%s; create it with make new-upgrade-test FROM=%s TO=%s",
-			boundary, file, boundary.From, boundary.To)
+			boundary, filepath.ToSlash(file), boundary.From, boundary.To)
 	}
 }
 

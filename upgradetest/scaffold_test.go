@@ -29,7 +29,8 @@ func TestScaffoldCreatesATaggedAppUpgradeTest(t *testing.T) {
 	require.Contains(t, string(source), "TODO: create v6.7 state with the source binary")
 	require.Contains(t, string(source), "TODO: verify v6.7 state with the target binary")
 
-	offlineSource, err := os.ReadFile(filepath.Join(root, "upgrade_v67_offline_source_test.go"))
+	offlineSource, err := os.ReadFile(filepath.Join(
+		root, "testdata", "upgrade_v67_offline_source_test.go"))
 	require.NoError(t, err)
 	require.Contains(t, string(offlineSource),
 		"//go:build upgrade_v67 && offline_upgrade && upgrade_source")
@@ -66,7 +67,8 @@ func TestScaffoldRefusesToOverwriteASet(t *testing.T) {
 
 func TestScaffoldRefusesToOverwriteAnOfflinePhase(t *testing.T) {
 	root := t.TempDir()
-	offline := filepath.Join(root, "upgrade_v67_offline_source_test.go")
+	offline := filepath.Join(root, "testdata", "upgrade_v67_offline_source_test.go")
+	require.NoError(t, os.MkdirAll(filepath.Dir(offline), 0o750))
 	require.NoError(t, os.WriteFile(offline, []byte("existing"), 0o600))
 
 	_, err := upgradetest.Scaffold(root, "v6.6", "v6.7")

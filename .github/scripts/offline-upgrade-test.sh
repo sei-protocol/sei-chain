@@ -24,6 +24,18 @@ die() {
   exit 1
 }
 
+offline_phase_test_path() {
+  case "$1" in
+    source)
+      printf '%s/app/testdata/%s_offline_source_test.go\n' "$REPO_ROOT" "$UPGRADE_TAG"
+      ;;
+    target)
+      printf '%s/app/%s_offline_target_test.go\n' "$REPO_ROOT" "$UPGRADE_TAG"
+      ;;
+    *) die "unknown offline upgrade file phase $1" ;;
+  esac
+}
+
 prepare_boundary() {
   BOUNDARY_FROM="$(go run ./upgradetest/cmd/boundary from)"
   BOUNDARY_TO="$(go run ./upgradetest/cmd/boundary to)"
@@ -39,12 +51,14 @@ validate_inputs() {
     die "to_ref contains characters Git cannot safely resolve"
 
   local phase
+  local test_path
   for phase in source target; do
-    [[ -f "$REPO_ROOT/app/${UPGRADE_TAG}_offline_${phase}_test.go" ]] ||
+    test_path="$(offline_phase_test_path "$phase")"
+    [[ -f "$test_path" ]] ||
       die "$UPGRADE_TAG has no offline $phase test"
   done
   grep -q 'func Test.*OfflineUpgradeReopen(' \
-    "$REPO_ROOT/app/${UPGRADE_TAG}_offline_source_test.go" ||
+    "$(offline_phase_test_path source)" ||
     die "$UPGRADE_TAG has no offline reopen test"
   [[ -f "$REPO_ROOT/app/upgrade_offline_harness_test.go" ]] ||
     die "offline upgrade harness is missing"
@@ -97,7 +111,7 @@ install_phase_tests() {
     "$REPO_ROOT/app/upgrade_offline_harness_test.go" \
     "$worktree/app/upgrade_offline_harness_test.go"
   install -m 0644 \
-    "$REPO_ROOT/app/${UPGRADE_TAG}_offline_${phase}_test.go" \
+    "$(offline_phase_test_path "$phase")" \
     "$worktree/app/${UPGRADE_TAG}_offline_${phase}_test.go"
 }
 

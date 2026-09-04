@@ -18,14 +18,16 @@ Run:
 make new-upgrade-test FROM=v6.6 TO=v6.7
 ```
 
-The command creates `app/upgrade_v67_test.go` plus separately compiled
-`upgrade_v67_offline_source_test.go` and
-`upgrade_v67_offline_target_test.go`. The main file has the matching
+The command creates `app/upgrade_v67_test.go`, the separately compiled
+`app/testdata/upgrade_v67_offline_source_test.go` fixture, and
+`app/upgrade_v67_offline_target_test.go`. The main file has the matching
 `upgrade_v67` constraint, the `newV67Chain` / `applyV67` shape, and
-`TestV67CrossVersion` callbacks for the live two-binary path.
-The source file also has a reopen TODO so the runner's third phase has a
-test to select. Its TODOs fail in the layer that reaches them until real
-assertions replace them.
+`TestV67CrossVersion` callbacks for the live two-binary path. The source
+fixture lives under `testdata` so current-branch module discovery does not try
+to resolve APIs that the target release removed; the runners copy it into the
+source worktree's `app` package before compiling it. It also has a reopen TODO
+so the runner's third phase has a test to select. Its TODOs fail in the layer
+that reaches them until real assertions replace them.
 
 Appending `v6.7` to `app/tags` makes that pair the current boundary.
 `make upgrade-test` derives the build tag from the embedded list and runs the

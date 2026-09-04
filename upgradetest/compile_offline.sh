@@ -52,8 +52,8 @@ for index, (major, minor, target) in enumerate(versions):
 source_suffix = "_offline_source_test.go"
 target_suffix = "_offline_target_test.go"
 source_files = {
-    path.name.removesuffix(source_suffix): path.name
-    for path in app_dir.glob(f"upgrade_v*{source_suffix}")
+    path.name.removesuffix(source_suffix): path.relative_to(app_dir).as_posix()
+    for path in (app_dir / "testdata").glob(f"upgrade_v*{source_suffix}")
 }
 target_files = {
     path.name.removesuffix(target_suffix): path.name
@@ -104,13 +104,14 @@ prepare_release_worktree() {
 
 compile_phase() {
   local checkout="$1"
-  local file="$2"
+  local source_file="$2"
   local tags="$3"
+  local file="${source_file##*/}"
   if [[ "$checkout" != "$REPO_ROOT" ]]; then
     install -m 0644 \
       "$REPO_ROOT/app/upgrade_offline_harness_test.go" \
       "$checkout/app/upgrade_offline_harness_test.go"
-    install -m 0644 "$REPO_ROOT/app/$file" "$checkout/app/$file"
+    install -m 0644 "$REPO_ROOT/app/$source_file" "$checkout/app/$file"
   fi
 
   local included

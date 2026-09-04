@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,8 @@ const (
 	crossVersionTargetHeightEnv  = "UPGRADE_TEST_TARGET_HEIGHT"
 	crossVersionReleaseBinaryEnv = "UPGRADE_TEST_RELEASE_BINARY"
 	validatorCount               = 4
+	processStateRunning          = "running"
+	jsonNull                     = "null"
 )
 
 // A CrossVersion gives a tagged test access to the validator running each side
@@ -487,7 +490,7 @@ type StartObservation struct {
 func (c *CrossVersion) StartNodeOn(t *testing.T, node, binary string) {
 	t.Helper()
 	c.launchSeidOn(t, node, binary, seidNodeLogPath(node), false)
-	c.waitForSeidState(t, node, "running", time.Minute)
+	c.waitForSeidState(t, node, processStateRunning, time.Minute)
 }
 
 // StartNodeObserving starts seid on node with binary and watches it until timeout.
@@ -511,7 +514,7 @@ func (c *CrossVersion) StartNodeObserving(t *testing.T, node, binary string, tim
 			continue
 		}
 		lastInspectErr = nil
-		if state == "running" {
+		if state == processStateRunning {
 			sawRunning = true
 			observed.Running = true
 			if height, _, heightErr := c.tryHeightOn(node); heightErr == nil {
@@ -544,7 +547,7 @@ func (c *CrossVersion) launchSeidOn(t *testing.T, node, binary, logPath string, 
 	if err != nil {
 		t.Fatalf("inspect seid in %s: %v", node, err)
 	}
-	if state == "running" {
+	if state == processStateRunning {
 		t.Fatalf("seid in %s is already running", node)
 	}
 
@@ -720,7 +723,7 @@ printf stopped`)
 		return "", fmt.Errorf("%w: %s", result.Err, result.Combined())
 	}
 	state := strings.TrimSpace(result.Stdout)
-	if state != "running" && state != "stopped" {
+	if state != processStateRunning && state != "stopped" {
 		return "", fmt.Errorf("invalid process state %q", state)
 	}
 	return state, nil
@@ -894,17 +897,17 @@ func parseABCIQueryResponse(output []byte) ([]byte, uint32, string, error) {
 	if err := json.Unmarshal(output, &envelope); err != nil {
 		return nil, 0, "", fmt.Errorf("decode JSON-RPC envelope: %w", err)
 	}
-	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+	if len(envelope.Error) > 0 && string(envelope.Error) != jsonNull {
 		return nil, 0, "", fmt.Errorf("JSON-RPC error: %s", envelope.Error)
 	}
 	code := uint32(0)
-	if len(envelope.Result.Response.Code) > 0 && string(envelope.Result.Response.Code) != "null" {
+	if len(envelope.Result.Response.Code) > 0 && string(envelope.Result.Response.Code) != jsonNull {
 		parsed, err := parseJSONInt(envelope.Result.Response.Code)
 		if err != nil {
 			return nil, 0, "", fmt.Errorf("decode ABCI code: %w", err)
 		}
-		if parsed < 0 {
-			return nil, 0, "", fmt.Errorf("negative ABCI code %d", parsed)
+		if parsed < 0 || parsed > math.MaxUint32 {
+			return nil, 0, "", fmt.Errorf("ABCI code %d is outside the uint32 range", parsed)
 		}
 		code = uint32(parsed)
 	}
@@ -916,7 +919,7 @@ func parseABCIQueryResponse(output []byte) ([]byte, uint32, string, error) {
 }
 
 func decodeABCIBytes(raw json.RawMessage) ([]byte, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil, nil
 	}
 	var text string
@@ -963,7 +966,7 @@ func parseBlockIdentity(output []byte) (parsedBlock, error) {
 	if err := json.Unmarshal(output, &envelope); err != nil {
 		return parsedBlock{}, fmt.Errorf("decode JSON-RPC envelope: %w", err)
 	}
-	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+	if len(envelope.Error) > 0 && string(envelope.Error) != jsonNull {
 		return parsedBlock{}, fmt.Errorf("JSON-RPC error: %s", envelope.Error)
 	}
 	appHash, err := decodeRPCHex("app_hash", envelope.Result.Block.Header.AppHash)

@@ -38,9 +38,10 @@ func Scaffold(root, from, to string) (string, error) {
 	exportedSuffix := strings.ToUpper(suffix[:1]) + suffix[1:]
 
 	testPath := filepath.Join(root, fileName)
+	offlineSourcePath := filepath.Join(root, "testdata", offlineSourceName)
 	paths := []string{
 		testPath,
-		filepath.Join(root, offlineSourceName),
+		offlineSourcePath,
 		filepath.Join(root, offlineTargetName),
 	}
 	for _, path := range paths {
@@ -133,6 +134,9 @@ func Test%[2]sOfflineUpgradeTarget(t *testing.T) {
 		if err != nil {
 			return "", fmt.Errorf("format generated upgrade test %s: %w", paths[i], err)
 		}
+	}
+	if err := os.MkdirAll(filepath.Dir(offlineSourcePath), 0o750); err != nil {
+		return "", fmt.Errorf("create offline source fixture directory: %w", err)
 	}
 	for i, path := range paths {
 		if err := os.WriteFile(path, sources[i], 0o644); err != nil { //nolint:gosec // generated Go source uses repository file permissions
