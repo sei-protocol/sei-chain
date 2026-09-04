@@ -4,17 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - .github/scripts/offline-upgrade-test.sh
-      - .github/workflows/offline-upgrade-test.yml
-      - Makefile
-      - app/app.go
-      - app/tags
-      - app/upgrade_*_offline_*_test.go
-      - app/testdata/upgrade_*_offline_source_test.go
-      - app/upgrade_offline_harness_test.go
-      - app/upgrades.go
-      - upgradetest/**
   workflow_dispatch:
     inputs:
       source_ref:
