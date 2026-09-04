@@ -261,7 +261,7 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 	defer m.mtx.Unlock()
 
 	// check multistore supported format preemptive
-	if snapshot.Format != types.CurrentFormat {
+	if snapshot.Format != types.FormatV1 && snapshot.Format != types.CurrentFormat {
 		return sdkerrors.Wrapf(types.ErrUnknownFormat, "snapshot format %v", snapshot.Format)
 	}
 	if snapshot.Height == 0 {

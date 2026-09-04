@@ -144,7 +144,10 @@ func archiveNewVersion(tags []string, newTag, tagFolder string) error {
 
 	// Open the git repository and find the commit where the previous version
 	// was added to app/tags. We diff precompiles/ against that commit.
-	repo, err := git.PlainOpenWithOptions(".", &git.PlainOpenOptions{DetectDotGit: true})
+	repo, err := git.PlainOpenWithOptions(".", &git.PlainOpenOptions{
+		DetectDotGit:          true,
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return fmt.Errorf("opening git repo: %w", err)
 	}

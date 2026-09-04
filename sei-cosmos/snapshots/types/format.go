@@ -1,6 +1,8 @@
 package types
 
-// CurrentFormat is the currently used format for snapshots. Snapshots using the same format
-// must be identical across all nodes for a given height, so this must be bumped when the binary
-// snapshot output changes.
-const CurrentFormat uint32 = 1
+const (
+	// FormatV1 identifies version 1 of multistore snapshots.
+	FormatV1 uint32 = 1
+	// CurrentFormat identifies the multistore snapshot format produced by this binary.
+	CurrentFormat uint32 = 2
+)

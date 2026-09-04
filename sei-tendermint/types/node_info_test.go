@@ -178,6 +178,10 @@ func TestNodeInfoAddChannel(t *testing.T) {
 	// adding the same channel again shouldn't be a problem
 	nodeInfo.AddChannel(2)
 	require.Contains(t, nodeInfo.Channels, byte(0x02))
+
+	// channels outside the one-byte wire range are not advertised
+	nodeInfo.AddChannel(256)
+	require.Len(t, nodeInfo.Channels, 1)
 }
 
 func TestResolveAddressStringDNS(t *testing.T) {

@@ -125,6 +125,10 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	_, err = OpenChannel(router, chDesc2)
 	require.NoError(t, err)
 
+	t.Logf("Opening a channel outside the wire range should fail.")
+	_, err = OpenChannel(router, makeChDesc(256))
+	require.Error(t, err)
+
 	t.Logf("We should be able to send on the channel, even though there are no peers.")
 	channel.Send(&TestMessage{Value: "foo"}, types.NodeID(strings.Repeat("a", 40)))
 
