@@ -905,6 +905,60 @@ func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
 	require.Equal(t, new(big.Int).Add(initialCoinbaseBalance, big.NewInt(21_000)), occState.GetBalance(coinbase))
 }
 
+// When the coinbase sends a tx in its own block and its fee credit exactly
+// cancels the gas it pays, its balance nets back to the starting value. On that
+// net-zero balance sequential still force-emits a coinbase BalanceChange for the
+// fee delta, while OCC omits it because the final
+// balance equals the block base. Applied state is
+// identical, but the emitted ChangeSet is not. This leads to a different hash.
+func TestExecutorOCCCoinbaseNetZeroChangeSetMatchesSequential(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	coinbaseKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	otherKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	coinbase := crypto.PubkeyToAddress(coinbaseKey.PublicKey)
+	other := crypto.PubkeyToAddress(otherKey.PublicKey)
+	coinbaseRecipient := testAddress(0xa8)
+	otherRecipient := testAddress(0xa9)
+	initialCoinbaseBalance := big.NewInt(1_000_000_000)
+
+	seqState := NewMemoryState()
+	occState := NewMemoryState()
+	for _, state := range []*MemoryState{seqState, occState} {
+		state.SetBalance(coinbase, initialCoinbaseBalance)
+		state.SetBalance(other, big.NewInt(1_000_000_000))
+	}
+
+	// The coinbase pays 21000 gas at price 1 and earns exactly that back as its
+	// own fee, so its balance nets to the starting value.
+	coinbaseTx := signLegacyTxWithGasPrice(t, coinbaseKey, chainID, 0, &coinbaseRecipient, big.NewInt(0), nil, 100_000, big.NewInt(1))
+
+	// A second tx at gas price 0 leaves the coinbase untouched but makes the
+	// block multi-tx so OCC engages instead of the single-tx fast path.
+	otherTx := signLegacyTxWithGasPrice(t, otherKey, chainID, 0, &otherRecipient, big.NewInt(0), nil, 100_000, big.NewInt(0))
+	ctx := blockContext(chainID)
+	ctx.Coinbase = coinbase
+	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTx, otherTx}}
+
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	require.NoError(t, err)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	require.NoError(t, err)
+
+	require.True(t, occResult.OCCStats.Attempted)
+	require.False(t, occResult.OCCStats.Fallback)
+
+	// Applied state is identical
+	seqState.ApplyChangeSet(seqResult.ChangeSet)
+	occState.ApplyChangeSet(occResult.ChangeSet)
+	require.Equal(t, seqState.GetBalance(coinbase), occState.GetBalance(coinbase))
+	require.Equal(t, initialCoinbaseBalance, occState.GetBalance(coinbase))
+
+	// Ensure the ChangeSet is also identical
+	require.Equal(t, seqResult.ChangeSet, occResult.ChangeSet)
+}
+
 func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	selfDestructKey, err := crypto.GenerateKey()
