@@ -3,7 +3,6 @@ package legacyabci
 import (
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
@@ -44,8 +43,6 @@ func BeginBlock(
 	start := time.Now()
 	defer func() {
 		legacyAbciMetrics.totalBeginBlockDuration.Record(ctx.Context(), time.Since(start).Seconds())
-		// TODO(PLT-343): remove once begin_blocker_duration verified
-		telemetry.MeasureSince(start, "module", "total_begin_block")
 	}()
 
 	keepers.EpochKeeper.BeginBlock(ctx)
