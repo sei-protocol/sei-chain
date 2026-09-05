@@ -66,14 +66,19 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <config-file>\n", os.Args[0])
+	if len(os.Args) > 2 {
+		fmt.Fprintf(os.Stderr, "Usage: %s [config-file]\n", os.Args[0])
 		os.Exit(1)
 	}
 
-	config, err := walrussim.LoadConfigFromFile(os.Args[1])
-	if err != nil {
-		return err
+	// A config file states only what it changes. With none, the defaults run as they are.
+	config := walrussim.DefaultConfig()
+	if len(os.Args) == 2 {
+		loaded, err := walrussim.LoadConfigFromFile(os.Args[1])
+		if err != nil {
+			return err
+		}
+		config = loaded
 	}
 	configString, err := config.StringifiedConfig()
 	if err != nil {

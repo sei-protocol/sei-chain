@@ -51,22 +51,23 @@ func (i *podIndex) FindNewest(key []byte, lowBlock uint64, highBlock uint64) (
 	offset uint32,
 	blockNumber uint64,
 	found bool,
+	present bool,
 	err error,
 ) {
 	lowDelta, highDelta, overlaps := i.deltaRange(lowBlock, highBlock)
-	if !overlaps || i.keyCount == 0 {
-		return 0, 0, false, nil
+	if i.keyCount == 0 {
+		return 0, 0, false, false, nil
 	}
 
 	file, err := os.Open(i.path) //nolint:gosec // path is derived from a validated directory
 	if err != nil {
-		return 0, 0, false, fmt.Errorf("failed to open pod index %s: %w", i.path, err)
+		return 0, 0, false, false, fmt.Errorf("failed to open pod index %s: %w", i.path, err)
 	}
 	defer func() { _ = file.Close() }()
 
 	slot, err := i.searchLevelOne(file, keyPrefix(key))
 	if err != nil {
-		return 0, 0, false, err
+		return 0, 0, false, false, err
 	}
 
 	// Slots sharing a key prefix form a contiguous run, since level one is ordered by prefix and then by the
@@ -75,29 +76,33 @@ func (i *podIndex) FindNewest(key []byte, lowBlock uint64, highBlock uint64) (
 	for ; slot < i.keyCount; slot++ {
 		prefix, recordOffset, err := i.readSlot(file, slot)
 		if err != nil {
-			return 0, 0, false, err
+			return 0, 0, false, false, err
 		}
 		if prefix != target {
-			return 0, 0, false, nil
+			return 0, 0, false, false, nil
 		}
 		record, err := i.readRecord(file, recordOffset)
 		if err != nil {
-			return 0, 0, false, err
+			return 0, 0, false, false, err
 		}
 		comparison := bytes.Compare(record.key, key)
 		if comparison > 0 {
-			return 0, 0, false, nil
+			return 0, 0, false, false, nil
 		}
 		if comparison < 0 {
 			continue
 		}
+		// The pod holds the key. Whether a version of it falls in the queried range is a separate question.
+		if !overlaps {
+			return 0, 0, false, true, nil
+		}
 		entryOffset, delta, hit := record.newestInRange(lowDelta, highDelta)
 		if !hit {
-			return 0, 0, false, nil
+			return 0, 0, false, true, nil
 		}
-		return entryOffset, i.info.FirstBlock + uint64(delta), true, nil
+		return entryOffset, i.info.FirstBlock + uint64(delta), true, true, nil
 	}
-	return 0, 0, false, nil
+	return 0, 0, false, false, nil
 }
 
 // Path returns the file the index lives in.

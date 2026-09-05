@@ -117,8 +117,10 @@ func TestPodRoundTrip(t *testing.T) {
 				if lowBlock >= highBlock {
 					continue
 				}
-				offset, block, found, err := pod.Index.FindNewest([]byte(key), lowBlock, highBlock)
+				offset, block, found, present, err := pod.Index.FindNewest(
+					[]byte(key), lowBlock, highBlock)
 				require.NoError(t, err)
+				require.True(t, present, "the pod holds key %q, so the index must say so", key)
 
 				want, wantFound := model.newest(key, lowBlock, min(highBlock, 139))
 				require.Equal(t, wantFound, found, "key %q in (%d, %d]", key, lowBlock, highBlock)
@@ -137,9 +139,10 @@ func TestPodRoundTrip(t *testing.T) {
 
 	// A key the pod never held is never found, whatever the bloom filter says about it.
 	for _, absent := range []string{"missing", "hot!", "cold-999999", "sameprefix-9"} {
-		_, _, found, err := pod.Index.FindNewest([]byte(absent), 0, 200)
+		_, _, found, present, err := pod.Index.FindNewest([]byte(absent), 0, 200)
 		require.NoError(t, err)
 		require.False(t, found, "key %q should not be in the pod", absent)
+		require.False(t, present, "key %q is not in the pod, so it is a bloom false positive", absent)
 	}
 }
 
@@ -158,9 +161,10 @@ func TestPodReopen(t *testing.T) {
 	reopened, err := openPod(directory, built.Info)
 	require.NoError(t, err)
 
-	offset, block, found, err := reopened.Index.FindNewest([]byte("alpha"), 0, 9)
+	offset, block, found, present, err := reopened.Index.FindNewest([]byte("alpha"), 0, 9)
 	require.NoError(t, err)
 	require.True(t, found)
+	require.True(t, present)
 	require.Equal(t, uint64(9), block)
 
 	value, deleted, err := reopened.Data.ReadEntry(offset)
@@ -199,4 +203,41 @@ func TestPodRejectsNonContiguousBlocks(t *testing.T) {
 
 	_, err = newPodBuilder(directory, config).Build(nil)
 	require.ErrorContains(t, err, "at least one block")
+}
+
+// TestPodIndexSeparatesPresenceFromRange pins the distinction the bloom filter's error rate depends on.
+//
+// A pod can hold a key whose every version falls outside the queried range. The bloom filter that admitted
+// that pod was right, and counting it as a false positive would overstate the filter's error rate — which is
+// the number the whole schema is being judged on.
+func TestPodIndexSeparatesPresenceFromRange(t *testing.T) {
+	directory := t.TempDir()
+	blocks := []Block{
+		testBlock(10, testPair("early", "value", false)),
+		testBlock(11, testPair("filler", "value", false)),
+		testBlock(12, testPair("filler", "value", false)),
+	}
+
+	config := DefaultConfig(directory, "test", "evm")
+	pod, err := newPodBuilder(directory, config).Build(blocks)
+	require.NoError(t, err)
+
+	// "early" was written at block 10, so a walk over (10, 12] finds nothing — but the pod does hold it.
+	_, _, found, present, err := pod.Index.FindNewest([]byte("early"), 10, 12)
+	require.NoError(t, err)
+	require.False(t, found, "no version of the key lies above the floor")
+	require.True(t, present, "the pod holds the key, so this is not a bloom false positive")
+
+	// The same key over a range that does include its write is found.
+	_, block, found, present, err := pod.Index.FindNewest([]byte("early"), 9, 12)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.True(t, present)
+	require.Equal(t, uint64(10), block)
+
+	// A key the pod never held is absent both ways, which is what a real false positive looks like.
+	_, _, found, present, err = pod.Index.FindNewest([]byte("never"), 0, 12)
+	require.NoError(t, err)
+	require.False(t, found)
+	require.False(t, present)
 }

@@ -1,20 +1,9 @@
 {
-  "DataDir": "./walrussim-data",
-  "DeleteDataDirOnStartup": true,
   "Name": "walrussim-deep-history",
-  "StoreName": "evm",
-  "KeyClasses": [
-    { "KeyCount": 1000, "Period": 1 },
-    { "KeyCount": 1000000, "Period": 10000 },
-    { "KeyCount": 20000000, "Period": 1000000 }
-  ],
-  "NeverWrittenKeyCount": 5000000,
   "TargetPodSize": 134217728,
-  "RetentionBlocks": 1000000,
-  "EnableSnapshots": true,
-  "SnapshotIntervalBlocks": 20000,
+  "RetentionBlocks": 700000,
   "ReadConcurrency": 8,
   "ReadsPerSecond": 4000,
   "NeverWrittenReadFraction": 0.5,
-  "MetricsAddr": ":9090"
+  "SnapshotIntervalSeconds": 600
 }

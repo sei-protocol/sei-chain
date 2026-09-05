@@ -24,6 +24,10 @@ type PodIndex interface {
 		blockNumber uint64,
 		// Whether the pod holds a version of key in the range.
 		found bool,
+		// Whether the pod holds key at all, in any block. This is separate from found because a pod can hold
+		// a key whose every version falls outside the range, and the bloom filter that admitted the pod was
+		// right to. Counting that as a false positive would overstate the filter's error rate.
+		present bool,
 		// Any error encountered while searching.
 		err error,
 	)

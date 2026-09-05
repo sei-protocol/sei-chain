@@ -158,6 +158,7 @@ func (c *catalog) Collect() (files int, bytes int64, err error) {
 
 	recordCollection(c.name, files, bytes)
 	c.recordFloorsLocked()
+	c.recordRetentionLocked()
 	if len(problems) > 0 {
 		return files, bytes, fmt.Errorf("failed to collect: %w", errors.Join(problems...))
 	}
@@ -231,6 +232,22 @@ func (c *catalog) nextFloorLocked() uint64 {
 // recordFloorsLocked publishes where policy and the floor sit, and how many queries are running.
 func (c *catalog) recordFloorsLocked() {
 	recordFloors(c.name, c.queryFloor, c.floorBlock, c.inFlight)
+}
+
+// recordRetentionLocked publishes the space the retained pods and snapshots occupy, split by file so that
+// the index and filter overhead is visible against the data they describe.
+func (c *catalog) recordRetentionLocked() {
+	var podBytes, indexBytes, bloomBytes, snapshotBytes int64
+	for _, tracked := range c.pods {
+		podBytes += tracked.pod.Data.Size()
+		indexBytes += tracked.pod.Index.Size()
+		bloomBytes += tracked.pod.Bloom.Size()
+	}
+	for _, tracked := range c.snapshots {
+		snapshotBytes += tracked.snapshot.Size()
+	}
+	recordRetention(c.name, podBytes, indexBytes, bloomBytes, snapshotBytes,
+		int64(len(c.pods)), int64(len(c.snapshots)))
 }
 
 // newCatalog creates a catalog holding the given pods and snapshots, with the block zero pseudo-snapshot as

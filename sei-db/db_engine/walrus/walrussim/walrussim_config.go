@@ -85,8 +85,12 @@ type Config struct {
 	// second database — which is the mode to measure append throughput in.
 	EnableSnapshots bool
 
-	// How many blocks pass between checkpoints.
-	SnapshotIntervalBlocks uint64
+	// How many seconds pass between checkpoints.
+	//
+	// Cadence is wall clock rather than a block count because a block count only means something once you
+	// know the block rate, and the block rate is what a run is measuring. Seconds tune the same whatever the
+	// workload turns out to cost.
+	SnapshotIntervalSeconds float64
 
 	// If greater than 0, throttle block production to this many blocks per second.
 	MaxBlocksPerSecond float64
@@ -125,11 +129,14 @@ func DefaultConfig() *Config {
 		StoreName:              "evm",
 		KeySize:                53,
 		ValueSize:              32,
+		// Four classes contributing 2,500 writes each, for 10,000 key changes a block. Equal contribution
+		// with periods an order of magnitude apart spreads how stale a key is over four orders of magnitude,
+		// which is what a walk's depth is a function of.
 		KeyClasses: []KeyClass{
-			{KeyCount: 1_000, Period: 1},
-			{KeyCount: 100_000, Period: 100},
-			{KeyCount: 1_000_000, Period: 1_000},
-			{KeyCount: 10_000_000, Period: 100_000},
+			{KeyCount: 2_500, Period: 1},
+			{KeyCount: 250_000, Period: 100},
+			{KeyCount: 2_500_000, Period: 1_000},
+			{KeyCount: 25_000_000, Period: 10_000},
 		},
 		NeverWrittenKeyCount:         1_000_000,
 		DeleteRate:                   1_000,
@@ -137,10 +144,10 @@ func DefaultConfig() *Config {
 		BlockCount:                   0,
 		TargetPodSize:                256 * unit.MB,
 		BloomFalsePositiveRate:       0.01,
-		RetentionBlocks:              1_000_000,
+		RetentionBlocks:              100_000,
 		PodBuildConcurrency:          2,
 		EnableSnapshots:              true,
-		SnapshotIntervalBlocks:       5_000,
+		SnapshotIntervalSeconds:      60,
 		MaxBlocksPerSecond:           0,
 		ReadConcurrency:              4,
 		ReadsPerSecond:               2_000,
@@ -195,8 +202,9 @@ func (c *Config) Validate() error {
 	if c.ReadConcurrency > 0 && c.ReadsPerSecond <= 0 {
 		return fmt.Errorf("read concurrency was requested but reads per second is %d", c.ReadsPerSecond)
 	}
-	if c.EnableSnapshots && c.SnapshotIntervalBlocks == 0 {
-		return fmt.Errorf("snapshots were requested but the snapshot interval is 0")
+	if c.EnableSnapshots && c.SnapshotIntervalSeconds <= 0 {
+		return fmt.Errorf("snapshots were requested but the snapshot interval is %v seconds",
+			c.SnapshotIntervalSeconds)
 	}
 	if c.TargetPodSize == 0 {
 		return fmt.Errorf("target pod size must be greater than 0")

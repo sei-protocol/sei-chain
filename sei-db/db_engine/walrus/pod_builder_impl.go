@@ -3,9 +3,20 @@ package walrus
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
+
+// podShape is what one written pod holds and what it cost on disk.
+type podShape struct {
+	blocks     int64
+	keys       int64
+	entries    int64
+	dataBytes  int64
+	indexBytes int64
+	bloomBytes int64
+}
 
 var _ PodBuilder = (*podBuilder)(nil)
 
@@ -45,15 +56,17 @@ func (b *podBuilder) Build(blocks []Block) (*Pod, error) {
 		}
 	}()
 
-	refs, _, err := writePodData(partials[0], blocks)
+	start := time.Now()
+	refs, dataBytes, err := writePodData(partials[0], blocks)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", info, err)
 	}
-	keys, _, err := writePodIndex(partials[1], refs, info.FirstBlock, info.LastBlock)
+	keys, indexBytes, err := writePodIndex(partials[1], refs, info.FirstBlock, info.LastBlock)
 	if err != nil {
 		return nil, fmt.Errorf("failed to index %s: %w", info, err)
 	}
-	if _, err := writePodBloom(partials[2], keys, b.falsePositiveRate); err != nil {
+	bloomBytes, err := writePodBloom(partials[2], keys, b.falsePositiveRate)
+	if err != nil {
 		return nil, fmt.Errorf("failed to build the bloom filter for %s: %w", info, err)
 	}
 
@@ -68,6 +81,14 @@ func (b *podBuilder) Build(blocks []Block) (*Pod, error) {
 		return nil, fmt.Errorf("failed to sync %s after publishing %s: %w", b.directory, info, err)
 	}
 
+	recordPodBuild(b.name, start, podShape{
+		blocks:     int64(len(blocks)),
+		keys:       int64(len(keys)),
+		entries:    int64(len(refs)),
+		dataBytes:  dataBytes,
+		indexBytes: indexBytes,
+		bloomBytes: bloomBytes,
+	})
 	return openPod(b.directory, info)
 }
 

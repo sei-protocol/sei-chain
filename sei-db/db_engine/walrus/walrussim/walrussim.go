@@ -50,6 +50,7 @@ type WalrusSim struct {
 
 	startTime      time.Time
 	lastReport     time.Time
+	lastSnapshot   time.Time
 	readers        sync.WaitGroup
 	stopReaders    chan struct{}
 	closeOnce      sync.Once
@@ -106,6 +107,10 @@ func NewWalrusSim(runContext context.Context, config *Config) (*WalrusSim, error
 
 // Run drives the benchmark until the configured block count is reached or the context is cancelled.
 func (s *WalrusSim) Run() error {
+	// The first checkpoint is due one interval from now rather than immediately, so a run does not
+	// checkpoint an empty store before it has written anything.
+	s.lastSnapshot = time.Now()
+
 	go s.produce()
 	s.startReaders()
 
@@ -177,7 +182,7 @@ func (s *WalrusSim) writeBlock(block walrus.Block) error {
 	s.keysWritten.Add(uint64(keys))
 	recordBlockWritten(s.config.Name, keys)
 
-	if s.stubCommitting && block.Number%s.config.SnapshotIntervalBlocks == 0 {
+	if s.stubCommitting && time.Since(s.lastSnapshot) >= s.snapshotInterval() {
 		if err := s.takeSnapshot(); err != nil {
 			return err
 		}
@@ -210,12 +215,25 @@ func (s *WalrusSim) takeSnapshot() error {
 		return fmt.Errorf("failed to delete the state stub's copy of %s: %w", directory, err)
 	}
 
+	s.lastSnapshot = time.Now()
 	recordSnapshot(s.config.Name, start)
 	return nil
 }
 
+// snapshotInterval returns how long to wait between checkpoints.
+func (s *WalrusSim) snapshotInterval() time.Duration {
+	return time.Duration(s.config.SnapshotIntervalSeconds * float64(time.Second))
+}
+
 // report prints a progress line, at most as often as the configured interval.
 func (s *WalrusSim) report(force bool) {
+	// The queryable range is published every block. Gating a metric on how often a human wants a line of
+	// console output would make the dashboard a function of the console settings.
+	ok, first, last, err := s.engine.QueryableBounds()
+	if err == nil && ok {
+		recordQueryable(s.config.Name, first, last)
+	}
+
 	interval := time.Duration(s.config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 	if !force && (interval <= 0 || time.Since(s.lastReport) < interval) {
 		return
@@ -227,11 +245,6 @@ func (s *WalrusSim) report(force bool) {
 	keys := s.keysWritten.Load()
 	reads := s.reads.Load()
 	mismatches := s.mismatches.Load()
-
-	ok, first, last, err := s.engine.QueryableBounds()
-	if err == nil && ok {
-		recordQueryable(s.config.Name, first, last)
-	}
 
 	fmt.Printf("\r%s | blocks %d (%.0f/s) | keys %.0f/s | queryable [%d, %d] | reads %d | mismatches %d      ",
 		elapsed.Round(time.Second), blocks, float64(blocks)/elapsed.Seconds(),

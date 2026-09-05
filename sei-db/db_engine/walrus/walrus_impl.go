@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -44,6 +45,9 @@ type engine struct {
 	failureLock sync.Mutex
 	failure     error
 
+	// Pods submitted but not yet finished building, published as the build queue depth.
+	queued atomic.Int64
+
 	ordererDone chan struct{}
 	closed      bool
 }
@@ -71,11 +75,16 @@ func (e *engine) AppendBlock(block Block) error {
 	if err != nil {
 		return fmt.Errorf("failed to accumulate block %d: %w", block.Number, err)
 	}
-	blockSize := int(encodedBlockSize(block)) //nolint:gosec // G115 - far below the int ceiling
-	recordAppend(e.config.Name, countPairs(block), blockSize)
+
+	// Submitting can block while every build slot is busy. That wait is the write path being backpressured
+	// rather than merely slow, which is a difference nothing else in the metrics would show.
+	var blocked time.Duration
 	if pod != nil {
-		e.submit(pod)
+		blocked = e.submit(pod)
 	}
+
+	blockSize := int(encodedBlockSize(block)) //nolint:gosec // G115 - far below the int ceiling
+	recordAppend(e.config.Name, countPairs(block), blockSize, blocked)
 	return nil
 }
 
@@ -122,12 +131,13 @@ func (e *engine) Get(key []byte, blockNumber uint64) (value []byte, status ReadS
 	defer query.Release()
 
 	start := time.Now()
-	value, status, probed, searched, readSnapshot, err := e.walk(query, key, blockNumber)
+	result, err := e.walk(query, key, blockNumber)
 	if err != nil {
 		return nil, ReadAbsent, err
 	}
-	recordQuery(e.config.Name, start, status, probed, searched, readSnapshot)
-	return value, status, nil
+	recordQuery(e.config.Name, start, result.status, result.probed, result.searched,
+		result.readSnapshot, result.timing)
+	return result.value, result.status, nil
 }
 
 // QueryableBounds reports the range of blocks Get can answer.
@@ -152,73 +162,103 @@ func (e *engine) Close() error {
 	return flushErr
 }
 
+// walkResult is one completed walk: what it found and what it cost.
+type walkResult struct {
+	value        []byte
+	status       ReadStatus
+	probed       int
+	searched     int
+	readSnapshot bool
+	timing       walkTiming
+}
+
 // walk searches pods newest first and terminates at the floor snapshot.
-func (e *engine) walk(query Query, key []byte, blockNumber uint64) (
-	value []byte,
-	status ReadStatus,
-	probed int,
-	searched int,
-	readSnapshot bool,
-	err error,
-) {
+//
+// Each phase is timed separately and accumulated across the pods visited, because the interesting question
+// is not how long a read took but which part of it was expensive: ruling pods out with bloom filters,
+// searching the indexes of the pods that were not ruled out, or reading the entry once it was located.
+func (e *engine) walk(query Query, key []byte, blockNumber uint64) (walkResult, error) {
 	floorBlock := query.Floor().BlockNumber()
+	result := walkResult{status: ReadAbsent}
 
 	for _, pod := range query.Pods() {
-		probed++
-		if !pod.Bloom.MayContain(key) {
-			recordBloomProbe(e.config.Name, true, false)
+		result.probed++
+
+		bloomStart := time.Now()
+		admitted := pod.Bloom.MayContain(key)
+		result.timing.bloom += time.Since(bloomStart)
+		if !admitted {
+			recordBloomProbe(e.config.Name, bloomRuledOut)
 			continue
 		}
-		searched++
+		result.searched++
 
-		offset, _, found, err := pod.Index.FindNewest(key, floorBlock, blockNumber)
+		indexStart := time.Now()
+		offset, _, found, present, err := pod.Index.FindNewest(key, floorBlock, blockNumber)
+		result.timing.index += time.Since(indexStart)
 		if err != nil {
-			return nil, ReadAbsent, probed, searched, false,
-				fmt.Errorf("failed to search %s: %w", pod.Info, err)
+			return result, fmt.Errorf("failed to search %s: %w", pod.Info, err)
 		}
-		recordBloomProbe(e.config.Name, false, found)
+
+		if present {
+			recordBloomProbe(e.config.Name, bloomTruePositive)
+		} else {
+			recordBloomProbe(e.config.Name, bloomFalsePositive)
+		}
 		if !found {
 			continue
 		}
 
+		dataStart := time.Now()
 		entry, deleted, err := pod.Data.ReadEntry(offset)
+		result.timing.data += time.Since(dataStart)
 		if err != nil {
-			return nil, ReadAbsent, probed, searched, false,
-				fmt.Errorf("failed to read %s: %w", pod.Info, err)
+			return result, fmt.Errorf("failed to read %s: %w", pod.Info, err)
 		}
 		if deleted {
-			return nil, ReadAbsent, probed, searched, false, nil
+			return result, nil
 		}
-		return entry, ReadFound, probed, searched, false, nil
+		result.value = entry
+		result.status = ReadFound
+		return result, nil
 	}
 
 	// Every pod above the floor has been ruled out, so whatever the key held is whatever the floor holds.
+	result.readSnapshot = true
+	snapshotStart := time.Now()
 	stored, found, err := query.Floor().Get(key)
+	result.timing.snapshot = time.Since(snapshotStart)
 	if err != nil {
-		return nil, ReadAbsent, probed, searched, true, fmt.Errorf("failed to read the floor snapshot: %w", err)
+		return result, fmt.Errorf("failed to read the floor snapshot: %w", err)
 	}
-	if !found {
-		return nil, ReadAbsent, probed, searched, true, nil
+	if found {
+		result.value = stored
+		result.status = ReadFound
 	}
-	return stored, ReadFound, probed, searched, true, nil
+	return result, nil
 }
 
-// submit hands a completed pod to the build pipeline, blocking while every build slot is busy.
-func (e *engine) submit(blocks []Block) {
+// submit hands a completed pod to the build pipeline and reports how long it waited for a slot.
+//
+// The wait is the backpressure: when every slot is busy there is nowhere to put the pod, and blocking here
+// is the honest response. The alternative is unbounded memory growth that ends in a kill.
+func (e *engine) submit(blocks []Block) time.Duration {
 	sequence := e.nextSequence
 	e.nextSequence++
 	e.pending.Add(1)
+	recordBuildQueueDepth(e.config.Name, int(e.queued.Add(1)))
 
+	start := time.Now()
 	e.buildSlots <- struct{}{}
+	blocked := time.Since(start)
+
 	go func() {
-		start := time.Now()
 		pod, err := e.builder.Build(blocks)
 		<-e.buildSlots
-		if err == nil {
-			recordPodBuild(e.config.Name, start)
-		}
+		recordBuildQueueDepth(e.config.Name, int(e.queued.Add(-1)))
 		e.results <- buildResult{sequence: sequence, pod: pod, err: err}
 	}()
+	return blocked
 }
 
 // runOrderer releases finished builds to the catalog in the order they were submitted.

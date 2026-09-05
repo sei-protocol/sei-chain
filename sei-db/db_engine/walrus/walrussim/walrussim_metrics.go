@@ -13,6 +13,9 @@ import (
 
 var meter = otel.Meter("walrussim")
 
+// Instrument names carry their own unit and counter suffixes, so the name in the code is the name Prometheus
+// scrapes. See the same note in the walrus package.
+
 // The instruments the harness records. The engine records the read amplification itself; these describe the
 // workload driving it and whether its answers were right.
 var metrics = struct {
@@ -27,38 +30,38 @@ var metrics = struct {
 	QueryableLast    metric.Int64Gauge
 }{
 	BlocksWritten: must(meter.Int64Counter(
-		"walrussim_blocks_written",
+		"walrussim_blocks_written_total",
 		metric.WithDescription("Number of blocks handed to the engine"),
 		metric.WithUnit("{count}"),
 	)),
 	KeysWritten: must(meter.Int64Counter(
-		"walrussim_keys_written",
+		"walrussim_keys_written_total",
 		metric.WithDescription("Number of key changes handed to the engine"),
 		metric.WithUnit("{count}"),
 	)),
 	Reads: must(meter.Int64Counter(
-		"walrussim_reads",
+		"walrussim_reads_total",
 		metric.WithDescription("Number of historical reads, by the class of key asked for and how it resolved"),
 		metric.WithUnit("{count}"),
 	)),
 	ReadDuration: must(meter.Float64Histogram(
-		"walrussim_read_duration",
+		"walrussim_read_duration_seconds",
 		metric.WithDescription("Time one historical read took, excluding the harness computing what to ask"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)),
 	Mismatches: must(meter.Int64Counter(
-		"walrussim_mismatches",
+		"walrussim_mismatches_total",
 		metric.WithDescription("Number of reads whose answer disagreed with the workload's own model"),
 		metric.WithUnit("{count}"),
 	)),
 	SnapshotsTaken: must(meter.Int64Counter(
-		"walrussim_snapshots_taken",
+		"walrussim_snapshots_taken_total",
 		metric.WithDescription("Number of checkpoints produced and retained"),
 		metric.WithUnit("{count}"),
 	)),
 	SnapshotDuration: must(meter.Float64Histogram(
-		"walrussim_snapshot_duration",
+		"walrussim_snapshot_duration_seconds",
 		metric.WithDescription("Time to checkpoint the state stub and retain the result"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
