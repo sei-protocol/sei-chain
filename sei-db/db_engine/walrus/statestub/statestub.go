@@ -15,10 +15,17 @@ import "github.com/sei-protocol/sei-chain/sei-db/proto"
 // caller.
 type StateStub interface {
 
-	// CommitBlock applies a block's changes and makes them durable.
+	// CommitBlock applies a block's changes.
+	//
+	// The write is scheduled rather than performed: this returns once the block is in the store's pipeline,
+	// and blocks only when that pipeline is full. Checkpoint drains it, so a checkpoint always lands on a
+	// block whose writes are complete.
 	//
 	// Blocks must arrive in contiguous ascending order. Deletions in a changeset remove the key rather than
 	// storing a tombstone, because a flat image has nowhere for a tombstone to be observed from.
+	//
+	// changeSets, and every slice reachable through them, must not be modified after this call: the store
+	// retains them and sorts them on another goroutine.
 	CommitBlock(blockNumber uint64, changeSets []*proto.NamedChangeSet) error
 
 	// Get returns the value key currently holds.
@@ -27,8 +34,13 @@ type StateStub interface {
 	// value is distinguishable from an absent key.
 	Get(key []byte) (value []byte, found bool, err error)
 
-	// BlockNumber returns the last block committed.
+	// BlockNumber returns the last block written, which lags the last block committed while the pipeline
+	// drains.
 	BlockNumber() (ok bool, blockNumber uint64)
+
+	// PendingBlocks returns how many blocks have been committed but not yet written. It sitting at the
+	// configured pipeline depth means the store is the write path's bottleneck.
+	PendingBlocks() int
 
 	// Checkpoint writes an immutable image of state as of the last committed block into a fresh directory
 	// under the store's staging path and returns that directory and the block it covers.

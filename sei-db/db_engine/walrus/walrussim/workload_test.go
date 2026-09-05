@@ -40,6 +40,7 @@ func TestWorkloadOracleMatchesProducer(t *testing.T) {
 
 	model := map[uint64]string{}
 	present := map[uint64]bool{}
+	written := map[uint64]bool{}
 
 	for blockNumber := config.FirstBlock; blockNumber < config.FirstBlock+400; blockNumber++ {
 		block := work.block(blockNumber)
@@ -48,6 +49,7 @@ func TestWorkloadOracleMatchesProducer(t *testing.T) {
 
 		for _, pair := range block.ChangeSets[0].Changeset.Pairs {
 			id := idOf(pair.Key)
+			written[id] = true
 			if pair.Delete {
 				present[id] = false
 				model[id] = ""
@@ -58,8 +60,11 @@ func TestWorkloadOracleMatchesProducer(t *testing.T) {
 		}
 
 		for id := uint64(0); id < work.neverWrittenLimit; id++ {
-			value, found := work.expected(id, blockNumber)
+			value, found, exists := work.expected(id, blockNumber)
 			require.Equal(t, present[id], found, "key %d at block %d", id, blockNumber)
+			require.Equal(t, written[id], exists,
+				"key %d at block %d: presence is whether anything is there to find, value or tombstone",
+				id, blockNumber)
 			if found {
 				require.Equal(t, model[id], string(value), "key %d at block %d", id, blockNumber)
 			}
@@ -81,8 +86,9 @@ func TestWorkloadNeverWrittenKeysAreNeverWritten(t *testing.T) {
 	}
 
 	for id := work.liveIDLimit; id < work.neverWrittenLimit; id++ {
-		_, found := work.expected(id, 10_000)
+		_, found, exists := work.expected(id, 10_000)
 		require.False(t, found, "reserved id %d should never hold a value", id)
+		require.False(t, exists, "reserved id %d should have nothing on disk at all", id)
 	}
 }
 

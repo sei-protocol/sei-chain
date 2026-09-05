@@ -49,7 +49,7 @@ const fileIndex = "index"
 const fileBloom = "bloom"
 
 // The instruments this package records. walrus_pods_probed is the one the project exists to measure: it is
-// the read amplification that pays for never compacting.
+// the read amplification that buys writing every entry exactly once.
 var metrics = struct {
 	PodsProbed        metric.Int64Histogram
 	PodsSearched      metric.Int64Histogram

@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/walrus"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/walrus/statestub"
 )
@@ -48,6 +49,10 @@ type WalrusSim struct {
 	reads         atomic.Uint64
 	mismatches    atomic.Uint64
 
+	// Where the writer loop is spending its time. Only the main loop touches it, which is what a
+	// PhaseTimer requires.
+	phases *commonmetrics.PhaseTimer
+
 	startTime      time.Time
 	lastReport     time.Time
 	lastSnapshot   time.Time
@@ -81,6 +86,7 @@ func NewWalrusSim(runContext context.Context, config *Config) (*WalrusSim, error
 		context:        runContext,
 		workload:       newWorkload(config),
 		engine:         engine,
+		phases:         newMainThreadPhaseTimer(),
 		blocks:         make(chan walrus.Block, blockQueueDepth),
 		stopReaders:    make(chan struct{}),
 		startTime:      time.Now(),
@@ -114,8 +120,12 @@ func (s *WalrusSim) Run() error {
 	go s.produce()
 	s.startReaders()
 
+	// Time spent blocked in the range expression below is time the generator had nothing ready, so the
+	// phase is set before the loop and again at the end of each pass.
+	s.phases.SetPhase(phaseWaitingForBlocks)
 	for block := range s.blocks {
 		if s.limiter != nil {
+			s.phases.SetPhase(phaseThrottling)
 			if err := s.limiter.Wait(s.context); err != nil {
 				break
 			}
@@ -126,7 +136,9 @@ func (s *WalrusSim) Run() error {
 		if s.context.Err() != nil {
 			break
 		}
+		s.phases.SetPhase(phaseWaitingForBlocks)
 	}
+	s.phases.Reset()
 
 	close(s.stopReaders)
 	s.readers.Wait()
@@ -168,10 +180,12 @@ func (s *WalrusSim) produce() {
 
 // writeBlock hands one block to the engine, mirrors it into the state stub, and checkpoints when due.
 func (s *WalrusSim) writeBlock(block walrus.Block) error {
+	s.phases.SetPhase(phaseAppending)
 	if err := s.engine.AppendBlock(block); err != nil {
 		return fmt.Errorf("failed to append block %d: %w", block.Number, err)
 	}
 	if s.stubCommitting {
+		s.phases.SetPhase(phaseCommitting)
 		if err := s.stub.CommitBlock(block.Number, block.ChangeSets); err != nil {
 			return fmt.Errorf("failed to commit block %d to the state stub: %w", block.Number, err)
 		}
@@ -183,10 +197,13 @@ func (s *WalrusSim) writeBlock(block walrus.Block) error {
 	recordBlockWritten(s.config.Name, keys)
 
 	if s.stubCommitting && time.Since(s.lastSnapshot) >= s.snapshotInterval() {
+		s.phases.SetPhase(phaseSnapshotting)
 		if err := s.takeSnapshot(); err != nil {
 			return err
 		}
 	}
+
+	s.phases.SetPhase(phaseReporting)
 	s.report(false)
 	return nil
 }
@@ -232,6 +249,9 @@ func (s *WalrusSim) report(force bool) {
 	ok, first, last, err := s.engine.QueryableBounds()
 	if err == nil && ok {
 		recordQueryable(s.config.Name, first, last)
+	}
+	if s.stub != nil {
+		recordStubPipeline(s.config.Name, s.stub.PendingBlocks())
 	}
 
 	interval := time.Duration(s.config.ConsoleUpdateIntervalSeconds * float64(time.Second))

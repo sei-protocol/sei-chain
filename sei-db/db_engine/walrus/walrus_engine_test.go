@@ -199,7 +199,6 @@ func TestEngineAnswersFromTheSnapshotFloor(t *testing.T) {
 	defer func() { require.NoError(t, engine.Close()) }()
 
 	stubConfig := statestub.DefaultConfig(filepath.Join(directory, "stub"), "test", "evm")
-	stubConfig.DisableMetrics = true
 	stub, err := statestub.New(stubConfig)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, stub.Close()) }()

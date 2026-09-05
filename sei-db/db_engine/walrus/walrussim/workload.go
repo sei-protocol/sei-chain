@@ -106,10 +106,14 @@ func (w *workload) pair(id uint64, blockNumber uint64) *proto.KVPair {
 }
 
 // expected returns what key id held at the end of a block, without consulting anything that was stored.
-func (w *workload) expected(id uint64, blockNumber uint64) (value []byte, found bool) {
+//
+// present reports whether any entry for the key exists at or below the block, value or tombstone. It is not
+// the same as found: a deleted key is present but holds nothing. It is what decides how far a walk travels,
+// because a key with nothing to find is walked all the way back to the floor snapshot.
+func (w *workload) expected(id uint64, blockNumber uint64) (value []byte, found bool, present bool) {
 	period, live := w.periodOf(id)
 	if !live {
-		return nil, false
+		return nil, false, false
 	}
 
 	//nolint:gosec // G115 - block numbers and ids in a benchmark stay far below the int64 ceiling
@@ -122,13 +126,13 @@ func (w *workload) expected(id uint64, blockNumber uint64) (value []byte, found 
 	//nolint:gosec // G115 - as above
 	if lastWrite < int64(w.firstBlock) {
 		// The key's first write is still ahead of this block, so nothing has ever written it here.
-		return nil, false
+		return nil, false, false
 	}
 	written := uint64(lastWrite) //nolint:gosec // G115 - lastWrite is at or above the first block
 	if w.isDelete(id, written) {
-		return nil, false
+		return nil, false, true
 	}
-	return w.value(id, written), true
+	return w.value(id, written), true, true
 }
 
 // periodOf returns the write period of a key, and whether any class writes it at all.

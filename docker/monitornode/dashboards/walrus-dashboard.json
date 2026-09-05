@@ -599,6 +599,458 @@
       },
       "id": 10,
       "panels": [],
+      "title": "Main Thread",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Where the writer loop's wall clock goes. committing is the state stub, which is pebble standing in for FlatKV and measures nothing about WALRUS. appending is the engine. waiting_for_blocks is the workload generator failing to keep up.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": [],
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "sort": "desc",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(walrussim_main_thread_phase_duration_seconds_total[$__rate_interval])",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time Spent",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "Seconds per second in each phase. These sum to about 1.0; whichever phase owns most of it is the bottleneck.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 18
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(walrussim_main_thread_phase_duration_seconds_total[$__rate_interval])",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time Spent",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "The same split divided by block rate, so it reads as seconds of each phase per block regardless of how fast the run is going.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(walrussim_main_thread_phase_duration_seconds_total[$__rate_interval]) / on() group_left() rate(walrussim_blocks_written_total[$__rate_interval])",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Time Spent Per Block (amortized)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "How long a single visit to each phase takes. A high snapshotting p99 against a low total means checkpoints are rare but stall the writer.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, phase) (rate(walrussim_main_thread_phase_latency_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{phase}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Phase Latency (p99)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "The gap between the two is real accumulator work. If they converge, pod building is the write path's limit.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(walrussim_main_thread_phase_duration_seconds_total{phase=\"appending\"}[$__rate_interval])",
+          "legendFormat": "total in AppendBlock",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rate(walrus_append_blocked_seconds_total[$__rate_interval])",
+          "legendFormat": "waiting for a build slot",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Append Time and Build Backpressure",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 16,
+      "panels": [],
       "title": "Write Path",
       "type": "row"
     },
@@ -665,9 +1117,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 35
       },
-      "id": 11,
+      "id": 17,
       "options": {
         "legend": {
           "calcs": [],
@@ -757,9 +1209,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 18
+        "y": 35
       },
-      "id": 12,
+      "id": 18,
       "options": {
         "legend": {
           "calcs": [],
@@ -850,9 +1302,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 26
+        "y": 43
       },
-      "id": 13,
+      "id": 19,
       "options": {
         "legend": {
           "calcs": [],
@@ -943,9 +1395,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 26
+        "y": 43
       },
-      "id": 14,
+      "id": 20,
       "options": {
         "legend": {
           "calcs": [],
@@ -1035,9 +1487,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 51
       },
-      "id": 15,
+      "id": 21,
       "options": {
         "legend": {
           "calcs": [],
@@ -1082,7 +1534,7 @@
           "refId": "D"
         }
       ],
-      "title": "Appends: Engine vs Harness",
+      "title": "Appends Counted by Engine and Harness",
       "type": "timeseries"
     },
     {
@@ -1148,9 +1600,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 51
       },
-      "id": 16,
+      "id": 22,
       "options": {
         "legend": {
           "calcs": [],
@@ -1254,9 +1706,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 42
+        "y": 59
       },
-      "id": 17,
+      "id": 23,
       "options": {
         "legend": {
           "calcs": [],
@@ -1303,9 +1755,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 67
       },
-      "id": 18,
+      "id": 24,
       "panels": [],
       "title": "Read Path",
       "type": "row"
@@ -1373,9 +1825,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 51
+        "y": 68
       },
-      "id": 19,
+      "id": 25,
       "options": {
         "legend": {
           "calcs": [],
@@ -1414,6 +1866,197 @@
         }
       ],
       "title": "Read Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "missing is a read with nothing to find at or below the queried block: it walks every pod and then the floor snapshot, so it is the engine's worst case. present stops as soon as the walk reaches the key.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "id": 26,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (presence)(rate(walrussim_read_duration_seconds_sum[$__rate_interval])) / sum by (presence)(rate(walrussim_read_duration_seconds_count[$__rate_interval]))",
+          "legendFormat": "{{presence}} avg",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, presence) (rate(walrussim_read_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{presence}} p99",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Read Latency by Key Presence",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "description": "What the workload is actually asking for, which sets how much of the latency distribution comes from the worst case.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 76
+      },
+      "id": 27,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (presence) (rate(walrussim_reads_total[$__rate_interval]))",
+          "legendFormat": "{{presence}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Reads / Second by Key Presence",
       "type": "timeseries"
     },
     {
@@ -1479,9 +2122,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 76
       },
-      "id": 20,
+      "id": 28,
       "options": {
         "legend": {
           "calcs": [],
@@ -1578,9 +2221,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 59
+        "y": 84
       },
-      "id": 21,
+      "id": 29,
       "options": {
         "legend": {
           "calcs": [],
@@ -1670,9 +2313,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 59
+        "y": 84
       },
-      "id": 22,
+      "id": 30,
       "options": {
         "legend": {
           "calcs": [],
@@ -1762,9 +2405,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 92
       },
-      "id": 23,
+      "id": 31,
       "options": {
         "legend": {
           "calcs": [],
@@ -1868,9 +2511,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 92
       },
-      "id": 24,
+      "id": 32,
       "options": {
         "legend": {
           "calcs": [],
@@ -1960,9 +2603,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 75
+        "y": 100
       },
-      "id": 25,
+      "id": 33,
       "options": {
         "legend": {
           "calcs": [],
@@ -2053,9 +2696,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 75
+        "y": 100
       },
-      "id": 26,
+      "id": 34,
       "options": {
         "legend": {
           "calcs": [],
@@ -2152,9 +2795,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 83
+        "y": 108
       },
-      "id": 27,
+      "id": 35,
       "options": {
         "legend": {
           "calcs": [],
@@ -2185,7 +2828,7 @@
           "refId": "B"
         }
       ],
-      "title": "Pods Searched vs Probed",
+      "title": "Pods Probed and Searched",
       "type": "timeseries"
     },
     {
@@ -2251,9 +2894,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 83
+        "y": 108
       },
-      "id": 28,
+      "id": 36,
       "options": {
         "legend": {
           "calcs": [],
@@ -2293,9 +2936,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 91
+        "y": 116
       },
-      "id": 29,
+      "id": 37,
       "panels": [],
       "title": "Storage",
       "type": "row"
@@ -2363,9 +3006,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 92
+        "y": 117
       },
-      "id": 30,
+      "id": 38,
       "options": {
         "legend": {
           "calcs": [],
@@ -2476,9 +3119,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 92
+        "y": 117
       },
-      "id": 31,
+      "id": 39,
       "options": {
         "legend": {
           "calcs": [],
@@ -2575,9 +3218,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 100
+        "y": 125
       },
-      "id": 32,
+      "id": 40,
       "options": {
         "legend": {
           "calcs": [],
@@ -2674,9 +3317,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 100
+        "y": 125
       },
-      "id": 33,
+      "id": 41,
       "options": {
         "legend": {
           "calcs": [],
@@ -2773,9 +3416,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 108
+        "y": 133
       },
-      "id": 34,
+      "id": 42,
       "options": {
         "legend": {
           "calcs": [],
@@ -2873,9 +3516,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 108
+        "y": 133
       },
-      "id": 35,
+      "id": 43,
       "options": {
         "legend": {
           "calcs": [],
@@ -2908,9 +3551,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 116
+        "y": 141
       },
-      "id": 36,
+      "id": 44,
       "panels": [],
       "title": "Snapshots",
       "type": "row"
@@ -2978,9 +3621,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 117
+        "y": 142
       },
-      "id": 37,
+      "id": 45,
       "options": {
         "legend": {
           "calcs": [],
@@ -3070,9 +3713,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 117
+        "y": 142
       },
-      "id": 38,
+      "id": 46,
       "options": {
         "legend": {
           "calcs": [],

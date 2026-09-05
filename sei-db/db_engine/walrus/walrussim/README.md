@@ -48,8 +48,12 @@ prints its fully resolved config before it starts, so the output records exactly
 ## What it measures
 
 The headline number is **`walrus_pods_probed`** — how many pods a backwards walk had to test to
-answer one query. That is the read amplification the engine pays for never compacting, and
+answer one query. That is the read amplification that buys writing every entry exactly once, and
 whether it is acceptable is the question this benchmark exists to answer.
+
+Nothing here maintains a merged view of where a key lives, so a key can be in any pod and a read
+walks backwards until it finds one or reaches a snapshot. That is the whole trade: write
+amplification near 1, paid for on the read side.
 
 Read it alongside:
 

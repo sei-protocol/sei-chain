@@ -9,12 +9,19 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/walrus"
 )
 
-// The key class labels reads are separated by. A key nothing ever writes walks every pod and reaches the
-// floor, so mixing it with the rest would hide both the tail and the typical case.
+// The key class labels reads are separated by, describing which pool the reader sampled from.
 const keyClassLive = "live"
 
 // The label for reads against ids no class writes.
 const keyClassNeverWritten = "never_written"
+
+// The presence label for a read where nothing exists to find: no entry for the key at or below the queried
+// block. These walk every pod and then the floor snapshot, so they are the engine's worst case.
+const presenceMissing = "missing"
+
+// The presence label for a read where the key exists somewhere at or below the queried block, whether as a
+// value or a tombstone. These stop as soon as the walk reaches it.
+const presencePresent = "present"
 
 // startReaders launches the goroutines that issue historical reads.
 func (s *WalrusSim) startReaders() {
@@ -71,7 +78,11 @@ func (s *WalrusSim) executeRead(random *crand.CannedRandom) {
 	blockNumber := uint64(random.Int64Range(int64(first), int64(last)+1))
 	id, keyClass := s.pickKey(random)
 	key := s.workload.key(id)
-	wantValue, wantFound := s.workload.expected(id, blockNumber)
+	wantValue, wantFound, wantPresent := s.workload.expected(id, blockNumber)
+	presence := presencePresent
+	if !wantPresent {
+		presence = presenceMissing
+	}
 
 	start := time.Now()
 	value, status, err := s.engine.Get(key, blockNumber)
@@ -82,7 +93,7 @@ func (s *WalrusSim) executeRead(random *crand.CannedRandom) {
 		return
 	}
 	s.reads.Add(1)
-	recordRead(s.config.Name, keyClass, status.String(), elapsed)
+	recordRead(s.config.Name, presence, keyClass, status.String(), elapsed)
 
 	if !s.config.VerifyReads {
 		return
