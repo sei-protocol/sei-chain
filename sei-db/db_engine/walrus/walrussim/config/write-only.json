@@ -1,0 +1,18 @@
+{
+  "DataDir": "./walrussim-data",
+  "DeleteDataDirOnStartup": true,
+  "Name": "walrussim-write-only",
+  "StoreName": "evm",
+  "KeyClasses": [
+    { "KeyCount": 1000, "Period": 1 },
+    { "KeyCount": 100000, "Period": 100 },
+    { "KeyCount": 1000000, "Period": 1000 },
+    { "KeyCount": 10000000, "Period": 100000 }
+  ],
+  "NeverWrittenKeyCount": 1000000,
+  "TargetPodSize": 268435456,
+  "EnableSnapshots": false,
+  "ReadConcurrency": 0,
+  "NeverWrittenReadFraction": 0,
+  "MetricsAddr": ":9090"
+}

@@ -1,0 +1,202 @@
+package walrus
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/stretchr/testify/require"
+)
+
+// testBlock builds a block from a flat list of key/value/delete triples.
+func testBlock(number uint64, pairs ...*proto.KVPair) Block {
+	return Block{
+		Number:     number,
+		ChangeSets: []*proto.NamedChangeSet{{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}}},
+	}
+}
+
+// testPair builds one key change.
+func testPair(key string, value string, deleted bool) *proto.KVPair {
+	return &proto.KVPair{Key: []byte(key), Value: []byte(value), Delete: deleted}
+}
+
+// oracle is a brute force model of what a pod should answer, built from the same blocks the pod was.
+type oracle map[string][]oracleVersion
+
+// oracleVersion is one version of one key.
+type oracleVersion struct {
+	block   uint64
+	value   string
+	deleted bool
+}
+
+// newOracle records every version of every key the blocks wrote, last write of a block winning.
+func newOracle(blocks []Block) oracle {
+	model := oracle{}
+	for _, block := range blocks {
+		for _, changeSet := range block.ChangeSets {
+			for _, pair := range changeSet.Changeset.Pairs {
+				versions := model[string(pair.Key)]
+				version := oracleVersion{
+					block:   block.Number,
+					value:   string(pair.Value),
+					deleted: pair.Delete,
+				}
+				if len(versions) > 0 && versions[len(versions)-1].block == block.Number {
+					versions[len(versions)-1] = version
+				} else {
+					versions = append(versions, version)
+				}
+				model[string(pair.Key)] = versions
+			}
+		}
+	}
+	return model
+}
+
+// newest returns the version of key in the half open block range (lowBlock, highBlock].
+func (o oracle) newest(key string, lowBlock uint64, highBlock uint64) (oracleVersion, bool) {
+	var best oracleVersion
+	found := false
+	for _, version := range o[key] {
+		if version.block > highBlock {
+			break
+		}
+		if version.block <= lowBlock {
+			continue
+		}
+		best = version
+		found = true
+	}
+	return best, found
+}
+
+func TestPodRoundTrip(t *testing.T) {
+	directory := t.TempDir()
+
+	// A mix that exercises the interesting shapes: a key written every block, keys written once, keys sharing
+	// an eight byte prefix so level one ties have to be broken on the whole key, a key written twice in one
+	// block, and a deletion.
+	blocks := make([]Block, 0, 40)
+	for number := uint64(100); number < 140; number++ {
+		pairs := []*proto.KVPair{
+			testPair("hot", fmt.Sprintf("hot-%d", number), false),
+			testPair(fmt.Sprintf("cold-%06d", number), fmt.Sprintf("cold-%d", number), false),
+			testPair(fmt.Sprintf("sameprefix-%d", number%3), fmt.Sprintf("shared-%d", number), false),
+		}
+		if number%7 == 0 {
+			pairs = append(pairs, testPair("hot", fmt.Sprintf("hot-%d-again", number), false))
+		}
+		if number%11 == 0 {
+			pairs = append(pairs, testPair("doomed", "", true))
+		} else {
+			pairs = append(pairs, testPair("doomed", fmt.Sprintf("alive-%d", number), false))
+		}
+		blocks = append(blocks, testBlock(number, pairs...))
+	}
+
+	config := DefaultConfig(directory, "test", "evm")
+	pod, err := newPodBuilder(directory, config).Build(blocks)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(100), pod.Info.FirstBlock)
+	require.Equal(t, uint64(139), pod.Info.LastBlock)
+
+	model := newOracle(blocks)
+
+	// Every key the pod holds must be found by the bloom filter: false negatives are not permitted.
+	for key := range model {
+		require.True(t, pod.Bloom.MayContain([]byte(key)), "bloom filter lost key %q", key)
+	}
+
+	// Every key, at every block in and around the pod's range, against the brute force model.
+	for key := range model {
+		for highBlock := uint64(95); highBlock <= 145; highBlock++ {
+			for _, lowBlock := range []uint64{0, 99, 110, 120, 139} {
+				if lowBlock >= highBlock {
+					continue
+				}
+				offset, block, found, err := pod.Index.FindNewest([]byte(key), lowBlock, highBlock)
+				require.NoError(t, err)
+
+				want, wantFound := model.newest(key, lowBlock, min(highBlock, 139))
+				require.Equal(t, wantFound, found, "key %q in (%d, %d]", key, lowBlock, highBlock)
+				if !wantFound {
+					continue
+				}
+				require.Equal(t, want.block, block, "key %q in (%d, %d]", key, lowBlock, highBlock)
+
+				value, deleted, err := pod.Data.ReadEntry(offset)
+				require.NoError(t, err)
+				require.Equal(t, want.deleted, deleted, "key %q at block %d", key, block)
+				require.Equal(t, want.value, string(value), "key %q at block %d", key, block)
+			}
+		}
+	}
+
+	// A key the pod never held is never found, whatever the bloom filter says about it.
+	for _, absent := range []string{"missing", "hot!", "cold-999999", "sameprefix-9"} {
+		_, _, found, err := pod.Index.FindNewest([]byte(absent), 0, 200)
+		require.NoError(t, err)
+		require.False(t, found, "key %q should not be in the pod", absent)
+	}
+}
+
+func TestPodReopen(t *testing.T) {
+	directory := t.TempDir()
+	blocks := []Block{
+		testBlock(7, testPair("alpha", "one", false)),
+		testBlock(8, testPair("beta", "two", false)),
+		testBlock(9, testPair("alpha", "three", false)),
+	}
+
+	config := DefaultConfig(directory, "test", "evm")
+	built, err := newPodBuilder(directory, config).Build(blocks)
+	require.NoError(t, err)
+
+	reopened, err := openPod(directory, built.Info)
+	require.NoError(t, err)
+
+	offset, block, found, err := reopened.Index.FindNewest([]byte("alpha"), 0, 9)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, uint64(9), block)
+
+	value, deleted, err := reopened.Data.ReadEntry(offset)
+	require.NoError(t, err)
+	require.False(t, deleted)
+	require.Equal(t, "three", string(value))
+
+	require.Equal(t, built.Data.Size(), reopened.Data.Size())
+	require.Positive(t, reopened.Size())
+}
+
+func TestPodBuildLeavesNoPartials(t *testing.T) {
+	directory := t.TempDir()
+	config := DefaultConfig(directory, "test", "evm")
+
+	_, err := newPodBuilder(directory, config).Build([]Block{testBlock(1, testPair("k", "v", false))})
+	require.NoError(t, err)
+
+	entries, err := listDirectory(directory)
+	require.NoError(t, err)
+	require.Len(t, entries, 3, "a pod is exactly three files: %v", entries)
+	for _, entry := range entries {
+		require.NotContains(t, entry, podPartialExtension)
+	}
+}
+
+func TestPodRejectsNonContiguousBlocks(t *testing.T) {
+	directory := t.TempDir()
+	config := DefaultConfig(directory, "test", "evm")
+
+	_, err := newPodBuilder(directory, config).Build([]Block{
+		testBlock(1, testPair("k", "v", false)),
+		testBlock(3, testPair("k", "v", false)),
+	})
+	require.ErrorContains(t, err, "does not follow")
+
+	_, err = newPodBuilder(directory, config).Build(nil)
+	require.ErrorContains(t, err, "at least one block")
+}

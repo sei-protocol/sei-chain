@@ -1,0 +1,33 @@
+{
+  "DataDir": "./walrussim-data",
+  "DeleteDataDirOnStartup": true,
+  "Name": "walrussim",
+  "Seed": 1337,
+  "CannedRandomSize": 67108864,
+  "StoreName": "evm",
+  "KeySize": 53,
+  "ValueSize": 32,
+  "KeyClasses": [
+    { "KeyCount": 1000, "Period": 1 },
+    { "KeyCount": 100000, "Period": 100 },
+    { "KeyCount": 1000000, "Period": 1000 },
+    { "KeyCount": 10000000, "Period": 100000 }
+  ],
+  "NeverWrittenKeyCount": 1000000,
+  "DeleteRate": 1000,
+  "FirstBlock": 1,
+  "BlockCount": 0,
+  "TargetPodSize": 268435456,
+  "BloomFalsePositiveRate": 0.01,
+  "RetentionBlocks": 1000000,
+  "PodBuildConcurrency": 2,
+  "EnableSnapshots": true,
+  "SnapshotIntervalBlocks": 5000,
+  "MaxBlocksPerSecond": 0,
+  "ReadConcurrency": 4,
+  "ReadsPerSecond": 2000,
+  "NeverWrittenReadFraction": 0.25,
+  "VerifyReads": true,
+  "MetricsAddr": ":9090",
+  "ConsoleUpdateIntervalSeconds": 2
+}

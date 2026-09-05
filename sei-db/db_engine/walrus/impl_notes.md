@@ -1,11 +1,9 @@
 # WALRUS implementation notes
 
-The Go files in this package are interfaces and types only. This is the record of decisions
-already made about how they will be implemented, so that writing the implementation is not a
-second round of design. See `design.md` for the original sketch and `plan.md` for the design
-rationale.
+What is on disk, how the pieces fit, and the decisions behind them. See `design.md` for the
+original sketch and `plan.md` for the design rationale.
 
-Nothing here is contract. It is deliberately kept out of the interface files: an interface says
+None of this is contract. It is deliberately kept out of the interface files: an interface says
 what a type answers, and a reader should not have to parse a file format to learn a method
 signature.
 
@@ -20,7 +18,7 @@ are big endian.
 ### Pod data file — `{firstBlock}-{lastBlock}.pod`
 
 ```
-header:
+header (25 bytes):
   magic       8 bytes  "WALRSPOD"
   version     1 byte
   firstBlock  8 bytes
@@ -50,7 +48,17 @@ unit of the write.
 
 ### Pod index — `{firstBlock}-{lastBlock}.pod.idx`
 
-Two levels. Level one is a fixed-width array, sorted ascending by key:
+```
+header (41 bytes):
+  magic        8 bytes  "WALRSIDX"
+  version      1 byte
+  firstBlock   8 bytes
+  lastBlock    8 bytes
+  keyCount     8 bytes
+  level2Start  8 bytes  byte offset of level two from the start of the file
+```
+
+Two levels follow. Level one is a fixed-width array, sorted ascending by key:
 
 ```
 uint64 keyPrefix      the key's first 8 bytes, zero padded on the right
@@ -88,11 +96,12 @@ once — at the cost of a short linear walk after the search. Measure before bui
 ### Pod bloom filter — `{firstBlock}-{lastBlock}.pod.bloom`
 
 ```
-magic      8 bytes  "WALRSBLM"
-version    1 byte
-bitCount   8 bytes
-hashCount  1 byte
-bits       ceil(bitCount / 8) bytes
+header (18 bytes):
+  magic      8 bytes  "WALRSBLM"
+  version    1 byte
+  bitCount   8 bytes
+  hashCount  1 byte
+bits         ceil(bitCount / 8) bytes
 ```
 
 Sizing is the standard optimum: `m = -n·ln(p) / (ln2)²`, `k = round((m/n)·ln2)`, with `k` clamped
@@ -120,10 +129,25 @@ the file is open. That is why `PodBloom.MayContain` returns no error, and why bo
 stdlib `sort.Search` rather than a custom fallible binary search — the sketch called for an
 abstract binary search helper, but a helper is only earned when the probe can return an error.
 
-Handles hold metadata only: path, size, block range. Whether reads open the file per call or an
-implementation keeps its own small descriptor cache is invisible to the contract. It has to be
-metadata-only at scale — a petabyte is roughly 260k pods, and three open descriptors each would
-be 780k of them.
+No handle holds its file's contents. That has to be true at scale: a petabyte is roughly 260k
+pods, the bloom filters alone run to terabytes, and three open descriptors per pod would be 780k
+of them.
+
+The index and data handles hold path, size, and block range, and open the file for the duration of
+an operation. A single index search opens the file once, binary searches level one by reading
+twelve byte slots, and dereferences into level two once to confirm the full key. Both are reached
+only after a bloom filter has failed to rule the pod out, so they are rare relative to the probes
+in front of them.
+
+The bloom filter is **memory mapped** rather than opened per probe or read into memory. A probe is
+the hot path — a walk tests every pod it passes — so it cannot afford an open, but the filters are
+far too large to hold. Mapping puts the choice where it belongs: the pages a probe touches are
+paged in on demand and the operating system evicts them under pressure. It also keeps `MayContain`
+free of an error return, since a mapped immutable file has nothing left that can fail, and costs no
+descriptor, because the mapping outlives the descriptor it was created from.
+
+`Delete` unmaps. That is why the catalog refuses to delete a pod a query still references:
+unlinking a file underneath a reader is safe, but unmapping memory it is still reading is not.
 
 ---
 
@@ -238,6 +262,20 @@ Snapshot directories are named `snapshot-` followed by the block number zero-pad
 mirroring `sei-db/state_db/ss/snapshot/manager.go`.
 
 ---
+
+## Recovery
+
+Opening deletes rather than repairs, because a pod is written whole or not at all:
+
+- any file carrying the `.partial` extension is the wreckage of an interrupted build and is
+  deleted
+- pods are sorted by first block and kept only while they form an unbroken run with all three of
+  their files present; everything at and above the first break is deleted
+- a snapshot directory left mid-retain is deleted, since its hard links were never published
+
+Truncating rather than keeping a pod above a gap is what stops a walk falling through the hole and
+answering from the floor. The blocks above the gap are gone and the caller resumes appending from
+there.
 
 ## Not reused, and why
 

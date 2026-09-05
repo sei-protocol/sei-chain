@@ -5,8 +5,8 @@ package walrus
 // It is the coarse level of the search: a walk tests each pod's filter and searches the pod's index only when
 // the filter does not rule the key out.
 //
-// The handle holds metadata, never the filter's bits. Every pod's handle stays resident, and at petabyte
-// scale the bits would run to terabytes.
+// The handle does not hold the filter's bits. Across an archive the filters run to terabytes, so a probe
+// reaches the file rather than a copy of it.
 //
 // A PodBloom is safe for concurrent use: a written filter never changes.
 type PodBloom interface {

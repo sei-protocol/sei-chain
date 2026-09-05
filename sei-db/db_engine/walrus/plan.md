@@ -404,6 +404,45 @@ Metrics are **not** skipped — they are the deliverable.
 
 ---
 
+## Implementation order
+
+Bottom up, each layer testable before the next exists: pod data file → pod index → bloom
+filter → `PodBuilder` → `PodAccumulator` → `Catalog` → the engine → `statestub` →
+`walrussim`.
+
+**Pod building is asynchronous, with few pods in flight and backpressure behind them.** A
+4 GB build takes seconds and `AppendBlock` cannot stall for it, so completed pods go to a
+queue. But a pod in flight holds its blocks in memory plus the sort buffers built from them,
+so concurrency is bounded by memory rather than cores: `PodBuildConcurrency` defaults to 2–3.
+When the queue is full `AppendBlock` blocks, which is the honest response — the alternative
+is unbounded memory growth that ends in a kill.
+
+The newest queryable block therefore lags the newest appended block, which is what
+`ReadTooNew` describes.
+
+**Parallelism goes inside a build, not across builds.** That is where the cores get used:
+
+- the sort of the pod's `(key, block, offset)` tuples, bucketed by the high bits of
+  `keyPrefix` so each bucket sorts independently and the results concatenate — level one is
+  ordered by `keyPrefix`, so the buckets are already the output order
+- bloom filter construction, over per-shard bit arrays merged at the end
+- per-block-record CRCs, which are independent by construction
+
+**A single-threaded orderer feeds the catalog.** Builds finish out of order — pod 5 can land
+before pod 4 — so completed pods go to one goroutine that releases them to the catalog in
+order, holding an early finisher until its predecessor arrives. The catalog therefore only
+ever sees the next pod in sequence and needs no notion of a gap.
+
+Without that, a query spanning pod 4's range while pod 4 is missing would fall through the
+hole and answer from the floor: a wrong value rather than a failure, the same class of bug as
+a gap under the floor snapshot.
+
+**Startup truncates to a contiguous span.** A crash can leave pods 1, 2, 3, 5 on disk with 4
+never written. Open keeps the unbroken run from the oldest pod and deletes everything above
+the first gap, so the invariant holds before the first query is served. The blocks above the
+gap are gone and the caller resumes appending from there, which is how replaying a log
+behaves anyway.
+
 ## Measuring viability — the query harness
 
 A standalone harness, not a cryptosim backend. It borrows cryptosim's shape —
@@ -440,6 +479,75 @@ Plus the harness's own write-side counters (blocks, keys, bytes appended) so
 append throughput is visible against the 1M updates/sec target.
 
 Swept: snapshot ladder interval, bloom FPR, retention window, pod size.
+
+### The oracle: a computable expected answer
+
+`walrussim` verifies every answer without remembering anything, by making both halves of the
+expected answer computable in constant time.
+
+The easy half is the value. `CannedRandom.SeededBytes(count, seed)`
+(`sei-db/common/rand/canned_random.go:101`) is cursor-independent, so
+`value(id, block) = SeededBytes(valueSize, hash(id, block))` is reproducible anywhere, any
+time, with no state.
+
+The hard half is *which* block. A query at block B expects the value written at the newest
+block at or below B where that key was written, so the write schedule has to be invertible per
+key — and it also has to be enumerable per block, or the block producer cannot generate a
+block without scanning every key.
+
+Both fall out of assigning each key a **period class**. A key with id `k` in the class of
+period `p` is written at every block `b` where `b ≡ k (mod p)`.
+
+- Producing block B: for each class, the keys written are `{k : k ≡ B (mod p)}` — an
+  arithmetic sequence with step `p`. Cost is proportional to the keys actually written.
+- Verifying `(k, B)`: `lastWrite = B - ((B - k) mod p)`. Constant time.
+- Deletions: occurrence `n` of key `k` is a deletion when `hash(k, n) % deleteRate == 0`, so
+  the oracle knows whether to expect a value or `ReadAbsent`.
+- Never-written keys are ids in a reserved range belonging to no class.
+
+Phase is the id itself rather than a hash of it, because a hashed phase is not enumerable per
+block. Adjacent ids therefore write on adjacent blocks, which does not disturb key locality:
+`CannedRandom.Address` (`canned_random.go:170`) puts the id at bytes 9..17 behind random
+bytes, precisely so adjacent ids are not adjacent lexicographically.
+
+The keyspace grows with height rather than being fixed: id `k` is born at
+`birth(k) = firstBlock + k / birthRate`, so the highest live id at block B is
+`(B - firstBlock) * birthRate` and a key is absent for any query below its birth. Both
+directions stay constant time.
+
+So the whole expected answer at `(k, B)` is:
+
+```
+p    = class period of k                  // table lookup
+if k >= (B - firstBlock) * birthRate      -> absent, not yet born
+b    = B - ((B - k) mod p)                // newest write at or below B
+if b < birth(k)                           -> absent, not yet born
+n    = (b - birth(k)) / p                  // occurrence index
+if hash(k, n) % deleteRate == 0           -> absent, deleted
+else                                      -> SeededBytes(valueSize, hash(k, b))
+```
+
+**The recomputation cost is nanoseconds, and that is the point of the closed form.** Three
+hashes, two divisions, a table lookup, and one small allocation for the key bytes from
+`CannedRandom.Address`. `SeededBytes` returns a subslice of the pre-generated buffer and
+allocates nothing. There is no scan anywhere.
+
+The version that *would* cost milliseconds is the one this avoids: walking backwards block by
+block looking for the key's last write, or regenerating each block's write set to test
+membership. Either is thousands of operations per query and would dominate the measurement.
+Invertibility is what buys the constant time, and it is the reason the schedule is modular
+rather than drawn from the random stream.
+
+The harness computes the key bytes and the expected answer *before* starting the timer,
+stops it the moment `Get` returns, and compares afterwards, so neither the recomputation nor
+the comparison lands inside the measurement.
+
+The honest cost is that per-key writes become strictly periodic, so this is a controlled model
+rather than an EVM trace — no bursts. In exchange the class mix becomes a direct dial on the
+thing being measured: a class-`p` key queried at a random height has its last write a uniform
+`[0, p)` blocks back, so pods probed is `p / blocksPerPod` in expectation. Sweeping the mix
+sweeps the recency distribution deliberately, rather than hoping a random workload produces an
+interesting tail.
 
 ### Query sampling
 
