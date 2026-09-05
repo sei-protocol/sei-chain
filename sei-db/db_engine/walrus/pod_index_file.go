@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+
+	"golang.org/x/sys/unix"
 )
 
 // The first bytes of every pod index file, identifying the format.
@@ -27,23 +29,46 @@ const indexSlotSize = 12
 // The size of one version entry in a level two record: block delta and entry offset, both uint32.
 const indexVersionSize = 8
 
-// The number of level one slots read in a single probe. A binary search converges on a small span, so pulling
-// a run of neighbours costs one syscall instead of several.
-const indexProbeSlots = 8
+// The size of a level two record's fixed part: a 2 byte key length before the key, and a 4 byte version
+// count after it.
+const indexRecordKeyLengthSize = 2
+
+// The size of the version count that follows a level two record's key.
+const indexRecordVersionCountSize = 4
 
 var _ PodIndex = (*podIndex)(nil)
 
 // podIndex searches a pod index file.
 //
-// It holds the header and nothing else from the file. A search opens the file, walks level one by reading
-// twelve byte slots, and dereferences into level two once to confirm the full key. Searches only happen when
-// a bloom filter has already failed to rule the pod out.
+// The file is memory mapped rather than read through. A search is a binary search over level one, which at a
+// million keys to a pod is twenty probes of twelve bytes each: reading those through the file interface costs
+// a syscall apiece to move what the kernel already paged in, and the last several probes land inside a single
+// page anyway. Mapping makes the search plain slice arithmetic, and it costs no file descriptor because the
+// mapping outlives the one it was created from.
+//
+// Mapping is not residency. The kernel pages in what a search touches and evicts under pressure, which is the
+// behaviour wanted for an index far larger than memory.
+//
+// Offsets read out of the file are validated before they are used to slice. Against a mapping a bad offset
+// would panic or read neighbouring bytes as a record, where a read through the file interface would simply
+// have failed.
+//
+// The mapping is released by Delete, which is why the catalog will not delete a pod a query still references:
+// unlinking a file underneath a reader is safe, but unmapping memory it is still reading is not.
 type podIndex struct {
-	path        string
-	info        *PodInfo
-	size        int64
-	keyCount    uint64
-	level2Start int64
+	path     string
+	info     *PodInfo
+	size     int64
+	keyCount uint64
+
+	// The whole file as mapped, which is what Munmap has to be given back.
+	mapping []byte
+
+	// Level one, a fixed width array of slots ordered by key.
+	level1 []byte
+
+	// Level two, one record per distinct key in the same order.
+	level2 []byte
 }
 
 // FindNewest returns where the newest version of key written in (lowBlock, highBlock] lives.
@@ -59,29 +84,17 @@ func (i *podIndex) FindNewest(key []byte, lowBlock uint64, highBlock uint64) (
 		return 0, 0, false, false, nil
 	}
 
-	file, err := os.Open(i.path) //nolint:gosec // path is derived from a validated directory
-	if err != nil {
-		return 0, 0, false, false, fmt.Errorf("failed to open pod index %s: %w", i.path, err)
-	}
-	defer func() { _ = file.Close() }()
-
-	slot, err := i.searchLevelOne(file, keyPrefix(key))
-	if err != nil {
-		return 0, 0, false, false, err
-	}
+	target := keyPrefix(key)
+	slot := i.searchLevelOne(target)
 
 	// Slots sharing a key prefix form a contiguous run, since level one is ordered by prefix and then by the
 	// whole key. Walk the run to find the slot whose level two record holds this exact key.
-	target := keyPrefix(key)
 	for ; slot < i.keyCount; slot++ {
-		prefix, recordOffset, err := i.readSlot(file, slot)
-		if err != nil {
-			return 0, 0, false, false, err
-		}
+		prefix, recordOffset := i.readSlot(slot)
 		if prefix != target {
 			return 0, 0, false, false, nil
 		}
-		record, err := i.readRecord(file, recordOffset)
+		record, err := i.readRecord(recordOffset)
 		if err != nil {
 			return 0, 0, false, false, err
 		}
@@ -115,8 +128,16 @@ func (i *podIndex) Size() int64 {
 	return i.size
 }
 
-// Delete removes the file.
+// Delete unmaps the index and removes its file.
 func (i *podIndex) Delete() error {
+	if i.mapping != nil {
+		if err := unix.Munmap(i.mapping); err != nil {
+			return fmt.Errorf("failed to unmap pod index %s: %w", i.path, err)
+		}
+		i.mapping = nil
+		i.level1 = nil
+		i.level2 = nil
+	}
 	if err := os.Remove(i.path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete pod index %s: %w", i.path, err)
 	}
@@ -145,39 +166,24 @@ func (i *podIndex) deltaRange(lowBlock uint64, highBlock uint64) (lowDelta int64
 }
 
 // searchLevelOne returns the first slot whose key prefix is at or above target.
-func (i *podIndex) searchLevelOne(file *os.File, target uint64) (uint64, error) {
-	var searchErr error
-	keyCount := int(i.keyCount) //nolint:gosec // G115 - bounded by the entries a pod can hold
+func (i *podIndex) searchLevelOne(target uint64) uint64 {
+	keyCount := int(i.keyCount) //nolint:gosec // G115 - bounded by the level one length, checked on open
 	slot := sort.Search(keyCount, func(candidate int) bool {
-		if searchErr != nil {
-			return true
-		}
 		//nolint:gosec // G115 - a search index is bounded by the key count
-		prefix, _, err := i.readSlot(file, uint64(candidate))
-		if err != nil {
-			searchErr = err
-			return true
-		}
+		prefix, _ := i.readSlot(uint64(candidate))
 		return prefix >= target
 	})
-	if searchErr != nil {
-		return 0, searchErr
-	}
-	return uint64(slot), nil //nolint:gosec // G115 - as above
+	return uint64(slot) //nolint:gosec // G115 - as above
 }
 
-// readSlot reads one level one slot.
-func (i *podIndex) readSlot(file *os.File, slot uint64) (prefix uint64, recordOffset uint32, err error) {
-	//nolint:gosec // G115 - slot is bounded by keyCount, which the header validated
-	position := int64(podIndexHeaderSize) + int64(slot)*indexSlotSize
-	buffer := make([]byte, indexSlotSize)
-	if _, err := file.ReadAt(buffer, position); err != nil {
-		return 0, 0, fmt.Errorf("failed to read index slot %d of %s: %w", slot, i.path, err)
-	}
-	return binary.BigEndian.Uint64(buffer[0:8]), binary.BigEndian.Uint32(buffer[8:12]), nil
+// readSlot reads one level one slot. The slot must be below keyCount, which the caller guarantees.
+func (i *podIndex) readSlot(slot uint64) (prefix uint64, recordOffset uint32) {
+	entry := i.level1[slot*indexSlotSize:]
+	return binary.BigEndian.Uint64(entry[0:8]), binary.BigEndian.Uint32(entry[8:12])
 }
 
-// indexRecord is one key's level two record: the key itself and every version of it the pod holds.
+// indexRecord is one key's level two record: the key itself and every version of it the pod holds. Both
+// alias the mapping rather than copying out of it.
 type indexRecord struct {
 	key      []byte
 	versions []byte
@@ -202,73 +208,101 @@ func (r *indexRecord) newestInRange(lowDelta int64, highDelta int64) (offset uin
 	return binary.BigEndian.Uint32(entry[4:8]), delta, true
 }
 
-// readRecord reads the level two record at the given offset from the start of level two.
-func (i *podIndex) readRecord(file *os.File, recordOffset uint32) (*indexRecord, error) {
-	position := i.level2Start + int64(recordOffset)
-	header := make([]byte, 2)
-	if _, err := file.ReadAt(header, position); err != nil {
-		return nil, fmt.Errorf("failed to read index record at %d of %s: %w", recordOffset, i.path, err)
-	}
-	keyLength := int(binary.BigEndian.Uint16(header))
-
-	body := make([]byte, keyLength+4)
-	if _, err := file.ReadAt(body, position+2); err != nil {
-		return nil, fmt.Errorf("failed to read index record key at %d of %s: %w", recordOffset, i.path, err)
-	}
-	versionCount := binary.BigEndian.Uint32(body[keyLength:])
-	size := uint64(i.size) //nolint:gosec // G115 - a file size is never negative
-	if uint64(versionCount)*indexVersionSize > size {
-		return nil, fmt.Errorf("index record at %d of %s claims %d versions",
-			recordOffset, i.path, versionCount)
+// readRecord returns the level two record at the given offset from the start of level two.
+//
+// Every length taken from the file is checked against what remains of level two before it is used to slice.
+// A record is described by bytes the file itself supplies, so a corrupt file could otherwise walk off the end
+// of the mapping, which faults rather than failing.
+func (i *podIndex) readRecord(recordOffset uint32) (*indexRecord, error) {
+	cursor := int(recordOffset)
+	if cursor < 0 || cursor+indexRecordKeyLengthSize > len(i.level2) {
+		return nil, fmt.Errorf("pod index %s puts a record at %d of %d level two bytes",
+			i.path, recordOffset, len(i.level2))
 	}
 
-	versions := make([]byte, int(versionCount)*indexVersionSize)
-	if _, err := file.ReadAt(versions, position+2+int64(keyLength)+4); err != nil {
-		return nil, fmt.Errorf("failed to read index versions at %d of %s: %w", recordOffset, i.path, err)
+	keyLength := int(binary.BigEndian.Uint16(i.level2[cursor:]))
+	cursor += indexRecordKeyLengthSize
+	if cursor+keyLength+indexRecordVersionCountSize > len(i.level2) {
+		return nil, fmt.Errorf("pod index %s claims a %d byte key at %d", i.path, keyLength, recordOffset)
 	}
-	return &indexRecord{key: body[:keyLength], versions: versions}, nil
+	key := i.level2[cursor : cursor+keyLength]
+	cursor += keyLength
+
+	versionCount := int(binary.BigEndian.Uint32(i.level2[cursor:]))
+	cursor += indexRecordVersionCountSize
+	versionBytes := versionCount * indexVersionSize
+	if versionCount < 0 || cursor+versionBytes > len(i.level2) {
+		return nil, fmt.Errorf("pod index %s claims %d versions at %d", i.path, versionCount, recordOffset)
+	}
+
+	return &indexRecord{key: key, versions: i.level2[cursor : cursor+versionBytes]}, nil
 }
 
-// openPodIndex returns a searcher over an existing pod index file.
+// openPodIndex maps an existing pod index file for searching.
 func openPodIndex(path string) (*podIndex, error) {
 	file, err := os.Open(path) //nolint:gosec // path is derived from a validated directory
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pod index %s: %w", path, err)
 	}
+	// The mapping outlives the descriptor, so the descriptor is released here rather than being held for the
+	// life of the pod.
 	defer func() { _ = file.Close() }()
 
 	stat, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat pod index %s: %w", path, err)
 	}
-
-	header := make([]byte, podIndexHeaderSize)
-	if _, err := file.ReadAt(header, 0); err != nil {
-		return nil, fmt.Errorf("failed to read pod index header from %s: %w", path, err)
+	size := stat.Size()
+	if size < podIndexHeaderSize {
+		return nil, fmt.Errorf("pod index %s is truncated at %d bytes", path, size)
 	}
-	if string(header[:len(podIndexMagic)]) != string(podIndexMagic) {
+
+	mapping, err := unix.Mmap(int(file.Fd()), 0, int(size), unix.PROT_READ, unix.MAP_SHARED)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map pod index %s: %w", path, err)
+	}
+
+	index, err := parseMappedIndex(path, size, mapping)
+	if err != nil {
+		_ = unix.Munmap(mapping)
+		return nil, err
+	}
+	return index, nil
+}
+
+// parseMappedIndex validates a mapped index's header and describes the two levels behind it.
+func parseMappedIndex(path string, size int64, mapping []byte) (*podIndex, error) {
+	if string(mapping[:len(podIndexMagic)]) != string(podIndexMagic) {
 		return nil, fmt.Errorf("pod index %s is not an index: bad magic", path)
 	}
-	if version := header[len(podIndexMagic)]; version != podIndexFormatVersion {
+	if version := mapping[len(podIndexMagic)]; version != podIndexFormatVersion {
 		return nil, fmt.Errorf("pod index %s has format version %d, expected %d",
 			path, version, podIndexFormatVersion)
 	}
 
-	firstBlock := binary.BigEndian.Uint64(header[9:17])
-	lastBlock := binary.BigEndian.Uint64(header[17:25])
-	keyCount := binary.BigEndian.Uint64(header[25:33])
-	//nolint:gosec // G115 - the offset is validated against the file size below
-	level2Start := int64(binary.BigEndian.Uint64(header[33:41]))
-	if level2Start < podIndexHeaderSize || level2Start > stat.Size() {
-		return nil, fmt.Errorf("pod index %s puts level two at %d of %d bytes", path, level2Start, stat.Size())
+	firstBlock := binary.BigEndian.Uint64(mapping[9:17])
+	lastBlock := binary.BigEndian.Uint64(mapping[17:25])
+	keyCount := binary.BigEndian.Uint64(mapping[25:33])
+	level2Start := binary.BigEndian.Uint64(mapping[33:41])
+
+	// Level one has to hold exactly keyCount slots and level two has to start where they end, or every offset
+	// the search derives from them is meaningless.
+	//nolint:gosec // G115 - the header values are range checked against the file size here
+	expectedLevel2Start := uint64(podIndexHeaderSize) + keyCount*indexSlotSize
+	fileSize := uint64(size) //nolint:gosec // G115 - a file size is never negative
+	if level2Start != expectedLevel2Start || level2Start > fileSize {
+		return nil, fmt.Errorf("pod index %s puts %d keys and level two at %d of %d bytes",
+			path, keyCount, level2Start, size)
 	}
 
 	return &podIndex{
-		path:        path,
-		info:        &PodInfo{FirstBlock: firstBlock, LastBlock: lastBlock},
-		size:        stat.Size(),
-		keyCount:    keyCount,
-		level2Start: level2Start,
+		path:     path,
+		info:     &PodInfo{FirstBlock: firstBlock, LastBlock: lastBlock},
+		size:     size,
+		keyCount: keyCount,
+		mapping:  mapping,
+		level1:   mapping[podIndexHeaderSize:level2Start],
+		level2:   mapping[level2Start:],
 	}, nil
 }
 
