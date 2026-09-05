@@ -947,6 +947,99 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
+      "description": "Blocks handed to the state stub but not yet written. Sitting at its configured depth means the stub is the write path's limit, and the committing phase above is time spent waiting on it rather than time spent writing.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.4.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "walrussim_stub_pipeline_depth",
+          "legendFormat": "blocks queued in the stub",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "State Stub Pipeline Depth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "description": "The gap between the two is real accumulator work. If they converge, pod building is the write path's limit.",
       "fieldConfig": {
         "defaults": {
@@ -1004,10 +1097,10 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 26
+        "x": 0,
+        "y": 34
       },
-      "id": 15,
+      "id": 16,
       "options": {
         "legend": {
           "calcs": [],
@@ -1047,9 +1140,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
-      "id": 16,
+      "id": 17,
       "panels": [],
       "title": "Write Path",
       "type": "row"
@@ -1117,9 +1210,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 43
       },
-      "id": 17,
+      "id": 18,
       "options": {
         "legend": {
           "calcs": [],
@@ -1209,9 +1302,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 35
+        "y": 43
       },
-      "id": 18,
+      "id": 19,
       "options": {
         "legend": {
           "calcs": [],
@@ -1302,9 +1395,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 51
       },
-      "id": 19,
+      "id": 20,
       "options": {
         "legend": {
           "calcs": [],
@@ -1395,9 +1488,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 51
       },
-      "id": 20,
+      "id": 21,
       "options": {
         "legend": {
           "calcs": [],
@@ -1487,9 +1580,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 51
+        "y": 59
       },
-      "id": 21,
+      "id": 22,
       "options": {
         "legend": {
           "calcs": [],
@@ -1600,9 +1693,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 59
       },
-      "id": 22,
+      "id": 23,
       "options": {
         "legend": {
           "calcs": [],
@@ -1706,9 +1799,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 59
+        "y": 67
       },
-      "id": 23,
+      "id": 24,
       "options": {
         "legend": {
           "calcs": [],
@@ -1755,9 +1848,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 67
+        "y": 75
       },
-      "id": 24,
+      "id": 25,
       "panels": [],
       "title": "Read Path",
       "type": "row"
@@ -1825,9 +1918,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 68
+        "y": 76
       },
-      "id": 25,
+      "id": 26,
       "options": {
         "legend": {
           "calcs": [],
@@ -1931,9 +2024,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 68
+        "y": 76
       },
-      "id": 26,
+      "id": 27,
       "options": {
         "legend": {
           "calcs": [],
@@ -2030,9 +2123,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 76
+        "y": 84
       },
-      "id": 27,
+      "id": 28,
       "options": {
         "legend": {
           "calcs": [],
@@ -2122,9 +2215,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 76
+        "y": 84
       },
-      "id": 28,
+      "id": 29,
       "options": {
         "legend": {
           "calcs": [],
@@ -2221,9 +2314,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 84
+        "y": 92
       },
-      "id": 29,
+      "id": 30,
       "options": {
         "legend": {
           "calcs": [],
@@ -2313,9 +2406,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 84
+        "y": 92
       },
-      "id": 30,
+      "id": 31,
       "options": {
         "legend": {
           "calcs": [],
@@ -2405,9 +2498,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 92
+        "y": 100
       },
-      "id": 31,
+      "id": 32,
       "options": {
         "legend": {
           "calcs": [],
@@ -2511,9 +2604,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 92
+        "y": 100
       },
-      "id": 32,
+      "id": 33,
       "options": {
         "legend": {
           "calcs": [],
@@ -2603,9 +2696,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 100
+        "y": 108
       },
-      "id": 33,
+      "id": 34,
       "options": {
         "legend": {
           "calcs": [],
@@ -2696,9 +2789,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 100
+        "y": 108
       },
-      "id": 34,
+      "id": 35,
       "options": {
         "legend": {
           "calcs": [],
@@ -2795,9 +2888,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 108
+        "y": 116
       },
-      "id": 35,
+      "id": 36,
       "options": {
         "legend": {
           "calcs": [],
@@ -2894,9 +2987,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 108
+        "y": 116
       },
-      "id": 36,
+      "id": 37,
       "options": {
         "legend": {
           "calcs": [],
@@ -2936,9 +3029,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 116
+        "y": 124
       },
-      "id": 37,
+      "id": 38,
       "panels": [],
       "title": "Storage",
       "type": "row"
@@ -3006,9 +3099,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 117
+        "y": 125
       },
-      "id": 38,
+      "id": 39,
       "options": {
         "legend": {
           "calcs": [],
@@ -3119,9 +3212,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 117
+        "y": 125
       },
-      "id": 39,
+      "id": 40,
       "options": {
         "legend": {
           "calcs": [],
@@ -3218,9 +3311,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 125
+        "y": 133
       },
-      "id": 40,
+      "id": 41,
       "options": {
         "legend": {
           "calcs": [],
@@ -3317,9 +3410,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 125
+        "y": 133
       },
-      "id": 41,
+      "id": 42,
       "options": {
         "legend": {
           "calcs": [],
@@ -3416,9 +3509,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 133
+        "y": 141
       },
-      "id": 42,
+      "id": 43,
       "options": {
         "legend": {
           "calcs": [],
@@ -3516,9 +3609,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 133
+        "y": 141
       },
-      "id": 43,
+      "id": 44,
       "options": {
         "legend": {
           "calcs": [],
@@ -3551,9 +3644,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 141
+        "y": 149
       },
-      "id": 44,
+      "id": 45,
       "panels": [],
       "title": "Snapshots",
       "type": "row"
@@ -3621,9 +3714,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 142
+        "y": 150
       },
-      "id": 45,
+      "id": 46,
       "options": {
         "legend": {
           "calcs": [],
@@ -3713,9 +3806,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 142
+        "y": 150
       },
-      "id": 46,
+      "id": 47,
       "options": {
         "legend": {
           "calcs": [],
