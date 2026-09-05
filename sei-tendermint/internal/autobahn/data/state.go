@@ -89,6 +89,9 @@ func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
 	if err != nil {
 		return
 	}
+	if ep.EpochIndex() == i.nextCommitEpoch.Load().EpochIndex() {
+		return
+	}
 	i.nextCommitEpoch.Store(ep)
 }
 
