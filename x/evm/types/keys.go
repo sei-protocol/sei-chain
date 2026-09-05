@@ -64,6 +64,7 @@ var (
 	ZeroStorageCleanupCheckpointKey = []byte{0x1e}
 	NonceBumpPrefix                 = []byte{0x1f} // transient
 	BlockHashPrefix                 = []byte{0x20}
+	BalanceKeyPrefix                = []byte{0x21}
 )
 
 var (
@@ -86,6 +87,12 @@ func SeiAddressToEVMAddressKey(seiAddress sdk.AccAddress) []byte {
 
 func StateKey(evmAddress common.Address) []byte {
 	return append(StateKeyPrefix, evmAddress[:]...)
+}
+
+// BalanceKey returns the store key holding evmAddress's balance as a 32-byte
+// big-endian value.
+func BalanceKey(evmAddress common.Address) []byte {
+	return append(BalanceKeyPrefix, evmAddress[:]...)
 }
 
 func ReceiptKey(txHash common.Hash) []byte {

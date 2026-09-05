@@ -212,6 +212,12 @@ func codeHashN(n byte) vtype.CodeHash {
 	return h
 }
 
+func balanceN(n byte) vtype.Balance {
+	var b vtype.Balance
+	b[31] = n
+	return b
+}
+
 func noncePair(addr ktype.Address, nonce uint64) *proto.KVPair {
 	return &proto.KVPair{
 		Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
@@ -264,6 +270,20 @@ func nonceDeletePair(addr ktype.Address) *proto.KVPair {
 func codeHashDeletePair(addr ktype.Address) *proto.KVPair {
 	return &proto.KVPair{
 		Key:    keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]),
+		Delete: true,
+	}
+}
+
+func balancePair(addr ktype.Address, balance vtype.Balance) *proto.KVPair {
+	return &proto.KVPair{
+		Key:   keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]),
+		Value: balance[:],
+	}
+}
+
+func balanceDeletePair(addr ktype.Address) *proto.KVPair {
+	return &proto.KVPair{
+		Key:    keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]),
 		Delete: true,
 	}
 }

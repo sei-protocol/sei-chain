@@ -1,7 +1,6 @@
 package flatkv
 
 import (
-	"encoding/binary"
 	"fmt"
 	"sync"
 
@@ -48,22 +47,12 @@ func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 	case keys.EVMKeyEmpty:
 		return nil, false
 
-	case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
+	case keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		account := v.accountData(keyBytes)
 		if account == nil {
 			return nil, false
 		}
-		if kind == keys.EVMKeyNonce {
-			nonceBytes := make([]byte, vtype.NonceLen)
-			binary.BigEndian.PutUint64(nonceBytes, account.GetNonce())
-			return nonceBytes, true
-		}
-		codeHash := account.GetCodeHash()
-		var zeroCodeHash vtype.CodeHash
-		if *codeHash == zeroCodeHash {
-			return nil, false
-		}
-		return codeHash[:], true
+		return accountFieldValue(kind, account)
 
 	case keys.EVMKeyStorage:
 		storage := v.storageData(keyBytes)
@@ -102,10 +91,14 @@ func (v *flatKVStateView) GetNonce(addr gigatypes.Address) uint64 {
 	return account.GetNonce()
 }
 
-// GetBalance panics. FlatKV has no balance key, so every account row carries a zero balance and
-// there is nothing to read; answering zero would be indistinguishable from a real balance of zero.
-func (v *flatKVStateView) GetBalance(gigatypes.Address) gigatypes.Hash {
-	panic("flatkv: GetBalance is unimplemented; FlatKV does not store balances")
+// GetBalance returns addr's balance as a 256-bit big-endian value, or the zero value when addr holds
+// no balance.
+func (v *flatKVStateView) GetBalance(addr gigatypes.Address) gigatypes.Hash {
+	account := v.accountData(addr[:])
+	if account == nil {
+		return gigatypes.Hash{}
+	}
+	return gigatypes.Hash(*account.GetBalance())
 }
 
 // GetCodeHash returns the hash of addr's contract code, gigatypes.EmptyCodeHash when the account exists
