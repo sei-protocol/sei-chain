@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -106,11 +107,11 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	} else {
 		medianRewardPrevBlock = feeHist.Reward[0][0].ToInt()
 	}
-	return i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
+	return i.gasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
 }
 
-// Helper function useful for testing
-func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
+// gasPriceHelper computes the gas price given the base fee and congestion inputs.
+func (i *InfoAPI) gasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
 	isChainCongested := i.isChainCongested(totalGasUsedPrevBlock)
 	if !isChainCongested {
 		// chain is not congested, increase base fee by 10% to get the gas price to get a tx included in a timely manner
@@ -131,6 +132,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		recordMetricsWithError(ctx, "eth_feeHistory", i.connectionType, startTime, returnErr, recover())
 	}()
 	result = &FeeHistoryResult{}
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return nil, err
+	}
 
 	// logic consistent with go-ethereum's validation (block < 1 means no block)
 	if blockCount < 1 {
@@ -212,8 +216,11 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			gasUsedRatio = 0.0
 		} else {
 			// Calculate actual gas used ratio for this block
-			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
+			calculatedRatio, err := i.calculateGasUsedRatio(ctx, blockNum)
 			if err != nil {
+				if errors.Is(err, receipt.ErrNotConfigured) {
+					return nil, err
+				}
 				// If we can't calculate the ratio, use 0.0 as fallback
 				logger.Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
 				gasUsedRatio = 0.0
@@ -349,6 +356,9 @@ type GasAndReward struct {
 }
 
 func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rewardPercentiles []float64) ([]*hexutil.Big, error) {
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return nil, err
+	}
 	GasAndRewards := []GasAndReward{}
 	totalEVMGasUsed := uint64(0)
 	for _, txbz := range block.Block.Txs {
@@ -358,12 +368,15 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
+		rcpt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
 		if err != nil {
+			if errors.Is(err, receipt.ErrNotConfigured) {
+				return nil, err
+			}
 			// tx doesn't have a receipt because of nonce mismatch
 			continue
 		}
-		receiptEffectiveGasPrice := new(big.Int).SetUint64(receipt.EffectiveGasPrice)
+		receiptEffectiveGasPrice := new(big.Int).SetUint64(rcpt.EffectiveGasPrice)
 		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
 			// if effective gas price is 0, it's expected behavior for txs that failed ante.
 			// if it's not zero but still smaller than baseFee then something is wrong.
@@ -372,14 +385,17 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 			}
 			continue
 		}
-		reward := new(big.Int).Sub(new(big.Int).SetUint64(receipt.EffectiveGasPrice), baseFee)
-		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: reward})
-		totalEVMGasUsed += receipt.GasUsed
+		reward := new(big.Int).Sub(new(big.Int).SetUint64(rcpt.EffectiveGasPrice), baseFee)
+		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: rcpt.GasUsed, Reward: reward})
+		totalEVMGasUsed += rcpt.GasUsed
 	}
 	return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
 }
 
 func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGasUsed uint64, err error) {
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return 0, err
+	}
 	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, height, 1)
 	if err != nil {
 		// block pruned from tendermint store. Skipping
@@ -407,8 +423,11 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 	return totalEVMGasUsed, nil
 }
 
-// CalculateGasUsedRatio calculates the actual gas used ratio for a specific block
-func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
+// calculateGasUsedRatio calculates the actual gas used ratio for a specific block.
+func (i *InfoAPI) calculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
+	if err := requireReceiptStore(i.keeper); err != nil {
+		return 0, err
+	}
 	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &blockHeight, 1)
 	if err != nil {
 		return 0, err

@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"math/big"
 	"strings"
 	"testing"
 
@@ -18,7 +19,26 @@ import (
 func TestNewDecCoinConversionRange(t *testing.T) {
 	require.Panics(t, func() { sdk.NewDecCoin("stake", maxInt()) }, "NewDecCoin must reject max Int")
 	require.Panics(t, func() { sdk.NewDecCoinFromCoin(sdk.NewCoin("stake", maxInt())) }, "NewDecCoinFromCoin must reject max Int")
-	require.Panics(t, func() { sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxInt())) }, "NewDecCoinsFromCoins must reject max Int")
+
+	require.False(t, sdk.Int{}.CanConvertToDec())
+	require.False(t, maxInt().CanConvertToDec())
+	_, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxInt()))
+	require.Error(t, err)
+
+	// Largest Int whose whole-coin Dec stays within maxDecBitLen (315):
+	// floor((2^315 - 1) / 10^18).
+	ten18 := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	maxScaled := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 315), big.NewInt(1))
+	maxConvertible := sdk.NewIntFromBigInt(new(big.Int).Quo(maxScaled, ten18))
+	require.True(t, maxConvertible.CanConvertToDec())
+	decCoins, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", maxConvertible))
+	require.NoError(t, err)
+	require.Equal(t, maxConvertible.ToDec(), decCoins[0].Amount)
+
+	oneAbove := maxConvertible.Add(sdk.OneInt())
+	require.False(t, oneAbove.CanConvertToDec())
+	_, err = sdk.NewDecCoinsFromCoins(sdk.NewCoin("stake", oneAbove))
+	require.Error(t, err)
 }
 
 type decCoinTestSuite struct {
@@ -80,6 +100,48 @@ func (s *decCoinTestSuite) TestDecCoinIsPositive() {
 
 	dc = sdk.NewInt64DecCoin(testDenom1, 0)
 	s.Require().False(dc.IsPositive())
+}
+
+func (s *decCoinTestSuite) TestDecCoinIsEqual() {
+	testCases := []struct {
+		inputOne sdk.DecCoin
+		inputTwo sdk.DecCoin
+		expected bool
+	}{
+		{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom1, 1), true},
+		{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom2, 1), false},
+		{sdk.NewInt64DecCoin(testDenom2, 1), sdk.NewInt64DecCoin(testDenom1, 1), false},
+		{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom1, 2), false},
+	}
+
+	for i, tc := range testCases {
+		var equal bool
+		s.Require().NotPanics(func() { equal = tc.inputOne.IsEqual(tc.inputTwo) }, "decimal coin equality panicked, tc #%d", i)
+		s.Require().Equal(tc.expected, equal, "decimal coin equality is incorrect, tc #%d", i)
+	}
+}
+
+func (s *decCoinTestSuite) TestDecCoinsIsEqual() {
+	testCases := []struct {
+		inputOne sdk.DecCoins
+		inputTwo sdk.DecCoins
+		expected bool
+	}{
+		{sdk.DecCoins{}, sdk.DecCoins{}, true},
+		{sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1)}, sdk.DecCoins{sdk.NewInt64DecCoin(testDenom2, 1)}, false},
+		{sdk.DecCoins{sdk.NewInt64DecCoin(testDenom2, 1)}, sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1)}, false},
+		{
+			sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom2, 1)},
+			sdk.DecCoins{sdk.NewInt64DecCoin(testDenom1, 1), sdk.NewInt64DecCoin(testDenom3, 1)},
+			false,
+		},
+	}
+
+	for i, tc := range testCases {
+		var equal bool
+		s.Require().NotPanics(func() { equal = tc.inputOne.IsEqual(tc.inputTwo) }, "decimal coin set equality panicked, tc #%d", i)
+		s.Require().Equal(tc.expected, equal, "decimal coin set equality is incorrect, tc #%d", i)
+	}
 }
 
 func (s *decCoinTestSuite) TestAddDecCoin() {
@@ -251,7 +313,7 @@ func (s *decCoinTestSuite) TestSubDecCoins() {
 		msg        string
 	}{
 		{
-			sdk.NewDecCoinsFromCoins(sdk.NewCoin("mytoken", sdk.NewInt(10)), sdk.NewCoin("btc", sdk.NewInt(20)), sdk.NewCoin("eth", sdk.NewInt(30))),
+			sdk.NewDecCoins(sdk.NewDecCoin("mytoken", sdk.NewInt(10)), sdk.NewDecCoin("btc", sdk.NewInt(20)), sdk.NewDecCoin("eth", sdk.NewInt(30))),
 			true,
 			"sorted coins should have passed",
 		},
@@ -267,7 +329,8 @@ func (s *decCoinTestSuite) TestSubDecCoins() {
 		},
 	}
 
-	decCoins := sdk.NewDecCoinsFromCoins(sdk.NewCoin("btc", sdk.NewInt(10)), sdk.NewCoin("eth", sdk.NewInt(15)), sdk.NewCoin("mytoken", sdk.NewInt(5)))
+	decCoins, err := sdk.NewDecCoinsFromCoins(sdk.NewCoin("btc", sdk.NewInt(10)), sdk.NewCoin("eth", sdk.NewInt(15)), sdk.NewCoin("mytoken", sdk.NewInt(5)))
+	s.Require().NoError(err)
 
 	for _, tc := range tests {
 		tc := tc

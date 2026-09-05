@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -155,6 +156,9 @@ type State struct {
 	heightSpan        otrace.Span
 	heightBeingTraced int64
 	tracingCtx        context.Context
+
+	freezeHeight uint64
+	frozen       atomic.Bool
 }
 
 // NewState returns a new State.
@@ -280,6 +284,30 @@ func (cs *State) SetPrivValidator(ctx context.Context, priv utils.Option[types.P
 	}
 }
 
+// SetFreezeHeight configures the first block height consensus must not execute.
+// It must be called before the state starts.
+func (cs *State) SetFreezeHeight(height uint64) {
+	cs.freezeHeight = height
+	cs.markFrozen(nextHeightForState(cs.state), cs.state.LastBlockHeight)
+}
+
+func (cs *State) markFrozen(nextHeight, lastBlockHeight int64) {
+	if cs.freezeHeight == 0 || nextHeight < 0 || uint64(nextHeight) < cs.freezeHeight { //nolint:gosec // negative heights are rejected first.
+		return
+	}
+	if cs.frozen.CompareAndSwap(false, true) {
+		logger.Info("Consensus frozen before configured height", "freeze_height", cs.freezeHeight, "last_block_height", lastBlockHeight)
+	}
+}
+
+func nextHeightForState(state sm.State) int64 {
+	height := state.LastBlockHeight + 1
+	if height == 1 {
+		height = state.InitialHeight
+	}
+	return height
+}
+
 // SetTimeoutTicker sets the local timer. It may be useful to overwrite for
 // testing.
 func (cs *State) SetTimeoutTicker(timeoutTicker TimeoutTicker) {
@@ -320,14 +348,16 @@ func (cs *State) Run(ctx context.Context) error {
 
 		// We may have lost some votes if the process crashed reload from consensus
 		// log to catchup.
-		if cs.doWALCatchup {
+		if cs.doWALCatchup && !cs.frozen.Load() {
 			if err := cs.catchupReplay(ctx, cs.roundState.Height()); err != nil {
 				return fmt.Errorf("cs.catchupReplay(): %w", err)
 			}
 		}
 		// Double Signing Risk Reduction
-		if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
-			return err
+		if !cs.frozen.Load() {
+			if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
+				return err
+			}
 		}
 
 		// now start the receiveRoutine
@@ -336,7 +366,9 @@ func (cs *State) Run(ctx context.Context) error {
 
 		// schedule the first round!
 		// use GetRoundState so we don't race the receiveRoutine for access
-		cs.scheduleRound0(cs.GetRoundState())
+		if !cs.frozen.Load() {
+			cs.scheduleRound0(cs.GetRoundState())
+		}
 		return nil
 	})
 }
@@ -519,6 +551,9 @@ func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 // Updates State and increments height to match that of state.
 // The round becomes 0 and cs.Step becomes cstypes.RoundStepNewHeight.
 func (cs *State) updateToState(state sm.State) {
+	height := nextHeightForState(state)
+	cs.markFrozen(height, state.LastBlockHeight)
+
 	if cs.roundState.CommitRound() > -1 && 0 < cs.roundState.Height() && cs.roundState.Height() != state.LastBlockHeight {
 		panic(fmt.Sprintf(
 			"updateToState() expected state height of %v but found %v",
@@ -583,12 +618,6 @@ func (cs *State) updateToState(state sm.State) {
 		))
 	}
 
-	// Next desired block height
-	height := state.LastBlockHeight + 1
-	if height == 1 {
-		height = state.InitialHeight
-	}
-
 	// RoundState fields
 	cs.updateHeight(height)
 	cs.updateRoundStep(0, cstypes.RoundStepNewHeight)
@@ -632,8 +661,10 @@ func (cs *State) updateToState(state sm.State) {
 
 func (cs *State) newStep() {
 	rs := cs.roundState.RoundStateEvent()
-	if err := cs.wal.Append(NewWALMessage(rs)); err != nil {
-		panic(fmt.Errorf("failed writing to WAL: %w", err))
+	if !cs.frozen.Load() {
+		if err := cs.wal.Append(NewWALMessage(rs)); err != nil {
+			panic(fmt.Errorf("failed writing to WAL: %w", err))
+		}
 	}
 
 	cs.nSteps++
@@ -699,6 +730,9 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 	}
 
 	for {
+		if cs.frozen.Load() {
+			return cs.receiveWhileFrozen(ctx, txsAvailable)
+		}
 		if maxSteps > 0 {
 			if cs.nSteps >= maxSteps {
 				logger.Debug("reached max steps; exiting receive routine")
@@ -745,6 +779,20 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		// TODO should we handle context cancels here?
 	}
 }
+
+func (cs *State) receiveWhileFrozen(ctx context.Context, txsAvailable <-chan struct{}) error {
+	for {
+		select {
+		case <-txsAvailable:
+		case <-cs.peerMsgQueue:
+		case <-cs.internalMsgQueue:
+		case <-cs.timeoutTicker.Chan():
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
 func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span, onPropose bool) {
 	Global.ProposalBlockCreatedOnProposeAt(strconv.FormatBool(onPropose)).Add(1)
 	if fsyncUponCompletion {
@@ -977,6 +1025,9 @@ func (cs *State) getTracingCtx(defaultCtx context.Context) context.Context {
 // Enter: +2/3 prevotes any or +2/3 precommits for block or any from (height, round)
 // NOTE: cs.StartTime was already set for height.
 func (cs *State) enterNewRound(ctx context.Context, height int64, round int32, entryLabel string) {
+	if cs.frozen.Load() {
+		return
+	}
 	if height > cs.heightBeingTraced {
 		if cs.heightSpan != nil {
 			cs.heightSpan.End()
@@ -1465,7 +1516,10 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
 		}
-		if cs.roundState.ProposalBlock().HashesTo(cs.roundState.LockedBlock().Hash()) {
+		if proposalMatchesLocked(
+			cs.roundState.ProposalBlock(), cs.roundState.LockedBlock(),
+			cs.roundState.ProposalBlockParts(), cs.roundState.LockedBlockParts(),
+		) {
 			logger.Info("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
@@ -1490,14 +1544,18 @@ func (cs *State) defaultDoPrevote(ctx context.Context, height int64, round int32
 		missed the proposal in round 'v_r'.
 	*/
 	blockID, ok := cs.roundState.Votes().Prevotes(cs.roundState.Proposal().POLRound).TwoThirdsMajority()
-	if ok && cs.roundState.ProposalBlock().HashesTo(blockID.Hash) && cs.roundState.Proposal().POLRound >= 0 && cs.roundState.Proposal().POLRound < cs.roundState.Round() {
+	if ok && blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) &&
+		cs.roundState.Proposal().POLRound >= 0 && cs.roundState.Proposal().POLRound < cs.roundState.Round() {
 		if cs.roundState.LockedRound() <= cs.roundState.Proposal().POLRound {
 			logger.Info("prevote step: ProposalBlock is valid and received a 2/3" +
 				"majority in a round later than the locked round; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
 		}
-		if cs.roundState.ProposalBlock().HashesTo(cs.roundState.LockedBlock().Hash()) {
+		if proposalMatchesLocked(
+			cs.roundState.ProposalBlock(), cs.roundState.LockedBlock(),
+			cs.roundState.ProposalBlockParts(), cs.roundState.LockedBlockParts(),
+		) {
 			logger.Info("prevote step: ProposalBlock is valid and matches our locked block; prevoting the proposal")
 			cs.signAddVote(ctx, tmproto.PrevoteType, cs.roundState.ProposalBlock().Hash(), cs.roundState.ProposalBlockParts().Header())
 			return
@@ -1621,8 +1679,9 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 		return
 	}
 
-	// If we're already locked on that block, precommit it, and update the LockedRound
-	if cs.roundState.LockedBlock().HashesTo(blockID.Hash) {
+	// If we're already locked on that block, precommit it, and update the LockedRound.
+	// Match full BlockID (hash + PartSetHeader).
+	if blockIDMatches(cs.roundState.LockedBlock(), cs.roundState.LockedBlockParts(), blockID) {
 		logger.Info("precommit step: +2/3 prevoted locked block; relocking")
 		cs.roundState.SetLockedRound(round)
 
@@ -1637,7 +1696,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 	// If greater than 2/3 of the voting power on the network prevoted for
 	// the proposed block, update our locked block to this block and issue a
 	// precommit vote for it.
-	if cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+	if blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 		logger.Info("precommit step: +2/3 prevoted proposal block; locking", "hash", blockID.Hash)
 
 		// Validate the block.
@@ -1743,9 +1802,9 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 	}
 
 	// The Locked* fields no longer matter.
-	// Move them over to ProposalBlock if they match the commit hash,
-	// otherwise they'll be cleared in updateToState.
-	if cs.roundState.LockedBlock().HashesTo(blockID.Hash) {
+	// Move them over to ProposalBlock if they match the commit BlockID
+	// (hash + PartSetHeader), otherwise they'll be cleared in updateToState.
+	if blockIDMatches(cs.roundState.LockedBlock(), cs.roundState.LockedBlockParts(), blockID) {
 		logger.Info("commit is for a locked block; set ProposalBlock=LockedBlock", "block_hash", blockID.Hash)
 		cs.roundState.SetProposalBlockParts(cs.roundState.LockedBlockParts())
 		cs.roundState.SetProposalBlock(cs.roundState.LockedBlock())
@@ -1789,7 +1848,7 @@ func (cs *State) tryFinalizeCommit(ctx context.Context, height int64) {
 		return
 	}
 
-	if !cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+	if !blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 		// TODO: this happens every time if we're not a validator (ugly logs)
 		// TODO: ^^ wait, why does it matter that we're a validator?
 		logger.Info(
@@ -1827,11 +1886,11 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	if !ok {
 		panic("cannot finalize commit; commit does not have 2/3 majority")
 	}
-	if !blockParts.HasHeader(blockID.PartSetHeader) {
-		panic("expected ProposalBlockParts header to be commit header")
-	}
-	if !block.HashesTo(blockID.Hash) {
-		panic("cannot finalize commit; proposal block does not hash to commit hash")
+	if !blockIDMatches(block, blockParts, blockID) {
+		panic(fmt.Sprintf(
+			"cannot finalize commit; proposal block/parts do not match commit BlockID: block=%X parts=%v commit=%v",
+			block.Hash(), blockParts.Header(), blockID,
+		))
 	}
 
 	if err := cs.blockExec.ValidateBlock(ctx, cs.state, block); err != nil {
@@ -2165,9 +2224,8 @@ func (cs *State) addProposalBlockPart(
 		for m := range cs.metrics.Lock() {
 			m.MarkBlockGossipComplete()
 		}
-		block, err := cs.getBlockFromBlockParts()
+		block, err := cs.assembleCanonicalProposalBlock()
 		if err != nil {
-			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false, err
 		}
 
@@ -2183,7 +2241,31 @@ func (cs *State) addProposalBlockPart(
 	return added, nil
 }
 
-func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
+// assembleCanonicalProposalBlock decodes ProposalBlockParts into a block and
+// reports an error unless those parts match MakePartSet(BlockPartSizeBytes).
+func (cs *State) assembleCanonicalProposalBlock() (*types.Block, error) {
+	block, err := cs.decodeProposalBlockParts()
+	if err != nil {
+		logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
+		return nil, err
+	}
+	if err := cs.verifyCanonicalProposalParts(block); err != nil {
+		Global.NonCanonicalProposalPartsAt(cs.roundState.Step().String()).Add(1)
+		// Warn: handleMsg already Error-logs "failed to process message" for the
+		// same err; NonCanonicalProposalParts is the alertable signal.
+		logger.Warn(
+			"rejecting non-canonical proposal block parts",
+			"err", err,
+			"height", cs.roundState.Height(),
+			"round", cs.roundState.Round(),
+			"step", cs.roundState.Step().String(),
+		)
+		return nil, err
+	}
+	return block, nil
+}
+
+func (cs *State) decodeProposalBlockParts() (*types.Block, error) {
 	bz, err := io.ReadAll(cs.roundState.ProposalBlockParts().GetReader())
 	if err != nil {
 		return nil, err
@@ -2199,11 +2281,7 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 		return nil, err
 	}
 
-	block, err := types.BlockFromProto(pbb)
-	if err != nil {
-		return nil, err
-	}
-	return block, nil
+	return types.BlockFromProto(pbb)
 }
 
 func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
@@ -2226,10 +2304,8 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 	}
 	// If we just have all the parts, reconstruct the block.
 	if parts.IsComplete() {
-		block, err := cs.getBlockFromBlockParts()
+		block, err := cs.assembleCanonicalProposalBlock()
 		if err != nil {
-			// This can happen if the BlockParts header is broken.
-			logger.Error("Encountered error building block from parts", "block parts", cs.roundState.ProposalBlockParts())
 			return false
 		}
 		cs.roundState.SetProposalBlock(block)
@@ -2275,7 +2351,9 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return false
 	}
 
-	// Now check if parts were actually expected.
+	// Now check if parts were actually expected. newParts comes from MakePartSet,
+	// so matching headers already implies the canonical PartSetHeader; a further
+	// verifyCanonicalProposalParts call would be a tautology.
 	if !parts.Header().Equals(newParts.Header()) {
 		return false
 	}
@@ -2308,7 +2386,7 @@ func (cs *State) handleCompleteProposal(ctx context.Context, height int64, handl
 	prevotes := cs.roundState.Votes().Prevotes(cs.roundState.Round())
 	blockID, hasTwoThirds := prevotes.TwoThirdsMajority()
 	if hasTwoThirds && !blockID.IsNil() && (cs.roundState.ValidRound() < cs.roundState.Round()) {
-		if cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+		if blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 			logger.Debug(
 				"updating valid block to new proposal block",
 				"valid_round", cs.roundState.Round(),
@@ -2405,7 +2483,7 @@ func (cs *State) addVote(
 		"cs_height", cs.roundState.Height(),
 	)
 	if vote.Height < cs.roundState.Height() || (vote.Height == cs.roundState.Height() && vote.Round < cs.roundState.Round()) {
-		Global.MarkLateVote(vote)
+		Global.MarkLateVote(vote.ValidatorAddress, cs.roundState.Validators())
 	}
 
 	// A precommit for the previous height?
@@ -2479,7 +2557,7 @@ func (cs *State) addVote(
 
 			// Update Valid* if we can.
 			if cs.roundState.ValidRound() < vote.Round && vote.Round == cs.roundState.Round() {
-				if cs.roundState.ProposalBlock().HashesTo(blockID.Hash) {
+				if blockIDMatches(cs.roundState.ProposalBlock(), cs.roundState.ProposalBlockParts(), blockID) {
 					logger.Debug("updating valid block because of POL", "valid_round", cs.roundState.ValidRound(), "pol_round", vote.Round)
 					cs.roundState.SetValidRound(vote.Round)
 					cs.roundState.SetValidBlock(cs.roundState.ProposalBlock())

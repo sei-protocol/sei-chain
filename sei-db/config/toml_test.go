@@ -37,7 +37,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 
 	// Verify key config values are present in output
 	require.Contains(t, output, "[state-commit]", "Missing state-commit section")
-	require.Contains(t, output, "sc-enable = true", "Missing or incorrect sc-enable")
+	require.Contains(t, output, "sc-enable =", "Missing sc-enable")
 
 	// Verify MemIAVLConfig fields are accessible
 	require.Contains(t, output, "sc-async-commit-buffer =", "Missing sc-async-commit-buffer")
@@ -46,9 +46,12 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-snapshot-min-time-interval =", "Missing sc-snapshot-min-time-interval")
 	require.Contains(t, output, "sc-snapshot-prefetch-threshold =", "Missing sc-snapshot-prefetch-threshold")
 	require.Contains(t, output, "sc-snapshot-write-rate-mbps =", "Missing sc-snapshot-write-rate-mbps")
-	require.Contains(t, output, "sc-historical-proof-max-inflight = 1", "Missing or incorrect sc-historical-proof-max-inflight")
-	require.Contains(t, output, "sc-historical-proof-rate-limit = 1", "Missing or incorrect sc-historical-proof-rate-limit")
-	require.Contains(t, output, "sc-historical-proof-burst = 1", "Missing or incorrect sc-historical-proof-burst")
+	require.Contains(t, output, "sc-historical-proof-max-inflight =", "Missing sc-historical-proof-max-inflight")
+	require.Contains(t, output, "sc-historical-proof-rate-limit =", "Missing sc-historical-proof-rate-limit")
+	require.Contains(t, output, "sc-historical-proof-burst =", "Missing sc-historical-proof-burst")
+	require.Contains(t, output, "sc-subspace-query-max-inflight =", "Missing sc-subspace-query-max-inflight")
+	require.Contains(t, output, "sc-subspace-max-pairs =", "Missing sc-subspace-max-pairs")
+	require.Contains(t, output, "sc-subspace-max-bytes =", "Missing sc-subspace-max-bytes")
 
 	// The FlatKV section header is kept, but no FlatKV configs are exposed yet.
 	require.Contains(t, output, "[state-commit.flatkv]", "Missing FlatKV section")
@@ -58,6 +61,7 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.NotContains(t, flatKVSection, "snapshot-interval", "FlatKV snapshot-interval should not be exposed in app.toml")
 	require.NotContains(t, flatKVSection, "snapshot-keep-recent", "FlatKV snapshot-keep-recent should not be exposed in app.toml")
 	require.NotContains(t, flatKVSection, "enable-read-write-metrics", "FlatKV read/write metrics flag should not be exposed in app.toml")
+	require.NotContains(t, flatKVSection, "external-pruning", "FlatKV external-pruning should not be exposed in app.toml")
 
 	// sc-snapshot-writer-limit is intentionally removed from template (hardcoded to 4)
 	// but old configs with this field still parse fine via mapstructure
@@ -89,16 +93,21 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 
 	// Verify key config values are present
 	require.Contains(t, output, "[state-store]", "Missing state-store section")
-	require.Contains(t, output, "ss-enable = true", "Missing or incorrect ss-enable")
-	require.Contains(t, output, `ss-backend = "pebbledb"`, "Missing or incorrect ss-backend")
+	require.Contains(t, output, "ss-enable =", "Missing ss-enable")
+	require.Contains(t, output, "ss-backend =", "Missing ss-backend")
 	require.Contains(t, output, "ss-async-write-buffer =", "Missing ss-async-write-buffer")
 	require.Contains(t, output, "ss-keep-recent =", "Missing ss-keep-recent")
 	require.Contains(t, output, "ss-prune-interval =", "Missing ss-prune-interval")
 	require.Contains(t, output, "ss-import-num-workers =", "Missing ss-import-num-workers")
-	require.Contains(t, output, "ss-enable-read-write-metrics = false", "Missing state-store read/write metrics flag")
-	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
-	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
-	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
+	require.Contains(t, output, "ss-enable-read-write-metrics =", "Missing state-store read/write metrics flag")
+	require.Contains(t, output, "ss-snapshot-enable =", "Missing ss-snapshot-enable")
+	require.Contains(t, output, "evm-ss-db-directory =", "Missing evm-ss-db-directory")
+	require.Contains(t, output, "<home>/data/state_store/evm/{backend}",
+		"evm-ss-db-directory comment must name the current default path")
+	require.NotContains(t, output, "<home>/data/evm_ss when EVM SS is enabled",
+		"evm-ss-db-directory comment must not name data/evm_ss as the default")
+	require.Contains(t, output, "evm-ss-split =", "Missing evm-ss-split")
+	require.Contains(t, output, "evm-ss-separate-dbs =", "Missing evm-ss-separate-dbs")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template
@@ -122,12 +131,13 @@ func TestReceiptStoreConfigTemplate(t *testing.T) {
 	output := buf.String()
 
 	require.Contains(t, output, "[receipt-store]", "Missing receipt-store section")
-	require.Contains(t, output, `rs-backend = "pebbledb"`, "Missing or incorrect rs-backend")
-	require.Contains(t, output, `db-directory = ""`, "Missing or incorrect db-directory")
+	require.Contains(t, output, "rs-enable =", "Missing rs-enable")
+	require.Contains(t, output, "rs-backend =", "Missing rs-backend")
+	require.Contains(t, output, "db-directory =", "Missing db-directory")
 	require.Contains(t, output, "async-write-buffer =", "Missing async-write-buffer")
 	require.Contains(t, output, "prune-interval-seconds =", "Missing prune-interval-seconds")
-	require.Contains(t, output, "enable-read-write-metrics = false", "Missing receipt read/write metrics flag")
 	require.NotContains(t, output, "keep-recent", "keep-recent should not be in receipt-store template (controlled by min-retain-blocks)")
+	require.NotContains(t, output, "enable-read-write-metrics", "receipt-store enable-read-write-metrics should not be exposed in app.toml")
 	require.Contains(t, output, `Applies only when rs-backend = "pebbledb"`, "Missing pebble-only async-write-buffer note")
 	require.NotContains(t, output, "use-default-comparer", "use-default-comparer should not be in receipt-store template")
 }

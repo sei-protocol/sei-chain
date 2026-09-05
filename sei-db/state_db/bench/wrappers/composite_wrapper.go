@@ -26,7 +26,9 @@ func (c *compositeWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
 }
 
 func (c *compositeWrapper) Commit() (int64, error) {
-	return c.base.Commit()
+	// The benchmark wrapper interface carries no height, so the next one is derived here. That is
+	// sound only because nothing in the benchmark path takes a block's hash before committing it.
+	return c.base.Commit(c.base.Version() + 1)
 }
 
 func (c *compositeWrapper) LoadLatest() error {

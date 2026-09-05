@@ -270,8 +270,8 @@ func makeRouterOptions() *RouterOptions {
 	c := conn.DefaultMConnConfig()
 	c.PongTimeout = time.Hour
 	return &RouterOptions{
-		MaxAcceptRate: utils.Some(rate.Inf),
-		MaxDialRate:   utils.Some(rate.Inf),
+		MaxAcceptRate: rate.Inf,
+		MaxDialRate:   rate.Inf,
 		Endpoint:      Endpoint{tcp.TestReserveAddr()},
 		Connection:    c,
 		// 0 to allow immediate retries from peers.

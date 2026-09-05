@@ -12,12 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
@@ -118,8 +116,6 @@ func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event
 	start := time.Now()
 	defer func() {
 		baseappMetrics.midBlockDuration.Record(ctx.Context(), time.Since(start).Seconds())
-		// TODO(PLT-353): remove once baseapp_mid_block_duration verified
-		telemetry.MeasureSince(start, "abci", "mid_block")
 	}()
 
 	if app.midBlocker != nil {
@@ -135,8 +131,6 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 	start := time.Now()
 	defer func() {
 		baseappMetrics.endBlockDuration.Record(ctx.Context(), time.Since(start).Seconds())
-		// TODO(PLT-353): remove once baseapp_end_block_duration verified
-		telemetry.MeasureSince(start, "abci", "end_block")
 	}()
 
 	if app.endBlocker != nil {
@@ -195,20 +189,10 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 
 	defer func() {
 		baseappMetrics.deliverTxDuration.Record(ctx.Context(), time.Since(deliverTxStart).Seconds())
-		// TODO(PLT-353): remove once baseapp_deliver_tx_duration verified
-		telemetry.MeasureSince(deliverTxStart, "abci", "deliver_tx")
 		baseappMetrics.txCount.Add(ctx.Context(), 1)
-		// TODO(PLT-353): remove once baseapp_tx_count verified
-		telemetry.IncrCounter(1, "tx", "count")
 		baseappMetrics.txResult.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("result", resultStr)))
-		// TODO(PLT-353): remove once baseapp_tx_result verified
-		telemetry.IncrCounter(1, "tx", resultStr)
-		baseappMetrics.txGasUsed.Record(ctx.Context(), int64(gInfo.GasUsed)) //nolint:gosec
-		// TODO(PLT-353): remove once baseapp_tx_gas_used verified
-		telemetry.SetGauge(float32(gInfo.GasUsed), "tx", "gas", "used")
+		baseappMetrics.txGasUsed.Record(ctx.Context(), int64(gInfo.GasUsed))     //nolint:gosec
 		baseappMetrics.txGasWanted.Record(ctx.Context(), int64(gInfo.GasWanted)) //nolint:gosec
-		// TODO(PLT-353): remove once baseapp_tx_gas_wanted verified
-		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
 	runTxRes, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum)
@@ -281,8 +265,6 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	commitStart := time.Now()
 	defer func() {
 		baseappMetrics.commitDuration.Record(ctx, time.Since(commitStart).Seconds())
-		// TODO(PLT-353): remove once baseapp_commit_duration verified
-		telemetry.MeasureSince(commitStart, "abci", "commit")
 	}()
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
@@ -441,8 +423,6 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 	defer func() {
 		route := app.abciQueryMetricRoute(req.Path)
 		baseappMetrics.abciQueryDuration.Record(ctx, time.Since(queryStart).Seconds(), otelmetric.WithAttributes(attribute.String(abciQueryMetricRouteLabel, route)))
-		// TODO(PLT-353): remove once baseapp_abci_query_duration verified
-		telemetry.MeasureSinceWithLabels([]string{"abci", "query"}, queryStart, []metrics.Label{{Name: "path", Value: req.Path}})
 	}()
 
 	// Add panic recovery for all queries.
@@ -462,7 +442,7 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 	// handle gRPC routes first rather than calling splitPath because '/' characters
 	// are used as part of gRPC paths
 	if grpcHandler := app.grpcQueryRouter.Route(req.Path); grpcHandler != nil {
-		resp := app.handleQueryGRPC(grpcHandler, *req)
+		resp := app.handleQueryGRPC(ctx, grpcHandler, *req)
 		return &resp, nil
 	}
 
@@ -483,7 +463,7 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 		resp = handleQueryStore(ctx, app, path, *req)
 
 	case "custom":
-		resp = handleQueryCustom(app, path, *req)
+		resp = handleQueryCustom(ctx, app, path, *req)
 	default:
 		resp = sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "unknown query path"), app.trace)
 	}
@@ -623,13 +603,14 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 	}
 }
 
-func (app *BaseApp) handleQueryGRPC(handler GRPCQueryHandler, req abci.RequestQuery) abci.ResponseQuery {
-	ctx, err := app.CreateQueryContext(req.Height, req.Prove)
+func (app *BaseApp) handleQueryGRPC(ctx context.Context, handler GRPCQueryHandler, req abci.RequestQuery) abci.ResponseQuery {
+	sdkCtx, err := app.CreateQueryContext(req.Height, req.Prove)
 	if err != nil {
 		return sdkerrors.QueryResultWithDebug(err, app.trace)
 	}
 
-	res, err := handler(ctx, req)
+	sdkCtx = app.enrichABCIQueryContext(ctx, sdkCtx)
+	res, err := handler(sdkCtx, req)
 	if err != nil {
 		res = sdkerrors.QueryResultWithDebug(gRPCErrorToSDKError(err), app.trace)
 		res.Height = req.Height
@@ -942,7 +923,7 @@ func handleQueryStore(ctx context.Context, app *BaseApp, path []string, req abci
 	return resp
 }
 
-func handleQueryCustom(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
+func handleQueryCustom(ctx context.Context, app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	// path[0] should be "custom" because "/custom" prefix is required for keeper
 	// queries.
 	//
@@ -957,16 +938,18 @@ func handleQueryCustom(app *BaseApp, path []string, req abci.RequestQuery) abci.
 		return sdkerrors.QueryResultWithDebug(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "no custom querier found for route %s", path[1]), app.trace)
 	}
 
-	ctx, err := app.CreateQueryContext(req.Height, req.Prove)
+	sdkCtx, err := app.CreateQueryContext(req.Height, req.Prove)
 	if err != nil {
 		return sdkerrors.QueryResultWithDebug(err, app.trace)
 	}
+
+	sdkCtx = app.enrichABCIQueryContext(ctx, sdkCtx)
 
 	// Passes the rest of the path as an argument to the querier.
 	//
 	// For example, in the path "custom/gov/proposal/test", the gov querier gets
 	// []string{"proposal", "test"} as the path.
-	resBytes, err := querier(ctx, path[2:], req)
+	resBytes, err := querier(sdkCtx, path[2:], req)
 	if err != nil {
 		res := sdkerrors.QueryResultWithDebug(err, app.trace)
 		res.Height = req.Height
@@ -998,8 +981,6 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	processProposalStart := time.Now()
 	defer func() {
 		baseappMetrics.processProposalDuration.Record(ctx, time.Since(processProposalStart).Seconds())
-		// TODO(PLT-353): remove once baseapp_process_proposal_duration verified
-		telemetry.MeasureSince(processProposalStart, "abci", "process_proposal")
 	}()
 	defer func() { app.execProcessProposalMs = time.Since(processProposalStart).Milliseconds() }()
 	if app.ChainID != req.Header.ChainID {
@@ -1065,8 +1046,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	finalizeBlockStart := time.Now()
 	defer func() {
 		baseappMetrics.finalizeBlockDuration.Record(ctx, time.Since(finalizeBlockStart).Seconds())
-		// TODO(PLT-353): remove once baseapp_finalize_block_duration verified
-		telemetry.MeasureSince(finalizeBlockStart, "abci", "finalize_block")
 	}()
 	app.execBlockTxCount = len(req.Txs)
 	defer func() { app.execFinalizeBlockMs = time.Since(finalizeBlockStart).Milliseconds() }()
@@ -1143,8 +1122,6 @@ func (app *BaseApp) GetTxPriorityHint(ctx context.Context, req *abci.RequestGetT
 	priorityHintStart := time.Now()
 	defer func() {
 		baseappMetrics.getTxPriorityHintDuration.Record(ctx, time.Since(priorityHintStart).Seconds())
-		// TODO(PLT-353): remove once baseapp_get_tx_priority_hint_duration verified
-		telemetry.MeasureSince(priorityHintStart, "abci", "get_tx_priority_hint")
 	}()
 
 	tx, err := app.txDecoder(req.Tx)

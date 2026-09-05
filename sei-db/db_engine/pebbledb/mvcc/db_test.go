@@ -1,13 +1,17 @@
 package mvcc
 
 import (
+	"encoding/binary"
+	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
+	sstest "github.com/sei-protocol/sei-chain/sei-db/db_engine/test"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
 
 func TestStorageTestSuite(t *testing.T) {
@@ -45,4 +49,58 @@ func TestStorageTestSuiteDefaultComparer(t *testing.T) {
 	}
 
 	suite.Run(t, s)
+}
+
+func TestVersionedCheckpointPreservesFutureLiveMarker(t *testing.T) {
+	cfg := config.DefaultStateStoreConfig()
+	cfg.Backend = config.PebbleDBBackend
+
+	store, err := OpenDB(filepath.Join(t.TempDir(), "live"), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	require.NoError(t, store.SetLatestVersion(10))
+	require.NoError(t, store.SetEarliestVersion(4, false))
+
+	dest := filepath.Join(t.TempDir(), "snapshot")
+	done := make(chan error, 1)
+	sssnapshot.ScheduleCheckpoint(store, dest, nil, func(err error) {
+		done <- err
+	})
+	require.NoError(t, <-done)
+	// The caller stamps only the label. Earliest is inherited from the
+	// checkpointed DB because prune advances it before deleting history.
+	require.NoError(t, sssnapshot.SetCheckpointVersion(store, dest, 5))
+
+	require.Equal(t, int64(10), store.GetLatestVersion())
+	require.Equal(t, int64(4), store.GetEarliestVersion())
+	for key, want := range map[string]uint64{latestVersionKey: 10, earliestVersionKey: 4} {
+		marker, closer, err := store.(*Database).storage.Get([]byte(key))
+		require.NoError(t, err)
+		require.Equal(t, want, binary.LittleEndian.Uint64(marker), "live %s changed", key)
+		require.NoError(t, closer.Close())
+	}
+
+	checkpoint, err := OpenDB(dest, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, checkpoint.Close()) })
+	require.Equal(t, int64(5), checkpoint.GetLatestVersion())
+	require.Equal(t, int64(4), checkpoint.GetEarliestVersion())
+}
+
+func TestScheduledCheckpointCanBeCanceledAtBarrier(t *testing.T) {
+	cfg := config.DefaultStateStoreConfig()
+	cfg.Backend = config.PebbleDBBackend
+
+	store, err := OpenDB(filepath.Join(t.TempDir(), "live"), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	dest := filepath.Join(t.TempDir(), "snapshot")
+	done := make(chan error, 1)
+	sssnapshot.ScheduleCheckpoint(store, dest, func() bool { return false }, func(err error) {
+		done <- err
+	})
+
+	require.ErrorIs(t, <-done, sssnapshot.ErrCheckpointCanceled)
+	require.NoDirExists(t, dest)
 }

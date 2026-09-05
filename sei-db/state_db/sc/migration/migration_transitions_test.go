@@ -39,7 +39,7 @@ func TestMigrateEVM(t *testing.T) {
 	keysInUse := newLiveKeySet()
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -107,7 +107,7 @@ func TestMigrateEVM(t *testing.T) {
 	// (Go closures capture local variables by reference), but redeclaring
 	// keeps the post-restart setup symmetric with phase 1.
 	commitBoth = func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -215,7 +215,7 @@ func TestMigrateAllButBank(t *testing.T) {
 	keysInUse := newLiveKeySet()
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -291,7 +291,7 @@ func TestMigrateAllButBank(t *testing.T) {
 	flatKVDB = NewTestFlatKVCommitStore(t, flatKVDir)
 
 	commitBoth = func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -404,7 +404,7 @@ func TestMigrateBank(t *testing.T) {
 	keysInUse := newLiveKeySet()
 
 	commitBoth := func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")
@@ -478,7 +478,7 @@ func TestMigrateBank(t *testing.T) {
 	flatKVDB = NewTestFlatKVCommitStore(t, flatKVDir)
 
 	commitBoth = func() {
-		_, err := memiavlDB.Commit()
+		_, err := memiavlDB.Commit(memiavlDB.Version() + 1)
 		require.NoError(t, err, "memiavl commit")
 		_, err = flatKVDB.Commit(flatKVDB.Version() + 1)
 		require.NoError(t, err, "flatKV commit")

@@ -50,7 +50,7 @@ func TestFlatKVHashReporting(t *testing.T) {
 	_, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	// Categories: the global root plus one per data DB (metadata DB excluded).
+	// Categories: the global root plus one per data DB.
 	require.Equal(t, []string{
 		"flatKV/root",
 		"flatKV/db/account",
@@ -72,7 +72,7 @@ func TestFlatKVHashReporting(t *testing.T) {
 		_, ok := logger.hashes[category]
 		require.True(t, ok, "expected a hash for %q", category)
 	}
-	require.Equal(t, s.CommittedRootHash(), logger.hashes["flatKV/root"])
+	require.Equal(t, rootHash(s), logger.hashes["flatKV/root"])
 
 	// Each reported per-DB hash is the checksum of that DB's committed LtHash.
 	for _, dir := range dataDBDirs {

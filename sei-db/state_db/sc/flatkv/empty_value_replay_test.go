@@ -34,14 +34,14 @@ func reopenCommittedRoot(t *testing.T, dir string, readOnly bool) []byte {
 	if !readOnly {
 		require.NoError(t, s.LoadLatest())
 		defer func() { require.NoError(t, s.Close()) }()
-		return s.CommittedRootHash()
+		return rootHash(s)
 	}
 	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	cs := ro.(*CommitStore)
 	defer func() { require.NoError(t, cs.Close()) }()
-	return cs.CommittedRootHash()
+	return rootHash(cs)
 }
 
 // TestEmptyValueSurvivesWALReplay drives a key set to an empty value, then
@@ -64,7 +64,7 @@ func TestEmptyValueSurvivesWALReplay(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	liveRoot := s.CommittedRootHash()
+	liveRoot := rootHash(s)
 	dir := s.config.DataDir
 
 	require.NoError(t, s.Close())
@@ -73,4 +73,42 @@ func TestEmptyValueSurvivesWALReplay(t *testing.T) {
 	require.Equal(t, liveRoot, roRoot,
 		"WAL-replay (read-only clone) committed root must match the live store; "+
 			"empty-value keys must not be dropped on replay")
+}
+
+func TestEmptyValueVisibleBeforeCommit(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	s := setupTestStoreWithConfig(t, cfg)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	key := []byte("empty-marker")
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, emptyValueBankCS(&proto.KVPair{
+		Key:   key,
+		Value: []byte{},
+	})))
+
+	value, found := s.Get("bank", key)
+	require.True(t, found)
+	require.NotNil(t, value, "empty value is present data, not absence")
+	require.Empty(t, value)
+	require.True(t, s.Has("bank", key))
+
+	iter, err := s.Iterator("bank", nil, nil, true)
+	require.NoError(t, err)
+	require.True(t, iter.Valid())
+	require.Equal(t, key, iter.Key())
+	require.NotNil(t, iter.Value(), "pending iterator should preserve empty value presence")
+	require.Empty(t, iter.Value())
+	iter.Next()
+	require.False(t, iter.Valid())
+	require.NoError(t, iter.Error())
+	require.NoError(t, iter.Close())
+
+	_, err = s.Commit(s.Version() + 1)
+	require.NoError(t, err)
+
+	value, found = s.Get("bank", key)
+	require.True(t, found)
+	require.NotNil(t, value)
+	require.Empty(t, value)
+	require.True(t, s.Has("bank", key))
 }

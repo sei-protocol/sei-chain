@@ -14,6 +14,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbutils "github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -48,6 +49,8 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
 type ReceiptStore interface {
+	controller.PrunableStore
+
 	LatestVersion() int64
 	EarliestVersion() int64
 	SetLatestVersion(version int64) error
@@ -88,6 +91,8 @@ type ReceiptReadMetrics interface {
 	RecordCacheFilterScanDuration(seconds float64)
 	RecordCacheGetDuration(seconds float64)
 }
+
+var _ ReceiptStore = (*receiptStore)(nil)
 
 type receiptStore struct {
 	db          seidbtypes.StateStore
@@ -145,6 +150,23 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	}
 
 	backend := normalizeReceiptBackend(config.Backend)
+	if err := requireSupportedBackend(backend); err != nil {
+		return nil, err
+	}
+	if backend == receiptBackendPebble && config.ExternalPruning {
+		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
+		// pruner with nothing in its place.
+		return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q",
+			receiptBackendPebble, receiptBackendLittIdx)
+	}
+
+	// Runs after every config rejection above, and before either backend touches the directory: a config
+	// that is about to be rejected must not leave a recorded type behind that then refuses the corrected
+	// one.
+	if err := recordBackendType(config.DBDirectory, backend); err != nil {
+		return nil, err
+	}
+
 	switch backend {
 	case receiptBackendLittIdx:
 		return newLittReceiptStore(config, storeKey)
@@ -205,14 +227,8 @@ func (s *receiptStore) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.R
 	if err != nil {
 		return nil, err
 	}
-
 	if bz == nil {
-		// try legacy store for older receipts
-		store := ctx.KVStore(s.storeKey)
-		bz = store.Get(types.ReceiptKey(txHash))
-		if bz == nil {
-			return nil, ErrNotFound
-		}
+		return legacyReceiptFromKVStore(ctx, s.storeKey, txHash)
 	}
 
 	var r types.Receipt

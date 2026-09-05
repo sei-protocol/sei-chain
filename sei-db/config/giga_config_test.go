@@ -3,6 +3,7 @@ package config
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -31,4 +32,96 @@ func TestDefaultGigaStorageConfigDirectories(t *testing.T) {
 		filepath.Join(home, "data", "state_store", "evm", cfg.SSConfig.Backend),
 		cfg.SSConfig.EVMDBDirectory,
 	)
+}
+
+func defaultGigaConfig(t *testing.T) *GigaStorageConfig {
+	t.Helper()
+	cfg, err := DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	return cfg
+}
+
+func TestTheDefaultConfigValidates(t *testing.T) {
+	require.NoError(t, defaultGigaConfig(t).Validate())
+}
+
+// TestTheStoreConfigsAStoreCannotSupplyAreRequired covers the configs the manager
+// dereferences: a nil one panics rather than failing.
+func TestTheStoreConfigsAStoreCannotSupplyAreRequired(t *testing.T) {
+	cfg := defaultGigaConfig(t)
+	cfg.FlatKVConfig = nil
+	require.ErrorContains(t, cfg.Validate(), "flatkv config is required")
+
+	cfg = defaultGigaConfig(t)
+	cfg.BlockDBConfig = nil
+	require.ErrorContains(t, cfg.Validate(), "block db config is required")
+
+	cfg = defaultGigaConfig(t)
+	cfg.PruningConfig = nil
+	require.ErrorContains(t, cfg.Validate(), "pruning config is required")
+}
+
+func TestAnInvalidStoreConfigIsReportedByItsOwnValidate(t *testing.T) {
+	cfg := defaultGigaConfig(t)
+	cfg.BlockDBConfig.RetentionTime = 0
+	require.ErrorContains(t, cfg.Validate(), "block db config is invalid")
+
+	cfg = defaultGigaConfig(t)
+	cfg.PruningConfig.PruneInterval = 0
+	require.ErrorContains(t, cfg.Validate(), "pruning config is invalid")
+}
+
+// TestTheDirectoriesAStoreDerivesFromAreRequired covers the two paths that are not rejected downstream:
+// an empty one puts a database under the working directory instead of the home directory.
+func TestTheDirectoriesAStoreDerivesFromAreRequired(t *testing.T) {
+	cfg := defaultGigaConfig(t)
+	cfg.FlatKVConfig.DataDir = ""
+	require.ErrorContains(t, cfg.Validate(), "flatkv data dir is required")
+
+	cfg = defaultGigaConfig(t)
+	cfg.SSConfig.EVMDBDirectory = ""
+	require.ErrorContains(t, cfg.Validate(), "state store EVM db directory is required")
+}
+
+// TestTheDefaultFlatKVConfigIsNotValidatedAsWritten records why Validate checks DataDir rather than
+// calling FlatKVConfig.Validate: the commit store resolves the nested database directories from DataDir
+// first, so the config Giga hands it does not pass that check until it has.
+func TestTheDefaultFlatKVConfigIsNotValidatedAsWritten(t *testing.T) {
+	cfg := defaultGigaConfig(t)
+
+	require.NoError(t, cfg.Validate())
+	require.Error(t, cfg.FlatKVConfig.Validate())
+}
+
+func TestExternalPruningMustBeTrue(t *testing.T) {
+	cfg := defaultGigaConfig(t)
+	cfg.FlatKVConfig.ExternalPruning = false
+	require.ErrorContains(t, cfg.Validate(), "flatkv ExternalPruning must be true")
+
+	cfg = defaultGigaConfig(t)
+	cfg.SSConfig.ExternalPruning = false
+	require.ErrorContains(t, cfg.Validate(), "state store ExternalPruning must be true")
+	cfg.SSConfig.Enable = false
+	require.NoError(t, cfg.Validate())
+
+	cfg = defaultGigaConfig(t)
+	cfg.ReceiptDBConfig.ExternalPruning = false
+	require.ErrorContains(t, cfg.Validate(), "receipt store ExternalPruning must be true")
+	cfg.ReceiptDBConfig.Enable = false
+	require.NoError(t, cfg.Validate())
+}
+
+// TestAScheduleThatPicksNoHeightIsRefused covers the config that reads as merely conservative and is
+// not: the schedule supersedes each store's own interval, so an empty one snapshots nothing at all.
+func TestAScheduleThatPicksNoHeightIsRefused(t *testing.T) {
+	cfg := defaultGigaConfig(t)
+	cfg.CheckpointConfig = CheckpointConfig{}
+
+	require.ErrorContains(t, cfg.Validate(), "checkpoint config must set a time interval")
+
+	cfg.CheckpointConfig.BlockInterval = 1_000
+	require.NoError(t, cfg.Validate())
+
+	cfg.CheckpointConfig = CheckpointConfig{TimeInterval: time.Minute}
+	require.NoError(t, cfg.Validate())
 }

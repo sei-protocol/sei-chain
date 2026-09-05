@@ -26,7 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -200,16 +200,28 @@ type indexedMsg struct {
 	index int
 }
 
+// requireReceiptStore returns ErrNotConfigured unless k holds a receipt store, which a node
+// started with rs-enable = false does not. Callers that would otherwise treat a missing receipt
+// as "skip this tx" must fail here, or they answer with empty data.
+func requireReceiptStore(k *keeper.Keeper) error {
+	if k == nil || k.ReceiptStore() == nil {
+		return receipt.ErrNotConfigured
+	}
+	return nil
+}
+
 func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
-	includeBankTransfers bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
-) []indexedMsg {
+) ([]indexedMsg, error) {
+	if err := requireReceiptStore(k); err != nil {
+		return nil, err
+	}
 	txs := []indexedMsg{}
 	txCounts := make(map[string]uint64)
 	startOfBlockNonce := make(map[string]uint64)
@@ -260,15 +272,10 @@ func filterTransactions(
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
-			case *banktypes.MsgSend:
-				if !includeBankTransfers {
-					continue
-				}
-				txs = append(txs, indexedMsg{index: i, msg: msg})
 			}
 		}
 	}
-	return txs
+	return txs, nil
 }
 
 func recordMetrics(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time) {
@@ -284,9 +291,6 @@ func recordMetricsWithError(ctx context.Context, apiMethod string, connectionTyp
 	}
 
 	recordRPCLatency(ctx, apiMethod, string(connectionType), success, err, panicValue != nil, startTime)
-	// TODO(PLT-326): remove legacy dual-emit once dashboards are migrated to evmrpc_* OTEL metrics. Use metrics.requestLatencySeconds histogram instead.
-	utilmetrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	utilmetrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {
@@ -332,9 +336,13 @@ func getTxHashesFromBlock(
 	shouldIncludeSynthetic bool,
 	cacheCreationMutex *sync.Mutex,
 	globalBlockCache BlockCache,
-) []typedTxHash {
+) ([]typedTxHash, error) {
+	txs, err := filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, cacheCreationMutex, globalBlockCache) {
+	for _, tx := range txs {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
@@ -343,7 +351,7 @@ func getTxHashesFromBlock(
 			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
 		}
 	}
-	return txHashes
+	return txHashes, nil
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
@@ -353,28 +361,6 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
-}
-
-// isReceiptUntraceable returns true if the receipt represents a tx whose
-// trace would be empty or meaningless. Shared discriminator used by the
-// legacy sei tx and block *ExcludeTraceFail endpoints so they filter the same set.
-//
-//   - TxType == ShellEVMTxType: chain-generated synthetic, no real EVM
-//     execution. app/receipt.go writes these for wasm txs to surface CW20
-//     events on the EVM side; they have no trace.
-//   - EffectiveGasPrice == 0 && GasUsed == 0: ante-deferred stub receipt
-//     from x/evm/keeper/abci.go — the tx bumped its nonce in ante but
-//     never reached the VM. WriteReceipt for any executed tx sets both
-//     fields > 0 (intrinsic gas at minimum, msg.GasPrice for the fee on
-//     a chain with positive min fee), so reverts and OOG pass through.
-//
-// This is intentionally narrower than isReceiptFromAnteError's
-// post-v5.8.0 branch: that helper is tuned to keep insufficient-funds
-// receipts visible to the regular eth_getBlockBy* endpoints (per
-// PR #2343). *ExcludeTraceFail wants the opposite per evmrpc/README.md.
-func isReceiptUntraceable(receipt *types.Receipt) bool {
-	return receipt.TxType == types.ShellEVMTxType ||
-		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
 }
 
 type ParallelRunner struct {

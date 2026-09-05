@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -13,8 +14,40 @@ const (
 	DefaultSCHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
 	DefaultSCHistoricalProofBurst       = 1
 
+	DefaultSCSubspaceQueryMaxInFlight = 2
+	DefaultSCSubspaceMaxPairs         = 1_000
+	DefaultSCSubspaceMaxBytes         = 4 * 1024 * 1024 // 4 MiB
+
 	legacySCWriteModeCosmosOnly = "cosmos_only"
 )
+
+// EffectiveMemIAVLSnapshotCadence resolves memIAVL's snapshot cadence the way
+// Options.FillDefaults resolves it at OpenDB, so a caller mirroring the cadence
+// onto another backend sees the values memIAVL will actually run with rather
+// than the raw config. A zero means "unset" here, not "disabled": memIAVL heals
+// it to the default, so mirroring the raw zero would silently disable snapshots
+// on the mirroring backend.
+func EffectiveMemIAVLSnapshotCadence(cfg memiavl.Config) (interval, keepRecent uint32) {
+	interval = cfg.SnapshotInterval
+	if interval == 0 {
+		interval = memiavl.DefaultSnapshotInterval
+	}
+	keepRecent = cfg.SnapshotKeepRecent
+	if keepRecent == 0 {
+		keepRecent = memiavl.DefaultSnapshotKeepRecent
+	}
+	return interval, keepRecent
+}
+
+// EffectiveMemIAVLSnapshotMinTimeInterval resolves the minimum wall-clock
+// interval the same way memIAVL Options.FillDefaults does.
+func EffectiveMemIAVLSnapshotMinTimeInterval(cfg memiavl.Config) time.Duration {
+	seconds := cfg.SnapshotMinTimeInterval
+	if seconds == 0 {
+		seconds = memiavl.DefaultSnapshotMinTimeInterval
+	}
+	return time.Duration(seconds) * time.Second
+}
 
 // StateCommitConfig defines configuration for the state commit (SC) layer.
 type StateCommitConfig struct {
@@ -73,6 +106,15 @@ type StateCommitConfig struct {
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 
+	// Max concurrent unproven /subspace queries on the SS fast path.
+	SubspaceQueryMaxInFlight int `mapstructure:"subspace-query-max-inflight"`
+
+	// Max key/value pairs a /subspace scan may return.
+	SubspaceMaxPairs int `mapstructure:"subspace-max-pairs"`
+
+	// Max key+value bytes a /subspace scan may accumulate.
+	SubspaceMaxBytes int `mapstructure:"subspace-max-bytes"`
+
 	// HashLogger configures the per-block hash logger (a debugging/forensics tool). Enabled by default.
 	// Loaded via explicit sc-hash-logger-* flag reads in app.parseSCConfigs, not mapstructure.
 	HashLogger HashLoggerConfig
@@ -89,6 +131,9 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
+		SubspaceQueryMaxInFlight:   DefaultSCSubspaceQueryMaxInFlight,
+		SubspaceMaxPairs:           DefaultSCSubspaceMaxPairs,
+		SubspaceMaxBytes:           DefaultSCSubspaceMaxBytes,
 		HashLogger:                 DefaultHashLoggerConfig(),
 	}
 }

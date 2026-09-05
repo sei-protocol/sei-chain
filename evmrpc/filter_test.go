@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestNewPendingTransactionFilterNotSupported(t *testing.T) {
@@ -200,53 +202,12 @@ func getCommonFilterLogTests() []GetFilterLogTests {
 
 func TestFilterGetLogs(t *testing.T) {
 	t.Skip()
-	testFilterGetLogs(t, "eth", getCommonFilterLogTests())
-}
-
-func TestFilterSeiGetLogs(t *testing.T) {
-	t.Skip()
-	// make sure we pass all the eth_ namespace tests
-	testFilterGetLogs(t, "sei", getCommonFilterLogTests())
-
-	// test where we get a synthetic log
-	testFilterGetLogs(t, "sei", []GetFilterLogTests{
-		{
-			name:      "filter by single synthetic address",
-			fromBlock: "0x64",
-			toBlock:   "0x64",
-			addrs:     []common.Address{common.HexToAddress("0x1111111111111111111111111111111111111116")},
-			wantErr:   false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x1111111111111111111111111111111111111116", log["address"].(string))
-			},
-			wantLen: 1,
-		},
-		{
-			name:      "filter by single topic, include synethetic logs",
-			topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
-			wantErr:   false,
-			fromBlock: "0x64",
-			toBlock:   "0x64",
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
-			},
-			wantLen: 1,
-		},
-		{
-			name:    "filter by single topic with default range, include synethetic logs",
-			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
-			wantErr: false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
-			},
-			wantLen: 1,
-		},
-	})
+	testFilterGetLogs(t, getCommonFilterLogTests())
 }
 
 func TestFilterEthEndpointReturnsNormalEvmLogEvenIfSyntheticLogIsInSameBlock(t *testing.T) {
 	t.Skip()
-	testFilterGetLogs(t, "eth", []GetFilterLogTests{
+	testFilterGetLogs(t, []GetFilterLogTests{
 		{
 			name:      "normal evm log is returned even if synthetic log is in the same block",
 			fromBlock: "0x64", // 100
@@ -262,7 +223,7 @@ func TestFilterEthEndpointReturnsNormalEvmLogEvenIfSyntheticLogIsInSameBlock(t *
 	})
 }
 
-func testFilterGetLogs(t *testing.T, namespace string, tests []GetFilterLogTests) {
+func testFilterGetLogs(t *testing.T, tests []GetFilterLogTests) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			filterCriteria := map[string]interface{}{
@@ -276,14 +237,7 @@ func testFilterGetLogs(t *testing.T, namespace string, tests []GetFilterLogTests
 				filterCriteria["fromBlock"] = tt.fromBlock
 				filterCriteria["toBlock"] = tt.toBlock
 			}
-			var resObj map[string]interface{}
-			if namespace == "eth" {
-				resObj = sendRequestGood(t, "getLogs", filterCriteria)
-			} else if namespace == "sei" {
-				resObj = sendSeiRequestGood(t, "getLogs", filterCriteria)
-			} else {
-				panic("unknown namespace")
-			}
+			resObj := sendRequestGood(t, "getLogs", filterCriteria)
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)
@@ -393,6 +347,47 @@ func TestFilterBlockFilter(t *testing.T) {
 		require.Equal(t, 66, len(hash))
 		require.Equal(t, "0x", hash[:2])
 	}
+}
+
+func TestFilterBlockFilterAutobahn(t *testing.T) {
+	t.Parallel()
+
+	// Setup: create a block filter on the notifier-backed HTTP server (TestMain).
+	resObj := sendRequest(t, TestNotifierHTTPPort, "newBlockFilter")
+	if errVal, ok := resObj["error"]; ok {
+		t.Fatal("newBlockFilter error:", errVal)
+	}
+	blockFilterId := resObj["result"].(string)
+
+	// Test: poll before any committed block.
+	resObj = sendRequest(t, TestNotifierHTTPPort, evmrpc.GetFilterChangesMethod, blockFilterId)
+	// Verify: empty array, not null.
+	hashesInterface, ok := resObj["result"].([]interface{})
+	require.True(t, ok, "getFilterChanges should return [] not null")
+	require.Empty(t, hashesInterface)
+
+	// Test: publish one Autobahn FinalizeBlock hash through the notifier.
+	hash := common.HexToHash("0x4242424242424242424242424242424242424242424242424242424242424242")
+	BlockFilterNotifierForTest.OnBlockCommitted(hash.Bytes(), &tmproto.Header{
+		Height: 1,
+		Time:   time.Unix(1_700_000_500, 0).UTC(),
+	}, &abci.ResponseFinalizeBlock{})
+
+	// Test: poll after the commit.
+	resObj = sendRequest(t, TestNotifierHTTPPort, evmrpc.GetFilterChangesMethod, blockFilterId)
+	if errVal, ok := resObj["error"]; ok {
+		t.Fatal("getFilterChanges error:", errVal)
+	}
+	// Verify: the filter returns that hash, not a zero Tendermint Header.Hash().
+	hashesInterface = resObj["result"].([]interface{})
+	require.Equal(t, []interface{}{hash.Hex()}, hashesInterface)
+
+	// Test: poll again with no new commits.
+	resObj = sendRequest(t, TestNotifierHTTPPort, evmrpc.GetFilterChangesMethod, blockFilterId)
+	// Verify: drained; empty array, not null.
+	hashesInterface, ok = resObj["result"].([]interface{})
+	require.True(t, ok, "exhausted getFilterChanges should return [] not null")
+	require.Empty(t, hashesInterface)
 }
 
 func TestFilterExpiration(t *testing.T) {

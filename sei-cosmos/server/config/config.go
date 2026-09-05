@@ -2,16 +2,19 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 )
 
@@ -29,9 +32,19 @@ const (
 	// simultaneous open connections for the gRPC-web server.
 	DefaultGRPCWebMaxOpenConnections = 1000
 
+	// DefaultGRPCWebMaxConnectionsPerIP defines the default maximum number of
+	// simultaneous open connections one client address may hold on the gRPC-web
+	// server. 0 means unlimited.
+	DefaultGRPCWebMaxConnectionsPerIP = 0
+
 	// DefaultGRPCMaxOpenConnections defines the default maximum number of
 	// simultaneous open connections for the gRPC server. 0 means unlimited.
 	DefaultGRPCMaxOpenConnections = 1000
+
+	// DefaultGRPCMaxConnectionsPerIP defines the default maximum number of
+	// simultaneous open connections one client address may hold on the gRPC
+	// server. 0 means unlimited.
+	DefaultGRPCMaxConnectionsPerIP = 0
 
 	// DefaultGRPCMaxRecvMsgSize defines the default maximum message size in bytes
 	// that the gRPC server can receive (4 MB), mirroring gRPC's own default.
@@ -72,6 +85,25 @@ const (
 	// keepalive pings even when there are no active streams.
 	DefaultGRPCKeepalivePermitWithoutStream = false
 
+	// DefaultGRPCIPRateLimitRPS is the default per-IP sustained request rate in
+	// requests/second for the gRPC plane.
+	DefaultGRPCIPRateLimitRPS = 10.0
+
+	// DefaultGRPCIPRateLimitBurst is the default maximum per-IP burst size for
+	// the gRPC plane.
+	DefaultGRPCIPRateLimitBurst = 20
+
+	// DefaultGRPCMaxInFlightPerIP is the default number of RPCs one client
+	// address may have in flight at once on the gRPC plane.
+	//
+	// Five times the burst, so a client spending its whole bucket at once is not
+	// throttled by this instead. The bound it buys is on simultaneous decodes:
+	// with the default 4 MB message ceiling, one address can hold at most
+	// 100 x 4 MB of request buffers, where before it was capped only by the
+	// per-connection stream limit multiplied by the global connection budget.
+	// 0 means unlimited.
+	DefaultGRPCMaxInFlightPerIP = 100
+
 	// DefaultOccEanbled defines whether to use OCC for tx processing
 	DefaultOccEnabled = true
 )
@@ -111,6 +143,11 @@ type BaseConfig struct {
 	//
 	// Note: Commitment of state will be attempted on the corresponding block.
 	HaltHeight uint64 `mapstructure:"halt-height"`
+
+	// FreezeHeight contains the first block height a full node must not execute.
+	// Query RPC remains available, while transaction and evidence submission,
+	// mempool gossip, and state sync are disabled from startup.
+	FreezeHeight uint64 `mapstructure:"freeze-height"`
 
 	// HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 	// a node will gracefully halt and shutdown that can be used to assist
@@ -224,6 +261,12 @@ type GRPCConfig struct {
 	// connections. 0 means unlimited.
 	MaxOpenConnections uint `mapstructure:"max-open-connections"`
 
+	// MaxConnectionsPerIP defines the maximum number of simultaneous open
+	// connections one client address may hold. It bounds the accepted sockets and
+	// HTTP/2 frame state below the RPC layer, which max-in-flight-per-ip cannot
+	// see. 0 means unlimited.
+	MaxConnectionsPerIP uint `mapstructure:"max-connections-per-ip"`
+
 	// MaxConnectionIdle is the duration after which an idle connection is closed.
 	// 0 means infinity.
 	MaxConnectionIdle time.Duration `mapstructure:"max-connection-idle"`
@@ -251,6 +294,43 @@ type GRPCConfig struct {
 	// KeepalivePermitWithoutStream defines whether the server allows keepalive
 	// pings even when there are no active streams.
 	KeepalivePermitWithoutStream bool `mapstructure:"keepalive-permit-without-stream"`
+
+	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
+	// Zero disables the token bucket (Allow always returns true) and does not
+	// bypass admission when rate-limiting-enabled is true.
+	IPRateLimitRPS float64 `mapstructure:"ip-rate-limit-rps"`
+
+	// IPRateLimitBurst is the maximum per-IP burst size. Zero disables the token
+	// bucket (same effect as ip-rate-limit-rps = 0) and does not bypass
+	// admission when rate-limiting-enabled is true.
+	IPRateLimitBurst int `mapstructure:"ip-rate-limit-burst"`
+
+	// MaxInFlightPerIP is the number of RPCs one client address may have in
+	// flight at once. An RPC is in flight from the moment its headers arrive
+	// until it ends, so this bounds concurrency where the token bucket bounds
+	// only arrival rate. Zero disables the limit. It takes effect only when
+	// rate-limiting-enabled is true.
+	MaxInFlightPerIP int `mapstructure:"max-in-flight-per-ip"`
+
+	// RateLimitingEnabled is the master switch for gRPC rate-limit admission. It
+	// governs gRPC-Web (:9091) as well as native gRPC (:9090), and both planes
+	// draw from the same per-IP buckets.
+	RateLimitingEnabled bool `mapstructure:"rate-limiting-enabled"`
+
+	// TrustedProxyCIDRs lists CIDRs whose x-forwarded-for metadata is trusted
+	// when resolving the client IP for rate limiting. Empty means trust no proxy.
+	// It applies to gRPC-Web (:9091) as well as native gRPC (:9090).
+	TrustedProxyCIDRs []string `mapstructure:"trusted-proxy-cidrs"`
+}
+
+// RateLimiterConfig builds the ratelimiter.Config used by gRPC admission.
+func (c GRPCConfig) RateLimiterConfig() ratelimiter.Config {
+	return ratelimiter.Config{
+		RPS:               c.IPRateLimitRPS,
+		Burst:             c.IPRateLimitBurst,
+		TrustedProxyCIDRs: c.TrustedProxyCIDRs,
+		MaxInFlightPerIP:  c.MaxInFlightPerIP,
+	}
 }
 
 // GRPCWebConfig defines configuration for the gRPC-web server.
@@ -266,6 +346,10 @@ type GRPCWebConfig struct {
 
 	// MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
 	MaxOpenConnections uint `mapstructure:"max-open-connections"`
+
+	// MaxConnectionsPerIP defines the maximum number of simultaneous open
+	// connections one client address may hold. 0 means unlimited.
+	MaxConnectionsPerIP uint `mapstructure:"max-connections-per-ip"`
 }
 
 // StateSyncConfig defines the state sync snapshot configuration.
@@ -302,6 +386,7 @@ type Config struct {
 	GRPC        GRPCConfig               `mapstructure:"grpc"`
 	Rosetta     RosettaConfig            `mapstructure:"rosetta"`
 	GRPCWeb     GRPCWebConfig            `mapstructure:"grpc-web"`
+	Query       QueryConfig              `mapstructure:"query"`
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
@@ -345,6 +430,7 @@ func DefaultConfig() *Config {
 			PruningKeepRecent:  "0",
 			PruningKeepEvery:   "0",
 			PruningInterval:    "0",
+			FreezeHeight:       0,
 			MinRetainBlocks:    0,
 			IndexEvents:        nil,
 			CompactionInterval: 0,
@@ -353,7 +439,7 @@ func DefaultConfig() *Config {
 		},
 		Telemetry: telemetry.Config{
 			Enabled:                 true,
-			PrometheusRetentionTime: 7200,
+			PrometheusRetentionTime: 0,
 			GlobalLabels:            nil,
 		},
 		API: APIConfig{
@@ -370,6 +456,7 @@ func DefaultConfig() *Config {
 			Address:                      DefaultGRPCAddress,
 			MaxRecvMsgSize:               DefaultGRPCMaxRecvMsgSize,
 			MaxOpenConnections:           DefaultGRPCMaxOpenConnections,
+			MaxConnectionsPerIP:          DefaultGRPCMaxConnectionsPerIP,
 			MaxConnectionIdle:            DefaultGRPCMaxConnectionIdle,
 			MaxConnectionAge:             DefaultGRPCMaxConnectionAge,
 			MaxConnectionAgeGrace:        DefaultGRPCMaxConnectionAgeGrace,
@@ -377,6 +464,11 @@ func DefaultConfig() *Config {
 			KeepaliveTimeout:             DefaultGRPCKeepaliveTimeout,
 			KeepaliveMinTime:             DefaultGRPCKeepaliveMinTime,
 			KeepalivePermitWithoutStream: DefaultGRPCKeepalivePermitWithoutStream,
+			IPRateLimitRPS:               DefaultGRPCIPRateLimitRPS,
+			IPRateLimitBurst:             DefaultGRPCIPRateLimitBurst,
+			MaxInFlightPerIP:             DefaultGRPCMaxInFlightPerIP,
+			RateLimitingEnabled:          false,
+			TrustedProxyCIDRs:            nil,
 		},
 		Rosetta: RosettaConfig{
 			Enable:     false,
@@ -387,10 +479,12 @@ func DefaultConfig() *Config {
 			Offline:    false,
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:             true,
-			Address:            DefaultGRPCWebAddress,
-			MaxOpenConnections: DefaultGRPCWebMaxOpenConnections,
+			Enable:              true,
+			Address:             DefaultGRPCWebAddress,
+			MaxOpenConnections:  DefaultGRPCWebMaxOpenConnections,
+			MaxConnectionsPerIP: DefaultGRPCWebMaxConnectionsPerIP,
 		},
+		Query: DefaultQueryConfig(),
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
 			SnapshotKeepRecent: 2,
@@ -420,6 +514,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	globalLabelsRaw, ok := v.Get("telemetry.global-labels").([]interface{})
 	if !ok {
 		return Config{}, fmt.Errorf("failed to parse global-labels config")
+	}
+	freezeHeight, err := cast.ToUint64E(v.Get("freeze-height"))
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid freeze-height: %w", err)
 	}
 
 	globalLabels := make([][]string, 0, len(globalLabelsRaw))
@@ -475,6 +573,9 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if v.IsSet("state-commit.flatkv.snapshot-keep-recent") {
 		flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
 	}
+	if v.IsSet("state-commit.flatkv.max-snapshot-lag-blocks") {
+		flatKVConfig.MaxSnapshotLagBlocks = v.GetUint32("state-commit.flatkv.max-snapshot-lag-blocks")
+	}
 	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
 		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
 	}
@@ -508,6 +609,13 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		memIAVLConfig.SnapshotPrefetchThreshold = v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold")
 	}
 
+	// Absent key means an app.toml rendered before SS snapshots existed, which
+	// should keep the in-code default (off) rather than rely on viper's zero.
+	ssSnapshotEnable := config.DefaultStateStoreConfig().SnapshotEnable
+	if v.IsSet("state-store.ss-snapshot-enable") {
+		ssSnapshotEnable = v.GetBool("state-store.ss-snapshot-enable")
+	}
+
 	// Apply the in-code default when the key is absent so that nodes upgrading
 	// with an older app.toml (which lacks this key) are still bounded rather
 	// than running with unlimited connections.
@@ -515,10 +623,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	if v.IsSet("grpc-web.max-open-connections") {
 		grpcWebMaxOpenConnections = v.GetUint("grpc-web.max-open-connections")
 	}
+	grpcWebMaxConnectionsPerIP := uint(DefaultGRPCWebMaxConnectionsPerIP)
+	if v.IsSet("grpc-web.max-connections-per-ip") {
+		grpcWebMaxConnectionsPerIP = v.GetUint("grpc-web.max-connections-per-ip")
+	}
 
 	// Apply in-code defaults when keys are absent so that nodes upgrading with an
-	// older app.toml (which lacks these keys) remain bounded rather than running
-	// with unlimited connections / message sizes.
+	// older app.toml (which lacks these keys) pick up the declared defaults rather
+	// than running with zero values where a limit is intended.
 	grpcMaxRecvMsgSize := DefaultGRPCMaxRecvMsgSize
 	if v.IsSet("grpc.max-recv-msg-size") {
 		grpcMaxRecvMsgSize = v.GetInt("grpc.max-recv-msg-size")
@@ -526,6 +638,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxOpenConnections := uint(DefaultGRPCMaxOpenConnections)
 	if v.IsSet("grpc.max-open-connections") {
 		grpcMaxOpenConnections = v.GetUint("grpc.max-open-connections")
+	}
+	grpcMaxConnectionsPerIP := uint(DefaultGRPCMaxConnectionsPerIP)
+	if v.IsSet("grpc.max-connections-per-ip") {
+		grpcMaxConnectionsPerIP = v.GetUint("grpc.max-connections-per-ip")
 	}
 	// Clamp negative durations back to their in-code defaults. A negative
 	// keepalive/connection-age value is a misconfiguration that gRPC would
@@ -551,7 +667,24 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	grpcMaxConnectionAge := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age"), DefaultGRPCMaxConnectionAge)
 	grpcMaxConnectionAgeGrace := clampNonNegativeDuration(v.GetDuration("grpc.max-connection-age-grace"), DefaultGRPCMaxConnectionAgeGrace)
 
-	return Config{
+	grpcIPRateLimitRPS := DefaultGRPCIPRateLimitRPS
+	if v.IsSet("grpc.ip-rate-limit-rps") {
+		grpcIPRateLimitRPS = v.GetFloat64("grpc.ip-rate-limit-rps")
+	}
+	grpcIPRateLimitBurst := DefaultGRPCIPRateLimitBurst
+	if v.IsSet("grpc.ip-rate-limit-burst") {
+		grpcIPRateLimitBurst = v.GetInt("grpc.ip-rate-limit-burst")
+	}
+	grpcMaxInFlightPerIP := DefaultGRPCMaxInFlightPerIP
+	if v.IsSet("grpc.max-in-flight-per-ip") {
+		grpcMaxInFlightPerIP = v.GetInt("grpc.max-in-flight-per-ip")
+	}
+	grpcTrustedProxyCIDRs := []string(nil)
+	if v.IsSet("grpc.trusted-proxy-cidrs") {
+		grpcTrustedProxyCIDRs = v.GetStringSlice("grpc.trusted-proxy-cidrs")
+	}
+
+	cfg := Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
 			InterBlockCache:    v.GetBool("inter-block-cache"),
@@ -559,6 +692,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			PruningKeepRecent:  v.GetString("pruning-keep-recent"),
 			PruningInterval:    v.GetString("pruning-interval"),
 			HaltHeight:         v.GetUint64("halt-height"),
+			FreezeHeight:       freezeHeight,
 			HaltTime:           v.GetUint64("halt-time"),
 			IndexEvents:        v.GetStringSlice("index-events"),
 			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),
@@ -598,6 +732,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			Address:                      v.GetString("grpc.address"),
 			MaxRecvMsgSize:               grpcMaxRecvMsgSize,
 			MaxOpenConnections:           grpcMaxOpenConnections,
+			MaxConnectionsPerIP:          grpcMaxConnectionsPerIP,
 			MaxConnectionIdle:            grpcMaxConnectionIdle,
 			MaxConnectionAge:             grpcMaxConnectionAge,
 			MaxConnectionAgeGrace:        grpcMaxConnectionAgeGrace,
@@ -605,12 +740,18 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepaliveTimeout:             grpcKeepaliveTimeout,
 			KeepaliveMinTime:             grpcKeepaliveMinTime,
 			KeepalivePermitWithoutStream: v.GetBool("grpc.keepalive-permit-without-stream"),
+			IPRateLimitRPS:               grpcIPRateLimitRPS,
+			IPRateLimitBurst:             grpcIPRateLimitBurst,
+			MaxInFlightPerIP:             grpcMaxInFlightPerIP,
+			RateLimitingEnabled:          v.GetBool("grpc.rate-limiting-enabled"),
+			TrustedProxyCIDRs:            grpcTrustedProxyCIDRs,
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:             v.GetBool("grpc-web.enable"),
-			Address:            v.GetString("grpc-web.address"),
-			EnableUnsafeCORS:   v.GetBool("grpc-web.enable-unsafe-cors"),
-			MaxOpenConnections: grpcWebMaxOpenConnections,
+			Enable:              v.GetBool("grpc-web.enable"),
+			Address:             v.GetString("grpc-web.address"),
+			EnableUnsafeCORS:    v.GetBool("grpc-web.enable-unsafe-cors"),
+			MaxOpenConnections:  grpcWebMaxOpenConnections,
+			MaxConnectionsPerIP: grpcWebMaxConnectionsPerIP,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),
@@ -636,6 +777,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			EnableReadWriteMetrics: v.GetBool(
 				"state-store.ss-enable-read-write-metrics",
 			),
+			SnapshotEnable:    ssSnapshotEnable,
 			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
 			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
 			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
@@ -644,10 +786,13 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			StreamImport:      v.GetBool("genesis.stream-import"),
 			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
-	}, nil
+		Query: DefaultQueryConfig(),
+	}
+
+	return cfg, nil
 }
 
-// ValidateBasic returns an error if min-gas-prices field is empty in BaseConfig. Otherwise, it returns nil.
+// ValidateBasic validates the server configuration.
 func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 	if c.MinGasPrices == "" {
 		return sdkerrors.ErrAppConfig.Wrap("set min gas price in app.toml or flag or env variable")
@@ -656,6 +801,17 @@ func (c Config) ValidateBasic(tendermintConfig *tmcfg.Config) error {
 		return sdkerrors.ErrAppConfig.Wrapf(
 			"cannot enable state sync snapshots with '%s' pruning setting", storetypes.PruningOptionEverything,
 		)
+	}
+	return c.ValidateFreeze()
+}
+
+// ValidateFreeze validates the configuration that controls freeze mode.
+func (c Config) ValidateFreeze() error {
+	if c.FreezeHeight > math.MaxInt64 {
+		return sdkerrors.ErrAppConfig.Wrapf("freeze-height must not exceed %d", int64(math.MaxInt64))
+	}
+	if c.FreezeHeight > 0 && (c.HaltHeight > 0 || c.HaltTime > 0) {
+		return sdkerrors.ErrAppConfig.Wrap("freeze-height cannot be combined with halt-height or halt-time")
 	}
 
 	return nil

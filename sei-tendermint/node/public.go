@@ -7,6 +7,9 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
@@ -17,11 +20,30 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "node")
 
-// New constructs a tendermint node. The provided app runs in the same
-// process as the tendermint node and will be wrapped in a local ABCI client
-// inside this function. The final option is a pointer to a Genesis document:
-// if the value is nil, the genesis document is read from the file specified
-// in the config, and otherwise the node uses value of the final argument.
+type options struct {
+	freezeHeight uint64
+}
+
+// Option configures optional node behavior.
+type Option func(*options)
+
+// WithFreezeHeight stops block sync and consensus before executing height; 0 disables freezing.
+func WithFreezeHeight(height uint64) Option {
+	return func(opts *options) {
+		opts.freezeHeight = height
+	}
+}
+
+func resolveOptions(nodeOptions ...Option) options {
+	var opts options
+	for _, apply := range nodeOptions {
+		apply(&opts)
+	}
+	return opts
+}
+
+// New constructs a Tendermint node around an in-process ABCI application.
+// A non-nil genesis document overrides the file selected by the node config.
 func New(
 	ctx context.Context,
 	conf *config.Config,
@@ -30,7 +52,19 @@ func New(
 	gen *tmtypes.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy tmtypes.ConsensusPolicy,
+	nodeOptions ...Option,
 ) (local.NodeService, error) {
+	if err := validateNodeSetupConfig(conf); err != nil {
+		return nil, err
+	}
+	opts := resolveOptions(nodeOptions...)
+	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
+		return nil, err
+	}
+	app, err := prepareApplication(conf, app)
+	if err != nil {
+		return nil, err
+	}
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -63,6 +97,7 @@ func New(
 			config.DefaultDBProvider,
 			tracerProviderOptions,
 			consensusPolicy,
+			nodeOptions...,
 		)
 	case config.ModeSeed:
 		return makeSeedNode(
@@ -74,4 +109,61 @@ func New(
 	default:
 		return nil, fmt.Errorf("%q is not a valid mode", conf.Mode)
 	}
+}
+
+func validateFreezeMode(mode string, freezeHeight uint64) error {
+	if freezeHeight == 0 || mode == config.ModeFull {
+		return nil
+	}
+	switch mode {
+	case config.ModeValidator, config.ModeSeed:
+		return fmt.Errorf("freeze height is not supported in %s mode", mode)
+	default:
+		return nil
+	}
+}
+
+func validateNodeSetupConfig(conf *config.Config) error {
+	if conf.MockApp && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("mock-app requires autobahn-config-file")
+	}
+	if conf.EVMOnlyInMemory && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("evm-only-in-memory requires autobahn-config-file")
+	}
+	return nil
+}
+
+func prepareApplication(conf *config.Config, app abci.Application) (abci.Application, error) {
+	if conf.EVMOnlyInMemory {
+		validators, err := evmOnlyValidatorUpdates(conf.AutobahnConfigFile)
+		if err != nil {
+			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
+		}
+		logger.Warn("Autobahn EVM-only in-memory execution enabled; state is ephemeral and unsafe for persistent networks")
+		return p2p.NewEVMOnlyInMemoryApplication(config.AutobahnEVMOnlyInMemoryChainID, validators), nil
+	}
+	if conf.MockApp {
+		return NewMockApp(app), nil
+	}
+	if conf.FastCheckTx {
+		return fastCheckTxApplication{Application: app}, nil
+	}
+	return app, nil
+}
+
+func evmOnlyValidatorUpdates(autobahnConfigFile string) ([]abci.ValidatorUpdate, error) {
+	fc, _, err := loadAutobahnCommittee(autobahnConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	validators := make([]abci.ValidatorUpdate, len(fc.Validators))
+	for i, validator := range fc.Validators {
+		key, err := ed25519.PublicKeyFromBytes(validator.ValidatorKey.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("validator %d public key: %w", i, err)
+		}
+		// BuildDataState assigns unit voting power to every configured Autobahn validator.
+		validators[i] = abci.ValidatorUpdate{PubKey: crypto.PubKeyToProto(key), Power: 1}
+	}
+	return validators, nil
 }

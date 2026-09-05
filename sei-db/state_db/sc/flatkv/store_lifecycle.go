@@ -11,71 +11,43 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// isClosed reports whether the store's DB handles have been released.
+// isClosed reports whether the store's databases have been released. The stores own them, so an open
+// store is one that still has stores.
 func (s *CommitStore) isClosed() bool {
-	return s.metadataDB == nil && s.accountDB == nil &&
-		s.codeDB == nil && s.storageDB == nil && s.miscDB == nil
+	return s.stores == nil
 }
 
-// closeDBsOnly closes all database handles but retains the file lock, preventing a race window during
-// Rollback or LoadVersion. It deliberately does NOT close the WAL: the injected WAL's lifecycle is decoupled
-// from the DB open/close cycle and must survive the reopen that Rollback/LoadVersion perform. The WAL is
-// closed only by top-level Close (or replaced in place by Rollback/restore).
+// closeDBsOnly closes the stores, and with them the databases they own, while retaining the file lock —
+// which prevents a race window during Rollback or LoadVersion.
+//
+// It deliberately does NOT close the WAL: the injected WAL's lifecycle is decoupled from the DB
+// open/close cycle and must survive the reopen that Rollback/LoadVersion perform. The WAL is closed
+// only by top-level Close, or replaced in place by Rollback/restore.
 func (s *CommitStore) closeDBsOnly() error {
-	var errs []error
-
-	if s.metadataDB != nil {
-		if err := s.metadataDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("metadataDB close: %w", err))
-		}
-		s.metadataDB = nil
+	if err := s.closeStores(); err != nil {
+		return fmt.Errorf("stores close: %w", err)
 	}
-
-	if s.storageDB != nil {
-		if err := s.storageDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("storageDB close: %w", err))
-		}
-		s.storageDB = nil
-	}
-	if s.codeDB != nil {
-		if err := s.codeDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("codeDB close: %w", err))
-		}
-		s.codeDB = nil
-	}
-	if s.accountDB != nil {
-		if err := s.accountDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("accountDB close: %w", err))
-		}
-		s.accountDB = nil
-	}
-
-	if s.miscDB != nil {
-		if err := s.miscDB.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("miscDB close: %w", err))
-		}
-		s.miscDB = nil
-	}
-
 	s.localMeta = make(map[string]*ktype.LocalMeta)
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
 	return nil
 }
 
-// Close drains thread pools, closes all database instances, cancels the store's context to stop background
-// goroutines (caches, metrics), and releases the file lock.
+// Close releases everything the store owns: it drains the thread pools, closes the databases and the WAL,
+// cancels the store's context to stop background goroutines (caches, metrics), and releases the file lock.
 //
-// Close does not coordinate with concurrent operations: it releases resources they still hold, and no lock
-// guards them against it. Callers need not quiesce first — a background export replaying this store's WAL into
-// a read-only clone (see replayIntoReadOnlyCopy) ends with a closed-WAL error.
-//
-// That overlap includes an unsynchronized read of the WAL's closed flag. The racing read either observes the
-// flag or falls through to the WAL's own closed check, so it changes nothing a caller can see, but a test that
-// closes the store while an export runs would trip the race detector.
+// NOT safe to call concurrently with any other method on this store. Close takes no lock and coordinates
+// with nothing, so it releases resources a concurrent call is still using — including a background export
+// reading through this store's WAL. The caller must quiesce the store first.
 func (s *CommitStore) Close() error {
+	// Stores before pools, and pools before databases. The stores' lifecycle goroutines flush through
+	// the databases, and a database's own cache layer submits its writes to miscPool, so closing the
+	// pools while a store is still flushing panics with "submit on closed pool". Store Close does not
+	// return until no store-owned goroutine will touch the database again, which is exactly the
+	// guarantee that makes the rest of this teardown safe.
+	var storeErr error
+	if err := s.closeStores(); err != nil {
+		storeErr = fmt.Errorf("stores close: %w", err)
+	}
+
 	if s.readPool != nil {
 		s.readPool.Close()
 		s.readPool = nil
@@ -92,7 +64,7 @@ func (s *CommitStore) Close() error {
 	// submit to a closed pool. resetPools recreates both together.
 	s.ltCalc = nil
 
-	err := s.closeDBsOnly()
+	err := errors.Join(storeErr, s.closeDBsOnly())
 
 	// FlatKV owns Close of whatever WAL instance it currently holds (the injected one, or a replacement made
 	// by rollback/restore). A nil WAL means the outer context owns the pipeline — nothing to close. The

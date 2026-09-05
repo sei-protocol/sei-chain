@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -157,10 +158,9 @@ func (suite *IntegrationTestSuite) TestSendCoinsAndWei() {
 	require.Equal(sdk.NewInt(53), keeper.GetBalance(ctx, addr3, sdk.DefaultBondDenom).Amount)
 }
 
-func (suite *IntegrationTestSuite) TestGetPaginatedTotalSupplyMaxLimitExceeded() {
-	_, _, err := suite.app.BankKeeper.GetPaginatedTotalSupply(suite.ctx, &query.PageRequest{Limit: query.MaxLimit + 1})
-	suite.Require().Error(err)
-	suite.Require().Contains(err.Error(), "exceeds maximum allowed limit")
+func (suite *IntegrationTestSuite) TestGetPaginatedTotalSupplyMaxLimit() {
+	_, _, err := suite.app.BankKeeper.GetPaginatedTotalSupply(suite.ctx, &query.PageRequest{Limit: query.MaxLimit})
+	suite.Require().NoError(err)
 }
 
 func (suite *IntegrationTestSuite) TestSupply() {
@@ -199,10 +199,10 @@ func (suite *IntegrationTestSuite) TestCollectAllTotalSupplyMultiPage() {
 
 	_, bk := suite.initKeepersWithmAccPerms(make(map[string]bool))
 
-	// 2.5x MaxLimit denoms so CollectAllTotalSupply must merge three pages (two
-	// full, one partial). Distinct amounts per denom so a dropped or duplicated
-	// page boundary changes the result, not just the count.
-	numDenoms := int(query.MaxLimit*2 + query.MaxLimit/2)
+	// 2.5x CollectAllTotalSupply's internal page size (1,000) so it must merge
+	// three pages (two full, one partial). Distinct amounts per denom so a
+	// dropped or duplicated page boundary changes the result, not just the count.
+	const numDenoms = 2_500
 	coins := make(sdk.Coins, numDenoms)
 	for i := 0; i < numDenoms; i++ {
 		coins[i] = sdk.NewInt64Coin(fmt.Sprintf("denom%05d", i), int64(i+1))
@@ -1540,6 +1540,27 @@ func (suite *IntegrationTestSuite) TestUndelegateCoins_Invalid() {
 	app.AccountKeeper.SetAccount(ctx, acc)
 
 	suite.Require().Error(app.BankKeeper.UndelegateCoins(ctx, addrModule, addr1, delCoins))
+}
+
+func (suite *IntegrationTestSuite) TestUndelegateCoins_InvalidRecipientIsAtomic() {
+	app, ctx := suite.app, suite.ctx
+	moduleAddr := sdk.AccAddress([]byte("moduleAcc___________"))
+	delegatorAddr := sdk.AccAddress([]byte("delegator___________"))
+	amount := sdk.NewCoins(sdk.NewInt64Coin("usei", 50))
+
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, moduleAddr))
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, delegatorAddr))
+	suite.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, moduleAddr, amount))
+	app.BankKeeper.RegisterRecipientChecker(func(_ sdk.Context, recipient sdk.AccAddress) bool {
+		return !recipient.Equals(delegatorAddr)
+	})
+
+	moduleBalanceBefore := app.BankKeeper.GetAllBalances(ctx, moduleAddr)
+	delegatorBalanceBefore := app.BankKeeper.GetAllBalances(ctx, delegatorAddr)
+	err := app.BankKeeper.UndelegateCoins(ctx, moduleAddr, delegatorAddr, amount)
+	suite.Require().ErrorIs(err, sdkerrors.ErrInvalidRecipient)
+	suite.Require().Equal(moduleBalanceBefore, app.BankKeeper.GetAllBalances(ctx, moduleAddr))
+	suite.Require().Equal(delegatorBalanceBefore, app.BankKeeper.GetAllBalances(ctx, delegatorAddr))
 }
 
 func (suite *IntegrationTestSuite) TestSetDenomMetaData() {

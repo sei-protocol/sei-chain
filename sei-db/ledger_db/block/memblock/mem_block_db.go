@@ -1,325 +1,187 @@
 package memblock
 
 import (
-	"fmt"
-	"sort"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	blocktypes "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/types"
 )
 
-var _ types.BlockDB = (*blockDB)(nil)
+var _ blocktypes.BlockDB = (*blockDB)(nil)
 
-// qcEntry pairs a QC with the half-open range [lower, upper) it covers, as
-// derived from the QC itself by coveredRange.
-type qcEntry struct {
-	qc    *types.FullCommitQC
-	lower types.GlobalBlockNumber
-	upper types.GlobalBlockNumber
+// recordKey addresses a stored value by the kind and number it is filed under.
+type recordKey struct {
+	kind   blocktypes.RecordKind
+	number uint64
 }
 
-// hashEntry pairs a block with its GlobalBlockNumber so ReadBlockByHash can
-// return the number, mirroring the littblock implementation which embeds it in
-// the stored value.
-type hashEntry struct {
-	blk *types.Block
-	n   types.GlobalBlockNumber
+// record is one primary entry in the write-order log. next is the exclusive end
+// of the range the value is addressable over, and hash is the header-hash alias
+// of a block record, empty for every other kind; reclamation needs both to find
+// the entries a dropped record leaves behind.
+type record struct {
+	kind   blocktypes.RecordKind
+	number uint64
+	next   uint64
+	hash   string
+	value  []byte
 }
 
-// blockDB is an in-memory types.BlockDB. It holds blocks and QCs by pointer (no
-// marshaling) and is intended as a test/benchmark fixture, not a durable
-// implementation.
+// blockDB is an in-memory blocktypes.BlockDB. Records are kept in maps for
+// lookup and in an append-only log for write-order scans. Raising the watermark
+// reclaims eagerly, so memory tracks what the store still serves.
 type blockDB struct {
-	mu         sync.RWMutex
-	byNumber   map[types.GlobalBlockNumber]*types.Block
-	byHash     map[types.BlockHeaderHash]hashEntry
-	qcsByLower map[types.GlobalBlockNumber]qcEntry
+	mu sync.RWMutex
 
-	// Write-order cursors (see types.BlockDB contract).
-	hasBlocks       bool
-	lastBlockNumber types.GlobalBlockNumber
-	hasQC           bool
-	lastQCNext      types.GlobalBlockNumber
-
-	// latestQCStartBlock is the most recently written QC's starting block number —
-	// the lowest block number in the newest cohort. PruneBefore clamps to it (see
-	// littblock).
-	latestQCStartBlock types.GlobalBlockNumber
-
-	// firstBlockNumber is the lowest block number written. Iterator clamps its start up to
-	// it so a scan always opens on a block that exists; the first block may land anywhere
-	// inside its covering QC, so this can sit above that QC's start with no block in
-	// between. Meaningful only while hasBlocks.
-	firstBlockNumber types.GlobalBlockNumber
-
-	// watermark is the (clamped) retention floor set by PruneBefore. Reads
-	// strictly below it are refused with types.ErrPruned; because pruned entries
-	// are deleted eagerly, this is the only record of where the floor sits and
-	// so the only way to tell a pruned block from one never written.
-	watermark types.GlobalBlockNumber
+	// log holds one entry per primary record, in the order it was written.
+	log []record
+	// values maps every number a record is addressable at — its primary and
+	// each covered-range alias — to the single shared value.
+	values map[recordKey][]byte
+	// blocksByHash aliases block records by header hash.
+	blocksByHash map[string][]byte
+	// watermark is the reclamation floor.
+	watermark uint64
 }
 
-// NewBlockDB returns an in-memory types.BlockDB.
-func NewBlockDB() types.BlockDB {
+// NewBlockDB returns an in-memory blocktypes.BlockDB.
+func NewBlockDB() blocktypes.BlockDB {
 	return &blockDB{
-		byNumber:   make(map[types.GlobalBlockNumber]*types.Block),
-		byHash:     make(map[types.BlockHeaderHash]hashEntry),
-		qcsByLower: make(map[types.GlobalBlockNumber]qcEntry),
+		values:       make(map[recordKey][]byte),
+		blocksByHash: make(map[string][]byte),
 	}
 }
 
-func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
+func (s *blockDB) PutRecord(kind blocktypes.RecordKind, first, next uint64, value []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.hasBlocks && n != s.lastBlockNumber+1 {
-		return fmt.Errorf("block number %d not contiguous with last written %d: %w",
-			n, s.lastBlockNumber, types.ErrBlockOutOfOrder)
+	for n := first; n < next; n++ {
+		s.values[recordKey{kind: kind, number: n}] = value
 	}
-	// A covering QC must already be written. QCs are contiguous and blocks
-	// strictly ascending, so n is covered iff n < lastQCNext.
-	if !s.hasQC || n >= s.lastQCNext {
-		return fmt.Errorf("block number %d not covered by any written QC (next QC bound %d): %w",
-			n, s.lastQCNext, types.ErrBlockMissingQC)
-	}
-	s.byNumber[n] = blk
-	s.byHash[blk.Header().Hash()] = hashEntry{blk: blk, n: n}
-	if !s.hasBlocks {
-		s.firstBlockNumber = n
-	}
-	s.lastBlockNumber = n
-	s.hasBlocks = true
+	s.log = append(s.log, record{kind: kind, number: first, next: next, value: value})
 	return nil
 }
 
-// coveredRange returns the half-open global block number range the QC covers,
-// as specified by types.BlockDB.WriteQC: [First, First+len(Headers())). Derived
-// identically in littblock — see the comment there for why the bound comes from
-// the header count rather than from GlobalRange().Next.
-func coveredRange(qc *types.FullCommitQC) (types.GlobalBlockNumber, types.GlobalBlockNumber) {
-	first := qc.QC().GlobalRange().First
-	return first, first + types.GlobalBlockNumber(len(qc.Headers()))
-}
-
-func (s *blockDB) WriteQC(qc *types.FullCommitQC) error {
-	first, next := coveredRange(qc)
-	if first >= next {
-		return fmt.Errorf("QC at %d covers no blocks: %w", first, types.ErrQCNonContiguous)
-	}
+func (s *blockDB) PutBlock(n uint64, hash []byte, value []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.hasQC && first != s.lastQCNext {
-		return fmt.Errorf("QC starts at %d, expected %d: %w",
-			first, s.lastQCNext, types.ErrQCNonContiguous)
-	}
-	s.qcsByLower[first] = qcEntry{qc: qc, lower: first, upper: next}
-	s.latestQCStartBlock = first
-	s.lastQCNext = next
-	s.hasQC = true
+	s.values[recordKey{kind: blocktypes.KindBlock, number: n}] = value
+	s.blocksByHash[string(hash)] = value
+	s.log = append(s.log, record{
+		kind: blocktypes.KindBlock, number: n, next: n + 1, hash: string(hash), value: value,
+	})
 	return nil
 }
 
-func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
+func (s *blockDB) GetRecord(kind blocktypes.RecordKind, n uint64) ([]byte, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.values[recordKey{kind: kind, number: n}]
+	return value, ok, nil
+}
+
+func (s *blockDB) GetBlockByHash(hash []byte) ([]byte, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.blocksByHash[string(hash)]
+	return value, ok, nil
+}
+
+func (s *blockDB) Scan(newestFirst bool) (blocktypes.RecordIterator, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	// The log is append-only and its entries are immutable, so a reslice is a
+	// snapshot of the records present now.
+	return &recordIterator{records: s.log[:len(s.log):len(s.log)], newestFirst: newestFirst, pos: -1}, nil
+}
+
+// GetPruneWatermark returns the reclamation floor.
+func (s *blockDB) GetPruneWatermark() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.watermark
+}
+
+// SetPruneWatermark raises the reclamation floor to n and immediately drops
+// every record that falls wholly below it.
+func (s *blockDB) SetPruneWatermark(n uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.hasBlocks {
-		// No blocks yet: nothing to prune, and deleting QCs here would strand a
-		// future block whose coverage check still passes. Mirrors littblock.
-		return nil
+	if n <= s.watermark {
+		return
 	}
-	// Never let the watermark enter the newest block's cohort: clamp its ceiling
-	// at the cohort's first block (latestQCStartBlock), guarded by lastBlockNumber
-	// for a QC written ahead of its blocks. Keeps the newest cohort whole and
-	// pruning monotonic. See littblock and the BlockDB PruneBefore contract.
-	if ceiling := min(s.latestQCStartBlock, s.lastBlockNumber); n > ceiling {
-		n = ceiling
-	}
-	// Round the watermark down to the covering QC's First. A QC's cohort of
-	// blocks changes readability atomically, so the watermark must never fall
-	// strictly inside a QC's range (see littblock): otherwise a read would
-	// refuse the cohort's low blocks while still serving its high blocks (which
-	// pruning must retain).
-	for _, e := range s.qcsByLower {
-		if e.lower <= n && n < e.upper {
-			n = e.lower
-			break
+	s.watermark = n
+	s.reclaim()
+}
+
+// reclaim drops the records whose coverage ends at or below the watermark. A
+// record straddling it is kept whole, since its value is shared by every number
+// it covers. mu must be held.
+func (s *blockDB) reclaim() {
+	// A fresh slice rather than a filter in place: iterators handed out by Scan
+	// hold a reslice of the current backing array as their snapshot.
+	kept := make([]record, 0, len(s.log))
+	for _, rec := range s.log {
+		if rec.next > s.watermark {
+			kept = append(kept, rec)
+			continue
+		}
+		for n := rec.number; n < rec.next; n++ {
+			delete(s.values, recordKey{kind: rec.kind, number: n})
+		}
+		if rec.hash != "" {
+			delete(s.blocksByHash, rec.hash)
 		}
 	}
-	s.watermark = max(s.watermark, n)
-	for num, blk := range s.byNumber {
-		if num < s.watermark {
-			delete(s.byNumber, num)
-			delete(s.byHash, blk.Header().Hash())
-		}
-	}
-	for lower, e := range s.qcsByLower {
-		if e.upper <= s.watermark {
-			delete(s.qcsByLower, lower)
-		}
-	}
+	s.log = kept
+}
+
+// Flush is a no-op: an in-memory store has no disk to make durable.
+func (s *blockDB) Flush() error {
 	return nil
 }
 
-func (s *blockDB) Flush() error { return nil }
-
-func (s *blockDB) Status() types.DBStatus {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var tips types.DBStatus
-	if s.hasBlocks {
-		tips.NextBlock = s.lastBlockNumber + 1
-	}
-	if s.hasQC {
-		tips.NextQC = s.lastQCNext
-	}
-	return tips
-}
-
-func (s *blockDB) Iterator(n types.GlobalBlockNumber) (types.BlockDBIterator, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Clamp up to the lowest number this store can serve: the retention gate, and the start of
-	// the block history so a scan opens on a block that exists rather than on blockless numbers
-	// below it (the first block may land inside its covering QC's range). With no block at all
-	// the per-entry clamp in iteratorLocked governs, so a QC written ahead of its blocks is
-	// still iterable.
-	start := max(n, s.watermark)
-	if s.hasBlocks {
-		start = max(start, s.firstBlockNumber)
-	}
-	entries := s.sortedQCsLocked()
-	if len(entries) == 0 || start >= entries[len(entries)-1].upper {
-		// Nothing is covered at or above the (clamped) start.
-		return &memBlockDBIterator{idx: -1}, nil
-	}
-	return s.iteratorLocked(entries, start), nil
-}
-
-// sortedQCsLocked returns the retained QC entries ascending by lower bound. Caller holds mu.
-func (s *blockDB) sortedQCsLocked() []qcEntry {
-	entries := make([]qcEntry, 0, len(s.qcsByLower))
-	for _, e := range s.qcsByLower {
-		entries = append(entries, e)
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].lower < entries[j].lower })
-	return entries
-}
-
-// iteratorLocked snapshots every covered number from start upward (clamping up to the first
-// covered number when start falls below all coverage), pairing each with its covering QC and
-// (possibly absent) block. Caller holds mu and guarantees some entry's range ends above start.
-//
-// Copying the whole range up front is how this store satisfies the iterator's snapshot
-// guarantee: the records live in maps that later writes and prunes mutate in place, so a
-// lazy walk would observe them. Residency is not something BlockDB.Iterator promises, and a
-// store that already holds every record in memory has nothing to stream anyway.
-func (s *blockDB) iteratorLocked(entries []qcEntry, start types.GlobalBlockNumber) *memBlockDBIterator {
-	it := &memBlockDBIterator{idx: -1}
-	for _, e := range entries {
-		for num := max(e.lower, start); num < e.upper; num++ {
-			it.nums = append(it.nums, num)
-			it.qcs = append(it.qcs, e.qc)
-			it.blocks = append(it.blocks, s.byNumber[num])
-		}
-	}
-	return it
-}
-
-var _ types.BlockDBIterator = (*memBlockDBIterator)(nil)
-
-// memBlockDBIterator steps through a snapshot of covered numbers captured at creation.
-type memBlockDBIterator struct {
-	// nums holds every covered number, ascending.
-	nums []types.GlobalBlockNumber
-
-	// qcs holds the covering QC per position.
-	qcs []*types.FullCommitQC
-
-	// blocks holds the block per position; nil where no block is persisted.
-	blocks []*types.Block
-
-	// idx is the current position; -1 before the first Next and len(nums) once exhausted.
-	idx int
-
-	// closed is true once Close has been called. Block rejects calls made afterward.
-	closed bool
-}
-
-func (it *memBlockDBIterator) Next() (types.Position, bool, error) {
-	if it.idx < len(it.nums) {
-		it.idx++
-	}
-	if !it.positioned() {
-		return types.Position{}, false, nil
-	}
-	return types.Position{
-		Number:   it.nums[it.idx],
-		QC:       it.qcs[it.idx],
-		HasBlock: it.blocks[it.idx] != nil,
-	}, true, nil
-}
-
-func (it *memBlockDBIterator) Block() (utils.Option[*types.Block], error) {
-	if !it.positioned() {
-		return utils.None[*types.Block](), fmt.Errorf("iterator is not positioned on a block number")
-	}
-	if it.blocks[it.idx] == nil {
-		return utils.None[*types.Block](), nil
-	}
-	return utils.Some(it.blocks[it.idx]), nil
-}
-
-func (it *memBlockDBIterator) Close() error {
-	// Mirrors littblock: a closed iterator holds no position, so Block reports misuse.
-	it.closed = true
+// Close is a no-op: an in-memory store holds no resources to release.
+func (s *blockDB) Close() error {
 	return nil
 }
 
-// positioned reports whether the iterator sits on a number Next yielded.
-func (it *memBlockDBIterator) positioned() bool {
-	return !it.closed && it.idx >= 0 && it.idx < len(it.nums)
+// recordIterator walks a snapshot of the write-order log.
+type recordIterator struct {
+	records     []record
+	newestFirst bool
+	// pos counts advances, starting at -1 before the first Next.
+	pos int
 }
 
-func (s *blockDB) ReadBlockByNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.Block], error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if n < s.watermark {
-		return utils.None[*types.Block](), types.ErrPruned
+func (r *recordIterator) Next() (bool, error) {
+	if r.pos+1 >= len(r.records) {
+		r.pos = len(r.records)
+		return false, nil
 	}
-	if blk, ok := s.byNumber[n]; ok {
-		return utils.Some(blk), nil
-	}
-	return utils.None[*types.Block](), nil
+	r.pos++
+	return true, nil
 }
 
-func (s *blockDB) ReadBlockByHash(
-	hash types.BlockHeaderHash,
-) (utils.Option[types.BlockWithNumber], error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if e, ok := s.byHash[hash]; ok {
-		return utils.Some(types.BlockWithNumber{Block: e.blk, Number: e.n}), nil
+func (r *recordIterator) current() record {
+	if r.newestFirst {
+		return r.records[len(r.records)-1-r.pos]
 	}
-	return utils.None[types.BlockWithNumber](), nil
+	return r.records[r.pos]
 }
 
-func (s *blockDB) ReadQCByBlockNumber(
-	n types.GlobalBlockNumber,
-) (utils.Option[*types.FullCommitQC], error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if n < s.watermark {
-		return utils.None[*types.FullCommitQC](), types.ErrPruned
-	}
-	for _, e := range s.qcsByLower {
-		if e.lower <= n && n < e.upper {
-			return utils.Some(e.qc), nil
-		}
-	}
-	return utils.None[*types.FullCommitQC](), nil
+func (r *recordIterator) Kind() blocktypes.RecordKind {
+	return r.current().kind
 }
 
-func (s *blockDB) Close() error { return nil }
+func (r *recordIterator) Number() uint64 {
+	return r.current().number
+}
+
+func (r *recordIterator) Value() ([]byte, error) {
+	return r.current().value, nil
+}
+
+// Close is a no-op: the iterator holds no resources.
+func (r *recordIterator) Close() error {
+	return nil
+}

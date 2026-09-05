@@ -2,25 +2,39 @@ package flatkv
 
 import (
 	"fmt"
-	"maps"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"go.opentelemetry.io/otel/metric"
 )
 
-// ApplyChangeSets classifies changesets, buffers pending writes, and folds
-// them into the working LtHash. Non-EVM modules go to miscDB under "<module>/".
-// Row last-modified heights are stamped with version; the same version must be
-// passed to the subsequent Commit.
-func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) (err error) {
-	// Hold the write lock for the whole body: it both reads (old values) and
-	// mutates (maps.Copy) the pending-writes maps, which iterator construction
-	// and Get read under a read lock.
+// ApplyChangeSets writes one block's changes into the four data stores. Non-EVM modules go to miscDB
+// under "<module>/". Each value records version as the height it was last modified at; the same version
+// must be passed to the subsequent Commit, which is what folds the block into the LtHash.
+func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedChangeSet) error {
+	// The read-only refusal belongs here rather than in applyChangeSets, which a read-only store reaches
+	// legitimately: building a view at a past height replays the primary's WAL through the same apply path.
+	// Commit and outOfBandSnapshot place their refusals at the same boundary, and readOnly is fixed for a store's
+	// lifetime, so reading it outside the lock is safe.
+	if s.readOnly {
+		return errReadOnly
+	}
+	return s.applyChangeSets(version, changeSets, nil)
+}
+
+// applyChangeSets is ApplyChangeSets with the replay skip list. alreadyHave is nil outside a startup
+// replay, which means every store needs every block.
+func (s *CommitStore) applyChangeSets(
+	version int64,
+	changeSets []*proto.NamedChangeSet,
+	alreadyHave map[string]int64,
+) (err error) {
+	// Hold the write lock for the whole body: it both reads old values out of the stores and writes
+	// this block's values into them, and Get and iterator construction read them under a read lock.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -28,11 +42,22 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 		"changesets", len(changeSets))
 	defer obs.done(&err, nil)
 
-	if s.readOnly {
-		return errReadOnly
-	}
 	// Blocks are contiguous and the first block is 1, so writes always land at committedVersion+1. See the
 	// Commit contract: a store whose history starts higher is seeded by SetInitialVersion.
+	// An empty batch for a block that is already committed is accepted and does nothing.
+	if version > 0 && version == s.committedVersion {
+		if len(changeSets) == 0 {
+			// An empty batch would leave the sealed block exactly as it is, so a stale height is
+			// harmless here. No caller produces one today: every writer stamps its batch at the height
+			// after the one the store has committed. This stands as tolerance for a caller that has
+			// lost track of the height, not as a path taken in normal operation.
+			return nil
+		}
+		// Writes are a different matter: they would belong to a block that is already sealed, and there
+		// is nowhere to put them.
+		return fmt.Errorf("flatkv: apply version %d is already committed and this batch has %d changesets",
+			version, len(changeSets))
+	}
 	if version != s.committedVersion+1 {
 		return fmt.Errorf("flatkv: apply version %d must be committed version %d plus one",
 			version, s.committedVersion)
@@ -45,26 +70,18 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	s.phaseTimer.SetPhase("apply_change_sets_prepare")
 	changesByType, err := classifyAndPrefix(changeSets)
 	if err != nil {
-		return err
+		return fmt.Errorf("classify changesets: %w", err)
 	}
-	// Parse and gather first; do not touch pending-write maps or LtHash until
-	// Compute succeeds. Otherwise a later parse/Compute error would leave
-	// pending rows that Commit could flush while working hashes still reflect
-	// the pre-failure state.
+	// Parse, gather, and sort. Nothing is written until all of it has validated, so a parse failure
+	// part way through cannot leave some of the block's values in a store.
 	prepared, err := s.prepareWrites(changesByType, version)
 	if err != nil {
-		return err
+		return fmt.Errorf("prepare writes: %w", err)
 	}
 
-	s.phaseTimer.SetPhase("apply_change_compute_lt_hash")
-	res, err := s.ltCalc.Compute(prepared.pairSets, s.perDBWorkingLtHash, s.perDBModuleWorkingLtHash, s.perDBModuleWorkingStats)
-	if err != nil {
-		return err
+	if err := s.writeToStores(prepared, changeSets, version, alreadyHave); err != nil {
+		return fmt.Errorf("write to stores: %w", err)
 	}
-
-	// Single in-memory commit: pending rows, working hashes, and changeset
-	// bookkeeping must move together after Compute.
-	s.bufferPreparedWrites(prepared, res, changeSets, version)
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	logger.Debug("FlatKV ApplyChangeSets complete",
@@ -75,45 +92,36 @@ func (s *CommitStore) ApplyChangeSets(version int64, changeSets []*proto.NamedCh
 	return nil
 }
 
-// preparedWrites holds the fully-validated per-DB rows and LtHash pairs for one
-// ApplyChangeSets call. Pending maps and working hashes are updated only via
-// bufferPreparedWrites after ltCalc.Compute succeeds.
+// preparedWrites holds the fully-validated per-database values and LtHash pairs for one
+// ApplyChangeSets call. Nothing here reaches a store until every kind has validated — see
+// writeToStores.
 type preparedWrites struct {
 	accounts map[string]*vtype.AccountData
 	storage  map[string]*vtype.StorageData
 	code     map[string]*vtype.CodeData
 	misc     map[string]*vtype.MiscData
-	pairSets []lthash.DBPairs
 }
 
-// prepareWrites reads prior values, applies EVM value semantics, and returns
-// per-DB rows plus LtHash pairs for Compute. It does not mutate the store's
-// pending-write maps: every DB kind is validated first so a mid-batch parse
-// error cannot leave a partial overlay. Only accounts need old values in
-// structured form (to merge partial nonce/codehash updates); other DBs pass
-// raw old bytes through.
+// prepareWrites applies EVM value semantics and returns the values to write, per database.
 func (s *CommitStore) prepareWrites(
 	changesByType map[keys.EVMKeyKind]map[string][]byte,
 	blockHeight int64,
 ) (preparedWrites, error) {
 	var out preparedWrites
 
-	s.phaseTimer.SetPhase("apply_change_sets_batch_read")
+	// A nonce or codehash change carries only its own field, so it has to be merged onto the account as
+	// it stands right now — a live read, since anything an earlier call at this height wrote counts.
+	s.phaseTimer.SetPhase("apply_change_sets_read_accounts")
 	readStart := time.Now()
-	oldByDB, err := s.ltCalc.ReadOldValues(s, keysByDBFromClassified(changesByType))
+	accountOld, err := s.readAccountsForMerge(changesByType)
 	otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(readStart),
 		metric.WithAttributes(successAttr(err)))
 	if err != nil {
-		return out, fmt.Errorf("failed to batch read old values: %w", err)
-	}
-
-	s.phaseTimer.SetPhase("apply_change_sets_gather_pairs")
-
-	// Account: merge partial nonce/codehash updates onto the old account.
-	accountOld, err := deserializeAccountOld(oldByDB[accountDBDir])
-	if err != nil {
 		return out, err
 	}
+
+	s.phaseTimer.SetPhase("apply_change_sets_gather_values")
+
 	accountUpdates, err := mergeAccountUpdates(
 		changesByType[keys.EVMKeyNonce],
 		changesByType[keys.EVMKeyCodeHash],
@@ -124,17 +132,17 @@ func (s *CommitStore) prepareWrites(
 	}
 	newAccounts := deriveNewAccountValues(accountUpdates, accountOld, blockHeight)
 
-	storageWrites, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
+	storageWrites, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
 		return out, fmt.Errorf("failed to parse storage changes: %w", err)
 	}
 
-	codeWrites, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
+	codeWrites, err := toCodeValues(changesByType[keys.EVMKeyCode], blockHeight)
 	if err != nil {
 		return out, fmt.Errorf("failed to parse code changes: %w", err)
 	}
 
-	miscWrites, err := processMiscChanges(changesByType[keys.EVMKeyMisc], blockHeight)
+	miscWrites, err := toMiscValues(changesByType[keys.EVMKeyMisc], blockHeight)
 	if err != nil {
 		return out, fmt.Errorf("failed to parse misc changes: %w", err)
 	}
@@ -143,77 +151,115 @@ func (s *CommitStore) prepareWrites(
 	out.storage = storageWrites
 	out.code = codeWrites
 	out.misc = miscWrites
-	out.pairSets = []lthash.DBPairs{
-		{Dir: storageDBDir, Pairs: gatherPairs(storageWrites, oldByDB[storageDBDir])},
-		{Dir: accountDBDir, Pairs: gatherPairs(newAccounts, oldByDB[accountDBDir])},
-		{Dir: codeDBDir, Pairs: gatherPairs(codeWrites, oldByDB[codeDBDir])},
-		{Dir: miscDBDir, Pairs: gatherPairs(miscWrites, oldByDB[miscDBDir])},
-	}
 	return out, nil
 }
 
-// bufferPreparedWrites is the atomic in-memory commit for one successful
-// ApplyChangeSets batch: pending-write maps, working LtHash / per-module
-// metadata, and pendingChangeSets / pendingBlockHeight. Keeping these updates
-// in one function prevents a future edit from buffering rows without the
-// matching hashes (or vice versa) after Compute.
-func (s *CommitStore) bufferPreparedWrites(
-	prepared preparedWrites,
-	res *lthash.Result,
-	changeSets []*proto.NamedChangeSet,
-	version int64,
-) {
-	maps.Copy(s.accountWrites, prepared.accounts)
-	maps.Copy(s.storageWrites, prepared.storage)
-	maps.Copy(s.codeWrites, prepared.code)
-	maps.Copy(s.miscWrites, prepared.misc)
-
-	s.perDBWorkingLtHash = res.PerDB
-	s.perDBModuleWorkingLtHash = res.PerModule
-	s.perDBModuleWorkingStats = res.PerModuleStats
-	s.workingLtHash = res.Global
-	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
-	s.pendingBlockHeight = version
-
-	addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
-	addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
-	addKVPairs(s.ctx, codeDBDir, len(prepared.code))
-	addKVPairs(s.ctx, miscDBDir, len(prepared.misc))
-	recordPendingWrites(s.ctx, accountDBDir, len(s.accountWrites))
-	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
-	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
-	recordPendingWrites(s.ctx, miscDBDir, len(s.miscWrites))
-}
-
-// keysByDBFromClassified maps the per-kind classified changes to the set of
-// physical keys per data DB dir, so the calculator can read old values grouped
-// by DB. Account keys come from both the nonce and codehash kinds.
-func keysByDBFromClassified(changesByType map[keys.EVMKeyKind]map[string][]byte) map[string]map[string]struct{} {
-	out := make(map[string]map[string]struct{}, len(dataDBDirs))
-	add := func(dir string, changes map[string][]byte) {
-		if len(changes) == 0 {
-			return
-		}
-		set := out[dir]
-		if set == nil {
-			set = make(map[string]struct{}, len(changes))
-			out[dir] = set
-		}
-		for key := range changes {
-			set[key] = struct{}{}
+// readAccountsForMerge reads the accounts that this batch's nonce and codehash changes touch, so those
+// partial updates can be merged onto whole accounts. Keys come from both kinds, since either can name
+// an account the other does not.
+func (s *CommitStore) readAccountsForMerge(
+	changesByType map[keys.EVMKeyKind]map[string][]byte,
+) (map[string]*vtype.AccountData, error) {
+	touched := make(map[string]struct{},
+		len(changesByType[keys.EVMKeyNonce])+len(changesByType[keys.EVMKeyCodeHash]))
+	for _, kind := range []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash} {
+		for key := range changesByType[kind] {
+			touched[key] = struct{}{}
 		}
 	}
-	add(storageDBDir, changesByType[keys.EVMKeyStorage])
-	add(accountDBDir, changesByType[keys.EVMKeyNonce])
-	add(accountDBDir, changesByType[keys.EVMKeyCodeHash])
-	add(codeDBDir, changesByType[keys.EVMKeyCode])
-	add(miscDBDir, changesByType[keys.EVMKeyMisc])
-	return out
+	if len(touched) == 0 {
+		return nil, nil
+	}
+
+	physKeys := make([][]byte, 0, len(touched))
+	for key := range touched {
+		physKeys = append(physKeys, []byte(key))
+	}
+	raw, err := s.accountStore.BatchGet(physKeys)
+	if err != nil {
+		return nil, fmt.Errorf("read accounts to merge onto: %w", err)
+	}
+	return deserializeOldAccounts(raw)
 }
 
-// deserializeAccountOld parses the raw old account bytes read by the calculator
-// into structured AccountData, needed to merge partial account-field updates.
-func deserializeAccountOld(raw map[string][]byte) (map[string]*vtype.AccountData, error) {
+// writeToStores writes one successful ApplyChangeSets batch into the four data stores and records the
+// changesets and the block height they belong to.
+//
+// A store that already has this block is skipped. That happens only when a startup replay is catching
+// the stores up to each other, where its hash already includes the block and writing it again would
+// count it twice.
+//
+// The writes must come after the account reads in prepareWrites, because writing here is what makes
+// this block's values visible to a read through the same store.
+func (s *CommitStore) writeToStores(
+	prepared preparedWrites,
+	changeSets []*proto.NamedChangeSet,
+	version int64,
+	alreadyHave map[string]int64,
+) error {
+	s.phaseTimer.SetPhase("apply_change_write_to_stores")
+
+	// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL replay is external,
+	// we may be able to simplify this code since we will be able to assume that all stores start at the same block.
+	if alreadyHave[accountDBDir] < version {
+		if err := serializeAndPut(s.accountStore, prepared.accounts); err != nil {
+			return fmt.Errorf("write %s values: %w", accountDBDir, err)
+		}
+		addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
+	}
+	if alreadyHave[storageDBDir] < version {
+		if err := serializeAndPut(s.storageStore, prepared.storage); err != nil {
+			return fmt.Errorf("write %s values: %w", storageDBDir, err)
+		}
+		addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
+	}
+	if alreadyHave[codeDBDir] < version {
+		if err := serializeAndPut(s.codeStore, prepared.code); err != nil {
+			return fmt.Errorf("write %s values: %w", codeDBDir, err)
+		}
+		addKVPairs(s.ctx, codeDBDir, len(prepared.code))
+	}
+	if alreadyHave[miscDBDir] < version {
+		if err := serializeAndPut(s.miscStore, prepared.misc); err != nil {
+			return fmt.Errorf("write %s values: %w", miscDBDir, err)
+		}
+		addKVPairs(s.ctx, miscDBDir, len(prepared.misc))
+	}
+
+	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+	s.pendingBlockHeight = version
+	return nil
+}
+
+// serializeAndPut writes values into the store's current version, to be sealed by the next Commit. A
+// value reporting IsDelete becomes a deletion; every other value is stored as its serialized form.
+//
+// values is keyed by physical key.
+func serializeAndPut[T vtype.VType](store view.ViewManager, values map[string]T) error {
+	if len(values) == 0 {
+		return nil
+	}
+	pairs := make([]*proto.KVPair, 0, len(values))
+	for key, value := range values {
+		if value.IsDelete() {
+			pairs = append(pairs, &proto.KVPair{Key: []byte(key), Delete: true})
+			continue
+		}
+		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value.Serialize()})
+	}
+	if err := store.BatchSet(pairs); err != nil {
+		return fmt.Errorf("batch write: %w", err)
+	}
+	return nil
+}
+
+// deserializeOldAccounts parses the account database's old values into AccountData. A partial update —
+// a nonce without a codehash, say — has to be merged onto the account that is already there, which
+// needs the old value in structured form rather than as bytes.
+//
+// raw is keyed by physical key, and a key that had no prior value maps to nil; those are dropped
+// rather than deserialized, so the result holds only accounts that already existed.
+func deserializeOldAccounts(raw map[string][]byte) (map[string]*vtype.AccountData, error) {
 	old := make(map[string]*vtype.AccountData, len(raw))
 	for key, b := range raw {
 		if b == nil {
@@ -240,8 +286,8 @@ func moduleOfKey(physicalKey []byte) (string, error) {
 // already in physical format ("module/" + prefix_encoded_key). Non-EVM modules are
 // merged into the EVMKeyMisc bucket with a "<module>/" prefix.
 //
-// This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
-// avoiding an extra map allocation and repeated string concatenation per key.
+// In the result the inner string is a physical key and its value is that key's new raw bytes, with nil
+// meaning the key was deleted.
 func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]map[string][]byte, error) {
 	result := make(map[keys.EVMKeyKind]map[string][]byte, 5)
 
@@ -307,14 +353,14 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 }
 
 // nonNilValue normalizes a non-delete changeset value so the downstream
-// "nil value == deletion" convention in process*Changes stays correct.
+// "nil value == deletion" convention in the to*Values helpers stays correct.
 //
 // A changeset pair is a deletion iff its Delete flag is set; an empty
 // (zero-length) value with Delete=false is a legitimate "set this key to an
 // empty value" write. Protobuf cannot distinguish an empty []byte{} from nil,
 // so after a WAL round-trip (catchup, read-only clone, snapshot export,
 // state-sync restore) such a write arrives as Value=nil. Without this
-// normalization the process*Changes helpers would treat the nil value as a
+// normalization the to*Values helpers would treat the nil value as a
 // deletion and drop the key on replay, diverging the per-DB LtHash — and thus
 // the evm_lattice store hash and the consensus AppHash — from the live chain
 // that stored the key. True deletes carry Delete=true and are recorded as nil
@@ -326,8 +372,9 @@ func nonNilValue(v []byte) []byte {
 	return v
 }
 
-// Process incoming storage changes into a form appropriate for hashing and insertion into the DB.
-func processStorageChanges(
+// toStorageValues turns raw storage changes into StorageData stamped with blockHeight. A nil change is
+// a deletion, which for storage means the zero value. Both maps are keyed by physical key.
+func toStorageValues(
 	rawChanges map[string][]byte,
 	blockHeight int64,
 ) (map[string]*vtype.StorageData, error) {
@@ -349,8 +396,9 @@ func processStorageChanges(
 	return result, nil
 }
 
-// Process incoming code changes into a form appropriate for hashing and insertion into the DB.
-func processCodeChanges(
+// toCodeValues turns raw code changes into CodeData stamped with blockHeight. A nil change is a
+// deletion, which for code means empty bytecode. Both maps are keyed by physical key.
+func toCodeValues(
 	rawChanges map[string][]byte,
 	blockHeight int64,
 ) (map[string]*vtype.CodeData, error) {
@@ -367,8 +415,9 @@ func processCodeChanges(
 	return result, nil
 }
 
-// Process incoming misc changes into a form appropriate for hashing and insertion into the DB.
-func processMiscChanges(
+// toMiscValues turns raw misc changes into MiscData stamped with blockHeight. A nil change is a
+// deletion, which for misc means an empty value. Both maps are keyed by physical key.
+func toMiscValues(
 	rawChanges map[string][]byte,
 	blockHeight int64,
 ) (map[string]*vtype.MiscData, error) {
@@ -382,36 +431,6 @@ func processMiscChanges(
 		}
 	}
 	return result, nil
-}
-
-// gatherPairs builds the LtHash pairs for one DB from its new typed values and
-// the raw old serialized bytes read by the calculator. The old bytes are used
-// verbatim as LastValue: by the round-trip identity of the value serializers
-// they equal the exact bytes previously folded into the hash, so unmixing them
-// cancels that contribution precisely. A key with no prior value (or a pending
-// deletion) has a nil entry in rawOld and thus a nil LastValue (nothing to
-// unmix).
-func gatherPairs[T vtype.VType](
-	newValues map[string]T,
-	rawOld map[string][]byte,
-) []lthash.KVPairWithLastValue {
-	pairs := make([]lthash.KVPairWithLastValue, 0, len(newValues))
-	for keyStr, newValue := range newValues {
-		isDelete := newValue.IsDelete()
-
-		var newBytes []byte
-		if !isDelete {
-			newBytes = newValue.Serialize()
-		}
-
-		pairs = append(pairs, lthash.KVPairWithLastValue{
-			Key:       []byte(keyStr),
-			Value:     newBytes,
-			LastValue: rawOld[keyStr],
-			Delete:    isDelete,
-		})
-	}
-	return pairs
 }
 
 // Merge account updates down into a single update per account.

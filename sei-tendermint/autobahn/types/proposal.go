@@ -68,6 +68,10 @@ type GlobalRange struct {
 	Next  GlobalBlockNumber
 }
 
+func (g GlobalRange) String() string {
+	return fmt.Sprintf("[%v,%v)", g.First, g.Next)
+}
+
 // Len returns the number of global blocks in the range.
 func (g GlobalRange) Len() uint64 {
 	return uint64(g.Next - g.First)
@@ -110,7 +114,7 @@ func (v View) Verify(ep *Epoch) error {
 		return fmt.Errorf("epoch_index = %d, want %d", got, want)
 	}
 	if rr := ep.RoadRange(); !rr.Has(v.Index) {
-		return fmt.Errorf("road_index %v not in epoch roads [%v, %v]", v.Index, rr.First, rr.Last)
+		return fmt.Errorf("road_index %v not in epoch roads [%v, %v)", v.Index, rr.First, rr.Next)
 	}
 	return nil
 }
@@ -121,16 +125,28 @@ func (v View) Next() View {
 	return v
 }
 
-// ViewSpec is the full local context for starting a view: justification QCs plus
-// the epoch active at that view. Epoch is required; View(), NextGlobalBlock(), and
-// NextTimestamp() panic if it is nil.
+// ConsensusSpec is the durable CommitQC tip paired with the epoch of the
+// RoadIndex that follows it. CommitQC is None before the first tip; until then
+// Epoch is genesis epoch 0 (and FirstBlock is the next global block). Consensus
+// advances with a spec verbatim.
+type ConsensusSpec struct {
+	CommitQC utils.Option[*CommitQC]
+	Epoch    *Epoch
+}
+
+// Index is the RoadIndex of the next view: CommitQC.Index()+1, or 0 if there is no tip.
+func (s ConsensusSpec) Index() RoadIndex {
+	return NextIndexOpt(s.CommitQC)
+}
+
+// ViewSpec is ConsensusSpec plus the TimeoutQC for the current view number.
+// Epoch is required; View(), NextGlobalBlock(), and NextTimestamp() panic if it is nil.
 type ViewSpec struct {
+	ConsensusSpec
 	// WARNING: currently we have implicit assumption that
 	// TimeoutQC.View().Index == CommitQC.Index.Next(),
 	// I.e. that TimeoutQC comes from the expected consensus instance.
-	CommitQC  utils.Option[*CommitQC]
 	TimeoutQC utils.Option[*TimeoutQC]
-	Epoch     *Epoch
 }
 
 // NextGlobalBlock returns the first global block number expected in the next proposal.
@@ -145,7 +161,7 @@ func (vs *ViewSpec) NextGlobalBlock() GlobalBlockNumber {
 
 // View is the view justified by vs.
 func (vs *ViewSpec) View() View {
-	idx := NextIndexOpt(vs.CommitQC)
+	idx := vs.Index()
 	if view := NextViewOpt(vs.TimeoutQC); view.Index == idx {
 		view.EpochIndex = vs.Epoch.EpochIndex()
 		return view
@@ -168,11 +184,10 @@ type Proposal struct {
 	view        View
 	timestamp   time.Time
 	laneRanges  map[LaneID]*LaneRange
-	app         utils.Option[*AppProposal]
 	globalRange GlobalRange
 }
 
-func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app utils.Option[*AppProposal], globalFirst GlobalBlockNumber) *Proposal {
+func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, globalFirst GlobalBlockNumber) *Proposal {
 	laneRangesM := map[LaneID]*LaneRange{}
 	gr := GlobalRange{First: globalFirst, Next: globalFirst}
 	for _, r := range laneRanges {
@@ -186,7 +201,6 @@ func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app ut
 		timestamp:   timestamp,
 		laneRanges:  laneRangesM,
 		globalRange: gr,
-		app:         app,
 	}
 }
 
@@ -198,9 +212,6 @@ func (m *Proposal) View() View { return m.view }
 
 // Timestamp of the proposal.
 func (m *Proposal) Timestamp() time.Time { return m.timestamp }
-
-// App .
-func (m *Proposal) App() utils.Option[*AppProposal] { return m.app }
 
 // EpochIndex returns the epoch index encoded in the proposal.
 func (m *Proposal) EpochIndex() EpochIndex { return m.view.EpochIndex }
@@ -266,7 +277,6 @@ type FullProposal struct {
 	utils.ReadOnly
 	proposal  *Signed[*Proposal]
 	laneQCs   map[LaneID]*LaneQC
-	appQC     utils.Option[*AppQC]
 	timeoutQC utils.Option[*TimeoutQC]
 }
 
@@ -297,7 +307,6 @@ func NewProposal(
 	viewSpec ViewSpec,
 	timestamp time.Time,
 	laneQCs map[LaneID]*LaneQC,
-	appQC utils.Option[*AppQC],
 ) (*FullProposal, error) {
 	committee := viewSpec.Epoch.Committee()
 	if got, want := key.Public(), committee.Leader(viewSpec.View()); got != want {
@@ -306,14 +315,13 @@ func NewProposal(
 	if p, ok := NewReproposal(key, viewSpec); ok {
 		return p, nil
 	}
-	proposal, appQC, err := buildProposal(committee, viewSpec, timestamp, laneQCs, appQC)
+	proposal, err := buildProposal(committee, viewSpec, timestamp, laneQCs)
 	if err != nil {
 		return nil, err
 	}
 	return &FullProposal{
 		proposal:  Sign(key, proposal),
 		laneQCs:   laneQCs,
-		appQC:     appQC,
 		timeoutQC: viewSpec.TimeoutQC,
 	}, nil
 }
@@ -326,45 +334,32 @@ func buildProposal(
 	viewSpec ViewSpec,
 	timestamp time.Time,
 	laneQCs map[LaneID]*LaneQC,
-	appQC utils.Option[*AppQC],
-) (*Proposal, utils.Option[*AppQC], error) {
+) (*Proposal, error) {
 	var laneRanges []*LaneRange
 	for lane := range committee.Lanes().All() {
 		first := LaneRangeOpt(viewSpec.CommitQC, lane).Next()
 		if lQC, ok := laneQCs[lane]; ok {
 			if lQC.Header().Lane() != lane {
-				return nil, appQC, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
+				return nil, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
 			}
 			laneRange := NewLaneRange(lane, first, utils.Some(lQC.Header()))
 			if got := laneRange.Len(); got > MaxLaneRangeInProposal {
-				return nil, appQC, fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", lane, got, MaxLaneRangeInProposal)
+				return nil, fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", lane, got, MaxLaneRangeInProposal)
 			}
 			laneRanges = append(laneRanges, laneRange)
 		} else {
 			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
 		}
 	}
-	app := ProposalOpt(appQC)
-	// If the new appProposal is not later than the previous one, then clear appQC.
-	if old := AppOpt(ProposalOpt(viewSpec.CommitQC)); NextOpt(app) <= NextOpt(old) {
-		app = old
-		appQC = utils.None[*AppQC]()
-	}
-	// If the new appProposal is from the future (which may happen if this node is behind), then clear appQC.
-	// The proposal will be useless in this case, but at least it will be valid.
-	if a, ok := app.Get(); ok && a.GlobalNumber() >= viewSpec.NextGlobalBlock() {
-		app = utils.None[*AppProposal]()
-		appQC = utils.None[*AppQC]()
-	}
 	// Normalize the creation timestamp.
 	if wantMin := viewSpec.NextTimestamp(); timestamp.Before(wantMin) {
 		timestamp = wantMin
 	}
-	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, app, viewSpec.NextGlobalBlock())
+	proposal := newProposal(viewSpec.View(), timestamp, laneRanges, viewSpec.NextGlobalBlock())
 	if proposal.GlobalRange().Len() == 0 {
-		return nil, appQC, errors.New("empty tipcut: need at least one LaneQC")
+		return nil, errors.New("empty tipcut: need at least one LaneQC")
 	}
-	return proposal, appQC, nil
+	return proposal, nil
 }
 
 // NewProposalForTesting builds a FullProposal exactly like NewProposal but attaches the
@@ -376,17 +371,15 @@ func NewProposalForTesting(
 	viewSpec ViewSpec,
 	timestamp time.Time,
 	laneQCs map[LaneID]*LaneQC,
-	appQC utils.Option[*AppQC],
 	sig *Signature,
 ) (*FullProposal, error) {
-	proposal, appQC, err := buildProposal(committee, viewSpec, timestamp, laneQCs, appQC)
+	proposal, err := buildProposal(committee, viewSpec, timestamp, laneQCs)
 	if err != nil {
 		return nil, err
 	}
 	return &FullProposal{
 		proposal:  newSigned(proposal, sig),
 		laneQCs:   laneQCs,
-		appQC:     appQC,
 		timeoutQC: viewSpec.TimeoutQC,
 	}, nil
 }
@@ -430,7 +423,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			return fmt.Errorf("proposer %q, want %q", got, want)
 		}
 		// Verify the proposer's signature.
-		if err := m.proposal.VerifySig(c); err != nil {
+		if err := m.proposal.VerifySig(); err != nil {
 			return fmt.Errorf("proposal signature: %w", err)
 		}
 		// Do we have the required timeoutQC?
@@ -447,7 +440,7 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 			})
 			// Is this a reproposal?
 			if want, ok := tQC.reproposal(); ok {
-				if len(m.laneQCs) > 0 || m.appQC.IsPresent() {
+				if len(m.laneQCs) > 0 {
 					return errors.New("unnecessary data when reproposing")
 				}
 				if NewHashed(want).Hash() != m.proposal.hashed.hash {
@@ -489,36 +482,6 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 				})
 			}
 		}
-		// Verify the appQC.
-		if got, wantMin := NextOpt(m.proposal.Msg().App()), NextOpt(AppOpt(ProposalOpt(vs.CommitQC))); got < wantMin {
-			return errors.New("AppProposal lower than in previous CommitQC")
-		} else if got == wantMin {
-			if m.appQC.IsPresent() {
-				return errors.New("unnecessary appQC")
-			}
-		} else {
-			app, _ := m.proposal.Msg().App().Get()
-			// TODO: relax to allow current_epoch-1 once epoch transitions are wired up.
-			if got, want := app.EpochIndex(), m.proposal.Msg().EpochIndex(); got != want {
-				return fmt.Errorf("app epoch_index %d != proposal epoch_index %d", got, want)
-			}
-			appQC, ok := m.appQC.Get()
-			if !ok {
-				return errors.New("appQC missing")
-			}
-			if appQC.vote.hash != NewHashed(NewAppVote(app)).hash {
-				return errors.New("appQC doesn't match the proposal")
-			}
-			s.Spawn(func() error {
-				if err := appQC.Verify(c); err != nil {
-					return fmt.Errorf("appQC: %w", err)
-				}
-				return nil
-			})
-			if got, want := appQC.Proposal().GlobalNumber(), vs.NextGlobalBlock(); got >= want {
-				return fmt.Errorf("appQC for block %v, while only %v blocks were finalized", got, want)
-			}
-		}
 		return nil
 	})
 }
@@ -527,14 +490,14 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 var LaneRangeConv = protoutils.Conv[*LaneRange, *pb.LaneRange]{
 	Encode: func(m *LaneRange) *pb.LaneRange {
 		return &pb.LaneRange{
-			Lane:     PublicKeyConv.Encode(m.lane),
+			LaneId:   LaneIDConv.Encode(m.lane),
 			First:    utils.Alloc(uint64(m.first)),
 			Next:     utils.Alloc(uint64(m.next)),
 			LastHash: m.lastHash[:],
 		}
 	},
 	Decode: func(m *pb.LaneRange) (*LaneRange, error) {
-		lane, err := PublicKeyConv.DecodeReq(m.Lane)
+		lane, err := LaneIDConv.DecodeReq(m.LaneId)
 		if err != nil {
 			return nil, fmt.Errorf("Lane: %w", err)
 		}
@@ -596,7 +559,6 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 			View:        ViewConv.Encode(m.view),
 			Timestamp:   TimeConv.Encode(m.timestamp),
 			LaneRanges:  LaneRangeConv.EncodeSlice(laneRanges),
-			App:         AppProposalConv.EncodeOpt(m.app),
 			GlobalFirst: utils.Alloc(uint64(m.globalRange.First)),
 		}
 	},
@@ -613,17 +575,13 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if err != nil {
 			return nil, fmt.Errorf("timestamp: %w", err)
 		}
-		app, err := AppProposalConv.DecodeOpt(m.App)
-		if err != nil {
-			return nil, fmt.Errorf("appQC: %w", err)
-		}
 		// Hard-reject messages with absent global_first/epoch_index.
 		// Autobahn is pre-production; there is no rolling-upgrade path from
 		// messages encoded before these fields were added.
 		if m.GlobalFirst == nil {
 			return nil, fmt.Errorf("global_first: missing")
 		}
-		proposal := newProposal(view, timestamp, laneRanges, app, GlobalBlockNumber(*m.GlobalFirst))
+		proposal := newProposal(view, timestamp, laneRanges, GlobalBlockNumber(*m.GlobalFirst))
 		if len(proposal.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("laneRanges: duplicate ranges")
 		}
@@ -641,7 +599,6 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 		return &pb.FullProposal{
 			ProposalV2: SignedProposalConv.Encode(m.proposal),
 			LaneQcs:    LaneQCConv.EncodeSlice(laneQCs),
-			AppQc:      AppQCConv.EncodeOpt(m.appQC),
 			TimeoutQc:  TimeoutQCConv.EncodeOpt(m.timeoutQC),
 		}
 	},
@@ -658,14 +615,10 @@ var FullProposalConv = protoutils.Conv[*FullProposal, *pb.FullProposal]{
 		for _, qc := range laneQCs {
 			laneQCsMap[qc.Header().Lane()] = qc
 		}
-		appQC, err := AppQCConv.DecodeOpt(m.AppQc)
-		if err != nil {
-			return nil, fmt.Errorf("appQC: %w", err)
-		}
 		timeoutQC, err := TimeoutQCConv.DecodeOpt(m.TimeoutQc)
 		if err != nil {
 			return nil, fmt.Errorf("timeoutQC: %w", err)
 		}
-		return &FullProposal{proposal: proposal, laneQCs: laneQCsMap, appQC: appQC, timeoutQC: timeoutQC}, nil
+		return &FullProposal{proposal: proposal, laneQCs: laneQCsMap, timeoutQC: timeoutQC}, nil
 	},
 }

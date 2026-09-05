@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/armon/go-metrics"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -17,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
@@ -115,6 +113,13 @@ func (k Keeper) SetModuleVersionMap(ctx sdk.Context, vm module.VersionMap) {
 	}
 }
 
+// DeleteModuleVersion removes a module from the stored consensus version map.
+func (k Keeper) DeleteModuleVersion(ctx sdk.Context, moduleName string) {
+	store := ctx.KVStore(k.storeKey)
+	versionStore := prefix.NewStore(store, []byte{types.VersionMapByte})
+	versionStore.Delete([]byte(moduleName))
+}
+
 // GetModuleVersionMap returns a map of key module name and value module consensus version
 // as defined in ADR-041.
 func (k Keeper) GetModuleVersionMap(ctx sdk.Context) module.VersionMap {
@@ -203,15 +208,6 @@ func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 	upgradeKeeperMetrics.pendingPlanHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
 		attribute.String("name", plan.Name),
 	))
-	// TODO(PLT-353): remove once upgrade_pending_plan_height verified
-	telemetry.SetGaugeWithLabels(
-		[]string{"cosmos", "upgrade", "plan", "height"},
-		float32(plan.Height),
-		[]metrics.Label{
-			{Name: "name", Value: plan.Name},
-			{Name: "info", Value: plan.Info},
-		},
-	)
 	return nil
 }
 

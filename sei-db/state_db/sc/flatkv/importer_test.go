@@ -101,6 +101,36 @@ func TestKVImporter_EmptyModuleNameRejected(t *testing.T) {
 	require.Contains(t, err.Error(), "empty module name")
 }
 
+func TestKVImporter_EmptyPhysicalValueRejected(t *testing.T) {
+	tests := []struct {
+		name  string
+		value []byte
+	}{
+		{name: "nil", value: nil},
+		{name: "zero-length", value: []byte{}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, imp := newKVImporterForTest(t, 1)
+			defer func() { require.NoError(t, s.Close()) }()
+
+			imp.AddNode(&types.SnapshotNode{
+				Key:     ktype.ModulePhysicalKey("bank", []byte("empty-marker")),
+				Value:   tc.value,
+				Version: 1,
+			})
+
+			require.Error(t, imp.Err())
+			require.Contains(t, imp.Err().Error(), "empty physical value")
+
+			err := imp.Close()
+			require.ErrorIs(t, err, imp.Err())
+			require.Zero(t, s.Version(), "failed import must not advance the committed version")
+		})
+	}
+}
+
 // TestKVImporter_ErrLifecycle locks in the contract that Err() returns the
 // first pipeline error as soon as it propagates, before Close is invoked.
 // This is the path the seidb tool relies on to short-circuit a failing import
@@ -170,12 +200,10 @@ func TestKVImporter_SetErrAtomicCAS(t *testing.T) {
 func TestKVImporter_AddNodeAfterDoneDoesNotBlock(t *testing.T) {
 	s, imp := newKVImporterForTest(t, 1)
 	defer func() { require.NoError(t, s.Close()) }()
-	// imp.Close() drains the dispatcher + worker goroutines via wg.Wait().
-	// Without it, s.Close() (the outer defer, runs second because defers are
-	// LIFO) can race the dispatcher's read of s.storageDB in routePhysicalKey
-	// against closeDBsOnly's write of s.storageDB = nil, tripping the race
-	// detector. Discard the returned error: we tripped setErr below, so this
-	// Close is on the error path and intentionally returns the synthetic err.
+	// imp.Close() drains the dispatcher + worker goroutines via wg.Wait(). Without it, s.Close() (the outer
+	// defer, runs second because defers are LIFO) can close the databases out from under a worker still
+	// flushing a batch into one, tripping the race detector. Discard the returned error: we tripped setErr
+	// below, so this Close is on the error path and intentionally returns the synthetic err.
 	defer func() { _ = imp.Close() }()
 
 	imp.setErr(errors.New("synthetic test error"))

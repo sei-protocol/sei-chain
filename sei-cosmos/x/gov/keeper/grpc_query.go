@@ -42,7 +42,7 @@ func (q Keeper) Proposals(c context.Context, req *types.QueryProposalsRequest) (
 	store := ctx.KVStore(q.storeKey)
 	proposalStore := prefix.NewStore(store, types.ProposalsKeyPrefix)
 
-	pageRes, err := query.FilteredPaginate(proposalStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
+	pageRes, err := query.FilteredPaginateForContext(ctx, proposalStore, req.Pagination, func(key []byte, value []byte, accumulate bool) (bool, error) {
 		var p types.Proposal
 		if err := q.cdc.Unmarshal(value, &p); err != nil {
 			return false, status.Error(codes.Internal, err.Error())
@@ -86,7 +86,7 @@ func (q Keeper) Proposals(c context.Context, req *types.QueryProposalsRequest) (
 	})
 
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryProposalsResponse{Proposals: filteredProposals, Pagination: pageRes}, nil
@@ -137,7 +137,7 @@ func (q Keeper) Votes(c context.Context, req *types.QueryVotesRequest) (*types.Q
 	store := ctx.KVStore(q.storeKey)
 	votesStore := prefix.NewStore(store, types.VotesKey(req.ProposalId))
 
-	pageRes, err := query.Paginate(votesStore, req.Pagination, func(key []byte, value []byte) error {
+	pageRes, err := query.Paginate(ctx, votesStore, req.Pagination, func(key []byte, value []byte) error {
 		var vote types.Vote
 		if err := q.cdc.Unmarshal(value, &vote); err != nil {
 			return err
@@ -149,7 +149,7 @@ func (q Keeper) Votes(c context.Context, req *types.QueryVotesRequest) (*types.Q
 	})
 
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryVotesResponse{Votes: votes, Pagination: pageRes}, nil
@@ -227,7 +227,7 @@ func (q Keeper) Deposits(c context.Context, req *types.QueryDepositsRequest) (*t
 	store := ctx.KVStore(q.storeKey)
 	depositStore := prefix.NewStore(store, types.DepositsKey(req.ProposalId))
 
-	pageRes, err := query.Paginate(depositStore, req.Pagination, func(key []byte, value []byte) error {
+	pageRes, err := query.Paginate(ctx, depositStore, req.Pagination, func(key []byte, value []byte) error {
 		var deposit types.Deposit
 		if err := q.cdc.Unmarshal(value, &deposit); err != nil {
 			return err
@@ -238,7 +238,7 @@ func (q Keeper) Deposits(c context.Context, req *types.QueryDepositsRequest) (*t
 	})
 
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, query.WrapGRPCError(err)
 	}
 
 	return &types.QueryDepositsResponse{Deposits: deposits, Pagination: pageRes}, nil

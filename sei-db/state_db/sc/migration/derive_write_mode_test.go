@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +13,7 @@ import (
 // writeMigrationMeta commits the given migration version and/or boundary
 // to the store's MigrationStore, mimicking the records the
 // MigrationManager persists during a migration.
-func writeMigrationMeta(t *testing.T, s flatkv.Store, version *uint64, boundaryBytes []byte) {
+func writeMigrationMeta(t *testing.T, s gigatypes.LiveStateStore, version *uint64, boundaryBytes []byte) {
 	t.Helper()
 	var pairs []*proto.KVPair
 	if version != nil {

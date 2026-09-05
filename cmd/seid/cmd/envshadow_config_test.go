@@ -46,8 +46,7 @@ import (
 // viper, that the nil read leaves enabled at true. app's
 // TestGigaExecutorEnabledDrivesLastResultsHashValidation asserts that enabled reaches the
 // atomic, through a real app construction. Only the join between them is prose here,
-// because observing it needs a running node, which this suite deliberately does not do
-// (testutil/configtest/AGENTS.md, "Out of Scope").
+// because observing it needs a running node, which these tests deliberately do not do.
 
 // sectionEnvVar returns the environment variable that shadows the given dotted path,
 // derived the way the server viper derives it rather than built by hand.
@@ -82,7 +81,7 @@ func homeWithAppTOML(t *testing.T, body string) *configtest.Home {
 // Every row boots its own fixture home, the baseline included: the legacy path treats a
 // node directory as read-write while it reads it and creates config.toml on first boot,
 // so one home shared across the rows would vary a second input alongside the variable
-// under test (testutil/configtest/AGENTS.md).
+// under test.
 func TestSectionEnvVarShadowsItsWholeSection(t *testing.T) {
 	configtest.Isolate(t)
 

@@ -5,6 +5,10 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// taskMetrics mirrors giga/deps/tasks/metrics.go's instruments of the same
+// name/scope so the sei-cosmos and giga fork schedulers merge into single
+// scheduler_retries/scheduler_incarnations series. Keep description/unit
+// byte-identical across both declarations or the OTel SDK stops deduping.
 var (
 	meter = otel.Meter("seicosmos_tasks")
 
@@ -19,7 +23,7 @@ var (
 		)),
 		incarnations: must(meter.Int64Counter(
 			"scheduler_incarnations",
-			metric.WithDescription("Maximum incarnation seen in OCC scheduler round"),
+			metric.WithDescription("Sum of per-round maximum incarnations in the OCC scheduler"),
 			metric.WithUnit("{count}"),
 		)),
 	}

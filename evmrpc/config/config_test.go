@@ -8,6 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const maxFiltersForTest = uint64(100)
+const maxBlockFilterHashesForTest = uint64(200)
+
 type opts struct {
 	httpEnabled                  interface{}
 	httpPort                     interface{}
@@ -22,9 +25,12 @@ type opts struct {
 	corsOrigins                  interface{}
 	wsOrigins                    interface{}
 	filterTimeout                interface{}
+	maxFilters                   interface{}
+	maxBlockFilterHashes         interface{}
 	checkTxTimeout               interface{}
 	maxTxPoolTxs                 interface{}
 	slow                         interface{}
+	enableSimulation             interface{}
 	disableWatermark             interface{}
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
@@ -52,6 +58,7 @@ type opts struct {
 	maxConcurrentRequestBytes    interface{}
 	wsAdmissionTimeout           interface{}
 	maxOpenConnections           interface{}
+	bodyReadIdleTimeout          interface{}
 	maxTraceStructLogBytes       interface{}
 	traceAllowedTracers          interface{}
 	traceAllowJSTracers          interface{}
@@ -100,6 +107,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.filter_timeout" {
 		return o.filterTimeout
 	}
+	if k == "evm.max_filters" {
+		return o.maxFilters
+	}
+	if k == "evm.max_block_filter_hashes" {
+		return o.maxBlockFilterHashes
+	}
 	if k == "evm.checktx_timeout" {
 		return o.checkTxTimeout
 	}
@@ -108,6 +121,9 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.slow" {
 		return o.slow
+	}
+	if k == "evm.enable_simulation" {
+		return o.enableSimulation
 	}
 	if k == "evm.disable_watermark" {
 		return o.disableWatermark
@@ -204,6 +220,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_open_connections" {
 		return o.maxOpenConnections
 	}
+	if k == "evm.body_read_idle_timeout" {
+		return o.bodyReadIdleTimeout
+	}
 	if k == "evm.max_trace_struct_log_bytes" {
 		return o.maxTraceStructLogBytes
 	}
@@ -238,9 +257,12 @@ func getDefaultOpts() opts {
 		"",
 		"",
 		time.Duration(5),
+		maxFiltersForTest,
+		maxBlockFilterHashesForTest,
 		time.Duration(5),
 		1000,
 		false,
+		true,
 		false,
 		make([]string, 0),
 		20000,
@@ -268,6 +290,7 @@ func getDefaultOpts() opts {
 		int64(128 * 1024 * 1024),
 		30 * time.Second,
 		2000,
+		10 * time.Second,
 		uint64(256 * 1024 * 1024),
 		[]string{"callTracer", "prestateTracer"},
 		false,
@@ -282,6 +305,9 @@ func TestReadConfig(t *testing.T) {
 	cfg, err := config.ReadConfig(&goodOpts)
 	require.Nil(t, err)
 	require.False(t, cfg.EnableParallelizedBlockTrace)
+	require.True(t, cfg.EnableSimulation)
+	require.Equal(t, maxFiltersForTest, cfg.MaxFilters)
+	require.Equal(t, maxBlockFilterHashesForTest, cfg.MaxBlockFilterHashes)
 	// Round-trip: an explicitly-supplied value overrides the default.
 	require.Equal(t, uint64(256*1024*1024), cfg.MaxTraceStructLogBytes)
 	require.Equal(t, []string{"callTracer", "prestateTracer"}, cfg.TraceAllowedTracers)
@@ -293,6 +319,7 @@ func TestReadConfig(t *testing.T) {
 	require.Equal(t, 9, cfg.MaxStateOverrideSlots)
 	require.Equal(t, 100, config.DefaultConfig.MaxStateOverrideAccounts)
 	require.Equal(t, 1000, config.DefaultConfig.MaxStateOverrideSlots)
+	require.True(t, config.DefaultConfig.EnableSimulation)
 	badOpts := goodOpts
 	badOpts.httpEnabled = "bad"
 	_, err = config.ReadConfig(&badOpts)
@@ -330,6 +357,14 @@ func TestReadConfig(t *testing.T) {
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
+	badOpts.maxFilters = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.maxBlockFilterHashes = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
 	badOpts.simulationGasLimit = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
@@ -355,6 +390,10 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.slow = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.enableSimulation = "bad"
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts
@@ -648,6 +687,30 @@ func TestReadConfigMaxSubscriptionsLogs(t *testing.T) {
 	// A non-numeric value is rejected.
 	opts.maxSubscriptionsLogs = "bad"
 	_, err = config.ReadConfig(&opts)
+	require.Error(t, err)
+}
+
+func TestReadConfigFilterLimits(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1000), cfg.MaxFilters)
+	require.Equal(t, uint64(1000), cfg.MaxBlockFilterHashes)
+
+	o := getDefaultOpts()
+	o.maxFilters = uint64(25)
+	o.maxBlockFilterHashes = uint64(50)
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, uint64(25), cfg.MaxFilters)
+	require.Equal(t, uint64(50), cfg.MaxBlockFilterHashes)
+
+	o.maxFilters = uint64(0)
+	_, err = config.ReadConfig(&o)
+	require.Error(t, err)
+
+	o = getDefaultOpts()
+	o.maxBlockFilterHashes = uint64(0)
+	_, err = config.ReadConfig(&o)
 	require.Error(t, err)
 }
 

@@ -5,13 +5,9 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	paramstypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	connectiontypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/03-connection/types"
-	channeltypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/04-channel/types"
-	ibcexported "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 )
 
 // BankViewKeeper defines a subset of methods implemented by the cosmos-sdk bank keeper
@@ -70,47 +66,6 @@ type StakingKeeper interface {
 	GetUnbondingDelegations(ctx sdk.Context, delegator sdk.AccAddress, maxRetrieve uint16) []stakingtypes.UnbondingDelegation
 }
 
-// ChannelKeeper defines the expected IBC channel keeper
-type ChannelKeeper interface {
-	GetChannel(ctx sdk.Context, srcPort, srcChan string) (channel channeltypes.Channel, found bool)
-	GetNextSequenceSend(ctx sdk.Context, portID, channelID string) (uint64, bool)
-	SendPacket(ctx sdk.Context, channelCap *capabilitytypes.Capability, packet ibcexported.PacketI) error
-	ChanCloseInit(ctx sdk.Context, portID, channelID string, chanCap *capabilitytypes.Capability) error
-	GetAllChannels(ctx sdk.Context) (channels []channeltypes.IdentifiedChannel)
-	IterateChannels(ctx sdk.Context, cb func(channeltypes.IdentifiedChannel) bool)
-	SetChannel(ctx sdk.Context, portID, channelID string, channel channeltypes.Channel)
-}
-
-// ClientKeeper defines the expected IBC client keeper
-type ClientKeeper interface {
-	GetClientConsensusState(ctx sdk.Context, clientID string) (connection ibcexported.ConsensusState, found bool)
-}
-
-// ConnectionKeeper defines the expected IBC connection keeper
-type ConnectionKeeper interface {
-	GetConnection(ctx sdk.Context, connectionID string) (connection connectiontypes.ConnectionEnd, found bool)
-}
-
-// PortKeeper defines the expected IBC port keeper
-type PortKeeper interface {
-	BindPort(ctx sdk.Context, portID string) *capabilitytypes.Capability
-}
-
-type CapabilityKeeper interface {
-	GetCapability(ctx sdk.Context, name string) (*capabilitytypes.Capability, bool)
-	ClaimCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) error
-	AuthenticateCapability(ctx sdk.Context, capability *capabilitytypes.Capability, name string) bool
-}
-
 type ParamsKeeper interface {
 	GetCosmosGasParams(ctx sdk.Context) paramstypes.CosmosGasParams
-}
-
-type UpgradeKeeper interface {
-	GetDoneHeight(ctx sdk.Context, upgrade string) int64
-}
-
-// ICS20TransferPortSource is a subset of the ibc transfer keeper.
-type ICS20TransferPortSource interface {
-	GetPort(ctx sdk.Context) string
 }

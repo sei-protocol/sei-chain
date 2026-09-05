@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/cosmos"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
 )
@@ -27,16 +29,36 @@ var logger = seilog.NewLogger("db", "state-db", "ss", "composite")
 
 // Compile-time check.
 var _ types.StateStore = (*CompositeStateStore)(nil)
+var _ types.ContextIteratorStore = (*CompositeStateStore)(nil)
 
 // CompositeStateStore routes operations between Cosmos_SS and EVM_SS.
 // Both are db_engine.StateStore; the composite itself also implements db_engine.StateStore.
 type CompositeStateStore struct {
+	compositeState
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// compositeState holds everything a reopened store hands to the store the
+// caller already holds. Rollback closes the members, rebuilds them, and adopts
+// the result in one assignment, so state added here travels with it. Anything
+// added to CompositeStateStore itself does not.
+type compositeState struct {
 	cosmosStore    types.StateStore // CosmosStateStore wrapping MVCC DB
 	evmStore       types.StateStore // EVMStateStore wrapping sub MVCC DBs (nil if disabled)
 	pruningManager *pruning.Manager
+	snapshotMgr    *snapshotCoordinator
 	config         config.StateStoreConfig
-	closeOnce      sync.Once
-	closeErr       error
+	homeDir        string
+	dbHome         string
+}
+
+// adopt takes over the members of other, which must be a freshly opened store
+// for the same home, and arms Close again for them.
+func (s *CompositeStateStore) adopt(other *CompositeStateStore) {
+	s.compositeState = other.compositeState
+	s.closeOnce = sync.Once{}
+	s.closeErr = nil
 }
 
 // NewCompositeStateStore creates a new composite state store.
@@ -45,9 +67,20 @@ func NewCompositeStateStore(
 	ssConfig config.StateStoreConfig,
 	homeDir string,
 ) (*CompositeStateStore, error) {
-	dbHome := utils.GetStateStorePath(homeDir, ssConfig.Backend)
+	dbHome := stateStoreHome(homeDir, ssConfig.Backend)
 	if ssConfig.DBDirectory != "" {
 		dbHome = ssConfig.DBDirectory
+	}
+	if err := recoverRollbackDirSwap(dbHome); err != nil {
+		return nil, fmt.Errorf("recover state store rollback directory swap: %w", err)
+	}
+	changelogPath := utils.GetChangelogPath(dbHome)
+	// Ahead of the backend, which opens its own handle on this changelog: the
+	// cut rewrites the directory, and a second handle over it would keep writing
+	// to files the cut has replaced.
+	pendingRollbackTarget, hasPendingRollback, err := completePendingRollback(changelogPath, dbHome)
+	if err != nil {
+		return nil, fmt.Errorf("complete pending state store rollback: %w", err)
 	}
 
 	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
@@ -55,11 +88,14 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to create cosmos MVCC DB: %w", err)
 	}
 	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
+	cosmosStore.SetExternalPruning(ssConfig.ExternalPruning)
 
-	cs := &CompositeStateStore{
+	cs := &CompositeStateStore{compositeState: compositeState{
 		cosmosStore: cosmosStore,
 		config:      ssConfig,
-	}
+		homeDir:     homeDir,
+		dbHome:      dbHome,
+	}}
 
 	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
@@ -91,18 +127,62 @@ func NewCompositeStateStore(
 		}
 	}
 
-	changelogPath := utils.GetChangelogPath(dbHome)
 	if err := RecoverCompositeStateStore(changelogPath, cs); err != nil {
 		_ = cs.Close()
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
-
-	// Mismatched earliest versions = DBs from different snapshots; reads would diverge.
-	if err := cs.validateEVMSSPostRecovery(); err != nil {
-		_ = cs.Close()
-		return nil, err
+	if hasPendingRollback {
+		// The watermark can sit below the target with every entry replayed: a
+		// block with no changesets writes no changelog entry, so the last entry
+		// at or below the target may name an earlier height.
+		if cs.GetLatestVersion() < pendingRollbackTarget {
+			if err := cs.SetLatestVersion(pendingRollbackTarget); err != nil {
+				_ = cs.Close()
+				return nil, fmt.Errorf("advance state store version marker to pending rollback target %d: %w",
+					pendingRollbackTarget, err)
+			}
+		}
+		if err := clearRollbackTarget(dbHome); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("clear pending state store rollback marker: %w", err)
+		}
 	}
 
+	cs.validateEVMSSPostRecovery()
+
+	if ssConfig.SnapshotInterval > 0 {
+		// Shared with the rollback, which has to resolve the same root to find
+		// the snapshots this manager writes.
+		cosmosRoot := cosmosSnapshotRoot(homeDir, dbHome, ssConfig)
+		evmStore, hasEVM := cs.evmStore.(*evm.EVMStateStore)
+		var evmSnapshotRoot string
+		roots := []string{cosmosRoot}
+		if hasEVM {
+			evmSnapshotRoot = utils.GetStateStoreSnapshotsSiblingPath(evmStore.Dir())
+			roots = append(roots, evmSnapshotRoot)
+		}
+		// Resolved before any member opens, because opening one runs its retention, and the height a
+		// restore would start from is the newest the members share rather than the newest either holds.
+		floor := sssnapshot.NewFloor(sssnapshot.NewestCommonVersion(roots))
+
+		members := make([]snapshotMember, 0, len(roots))
+		if err := cosmosStore.StartSnapshots(cosmosRoot, []string{dbHome}, ssConfig, floor); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("start Cosmos state store snapshot manager: %w", err)
+		}
+		members = append(members, snapshotMember{name: "cosmos", manager: cosmosStore.Snapshots()})
+		if hasEVM {
+			if err := evmStore.StartSnapshots(evmSnapshotRoot, ssConfig, floor); err != nil {
+				_ = cs.Close()
+				return nil, fmt.Errorf("start EVM state store snapshot manager: %w", err)
+			}
+			members = append(members, snapshotMember{name: "evm", manager: evmStore.Snapshots()})
+		}
+		if err := cs.startSnapshotManager(members, floor); err != nil {
+			_ = cs.Close()
+			return nil, fmt.Errorf("start state store snapshot manager: %w", err)
+		}
+	}
 	cs.StartPruning()
 
 	return cs, nil
@@ -150,23 +230,30 @@ func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
 	return nil
 }
 
-// validateEVMSSPostRecovery rejects mismatched earliest versions between the two SS DBs.
-func (s *CompositeStateStore) validateEVMSSPostRecovery() error {
+// validateEVMSSPostRecovery reports mismatched earliest versions between SS DBs.
+// Divergence is safe because GetEarliestVersion reports the highest member
+// floor, which is the first version every routed store can serve.
+func (s *CompositeStateStore) validateEVMSSPostRecovery() {
 	if s.evmStore == nil {
-		return nil
+		return
 	}
 	cosmosEarliest := s.cosmosStore.GetEarliestVersion()
 	evmEarliest := s.evmStore.GetEarliestVersion()
 	if cosmosEarliest != evmEarliest && (cosmosEarliest > 0 || evmEarliest > 0) {
-		return fmt.Errorf(
-			"EVM SS earliest version %d does not match Cosmos SS earliest version %d: state sync the EVM SS DB, or set evm-ss-split=false",
-			evmEarliest, cosmosEarliest,
+		logger.Warn(
+			"EVM SS earliest version does not match Cosmos SS earliest version; serving the highest floor",
+			"evmEarliest", evmEarliest,
+			"cosmosEarliest", cosmosEarliest,
+			"reportedEarliest", max(cosmosEarliest, evmEarliest),
 		)
 	}
-	return nil
 }
 
 func (s *CompositeStateStore) StartPruning() {
+	if s.config.ExternalPruning {
+		logger.Info("state store internal pruning disabled by external pruning")
+		return
+	}
 	pm := pruning.NewPruningManager(s, int64(s.config.KeepRecent), int64(s.config.PruneIntervalSeconds))
 	pm.Start()
 	s.pruningManager = pm
@@ -178,6 +265,14 @@ func (s *CompositeStateStore) StartPruning() {
 func (s *CompositeStateStore) evmRouted(storeKey string) bool {
 	return s.evmStore != nil && storeKey == evm.EVMStoreKey
 }
+
+// The read methods below route by store key and do not re-check
+// GetEarliestVersion. The cosmos KVStore wrapper over a StateStore panics on any
+// read error, and pruning can raise the floor after a query store was built, so
+// an error here would crash the process for a request that must merely fail. The
+// floor is enforced where an error is representable: query-store construction
+// and VersionExists. Below the floor a pruned member reports the key as absent,
+// as its engine already does.
 
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	if s.evmRouted(storeKey) {
@@ -207,6 +302,20 @@ func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, st
 	return s.cosmosStore.ReverseIterator(storeKey, version, start, end)
 }
 
+func (s *CompositeStateStore) IteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+	if s.evmRouted(storeKey) {
+		return types.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, false)
+	}
+	return types.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, false)
+}
+
+func (s *CompositeStateStore) ReverseIteratorWithContext(ctx context.Context, storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+	if s.evmRouted(storeKey) {
+		return types.IterateWithContext(s.evmStore, ctx, storeKey, version, start, end, true)
+	}
+	return types.IterateWithContext(s.cosmosStore, ctx, storeKey, version, start, end, true)
+}
+
 func (s *CompositeStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {
 	return s.cosmosStore.RawIterate(storeKey, fn)
 }
@@ -216,11 +325,18 @@ func (s *CompositeStateStore) GetLatestVersion() int64 {
 }
 
 func (s *CompositeStateStore) GetEarliestVersion() int64 {
-	return s.cosmosStore.GetEarliestVersion()
+	earliest := s.cosmosStore.GetEarliestVersion()
+	if s.evmStore != nil {
+		earliest = max(earliest, s.evmStore.GetEarliestVersion())
+	}
+	return earliest
 }
 
 func (s *CompositeStateStore) Close() error {
 	s.closeOnce.Do(func() {
+		if s.snapshotMgr != nil {
+			s.snapshotMgr.stop()
+		}
 		if s.pruningManager != nil {
 			s.pruningManager.Stop()
 		}
@@ -268,6 +384,21 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 	return nil
 }
 
+// CommitBlock records a committed block and offers its version to the snapshot cadence. It is the
+// commit path's entry point: the apply methods are raw writes and take no snapshot.
+func (s *CompositeStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	// A block that changed nothing writes no changelog entry, but its version marker still moves.
+	if len(changesets) == 0 {
+		if err := s.SetLatestVersion(version); err != nil {
+			return err
+		}
+	} else if err := s.ApplyChangesetAsync(version, changesets); err != nil {
+		return err
+	}
+	s.scheduleSnapshot(version)
+	return nil
+}
+
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil {
 		return s.cosmosStore.ApplyChangesetSync(version, changesets)
@@ -304,6 +435,16 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 		}
 	}
 	return nil
+}
+
+// scheduleSnapshot offers version to the snapshot cadence, which decides whether that version is a
+// boundary. CommitBlock reaches it once every member holds that version and nothing above it, which
+// is what makes a snapshot's label exact.
+//
+// Nothing else offers a version. The apply methods are shared with import, recovery, prune and the
+// benchmark harness, none of which commit blocks.
+func (s *CompositeStateStore) scheduleSnapshot(version int64) {
+	s.snapshotMgr.maybeSnapshot(version)
 }
 
 func filterEVMChangesets(changesets []*proto.NamedChangeSet) []*proto.NamedChangeSet {
@@ -628,7 +769,7 @@ func ReplayWAL(
 		return nil
 	}
 
-	startOffset, err := findReplayStartOffset(streamHandler, firstOffset, lastOffset, fromVersion)
+	startOffset, err := wal.FindFirstOffsetAfterVersion(streamHandler, firstOffset, lastOffset, fromVersion)
 	if err != nil {
 		return fmt.Errorf("failed to find replay start offset: %w", err)
 	}
@@ -650,27 +791,4 @@ func ReplayWAL(
 		}
 		return handler(entry)
 	})
-}
-
-func findReplayStartOffset(streamHandler wal.ChangelogWAL, firstOffset, lastOffset uint64, targetVersion int64) (uint64, error) {
-	lo, hi := firstOffset, lastOffset
-	result := lastOffset + 1
-
-	for lo <= hi {
-		mid := lo + (hi-lo)/2
-		entry, err := streamHandler.ReadAt(mid)
-		if err != nil {
-			return 0, fmt.Errorf("failed to read WAL at offset %d: %w", mid, err)
-		}
-		if entry.Version > targetVersion {
-			result = mid
-			if mid == firstOffset {
-				break
-			}
-			hi = mid - 1
-		} else {
-			lo = mid + 1
-		}
-	}
-	return result, nil
 }

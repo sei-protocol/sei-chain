@@ -68,9 +68,11 @@ func checkConfig(t *testing.T, configFile string) {
 		"timeout",
 		"broadcast",
 		"send",
+		"fast-check-tx = false",
+		"mock-app = false",
+		"evm-only-in-memory = false",
 		"addr",
 		"wal",
-		"propose",
 		"max",
 		"genesis",
 	}
@@ -93,6 +95,25 @@ func checkConfig(t *testing.T, configFile string) {
 		"blacklist-ttl",
 	}
 	for _, e := range hiddenStateSyncElems {
+		if configContainsKey(configFile, e) {
+			t.Errorf("config file was not expected to contain %s", e)
+		}
+	}
+
+	// accept-interval is rendered deliberately: an accept rate too low to drain
+	// the kernel backlog silently stops a node acquiring inbound peers, and the
+	// template is where an operator looks. Keep it discoverable.
+	if !configContainsKey(configFile, "accept-interval") {
+		t.Errorf("config file was expected to contain accept-interval but did not")
+	}
+
+	// dial-interval remains an expert-only knob, left out of the generated
+	// template while still being parsed from existing config files.
+	// See TestP2PPacingKnobsParseFromExistingConfig.
+	var hiddenP2PElems = []string{
+		"dial-interval",
+	}
+	for _, e := range hiddenP2PElems {
 		if configContainsKey(configFile, e) {
 			t.Errorf("config file was not expected to contain %s", e)
 		}

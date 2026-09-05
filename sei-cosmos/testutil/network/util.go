@@ -102,7 +102,7 @@ func startInProcess(cfg Config, val *Validator) error {
 	}
 
 	if val.AppConfig.GRPC.Enable {
-		grpcSrv, err := servergrpc.StartGRPCServer(val.ClientCtx, app, val.AppConfig.GRPC)
+		grpcSrv, rateLimitRegistry, err := servergrpc.StartGRPCServer(val.ClientCtx, app, val.AppConfig.GRPC)
 		if err != nil {
 			return err
 		}
@@ -110,7 +110,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		val.grpc = grpcSrv
 
 		if val.AppConfig.GRPCWeb.Enable {
-			val.grpcWeb, err = servergrpc.StartGRPCWeb(grpcSrv, *val.AppConfig)
+			val.grpcWeb, err = servergrpc.StartGRPCWeb(grpcSrv, rateLimitRegistry, *val.AppConfig)
 			if err != nil {
 				return err
 			}
@@ -147,7 +147,7 @@ func collectGenFiles(cfg Config, vals []*Validator, outputDir string) error {
 		}
 
 		// overwrite each validator's genesis file to have a canonical genesis time
-		if err := genutil.ExportGenesisFileWithTime(genFile, cfg.ChainID, nil, appState, genTime); err != nil {
+		if err := genutil.ExportGenesisFileWithTime(genFile, cfg.ChainID, nil, cfg.TimeoutCommit, appState, genTime); err != nil {
 			return err
 		}
 	}
@@ -182,10 +182,12 @@ func initGenFiles(cfg Config, genAccounts []authtypes.GenesisAccount, genBalance
 	}
 
 	genDoc := types.GenesisDoc{
-		ChainID:    cfg.ChainID,
-		AppState:   appGenStateJSON,
-		Validators: nil,
+		ChainID:         cfg.ChainID,
+		AppState:        appGenStateJSON,
+		Validators:      nil,
+		ConsensusParams: types.DefaultConsensusParams(),
 	}
+	genDoc.ConsensusParams.Timeout.Commit = cfg.TimeoutCommit
 
 	// generate empty genesis files for each validator and save
 	for i := 0; i < cfg.NumValidators; i++ {

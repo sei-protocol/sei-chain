@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -335,8 +334,8 @@ func (*fakeTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*fakeTMClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*fakeTMClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
@@ -381,6 +380,10 @@ func (f *fakeTMClient) Genesis(context.Context) (*coretypes.ResultGenesis, error
 		return f.genesis, nil
 	}
 	return &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 1}}, nil
+}
+
+func (f *fakeTMClient) Validators(context.Context, *int64, *int, *int) (*coretypes.ResultValidators, error) {
+	return &coretypes.ResultValidators{}, nil
 }
 
 type fakeStateStore struct {
@@ -449,6 +452,13 @@ func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.Filte
 }
 
 func (f *fakeReceiptStore) Close() error { return nil }
+
+func (f *fakeReceiptStore) Name() string                    { return "fake-receipts" }
+func (f *fakeReceiptStore) PruneHistory(uint64) error       { return nil }
+func (f *fakeReceiptStore) PruneSnapshots(uint64) error     { return nil }
+func (f *fakeReceiptStore) ExternalPruning() bool           { return false }
+func (f *fakeReceiptStore) GetRollbackFloor(uint64) uint64  { return 0 }
+func (f *fakeReceiptStore) GetLatestBlock() (uint64, error) { return 0, nil }
 
 type fakeMultiStore struct {
 	earliest int64

@@ -62,7 +62,7 @@ func runBlocks(t *testing.T, cs *CompositeCommitStore, workload *migrationWorklo
 	t.Helper()
 	for i := 0; i < n; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 }
@@ -79,7 +79,7 @@ func runUntilAtMigrationVersion(
 	t.Helper()
 	for i := 0; i < maxBlocks; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 		done, err := migration.IsAtVersion(flatKVReaderFor(cs), version)
 		require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.False(t, hasLatticeHash(cs),
@@ -266,7 +266,7 @@ func TestComposite_Auto_RestartResume(t *testing.T) {
 	cs := openAutoStore(t, dir, batch)
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
@@ -383,6 +383,18 @@ func TestComposite_Auto_ExportImportRoundTrip(t *testing.T) {
 	runBlocks(t, src, workload, 1)
 	h := src.Version()
 
+	// FlatKV writes snapshots off the execution thread, so a commit returning no longer means its
+	// snapshot churn has finished. Exporting reads a snapshot by copying its directory, and pruning the
+	// oldest snapshot is the last step of publishing a new one, so without this wait the writer can
+	// delete the directory the export is part way through copying.
+	//
+	// Reached through the concrete store because quiescing the writer is not part of the giga.LiveStateStore
+	// abstraction: no production caller needs it, and this test only does because it drives commits and
+	// reads from one goroutine and so has a quiet period to establish.
+	flatKVStore, ok := src.flatKV.(*flatkv.CommitStore)
+	require.True(t, ok)
+	require.NoError(t, flatKVStore.FlushSnapshots())
+
 	exp, err := src.Exporter(h)
 	require.NoError(t, err)
 	items := drainCompositeExporter(t, exp)
@@ -455,7 +467,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 	// commits.
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -484,7 +496,7 @@ func TestComposite_Auto_MemiavlLeavesHashAtVersion3(t *testing.T) {
 			"memiavl StoreInfos must stay in the commit info while the bank migration is in flight")
 		sawMidFlight = true
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
-		_, err = cs.Commit()
+		_, err = cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.True(t, sawMidFlight,
@@ -553,7 +565,7 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 	for i := 0; i < 5; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
@@ -568,13 +580,17 @@ func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
 	requireOracleMatches(t, ro, workload.snapshotOracle())
 }
 
-// TestComposite_Auto_ReadOnlyPreFlatKVEraHeight pins the era-aware
-// read-only path: heights that predate flatkv's history (the chain ran
-// effectively memiavl-only) must remain queryable after the migration has
-// begun. The handle skips flatkv entirely — at such heights all consensus
-// data lives in memiavl — instead of failing the flatkv load. In-era
-// heights keep loading flatkv.
-func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
+// TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails records a guarantee that was deliberately
+// given up: heights predating flatkv's history used to be served memiavl-only, because flatkv kept a
+// persisted record of the height its history began at and the read path consulted it.
+//
+// That record is gone, so nothing distinguishes "this height predates flatkv" from "flatkv failed to
+// load at this height", and the read path can only take the safe branch — attempt the load and
+// surface the failure. Answering the other way would serve the height from a memiavl whose migrated
+// keys were deleted, fabricating a nonexistence answer, so failing here is the correct direction.
+//
+// In-era heights are unaffected. Delete this test only alongside a decision to restore pre-era reads.
+func TestComposite_Auto_ReadOnlyPreFlatKVEraHeightNowFails(t *testing.T) {
 	dir := t.TempDir()
 	cs := openAutoStoreWithConfig(t, dir, autoExportConfig(), 100)
 	defer func() { _ = cs.Close() }()
@@ -587,7 +603,7 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 				{Key: []byte("k"), Value: valAt(i)},
 			}}},
 		}))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
 
@@ -596,29 +612,18 @@ func TestComposite_Auto_ReadOnlyPreFlatKVEraHeight(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	for i := 0; i < 3; i++ {
 		require.NoError(t, cs.ApplyChangeSets(nil))
-		_, err := cs.Commit()
+		_, err := cs.Commit(cs.Version() + 1)
 		require.NoError(t, err)
 	}
-	require.Equal(t, int64(5), cs.flatKV.EarliestVersion(),
-		"flatkv history must begin at the seeded (transition) height")
 
-	// Pre-era height: served memiavl-only, with as-of-height values.
-	roCommitter, err := cs.LoadVersionReadOnly(3)
-	require.NoError(t, err, "pre-flatkv-era heights must remain queryable")
+	// Pre-era height: the load is attempted against a flatkv that has no such height, and fails.
+	_, err := cs.LoadVersionReadOnly(3)
+	require.Error(t, err, "a pre-flatkv-era height is no longer distinguishable from a load failure")
+
+	// In-era height: unchanged.
+	roCommitter, err := cs.LoadVersionReadOnly(7)
+	require.NoError(t, err)
 	ro, ok := roCommitter.(*CompositeCommitStore)
-	require.True(t, ok)
-	require.Equal(t, types.MemiavlOnly, ro.currentWriteMode)
-	require.Nil(t, ro.flatKV)
-	val, found, err := ro.Get(keys.BankStoreKey, []byte("k"))
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, valAt(3), val, "value as-of height 3")
-	require.NoError(t, ro.Close())
-
-	// In-era height: flatkv loads as before.
-	roCommitter, err = cs.LoadVersionReadOnly(7)
-	require.NoError(t, err)
-	ro, ok = roCommitter.(*CompositeCommitStore)
 	require.True(t, ok)
 	defer func() { _ = ro.Close() }()
 	require.NotNil(t, ro.flatKV, "in-era heights must keep loading flatkv")

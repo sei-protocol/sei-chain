@@ -125,6 +125,12 @@ type Config struct {
 	// timeout for filters
 	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
 
+	// maximum number of active eth_newFilter and eth_newBlockFilter filters
+	MaxFilters uint64 `mapstructure:"max_filters"`
+
+	// maximum number of unpolled hashes retained by an eth_newBlockFilter filter
+	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
+
 	// checkTx timeout for sig verify
 	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
 
@@ -133,6 +139,9 @@ type Config struct {
 
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
+
+	// Enable simulation before broadcasting EVM RPC sendRawTransaction.
+	EnableSimulation bool `mapstructure:"enable_simulation"`
 
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
@@ -217,7 +226,7 @@ type Config struct {
 	// Set to 0 to use default: 1000
 	WorkerQueueSize int `mapstructure:"worker_queue_size"`
 
-	// EnabledLegacySeiApis lists which gated sei_* and sei2_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
+	// EnabledLegacySeiApis lists which gated sei_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
 	// Set in app.toml [evm] as enabled_legacy_sei_apis (see ReadConfig and ConfigTemplate defaults).
 	EnabledLegacySeiApis []string `mapstructure:"enabled_legacy_sei_apis"`
 
@@ -280,12 +289,21 @@ type Config struct {
 	// WebSocket JSON-RPC request bodies admitted for processing concurrently.
 	// HTTP (:8545) and WebSocket (:8546) each get an independent budget, so peak
 	// in-flight request bytes process-wide can reach 2× this value (e.g. 256 MiB
-	// when set to the 128 MiB default). HTTP uses Content-Length weighting and
-	// rejects over-budget requests fast (HTTP 429). WebSocket blocks until budget
-	// frees or WSAdmissionTimeout elapses; on timeout the peer receives JSON-RPC
-	// error -32005 and the connection is closed (active subscriptions are dropped
-	// with the connection). Set to 0 to disable the limit on either protocol.
+	// when set to the 128 MiB default). HTTP charges the budget incrementally as
+	// body bytes are read, bounding what a slow/stalled upload can pin to about
+	// one read batch rather than the full declared Content-Length; requests that
+	// would exceed the budget mid-read are rejected (HTTP 429). WebSocket blocks
+	// until budget frees or WSAdmissionTimeout elapses; on timeout the peer
+	// receives JSON-RPC error -32005 and the connection is closed (active
+	// subscriptions are dropped with the connection). Set to 0 to disable the
+	// limit on either protocol.
 	MaxConcurrentRequestBytes int64 `mapstructure:"max_concurrent_request_bytes"`
+
+	// BodyReadIdleTimeout is the maximum idle time allowed between body chunks
+	// while reading an HTTP JSON-RPC request. Stalled body reads are cut with
+	// HTTP 408 and release any byte budget held so far. Zero disables the
+	// per-chunk idle guard (http.Server ReadTimeout remains the backstop).
+	BodyReadIdleTimeout time.Duration `mapstructure:"body_read_idle_timeout"`
 
 	// WSAdmissionTimeout bounds how long a WebSocket connection waits for
 	// concurrent-byte budget to free before the next frame is read or committed.
@@ -317,9 +335,12 @@ var DefaultConfig = Config{
 	CORSOrigins:                  "*",
 	WSOrigins:                    "*",
 	FilterTimeout:                120 * time.Second,
+	MaxFilters:                   1000,
+	MaxBlockFilterHashes:         1000,
 	CheckTxTimeout:               5 * time.Second,
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
+	EnableSimulation:             true,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxLogBytes:                  receipt.DefaultMaxLogBytes,
@@ -363,6 +384,7 @@ var DefaultConfig = Config{
 	MaxConcurrentRequestBytes: 128 * 1024 * 1024, // 128 MiB of request bodies admitted concurrently
 	WSAdmissionTimeout:        30 * time.Second,  // matches go-ethereum rpc defaultWSAdmissionTimeout
 	MaxOpenConnections:        2000,
+	BodyReadIdleTimeout:       10 * time.Second,
 }
 
 const (
@@ -379,9 +401,12 @@ const (
 	flagCORSOrigins                  = "evm.cors_origins"
 	flagWSOrigins                    = "evm.ws_origins"
 	flagFilterTimeout                = "evm.filter_timeout"
+	flagMaxFilters                   = "evm.max_filters"
+	flagMaxBlockFilterHashes         = "evm.max_block_filter_hashes"
 	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
+	flagEnableSimulation             = "evm.enable_simulation"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxLogBytes                  = "evm.max_log_bytes"
@@ -421,6 +446,7 @@ const (
 	flagMaxConcurrentRequestBytes    = "evm.max_concurrent_request_bytes"
 	flagWSAdmissionTimeout           = "evm.ws_admission_timeout"
 	flagMaxOpenConnections           = "evm.max_open_connections"
+	flagBodyReadIdleTimeout          = "evm.body_read_idle_timeout"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -491,6 +517,22 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagMaxFilters); v != nil {
+		if cfg.MaxFilters, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxFilters == 0 {
+			return cfg, fmt.Errorf("%s must be greater than zero", flagMaxFilters)
+		}
+	}
+	if v := opts.Get(flagMaxBlockFilterHashes); v != nil {
+		if cfg.MaxBlockFilterHashes, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxBlockFilterHashes == 0 {
+			return cfg, fmt.Errorf("%s must be greater than zero", flagMaxBlockFilterHashes)
+		}
+	}
 	if v := opts.Get(flagCheckTxTimeout); v != nil {
 		if cfg.CheckTxTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
@@ -503,6 +545,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSlow); v != nil {
 		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEnableSimulation); v != nil {
+		if cfg.EnableSimulation, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -713,6 +760,14 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the limit), got %d", flagMaxOpenConnections, cfg.MaxOpenConnections)
 		}
 	}
+	if v := opts.Get(flagBodyReadIdleTimeout); v != nil {
+		if cfg.BodyReadIdleTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+		if cfg.BodyReadIdleTimeout < 0 {
+			return cfg, fmt.Errorf("%s must be >= 0 (0 disables the idle guard), got %s", flagBodyReadIdleTimeout, cfg.BodyReadIdleTimeout)
+		}
+	}
 	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
 		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
 		return cfg, fmt.Errorf(
@@ -811,64 +866,39 @@ ws_origins = "{{ .EVM.WSOrigins }}"
 # timeout for filters
 filter_timeout = "{{ .EVM.FilterTimeout }}"
 
+# maximum number of active eth_newFilter and eth_newBlockFilter filters
+# filters cannot be added if there are too many active eth_newFilter and eth_newBlockFilter
+max_filters = {{ .EVM.MaxFilters }}
+
+# maximum number of unpolled hashes retained by an eth_newBlockFilter filter;
+# if a filter has more than this many unpolled hashes the filter will be invalidated and removed.
+max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
+
 # checkTx timeout for sig verify
 checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
 
+# Enables simulation before broadcasting EVM RPC sendRawTransaction.
+enable_simulation = {{ .EVM.EnableSimulation }}
+
 # Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}
 
-# Legacy sei_* / sei2_* JSON-RPC (EVM HTTP only - not Cosmos REST on 1317).
+# Legacy sei_* JSON-RPC (EVM HTTP only - not Cosmos REST on 1317).
 #
-# DEPRECATION: The sei_* and sei2_* JSON-RPC surfaces are deprecated and scheduled for removal. Do not
+# DEPRECATION: The sei_* JSON-RPC surface is deprecated and scheduled for removal. Do not
 # build new integrations on them; use eth_* / debug_* and documented replacements. HTTP 200;
 # gate errors use standard JSON-RPC error encoding (see evmrpc/AGENTS.md). Successful allowlisted
 # responses are unchanged; nodes may set HTTP header Sei-Legacy-RPC-Deprecation (see AGENTS.md).
 #
-# Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable the three
-# address/Cosmos helpers; uncomment optional lines below to enable more legacy methods (include
-# sei2_* block methods at the end of the list if you need them).
+# Only methods listed in enabled_legacy_sei_apis are allowed. Init defaults enable all three
+# remaining address/Cosmos helpers.
 enabled_legacy_sei_apis = [
 {{- range .EVM.EnabledLegacySeiApis }}
   "{{ . }}",
 {{- end }}
-
-  # Optional legacy methods - uncomment to enable (same deprecation applies):
-  # "sei_associate",
-  # "sei_getBlockByHash",
-  # "sei_getBlockByHashExcludeTraceFail",
-  # "sei_getBlockByNumber",
-  # "sei_getBlockByNumberExcludeTraceFail",
-  # "sei_getBlockReceipts",
-  # "sei_getBlockTransactionCountByHash",
-  # "sei_getBlockTransactionCountByNumber",
-  # "sei_getEvmTx",
-  # "sei_getFilterChanges",
-  # "sei_getFilterLogs",
-  # "sei_getLogs",
-  # "sei_getTransactionByBlockHashAndIndex",
-  # "sei_getTransactionByBlockNumberAndIndex",
-  # "sei_getTransactionByHash",
-  # "sei_getTransactionCount",
-  # "sei_getTransactionErrorByHash",
-  # "sei_getTransactionReceipt",
-  # "sei_getTransactionReceiptExcludeTraceFail",
-  # "sei_getVMError",
-  # "sei_newBlockFilter",
-  # "sei_newFilter",
-  # "sei_sign",
-  # "sei_uninstallFilter",
-  #
-  # Optional sei2_* block namespace (bank transfers in blocks; HTTP only):
-  # "sei2_getBlockByHash",
-  # "sei2_getBlockByHashExcludeTraceFail",
-  # "sei2_getBlockByNumber",
-  # "sei2_getBlockByNumberExcludeTraceFail",
-  # "sei2_getBlockReceipts",
-  # "sei2_getBlockTransactionCountByHash",
-  # "sei2_getBlockTransactionCountByNumber",
 ]
 
 # max number of logs a single eth_getLogs query may match before it errors,
@@ -1016,9 +1046,12 @@ max_request_body_bytes = {{ .EVM.MaxRequestBodyBytes }}
 # max_concurrent_request_bytes bounds total request bytes admitted concurrently
 # on HTTP (:8545) and WebSocket (:8546). Each protocol gets an independent
 # budget, so peak in-flight bytes process-wide can reach 2× this value. HTTP
-# rejects over-budget requests fast (HTTP 429). WS blocks until budget frees or
-# ws_admission_timeout elapses; on timeout the peer gets JSON-RPC error -32005
-# and the connection closes. Set to 0 to disable on either protocol.
+# charges the budget incrementally as body bytes are read, bounding what a
+# slow/stalled upload can pin to about one read batch rather than the full
+# declared Content-Length; requests that would exceed the budget mid-read are
+# rejected (HTTP 429). WS blocks until budget frees or ws_admission_timeout
+# elapses; on timeout the peer gets JSON-RPC error -32005 and the connection
+# closes. Set to 0 to disable on either protocol.
 max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
 
 # ws_admission_timeout bounds how long a WebSocket connection waits for
@@ -1026,6 +1059,12 @@ max_concurrent_request_bytes = {{ .EVM.MaxConcurrentRequestBytes }}
 # the peer receives JSON-RPC error -32005 and the connection closes. Zero or
 # negative values use the go-ethereum default (30s).
 ws_admission_timeout = "{{ .EVM.WSAdmissionTimeout }}"
+
+# body_read_idle_timeout is the maximum idle time allowed between body chunks
+# while reading an HTTP JSON-RPC request. Stalled body reads return HTTP 408 and
+# release any byte budget held so far. Set to 0 to disable (ReadTimeout remains
+# the whole-request backstop).
+body_read_idle_timeout = "{{ .EVM.BodyReadIdleTimeout }}"
 
 # max_open_connections caps the number of simultaneously accepted connections on
 # the EVM HTTP and WebSocket listeners. Set to 0 to disable the limit.

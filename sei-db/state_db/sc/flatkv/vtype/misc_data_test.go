@@ -99,6 +99,8 @@ func TestMiscIsDelete_Default(t *testing.T) {
 
 func TestMiscIsDelete_EmptySliceIsNotDelete(t *testing.T) {
 	ld := NewMiscData().SetValue([]byte{})
+	require.NotNil(t, ld.GetValue(), "empty value is present data, not absence")
+	require.Empty(t, ld.GetValue())
 	require.False(t, ld.IsDelete(), "empty value is a valid write, not a deletion")
 }
 
@@ -221,6 +223,7 @@ func TestMiscData_SetValueOverwrite(t *testing.T) {
 func TestMiscData_SetValueNil(t *testing.T) {
 	ld := NewMiscData().SetValue([]byte{0x01})
 	ld = ld.SetValue(nil)
+	require.NotNil(t, ld.GetValue(), "nil input is normalized to present empty data")
 	require.Empty(t, ld.GetValue())
 	require.False(t, ld.IsDelete(), "SetValue(nil) is a write of empty data, not a deletion")
 }

@@ -6,13 +6,11 @@ import (
 	"io"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"cosmossdk.io/errors"
-	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -26,8 +24,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/transient"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -52,6 +50,7 @@ type Store struct {
 	mtx            sync.RWMutex
 	scStore        sctypes.Committer
 	ssStore        seidbtypes.StateStore
+	ssCommitter    seidbtypes.BlockCommitter
 	lastCommitInfo *types.CommitInfo
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
@@ -60,6 +59,12 @@ type Store struct {
 
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
+
+	// subspaceQuerySem bounds concurrent /subspace scans on the SS fast path only.
+	// The commitment path is reached with SS disabled or a proof requested, where
+	// the pair/byte caps are the only bound.
+	subspaceQuerySem chan struct{}
+	subspaceLimits   query.Limits
 
 	snapshotSCStoreWarnOnce sync.Once
 
@@ -74,6 +79,11 @@ type Store struct {
 	// captured only once (with the real, non-empty changeset) per block.
 	blockChangeSets          []*proto.NamedChangeSet
 	changesetCapturedVersion int64
+	// flushedVersion is the height whose changesets have already been handed to the commit store.
+	// baseapp asks for the working hash twice per block and then commits, so flush runs three times per
+	// height and only the first run carries the block's writes; this field lets the later, empty runs be
+	// dropped rather than handed down as if the store had moved on to another block.
+	flushedVersion int64
 	// nextBlockHash is the Tendermint block hash supplied by baseapp for the block being committed.
 	nextBlockHash []byte
 	// nextResultHash is the result hash (merkle root over the block's deterministic tx results)
@@ -102,6 +112,11 @@ func NewStore(
 		maxInFlight = 1
 	}
 
+	subspaceMaxInFlight := scConfig.SubspaceQueryMaxInFlight
+	if subspaceMaxInFlight <= 0 {
+		subspaceMaxInFlight = config.DefaultSCSubspaceQueryMaxInFlight
+	}
+
 	burst := scConfig.HistoricalProofBurst
 	if burst <= 0 {
 		burst = 1
@@ -124,18 +139,26 @@ func NewStore(
 		}
 	}
 	store := &Store{
-		scStore:            scStore,
-		storesParams:       make(map[types.StoreKey]storeParams),
-		storeKeys:          make(map[string]types.StoreKey),
-		ckvStores:          make(map[types.StoreKey]types.CommitKVStore),
-		gigaKeys:           gigaKeys,
-		histProofSem:       make(chan struct{}, maxInFlight),
-		histProofLimiter:   limiter,
+		scStore:          scStore,
+		storesParams:     make(map[types.StoreKey]storeParams),
+		storeKeys:        make(map[string]types.StoreKey),
+		ckvStores:        make(map[types.StoreKey]types.CommitKVStore),
+		gigaKeys:         gigaKeys,
+		histProofSem:     make(chan struct{}, maxInFlight),
+		histProofLimiter: limiter,
+		subspaceQuerySem: make(chan struct{}, subspaceMaxInFlight),
+		subspaceLimits: query.Limits{
+			MaxPairs: scConfig.SubspaceMaxPairs,
+			MaxBytes: scConfig.SubspaceMaxBytes,
+		},
 		hashLoggerConfig:   scConfig.HashLogger,
 		hashLoggerDisabled: !scConfig.HashLogger.Enable,
 		scDir:              scDir,
+		// No height has been flushed yet, and the first block is 1, so -1 cannot collide with it.
+		flushedVersion: -1,
 	}
 	if ssConfig.Enable {
+		config.AlignSSSnapshotWithSC(scConfig, &ssConfig)
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
 		if err != nil {
 			panic(err)
@@ -150,6 +173,13 @@ func NewStore(
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		store.ssStore = ssStore
+		committer, ok := ssStore.(seidbtypes.BlockCommitter)
+		if !ok {
+			// Unreachable: ss.NewStateStore pins the capability at compile time. Refused here rather
+			// than tolerated, because a state store the commit path cannot reach receives no blocks.
+			panic(fmt.Sprintf("state store %T cannot commit blocks", ssStore))
+		}
+		store.ssCommitter = committer
 	}
 	return store
 
@@ -163,8 +193,6 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	commitStartTime := time.Now()
 	defer func() {
 		storev2Metrics.scCommitLatency.Record(context.Background(), time.Since(commitStartTime).Seconds())
-		// TODO(PLT-353): remove once storev2_sc_commit_latency verified
-		telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
 	}()
 	if err := rs.flush(); err != nil {
 		panic(err)
@@ -178,7 +206,7 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		}
 	}
 	// Commit to SC Store
-	_, err := rs.scStore.Commit()
+	_, err := rs.scStore.Commit(rs.nextVersion())
 	if err != nil {
 		panic(err)
 	}
@@ -194,16 +222,34 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		}
 	}
 
-	rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-	rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+	rs.adoptSCCommitInfo()
 	rs.recordBlockHashes(rs.lastCommitInfo.Version)
 	return rs.lastCommitInfo.CommitID()
 }
 
 // Flush all the pending changesets to commit store.
+// nextVersion is the height the store is currently building: one past the last committed block.
+//
+// Three paths need this number — draining changesets, taking the working hash, and committing — and
+// they must agree. A backend left to derive its own is what let a height be committed twice.
+func (rs *Store) nextVersion() int64 {
+	return rs.lastCommitInfo.Version + 1
+}
+
+// adoptSCCommitInfo takes the state-commit store's last commit info as this store's own.
+func (rs *Store) adoptSCCommitInfo() {
+	rs.lastCommitInfo = amendCommitInfo(convertCommitInfo(rs.scStore.LastCommitInfo()), rs.storesParams)
+	rs.discardBlockInProgress()
+}
+
+func (rs *Store) discardBlockInProgress() {
+	rs.flushedVersion = -1
+	rs.changesetCapturedVersion = 0
+}
+
 func (rs *Store) flush() error {
 	var changeSets []*proto.NamedChangeSet
-	currentVersion := rs.lastCommitInfo.Version + 1
+	currentVersion := rs.nextVersion()
 	for key := range rs.ckvStores {
 		// it'll unwrap the inter-block cache
 		store := rs.GetCommitKVStore(key)
@@ -222,11 +268,25 @@ func (rs *Store) flush() error {
 			return changeSets[i].Name < changeSets[j].Name
 		})
 	}
-	// Capture the (sorted) aggregate changeset for hash logging once per block. rootmulti flushes twice
-	// per block (GetWorkingHash then Commit) but only the first flush carries the real changeset — the
-	// second sees an empty set because PopChangeSet already drained it — so capture only the first time.
-	// nil is normalized to an empty (non-nil) set so an empty block records the stable empty-changeset
-	// hash rather than a nil one.
+	// baseapp requests the working hash in FinalizeBlock and again in Commit before committing, so flush
+	// runs three times per height, and PopChangeSet has already drained the block's writes by the second
+	// run.
+	if len(changeSets) == 0 && rs.flushedVersion == currentVersion {
+		// An empty changeset must not be handed down: the commit store stamps it with a height it
+		// derives from its own last committed block, which the first working-hash request already
+		// advanced, so it would conclude the chain had moved to the next block and commit one that
+		// never existed.
+		return nil
+	}
+	// A later run that does carry writes falls through, and nothing detects it: flatkv is already sealed
+	// at currentVersion, so its writer stamps the batch currentVersion+1 and the writes silently land in
+	// the next block, while the state store and memIAVL still take them at currentVersion. That nothing
+	// writes to the multistore after the first working hash — notably in the preCommitHandler — is a
+	// convention, not an enforced invariant.
+	rs.flushedVersion = currentVersion
+
+	// Capture the (sorted) aggregate changeset for hash logging once per block. nil is normalized to an
+	// empty (non-nil) set so an empty block records the stable empty-changeset hash rather than a nil one.
 	if !rs.hashLoggerDisabled && rs.changesetCapturedVersion != currentVersion {
 		if changeSets == nil {
 			rs.blockChangeSets = []*proto.NamedChangeSet{}
@@ -235,25 +295,13 @@ func (rs *Store) flush() error {
 		}
 		rs.changesetCapturedVersion = currentVersion
 	}
-	if len(changeSets) > 0 {
-		if rs.ssStore != nil {
-			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
-				return err
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
+	// The state store takes the block whether or not it carries writes: an empty one still advances
+	// its version marker, and the store decides for itself whether the height is a snapshot boundary.
+	if rs.ssCommitter != nil {
+		if err := rs.ssCommitter.CommitBlock(currentVersion, changeSets); err != nil {
+			return err
 		}
-	} else {
-		// ensure the state store watermark advances even for empty blocks
-		if rs.ssStore != nil {
-			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
-				panic(err)
-			}
-			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
-			// TODO(PLT-353): remove once storev2_ss_version verified
-			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
-		}
+		storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
 	}
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
@@ -346,12 +394,15 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		if version <= 0 {
 			version = rs.ssStore.GetLatestVersion()
 		}
+		if err := rs.validateSSReadVersion(version); err != nil {
+			return nil, err
+		}
 		// add the transient/mem stores registered in current app.
 		for k, store := range rs.ckvStores {
 			if store.GetStoreType() != types.StoreTypeIAVL {
 				stores[k] = store
 			} else {
-				stores[k] = state.NewStore(rs.ssStore, k, version)
+				stores[k] = state.NewStore(rs.ssStore, k, version, rs.subspaceLimits)
 			}
 		}
 	} else if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
@@ -362,6 +413,16 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	}
 
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+}
+
+// validateSSReadVersion rejects a historical query below the common SS floor
+// before constructing stores that would otherwise return partial state.
+func (rs *Store) validateSSReadVersion(version int64) error {
+	earliest := rs.ssStore.GetEarliestVersion()
+	if version < earliest {
+		return fmt.Errorf("state store version %d is below earliest available version %d", version, earliest)
+	}
+	return nil
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
@@ -384,7 +445,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
 			tree := scStore.GetChildStoreByName(k.Name())
-			stores[k] = commitment.NewStore(tree)
+			stores[k] = commitment.NewStore(tree, rs.subspaceLimits)
 		}
 	}
 	rs.mtx.RUnlock()
@@ -431,7 +492,7 @@ func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.Cac
 		if tree == nil {
 			return nil, fmt.Errorf("snapshot missing child store %q", k.Name())
 		}
-		stores[k] = commitment.NewStore(tree)
+		stores[k] = commitment.NewStore(tree, rs.subspaceLimits)
 	}
 	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
 }
@@ -634,10 +695,10 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	rs.ckvStores = newStores
 	// to keep the root hash compatible with cosmos-sdk 0.46
 	if rs.scStore.Version() != 0 {
-		rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-		rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+		rs.adoptSCCommitInfo()
 	} else {
 		rs.lastCommitInfo = &types.CommitInfo{}
+		rs.discardBlockInProgress()
 	}
 	return nil
 }
@@ -651,7 +712,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, params storeParam
 		if tree == nil {
 			return nil, fmt.Errorf("new store is not added in upgrades: %s", key.Name())
 		}
-		return types.CommitKVStore(commitment.NewStore(tree)), nil
+		return types.CommitKVStore(commitment.NewStore(tree, rs.subspaceLimits)), nil
 	case types.StoreTypeDB:
 		panic("recursive MultiStores not yet supported")
 	case types.StoreTypeTransient:
@@ -683,7 +744,16 @@ func (rs *Store) SetInterBlockCache(_ types.MultiStorePersistentCache) {}
 // SetInitialVersion Implements interface CommitMultiStore
 // used by InitChain when the initial height is bigger than 1
 func (rs *Store) SetInitialVersion(version int64) error {
-	return rs.scStore.SetInitialVersion(version)
+	if err := rs.scStore.SetInitialVersion(version); err != nil {
+		return err
+	}
+	// A chain seeded to begin at this height has version-1 behind it, and nextVersion is what tells the
+	// commit store which block is being built. Leaving it at 0 would ask for block 1 on a chain whose
+	// first block is this one. The backends cannot supply this: flatkv reflects the seed immediately
+	// while memiavl does not apply it until its first commit, so they disagree until then.
+	rs.lastCommitInfo.Version = version - 1
+	rs.discardBlockInProgress()
+	return nil
 }
 
 // SetMigrationBatchSize forwards the governance-controlled number of keys
@@ -727,7 +797,7 @@ func (rs *Store) SetMigrationBatchSize(batchSize int) error {
 	if !ok || mode != sctypes.MemiavlOnly {
 		return nil
 	}
-	// Effective mode is memiavl_only. Only an auto store may be advanced to
+	// effective mode is memiavl_only. Only an auto store may be advanced to
 	// migrate_evm at runtime; a node pinned to fixed memiavl_only must not.
 	configured, hasConfigured := rs.ConfiguredWriteMode()
 	if !hasConfigured {
@@ -803,17 +873,65 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	if target > math.MaxUint32 {
 		return fmt.Errorf("rollback height target %d exceeds max uint32", target)
 	}
+	// Whether the state store can follow is settled before the commit store
+	// moves. A state store that can follow and then fails mid-rollback is an
+	// error, but one that cannot follow at all must not disable the command:
+	// rollback is what an operator reaches for when the node cannot make
+	// progress, and it rewound SC and Tendermint alone before SS could follow
+	// at all. That outcome is now announced instead of silent.
+	var ssRollback seidbtypes.Rollbackable
+	if rs.ssStore != nil {
+		var reason error
+		capable, ok := rs.ssStore.(seidbtypes.Rollbackable)
+		switch {
+		case !ok:
+			reason = fmt.Errorf("state store %T does not support rollback", rs.ssStore)
+		default:
+			ssRollback = capable
+			if validator, ok := rs.ssStore.(seidbtypes.RollbackValidator); ok {
+				reason = validator.ValidateRollback(target)
+			}
+		}
+		if reason != nil {
+			ssRollback = nil
+			warnStateStoreStaysAhead(target, rs.ssStore.GetLatestVersion(), reason)
+		}
+	}
 	err := rs.scStore.Rollback(target)
 	if err != nil {
 		return err
 	}
+	if ssRollback != nil {
+		// The commit store is already at the target here, and the caller rewinds
+		// Tendermint only after this returns, so a failure leaves three layers on
+		// two heights. It is recoverable rather than terminal: re-running the
+		// command takes the app-behind-Tendermint path and rewinds Tendermint,
+		// and the state store converges on its own if the failure landed after
+		// the directory swap, because the marker drives the next open. The
+		// pre-flight is what keeps this to an I/O failure rather than a plan the
+		// state store was never going to accept.
+		if err := ssRollback.Rollback(target); err != nil {
+			return fmt.Errorf("rollback state store to version %d: %w", target, err)
+		}
+		fmt.Printf("Rolled back SS to version %d\n", rs.ssStore.GetLatestVersion())
+	}
 	// We need to update the lastCommitInfo after rollback
 	if rs.scStore.Version() != 0 {
 		fmt.Printf("Rolled back CMS to version %d\n", rs.scStore.Version())
-		rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
-		rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+		rs.adoptSCCommitInfo()
 	}
 	return nil
+}
+
+// warnStateStoreStaysAhead tells the operator that only part of the node moved.
+// Re-execution rewrites the keys the replayed blocks write, so the state store
+// heals when the chain replays the same blocks; the keys written only by the
+// discarded ones keep their old values and do not.
+func warnStateStoreStaysAhead(target, ssVersion int64, reason error) {
+	fmt.Printf("WARNING: state store rollback skipped: %v\n", reason)
+	fmt.Printf("WARNING: the commit store and Tendermint roll back to version %d while the state store stays at version %d\n",
+		target, ssVersion)
+	fmt.Printf("WARNING: rebuild the state store from state sync unless the chain replays the same blocks above version %d\n", target)
 }
 
 // getStoreByName performs a lookup of a StoreKey given a store name typically
@@ -848,8 +966,20 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 
 	// Fast path: no proof + SS enabled
 	if !needProof && rs.ssStore != nil {
-		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
-		return store.Query(ctx, req)
+		if err := rs.validateSSReadVersion(version); err != nil {
+			return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, err.Error()))
+		}
+		if req.Path == "/subspace" {
+			if err := rs.tryAcquireSubspaceQueryPermit(); err != nil {
+				storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+					attribute.String("reason", "semaphore"),
+				))
+				return sdkerrors.QueryResult(err)
+			}
+			defer rs.releaseSubspaceQueryPermit()
+		}
+		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version, rs.subspaceLimits))
+		return rs.finishSubspaceQuery(ctx, req, store.Query(ctx, req))
 	}
 
 	var (
@@ -858,7 +988,7 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 	)
 	if latest {
 		// latest never needs historical LoadVersion clone
-		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName)))
+		store = types.Queryable(commitment.NewStore(rs.scStore.GetChildStoreByName(storeName), rs.subspaceLimits))
 		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	} else {
@@ -869,26 +999,12 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 				attribute.Bool("success", false),
 				attribute.Bool("proof", needProof),
 			))
-			// TODO(PLT-353): remove once storev2_historical_abci_query verified
-			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("success", "false"),
-					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
-				})
 			return sdkerrors.QueryResult(err)
 		} else {
 			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
 				attribute.Bool("success", true),
 				attribute.Bool("proof", needProof),
 			))
-			// TODO(PLT-353): remove once storev2_historical_abci_query verified
-			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("success", "true"),
-					telemetry.NewLabel("proof", strconv.FormatBool(needProof)),
-				})
 		}
 		defer rs.releaseHistProofPermit()
 
@@ -898,12 +1014,12 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		}
 		defer func() { _ = scStore.Close() }()
 
-		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
+		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName), rs.subspaceLimits))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 
-	res := store.Query(ctx, req)
+	res := rs.finishSubspaceQuery(ctx, req, store.Query(ctx, req))
 
 	// If underlying query failed (e.g. invalid height/path) or doesn' need proof, return as-is.
 	if res.Code != 0 || !needProof {
@@ -922,6 +1038,31 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		return emptyProofError
 	}
 
+	return res
+}
+
+func (rs *Store) tryAcquireSubspaceQueryPermit() error {
+	select {
+	case rs.subspaceQuerySem <- struct{}{}:
+		return nil
+	default:
+		return errors.Wrap(sdkerrors.ErrConflict, "subspace query busy")
+	}
+}
+
+func (rs *Store) releaseSubspaceQueryPermit() {
+	select {
+	case <-rs.subspaceQuerySem:
+	default:
+	}
+}
+
+func (rs *Store) finishSubspaceQuery(ctx context.Context, req abci.RequestQuery, res abci.ResponseQuery) abci.ResponseQuery {
+	if req.Path == "/subspace" && res.Code != 0 && query.IsCapExceededResponse(res) {
+		storev2Metrics.subspaceQueryRejected.Add(ctx, 1, otelmetric.WithAttributes(
+			attribute.String("reason", "cap_exceeded"),
+		))
+	}
 	return res
 }
 
@@ -1024,7 +1165,7 @@ func (rs *Store) GetWorkingHash() ([]byte, error) {
 	if err := rs.flush(); err != nil {
 		return nil, err
 	}
-	commitInfo := convertCommitInfo(rs.scStore.WorkingCommitInfo())
+	commitInfo := convertCommitInfo(rs.scStore.WorkingCommitInfo(rs.nextVersion()))
 	// for sdk 0.46 and backward compatibility
 	commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	return commitInfo.Hash(), nil
@@ -1177,30 +1318,12 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			if err == commonerrors.ErrorExportDone {
 				for k, v := range keySizePerStore {
 					storev2Metrics.iavlTotalKeyBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_key_bytes verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_key_bytes"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				for k, v := range valueSizePerStore {
 					storev2Metrics.iavlTotalValueBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_value_bytes verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_value_bytes"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				for k, v := range numKeysPerStore {
 					storev2Metrics.iavlTotalNumKeys.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
-					// TODO(PLT-353): remove once storev2_iavl_total_num_keys verified
-					telemetry.SetGaugeWithLabels(
-						[]string{"iavl", "store", "total_num_keys"},
-						float32(v),
-						[]metrics.Label{telemetry.NewLabel("store_name", k)},
-					)
 				}
 				break
 			}
@@ -1224,8 +1347,6 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			valueSizePerStore[currentStoreName] += int64(len(item.Value))
 			numKeysPerStore[currentStoreName] += 1
 			storev2Metrics.stateSyncKeysExported.Add(context.Background(), 1)
-			// TODO(PLT-353): remove once storev2_state_sync_keys_exported verified
-			telemetry.IncrCounter(1, "state_sync", "num_keys_exported")
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 				Item: &snapshottypes.SnapshotItem_Store{

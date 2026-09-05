@@ -2,10 +2,11 @@ package p2p
 
 import (
 	"context"
-	"maps"
 	"math/rand/v2"
-	"slices"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
@@ -27,9 +28,12 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			cfg:                cfg,
 			key:                key,
 			data:               dataState,
-			service:            giga.NewBlockSyncService(dataState),
+			nextCommitEpoch:    dataState.NextCommitEpoch(),
+			anchor:             dataState.Anchor(),
+			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
@@ -53,13 +57,24 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
+		s.SpawnNamed("committeeMembers", func() error {
+			return r.runPerCommitteeMember(ctx, r.runEvmProxy)
+		})
 		return nil
 	})
 }
 
+// EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
+// EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
+func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
+	return r.evmProxy(r.nextCommitEpoch.Load().Committee().EvmShard(sender))
+}
+
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,
-// advance on disconnect/reject. Committee list shuffled once at startup
-// so multiple fullnodes don't all converge on the same first choice.
+// advance on disconnect/reject. The inner ring is one shuffled pass of
+// the commit committee. After a disconnect, a committee change (not merely
+// an epoch tick) rebuilds the ring; an unchanged committee keeps walking
+// it. A live connection is not dropped just because the epoch advanced.
 //
 // TODO(autobahn-state-sync): block sync from a single peer is bounded by
 // GetBlock's per-stream rate limit (rpc.Limit{Rate:10, Concurrent:10}) —
@@ -68,14 +83,44 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 // sync). This loop is correct for "fresh cluster" and "restart of a
 // near-tip node."
 func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
-	addrs := slices.Collect(maps.Values(r.cfg.ValidatorAddrs))
-	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
-	for i := 0; ; i = (i + 1) % len(addrs) {
-		addr := addrs[i]
-		err := r.dialAndRunConn(ctx, utils.None[NodePublicKey](), addr.HostPort, r.service.RunBlockSyncClient)
-		logger.Info("fullnode giga connection ended; failing over", "addr", addr, "err", err)
-		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
-			return err
+	for {
+		ep := r.nextCommitEpoch.Load()
+		var validators []atypes.PublicKey
+		for lane := range ep.Committee().Lanes().All() {
+			if _, ok := r.cfg.ValidatorAddrs[lane.Validator]; ok {
+				validators = append(validators, lane.Validator)
+			}
+		}
+		if len(validators) == 0 {
+			logger.Error("no commit-committee member in the address book; not dialing", "epoch", ep.EpochIndex())
+			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+				return err
+			}
+			continue
+		}
+		snap := ep.Committee()
+		// TODO: delay or stagger reshuffles so fullnodes rebalance slowly
+		// instead of all moving to a new ring at once.
+		rand.Shuffle(len(validators), func(i, j int) { validators[i], validators[j] = validators[j], validators[i] })
+		for _, validator := range validators {
+			if !r.nextCommitEpoch.Load().Committee().Equal(snap) {
+				break
+			}
+			addr := r.cfg.ValidatorAddrs[validator]
+			left, err := r.runUntilMembershipChange(ctx, validator, true, func(ctx context.Context) error {
+				return r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+					// Consensus PublicKey (committee member), not GigaNodeAddr.Key (p2p NodePublicKey).
+					return r.service.RunClient(ctx, client, validator, true)
+				})
+			})
+			if left {
+				logger.Info("fullnode giga peer left the committee; failing over", "addr", addr)
+			} else {
+				logger.Info("fullnode giga connection ended; failing over", "addr", addr, "err", err)
+			}
+			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+				return err
+			}
 		}
 	}
 }

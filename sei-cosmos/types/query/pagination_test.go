@@ -3,6 +3,7 @@ package query_test
 import (
 	gocontext "context"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
@@ -58,36 +59,15 @@ func (s *paginationTestSuite) TestParsePagination() {
 	s.Require().Equal(page, 1)
 	s.Require().Equal(limit, 10)
 
-	s.T().Log("verify limit equal to MaxLimit is accepted")
-	pageReq = &query.PageRequest{Limit: query.MaxLimit}
-	_, _, err = query.ParsePagination(pageReq)
-	s.Require().NoError(err)
-
-	s.T().Log("verify limit exceeding MaxLimit is rejected")
-	pageReq = &query.PageRequest{Limit: query.MaxLimit + 1}
+	s.T().Log("verify limits above MaxInt64 are rejected: page math is int-based")
+	pageReq = &query.PageRequest{Limit: uint64(math.MaxInt64) + 1}
 	_, _, err = query.ParsePagination(pageReq)
 	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed limit")
 
-	s.T().Log("verify offset equal to MaxOffset is accepted")
-	pageReq = &query.PageRequest{Offset: query.MaxOffset, Limit: 1}
-	_, _, err = query.ParsePagination(pageReq)
-	s.Require().NoError(err)
-
-	s.T().Log("verify offset exceeding MaxOffset is rejected")
-	pageReq = &query.PageRequest{Offset: query.MaxOffset + 1, Limit: 1}
+	s.T().Log("verify offsets above MaxInt64 are rejected: page math is int-based")
+	pageReq = &query.PageRequest{Offset: uint64(math.MaxInt64) + 1, Limit: 1}
 	_, _, err = query.ParsePagination(pageReq)
 	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed offset")
-}
-
-func (s *paginationTestSuite) TestPaginateMaxLimitExceeded() {
-	app, ctx, _ := setupTest(s.T())
-	store := ctx.KVStore(app.GetKey(types.StoreKey))
-
-	_, err := query.Paginate(store, &query.PageRequest{Limit: query.MaxLimit + 1}, func(_, _ []byte) error { return nil })
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed limit")
 }
 
 func (s *paginationTestSuite) TestPagination() {
@@ -188,7 +168,7 @@ func (s *paginationTestSuite) TestPagination() {
 	request = types.NewQueryAllBalancesRequest(addr1, pageReq)
 	_, err = queryClient.AllBalances(gocontext.Background(), request)
 	s.Require().Error(err)
-	s.Require().Equal("rpc error: code = InvalidArgument desc = paginate: invalid request, either offset or key is expected, got both", err.Error())
+	s.Require().Equal("rpc error: code = InvalidArgument desc = invalid request, either offset or key is expected, got both", err.Error())
 
 	s.T().Log("verify paginate with offset greater than total results")
 	pageReq = &query.PageRequest{Offset: 300, Limit: defaultLimit, CountTotal: false}
@@ -312,7 +292,7 @@ func (s *paginationTestSuite) TestReversePagination() {
 	request = types.NewQueryAllBalancesRequest(addr1, pageReq)
 	_, err = queryClient.AllBalances(gocontext.Background(), request)
 	s.Require().Error(err)
-	s.Require().Equal("rpc error: code = InvalidArgument desc = paginate: invalid request, either offset or key is expected, got both", err.Error())
+	s.Require().Equal("rpc error: code = InvalidArgument desc = invalid request, either offset or key is expected, got both", err.Error())
 
 	s.T().Log("verify paginate with offset greater than total results")
 	pageReq = &query.PageRequest{Offset: 300, Limit: defaultLimit, CountTotal: false, Reverse: true}
@@ -323,33 +303,40 @@ func (s *paginationTestSuite) TestReversePagination() {
 	s.Require().Nil(res.Pagination.NextKey)
 }
 
-func (s *paginationTestSuite) TestPaginateOffsetExceedsMax() {
-	app, ctx, _ := setupTest(s.T())
-	kvStore := ctx.KVStore(app.GetKey(types.StoreKey))
-
-	_, err := query.Paginate(kvStore, &query.PageRequest{Offset: query.MaxOffset + 1}, func(_, _ []byte) error { return nil })
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "exceeds maximum allowed offset")
-
-	_, err = query.Paginate(kvStore, &query.PageRequest{Offset: query.MaxOffset}, func(_, _ []byte) error { return nil })
-	s.Require().NoError(err)
-}
-
-func (s *paginationTestSuite) TestPaginateCountTotalScanLimitExceeded() {
+func (s *paginationTestSuite) TestPaginateCountTotalLargeStore() {
 	app, ctx, _ := setupTest(s.T())
 	// Use a dedicated prefix to isolate test data from other store entries.
-	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("scanlimit/"))
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("largetotal/"))
 
-	// With offset=1, scan cap fires when count > offset+MaxScanLimit = 10,001.
-	// Insert 10,002 items to guarantee the cap is exceeded.
-	numItems := int(query.MaxScanLimit) + 2
+	const numItems = 10_002
 	for i := 0; i < numItems; i++ {
 		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
 	}
 
-	_, err := query.Paginate(kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_, _ []byte) error { return nil })
-	s.Require().Error(err)
-	s.Require().Contains(err.Error(), fmt.Sprintf("scanned more than %d entries", query.MaxScanLimit))
+	s.T().Log("count_total scans the whole store and returns an accurate total")
+	res, err := query.Paginate(ctx, kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_, _ []byte) error { return nil })
+	s.Require().NoError(err)
+	s.Require().Equal(uint64(numItems), res.Total)
+
+	s.T().Log("a large offset skips entries instead of being rejected")
+	var count int
+	res, err = query.Paginate(ctx, kvStore, &query.PageRequest{Offset: 10_001, Limit: 5}, func(_, _ []byte) error {
+		count++
+		return nil
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(1, count)
+	s.Require().Nil(res.NextKey)
+
+	s.T().Log("a maximum uint64 limit returns everything without overflowing")
+	count = 0
+	res, err = query.Paginate(ctx, kvStore, &query.PageRequest{Offset: 1, Limit: query.MaxLimit}, func(_, _ []byte) error {
+		count++
+		return nil
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(numItems-1, count)
+	s.Require().Nil(res.NextKey)
 }
 
 func setupTest(t *testing.T) (*app.App, sdk.Context, codec.Codec) {

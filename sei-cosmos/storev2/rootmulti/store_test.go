@@ -3,6 +3,7 @@ package rootmulti
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	sscomposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -133,6 +135,68 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+
+	// Once SS reports a higher floor, historical SS queries below it must fail
+	// before a cache store can mix available Cosmos data with unavailable routed
+	// data.
+	require.NoError(t, store.ssStore.SetEarliestVersion(c2.Version, false))
+	_, err = store.CacheMultiStoreWithVersion(c1.Version)
+	require.ErrorContains(t, err, "below earliest available version 2")
+
+	resp = store.Query(context.Background(), abci.RequestQuery{
+		Path:   "/bank/key",
+		Data:   keyBytes,
+		Height: c1.Version,
+		Prove:  false,
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+}
+
+// A boundary produces an SS snapshot whether or not the block carried changesets, which is what
+// routing every committed block through CommitBlock buys.
+func TestFlushSchedulesSSSnapshotAtABoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		writeAtBlock int64
+	}{
+		{name: "boundary block is populated", writeAtBlock: 2},
+		{name: "boundary block is empty", writeAtBlock: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			scCfg := config.DefaultStateCommitConfig()
+			scCfg.Enable = true
+			scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+			// SS mirrors the SC cadence, so this is what puts the SS boundary at 2.
+			scCfg.MemIAVLConfig.SnapshotInterval = 2
+			scCfg.MemIAVLConfig.SnapshotKeepRecent = 1
+
+			ssCfg := config.DefaultStateStoreConfig()
+			ssCfg.Enable = true
+			ssCfg.SnapshotEnable = true
+
+			store := NewStore(home, scCfg, ssCfg, []string{})
+			defer func() { _ = store.Close() }()
+			require.NotNil(t, store.ssCommitter, "SS commit capability was not resolved")
+
+			key := types.NewKVStoreKey("bank")
+			store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+			require.NoError(t, store.LoadLatestVersion())
+
+			for block := int64(1); block <= 2; block++ {
+				if block == tc.writeAtBlock {
+					store.GetStoreByName("bank").(types.KVStore).Set([]byte("k"), []byte("v"))
+				}
+				require.Equal(t, block, store.Commit(true).Version)
+			}
+
+			root := filepath.Join(home, "data", "state_store", sscomposite.SnapshotsDirName)
+			require.Eventually(t, func() bool {
+				versions, err := sscomposite.ListSnapshotVersions(root)
+				return err == nil && len(versions) == 1 && versions[0] == 2
+			}, 10*time.Second, 20*time.Millisecond, "boundary did not produce an SS snapshot")
+		})
+	}
 }
 
 // TestCacheMultiStoreWithVersion_OnlyUsesSSStores verifies that CacheMultiStoreWithVersion
@@ -430,4 +494,117 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	})
 	require.EqualValues(t, 0, resp.Code)
 	require.Equal(t, valV1, resp.Value)
+}
+
+func TestTryAcquireSubspaceQueryPermit(t *testing.T) {
+	store := &Store{
+		subspaceQuerySem: make(chan struct{}, 2),
+	}
+
+	require.NoError(t, store.tryAcquireSubspaceQueryPermit())
+	require.NoError(t, store.tryAcquireSubspaceQueryPermit())
+
+	err := store.tryAcquireSubspaceQueryPermit()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "subspace query busy")
+
+	store.releaseSubspaceQueryPermit()
+	store.releaseSubspaceQueryPermit()
+	store.releaseSubspaceQueryPermit() // no-op when empty
+	require.NoError(t, store.tryAcquireSubspaceQueryPermit())
+}
+
+func TestQuery_SubspaceSemaphoreRejectsWhenSaturated(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	scCfg.SubspaceQueryMaxInFlight = 2
+
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	kv := store.GetStoreByName("bank").(types.KVStore)
+	kv.Set([]byte("ab1"), []byte("v1"))
+	require.Equal(t, int64(1), store.Commit(true).Version)
+	waitUntilSSVersion(t, store, 1)
+
+	store.subspaceQuerySem <- struct{}{}
+	store.subspaceQuerySem <- struct{}{}
+	defer func() {
+		<-store.subspaceQuerySem
+		<-store.subspaceQuerySem
+	}()
+
+	resp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/subspace",
+		Data: []byte("ab"),
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+	require.Contains(t, resp.Log, "subspace query busy")
+}
+
+func TestQuery_SubspaceNarrowPrefixAndKeyUnaffected(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	scCfg.Enable = true
+	scCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	keyBytes := []byte("ab1")
+	kv := store.GetStoreByName("bank").(types.KVStore)
+	kv.Set(keyBytes, []byte("v1"))
+	kv.Set([]byte("ab2"), []byte("v2"))
+	require.Equal(t, int64(1), store.Commit(true).Version)
+	waitUntilSSVersion(t, store, 1)
+
+	subspaceResp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/subspace",
+		Data: []byte("ab"),
+	})
+	require.EqualValues(t, 0, subspaceResp.Code)
+	require.NotEmpty(t, subspaceResp.Value)
+
+	keyResp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/key",
+		Data: keyBytes,
+	})
+	require.EqualValues(t, 0, keyResp.Code)
+	require.Equal(t, []byte("v1"), keyResp.Value)
+}
+
+func TestQuery_SubspaceEmptyPrefixRejected(t *testing.T) {
+	home := t.TempDir()
+	scCfg := config.DefaultStateCommitConfig()
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+
+	store := NewStore(home, scCfg, ssCfg, []string{})
+	defer func() { _ = store.Close() }()
+
+	key := types.NewKVStoreKey("bank")
+	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
+	require.NoError(t, store.LoadLatestVersion())
+
+	resp := store.Query(t.Context(), abci.RequestQuery{
+		Path: "/bank/subspace",
+	})
+	require.NotEqualValues(t, 0, resp.Code)
+	require.Contains(t, resp.Log, "subspace prefix must not be empty")
 }

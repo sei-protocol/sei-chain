@@ -28,6 +28,9 @@ const (
 	FlagSCHistoricalProofMaxInFlight = "state-commit.sc-historical-proof-max-inflight"
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
+	FlagSCSubspaceQueryMaxInFlight   = "state-commit.sc-subspace-query-max-inflight"
+	FlagSCSubspaceMaxPairs           = "state-commit.sc-subspace-max-pairs"
+	FlagSCSubspaceMaxBytes           = "state-commit.sc-subspace-max-bytes"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
 	FlagSCWriteModeEnableAuto        = "state-commit.sc-write-mode-enable-auto"
 	FlagSCFlatKVReadWriteMetrics     = "state-commit.flatkv.enable-read-write-metrics"
@@ -48,6 +51,7 @@ const (
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
 	FlagSSReadWriteMetrics  = "state-store.ss-enable-read-write-metrics"
+	FlagSSSnapshotEnable    = "state-store.ss-snapshot-enable"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
@@ -164,6 +168,15 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
 		scConfig.HistoricalProofBurst = cast.ToInt(v)
 	}
+	if v := appOpts.Get(FlagSCSubspaceQueryMaxInFlight); v != nil {
+		scConfig.SubspaceQueryMaxInFlight = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCSubspaceMaxPairs); v != nil {
+		scConfig.SubspaceMaxPairs = cast.ToInt(v)
+	}
+	if v := appOpts.Get(FlagSCSubspaceMaxBytes); v != nil {
+		scConfig.SubspaceMaxBytes = cast.ToInt(v)
+	}
 
 	// Hash logger. Guard each read with v != nil so an absent app.toml entry preserves the default
 	// (notably Enable, which defaults to true) instead of clobbering it to the zero value.
@@ -203,6 +216,12 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
 	ssConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSSReadWriteMetrics))
+
+	// An absent key is an app.toml rendered before SS snapshots existed. Keep
+	// the in-code default (off) rather than relying on a nil cast.
+	if v := appOpts.Get(FlagSSSnapshotEnable); v != nil {
+		ssConfig.SnapshotEnable = cast.ToBool(v)
+	}
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))

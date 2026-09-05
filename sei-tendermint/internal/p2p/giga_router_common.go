@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"slices"
+	"sort"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -40,23 +40,30 @@ type gigaRouterCommon struct {
 	service *giga.Service
 	poolIn  *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+	proxies utils.RWMutex[map[atypes.PublicKey]*ethrpc.Client]
 	app     *proxy.Proxy
+	// nextCommitEpoch is data.NextCommitEpoch() cached at construction so
+	// EvmProxy can Load() without taking the data lock on every call.
+	nextCommitEpoch utils.AtomicRecv[*atypes.Epoch]
+	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
+	// the lowest row data.State still holds.
+	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
 
-	// inboundFullnodeCount tracks live non-committee inbound block-sync
-	// connections. Optimistic Add(1) + compare against cap; over-rejects
-	// by one or two under contention but never over-accepts.
+	// inboundFullnodeCount tracks inbound connections currently served the
+	// block-sync subset. Optimistic Add(1) + compare against cap;
+	// over-rejects by one or two under contention but never over-accepts.
 	inboundFullnodeCount atomic.Int64
 	inboundFullnodeCap   int64
 }
 
 // BuildDataState validates the common config, constructs the committee, and
-// returns an initialised data.State backed by blockDB.
+// returns an initialised data.State backed by blockStore.
 //
-// The caller owns blockDB: close it after giga.Run returns, or immediately if
+// The caller owns blockStore: close it after giga.Run returns, or immediately if
 // construction of the GigaRouter fails. data.State never closes it. nodeImpl
-// opens BlockDB in setup and closes after Run via SpawnCritical; tests that call
-// BuildDataState directly must open and Close blockDB themselves.
-func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.State, error) {
+// opens BlockStore in setup and closes after Run via SpawnCritical; tests that call
+// BuildDataState directly must open and Close blockStore themselves.
+func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -65,15 +72,6 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	}
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
-	}
-	lastExecutedHeight := cfg.App.Info().LastBlockHeight
-	lastExecutedBlock := utils.None[atypes.GlobalBlockNumber]()
-	if lastExecutedHeight != 0 {
-		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](lastExecutedHeight)
-		if !ok {
-			return nil, fmt.Errorf("invalid App.Info().LastBlockHeight = %v", lastExecutedHeight)
-		}
-		lastExecutedBlock = utils.Some(n)
 	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
@@ -84,14 +82,11 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockDB atypes.BlockDB) (*data.
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime)
+	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime, cfg.PersistentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
-	ds, err := data.NewState(&data.Config{
-		Registry:          registry,
-		LastExecutedBlock: lastExecutedBlock,
-	}, blockDB)
+	ds, err := data.NewState(&data.Config{Registry: registry}, blockStore)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState: %w", err)
 	}
@@ -129,7 +124,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
 		// (env.Block, evmrpc, ops tooling) get the same error type they
 		// already handle on the CometBFT path. base is None because the
-		// active lower bound lives in BlockDB's prune watermark (internal
+		// active lower bound lives in BlockStore's prune watermark (internal
 		// to the store); both call sites format through the same helper.
 		if errors.Is(err, atypes.ErrPruned) {
 			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
@@ -145,7 +140,7 @@ func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlo
 // unknown hashes: returns &ResultBlock{Block: nil} with no error.
 //
 // The lookup delegates to data.State.GlobalBlockByHash: an in-memory hash
-// index first, then BlockDB for heights evicted after persist. Hashes not yet
+// index first, then BlockStore for heights evicted after persist. Hashes not yet
 // seen or below the prune watermark are read as "unknown". Wrong-size inputs
 // are rejected at the call site (env.BlockByHash) so this method can stay
 // strongly typed on atypes.BlockHeaderHash.
@@ -174,14 +169,7 @@ func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHea
 // without a nil-check on the same type. The "no such block" case is
 // rejected at the BlockByHash call site before delegating here.
 //
-// LastCommit is non-nil with empty Signatures, mirroring executeBlock's
-// FinalizeBlock call which passes an empty abci.CommitInfo. Under Autobahn
-// the committee is fixed by genesis (no validator-set updates), so the
-// application is not in control of jailing — surfacing N "absent sig"
-// entries here would make trace replay's BeginBlock bump missed-block
-// counters and diverge from production. ToReqBeginBlock skips the per-
-// validator loop when Signatures is empty, so empty Votes flow into
-// distribution/slashing on both paths.
+// LastCommit is non-nil with empty Signatures, matching executeBlock's empty CommitInfo.
 func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
@@ -200,7 +188,12 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 				Height: utils.Clamp[int64](gb.GlobalNumber),
 				Time:   gb.Timestamp,
 			},
-			Data:       types.Data{Txs: tmTxs},
+			Data: types.Data{Txs: tmTxs},
+			// Autobahn does not feed per-validator votes into the app. Filling N
+			// absent signatures would make trace replay's BeginBlock bump
+			// missed-block counters and diverge from production. ToReqBeginBlock
+			// skips the per-validator loop when Signatures is empty, so empty
+			// Votes flow into distribution/slashing on both paths.
 			LastCommit: &types.Commit{},
 		},
 	}
@@ -256,10 +249,51 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
-	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
+	weights, err := committeeWeights(app.GetValidators())
+	if err != nil {
+		return nil, err
+	}
+	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
+	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
 	return commitResp, nil
+}
+
+// runEvmProxy maintains an EVM RPC client for one committee member.
+func (r *gigaRouterCommon) runEvmProxy(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error {
+	for {
+		client, err := ethrpc.DialContext(ctx, addr.EVMRPC.String())
+		if err != nil {
+			logger.Info("evm proxy dial failed", "url", addr.EVMRPC, "err", err)
+			if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+				return err
+			}
+			continue
+		}
+		for proxies := range r.proxies.Lock() {
+			proxies[validator] = client
+		}
+		<-ctx.Done()
+		client.Close()
+		for proxies := range r.proxies.Lock() {
+			if proxies[validator] == client {
+				delete(proxies, validator)
+			}
+		}
+		return ctx.Err()
+	}
+}
+
+// gas used, as reported by finalizeBlock() call.
+func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
+	var total int64
+	for _, result := range resp.TxResults {
+		if result != nil {
+			total += max(0, result.GasUsed)
+		}
+	}
+	return total
 }
 
 // buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it
@@ -367,15 +401,15 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
 	} else {
-		// BuildDataState caps recovery at BlockDB's durable block tip, so a crash
-		// after app.Commit but before the BlockDB flush resumes by syncing the
+		// BuildDataState caps recovery at BlockStore's durable block tip, so a crash
+		// after app.Commit but before the BlockStore flush resumes by syncing the
 		// missing suffix. If retention instead passed the app tip, GlobalBlock
 		// returns ErrPruned here. A readable tip restores the last header and
 		// replays AppHash.
 		b, err := r.data.GlobalBlock(ctx, last)
 		if err != nil {
 			if errors.Is(err, atypes.ErrPruned) {
-				return fmt.Errorf("app tip %d is unavailable in BlockDB; restore matching BlockDB data or state-sync the node: %w", last, err)
+				return fmt.Errorf("app tip %d is unavailable in BlockStore; restore matching BlockStore data or state-sync the node: %w", last, err)
 			}
 			return fmt.Errorf("r.data.GlobalBlock(): %w", err)
 		}
@@ -397,7 +431,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
 		// once everyone votes on apphashes of a suffix of finalized blocks.
-		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash); err != nil {
+		weights, err := committeeWeights(app.GetValidators())
+		if err != nil {
+			return err
+		}
+		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash, weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
 	}
@@ -482,26 +520,172 @@ func (r *gigaRouterCommon) dialAndRunConn(
 	})
 }
 
+// committeeMemberTask is work for one reachable committee member. It must run
+// until ctx is cancelled; returning earlier leaves the member unmarked in live
+// and it is not restarted while it stays in the committee.
+type committeeMemberTask func(ctx context.Context, validator atypes.PublicKey, addr GigaNodeAddr) error
+
+// memberSession is a committee member's cancellable task session.
+type memberSession struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// keepReplicas is commitEpoch's committee, plus the committee Anchor covers when present.
+func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch) map[atypes.PublicKey]struct{} {
+	keep := map[atypes.PublicKey]struct{}{}
+	for lane := range commitEpoch.Committee().Lanes().All() {
+		keep[lane.Validator] = struct{}{}
+	}
+	if a, ok := anchor.Get(); ok {
+		for lane := range a.Epoch.Committee().Lanes().All() {
+			keep[lane.Validator] = struct{}{}
+		}
+	}
+	return keep
+}
+
+// stopDepartingMembers stops sessions for validators outside keepReplicas once
+// Anchor is at most one epoch behind commitEpoch.
+func stopDepartingMembers(
+	ctx context.Context,
+	live map[atypes.PublicKey]*memberSession,
+	anchor utils.Option[data.Anchor],
+	commitEpoch *atypes.Epoch,
+) error {
+	a, ok := anchor.Get()
+	if !ok || commitEpoch.EpochIndex() > a.Epoch.EpochIndex()+1 {
+		return nil
+	}
+	keep := keepReplicas(anchor, commitEpoch)
+	var departing []*memberSession
+	// Cancel every departing session before waiting for any of them.
+	for validator, session := range live {
+		if _, ok := keep[validator]; ok {
+			continue
+		}
+		session.cancel()
+		departing = append(departing, session)
+		delete(live, validator)
+	}
+	for _, session := range departing {
+		if _, _, err := utils.RecvOrClosed(ctx, session.done); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runPerCommitteeMember runs tasks for each reachable member needed by the commit epoch or Anchor.
+func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...committeeMemberTask) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		live := map[atypes.PublicKey]*memberSession{}
+		// End all sessions before the scope waits for them.
+		defer func() {
+			for _, session := range live {
+				session.cancel()
+			}
+		}()
+		// Anchor is republished on every persist batch; only its epoch can
+		// change the keep set.
+		epochOf := func(opt utils.Option[data.Anchor]) utils.Option[atypes.EpochIndex] {
+			return utils.MapOpt(opt, func(a data.Anchor) atypes.EpochIndex { return a.Epoch.EpochIndex() })
+		}
+		for ctx.Err() == nil {
+			commitEpoch := r.nextCommitEpoch.Load()
+			anchor := r.anchor.Load()
+			if err := stopDepartingMembers(ctx, live, anchor, commitEpoch); err != nil {
+				return err
+			}
+			for validator := range keepReplicas(anchor, commitEpoch) {
+				if _, ok := live[validator]; ok {
+					continue
+				}
+				addr, ok := r.cfg.ValidatorAddrs[validator]
+				if !ok {
+					logger.Error("committee member has no configured address; not dialing", "validator", validator)
+					continue
+				}
+				taskCtx, cancel := context.WithCancel(ctx)
+				done := make(chan struct{})
+				live[validator] = &memberSession{cancel: cancel, done: done}
+				s.SpawnNamed(addr.String(), func() error {
+					defer close(done)
+					return utils.IgnoreCancel(scope.Run(taskCtx, func(ctx context.Context, ms scope.Scope) error {
+						for _, task := range tasks {
+							ms.Spawn(func() error { return task(ctx, validator, addr) })
+						}
+						return nil
+					}))
+				})
+			}
+			if err := utils.WaitAny(ctx, func() bool {
+				return r.nextCommitEpoch.Load().EpochIndex() != commitEpoch.EpochIndex() ||
+					epochOf(r.anchor.Load()) != epochOf(anchor)
+			}, r.nextCommitEpoch, r.anchor); err != nil {
+				return err
+			}
+		}
+		return ctx.Err()
+	})
+}
+
+// runUntilMembershipChange runs f while validator's membership matches
+// isCommittee. It reports whether a membership change ended f.
+func (r *gigaRouterCommon) runUntilMembershipChange(
+	ctx context.Context,
+	validator atypes.PublicKey,
+	isCommittee bool,
+	f func(ctx context.Context) error,
+) (changed bool, err error) {
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			_, err := r.nextCommitEpoch.Wait(ctx, func(epoch *atypes.Epoch) bool {
+				return epoch.Committee().HasReplica(validator) != isCommittee
+			})
+			if err != nil {
+				return err
+			}
+			changed = true
+			s.Cancel(nil)
+			return nil
+		})
+		return f(ctx)
+	})
+	return changed, utils.IgnoreCancel(err)
+}
+
 // RunInboundConn serves an inbound giga connection. Non-committee peers
-// get the block-sync subset (StreamFullCommitQCs + GetBlock), capped at
-// inboundFullnodeCap. Committee peers get the full RunServer on
-// validators; on a fullnode the connection is refused (committee peers
-// shouldn't be dialing fullnodes — see Service.RunInbound).
+// get the block-sync subset (StreamFullCommitQCs + GetBlock). Committee peers
+// get the full RunServer on validators; on a fullnode the connection is refused.
+//
+// The role and the fullnode cap are fixed for the lifetime of the connection: a
+// membership change ends it, and the peer's dialer reconnects into the role it
+// now has.
 func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
 	}
 	// Filter unwanded connections.
 	key := hConn.msg.NodeAuth.Key()
-	isCommittee := false
-	for _, addr := range r.cfg.ValidatorAddrs {
+	// TODO: support committee members absent from the address book.
+	validator := utils.None[atypes.PublicKey]()
+	for v, addr := range r.cfg.ValidatorAddrs {
 		if addr.Key == key {
-			isCommittee = true
+			validator = utils.Some(v)
 			break
 		}
 	}
+	// Inbound role follows nextCommitEpoch only. AppVotes are received on the
+	// outbound client stream, not this mux, so a departing peer can be
+	// downgraded here while outbound sessions still collect its votes.
+	isCommittee := false
+	if v, ok := validator.Get(); ok {
+		isCommittee = r.nextCommitEpoch.Load().Committee().HasReplica(v)
+	}
 	if !isCommittee {
-		// Optimistic acquire: Add(1), compare, Add(-1) on overflow.
+		// Optimistic acquire: Add(1), compare, Add(-1) on overflow. Acquired
+		// before InsertAndRun, which evicts any live connection for this key.
 		if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
 			r.inboundFullnodeCount.Add(-1)
 			return fmt.Errorf("inbound fullnode peer limit (%d) reached", r.inboundFullnodeCap)
@@ -511,22 +695,115 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	server := rpc.NewServer[giga.API]()
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
+			// Background: a membership change must cancel the mux. Spawn would
+			// keep this scope alive until the peer closes the socket.
+			s.SpawnBg(func() error { return server.Run(ctx, hConn.conn) })
 			Global.gigaNewConnsAt("in").Add(1)
 			Global.gigaConnsAt("in").Add(1)
 			defer Global.gigaConnsAt("in").Add(-1)
-			if err := r.service.RunInbound(ctx, server, isCommittee); err != nil {
+			v, ok := validator.Get()
+			if !ok {
+				if err := r.service.RunServer(ctx, server, false); err != nil {
+					return fmt.Errorf("inbound from %v: %w", key, err)
+				}
+				return nil
+			}
+			changed, err := r.runUntilMembershipChange(ctx, v, isCommittee, func(ctx context.Context) error {
+				return r.service.RunServer(ctx, server, isCommittee)
+			})
+			if err != nil {
 				return fmt.Errorf("inbound from %v: %w", key, err)
+			}
+			if changed {
+				logger.Info("inbound giga peer changed committee membership; closing", "addr", key, "was_committee", isCommittee)
 			}
 			return nil
 		})
 	})
 }
 
-// EvmProxy returns the shard owner's EVMRPC URL for an EVM tx sender, or
+// Validators returns the Autobahn validator set that certified global height n.
+// Before the first CommitQC, FirstBlock resolves to the genesis committee.
+func (r *gigaRouterCommon) Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, atypes.GlobalBlockNumber, error) {
+	first := r.data.Registry().FirstBlock()
+	qc, err := r.data.TryQC(n)
+	var epochIndex atypes.EpochIndex
+	if errors.Is(err, atypes.ErrNotFound) && n == first {
+		epochIndex = 0
+	} else if err != nil {
+		return nil, 0, heightLookupError(n, err)
+	} else {
+		epochIndex = qc.QC().Proposal().EpochIndex()
+	}
+	ep, err := r.data.Registry().EpochByIndex(epochIndex)
+	if err != nil {
+		return nil, 0, heightLookupError(n, err)
+	}
+	vs, err := committeeValidators(ep.Committee())
+	return vs, n, err
+}
+
+// heightLookupError returns the RPC error for a data lookup at global height n.
+func heightLookupError(n atypes.GlobalBlockNumber, err error) error {
+	switch {
+	case errors.Is(err, atypes.ErrPruned):
+		return coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
+	case errors.Is(err, atypes.ErrNotFound):
+		return fmt.Errorf("%w (requested height: %d)", coretypes.ErrHeightExceedsChainHead, utils.Clamp[int64](n))
+	default:
+		return err
+	}
+}
+
+func committeeValidators(committee *atypes.Committee) ([]*types.Validator, error) {
+	vs := make([]*types.Validator, 0, committee.Lanes().Len())
+	for lane := range committee.Lanes().All() {
+		power, ok := utils.SafeCast[int64](committee.Weight(lane.Validator))
+		if !ok {
+			return nil, fmt.Errorf("committee member %v: weight %d does not fit int64", lane.Validator, committee.Weight(lane.Validator))
+		}
+		vs = append(vs, types.NewValidator(lane.Validator.ED25519(), power))
+	}
+	sort.Sort(types.ValidatorsByVotingPower(vs))
+	return vs, nil
+}
+
+// EvmProxy returns the shard owner's EVMRPC client for an EVM tx sender, or
 // None if the caller should handle it locally. Overridden on
 // *gigaValidatorRouter to short-circuit self-shard sends.
-func (r *gigaRouterCommon) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
-	return utils.Some(r.cfg.ValidatorAddrs[shardValidator].EVMRPC)
+func (r *gigaRouterCommon) evmProxy(validator atypes.PublicKey) utils.Option[*ethrpc.Client] {
+	for proxies := range r.proxies.RLock() {
+		client, ok := proxies[validator]
+		if ok {
+			return utils.Some(client)
+		}
+	}
+	return utils.None[*ethrpc.Client]()
+}
+
+// committeeWeights maps the bonded validator set after Commit to voting power.
+func committeeWeights(vals []abci.ValidatorUpdate) (map[atypes.PublicKey]uint64, error) {
+	weights := make(map[atypes.PublicKey]uint64, len(vals))
+	for _, v := range vals {
+		if v.Power <= 0 {
+			continue
+		}
+		pk, err := crypto.PubKeyFromProto(v.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("PubKeyFromProto: %w", err)
+		}
+		apk, err := atypes.PublicKeyFromBytes(pk.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("PublicKeyFromBytes: %w", err)
+		}
+		if _, dup := weights[apk]; dup {
+			return nil, fmt.Errorf("duplicate public key %s", apk)
+		}
+		power, ok := utils.SafeCast[uint64](v.Power)
+		if !ok {
+			return nil, fmt.Errorf("validator power %d does not fit uint64", v.Power)
+		}
+		weights[apk] = power
+	}
+	return weights, nil
 }

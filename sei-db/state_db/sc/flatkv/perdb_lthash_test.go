@@ -45,11 +45,17 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 }
 
 // fullScanPerDBLtHash computes LtHash for each data DB individually via full scan.
+//
+// The scan reads the databases directly, which is what makes it independent of the maintained hashes —
+// so it first waits for the committed block to reach disk. The stores flush asynchronously, so
+// without that wait the scan measures a stale disk and every comparison against it is meaningless.
 func fullScanPerDBLtHash(t *testing.T, s *CommitStore) map[string]*lthash.LtHash {
 	t.Helper()
+	requireFlushedToDisk(t, s)
 	result := make(map[string]*lthash.LtHash, 4)
-	for _, ndb := range s.namedDataDBs() {
-		result[ndb.dir] = testFullScanDBLtHash(t, ndb.db)
+	for _, dir := range dataDBDirs {
+		db := s.rawDBFor(dir)
+		result[dir] = testFullScanDBLtHash(t, db)
 	}
 	return result
 }
@@ -86,10 +92,13 @@ func commitMixedState(t *testing.T, s *CommitStore, round byte) {
 	require.NoError(t, err)
 }
 
-// Test: Crash recovery where metadataDB is behind data DBs.
-// Simulates a crash after commitBatches (step 2) but before
-// commitGlobalMetadata (step 4) by rolling back metadataDB's
-// global version. Data DBs and their LocalMeta remain at v2.
+// Test: crash recovery where one data DB's version record is behind the others.
+//
+// A data DB commits its version in the same batch as its data, so a torn commit
+// leaves the DBs at different versions. The store then opens at the lowest and
+// replays from there — into DBs that already hold those blocks. This pins that
+// the replay is idempotent: re-applying a block to a DB that already has it is a
+// no-op for the LtHash, because the old value read back is the new value.
 func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
@@ -105,21 +114,17 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	commitMixedState(t, s1, 1)
 	commitMixedState(t, s1, 2)
 	verifyPerDBLtHash(t, s1)
+	wantRoot := bytes.Clone(rootHash(s1))
+	wantPerDB := make(map[string][32]byte, len(dataDBDirs))
+	for _, dbDir := range dataDBDirs {
+		wantPerDB[dbDir] = s1.perDBWorkingLtHash[dbDir].Checksum()
+	}
+	// Rewind accountDB's version record to 1, leaving its data — and every other DB — at 2. The
+	// store must open at 1 and replay block 2. The rewind goes into the working dir, which is what a
+	// torn commit leaves behind and what the next open actually reads: tampering with the snapshot
+	// instead has no effect, because SNAPSHOT_BASE still matches and the working dir is reused.
+	rewindVersionRecords(t, s1, 1, accountDBDir)
 	require.NoError(t, s1.Close())
-
-	// Roll back metadataDB global version to 1 to simulate crash
-	// after commitBatches completed but before commitGlobalMetadata.
-	snapDir, _, err := currentSnapshotDir(dbDir)
-	require.NoError(t, err)
-
-	metaDBPath := filepath.Join(snapDir, metadataDir)
-	metaCfg := pebbledb.DefaultConfig()
-	metaCfg.DataDir = metaDBPath
-	metaCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &metaCfg)
-	require.NoError(t, err)
-	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
-	require.NoError(t, db.Close())
 
 	// Reopen -- catchup should replay version 2 from WAL
 	cfg2 := config.DefaultTestConfig(t)
@@ -131,6 +136,12 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	require.NoError(t, err)
 	defer s2.Close()
 
+	require.Equal(t, wantRoot, rootHash(s2),
+		"replaying an already-applied block must reproduce the same global root")
+	for _, dbDir := range dataDBDirs {
+		require.Equal(t, wantPerDB[dbDir], s2.perDBWorkingLtHash[dbDir].Checksum(),
+			"%s per-DB root must be bit-identical after replay", dbDir)
+	}
 	require.Equal(t, int64(2), s2.Version())
 	verifyPerDBLtHash(t, s2)
 	verifyLtHashAtHeight(t, s2, 2)
@@ -264,7 +275,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 
 	commitMixedState(t, s1, 1)
 	commitMixedState(t, s1, 2)
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	commitMixedState(t, s1, 3)
 	commitMixedState(t, s1, 4)
@@ -374,7 +385,7 @@ func TestPerDBLtHashRollback(t *testing.T) {
 	commitMixedState(t, s, 1)
 	commitMixedState(t, s, 2)
 	commitMixedState(t, s, 3)
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	commitMixedState(t, s, 4)
 	commitMixedState(t, s, 5)
@@ -403,12 +414,11 @@ func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 	commitMixedState(t, s, 1)
 	commitMixedState(t, s, 2)
 
-	dbInstances := map[string]types.KeyValueDB{
-		accountDBDir: s.accountDB,
-		codeDBDir:    s.codeDB,
-		storageDBDir: s.storageDB,
-		miscDBDir:    s.miscDB,
+	dbInstances := make(map[string]types.KeyValueDB, len(dataDBDirs))
+	for _, dir := range dataDBDirs {
+		dbInstances[dir] = s.rawDBFor(dir)
 	}
+	requireFlushedToDisk(t, s)
 	for _, dbDirName := range dataDBDirs {
 		db := dbInstances[dbDirName]
 		meta, err := loadLocalMeta(db)
@@ -504,7 +514,7 @@ func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
 		"storageDB hash should be zero after deleting all keys")
 
 	// Verify via full scan.
-	scanHash := testFullScanDBLtHash(t, s.storageDB)
+	scanHash := testFullScanDBLtHash(t, s.rawDBFor(storageDBDir))
 	require.Equal(t, zeroChecksum, scanHash.Checksum())
 }
 
@@ -592,4 +602,64 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 	// Operation 8: Empty commit.
 	commitAndCheck(t, s)
 	verifySumInvariant("after empty commit")
+}
+
+// Stores flush independently, so a crash can leave them at genuinely different heights — not merely
+// disagreeing with the watermark, but with each other. Replay must start from the lowest of them and
+// apply each block only to the stores missing it, or the ones that already have it fold that block
+// into their LtHash twice.
+//
+// The skew is forged by rewinding one data database's recorded height on disk while the store is
+// closed, which is what a lost flush of that database looks like on the next open.
+func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = dbDir
+
+	s1, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s1.LoadLatest())
+
+	commitMixedState(t, s1, 1)
+	commitMixedState(t, s1, 2)
+	commitMixedState(t, s1, 3)
+	verifyPerDBLtHash(t, s1)
+	wantPerDB := make(map[string]*lthash.LtHash, len(dataDBDirs))
+	for _, dbDir := range dataDBDirs {
+		wantPerDB[dbDir] = s1.perDBWorkingLtHash[dbDir].Clone()
+	}
+	wantGlobal := s1.workingLtHash.Clone()
+	require.NoError(t, s1.Close())
+
+	// Rewind only the storage database's recorded height, leaving the others at 3. On reopen the stores
+	// are at {storage: 1, others: 3}, so the store derives version 1 and replays 2 and 3 into databases
+	// that already hold them.
+	// The working directory, not the snapshot — see TestPerDBLtHashSkewRecovery.
+	storageCfg := pebbledb.DefaultConfig()
+	storageCfg.DataDir = filepath.Join(dbDir, workingDirName, storageDBDir)
+	resolved := resolveConfig(cfg)
+	require.Equal(t, resolved.StorageDBConfig.DataDir, storageCfg.DataDir,
+		"the forged skew must target the directory the store opens, or this test proves nothing")
+	storageCfg.EnableMetrics = false
+	db, err := pebbledb.Open(t.Context(), &storageCfg)
+	require.NoError(t, err)
+	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Close())
+
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, s2.Close()) }()
+	require.NoError(t, s2.LoadLatest())
+
+	// Every store ends level, at the height they collectively reached before the forged skew.
+	require.Equal(t, int64(3), s2.Version())
+	for _, dbDir := range dataDBDirs {
+		require.True(t, wantPerDB[dbDir].Equal(s2.perDBWorkingLtHash[dbDir]),
+			"per-DB LtHash for %s must be restored exactly, not double-mixed:\n  want: %x\n  got:  %x",
+			dbDir, wantPerDB[dbDir].Checksum(), s2.perDBWorkingLtHash[dbDir].Checksum())
+	}
+	require.True(t, wantGlobal.Equal(s2.workingLtHash), "global LtHash must be restored exactly")
+	verifyPerDBLtHash(t, s2)
 }

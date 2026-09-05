@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
@@ -55,6 +56,10 @@ type Config struct {
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted.
 	// Empty means trust no proxy; use RemoteAddr / peer address directly.
 	TrustedProxyCIDRs []string
+	// MaxInFlightPerIP is the number of RPCs one IP may have in flight at once.
+	// Zero disables the concurrency limit (AcquireInFlight always returns true),
+	// leaving the token bucket as the only admission control.
+	MaxInFlightPerIP int
 }
 
 // DefaultConfig uses no trusted proxies. If your node is behind a reverse proxy or
@@ -72,6 +77,26 @@ type Registry struct {
 	trustedProxies []*net.IPNet
 	lru            *expirable.LRU[string, *rate.Limiter]
 	mu             sync.Mutex
+	grpcMethods    atomic.Pointer[map[string]struct{}]
+	inflight       *inflightCounter
+}
+
+// SetKnownGRPCMethods bounds the method label recorded for PlaneGRPC rejections
+// to the given "service/Method" names. Call it before serving; unlisted methods
+// are recorded as "other".
+func (r *Registry) SetKnownGRPCMethods(methods []string) {
+	known := make(map[string]struct{}, len(methods))
+	for _, m := range methods {
+		known[trimLeadingSlash(m)] = struct{}{}
+	}
+	r.grpcMethods.Store(&known)
+}
+
+func (r *Registry) knownGRPCMethods() map[string]struct{} {
+	if known := r.grpcMethods.Load(); known != nil {
+		return *known
+	}
+	return nil
 }
 
 // New creates a Registry from cfg. Returns an error if any CIDR in TrustedProxyCIDRs is invalid.
@@ -80,10 +105,15 @@ func New(cfg Config) (*Registry, error) {
 	if err != nil {
 		return nil, err
 	}
+	var inflight *inflightCounter
+	if cfg.MaxInFlightPerIP > 0 {
+		inflight = newInflightCounter(cfg.MaxInFlightPerIP)
+	}
 	return &Registry{
 		cfg:            cfg,
 		trustedProxies: proxies,
 		lru:            expirable.NewLRU[string, *rate.Limiter](lruSize, nil, lruTTL),
+		inflight:       inflight,
 	}, nil
 }
 
@@ -101,7 +131,7 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(method)),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method, r.knownGRPCMethods())),
 		),
 	)
 	return false
@@ -121,7 +151,7 @@ func (r *Registry) AllowN(ctx context.Context, ip, plane, method string, n int) 
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method_namespace", bucketRPCMethod(method)),
+			attribute.String("method_namespace", bucketRPCMethod(plane, method, r.knownGRPCMethods())),
 		),
 	)
 	return false
@@ -196,6 +226,9 @@ func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 }
 
 // bucketKey returns the LRU key for ip.
+// The key is the address alone, so every client sharing an address shares one
+// bucket: all processes reaching the node over 127.0.0.1, and any population
+// behind a single egress address that TrustedProxyCIDRs does not cover.
 // IPv6 addresses are masked to /64: a client rotating within a /64 prefix
 // would otherwise get a fresh bucket per address.
 func bucketKey(ip string) string {
@@ -232,6 +265,11 @@ func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 		out = append(out, network)
 	}
 	return out, nil
+}
+
+// trimLeadingSlash returns the gRPC "service/Method" name of a full method name.
+func trimLeadingSlash(fullMethod string) string {
+	return strings.TrimPrefix(fullMethod, "/")
 }
 
 func stripPort(addr string) string {

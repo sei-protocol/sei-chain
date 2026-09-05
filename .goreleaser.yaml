@@ -5,11 +5,26 @@ project_name: sei-chain
 before:
   hooks:
     - go mod download
-    # build-static.sh self-verifies (libwasmvm archives present + output is static).
-    - bash scripts/build-static.sh
-    # Boot the binary before packaging: catches crash-at-first-wasm-use defects that
-    # neither a successful link nor `seid version` can (see scripts/boot-smoke.sh).
-    - bash scripts/boot-smoke.sh build/seid 4
+    # The release runner is amd64, so building linux/arm64 needs binfmt registered.
+    # Pinned by digest: this runs privileged on the release runner, which holds the
+    # credentials that publish the binaries.
+    - docker run --privileged --rm tonistiigi/binfmt:qemu-v8.1.5@sha256:2d2918e86e5327d0661f7083d67a95280b0f7be8f77ed79a8418f81d7d90ce6f --install arm64
+    # build-static.sh self-verifies per architecture (libwasmvm archives present, pinned
+    # libgcc checksums match, output is static, no gcc>=12 b-tree unwinder).
+    - bash scripts/build-static.sh amd64
+    - bash scripts/build-static.sh arm64
+    # Boot both binaries before packaging: catches crash-at-first-wasm-use defects that
+    # neither a successful link nor `seid version` can (see scripts/boot-smoke.sh). The
+    # arm64 boots run through binfmt, so the artefact that ships is the one booted.
+    - bash scripts/boot-smoke.sh build/seid-amd64 4
+    # Emulated timing is not trusted to surface the gcc>=12 unwind b-tree, so this is a
+    # liveness check on the shipped bytes rather than the real gate: the Linux ARM64
+    # (static) job runs the full 8-boot gauntlet on arm64 hardware. Two boots here cover
+    # both threading modes; more would only repeat what that job already does, at
+    # emulated speed.
+    # `env` is required: goreleaser execs the hook directly rather than through a shell,
+    # so a bare VAR=value prefix would be taken as the program name.
+    - env BOOT_TIMEOUT=300 bash scripts/boot-smoke.sh build/seid-arm64 2
 
 builds:
   # The static seid is built in Alpine (musl-native) by the `before:` hook above
@@ -29,6 +44,7 @@ builds:
       - linux
     goarch:
       - amd64
+      - arm64
 
 archives:
   - id: seid
@@ -84,9 +100,10 @@ release:
   mode: append
   name_template: '{{ .Tag }}'
   header: |
-    # Sei {{ .Tag }}
+    ## Experimental Pre-built Binaries
 
-    Pre-built **statically-linked** `seid` binary attached below for `linux/amd64`.
+    Pre-built **statically-linked** `seid` binaries attached below for `linux/amd64`
+    and `linux/arm64`.
 
     Verify your download:
 

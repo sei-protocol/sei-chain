@@ -3,9 +3,9 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"net/url"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -45,9 +45,12 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			cfg:                &cfg.GigaRouterCommonConfig,
 			key:                key,
 			data:               dataState,
+			nextCommitEpoch:    dataState.NextCommitEpoch(),
+			anchor:             dataState.Anchor(),
 			service:            giga.NewService(consensusState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:                cfg.App,
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
@@ -63,29 +66,9 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Validators dial every committee member in parallel — consensus
-		// voting needs fan-out, not stickiness. Same connections also
-		// serve block sync between committee peers. Self disables GetBlock:
-		// a loopback consumer always returns empty for missing catch-up
-		// heights and can starve the contiguous prefix while higher
-		// gap-fills keep retrying. Compare against the p2p node key
-		// (r.key.Public), not validatorKey (consensus signing key used by
-		// EvmProxy): GigaNodeAddr.Key is a NodePublicKey.
-		selfKey := r.key.Public()
-		for _, addr := range r.cfg.ValidatorAddrs {
-			getBlock := addr.Key != selfKey
-			s.Spawn(func() error {
-				for {
-					err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-						return r.service.RunClient(ctx, client, getBlock)
-					})
-					logger.Info("giga connection failed", "addr", addr, "err", err)
-					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
-						return err
-					}
-				}
-			})
-		}
+		s.SpawnNamed("committeeMembers", func() error {
+			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
+		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
@@ -95,18 +78,43 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	})
 }
 
+// runCommitteePeer maintains an outbound giga connection to a committee member.
+// Self disables GetBlock: a loopback consumer always returns empty for missing
+// catch-up heights and can starve the contiguous prefix while higher gap-fills
+// keep retrying. Compare against the p2p node key (r.key.Public), not
+// validatorKey (consensus signing key used by EvmProxy): GigaNodeAddr.Key is a
+// NodePublicKey.
+func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
+	getBlock := addr.Key != r.key.Public()
+	for {
+		err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+			return r.service.RunClient(ctx, client, validatorKey, getBlock)
+		})
+		logger.Info("giga connection failed", "addr", addr, "err", err)
+		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+			return err
+		}
+	}
+}
+
 // EvmProxy on the validator returns None when the sender's shard owner is
-// us (handle locally via mempool, no HTTP round-trip to self). For remote
+// us (handle locally via mempool). For remote
 // shards, we proxy only while the target validator is currently connected;
 // otherwise we keep the tx local as a best-effort availability heuristic.
-func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*url.URL] {
-	shardValidator := r.data.Registry().LatestEpoch().Committee().EvmShard(sender)
-	if r.validatorKey == shardValidator {
-		return utils.None[*url.URL]()
+func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
+	if !r.cfg.EnableEvmProxy {
+		return utils.None[*ethrpc.Client]()
 	}
-	target := r.cfg.ValidatorAddrs[shardValidator]
+	validator := r.nextCommitEpoch.Load().Committee().EvmShard(sender)
+	if r.validatorKey == validator {
+		return utils.None[*ethrpc.Client]()
+	}
+	target, ok := r.cfg.ValidatorAddrs[validator]
+	if !ok {
+		return utils.None[*ethrpc.Client]()
+	}
 	if _, ok := r.poolOut.Get(target.Key); !ok {
-		return utils.None[*url.URL]()
+		return utils.None[*ethrpc.Client]()
 	}
-	return utils.Some(target.EVMRPC)
+	return r.evmProxy(validator)
 }

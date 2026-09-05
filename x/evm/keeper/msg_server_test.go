@@ -16,7 +16,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
-	authsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 
@@ -232,10 +231,19 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "intrinsic gas too low")                                               // this can only happen in test because we didn't call CheckTx in this test
+	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	// Intrinsic gas too low is a post-admission applyErr; it follows the VmError
+	// path (nil msg err, full gas charged, failed receipt) so ProcessBlock
+	// still counts it toward dynamic base fee. This only happens in tests /
+	// if CheckTx was skipped.
+	require.Nil(t, err)
+	require.Contains(t, res.VmError, "intrinsic gas too low")
+	require.Equal(t, uint64(1000), res.GasUsed)
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, evmAddr[:], k.GetBaseDenom(ctx)).Amount) // fee should be charged
+	require.NoError(t, k.FlushTransientReceipts(ctx))
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
+	require.True(t, receipt.PreExecutionFailure)
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
@@ -814,52 +822,15 @@ func TestAssociateContractAddress(t *testing.T) {
 }
 
 func TestAssociate(t *testing.T) {
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithChainID("sei-test").WithBlockHeight(1)
-	privKey := testkeeper.MockPrivateKey()
-	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	acc := testkeeper.EVMTestApp.AccountKeeper.NewAccountWithAddress(ctx, seiAddr)
-	testkeeper.EVMTestApp.AccountKeeper.SetAccount(ctx, acc)
-	msg := types.NewMsgAssociate(seiAddr, "test")
-	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	tb.SetMsgs(msg)
-	tb.SetSignatures(signing.SignatureV2{
-		PubKey: privKey.PubKey(),
-		Data: &signing.SingleSignatureData{
-			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
-			Signature: nil,
-		},
-		Sequence: acc.GetSequence(),
-	})
-	signerData := authsigning.SignerData{
-		ChainID:       "sei-test",
-		AccountNumber: acc.GetAccountNumber(),
-		Sequence:      acc.GetSequence(),
-	}
-	signBytes, err := testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().GetSignBytes(testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(), signerData, tb.GetTx())
-	require.Nil(t, err)
-	sig, err := privKey.Sign(signBytes)
-	require.Nil(t, err)
-	sigs := make([]signing.SignatureV2, 1)
-	sigs[0] = signing.SignatureV2{
-		PubKey: privKey.PubKey(),
-		Data: &signing.SingleSignatureData{
-			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
-			Signature: sig,
-		},
-		Sequence: acc.GetSequence(),
-	}
-	require.Nil(t, tb.SetSignatures(sigs...))
-	sdktx := tb.GetTx()
-	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
-	require.Nil(t, err)
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	seiAddr, _ := testkeeper.MockAddressPair()
 
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.NotEqual(t, uint32(0), res.Code) // not enough balance
-
-	require.Nil(t, testkeeper.EVMTestApp.BankKeeper.AddWei(ctx, sdk.AccAddress(evmAddr[:]), sdk.OneInt()))
-
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(0), res.Code)
+	res, err := keeper.NewMsgServerImpl(k).Associate(
+		sdk.WrapSDKContext(ctx),
+		types.NewMsgAssociate(seiAddr, "test"),
+	)
+	require.Nil(t, res)
+	require.ErrorIs(t, err, types.ErrAssociateDeprecated)
 }
 
 func TestRegisterPointerDisabled(t *testing.T) {

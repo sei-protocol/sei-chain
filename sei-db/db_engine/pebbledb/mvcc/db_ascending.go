@@ -47,6 +47,7 @@ func (db *Database) getAscending(storeKey string, targetVersion int64, key []byt
 			metric.WithAttributes(
 				attribute.Bool("success", _err == nil),
 				attribute.String("store", storeKey),
+				attribute.String("db", db.dbName),
 			),
 		)
 	}()
@@ -98,16 +99,22 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 
 	startTime := time.Now()
 	defer func() {
+		db.endPrunePass(_err)
 		otelMetrics.pruneLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
 				attribute.Bool("success", _err == nil),
+				attribute.String("db", db.dbName),
 			),
 		)
 	}()
 
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
+	skipBelow, err := db.beginPrunePass(earliestVersion)
+	if err != nil {
+		return err
+	}
 
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
@@ -154,8 +161,8 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 			prevStore = storeKey
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
-			// Skip a store's keys if version it was last updated is less than last prune height
-			if !ok || (typeOk && versionUpdated < db.GetEarliestVersion()) {
+			// skipBelow is the marker as it stood before this pass raised it; see beginPrunePass.
+			if !ok || (typeOk && versionUpdated < skipBelow) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue
 			}
@@ -176,7 +183,8 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 		// Delete a key if another entry for that key exists at a larger version than original but leq to the prune height
 		// Also delete a key if it has been tombstoned and its version is leq to the prune height
 		// Also delete a key if KeepLastVersion is false and version is leq to the prune height
-		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded) || !db.config.KeepLastVersion) {
+		if prevVersionDecoded <= version &&
+			(bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded) || !db.config.KeepLastVersion) {
 			err = batch.Delete(prevKeyEncoded, nil)
 			if err != nil {
 				return err
@@ -224,13 +232,15 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 	}
 	db.operationMetrics.AddRead(scanReads)
 
-	if err := db.SetEarliestVersion(earliestVersion, false); err != nil {
-		return err
-	}
 	return db.compactPrunedRange(firstDeletedKey, lastDeletedKey)
 }
 
-func (db *Database) iteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) iteratorAscending(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -251,10 +261,29 @@ func (db *Database) iteratorAscending(storeKey string, version int64, start, end
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey, db.operationMetrics), nil
+	return finishMVCCIterator(
+		newAscendingIterator(
+			ctx,
+			itr,
+			storePrefix(storeKey),
+			start,
+			end,
+			version,
+			db.GetEarliestVersion(),
+			false,
+			storeKey,
+			db.operationMetrics,
+			db.dbName,
+		),
+	)
 }
 
-func (db *Database) reverseIteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+func (db *Database) reverseIteratorAscending(
+	ctx context.Context,
+	storeKey string,
+	version int64,
+	start, end []byte,
+) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -277,7 +306,21 @@ func (db *Database) reverseIteratorAscending(storeKey string, version int64, sta
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey, db.operationMetrics), nil
+	return finishMVCCIterator(
+		newAscendingIterator(
+			ctx,
+			itr,
+			storePrefix(storeKey),
+			start,
+			end,
+			version,
+			db.GetEarliestVersion(),
+			true,
+			storeKey,
+			db.operationMetrics,
+			db.dbName,
+		),
+	)
 }
 
 func getMVCCSliceAscending(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {

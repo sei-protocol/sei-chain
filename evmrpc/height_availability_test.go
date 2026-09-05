@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
-	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -16,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -42,8 +42,8 @@ func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
 	return nil, false
 }
 
-func (*heightTestClient) EvmProxy(common.Address) utils.Option[*url.URL] {
-	return utils.None[*url.URL]()
+func (*heightTestClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
+	return utils.None[*rpc.Client]()
 }
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
@@ -129,6 +129,14 @@ func testCtxProvider(h int64) sdk.Context {
 
 func newHeightTestWatermarks(client client.LocalClient, latest int64) *WatermarkManager {
 	return NewWatermarkManager(client, testCtxProvider, nil, &fakeReceiptStore{latest: latest})
+}
+
+// newTestKeeperWithReceiptStore returns a keeper carrying nothing but a receipt store, which the
+// endpoints that read a block's transactions or receipts refuse to run without.
+func newTestKeeperWithReceiptStore() *keeper.Keeper {
+	k := &keeper.Keeper{}
+	k.SetReceiptStoreForTesting(&fakeReceiptStore{})
+	return k
 }
 
 // GetBlockByHash for a block whose height sits above safe latest must return
@@ -222,7 +230,7 @@ func TestBlockAPILatestTagResolves(t *testing.T) {
 	latest := int64(100)
 	client := newHeightTestClient(latest+5, earliest, latest)
 	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	api := NewBlockAPI(client, newTestKeeperWithReceiptStore(), testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 	ctx := context.Background()
 
 	tags := []rpc.BlockNumber{
@@ -283,17 +291,6 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, receipts)
 	require.Empty(t, receipts)
-}
-
-func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
-	t.Parallel()
-
-	client := newHeightTestClient(1, 1, 1)
-	api := NewSeiBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
-	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.NotNil(t, block)
-	require.Equal(t, genesisBlockHashHex, block["hash"])
 }
 
 func TestGetBlockNumberByNrOrHashGenesis(t *testing.T) {
@@ -379,18 +376,41 @@ func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
 	require.Contains(t, err.Error(), "receipts have been pruned")
 }
 
-func TestStateAPIGetProofUnavailableHeight(t *testing.T) {
+func TestGetBlockByNumberReceiptsPruned(t *testing.T) {
 	t.Parallel()
 
-	earliest := int64(2)
-	latest := int64(80)
-	highHeight := latest + 4
-	client := newHeightTestClient(highHeight, earliest, latest)
-	watermarks := newHeightTestWatermarks(client, latest)
-	api := NewStateAPI(client, nil, testCtxProvider, ConnectionTypeHTTP, watermarks)
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
-	blockParam := rpc.BlockNumberOrHashWithHash(common.HexToHash(highBlockHashHex), true)
-	_, err := api.GetProof(context.Background(), common.Address{}, []string{}, blockParam)
+	_, err := api.GetBlockByNumber(context.Background(), rpc.BlockNumber(100), false)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested height")
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockByHashReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
+}
+
+func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
+	t.Parallel()
+
+	client := newHeightTestClient(100, 1, 200)
+	rs := &fakeReceiptStore{latest: 200, earliest: 150}
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, rs)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+
+	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100)))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "receipts have been pruned")
 }

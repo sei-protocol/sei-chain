@@ -63,9 +63,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
-	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
-	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
 	distr "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -73,9 +70,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence"
 	evidencekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/keeper"
 	evidencetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/evidence/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant"
-	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
-	feegrantmodule "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil"
 	genutiltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov"
@@ -97,6 +91,7 @@ import (
 	upgradeclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/client"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
+	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
 	"golang.org/x/sync/errgroup"
@@ -106,11 +101,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/app/migration"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/retiredibc"
+	retiredibcgov "github.com/sei-protocol/sei-chain/app/retiredibc/gov"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -122,16 +118,6 @@ import (
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
-	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer"
-	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
-	ibctransfertypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/types"
-	ibc "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core"
-	ibcclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client"
-	ibcclientclient "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/client"
-	ibcclienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
-	ibcporttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/05-port/types"
-	ibchost "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
-	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
@@ -193,8 +179,6 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 		distrclient.ProposalHandler,
 		upgradeclient.ProposalHandler,
 		upgradeclient.CancelProposalHandler,
-		ibcclientclient.UpdateClientProposalHandler,
-		ibcclientclient.UpgradeProposalHandler,
 		mintclient.UpdateMinterHandler,
 		// this line is used by starport scaffolding # stargate/app/govProposalHandler
 	)
@@ -223,18 +207,14 @@ var (
 		authzmodule.AppModuleBasic{},
 		genutil.AppModuleBasic{},
 		bank.AppModuleBasic{},
-		capability.AppModuleBasic{},
 		staking.AppModuleBasic{},
 		mint.AppModuleBasic{},
 		distr.AppModuleBasic{},
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
 		slashing.AppModuleBasic{},
-		feegrantmodule.AppModuleBasic{},
-		ibc.AppModuleBasic{},
 		upgrade.AppModuleBasic{},
 		evidence.AppModuleBasic{},
-		transfer.AppModuleBasic{},
 		vesting.AppModuleBasic{},
 		oraclemodule.AppModuleBasic{},
 		evm.AppModuleBasic{},
@@ -252,7 +232,7 @@ var (
 		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		govtypes.ModuleName:            {authtypes.Burner},
-		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
+		transferModuleName:             {authtypes.Minter, authtypes.Burner},
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
@@ -273,8 +253,8 @@ var (
 	kvStoreKeyNames = []string{
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, storekeys.IBCStoreKey, upgradetypes.StoreKey, feegrantModuleName,
+		evidencetypes.StoreKey, transferModuleName, capabilityModuleName, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
@@ -309,7 +289,10 @@ var (
 )
 
 const (
-	MinGasEVMTx = 21000
+	MinGasEVMTx          = 21000
+	capabilityModuleName = "capability"
+	feegrantModuleName   = "feegrant"
+	transferModuleName   = "transfer"
 
 	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
 	// notifier buffer. Capacity 1 pairs with the notifier's
@@ -394,31 +377,22 @@ type App struct {
 	memKeys map[string]*sdk.MemoryStoreKey
 
 	// keepers
-	AccountKeeper    authkeeper.AccountKeeper
-	AuthzKeeper      authzkeeper.Keeper
-	BankKeeper       bankkeeper.Keeper
-	GigaBankKeeper   *gigabankkeeper.BaseKeeper
-	CapabilityKeeper *capabilitykeeper.Keeper
-	StakingKeeper    stakingkeeper.Keeper
-	SlashingKeeper   slashingkeeper.Keeper
-	MintKeeper       mintkeeper.Keeper
-	DistrKeeper      distrkeeper.Keeper
-	GovKeeper        govkeeper.Keeper
-	UpgradeKeeper    upgradekeeper.Keeper
-	ParamsKeeper     paramskeeper.Keeper
-	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
-	EvidenceKeeper   evidencekeeper.Keeper
-	TransferKeeper   ibctransferkeeper.Keeper
-	FeeGrantKeeper   feegrantkeeper.Keeper
-	WasmKeeper       wasm.Keeper
-	OracleKeeper     oraclekeeper.Keeper
-	EvmKeeper        evmkeeper.Keeper
-	GigaEvmKeeper    gigaevmkeeper.Keeper
-
-	// make scoped keepers public for test purposes
-	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
-	ScopedTransferKeeper capabilitykeeper.ScopedKeeper
-	ScopedWasmKeeper     capabilitykeeper.ScopedKeeper
+	AccountKeeper  authkeeper.AccountKeeper
+	AuthzKeeper    authzkeeper.Keeper
+	BankKeeper     bankkeeper.Keeper
+	GigaBankKeeper *gigabankkeeper.BaseKeeper
+	StakingKeeper  stakingkeeper.Keeper
+	SlashingKeeper slashingkeeper.Keeper
+	MintKeeper     mintkeeper.Keeper
+	DistrKeeper    distrkeeper.Keeper
+	GovKeeper      govkeeper.Keeper
+	UpgradeKeeper  upgradekeeper.Keeper
+	ParamsKeeper   paramskeeper.Keeper
+	EvidenceKeeper evidencekeeper.Keeper
+	WasmKeeper     wasm.Keeper
+	OracleKeeper   oraclekeeper.Keeper
+	EvmKeeper      evmkeeper.Keeper
+	GigaEvmKeeper  gigaevmkeeper.Keeper
 
 	EpochKeeper epochmodulekeeper.Keeper
 
@@ -456,13 +430,15 @@ type App struct {
 	encodingConfig       appparams.EncodingConfig
 	legacyEncodingConfig appparams.EncodingConfig
 	evmRPCConfig         evmrpcconfig.Config
-	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
-	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
-	// FinalizeBlocker calls Stash with the (hash, header, response)
-	// tuple, App.Commit calls PublishStashed after a successful
-	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
-	// defend against stale tuples from prior failed commits or
-	// non-stashing return paths (EthReplay/EthBlockTest).
+	// autobahnEnabled records whether Autobahn was configured for this node.
+	autobahnEnabled bool
+	// blockHeaderNotifier owns the FinalizeBlock→Commit pairing for Autobahn
+	// eth_subscribe("newHeads") and eth_newBlockFilter notifications. It
+	// calls Stash from FinalizeBlocker with the
+	// (hash, header, response) tuple, App.Commit calls PublishStashed
+	// after a successful BaseApp.Commit, and FinalizeBlocker entry
+	// calls ClearStash to defend against stale tuples from prior failed
+	// commits or non-stashing return paths (EthReplay/EthBlockTest).
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
@@ -492,6 +468,14 @@ type App struct {
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
+}
+
+// Query handles ABCI queries without exposing retired IBC stores.
+func (app *App) Query(ctx context.Context, req *abci.RequestQuery) (*abci.ResponseQuery, error) {
+	if response := retiredibc.QueryResponse(req.Path); response != nil {
+		return response, nil
+	}
+	return app.BaseApp.Query(ctx, req)
 }
 
 type AppOption func(*App)
@@ -531,7 +515,7 @@ func New(
 
 	keys := sdk.NewKVStoreKeys(kvStoreKeyNames...)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
 		BaseApp:              bApp,
@@ -568,15 +552,6 @@ func New(
 	// set the BaseApp's parameter store
 	bApp.SetParamStore(app.ParamsKeeper.Subspace(baseapp.Paramspace).WithKeyTable(paramskeeper.ConsensusParamsKeyTable()))
 
-	// add capability keeper and ScopeToModule for ibc module
-	app.CapabilityKeeper = capabilitykeeper.NewKeeper(appCodec, keys[capabilitytypes.StoreKey], memKeys[capabilitytypes.MemStoreKey])
-
-	// grant capabilities for the ibc and ibc-transfer modules
-	scopedIBCKeeper := app.CapabilityKeeper.ScopeToModule(ibchost.ModuleName)
-	scopedTransferKeeper := app.CapabilityKeeper.ScopeToModule(ibctransfertypes.ModuleName)
-	scopedWasmKeeper := app.CapabilityKeeper.ScopeToModule(wasm.ModuleName)
-	// this line is used by starport scaffolding # stargate/app/scopedKeeper
-
 	// add keepers
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
 		appCodec, keys[authtypes.StoreKey], app.GetSubspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, maccPerms,
@@ -604,7 +579,6 @@ func New(
 		appCodec, keys[slashingtypes.StoreKey], &stakingKeeper, app.GetSubspace(slashingtypes.ModuleName),
 	)
 
-	app.FeeGrantKeeper = feegrantkeeper.NewKeeper(appCodec, keys[feegrant.StoreKey], app.AccountKeeper)
 	app.UpgradeKeeper = upgradekeeper.NewKeeper(skipUpgradeHeights, keys[upgradetypes.StoreKey], appCodec, homePath, app.BaseApp)
 
 	// register the staking hooks
@@ -615,28 +589,6 @@ func New(
 
 	// ... other modules keepers
 
-	// Create IBC Keeper
-	app.IBCKeeper = ibckeeper.NewKeeper(
-		appCodec, keys[ibchost.StoreKey], app.GetSubspace(ibchost.ModuleName), app.StakingKeeper, app.UpgradeKeeper, scopedIBCKeeper,
-	)
-
-	// Create Transfer Keepers
-	app.TransferKeeper = ibctransferkeeper.NewKeeperWithAddressHandler(
-		appCodec,
-		keys[ibctransfertypes.StoreKey],
-		app.GetSubspace(ibctransfertypes.ModuleName),
-		app.IBCKeeper.ChannelKeeper,
-		app.IBCKeeper.ChannelKeeper,
-		&app.IBCKeeper.PortKeeper,
-		app.AccountKeeper,
-		app.BankKeeper,
-		scopedTransferKeeper,
-		evmkeeper.NewEvmAddressHandler(&app.EvmKeeper),
-	)
-	transferModule := transfer.NewAppModule(app.TransferKeeper)
-	transferIBCModule := transfer.NewIBCModule(app.TransferKeeper)
-
-	// Create evidence Keeper for to register the IBC light client misbehaviour evidence route
 	evidenceKeeper := evidencekeeper.NewKeeper(
 		appCodec, keys[evidencetypes.StoreKey], &app.StakingKeeper, app.SlashingKeeper,
 	)
@@ -681,11 +633,8 @@ func New(
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
 			app.MsgServiceRouter(),
-			app.IBCKeeper.ChannelKeeper,
-			scopedWasmKeeper,
 			app.BankKeeper,
 			appCodec,
-			app.TransferKeeper,
 			&app.EvmKeeper,
 			app.StakingKeeper,
 		),
@@ -700,11 +649,6 @@ func New(
 		app.BankKeeper,
 		app.StakingKeeper,
 		app.DistrKeeper,
-		app.IBCKeeper.ChannelKeeper,
-		&app.IBCKeeper.PortKeeper,
-		scopedWasmKeeper,
-		app.UpgradeKeeper,
-		app.TransferKeeper,
 		app.MsgServiceRouter(),
 		app.GRPCQueryRouter(),
 		wasmDir,
@@ -717,7 +661,9 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading receipt store config: %s", err))
 	}
-	if app.receiptStore == nil {
+	// A nil store is the seam tests inject their own through, and it is also what a disabled
+	// receipt store leaves behind: the EVM keeper reads nil as a node that keeps no receipts.
+	if app.receiptStore == nil && receiptConfig.Enable {
 		receiptStore, err := receipt.NewReceiptStore(receiptConfig, keys[evmtypes.StoreKey])
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
@@ -726,7 +672,7 @@ func New(
 	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
-		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		&app.AccountKeeper, &app.StakingKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
@@ -749,7 +695,8 @@ func New(
 	// reconcile the encoder so swapping the consumer is a no-op for
 	// non-Autobahn subscribers. Until that's verified, keep this gate
 	// so non-Autobahn newHeads semantics are unchanged by this PR.
-	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
+	app.autobahnEnabled = tmConfig != nil && tmConfig.AutobahnConfigFile != ""
+	if app.autobahnEnabled {
 		app.blockHeaderNotifier = tmutils.Some(evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity))
 	}
 	if app.evmRPCConfig.TraceBakeEnabled {
@@ -797,7 +744,7 @@ func New(
 
 	app.GigaEvmKeeper = *gigaevmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.GigaBankKeeper,
-		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		&app.AccountKeeper, &app.StakingKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.GigaEvmKeeper.UseRegularStore = true
 	app.GigaBankKeeper.UseRegularStore = true
@@ -844,10 +791,10 @@ func New(
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
+		AddRoute(retiredibcgov.RouterKey, retiredibcgov.ProposalHandler).
 		AddRoute(paramproposal.RouterKey, params.NewParamChangeProposalHandler(app.ParamsKeeper)).
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
-		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
 		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
@@ -861,13 +808,6 @@ func New(
 	)
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
-
-	// Create static IBC router, add transfer route, then set and seal it
-	ibcRouter := ibcporttypes.NewRouter()
-	ibcRouter.AddRoute(ibctransfertypes.ModuleName, transferIBCModule)
-	ibcRouter.AddRoute(wasm.ModuleName, wasm.NewIBCHandler(app.WasmKeeper, app.IBCKeeper.ChannelKeeper))
-	// this line is used by starport scaffolding # ibc/app/router
-	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
 		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
@@ -885,8 +825,6 @@ func New(
 		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
 		vesting.NewAppModule(app.AccountKeeper, app.BankKeeper, app.UpgradeKeeper),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
@@ -894,12 +832,10 @@ func New(
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		upgrade.NewAppModule(app.UpgradeKeeper),
 		evidence.NewAppModule(app.EvidenceKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
-		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
@@ -907,15 +843,13 @@ func New(
 	)
 
 	app.BeginBlockKeepers = legacyabci.BeginBlockKeepers{
-		EpochKeeper:      &app.EpochKeeper,
-		UpgradeKeeper:    &app.UpgradeKeeper,
-		CapabilityKeeper: app.CapabilityKeeper,
-		DistrKeeper:      &app.DistrKeeper,
-		SlashingKeeper:   &app.SlashingKeeper,
-		EvidenceKeeper:   &app.EvidenceKeeper,
-		StakingKeeper:    &app.StakingKeeper,
-		IBCKeeper:        app.IBCKeeper,
-		EvmKeeper:        &app.EvmKeeper,
+		EpochKeeper:    &app.EpochKeeper,
+		UpgradeKeeper:  &app.UpgradeKeeper,
+		DistrKeeper:    &app.DistrKeeper,
+		SlashingKeeper: &app.SlashingKeeper,
+		EvidenceKeeper: &app.EvidenceKeeper,
+		StakingKeeper:  &app.StakingKeeper,
+		EvmKeeper:      &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
 		GovKeeper:     &app.GovKeeper,
@@ -924,23 +858,18 @@ func New(
 		EvmKeeper:     &app.EvmKeeper,
 	}
 	app.CheckTxKeepers = legacyabci.CheckTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		FeeGrantKeeper: &app.FeeGrantKeeper,
-		IBCKeeper:      app.IBCKeeper,
-		OracleKeeper:   app.OracleKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 	app.DeliverTxKeepers = legacyabci.DeliverTxKeepers{
-		AccountKeeper:  app.AccountKeeper,
-		BankKeeper:     app.BankKeeper,
-		FeeGrantKeeper: &app.FeeGrantKeeper,
-		OracleKeeper:   app.OracleKeeper,
-		EvmKeeper:      &app.EvmKeeper,
-		ParamsKeeper:   app.ParamsKeeper,
-		UpgradeKeeper:  &app.UpgradeKeeper,
+		AccountKeeper: app.AccountKeeper,
+		BankKeeper:    app.BankKeeper,
+		EvmKeeper:     &app.EvmKeeper,
+		ParamsKeeper:  app.ParamsKeeper,
+		UpgradeKeeper: &app.UpgradeKeeper,
 	}
 
 	app.mm.SetOrderMidBlockers(
@@ -949,13 +878,9 @@ func New(
 
 	// NOTE: The genutils module must occur after staking so that pools are
 	// properly initialized with tokens from genesis accounts.
-	// NOTE: Capability module must occur first so that it can initialize any capabilities
-	// so that other modules that want to create or claim capabilities afterwards in InitChain
-	// can do so safely.
 	app.mm.SetOrderInitGenesis(
 		upgradetypes.ModuleName,
 		paramstypes.ModuleName,
-		capabilitytypes.ModuleName,
 		authtypes.ModuleName,
 		banktypes.ModuleName,
 		distrtypes.ModuleName,
@@ -964,12 +889,9 @@ func New(
 		govtypes.ModuleName,
 		minttypes.ModuleName,
 		vestingtypes.ModuleName,
-		ibchost.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
-		ibctransfertypes.ModuleName,
 		authz.ModuleName,
-		feegrant.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
@@ -986,8 +908,6 @@ func New(
 	app.sm = module.NewSimulationManager(
 		auth.NewAppModule(appCodec, app.AccountKeeper, authsims.RandomGenesisAccounts),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
-		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
@@ -997,8 +917,6 @@ func New(
 		evidence.NewAppModule(app.EvidenceKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		ibc.NewAppModule(app.IBCKeeper),
-		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
@@ -1026,17 +944,14 @@ func New(
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
 				BankKeeper:      app.BankKeeper,
-				FeegrantKeeper:  app.FeeGrantKeeper,
 				ParamsKeeper:    app.ParamsKeeper,
 				SignModeHandler: signModeHandler,
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 				// BatchVerifier:   app.batchVerifier,
 			},
-			IBCKeeper:         app.IBCKeeper,
 			TXCounterStoreKey: keys[wasm.StoreKey],
 			WasmConfig:        &wasmConfig,
 			WasmKeeper:        &app.WasmKeeper,
-			OracleKeeper:      &app.OracleKeeper,
 			EVMKeeper:         &app.EvmKeeper,
 			UpgradeKeeper:     &app.UpgradeKeeper,
 			TracingInfo:       app.GetBaseApp().TracingInfo,
@@ -1089,10 +1004,6 @@ func New(
 	if err := loadVersionHandler(); err != nil {
 		panic(err)
 	}
-
-	app.ScopedIBCKeeper = scopedIBCKeeper
-	app.ScopedTransferKeeper = scopedTransferKeeper
-	app.ScopedWasmKeeper = scopedWasmKeeper
 
 	// Create hard fork manager and register all hard fork upgrade handlers. Note,
 	// when creating the manager, BaseApp must already be instantiated.
@@ -1255,7 +1166,14 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
+	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
+	app.initializeRetiredTransferModuleAccount(ctx)
+	return response
+}
+
+// initializeRetiredTransferModuleAccount materializes the retained transfer module account during genesis.
+func (app *App) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
+	app.AccountKeeper.GetModuleAccount(ctx, transferModuleName)
 }
 
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
@@ -1276,7 +1194,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 
 	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
 	if err != nil {
-		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
@@ -1291,7 +1208,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Invariant: at this point nil entries in typedTxs are proto decode failures only.
 	// EVM preprocessing runs later inside ProcessBlock; do not reorder that before this check.
 	if !app.checkTotalBlockGas(checkCtx, typedTxs) {
-		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
@@ -1401,7 +1317,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.optimisticProcessingInfoMutex.RUnlock()
 
 		if !aborted && bytes.Equal(finalHash, req.Hash) {
-			utilmetrics.IncrementOptimisticProcessingCounter(true) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 			appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(attribute.Bool("enabled", true)))
 			app.SetProcessProposalStateToCommit()
@@ -1419,7 +1334,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			return &resp, nil
 		}
 	}
-	utilmetrics.IncrementOptimisticProcessingCounter(false) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 	appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 		otelmetric.WithAttributes(attribute.Bool("enabled", false)))
 	logger.Info("optimistic processing ineligible")
@@ -1455,37 +1369,10 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
-	// Check if transaction is gasless before recording metrics
-	// perf optimization: skip gasless check for obviously non-gasless transaction types
-	shouldCheckGasless := app.couldBeGaslessTransaction(typedTx)
-
-	var skipMetrics bool
-	if shouldCheckGasless {
-		// Only do expensive validation for potentially gasless transactions
-		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-		if err != nil {
-			if isExpectedGaslessMetricsError(err) {
-				// ErrAggregateVoteExist is expected when checking gasless status after tx processing
-				// since oracle votes will now exist in state. We know it was gasless, skip metrics.
-				skipMetrics = true
-			} else {
-				logger.Debug("error checking if tx is gasless for metrics", "err", err)
-				// If we can't determine if it's gasless, record metrics to maintain existing behavior
-			}
-		} else if isGasless {
-			skipMetrics = true // Skip metrics for confirmed gasless transactions
-		}
-	}
-
-	if !skipMetrics {
-		// Record metrics for non-gasless transactions
-		utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-		utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
-		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
-			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
-		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
-			otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
-	}
+	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
+		otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+	appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
+		otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
@@ -1503,7 +1390,6 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}()
@@ -1513,7 +1399,6 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 		ctx = ctx.WithTxIndex(i)
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}
@@ -1523,7 +1408,6 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessGigaStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}()
@@ -1603,7 +1487,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
 		if fallbackToV2 {
-			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(
 					attribute.String("reason", gigaFallbackStoreIterator),
@@ -1618,7 +1501,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 			// Abort errors (validation failure, balance migration, self-destruct,
 			// cosmos-precompile interop) re-run this tx via v2.
 			if gigautils.ShouldExecutionAbort(execErr) {
-				utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 				appMetrics.gigaFallback.Add(ctx.Context(), 1,
 					otelmetric.WithAttributes(
 						attribute.String("reason", gigaFallbackReason(execErr)),
@@ -1637,7 +1519,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		txResults[i] = result
 		ctx.GigaMultiStore().WriteGiga()
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}
@@ -1725,42 +1606,14 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
-	for i, r := range batchResult.Results {
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OccConcurrent) // TODO(PLT-327): remove once app_tx_process_type_total verified
+	for _, r := range batchResult.Results {
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 
-		// Check if transaction is gasless before recording gas metrics
-		var recordGasMetrics = true
-		if i < len(typedTxs) {
-			// perf optimization: skip gasless check for obviously non-gasless transaction types
-			shouldCheckGasless := app.couldBeGaslessTransaction(typedTxs[i])
-			if shouldCheckGasless {
-				// Only do expensive validation for potentially gasless transactions
-				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
-				if err != nil {
-					if isExpectedGaslessMetricsError(err) {
-						// ErrAggregateVoteExist is expected when checking gasless status after tx processing
-						// since oracle votes will now exist in state. We know it was gasless, skip metrics.
-						recordGasMetrics = false
-					} else {
-						logger.Debug("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
-						// If we can't determine if it's gasless, record metrics to maintain existing behavior
-					}
-				} else if isGasless {
-					recordGasMetrics = false
-				}
-			}
-		}
-
-		if recordGasMetrics {
-			utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-			utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
-			appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
-				otelmetric.WithAttributes(attribute.String("type", "gas_used")))
-			appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
-				otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
-		}
+		appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
+			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+		appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
+			otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Response.Code,
@@ -1852,7 +1705,6 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 
 		if fallbackToV2 {
-			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(
 					attribute.String("reason", fallbackReason),
@@ -2113,9 +1965,11 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	if execErr != nil {
 		// EIP-7623's floor-data-gas check is the known natural failure here:
 		// other Execute() failure classes are pre-checked upstream. Canonical
-		// fee, nonce, receipt, and ABCI result behavior lives in v2. The
-		// stateDB has not been finalized, so Cleanup discards its
-		// transaction-local cache before the caller re-runs the tx through v2.
+		// fee, nonce, receipt, ABCI result, and PreExecutionFailure receipt
+		// flag behavior lives in v2 msg_server — keep this fallback so giga
+		// never writes those receipts itself. The stateDB has not been
+		// finalized, so Cleanup discards its transaction-local cache before
+		// the caller re-runs the tx through v2.
 		return nil, gigautils.ErrExecutionFailed
 	}
 
@@ -2157,7 +2011,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		Data:      ethTx.Data(),
 		From:      sender,
 	}
-	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError, false)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -2728,8 +2582,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
+	headNotifier, _ := app.blockHeaderNotifier.Get()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2743,8 +2598,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		headNotifier, _ := app.blockHeaderNotifier.Get()
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)
 		}
@@ -2797,26 +2651,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 		}
 
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
-
-		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
-		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
-		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
-		skipGaslessCheck := evmErr == nil && isEVM
-		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
-			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-			if err != nil {
-				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// Unexpected panic: reject the entire proposal.
-					logger.Error("malicious transaction detected in gasless check", "err", err)
-					return false
-				}
-				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
-				logger.Info("transaction failed gasless check but not malicious", "err", err)
-			}
-			if isGasless {
-				continue
-			}
-		}
 
 		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
 		// processed and so contributes no gas to the block.
@@ -2874,39 +2708,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 	return true
 }
 
-// isExpectedGaslessMetricsError reports whether err is the well-known oracle
-// duplicate-vote error that we deliberately tolerate when collecting
-// gasless-tx metrics. errors.Is handles properly-wrapped chains; the substring
-// fallback covers chains that lost sentinel identity via %s/%v wrapping.
-func isExpectedGaslessMetricsError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
-		return true
-	}
-	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
-}
-
-// couldBeGaslessTransaction is a fast heuristic that returns true when tx
-// might be gasless and a full IsTxGasless keeper check is therefore worth
-// running. It MUST be a conservative over-approximation: returning false for
-// a tx that is actually gasless would cause its gas to be counted against
-// the block limit, producing incorrect gas accounting (and in the worst case
-// rejecting an otherwise-valid block).
-func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
-	if tx == nil {
-		return false
-	}
-	for _, msg := range tx.GetMsgs() {
-		switch msg.(type) {
-		case *evmtypes.MsgAssociate, *oracletypes.MsgAggregateExchangeRateVote:
-			return true
-		}
-	}
-	return false
-}
-
 func (app *App) GetTxConfig() client.TxConfig {
 	return app.encodingConfig.TxConfig
 }
@@ -2935,8 +2736,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
-	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(evmtypes.ModuleName)

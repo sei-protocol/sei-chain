@@ -1,0 +1,47 @@
+{
+  "name": "sei-pacific-replay-load-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capture Pacific traffic and safely replay equivalent load on Sei testnets.",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "typecheck": "tsc --noEmit",
+    "test": "mocha --require tsx/cjs \"test/**/*.spec.ts\"",
+    "test:fixtures": "hardhat test hardhat-test/*.spec.ts",
+    "replay:capture": "tsx src/capture.ts",
+    "replay:validate": "tsx src/validate.ts",
+    "replay:deploy": "tsx src/deployFixtures.ts",
+    "replay:users": "tsx src/provisionUsers.ts",
+    "replay:run": "tsx src/runReplay.ts",
+    "replay:buffered": "tsx src/runBuffered.ts",
+    "replay:setup": "npm run compile && npm run replay:deploy && npm run replay:users",
+    "replay:start": "npm run replay:setup && npm run replay:capture && npm run replay:validate && npm run replay:run",
+    "replay:start:buffered": "npm run replay:setup && npm run replay:buffered",
+    "dashboard:up": "docker compose -f observability/docker-compose.yml up -d",
+    "dashboard:down": "docker compose -f observability/docker-compose.yml down"
+  },
+  "dependencies": {
+    "@cosmjs/amino": "^0.32.4",
+    "@cosmjs/proto-signing": "^0.32.4",
+    "@cosmjs/stargate": "^0.32.4",
+    "@sei-js/cosmos": "^1.0.6",
+    "cosmjs-types": "^0.9.0",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.14.0",
+    "prom-client": "^15.1.3",
+    "protobufjs": "^8.7.1"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^22.5.0",
+    "chai": "^4.4.1",
+    "hardhat": "^2.22.10",
+    "mocha": "^10.7.3",
+    "solc": "0.6.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  }
+}

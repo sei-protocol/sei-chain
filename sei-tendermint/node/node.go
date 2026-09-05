@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
@@ -18,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/protobuf/proto"
 
+	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -84,6 +86,31 @@ func hasMetricLabel(metric *dto.Metric, name string) bool {
 	return false
 }
 
+func validateFreezeHeight(freezeHeight uint64, initialHeight, stateHeight, blockStoreHeight, appHeight int64) error {
+	if freezeHeight == 0 {
+		return nil
+	}
+	if freezeHeight > math.MaxInt64 {
+		return fmt.Errorf("freeze height %d exceeds the maximum block height", freezeHeight)
+	}
+	if initialHeight > int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+		return fmt.Errorf("freeze height %d is below initial height %d", freezeHeight, initialHeight)
+	}
+	for _, current := range []struct {
+		source string
+		height int64
+	}{
+		{source: "application", height: appHeight},
+		{source: "block store", height: blockStoreHeight},
+		{source: "state store", height: stateHeight},
+	} {
+		if current.height >= int64(freezeHeight) { //nolint:gosec // freezeHeight is bounded above.
+			return fmt.Errorf("%s height %d has already reached freeze height %d", current.source, current.height, freezeHeight)
+		}
+	}
+	return nil
+}
+
 // nodeImpl is the highest level interface to a full Tendermint node.
 // It includes all configuration information and running services.
 type nodeImpl struct {
@@ -95,29 +122,32 @@ type nodeImpl struct {
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
 	consensusPolicy types.ConsensusPolicy
+	freezeHeight    uint64
 
 	// network
-	router               *p2p.Router
-	giga                 utils.Option[p2p.GigaRouter]
-	gigaBlockDB          utils.Option[atypes.BlockDB] // owned here; closed after giga.Run (sync.Once)
-	gigaBlockDBCloseOnce sync.Once
-	ServiceRestartCh     utils.Option[chan []string]
-	nodeInfo             types.NodeInfo
-	nodeKey              types.NodeKey // our node privkey
+	router                  *p2p.Router
+	giga                    utils.Option[p2p.GigaRouter]
+	gigaBlockStore          utils.Option[atypes.BlockStore] // owned here; closed after giga.Run (sync.Once)
+	gigaBlockStoreCloseOnce sync.Once
+	ServiceRestartCh        utils.Option[chan []string]
+	nodeInfo                types.NodeInfo
+	nodeKey                 types.NodeKey // our node privkey
 
 	// services
-	eventSinks     []indexer.EventSink
-	initialState   sm.State
-	stateStore     sm.Store
-	blockStore     *store.BlockStore // store the blockchain to disk
-	mempool        utils.Option[*mempool.TxMempool]
-	evPool         utils.Option[*evidence.Pool]
-	indexerService *indexer.Service
-	services       []service.Service
-	rpcListeners   []net.Listener // rpc servers
-	shutdownOps    closer
-	rpcEnv         *rpccore.Environment
-	prometheusSrv  utils.Option[*http.Server]
+	eventSinks        []indexer.EventSink
+	initialState      sm.State
+	stateStore        sm.Store
+	blockStore        *store.BlockStore // store the blockchain to disk
+	mempool           utils.Option[*mempool.TxMempool]
+	mempoolP2PEnabled bool
+	evPool            utils.Option[*evidence.Pool]
+	indexerService    *indexer.Service
+	services          []service.Service
+	rpcListeners      []net.Listener // rpc servers
+	evmOnlyRPC        *evmonlyrpc.Server
+	shutdownOps       closer
+	rpcEnv            *rpccore.Environment
+	prometheusSrv     utils.Option[*http.Server]
 }
 
 // makeNode returns a new, ready to go, Tendermint Node.
@@ -132,7 +162,9 @@ func makeNode(
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy types.ConsensusPolicy,
+	nodeOptions ...Option,
 ) (_ local.NodeService, err error) {
+	opts := resolveOptions(nodeOptions...)
 	var (
 		cancel context.CancelFunc
 		node   *nodeImpl
@@ -141,10 +173,10 @@ func makeNode(
 	closers := []closer{convertCancelCloser(cancel)}
 	defer func() {
 		if err != nil {
-			// Close BlockDB on construct failure after it was opened. Must not
+			// Close BlockStore on construct failure after it was opened. Must not
 			// live in shutdownOps (see OnStart comment on SpawnCritical).
 			if node != nil {
-				_ = node.closeGigaBlockDB()
+				_ = node.closeGigaBlockStore()
 			}
 			err = combineCloseError(err, makeCloser(closers))
 		}
@@ -169,6 +201,12 @@ func makeNode(
 	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
+	}
+	if err := validateFreezeHeight(opts.freezeHeight, genDoc.InitialHeight, state.LastBlockHeight, blockStore.Height(), proxyApp.Info().LastBlockHeight); err != nil {
+		return nil, err
+	}
+	if opts.freezeHeight > 0 && cfg.AutobahnConfigFile != "" {
+		return nil, errors.New("freeze height is not supported with Autobahn")
 	}
 
 	eventBus := eventbus.NewDefault()
@@ -216,6 +254,7 @@ func makeNode(
 		genesisDoc:      genDoc,
 		privValidator:   privValidator,
 		consensusPolicy: consensusPolicy,
+		freezeHeight:    opts.freezeHeight,
 
 		nodeKey: nodeKey,
 
@@ -237,6 +276,8 @@ func makeNode(
 			EventBus:   eventBus,
 			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
+
+			ReadOnly: opts.freezeHeight > 0,
 		},
 	}
 
@@ -248,7 +289,7 @@ func makeNode(
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
-	router, peerCloser, gigaBlockDB, err := createRouter(
+	router, peerCloser, gigaBlockStore, err := createRouter(
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -263,8 +304,8 @@ func makeNode(
 	}
 	node.router = router
 	node.giga = router.Giga()
-	node.gigaBlockDB = gigaBlockDB
-	// BlockDB is NOT closed in OnStop: BaseService runs OnStop before
+	node.gigaBlockStore = gigaBlockStore
+	// BlockStore is NOT closed in OnStop: BaseService runs OnStop before
 	// SpawnCritical (giga.Run) finishes, so closing there would race with
 	// still-running persist/execute. Close paths:
 	//   - makeNode defer on construct failure
@@ -297,12 +338,15 @@ func makeNode(
 		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
 		node.rpcEnv.Mempool = utils.Some(mp)
-		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
-		if err != nil {
-			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+		if opts.freezeHeight == 0 {
+			mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
+			if err != nil {
+				return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+			}
+			mpReactor.MarkReadyToStart()
+			node.services = append(node.services, mpReactor)
+			node.mempoolP2PEnabled = true
 		}
-		mpReactor.MarkReadyToStart()
-		node.services = append(node.services, mpReactor)
 
 		// make block executor for consensus and blockchain reactors to execute blocks
 		blockExec := sm.NewBlockExecutor(
@@ -317,6 +361,10 @@ func makeNode(
 
 		// Determine whether we should attempt state sync.
 		stateSync := cfg.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+		if stateSync && opts.freezeHeight > 0 {
+			logger.Info("Freeze mode disables state sync; falling back to block sync", "freeze_height", opts.freezeHeight)
+			stateSync = false
+		}
 		if stateSync && state.LastBlockHeight > 0 {
 			logger.Info("Found local state with non-zero height, skipping state sync")
 			stateSync = false
@@ -345,6 +393,7 @@ func makeNode(
 			eventBus,
 			tracerProviderOptions,
 		)
+		csState.SetFreezeHeight(opts.freezeHeight)
 		node.rpcEnv.ConsensusState = utils.Some[rpccore.ConsensusState](csState)
 
 		csReactor, err := consensus.NewReactor(
@@ -374,6 +423,7 @@ func makeNode(
 				EventBus:              eventBus,
 				RestartEvent:          restartEvent,
 				SelfRemediationConfig: cfg.SelfRemediation,
+				FreezeHeight:          opts.freezeHeight,
 			}),
 		)
 		if err != nil {
@@ -469,15 +519,18 @@ func makeNode(
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// If Start fails before giga is spawned, BaseService does not call OnStop
-	// and never cancels SpawnCritical — so BlockDB would otherwise leak.
-	// When giga has already been spawned, its wrapper closes BlockDB after
+	// and never cancels SpawnCritical — so BlockStore would otherwise leak.
+	// When giga has already been spawned, its wrapper closes BlockStore after
 	// Run observes the service-context cancel issued once OnStart returns.
 	gigaSpawned := false
+	if n.freezeHeight > 0 {
+		logger.Info("Freeze mode enabled", "freeze_height", n.freezeHeight)
+	}
 	defer func() {
 		if err == nil || gigaSpawned {
 			return
 		}
-		_ = n.closeGigaBlockDB()
+		_ = n.closeGigaBlockStore()
 	}()
 
 	// EventBus and IndexerService must be started before the handshake because
@@ -517,7 +570,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 
 	// TODO: Fetch and provide real options and do proper p2p bootstrapping.
 	// TODO: Use a persistent peer database.
-	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus)
+	n.nodeInfo, err = makeNodeInfo(n.config, n.nodeKey, n.eventSinks, n.genesisDoc, state.Version.Consensus, n.mempoolP2PEnabled)
 	if err != nil {
 		return err
 	}
@@ -612,7 +665,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	if giga, ok := n.giga.Get(); ok {
 		gigaSpawned = true
 		n.SpawnCritical("giga", func(ctx context.Context) error {
-			defer func() { _ = n.closeGigaBlockDB() }()
+			defer func() { _ = n.closeGigaBlockStore() }()
 			return giga.Run(ctx)
 		})
 	}
@@ -635,7 +688,13 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.NodeInfo = n.nodeInfo
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
-	if n.config.RPC.ListenAddress != "" {
+	if n.config.EVMOnlyInMemory {
+		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv)
+		if err != nil {
+			return err
+		}
+		n.SpawnCritical("evm-only-rpc", n.evmOnlyRPC.Serve)
+	} else if n.config.RPC.ListenAddress != "" {
 		n.rpcListeners, err = n.rpcEnv.StartService(ctx, n.config)
 		if err != nil {
 			return err
@@ -649,6 +708,9 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 func (n *nodeImpl) OnStop() {
 	logger.Info("Stopping Node")
 	// stop the listeners / external services first
+	if n.evmOnlyRPC != nil {
+		n.evmOnlyRPC.Stop()
+	}
 	for _, l := range n.rpcListeners {
 		logger.Info("Closing rpc listener", "listener", l.Addr())
 		if err := l.Close(); err != nil {
@@ -695,15 +757,15 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// closeGigaBlockDB closes the Autobahn BlockDB at most once. Safe to call from
+// closeGigaBlockStore closes the Autobahn BlockStore at most once. Safe to call from
 // makeNode's failure defer, OnStart's pre-giga failure path, and the giga
 // SpawnCritical wrapper.
-func (n *nodeImpl) closeGigaBlockDB() error {
+func (n *nodeImpl) closeGigaBlockStore() error {
 	var err error
-	n.gigaBlockDBCloseOnce.Do(func() {
-		if db, ok := n.gigaBlockDB.Get(); ok {
+	n.gigaBlockStoreCloseOnce.Do(func() {
+		if db, ok := n.gigaBlockStore.Get(); ok {
 			if err = db.Close(); err != nil {
-				logger.Error("failed to close Autobahn BlockDB", "err", err)
+				logger.Error("failed to close Autobahn BlockStore", "err", err)
 			}
 		}
 	})

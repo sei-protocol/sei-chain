@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 )
 
 func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
@@ -15,11 +15,11 @@ func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
 	}
 }
 
-func smallTestCacheConfig() dbcache.CacheConfig {
-	return dbcache.CacheConfig{
-		ShardCount: 8,
-		MaxSize:    16 * unit.MB,
-	}
+func smallTestViewManagerConfig(name string) view.ViewManagerConfig {
+	cfg := defaultStoreConfig(name)
+	cfg.MaxSize = 16 * unit.MB
+	cfg.MetricsEnabled = false
+	return cfg
 }
 
 // DefaultTestConfig returns a Config suitable for unit tests. It uses
@@ -28,18 +28,16 @@ func DefaultTestConfig(t *testing.T) *Config {
 	t.Helper()
 	return &Config{
 		DataDir:                filepath.Join(t.TempDir(), "flatkv"),
-		SnapshotInterval:       DefaultSnapshotInterval,
-		SnapshotKeepRecent:     DefaultSnapshotKeepRecent,
+		SnapshotInterval:       10000,
+		SnapshotKeepRecent:     1,
 		AccountDBConfig:        smallTestPebbleConfig(),
-		AccountCacheConfig:     smallTestCacheConfig(),
+		AccountStoreConfig:     smallTestViewManagerConfig("account"),
 		CodeDBConfig:           smallTestPebbleConfig(),
-		CodeCacheConfig:        smallTestCacheConfig(),
+		CodeStoreConfig:        smallTestViewManagerConfig("code"),
 		StorageDBConfig:        smallTestPebbleConfig(),
-		StorageCacheConfig:     smallTestCacheConfig(),
+		StorageStoreConfig:     smallTestViewManagerConfig("storage"),
 		MiscDBConfig:           smallTestPebbleConfig(),
-		MiscCacheConfig:        smallTestCacheConfig(),
-		MetadataDBConfig:       smallTestPebbleConfig(),
-		MetadataCacheConfig:    smallTestCacheConfig(),
+		MiscStoreConfig:        smallTestViewManagerConfig("misc"),
 		ReaderThreadsPerCore:   2.0,
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,

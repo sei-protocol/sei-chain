@@ -52,7 +52,7 @@ func TestLoadLocalMeta(t *testing.T) {
 
 		_, err := loadLocalMeta(db)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid meta version length")
+		require.Contains(t, err.Error(), "invalid _meta/version length")
 	})
 }
 
@@ -147,7 +147,8 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 
 	// Simulate a store written before per-module hashing: strip every
 	// per-module meta key (hashes + stats) while keeping the per-DB root.
-	iter, err := s.storageDB.NewIter(&types.IterOptions{
+	requireFlushedToDisk(t, s)
+	iter, err := s.rawDBFor(storageDBDir).NewIter(&types.IterOptions{
 		LowerBound: ktype.ModuleLtHashPrefixBytes,
 		UpperBound: ktype.PrefixEnd(ktype.ModuleLtHashPrefixBytes),
 	})
@@ -160,7 +161,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	require.NoError(t, iter.Close())
 	require.NotEmpty(t, keys, "precondition: storageDB must carry per-module meta keys")
 	for _, k := range keys {
-		require.NoError(t, s.storageDB.Delete(k, types.WriteOptions{}))
+		require.NoError(t, s.rawDBFor(storageDBDir).Delete(k, types.WriteOptions{}))
 	}
 	require.NoError(t, s.Close())
 
@@ -175,7 +176,7 @@ func TestLoadRejectsStoreMissingPerModuleMetadata(t *testing.T) {
 	require.Contains(t, err.Error(), "predates per-module hashing")
 }
 
-func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
+func TestStoreSealBlockUpdatesLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -192,82 +193,10 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
-	data, err := s.storageDB.Get(ktype.MetaVersionKey)
+	requireFlushedToDisk(t, s)
+	data, err := s.rawDBFor(storageDBDir).Get(ktype.MetaVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
-}
-
-func TestStoreMetadataOperations(t *testing.T) {
-	t.Run("LoadGlobalVersion_NewDB", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		version, err := s.loadGlobalVersion()
-		require.NoError(t, err)
-		require.Equal(t, int64(0), version)
-	})
-
-	t.Run("LoadGlobalLtHash_NewDB", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		hash, err := s.loadGlobalLtHash()
-		require.NoError(t, err)
-		require.Nil(t, hash)
-	})
-
-	t.Run("CommitGlobalMetadata_RoundTrip", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		// Commit metadata
-		expectedVersion := int64(100)
-		expectedHash := lthash.New()
-
-		err := s.commitGlobalMetadata(expectedVersion, expectedHash)
-		require.NoError(t, err)
-
-		// Load it back
-		version, err := s.loadGlobalVersion()
-		require.NoError(t, err)
-		require.Equal(t, expectedVersion, version)
-
-		hash, err := s.loadGlobalLtHash()
-		require.NoError(t, err)
-		require.NotNil(t, hash)
-		require.Equal(t, expectedHash.Marshal(), hash.Marshal())
-	})
-
-	t.Run("CommitGlobalMetadata_Atomicity", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		// Commit multiple times
-		for v := int64(1); v <= 10; v++ {
-			hash := lthash.New()
-			err := s.commitGlobalMetadata(v, hash)
-			require.NoError(t, err)
-
-			// Verify immediately
-			version, err := s.loadGlobalVersion()
-			require.NoError(t, err)
-			require.Equal(t, v, version)
-		}
-	})
-
-	t.Run("LoadGlobalVersion_InvalidData", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		// Write invalid data (wrong size)
-		err := s.metadataDB.Set(ktype.MetaVersionKey, []byte{0x01}, types.WriteOptions{})
-		require.NoError(t, err)
-
-		// Should return error
-		_, err = s.loadGlobalVersion()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid global version length")
-	})
 }
 
 // =============================================================================
@@ -313,28 +242,6 @@ func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
 	v, err := s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v, "first Commit after SetInitialVersion(1) must produce version 1")
-}
-
-func TestSetInitialVersion_PersistsEarliestVersion(t *testing.T) {
-	cfg := config.DefaultTestConfig(t)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	require.Equal(t, int64(0), s.EarliestVersion(),
-		"a fresh store has no earliest-version record")
-
-	require.NoError(t, s.SetInitialVersion(100))
-	require.Equal(t, int64(99), s.EarliestVersion())
-	require.NoError(t, s.Close())
-
-	reopened, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = reopened.LoadLatest()
-	require.NoError(t, err)
-	defer reopened.Close()
-	require.Equal(t, int64(99), reopened.EarliestVersion(),
-		"the earliest-version record must survive reopen")
 }
 
 func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {
@@ -437,10 +344,10 @@ func TestSetInitialVersion_RollbackBelowSeededVersionFails(t *testing.T) {
 }
 
 // =============================================================================
-// Global Metadata Persistence After Commit + Reopen
+// Derived Global State After Commit + Reopen
 // =============================================================================
 
-func TestGlobalMetadataPersistence(t *testing.T) {
+func TestDerivedGlobalStatePersistence(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
@@ -454,13 +361,17 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
 	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 
-	globalVer, err := s.loadGlobalVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(2), globalVer)
-
-	globalHash, err := s.loadGlobalLtHash()
-	require.NoError(t, err)
-	require.Equal(t, s.committedLtHash.Checksum(), globalHash.Checksum())
+	// The store keeps no global record: its version is the minimum of the data
+	// DBs' own version records and its root is the sum of their roots. Read both
+	// off disk and check the derivation rather than a stored copy.
+	derived := lthash.New()
+	for _, ndb := range selectDataDBs(t, s, nil) {
+		meta, err := loadLocalMeta(ndb.db)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), meta.CommittedVersion, "%s version record", ndb.dir)
+		derived.MixIn(meta.LtHash)
+	}
+	require.Equal(t, s.committedLtHash.Checksum(), derived.Checksum())
 
 	expectedHash := s.committedLtHash.Checksum()
 	require.NoError(t, s.Close())
@@ -490,7 +401,7 @@ func TestGetLatestVersionFreshDirReturnsZero(t *testing.T) {
 		"never-opened flatkv dir must report version 0, not an error")
 }
 
-func TestGetLatestVersionAfterCommitsReadsWorkingMeta(t *testing.T) {
+func TestGetLatestVersionAfterCommitsReadsWorkingMisc(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
@@ -510,7 +421,7 @@ func TestGetLatestVersionAfterCommitsReadsWorkingMeta(t *testing.T) {
 	v, err := GetLatestVersion(dbDir)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), v,
-		"helper must read MetaVersionKey from working/metadata after a clean close")
+		"helper must read MetaVersionKey from working/misc after a clean close")
 }
 
 func TestGetLatestVersionMissingKeyReturnsZero(t *testing.T) {
@@ -575,53 +486,78 @@ func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
 }
 
 // =============================================================================
-// GetEarliestVersion (free-standing helper)
+// Data DB alignment
 // =============================================================================
 
-func TestGetEarliestVersionFreshDirReturnsZero(t *testing.T) {
-	dir := t.TempDir()
-	v, err := GetEarliestVersion(filepath.Join(dir, flatkvRootDir))
-	require.NoError(t, err)
-	require.Equal(t, int64(0), v,
-		"never-opened flatkv dir must report an unseeded history, not an error")
-}
-
-func TestGetEarliestVersionUnseededStoreReturnsZero(t *testing.T) {
+// TestDataDBAheadOfWALIsRebuiltNotRefused pins the repair for a data DB left above the WAL tail. It
+// holds a block that is in no other DB and in no snapshot, so no consistent state includes it and
+// nothing can be served from it. The store rebuilds its working copy from the snapshot and replays
+// forward rather than refusing to open, because refusing would take a node down until an operator
+// performed by hand the very deletion the rebuild performs.
+//
+// This is the variant where the replayed blocks do not touch the ahead DB. The variant where they do —
+// which is what let replay rewrite the DB's record downward and hide the problem — is covered by
+// TestDataDBAheadOfWALTouchedByReplayIsRebuilt.
+func TestDataDBAheadOfWALIsRebuiltNotRefused(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+
+	// Push accountDB one block past the WAL tail. No replay can carry it there.
+	rewindVersionRecords(t, s, 3, accountDBDir)
 	require.NoError(t, s.Close())
 
-	v, err := GetEarliestVersion(dbDir)
+	cfg2 := config.DefaultTestConfig(t)
+	cfg2.DataDir = dbDir
+	s2, err := newCommitStoreWithWAL(t.Context(), cfg2)
 	require.NoError(t, err)
-	require.Equal(t, int64(0), v,
-		"a store that was never seeded has no earliest-history record")
+	defer s2.Close()
+
+	require.NoError(t, s2.LoadLatest(), "an unreachable version must be repaired, not fatal")
+	require.Equal(t, int64(2), s2.Version(), "the store lands at the WAL tail")
+	for _, ndb := range selectDataDBs(t, s2, nil) {
+		meta, err := loadLocalMeta(ndb.db)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), meta.CommittedVersion, "%s version record", ndb.dir)
+	}
+	require.NoError(t, VerifyLtHash(s2), "the store root must describe what the DBs actually hold")
 }
 
-// TestGetEarliestVersionMatchesLoadedStore is the property the composite store depends on: the free-standing
-// read of working/metadata answers exactly what a loaded store reports in memory. The record is written by
-// SetInitialVersion and never travels through the state WAL, so no replay is needed to see it.
-func TestGetEarliestVersionMatchesLoadedStore(t *testing.T) {
+// TestEmptyBlockAdvancesWatermarkAcrossReopen pins that a block touching no data
+// DB still moves every DB's version record. The store's watermark is the minimum
+// of those records, so a DB that skipped the block would hold the whole store
+// back and force the next open to replay from there.
+func TestEmptyBlockAdvancesWatermarkAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 	s, err := newCommitStoreWithWAL(t.Context(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
-	require.NoError(t, s.SetInitialVersion(43))
-	inMemory := s.EarliestVersion()
-	require.Equal(t, int64(42), inMemory, "the record stores initialVersion-1")
+
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	_, err = s.Commit(s.Version() + 1) // block 2: no ApplyChangeSets at all
+	require.NoError(t, err)
+	require.Equal(t, int64(2), s.Version())
+
+	for _, ndb := range selectDataDBs(t, s, nil) {
+		meta, err := loadLocalMeta(ndb.db)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), meta.CommittedVersion,
+			"%s must record the empty block, not stay behind at 1", ndb.dir)
+	}
 	require.NoError(t, s.Close())
 
-	v, err := GetEarliestVersion(dbDir)
+	v, err := GetLatestVersion(dbDir)
 	require.NoError(t, err)
-	require.Equal(t, inMemory, v)
+	require.Equal(t, int64(2), v, "the empty block must be durable, not replayed again")
 }

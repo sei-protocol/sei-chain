@@ -2,10 +2,13 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -18,28 +21,27 @@ import (
 //
 // More: https://docs.tendermint.com/master/rpc/#/Info/validators
 //
-// Under Autobahn the CometBFT StateStore is not populated, but the committee
-// is fixed at genesis (no validator-updates path under Autobahn), so any
-// retained height returns the genesis committee. Pagination + error shape
-// mirror the CometBFT path so external tools see consistent responses.
+// Under Autobahn, height and ResultValidators.BlockHeight are global block
+// numbers. The returned validator set is the committee that certified the block.
+// An omitted height before the first app block is InitialHeight (FirstBlock).
 func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestValidators) (*coretypes.ResultValidators, error) {
-	if env.gigaRouter().IsPresent() {
+	if giga, ok := env.gigaRouter().Get(); ok {
 		height, err := env.autobahnCheckAndGetHeight((*int64)(req.Height))
 		if err != nil {
 			return nil, err
 		}
-		gvals := env.GenDoc.Validators
-		vs := make([]*types.Validator, 0, len(gvals))
-		for _, gv := range gvals {
-			vs = append(vs, &types.Validator{
-				Address:     gv.Address,
-				PubKey:      gv.PubKey,
-				VotingPower: gv.Power,
-				// ProposerPriority left at 0; Autobahn uses round-robin
-				// per-block leader selection (Committee.Leader), not
-				// Tendermint's proposer-priority accumulator.
-			})
+		if height == 0 {
+			height = env.GenDoc.InitialHeight
 		}
+		gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](height)
+		if !ok {
+			return nil, fmt.Errorf("invalid height %d", height)
+		}
+		vs, resolved, err := giga.Validators(gbn)
+		if err != nil {
+			return nil, err
+		}
+		height = utils.Clamp[int64](resolved)
 		totalCount := len(vs)
 		perPage := env.validatePerPage(req.PerPage.IntPtr())
 		page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)

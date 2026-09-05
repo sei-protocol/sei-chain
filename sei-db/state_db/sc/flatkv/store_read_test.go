@@ -3,7 +3,10 @@ package flatkv
 import (
 	"bytes"
 	"encoding/binary"
+	"os"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -468,7 +471,7 @@ func TestGetAccountAfterFullDeleteCommitted(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// After full delete + commit, the account row is physically deleted from
-	// accountDB (batch.Delete in commitBatches). Both fields return not-found.
+	// accountDB (a tombstone staged into the store). Both fields return not-found.
 	_, nonceFound := s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, nonceFound, "nonce should not be found after full delete + commit")
 
@@ -508,7 +511,7 @@ func TestGetAccountAfterPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be gone after delete")
 
 	// Account row should still exist (EOA encoding)
-	raw, err := s.accountDB.Get(accountPhysKey(addr))
+	raw, err := s.rawDBFor(accountDBDir).Get(accountPhysKey(addr))
 	require.NoError(t, err)
 	expectedEOALen := vtype.VersionLength + vtype.BlockHeightLength + vtype.BalanceLength + vtype.NonceLength
 	require.Equal(t, expectedEOALen, len(raw))
@@ -644,6 +647,17 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 // RawGlobalIterator
 // =============================================================================
 
+// A closed store has no view managers to merge, and a merge of nothing is a valid empty iterator — so
+// without a refusal the caller reads "this store holds no rows" instead of "this store is closed".
+func TestRawGlobalIterator_RefusesClosedStore(t *testing.T) {
+	s := setupTestStore(t)
+	require.NoError(t, s.Close())
+
+	iter, err := s.RawGlobalIterator()
+	require.Error(t, err)
+	require.Nil(t, iter)
+}
+
 func TestRawGlobalIterator_LexOrderAcrossDBs(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
@@ -715,15 +729,17 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 		namedCS(storagePair(addr, slot, []byte{0xAA})),
 	}))
 
-	// Before commit: iterator should not see the pending write
-	iter := requireRawGlobalIterator(t, s)
-	require.False(t, iter.Valid(), "iterator should not see pending writes")
-	require.NoError(t, iter.Close())
+	// Before commit: the raw scan is refused outright rather than quietly omitting the staged row. It
+	// iterates the stores, which see staged rows, so the guarantee that an export never contains an
+	// uncommitted row is enforced as a precondition.
+	_, err := s.RawGlobalIterator()
+	require.Error(t, err, "a raw scan must be refused while a block is staged")
+	require.Contains(t, err.Error(), "staged and uncommitted")
 
 	commitAndCheck(t, s)
 
-	// After commit: iterator should see it
-	iter = requireRawGlobalIterator(t, s)
+	// After commit: the row is there.
+	iter := requireRawGlobalIterator(t, s)
 	defer iter.Close()
 	require.True(t, iter.Valid(), "iterator should see committed entry")
 	require.Equal(t, storagePhysKey(addr, slot), iter.Key())
@@ -750,14 +766,11 @@ func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
 		namedCS(storageDeletePair(addr, slotN(0x02))),
 	}))
 
-	// Iterator should still see all 3 (pending delete not visible)
-	count := iterCount(t, requireRawGlobalIterator(t, s))
-	require.Equal(t, 3, count, "pending delete should not affect iterator")
-
+	// The scan is refused while the delete is staged, so it can never report a half-applied block.
 	commitAndCheck(t, s)
 
 	// After commit: only 2 remain
-	count = iterCount(t, requireRawGlobalIterator(t, s))
+	count := iterCount(t, requireRawGlobalIterator(t, s))
 	require.Equal(t, 2, count, "committed delete should remove entry from iterator")
 }
 
@@ -900,6 +913,75 @@ func TestHasOnReadOnlyStore(t *testing.T) {
 	found = ro.Has(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0xFF), slotN(0xFF))))
 	require.False(t, found)
 	require.NoError(t, s.Close())
+}
+
+// A view owns three worker pools with running threads before the first thing that can fail, so a failed
+// construction has to close it.
+//
+// The failure is forced with directory permissions: the view cannot create its temporary directory under the
+// flatkv root. The databases live in subdirectories that already exist, so the store under test is unaffected.
+func TestReadOnlyViewDoesNotLeakWhenTempDirFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("forces the failure with directory permissions, which root ignores")
+	}
+
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+
+	dir := s.flatkvDir()
+	info, err := os.Stat(dir)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, info.Mode().Perm()) })
+
+	cycle := func() {
+		_, err := s.LoadVersionReadOnly(0)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "create readonly temp dir",
+			"the test must exercise the temp-dir failure and not some earlier error")
+	}
+
+	// Warm up once so lazily-initialized runtime state is not counted, then measure. The slack absorbs
+	// testify's Eventually prober and scheduling noise; a leak here is several goroutines per cycle and
+	// blows well past it.
+	cycle()
+	baseline := runtime.NumGoroutine()
+	for i := 0; i < 20; i++ {
+		cycle()
+	}
+	require.Eventually(t, func() bool { return runtime.NumGoroutine() <= baseline+2 },
+		2*time.Second, 10*time.Millisecond,
+		"a failed read-only view must not leak its worker pools")
+}
+
+// A read-only view shares its view-manager names with the store it was cloned from, so their metrics must be off
+// in the view or both would publish the same series.
+func TestReadOnlyViewDisablesViewManagerMetrics(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	// DefaultTestConfig disables view-manager metrics, which would make this test pass without the view
+	// disabling anything. Turn them on so the view is the only thing that can turn them back off.
+	cfg.AccountStoreConfig.MetricsEnabled = true
+	cfg.CodeStoreConfig.MetricsEnabled = true
+	cfg.StorageStoreConfig.MetricsEnabled = true
+	cfg.MiscStoreConfig.MetricsEnabled = true
+
+	s := setupTestStoreWithConfig(t, cfg)
+	defer s.Close()
+	commitAndCheck(t, s)
+
+	opened, err := s.LoadVersionReadOnly(0)
+	require.NoError(t, err)
+	defer opened.Close()
+
+	ro, ok := opened.(*CommitStore)
+	require.True(t, ok)
+	require.False(t, ro.config.AccountStoreConfig.MetricsEnabled)
+	require.False(t, ro.config.CodeStoreConfig.MetricsEnabled)
+	require.False(t, ro.config.StorageStoreConfig.MetricsEnabled)
+	require.False(t, ro.config.MiscStoreConfig.MetricsEnabled)
+
+	// The store the view was cloned from keeps reporting.
+	require.True(t, s.config.AccountStoreConfig.MetricsEnabled)
 }
 
 func TestGetAfterRollback(t *testing.T) {

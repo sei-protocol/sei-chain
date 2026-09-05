@@ -63,18 +63,32 @@ type AutobahnFileConfig struct {
 	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
 	BlockInterval      utils.Duration       `json:"block_interval"`
 	ViewTimeout        utils.Duration       `json:"view_timeout"`
-	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
+	PersistentStateDir utils.Option[string] `json:"persistent_state_dir,omitzero"`
 	DialInterval       utils.Duration       `json:"dial_interval"`
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
-	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers"`
+	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
+	// Whether validators proxy mempool EVM RPC requests to the validator
+	// handling a given shard of addresses.
+	// No-op on fullnodes: they do not have a local mempool, so EVM RPC
+	// requests are always proxied to the shard owner.
+	// Useful for loadtesting (to compare enabled/disabled performance).
+	// Defaults to true.
+	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
 	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
 	// (see AutobahnBlockDBConfig for field semantics). Ignored when
 	// PersistentStateDir is absent (memblock). Omitted from JSON when empty.
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
+}
+
+// AutobahnEVMOnlyInMemoryChainID is the chain ID of the test-only EVM executor.
+const AutobahnEVMOnlyInMemoryChainID uint64 = 713715
+
+func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
+	return c.EnableEvmProxy.Or(true)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when
@@ -125,16 +139,16 @@ func (c AutobahnBlockDBConfig) Validate() error {
 
 // LittBlockConfig returns littblock.DefaultConfig(dir) with this config's
 // optional overrides applied. Fsync is always forced on.
-func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (littblock.LittBlockConfig, error) {
+func (c AutobahnBlockDBConfig) LittBlockConfig(dir string) (littblock.BlockDBConfig, error) {
 	if err := c.Validate(); err != nil {
-		return littblock.LittBlockConfig{}, err
+		return littblock.BlockDBConfig{}, err
 	}
 	cfg, err := littblock.DefaultConfig(dir)
 	if err != nil {
-		return littblock.LittBlockConfig{}, fmt.Errorf("littblock.DefaultConfig: %w", err)
+		return littblock.BlockDBConfig{}, fmt.Errorf("littblock.DefaultConfig: %w", err)
 	}
 	if r, ok := c.Retention.Get(); ok {
-		cfg.Retention = r.Duration()
+		cfg.RetentionTime = r.Duration()
 	}
 	if p, ok := c.GCPeriod.Get(); ok {
 		cfg.Litt.GCPeriod = p.Duration()
