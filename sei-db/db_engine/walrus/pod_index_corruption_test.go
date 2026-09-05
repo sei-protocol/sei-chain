@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// indexLevel2Start reads a pod index's header off disk and reports where level two begins.
+// indexRecordsStart reads a pod index's header off disk and reports where the key records begin.
 //
 // The header is parsed from the bytes rather than by opening the index, because opening it maps the file and
 // a test that is about to rewrite that file should not be holding a mapping over it.
-func indexLevel2Start(t *testing.T, path string) int {
+func indexRecordsStart(t *testing.T, path string) int {
 	t.Helper()
 
 	contents, err := os.ReadFile(path) //nolint:gosec // the path is a test temporary directory
@@ -54,11 +54,11 @@ func buildIndexedPod(t *testing.T) (directory string, indexPath string) {
 // value the file made up would walk off the end, which faults the process instead of returning an error, so
 // the bounds checks are what stand between a corrupt file and a crash.
 func TestPodIndexRejectsCorruption(t *testing.T) {
-	// A record offset past the end of level two.
+	// A slot pointing past the end of the key records.
 	t.Run("record offset out of range", func(t *testing.T) {
 		_, indexPath := buildIndexedPod(t)
 
-		// Level one begins after the header; a slot's record offset is its last four bytes.
+		// The slots begin after the header; a slot's record offset is its last four bytes.
 		patchIndex(t, indexPath, podIndexHeaderSize+8, binary.BigEndian.AppendUint32(nil, 1<<30))
 		requireIndexRefuses(t, indexPath, "alpha")
 	})
@@ -67,8 +67,8 @@ func TestPodIndexRejectsCorruption(t *testing.T) {
 	t.Run("key length out of range", func(t *testing.T) {
 		_, indexPath := buildIndexedPod(t)
 
-		level2Start := indexLevel2Start(t, indexPath)
-		patchIndex(t, indexPath, level2Start, binary.BigEndian.AppendUint16(nil, 0xFFFF))
+		recordsStart := indexRecordsStart(t, indexPath)
+		patchIndex(t, indexPath, recordsStart, binary.BigEndian.AppendUint16(nil, 0xFFFF))
 		requireIndexRefuses(t, indexPath, "alpha")
 	})
 
@@ -76,23 +76,23 @@ func TestPodIndexRejectsCorruption(t *testing.T) {
 	t.Run("version count out of range", func(t *testing.T) {
 		_, indexPath := buildIndexedPod(t)
 
-		level2Start := indexLevel2Start(t, indexPath)
+		recordsStart := indexRecordsStart(t, indexPath)
 
 		// The version count follows the key, whose length prefix says how long it is.
 		contents, err := os.ReadFile(indexPath) //nolint:gosec // the path is a test temporary directory
 		require.NoError(t, err)
-		keyLength := int(binary.BigEndian.Uint16(contents[level2Start:]))
-		patchIndex(t, indexPath, level2Start+2+keyLength, binary.BigEndian.AppendUint32(nil, 1<<30))
+		keyLength := int(binary.BigEndian.Uint16(contents[recordsStart:]))
+		patchIndex(t, indexPath, recordsStart+2+keyLength, binary.BigEndian.AppendUint32(nil, 1<<30))
 		requireIndexRefuses(t, indexPath, "alpha")
 	})
 
-	// A header whose level two offset disagrees with its key count.
-	t.Run("header level two offset disagrees", func(t *testing.T) {
+	// A header whose records offset disagrees with its key count.
+	t.Run("header records offset disagrees", func(t *testing.T) {
 		_, indexPath := buildIndexedPod(t)
 
 		patchIndex(t, indexPath, 33, binary.BigEndian.AppendUint64(nil, 999_999))
 		_, err := openPodIndex(indexPath)
-		require.ErrorContains(t, err, "level two")
+		require.ErrorContains(t, err, "its records at")
 	})
 
 	// A file too short to hold a header at all.

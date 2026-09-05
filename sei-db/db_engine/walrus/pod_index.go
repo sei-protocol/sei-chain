@@ -5,8 +5,9 @@ package walrus
 // The index answers where a key's versions live inside the pod, in time logarithmic in the number of distinct
 // keys the pod holds.
 //
-// The handle holds metadata, never the index itself. Every pod's handle stays resident, and at petabyte scale
-// the indexes would not fit.
+// The handle maps the file rather than reading it. Mapping is not residency: a search pages in the slots it
+// probes and the one record it confirms, and the operating system evicts them under pressure, which is the
+// behaviour wanted for indexes far larger than memory.
 //
 // A PodIndex is safe for concurrent use: a written index never changes.
 type PodIndex interface {
