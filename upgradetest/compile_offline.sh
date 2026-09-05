@@ -107,7 +107,13 @@ compile_phase() {
   local source_file="$2"
   local tags="$3"
   local file="${source_file##*/}"
+  local upgrade_tag="${tags%%,*}"
+  local upgrade_spec="$REPO_ROOT/app/upgradespec/${upgrade_tag#upgrade_}.go"
   if [[ "$checkout" != "$REPO_ROOT" ]]; then
+    if [[ -f "$upgrade_spec" ]]; then
+      mkdir -p "$checkout/app/upgradespec"
+      install -m 0644 "$upgrade_spec" "$checkout/app/upgradespec/"
+    fi
     install -m 0644 \
       "$REPO_ROOT/app/upgrade_offline_harness_test.go" \
       "$checkout/app/upgrade_offline_harness_test.go"
@@ -132,6 +138,30 @@ compile_phase() {
     cd "$checkout"
     go test -tags "$tags" -run '^$' ./app
   )
+
+  local pattern
+  local -a expected
+  case "$tags" in
+    *,upgrade_source)
+      pattern='^Test.*OfflineUpgrade(Source|Reopen)$'
+      expected=(Source Reopen)
+      ;;
+    *,upgrade_target)
+      pattern='^Test.*OfflineUpgrade(Target|Snapshot)$'
+      expected=(Target Snapshot)
+      ;;
+    *) die "unknown offline phase tags $tags" ;;
+  esac
+  local tests
+  tests="$(
+    cd "$checkout"
+    go test -tags "$tags" -list "$pattern" ./app
+  )"
+  local suffix
+  for suffix in "${expected[@]}"; do
+    grep -Eq "^Test.*OfflineUpgrade${suffix}$" <<<"$tests" ||
+      die "$file compile selected no $suffix test"
+  done
 }
 
 main() {

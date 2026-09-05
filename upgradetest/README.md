@@ -21,6 +21,7 @@ at `app/upgrade_v67_offline_target_test.go`, with:
 - separately compiled source/target TODOs for the persisted Go boundary, plus a
   reopen TODO in the source file so the runner's third phase has a test to
   select;
+- a target-side source-node-home snapshot TODO for the live runner;
 - a failing TODO test so an empty scaffold cannot pass CI.
 
 Replace the TODO with ordinary Go tests in that file. Keep generic upgrade
@@ -63,22 +64,31 @@ uses the new branch's app code to reopen that database, apply the handler, and
 verify the persisted result; the reopen process compiles the source file again
 against the migrated database and records what the old binary does with it. The
 runner copies the target branch's tagged test definitions into disposable
-worktrees while each phase still links against its own branch.
+worktrees while each phase still links against its own branch. The v6.7 target
+also kills child processes from inside the migration handler and after
+`FinalizeBlock` returns but before `Commit`. It reopens and replays each height,
+then compares finalized and committed application hashes with a clean run.
+
+The source binary predates any compatibility marker introduced by the target,
+so the downgrade invariant is fail-stop rather than rejection by the storage
+opener: it may parse the migrated database, but it must not commit another
+block. The live runner also requires the old process to exit during consensus
+startup without advancing the node.
 
 To point the target phase at a real node home instead of the synthetic
-fixture, set `UPGRADE_TEST_SNAPSHOT_HOME` to that directory and run only the
-snapshot subtest (the home is written in place):
+fixture, set `UPGRADE_TEST_SNAPSHOT_HOME` to that directory and run the
+snapshot test (the home is written in place):
 
 ```bash
 UPGRADE_TEST_SNAPSHOT_HOME=/path/to/node/home \
 UPGRADE_VERSION_LIST=v6.7 \
 go test -tags=upgrade_v67,offline_upgrade,upgrade_target \
-  -run 'TestV67OfflineUpgradeTarget/snapshot' -count=1 ./app
+  -run '^TestV67OfflineUpgradeSnapshot$' -count=1 ./app
 ```
 
 The path must be a node home: a `config/genesis.json` plus the state
 commitment store, at whichever of the two layouts the node was created with.
-An unusable path fails; an unset variable skips that subtest and leaves the
+An unusable path fails; an unset variable skips that test and leaves the
 fixture path unchanged.
 The snapshot must still carry the retired modules in its version map
 (pre-v6.7 state).
@@ -87,6 +97,12 @@ The snapshot must still carry the retired modules in its version map
 create fixtures with the source binary, pass the governance upgrade height,
 halt, and restart with the target binary against the same homes. The same
 `upgrade_v67` tag selects its before- and after-upgrade assertions.
+Its source phase also preserves a stopped validator home. The runner stages a
+private temporary copy before the upgrade and executes the target snapshot test
+after the live boundary checks finish. The `after` callback pins each
+validator's SeiDB, OCC, pruning, and concurrency-worker settings to the values
+in the localnode `app.toml`, so an upgrade cannot silently change them; those
+are harness values, not fleet values.
 
 The source callback must prove its fixture worked before recording it. The
 target callback must test the transition, not merely repeat a behavior of the

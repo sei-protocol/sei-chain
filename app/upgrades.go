@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/app/upgradespec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"golang.org/x/mod/semver"
 )
 
@@ -108,20 +108,24 @@ func (app *App) RegisterUpgradeHandlers() {
 			}
 
 			if upgradeName == "v6.7" {
-				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
-				if err != nil {
-					return nil, err
-				}
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, storekeys.IBCStoreKey)
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, capabilityModuleName)
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, feegrantModuleName)
-				app.UpgradeKeeper.DeleteModuleVersion(ctx, transferModuleName)
-				return newVM, nil
+				return app.applyV67Upgrade(ctx, fromVM)
 			}
 
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 		})
 	}
+}
+
+// applyV67Upgrade runs migrations and removes module-version entries retired by v6.7.
+func (app *App) applyV67Upgrade(ctx sdk.Context, fromVM module.VersionMap) (module.VersionMap, error) {
+	newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+	if err != nil {
+		return nil, err
+	}
+	for _, moduleName := range upgradespec.V67RetiredModules() {
+		app.UpgradeKeeper.DeleteModuleVersion(ctx, moduleName)
+	}
+	return newVM, nil
 }
 
 const v606UpgradeHeight = 151573570

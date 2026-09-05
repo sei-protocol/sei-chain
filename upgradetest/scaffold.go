@@ -92,7 +92,7 @@ func Test%[4]sUpgrade(t *testing.T) {
 func Test%[4]sCrossVersion(t *testing.T) {
 	upgradetest.RunCrossVersion(t,
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
-			t.Fatal("TODO: create %[3]s state with the source binary")
+			t.Fatal("TODO: create %[3]s state and record a stopped source node home")
 		},
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
 			t.Fatal("TODO: verify %[3]s state with the target binary")
@@ -125,6 +125,11 @@ import "testing"
 func Test%[2]sOfflineUpgradeTarget(t *testing.T) {
 	_ = requireOfflineUpgradePhase(t, "target")
 	t.Fatal("TODO: reopen and verify committed %[3]s target state")
+}
+
+func Test%[2]sOfflineUpgradeSnapshot(t *testing.T) {
+	_ = requireOfflineUpgradeSnapshotHome(t)
+	t.Fatal("TODO: verify a real %[3]s source node home")
 }
 `, tag, exportedSuffix, to))
 

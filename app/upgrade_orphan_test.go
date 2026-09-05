@@ -101,6 +101,17 @@ func TestMountedStoresAreOwnedOrExplicitlyRetained(t *testing.T) {
 			"record its owning module in storeKeyOwners")
 }
 
+// TestRetainedStoresHaveNoRegisteredModule asserts that retained stores belong
+// only to modules absent from the current manager.
+func TestRetainedStoresHaveNoRegisteredModule(t *testing.T) {
+	testApp := Setup(t, false, false, false)
+
+	for storeKey, reason := range retainedStores {
+		require.NotContains(t, testApp.mm.Modules, owningModuleName(storeKey),
+			"%q is declared retained (%s), but its module is still registered", storeKey, reason)
+	}
+}
+
 // A retained store is only worth retaining if it can still be read. This fails
 // if a later change drops one from the mount list while leaving it declared
 // retained, which would make the declaration a comment rather than a fact.

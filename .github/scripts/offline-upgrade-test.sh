@@ -14,6 +14,7 @@ TO_REF="${TO_REF:-${GITHUB_SHA:-HEAD}}"
 BOUNDARY_FROM=
 BOUNDARY_TO=
 UPGRADE_TAG=
+UPGRADE_SPEC=
 
 log() {
   printf '\n[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -40,6 +41,7 @@ prepare_boundary() {
   BOUNDARY_FROM="$(go run ./upgradetest/cmd/boundary from)"
   BOUNDARY_TO="$(go run ./upgradetest/cmd/boundary to)"
   UPGRADE_TAG="$(go run ./upgradetest/cmd/boundary tag)"
+  UPGRADE_SPEC="$REPO_ROOT/app/upgradespec/${UPGRADE_TAG#upgrade_}.go"
   FROM_REF="${FROM_REF:-release/$BOUNDARY_FROM}"
 }
 
@@ -107,6 +109,12 @@ prepare_worktrees() {
 install_phase_tests() {
   local worktree="$1"
   local phase="$2"
+  if [[ -f "$UPGRADE_SPEC" ]]; then
+    mkdir -p "$worktree/app/upgradespec"
+    install -m 0644 \
+      "$UPGRADE_SPEC" \
+      "$worktree/app/upgradespec/"
+  fi
   install -m 0644 \
     "$REPO_ROOT/app/upgrade_offline_harness_test.go" \
     "$worktree/app/upgrade_offline_harness_test.go"

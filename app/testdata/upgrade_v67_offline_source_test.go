@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app/upgradespec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
@@ -30,12 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var v67OfflineSourceStores = []string{
-	"feegrant",
-	"capability",
-	"ibc",
-	"transfer",
-}
+var v67OfflineSourceStores = upgradespec.V67RetiredModules()
 
 const (
 	v67OfflineEscrowAmount  int64 = 777_777
@@ -93,7 +89,11 @@ func TestV67OfflineUpgradeReopen(t *testing.T) {
 	copyOfflineUpgradeDatabase(t, migrated, reopenRoot)
 
 	testApp := openOfflineUpgradeApp(t, reopenRoot, false)
-	defer closeOfflineUpgradeApp(t, testApp)
+	defer func() {
+		if testApp != nil {
+			closeOfflineUpgradeApp(t, testApp)
+		}
+	}()
 
 	require.Equal(t, artifact.UpgradeHeight, testApp.LastBlockHeight(),
 		"v6.6 opened the migrated database at a different height than v6.7 left it")
@@ -142,6 +142,18 @@ func TestV67OfflineUpgradeReopen(t *testing.T) {
 	require.NotNil(t, panicked, "v6.6 produced a block on the migrated database")
 	require.Contains(t, fmt.Sprint(panicked), "upgrade handler is missing for v6.7 upgrade plan",
 		"v6.6 panicked for a different reason: %v", panicked)
+	require.Equal(t, artifact.UpgradeHeight, testApp.LastBlockHeight(),
+		"v6.6 advanced the migrated database after its downgrade panic")
+	require.Equal(t, openedHash, offlineUpgradeHashString(committedOfflineUpgradeHash(t, testApp)),
+		"v6.6 changed the migrated database hash after its downgrade panic")
+
+	closeOfflineUpgradeApp(t, testApp)
+	testApp = nil
+	testApp = openOfflineUpgradeApp(t, reopenRoot, false)
+	require.Equal(t, artifact.UpgradeHeight, testApp.LastBlockHeight(),
+		"v6.6 reopened the downgrade-attempt database at a different height")
+	require.Equal(t, openedHash, offlineUpgradeHashString(committedOfflineUpgradeHash(t, testApp)),
+		"v6.6 reopened the downgrade-attempt database with a different hash")
 }
 
 // requireV67OfflineUnupgradedHalt drives a copy of the pre-upgrade database

@@ -26,7 +26,7 @@ func TestScaffoldCreatesATaggedAppUpgradeTest(t *testing.T) {
 	require.Contains(t, string(source), "TODO: define the v6.6 -> v6.7 upgrade assertions")
 	require.Contains(t, string(source), "func TestV67CrossVersion")
 	require.Contains(t, string(source), "upgradetest.RunCrossVersion")
-	require.Contains(t, string(source), "TODO: create v6.7 state with the source binary")
+	require.Contains(t, string(source), "TODO: create v6.7 state and record a stopped source node home")
 	require.Contains(t, string(source), "TODO: verify v6.7 state with the target binary")
 
 	offlineSource, err := os.ReadFile(filepath.Join(
@@ -45,6 +45,8 @@ func TestScaffoldCreatesATaggedAppUpgradeTest(t *testing.T) {
 		"//go:build upgrade_v67 && offline_upgrade && upgrade_target")
 	require.Contains(t, string(offlineTarget), "func TestV67OfflineUpgradeTarget")
 	require.Contains(t, string(offlineTarget), "TODO: reopen and verify committed v6.7 target state")
+	require.Contains(t, string(offlineTarget), "func TestV67OfflineUpgradeSnapshot")
+	require.Contains(t, string(offlineTarget), "TODO: verify a real v6.7 source node home")
 
 	file, err := upgradetest.ReadTestFile(root, "upgrade_v67_test.go")
 	require.NoError(t, err)

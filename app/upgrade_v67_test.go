@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/app/upgradespec"
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
@@ -447,7 +448,7 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	var beforeConfig map[string]v67ValidatorRuntimeConfig
 	chain.Replay(t, v67LiveHarnessConfigKey, &beforeConfig)
 	require.Equal(t, beforeConfig, v67ReadLiveHarnessConfig(t, chain),
-		"the upgrade changed a validator's SeiDB, OCC, or pruning settings; every other assertion in this run is about a configuration the binary is no longer running")
+		"the upgrade changed a validator's SeiDB, OCC, pruning, or concurrency settings; every other assertion in this run is about a configuration the binary is no longer running")
 
 	planName := requireV67RecordedPlanName(t, chain)
 	appliedOutput := chain.MustSeid(t, "",
@@ -535,7 +536,7 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	requireV67PostUpgradeTxs(t, chain)
 
 	requireV67CrashRecovery(t, chain)
-	requireV67OldBinaryOnMigratedNode(t, chain)
+	requireV67OldBinaryCannotResumeMigratedNode(t, chain)
 	requireV67UnupgradedBinaryHalts(t, chain)
 
 	chain.StopNode(t)
@@ -1167,6 +1168,7 @@ const (
 	v67RunningSeid            = "/root/go/bin/seid"
 	v67LiveHarnessConfigKey   = "validator_runtime_config"
 	v67LiveHarnessPruning     = "nothing"
+	v67LiveHarnessWorkers     = 4
 )
 
 const v67LiveHarnessPruningMessage = "the live upgrade harness pins pruning = %q so historical queries survive this run; mainnet validators prune, so this suite does not prove that a pruning validator still serves retained retired-store data after v6.7"
@@ -1174,15 +1176,17 @@ const v67LiveHarnessPruningMessage = "the live upgrade harness pins pruning = %q
 // v67ValidatorRuntimeConfig is the subset of a validator's app.toml that an
 // upgrade must not silently change.
 type v67ValidatorRuntimeConfig struct {
-	SCEnable   bool   `json:"sc_enable"`
-	SSEnable   bool   `json:"ss_enable"`
-	OCCEnabled bool   `json:"occ_enabled"`
-	Pruning    string `json:"pruning"`
+	SCEnable           bool   `json:"sc_enable"`
+	SSEnable           bool   `json:"ss_enable"`
+	OCCEnabled         bool   `json:"occ_enabled"`
+	Pruning            string `json:"pruning"`
+	ConcurrencyWorkers int    `json:"concurrency_workers"`
 }
 
 // v67ReadLiveHarnessConfig reads each validator's running app.toml and requires
-// SeiDB and OCC enabled and pruning = "nothing". Mainnet validators prune, so
-// this cluster does not prove retained retired-store data survives on a pruning node.
+// SeiDB and OCC enabled, pruning = "nothing", and the harness worker count.
+// Mainnet validators prune, so this cluster does not prove retained
+// retired-store data survives on a pruning node.
 func v67ReadLiveHarnessConfig(t *testing.T, chain *upgradetest.CrossVersion) map[string]v67ValidatorRuntimeConfig {
 	t.Helper()
 	nodes := chain.Nodes()
@@ -1212,6 +1216,9 @@ func v67ParseValidatorRuntimeConfig(t *testing.T, node, tomlText string) v67Vali
 		SSEnable:   v67TomlBool(t, node, tomlText, "ss-enable"),
 		OCCEnabled: v67TomlBool(t, node, tomlText, "occ-enabled"),
 		Pruning:    v67TomlScalar(t, node, tomlText, "pruning"),
+		ConcurrencyWorkers: v67TomlInt(
+			t, node, tomlText, "concurrency-workers",
+		),
 	}
 }
 
@@ -1225,6 +1232,9 @@ func v67RequireLiveHarnessSettings(t *testing.T, node string, cfg v67ValidatorRu
 	require.Equal(t, v67LiveHarnessPruning, cfg.Pruning,
 		"%s pruning=%q, want %q; "+v67LiveHarnessPruningMessage,
 		node, cfg.Pruning, v67LiveHarnessPruning, v67LiveHarnessPruning)
+	require.Equal(t, v67LiveHarnessWorkers, cfg.ConcurrencyWorkers,
+		"%s concurrency-workers=%d, want %d; this pins the harness app.toml, not a fleet value",
+		node, cfg.ConcurrencyWorkers, v67LiveHarnessWorkers)
 }
 
 func v67TomlBool(t *testing.T, node, tomlText, key string) bool {
@@ -1232,6 +1242,14 @@ func v67TomlBool(t *testing.T, node, tomlText, key string) bool {
 	raw := v67TomlScalar(t, node, tomlText, key)
 	value, err := strconv.ParseBool(raw)
 	require.NoError(t, err, "%s %s=%q is not a bool", node, key, raw)
+	return value
+}
+
+func v67TomlInt(t *testing.T, node, tomlText, key string) int {
+	t.Helper()
+	raw := v67TomlScalar(t, node, tomlText, key)
+	value, err := strconv.Atoi(raw)
+	require.NoError(t, err, "%s %s=%q is not an integer", node, key, raw)
 	return value
 }
 
@@ -1274,6 +1292,7 @@ func TestV67TomlScalarParser(t *testing.T) {
 	text := `
 # occ-enabled = false
 pruning = "nothing" # archive
+concurrency-workers = 4
 occ-enabled = true
 sc-enable = true
 ss-enable = true
@@ -1296,23 +1315,27 @@ sc-enable = false
 	require.True(t, ok)
 	require.Equal(t, "true", occ)
 
+	require.Equal(t, 4, v67TomlInt(t, "fixture", text, "concurrency-workers"))
+
 	_, ok = v67LastTomlScalar(text, "occ_enabled")
 	require.True(t, ok)
 
-	_, ok = v67LastTomlScalar(text, "concurrency-workers")
+	_, ok = v67LastTomlScalar(text, "missing-workers")
 	require.False(t, ok)
 
 	cfg := v67ParseValidatorRuntimeConfig(t, "fixture", `
 pruning = "nothing"
+concurrency-workers = 4
 occ-enabled = true
 sc-enable = true
 ss-enable = true
 `)
 	require.Equal(t, v67ValidatorRuntimeConfig{
-		SCEnable:   true,
-		SSEnable:   true,
-		OCCEnabled: true,
-		Pruning:    v67LiveHarnessPruning,
+		SCEnable:           true,
+		SSEnable:           true,
+		OCCEnabled:         true,
+		Pruning:            v67LiveHarnessPruning,
+		ConcurrencyWorkers: v67LiveHarnessWorkers,
 	}, cfg)
 }
 
@@ -1353,6 +1376,7 @@ func preserveV67UnupgradedHome(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.NotEqual(t, chain.Node(), v67UnupgradedHaltNode)
 	chain.StopNodeOn(t, v67UnupgradedHaltNode)
 	copyV67ValidatorHome(t, chain, v67UnupgradedHaltNode, v67UnupgradedHomeSnapshot)
+	chain.RecordSourceNodeHomeSnapshot(t, v67UnupgradedHaltNode, v67UnupgradedHomeSnapshot)
 	chain.StartNodeOn(t, v67UnupgradedHaltNode, v67RunningSeid)
 	chain.RequireBlockAgreement(t, chain.Height(t))
 	chain.Record(t, "unupgraded_home_node", v67UnupgradedHaltNode)
@@ -1360,8 +1384,7 @@ func preserveV67UnupgradedHome(t *testing.T, chain *upgradetest.CrossVersion) {
 
 // requireV67CrashRecovery asserts that a validator killed without a clean
 // shutdown after the upgrade replays its last block on restart and agrees with
-// its peers. It covers recovery near the boundary, not a crash inside the
-// upgrade block, which no reliably timed test can produce.
+// its peers. The offline target test injects the separate in-handler crash.
 func requireV67CrashRecovery(t *testing.T, chain *upgradetest.CrossVersion) {
 	t.Helper()
 	const peer = "sei-node-1"
@@ -1373,9 +1396,10 @@ func requireV67CrashRecovery(t *testing.T, chain *upgradetest.CrossVersion) {
 	chain.RequireBlockAgreement(t, chain.Height(t))
 }
 
-// requireV67OldBinaryOnMigratedNode starts the v6.6 binary against an upgraded
-// validator database, then restores the v6.7 binary.
-func requireV67OldBinaryOnMigratedNode(t *testing.T, chain *upgradetest.CrossVersion) {
+// requireV67OldBinaryCannotResumeMigratedNode requires v6.6 to fail consensus
+// startup without advancing an upgraded validator database, then requires v6.7
+// to resume that same database in place.
+func requireV67OldBinaryCannotResumeMigratedNode(t *testing.T, chain *upgradetest.CrossVersion) {
 	t.Helper()
 	const node = "sei-node-2"
 	require.NotEqual(t, chain.Node(), node)
@@ -1385,6 +1409,7 @@ func requireV67OldBinaryOnMigratedNode(t *testing.T, chain *upgradetest.CrossVer
 	require.GreaterOrEqual(t, stoppedAt, upgradeHeight)
 
 	chain.StopNodeOn(t, node)
+	before := chain.ExportOn(t, node, v67RunningSeid, "v67-before-v66-restart")
 	copyV67ValidatorHome(t, chain, node, v67OldBinaryHomeSnapshot)
 
 	restored := false
@@ -1411,7 +1436,21 @@ func requireV67OldBinaryOnMigratedNode(t *testing.T, chain *upgradetest.CrossVer
 			strings.Contains(observed.Log, "upgrade handler is missing for v6.7 upgrade plan"),
 		"v6.6 seid neither failed the handshake nor panicked on the missing v6.7 handler:\n%s", observed.Log)
 
-	restore()
+	after := chain.ExportOn(t, node, v67RunningSeid, "v67-after-v66-restart")
+	require.Equal(t, before.InitialHeight, after.InitialHeight,
+		"v6.6 changed the migrated database height")
+	require.Equal(t, before.AppState, after.AppState,
+		"v6.6 changed exported state while failing to resume the migrated database")
+
+	// The v6.7 binary must recover this home in place; restoring the copy
+	// would hide a database the old binary left unusable.
+	catchUpHeight := chain.Height(t)
+	chain.StartNodeOn(t, node, v67RunningSeid)
+	chain.WaitForHeightOn(t, node, catchUpHeight, 3*time.Minute)
+	chain.RequireBlockAgreement(t, catchUpHeight)
+	restored = true
+	result := chain.BinaryOn(node, "", "rm", "-rf", v67OldBinaryHomeSnapshot)
+	require.NoError(t, result.Err, "remove %s: %s", v67OldBinaryHomeSnapshot, result.Combined())
 }
 
 // requireV67UnupgradedBinaryHalts starts the v6.6 binary against a pre-upgrade
@@ -1602,11 +1641,5 @@ func TestV67RetainedStateIsAbsentFromExportedGenesis(t *testing.T) {
 }
 
 // retiredStoreKeys are the stores whose modules v6.7 removes while keeping the
-// store mounted. Declared here in terms of the sei-db key constants so this
-// external test package does not need the unexported names in package app.
-var retiredStoreKeys = []string{
-	keys.FeegrantStoreKey,
-	keys.CapabilityStoreKey,
-	keys.IBCStoreKey,
-	keys.IBCTransferStoreKey,
-}
+// store mounted. Each store key doubles as the module's version-map name.
+var retiredStoreKeys = upgradespec.V67RetiredModules()

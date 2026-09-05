@@ -5,12 +5,17 @@ package app
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/app/upgradespec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
@@ -20,18 +25,78 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var v67OfflineRemovedModules = []string{
-	"capability",
-	"feegrant",
-	"ibc",
-	"transfer",
-}
+var v67OfflineRemovedModules = upgradespec.V67RetiredModules()
 
 var v67OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
 
+const (
+	v67OfflineCrashRootEnv        = "UPGRADE_TEST_CRASH_ROOT"
+	v67OfflineCrashPointEnv       = "UPGRADE_TEST_CRASH_POINT"
+	v67OfflineCrashInHandler      = "handler"
+	v67OfflineCrashBeforeCommit   = "before_commit"
+	v67OfflineCrashMarkerFile     = "upgrade-crash.json"
+	v67OfflineCrashProcessTimeout = 2 * time.Minute
+)
+
+type v67OfflineCrashMarker struct {
+	Point   string `json:"point"`
+	Height  int64  `json:"height"`
+	AppHash string `json:"app_hash,omitempty"`
+}
+
 func TestV67OfflineUpgradeTarget(t *testing.T) {
-	t.Run("fixture", testV67OfflineUpgradeTargetFixture)
-	t.Run("snapshot", testV67OfflineUpgradeTargetSnapshot)
+	testV67OfflineUpgradeTargetFixture(t)
+}
+
+func TestV67OfflineUpgradeSnapshot(t *testing.T) {
+	testV67OfflineUpgradeTargetSnapshot(t)
+}
+
+// TestV67OfflineUpgradeCrashProcess terminates a child process at the selected
+// uncommitted point in the v6.7 upgrade block.
+func TestV67OfflineUpgradeCrashProcess(t *testing.T) {
+	root := os.Getenv(v67OfflineCrashRootEnv)
+	if root == "" {
+		t.Skipf("%s is only set by the crash-replay parent", v67OfflineCrashRootEnv)
+	}
+	point := os.Getenv(v67OfflineCrashPointEnv)
+
+	artifactRoot := requireOfflineUpgradePhase(t, "target")
+	artifact := readOfflineUpgradeArtifact(t, artifactRoot)
+	testApp := openOfflineUpgradeApp(t, root, false)
+	requireV67OfflinePersistedPlanHasHandler(t, testApp, artifact)
+	require.Equal(t, artifact.SourceHeight, testApp.LastBlockHeight())
+
+	switch point {
+	case v67OfflineCrashInHandler:
+		// Run the registered handler's body, then die before it can return.
+		testApp.UpgradeKeeper.SetUpgradeHandler(artifact.Upgrade,
+			func(ctx sdk.Context, _ upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+				if _, upgradeErr := testApp.applyV67Upgrade(ctx, fromVM); upgradeErr != nil {
+					return nil, upgradeErr
+				}
+				terminateV67OfflineUpgradeProcess(t, root, v67OfflineCrashMarker{
+					Point:  point,
+					Height: ctx.BlockHeight(),
+				})
+				panic("process survived Kill")
+			},
+		)
+		finalizeV67OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
+		t.Fatal("upgrade handler returned after killing its process")
+	case v67OfflineCrashBeforeCommit:
+		response := finalizeV67OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
+		require.NotEmpty(t, response.AppHash, "FinalizeBlock returned no application hash")
+		terminateV67OfflineUpgradeProcess(t, root, v67OfflineCrashMarker{
+			Point:   point,
+			Height:  artifact.UpgradeHeight,
+			AppHash: hex.EncodeToString(response.AppHash),
+		})
+		t.Fatal("process survived Kill")
+	default:
+		t.Fatalf("%s must be %q or %q, got %q",
+			v67OfflineCrashPointEnv, v67OfflineCrashInHandler, v67OfflineCrashBeforeCommit, point)
+	}
 }
 
 func testV67OfflineUpgradeTargetFixture(t *testing.T) {
@@ -44,15 +109,25 @@ func testV67OfflineUpgradeTargetFixture(t *testing.T) {
 	t.Setenv("UPGRADE_VERSION_LIST", LatestUpgrade)
 
 	cleanRoot := filepath.Join(root, offlineUpgradeMigratedDir)
-	crashRoot := filepath.Join(root, "crash")
+	handlerCrashRoot := filepath.Join(root, "crash-handler")
+	beforeCommitCrashRoot := filepath.Join(root, "crash-before-commit")
 	copyOfflineUpgradeDatabase(t, root, cleanRoot)
-	copyOfflineUpgradeDatabase(t, root, crashRoot)
+	copyOfflineUpgradeDatabase(t, root, handlerCrashRoot)
+	copyOfflineUpgradeDatabase(t, root, beforeCommitCrashRoot)
 
 	cleanHash := applyV67OfflineUpgradeClean(t, cleanRoot, artifact)
-	crashHash := applyV67OfflineUpgradeCrashReplay(t, crashRoot, artifact)
-	require.Equalf(t, cleanHash, crashHash,
-		"crash-replay application hash diverged from the clean single-pass hash: clean=%x crash-replay=%x",
-		cleanHash, crashHash)
+	handlerCrashHash := applyV67OfflineUpgradeCrashReplay(
+		t, handlerCrashRoot, artifact, v67OfflineCrashInHandler,
+	)
+	require.Equalf(t, cleanHash, handlerCrashHash,
+		"in-handler crash replay diverged from the clean application hash: clean=%x crash-replay=%x",
+		cleanHash, handlerCrashHash)
+	beforeCommitCrashHash := applyV67OfflineUpgradeCrashReplay(
+		t, beforeCommitCrashRoot, artifact, v67OfflineCrashBeforeCommit,
+	)
+	require.Equalf(t, cleanHash, beforeCommitCrashHash,
+		"pre-commit crash replay diverged from the clean application hash: clean=%x crash-replay=%x",
+		cleanHash, beforeCommitCrashHash)
 
 	artifact.MigratedRoot = offlineUpgradeMigratedDir
 	artifact.UpgradeHash = offlineUpgradeHashString(cleanHash)
@@ -72,7 +147,7 @@ func applyV67OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	requireV67OfflineRetainedStores(t, testApp, artifact)
 	requireV67OfflineBankState(t, testApp, artifact.Retained)
 
-	finalizeV67OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
+	response := finalizeV67OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
 	commitOfflineUpgradeApp(t, testApp)
 	closeOfflineUpgradeApp(t, testApp)
 
@@ -84,23 +159,40 @@ func applyV67OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	requireV67OfflineRetainedStores(t, reopened, artifact)
 	requireV67OfflineBankState(t, reopened, artifact.Retained)
 	requireV67OfflineVoucherSend(t, reopened, artifact.Retained)
-	return committedOfflineUpgradeHash(t, reopened)
+	hash := committedOfflineUpgradeHash(t, reopened)
+	require.Equal(t, response.AppHash, hash,
+		"clean commit does not match the application hash returned by FinalizeBlock")
+	return hash
 }
 
-func applyV67OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offlineUpgradeArtifact) []byte {
+func applyV67OfflineUpgradeCrashReplay(
+	t *testing.T,
+	root string,
+	artifact offlineUpgradeArtifact,
+	point string,
+) []byte {
 	t.Helper()
-	testApp := openOfflineUpgradeApp(t, root, false)
-	requireV67OfflinePersistedPlanHasHandler(t, testApp, artifact)
-	require.Equal(t, artifact.SourceHeight, testApp.LastBlockHeight())
-	finalizeV67OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
-	closeOfflineUpgradeApp(t, testApp)
+	before := openOfflineUpgradeApp(t, root, false)
+	require.Equal(t, artifact.SourceHeight, before.LastBlockHeight())
+	sourceHash := committedOfflineUpgradeHash(t, before)
+	closeOfflineUpgradeApp(t, before)
+
+	marker := crashV67OfflineUpgradeProcess(t, root, artifact, point)
 
 	interrupted := openOfflineUpgradeApp(t, root, false)
 	require.Equal(t, artifact.SourceHeight, interrupted.LastBlockHeight(),
-		"closing without commit left the crash-replay database above the pre-upgrade height")
+		"process death before commit left the crash-replay database above the pre-upgrade height")
 	require.Equal(t, artifact.ModuleVersions, offlineUpgradeModuleVersions(t, interrupted),
-		"closing without commit mutated the pre-upgrade version map")
-	finalizeV67OfflineUpgrade(t, interrupted, artifact.UpgradeHeight)
+		"process death before commit mutated the pre-upgrade version map")
+	require.Equal(t, sourceHash, committedOfflineUpgradeHash(t, interrupted),
+		"process death before commit changed the committed application hash")
+	replayed := finalizeV67OfflineUpgrade(t, interrupted, artifact.UpgradeHeight)
+	if marker.AppHash != "" {
+		announcedHash, err := hex.DecodeString(marker.AppHash)
+		require.NoError(t, err, "crash marker contains an invalid application hash")
+		require.Equal(t, announcedHash, replayed.AppHash,
+			"replayed FinalizeBlock does not match the application hash announced before the crash")
+	}
 	commitOfflineUpgradeApp(t, interrupted)
 	closeOfflineUpgradeApp(t, interrupted)
 
@@ -109,7 +201,60 @@ func applyV67OfflineUpgradeCrashReplay(t *testing.T, root string, artifact offli
 	require.Equal(t, artifact.UpgradeHeight, reopened.LastBlockHeight())
 	requireV67OfflineAppliedName(t, reopened, artifact)
 	requireV67OfflineVersionMap(t, reopened, artifact.ModuleVersions)
-	return committedOfflineUpgradeHash(t, reopened)
+	hash := committedOfflineUpgradeHash(t, reopened)
+	require.Equal(t, replayed.AppHash, hash,
+		"replayed commit does not match the application hash returned by FinalizeBlock")
+	return hash
+}
+
+func crashV67OfflineUpgradeProcess(
+	t *testing.T,
+	root string,
+	artifact offlineUpgradeArtifact,
+	point string,
+) v67OfflineCrashMarker {
+	t.Helper()
+	markerPath := filepath.Join(root, v67OfflineCrashMarkerFile)
+	require.NoError(t, os.RemoveAll(markerPath))
+
+	ctx, cancel := context.WithTimeout(context.Background(), v67OfflineCrashProcessTimeout)
+	defer cancel()
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestV67OfflineUpgradeCrashProcess$", "-test.count=1")
+	cmd.Env = append(os.Environ(),
+		v67OfflineCrashRootEnv+"="+root,
+		v67OfflineCrashPointEnv+"="+point,
+	)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, ctx.Err(), "crash child did not terminate itself:\n%s", output)
+	require.Error(t, err, "crash child returned successfully:\n%s", output)
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr, "crash child did not terminate as a process failure:\n%s", output)
+	require.Equal(t, -1, exitErr.ExitCode(), "crash child exited normally instead of being killed:\n%s", output)
+
+	encodedMarker, readErr := os.ReadFile(markerPath)
+	require.NoError(t, readErr, "crash child exited before reaching %s:\n%s", point, output)
+	var marker v67OfflineCrashMarker
+	require.NoError(t, json.Unmarshal(encodedMarker, &marker), "decode crash marker")
+	require.Equal(t, point, marker.Point)
+	require.Equal(t, artifact.UpgradeHeight, marker.Height,
+		"crash child reached its crash point at an unexpected height")
+	return marker
+}
+
+func terminateV67OfflineUpgradeProcess(t *testing.T, root string, marker v67OfflineCrashMarker) {
+	t.Helper()
+	encoded, err := json.Marshal(marker)
+	require.NoError(t, err)
+	markerPath := filepath.Join(root, v67OfflineCrashMarkerFile)
+	tempPath := markerPath + ".tmp"
+	require.NoError(t, os.WriteFile(tempPath, encoded, 0o600))
+	require.NoError(t, os.Rename(tempPath, markerPath))
+	process, err := os.FindProcess(os.Getpid())
+	require.NoError(t, err)
+	require.NoError(t, process.Kill())
+	select {}
 }
 
 func requireV67OfflinePersistedPlanHasHandler(t *testing.T, testApp *App, artifact offlineUpgradeArtifact) {
@@ -133,9 +278,9 @@ func requireV67OfflineAppliedName(t *testing.T, testApp *App, artifact offlineUp
 		"target binary has no handler for applied plan name %q", lastName)
 }
 
-func finalizeV67OfflineUpgrade(t *testing.T, testApp *App, height int64) {
+func finalizeV67OfflineUpgrade(t *testing.T, testApp *App, height int64) *abci.ResponseFinalizeBlock {
 	t.Helper()
-	_, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+	response, err := testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Hash: []byte("offline-upgrade"),
 		Header: &tmproto.Header{
 			ChainID: offlineUpgradeChainID,
@@ -144,6 +289,7 @@ func finalizeV67OfflineUpgrade(t *testing.T, testApp *App, height int64) {
 		},
 	})
 	require.NoError(t, err)
+	return response
 }
 
 func testV67OfflineUpgradeTargetSnapshot(t *testing.T) {

@@ -24,6 +24,7 @@ const (
 	crossVersionUpgradeNameEnv   = "UPGRADE_TEST_UPGRADE_NAME"
 	crossVersionTargetHeightEnv  = "UPGRADE_TEST_TARGET_HEIGHT"
 	crossVersionReleaseBinaryEnv = "UPGRADE_TEST_RELEASE_BINARY"
+	sourceNodeHomeSnapshotKey    = "source_node_home_snapshot"
 	validatorCount               = 4
 	processStateRunning          = "running"
 	jsonNull                     = "null"
@@ -46,11 +47,17 @@ type CommandResult struct {
 
 // ExportedGenesis is the application state emitted by seid export.
 type ExportedGenesis struct {
-	AppState map[string]json.RawMessage `json:"app_state"`
+	AppState      map[string]json.RawMessage `json:"app_state"`
+	InitialHeight int64                      `json:"initial_height,string"`
 }
 
 type crossVersionArtifact struct {
 	Values map[string]json.RawMessage `json:"values"`
+}
+
+type sourceNodeHomeSnapshot struct {
+	Node string `json:"node"`
+	Path string `json:"path"`
 }
 
 // RunCrossVersion runs the callback selected by UPGRADE_TEST_PHASE. Without a
@@ -107,6 +114,38 @@ func (c *CrossVersion) Record(t *testing.T, name string, value any) {
 		t.Fatalf("encode cross-version artifact %q: %v", name, err)
 	}
 	c.values[name] = encoded
+}
+
+// RecordSourceNodeHomeSnapshot records a stopped copy of a source validator
+// home for the target branch's persisted snapshot test.
+func (c *CrossVersion) RecordSourceNodeHomeSnapshot(t *testing.T, node, path string) {
+	t.Helper()
+	knownNode := false
+	for _, candidate := range c.Nodes() {
+		if candidate == node {
+			knownNode = true
+			break
+		}
+	}
+	if !knownNode {
+		t.Fatalf("source snapshot node %q is not in the validator set", node)
+	}
+	if !filepath.IsAbs(path) {
+		t.Fatalf("source snapshot path %q is not absolute", path)
+	}
+	state, err := c.processStateOn(node)
+	if err != nil {
+		t.Fatalf("inspect source snapshot node %s: %v", node, err)
+	}
+	if state != "stopped" {
+		t.Fatalf("source snapshot node %s is %s; stop it before recording its home", node, state)
+	}
+	result := c.BinaryOn(node, "", "test", "-d", path)
+	if result.Err != nil {
+		t.Fatalf("source snapshot %s:%s is not a directory: %v\n%s",
+			node, path, result.Err, result.Combined())
+	}
+	c.Record(t, sourceNodeHomeSnapshotKey, sourceNodeHomeSnapshot{Node: node, Path: path})
 }
 
 // Replay decodes a value recorded on the other side of the upgrade.
@@ -642,9 +681,15 @@ func (c *CrossVersion) waitForSeidState(t *testing.T, node, want string, timeout
 // Export runs a binary against the stopped validator and returns its app state.
 func (c *CrossVersion) Export(t *testing.T, binary, label string) ExportedGenesis {
 	t.Helper()
+	return c.ExportOn(t, c.node, binary, label)
+}
+
+// ExportOn runs a binary against a named stopped validator and returns its app state.
+func (c *CrossVersion) ExportOn(t *testing.T, node, binary, label string) ExportedGenesis {
+	t.Helper()
 	var last CommandResult
 	for attempt := 1; attempt <= 10; attempt++ {
-		last = c.Binary("", binary, "export", "--home", "/root/.sei", "--chain-id", "sei")
+		last = c.BinaryOn(node, "", binary, "export", "--home", "/root/.sei", "--chain-id", "sei")
 		c.WriteDiagnostic(t, fmt.Sprintf("%s-%d.stdout", label, attempt), []byte(last.Stdout))
 		c.WriteDiagnostic(t, fmt.Sprintf("%s-%d.stderr", label, attempt), []byte(last.Stderr))
 		if last.Err == nil {

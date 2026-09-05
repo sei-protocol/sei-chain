@@ -10,7 +10,9 @@ on:
       - Makefile
       - app/app.go
       - app/tags
+      - app/upgrade_offline_harness_test.go
       - app/upgrade_v*_test.go
+      - app/upgradespec/**
       - app/upgrades.go
       - docker/**
       - upgradetest/**

@@ -26,8 +26,9 @@ The command creates `app/upgrade_v67_test.go`, the separately compiled
 fixture lives under `testdata` so current-branch module discovery does not try
 to resolve APIs that the target release removed; the runners copy it into the
 source worktree's `app` package before compiling it. It also has a reopen TODO
-so the runner's third phase has a test to select. Its TODOs fail in the layer
-that reaches them until real assertions replace them.
+so the runner's third phase has a test to select, and the target file has a
+source-node-home snapshot TODO. Its TODOs fail in the layer that reaches them
+until real assertions replace them.
 
 Appending `v6.7` to `app/tags` makes that pair the current boundary.
 `make upgrade-test` derives the build tag from the embedded list and runs the
@@ -56,7 +57,10 @@ the new worktree to apply the handler, then runs a reopen phase that compiles
 the source test again against the migrated database. `upgrade-test-cross-version`
 starts validators on the source binary, runs the tagged test's `before`
 callback, executes the governance halt and binary replacement, then runs its
-`after` callback against the same node homes.
+`after` callback against the same node homes. A source callback may record a
+stopped node-home copy with `RecordSourceNodeHomeSnapshot`; the runner copies it
+out of Docker before upgrading, then runs the target file's snapshot test after
+the live boundary checks finish.
 
 ## Scope
 
@@ -66,14 +70,15 @@ Keep the checks in the same direct style as the existing v6.7 file. Use
 
 `make upgrade-test` is the fast, in-process layer and uses the current checkout
 on both sides. `make upgrade-test-offline` is the persisted, three-phase Go
-layer: it reaches no consensus or node lifecycle code. Its source and target
-files may use APIs available only on their respective branch because each is
-compiled separately. The reopen phase compiles the source file against the
-migrated database the target phase left behind. The target phase also accepts
+layer: it reaches no consensus or node lifecycle code except for the target
+fixture's deliberate child-process crashes. Its source and target files may
+use APIs available only on their respective branch because each is compiled
+separately. The reopen phase compiles the source file against the migrated
+database the target phase left behind. The target phase also accepts
 `UPGRADE_TEST_SNAPSHOT_HOME` pointing at a node home: when set,
-`TestV67OfflineUpgradeTarget/snapshot` opens that database, applies the
+`TestV67OfflineUpgradeSnapshot` opens that database, applies the
 upgrade, and runs the retained-store and version-map assertions against it.
-When unset the subtest skips; a path that is not a usable node home fails.
+When unset the test skips; a path that is not a usable node home fails.
 `make upgrade-test-cross-version` owns the full node lifecycle. Keep all
 version-specific definitions in tagged app test files; `upgradetest` only
 provides selection and coordination.

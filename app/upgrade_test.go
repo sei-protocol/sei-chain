@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/upgradespec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
-	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/upgradetest"
@@ -113,10 +113,9 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	testWrapper.App.RegisterUpgradeHandlers()
 
 	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
-	versionMap[storekeys.IBCStoreKey] = 1
-	versionMap["capability"] = 1
-	versionMap["feegrant"] = 1
-	versionMap["transfer"] = 2
+	for _, moduleName := range upgradespec.V67RetiredModules() {
+		versionMap[moduleName] = 1
+	}
 	testWrapper.App.UpgradeKeeper.SetModuleVersionMap(testWrapper.Ctx, versionMap)
 
 	testWrapper.App.UpgradeKeeper.ApplyUpgrade(testWrapper.Ctx, types.Plan{
@@ -125,10 +124,9 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	})
 
 	versionMap = testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
-	require.NotContains(t, versionMap, storekeys.IBCStoreKey)
-	require.NotContains(t, versionMap, "capability")
-	require.NotContains(t, versionMap, "feegrant")
-	require.NotContains(t, versionMap, "transfer")
+	for _, moduleName := range upgradespec.V67RetiredModules() {
+		require.NotContains(t, versionMap, moduleName)
+	}
 }
 
 func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {

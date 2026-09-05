@@ -16,6 +16,10 @@ func TestCrossVersionArtifactRoundTrip(t *testing.T) {
 		values:       map[string]json.RawMessage{},
 	}
 	before.Record(t, "modules", []string{"feegrant", "ibc"})
+	before.Record(t, sourceNodeHomeSnapshotKey, sourceNodeHomeSnapshot{
+		Node: "sei-node-3",
+		Path: "/tmp/source-home",
+	})
 	before.save(t)
 
 	after := &CrossVersion{
@@ -27,12 +31,19 @@ func TestCrossVersionArtifactRoundTrip(t *testing.T) {
 	var modules []string
 	after.Replay(t, "modules", &modules)
 	require.Equal(t, []string{"feegrant", "ibc"}, modules)
+	var snapshot sourceNodeHomeSnapshot
+	after.Replay(t, sourceNodeHomeSnapshotKey, &snapshot)
+	require.Equal(t, sourceNodeHomeSnapshot{
+		Node: "sei-node-3",
+		Path: "/tmp/source-home",
+	}, snapshot)
 }
 
 func TestExtractGenesisSkipsLogsAndReadsPrettyJSON(t *testing.T) {
 	genesis, err := extractGenesis([]byte(`starting export
 {"level":"info","message":"loading"}
 {
+  "initial_height": "42",
   "app_state": {
     "bank": {"params": {}}
   }
@@ -40,6 +51,7 @@ func TestExtractGenesisSkipsLogsAndReadsPrettyJSON(t *testing.T) {
 finished
 `))
 	require.NoError(t, err)
+	require.Equal(t, int64(42), genesis.InitialHeight)
 	require.Contains(t, genesis.AppState, "bank")
 }
 

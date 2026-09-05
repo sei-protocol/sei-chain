@@ -10,7 +10,9 @@ readonly BUILD_ROOT="$RUN_ROOT/bin"
 readonly ARTIFACT_ROOT="$RUN_ROOT/artifacts"
 readonly NODE_COUNT=4
 readonly CROSS_VERSION_ARTIFACT="$ARTIFACT_ROOT/cross-version.json"
+readonly SOURCE_NODE_HOME_SNAPSHOT="$RUN_ROOT/source-node-home"
 
+DOCKER_PLATFORM="${DOCKER_PLATFORM:-linux/amd64}"
 RELEASE_BRANCH="${RELEASE_BRANCH:-}"
 MAIN_REF="${MAIN_REF:-${GITHUB_SHA:-HEAD}}"
 UPGRADE_LEAD_SECONDS="${UPGRADE_LEAD_SECONDS:-60}"
@@ -21,6 +23,7 @@ BOUNDARY_FROM=
 UPGRADE_NAME=
 UPGRADE_TAG=
 CROSS_VERSION_TESTS=
+SOURCE_SNAPSHOT_TESTS=
 
 log() {
   printf '\n[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -174,11 +177,87 @@ run_cross_version_phase() {
     tee "$ARTIFACT_ROOT/cross-version-$phase.log"
 }
 
+discover_source_snapshot_tests() {
+  local listing_stdout="$ARTIFACT_ROOT/source-snapshot-list.stdout"
+  local listing_stderr="$ARTIFACT_ROOT/source-snapshot-list.stderr"
+  if ! go test \
+    -tags="$UPGRADE_TAG,offline_upgrade,upgrade_target" \
+    -list '^Test.*OfflineUpgradeSnapshot$' \
+    ./app >"$listing_stdout" 2>"$listing_stderr"; then
+    cat "$listing_stdout" "$listing_stderr" >&2
+    die "failed to list source node-home snapshot assertions for build tag $UPGRADE_TAG"
+  fi
+  local listed
+  listed="$(awk '/^Test.*OfflineUpgradeSnapshot$/ { print }' "$listing_stdout")"
+  if [[ -z "$listed" ]]; then
+    cat "$listing_stderr" >&2
+    die "build tag $UPGRADE_TAG defines no source node-home snapshot assertion"
+  fi
+  rm -f "$listing_stdout" "$listing_stderr"
+  SOURCE_SNAPSHOT_TESTS="$(paste -sd'|' - <<<"$listed")"
+}
+
+stage_source_snapshot() {
+  if [[ -z "$SOURCE_SNAPSHOT_TESTS" ]]; then
+    return
+  fi
+  log "Staging a source validator home for $UPGRADE_TAG target assertions"
+
+  local metadata
+  metadata="$(
+    python3 - "$CROSS_VERSION_ARTIFACT" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as artifact_file:
+    artifact = json.load(artifact_file)
+
+snapshot = artifact.get("values", {}).get("source_node_home_snapshot")
+if not isinstance(snapshot, dict):
+    raise SystemExit("cross-version assertions did not record a source node-home snapshot")
+node = snapshot.get("node")
+path = snapshot.get("path")
+if not isinstance(node, str) or not node:
+    raise SystemExit("source node-home snapshot has no node")
+if not isinstance(path, str) or not path.startswith("/"):
+    raise SystemExit("source node-home snapshot path is not absolute")
+if "\t" in node or "\t" in path or "\n" in node or "\n" in path:
+    raise SystemExit("source node-home snapshot metadata contains a delimiter")
+print(f"{node}\t{path}")
+PY
+  )" || die "unable to read source node-home snapshot metadata"
+
+  local snapshot_node
+  local snapshot_path
+  IFS=$'\t' read -r snapshot_node snapshot_path <<<"$metadata"
+  rm -rf "$SOURCE_NODE_HOME_SNAPSHOT"
+  install -d -m 0700 "$SOURCE_NODE_HOME_SNAPSHOT"
+  docker cp "$snapshot_node:$snapshot_path/." "$SOURCE_NODE_HOME_SNAPSHOT"
+}
+
+run_source_snapshot_upgrade() {
+  if [[ -z "$SOURCE_SNAPSHOT_TESTS" ]]; then
+    return
+  fi
+  log "Running $UPGRADE_TAG target assertions against the staged source validator home"
+
+  UPGRADE_TEST_SNAPSHOT_HOME="$SOURCE_NODE_HOME_SNAPSHOT" \
+    UPGRADE_VERSION_LIST="$UPGRADE_NAME" \
+    go test \
+      -tags="$UPGRADE_TAG,offline_upgrade,upgrade_target" \
+      -run "^($SOURCE_SNAPSHOT_TESTS)$" \
+      -count=1 \
+      -timeout=15m \
+      ./app 2>&1 |
+    tee "$ARTIFACT_ROOT/source-snapshot.log"
+  rm -rf "$SOURCE_NODE_HOME_SNAPSHOT"
+}
+
 build_localnode_image() {
   log "Building the localnode toolchain image"
   (
     cd "$REPO_ROOT"
-    DOCKER_PLATFORM=linux/amd64 make build-docker-node
+    DOCKER_PLATFORM="$DOCKER_PLATFORM" make build-docker-node
   )
 }
 
@@ -199,7 +278,7 @@ build_binary() {
   log "Building $label seid"
   docker run --rm \
     --user="$(id -u):$(id -g)" \
-    --platform linux/amd64 \
+    --platform "$DOCKER_PLATFORM" \
     -v "$source_dir:/sei-protocol/sei-chain:Z" \
     -v "$go_mod_cache:/root/go/pkg/mod:Z" \
     -v "$go_build_cache:/root/.cache/go-build:Z" \
@@ -290,7 +369,7 @@ start_release_cluster() {
   (
     cd "$REPO_ROOT"
     DOCKER_DETACH=true \
-      DOCKER_PLATFORM=linux/amd64 \
+      DOCKER_PLATFORM="$DOCKER_PLATFORM" \
       INVARIANT_CHECK_INTERVAL=10 \
       UPGRADE_VERSION_LIST= \
       make docker-cluster-start-skipbuild
@@ -546,7 +625,6 @@ verify_post_upgrade() {
     die "validators are not synchronized after upgrade (min=$minimum max=$maximum)"
 
   run_cross_version_phase after
-  log "Upgrade $UPGRADE_NAME succeeded"
 }
 
 collect_diagnostics() {
@@ -574,9 +652,10 @@ cleanup() {
   if [[ "$CLUSTER_STARTED" == true ]]; then
     (
       cd "$REPO_ROOT"
-      DOCKER_PLATFORM=linux/amd64 make docker-cluster-stop
+      DOCKER_PLATFORM="$DOCKER_PLATFORM" make docker-cluster-stop
     )
   fi
+  rm -rf "$SOURCE_NODE_HOME_SNAPSHOT"
   git -C "$REPO_ROOT" worktree remove --force "$MAIN_WORKTREE" 2>/dev/null
   git -C "$REPO_ROOT" worktree remove --force "$RELEASE_WORKTREE" 2>/dev/null
   exit "$exit_code"
@@ -592,15 +671,19 @@ main() {
   prepare_worktrees
   prepare_upgrade_name
   discover_cross_version_tests
+  discover_source_snapshot_tests
   build_localnode_image
   build_binary "$RELEASE_WORKTREE" "$BUILD_ROOT/release-seid" release
   build_binary "$MAIN_WORKTREE" "$BUILD_ROOT/main-seid" main
   start_release_cluster
   run_cross_version_phase before
+  stage_source_snapshot
   stage_main_binary
   submit_upgrade
   upgrade_nodes_as_they_halt
   verify_post_upgrade
+  run_source_snapshot_upgrade
+  log "Upgrade $UPGRADE_NAME succeeded"
 }
 
 main "$@"
