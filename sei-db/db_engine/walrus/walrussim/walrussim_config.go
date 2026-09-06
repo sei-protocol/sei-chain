@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/walrus"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/walrus/statestub"
 )
 
 // The permitted shape of an instance name, which becomes a metric attribute value.
@@ -67,18 +70,17 @@ type Config struct {
 	// How many blocks to write before stopping. 0 runs until interrupted.
 	BlockCount uint64
 
-	// The size a pod's data section may reach before it is cut.
-	TargetPodSize uint64
+	// The engine under measurement.
+	//
+	// Its Path, Name, and StoreName are owned by the harness and filled in from the fields above, so a config
+	// file that sets them is rejected rather than silently overruled. Everything else is the engine's own
+	// default unless the file says otherwise.
+	Walrus walrus.Config
 
-	// The rate each pod's bloom filter is sized for.
-	BloomFalsePositiveRate float64
-
-	// How many blocks below the newest one stay queryable.
-	RetentionBlocks uint64
-
-	// How many pods may be built at once. A build holds its blocks in memory, so this is bounded by memory
-	// rather than by cores.
-	PodBuildConcurrency int
+	// The state stub that produces the snapshots the engine retains.
+	//
+	// Its Path, Name, and StoreName are owned by the harness on the same terms.
+	StateStub statestub.Config
 
 	// Whether the state stub produces checkpoints for the engine to retain. With this off there is no floor
 	// beneath the oldest pod, so retention never deletes anything and the write path is not slowed by a
@@ -142,10 +144,8 @@ func DefaultConfig() *Config {
 		DeleteRate:                   1_000,
 		FirstBlock:                   1,
 		BlockCount:                   0,
-		TargetPodSize:                256 * unit.MB,
-		BloomFalsePositiveRate:       0.01,
-		RetentionBlocks:              100_000,
-		PodBuildConcurrency:          2,
+		Walrus:                       *walrus.DefaultConfig("", "", ""),
+		StateStub:                    *statestub.DefaultConfig("", "", ""),
 		EnableSnapshots:              true,
 		SnapshotIntervalSeconds:      60,
 		MaxBlocksPerSecond:           0,
@@ -206,17 +206,54 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("snapshots were requested but the snapshot interval is %v seconds",
 			c.SnapshotIntervalSeconds)
 	}
-	if c.TargetPodSize == 0 {
-		return fmt.Errorf("target pod size must be greater than 0")
+	if err := requireHarnessOwned("Walrus", c.Walrus.Path, c.Walrus.Name, c.Walrus.StoreName); err != nil {
+		return err
 	}
-	if c.BloomFalsePositiveRate <= 0 || c.BloomFalsePositiveRate >= 1 {
-		return fmt.Errorf("bloom false positive rate must be in (0, 1), got %v", c.BloomFalsePositiveRate)
+	if err := requireHarnessOwned(
+		"StateStub", c.StateStub.Path, c.StateStub.Name, c.StateStub.StoreName); err != nil {
+		return err
 	}
-	if c.RetentionBlocks == 0 {
-		return fmt.Errorf("retention blocks must be greater than 0")
+
+	// Validate what will actually be used, which is the embedded configuration with the harness's own fields
+	// filled in. Validating it as written would fail on the very fields the harness is about to supply.
+	if err := c.WalrusConfig().Validate(); err != nil {
+		return fmt.Errorf("invalid engine config: %w", err)
 	}
-	if c.PodBuildConcurrency <= 0 {
-		return fmt.Errorf("pod build concurrency must be greater than 0")
+	if err := c.StateStubConfig().Validate(); err != nil {
+		return fmt.Errorf("invalid state stub config: %w", err)
+	}
+	return nil
+}
+
+// WalrusConfig returns the engine configuration a run will use: what the file asked for, with the path and
+// names the harness owns filled in.
+func (c *Config) WalrusConfig() *walrus.Config {
+	resolved := c.Walrus
+	resolved.Path = filepath.Join(c.DataDir, engineDirName)
+	resolved.Name = c.Name
+	resolved.StoreName = c.StoreName
+	return &resolved
+}
+
+// StateStubConfig returns the state stub configuration a run will use, on the same terms.
+func (c *Config) StateStubConfig() *statestub.Config {
+	resolved := c.StateStub
+	resolved.Path = filepath.Join(c.DataDir, stubDirName)
+	resolved.Name = c.Name
+	resolved.StoreName = c.StoreName
+	return &resolved
+}
+
+// requireHarnessOwned rejects an embedded configuration that sets a field the harness derives.
+//
+// Overwriting it silently would make a config file lie about what the run did, which is worse than refusing
+// to start.
+func requireHarnessOwned(section string, path string, name string, storeName string) error {
+	for field, value := range map[string]string{"Path": path, "Name": name, "StoreName": storeName} {
+		if value != "" {
+			return fmt.Errorf("%s.%s is set by the harness; remove %q from the config",
+				section, field, value)
+		}
 	}
 	return nil
 }

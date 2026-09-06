@@ -41,10 +41,18 @@ type Config struct {
 
 	// The number of blocks below the newest appended block that stay queryable. Pods and snapshots below the
 	// window are deleted, except the newest snapshot at or below the window's floor. Must be greater than 0.
+	//
+	// This is what sets how much disk the engine holds: the window multiplied by what a block costs, which
+	// is the entry bytes plus the index and filter built over them. The default is deliberately small enough
+	// to be safe on any host, because a retention window is a decision about a machine's capacity and a
+	// default that silently implies terabytes is a trap rather than a convenience.
 	RetentionBlocks uint64
 
-	// The number of pods that may be built at the same time. Builds share no state, so this is bounded by
-	// hardware rather than correctness. Must be greater than 0.
+	// The number of pods that may be built at the same time.
+	//
+	// A build holds its whole pod in memory along with the buffers it sorts, so this is bounded by memory
+	// rather than by cores: at the default pod size two concurrent builds want roughly 15 GiB. Must be
+	// greater than 0.
 	PodBuildConcurrency int
 
 	// Whether this instance stops recording metrics. Metrics are on by default, including for a zero-valued
@@ -64,8 +72,8 @@ func DefaultConfig(path string, name string, storeName string) *Config {
 		StoreName:              storeName,
 		TargetPodSize:          4 * unit.GB,
 		BloomFalsePositiveRate: 0.01,
-		RetentionBlocks:        10_000_000,
-		PodBuildConcurrency:    4,
+		RetentionBlocks:        100_000,
+		PodBuildConcurrency:    2,
 		DisableMetrics:         false,
 	}
 }

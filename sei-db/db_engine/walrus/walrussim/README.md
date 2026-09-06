@@ -32,13 +32,24 @@ records it.
 
 ## Configs
 
-**A config file states only what it changes.** Anything it leaves out keeps the default from
-`DefaultConfig()` in `walrussim_config.go`, which is the single place defaults live. There is no
-file that restates them all — a copy of the defaults is a copy that goes stale.
+**A config file states only what it changes.** Anything it leaves out keeps its default, and there
+is no file that restates them all — a copy of the defaults is a copy that goes stale.
+
+Engine and state stub settings live under `Walrus` and `StateStub`, which embed those packages'
+own configurations rather than restating them field by field:
+
+```json
+{ "Walrus": { "TargetPodSize": 67108864 } }
+```
+
+Their defaults come straight from `walrus.DefaultConfig()` and `statestub.DefaultConfig()`, so the
+harness holds no opinion of its own about them and they cannot drift. `Path`, `Name`, and
+`StoreName` inside those sections are derived from `DataDir`, `Name`, and `StoreName` at the top
+level; setting them in a file is an error rather than a value that gets silently overruled.
 
 | File | What it changes |
 |---|---|
-| `config/basic-config.json` | A smaller keyspace, smaller pods, frequent snapshots, a tight retention window, and a block count. Finishes in a couple of minutes on a workstation and exercises collection, which the defaults take far longer to reach. |
+| `config/basic-config.json` | A smaller keyspace, **toy pods**, frequent snapshots, a tight retention window, and a block count. Finishes in a couple of minutes on a workstation and exercises collection, which the defaults take far longer to reach. It is the only config that overrides the pod size, and it does so because a 4 GiB pod is built in memory: see Sizing. |
 | `config/write-only.json` | Snapshots and readers off. The mode to measure append throughput in, with no second database in the write path. |
 | `config/deep-history.json` | Smaller pods, a ten minute snapshot interval, a retention window sized to hold a terabyte of pods, and half the reads against keys nothing writes. The deepest walk the engine can be asked for. Wants a dedicated machine — see Sizing. |
 
@@ -102,9 +113,19 @@ pebble writes rather than by the engine's appends.
 
 ## Sizing
 
-`TargetPodSize` is far below the 4 GiB the format allows because a pod is built entirely in memory
-and `PodBuildConcurrency` of them are built at once, so the memory peak is roughly
-`TargetPodSize * PodBuildConcurrency * 2`. Raise both only as far as the host allows.
+**Pods are 4 GiB by default, which is what the design calls for**: build until the next block would
+not fit. That is also the format's ceiling, since a `uint32` addresses a pod's data section.
+
+Pod size is the largest lever on read cost. A walk spans a fixed number of *blocks* — set by the
+snapshot interval — so larger pods cover more blocks each and fewer of them are probed. Going from
+128 MiB to 4 GiB cuts pods probed per query by 32x, and cuts the index's share of the pod from
+about 63% to about 34%, because a key written every block gets one record per pod rather than one
+per pod per 152 blocks.
+
+The cost is memory. A pod is built entirely in memory alongside the buffers it sorts, and
+`PodBuildConcurrency` of them are built at once, so the peak is roughly
+`TargetPodSize * PodBuildConcurrency * 2` — about 15 GiB at the defaults. That is why
+`basic-config.json` uses toy pods: it is meant for a laptop. Nothing else should override it.
 
 **The snapshot interval has to sit well inside the retention window.** The floor only advances
 onto a real snapshot at or below `head - RetentionBlocks`, so if snapshots are further apart than
@@ -125,12 +146,17 @@ WALRUS, and it is not counted against the target below.
 
 | | `basic-config` | `deep-history` |
 |---|---|---|
+| Pod size | 64 MiB (toy) | 4 GiB (the default) |
 | Snapshot interval | 10s | 10 min |
-| Retention | 5,000 blocks | 700,000 blocks |
-| Pods, indexes, filters | ~7 GB | **~1.0 TB** |
-| Pebble on top | ~1 GB | ~36 GB |
-| Time before retention collects | under a minute | **~2 hours** |
-| Deepest walk | ~14 pods | ~414 pods |
+| Retention | 5,000 blocks | 1,000,000 blocks |
+| Pods, indexes, filters | ~7 GB | **~1.2 TB over 205 pods** |
+| Pebble on top | ~1 GB | ~70 GB |
+| Time before retention collects | under a minute | **~4 hours** |
+| Deepest walk | ~14 pods | ~9 pods |
+
+`deep-history` wants a machine with a few terabytes free. How deep a walk goes is set by the
+snapshot interval rather than by retention or pod size — a walk spans the blocks between one
+snapshot and the query, so ten minutes of blocks over 4 GiB pods is about nine pods.
 
 `basic-config` is meant for a laptop: it reaches steady state in under a minute and exercises pod
 building, collection, floor advance, reference counting, deletions, and never-written reads.

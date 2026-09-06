@@ -1,9 +1,10 @@
 {
   "Name": "walrussim-deep-history",
-  "TargetPodSize": 134217728,
-  "RetentionBlocks": 700000,
   "ReadConcurrency": 8,
   "ReadsPerSecond": 4000,
   "NeverWrittenReadFraction": 0.5,
-  "SnapshotIntervalSeconds": 600
+  "SnapshotIntervalSeconds": 600,
+  "Walrus": {
+    "RetentionBlocks": 1000000
+  }
 }

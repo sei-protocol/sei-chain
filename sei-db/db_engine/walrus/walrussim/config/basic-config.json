@@ -18,8 +18,10 @@
     }
   ],
   "NeverWrittenKeyCount": 100000,
-  "TargetPodSize": 67108864,
-  "RetentionBlocks": 5000,
   "BlockCount": 20000,
-  "SnapshotIntervalSeconds": 10
+  "SnapshotIntervalSeconds": 10,
+  "Walrus": {
+    "TargetPodSize": 67108864,
+    "RetentionBlocks": 5000
+  }
 }

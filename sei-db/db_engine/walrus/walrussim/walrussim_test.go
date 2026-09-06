@@ -23,8 +23,8 @@ func testSimConfig(t *testing.T) *Config {
 	}
 	config.NeverWrittenKeyCount = 500
 	config.DeleteRate = 50
-	config.TargetPodSize = 64 * 1024
-	config.RetentionBlocks = 400
+	config.Walrus.TargetPodSize = 64 * 1024
+	config.Walrus.RetentionBlocks = 400
 	config.SnapshotIntervalSeconds = 0.2
 	config.BlockCount = 1500
 	config.MaxBlocksPerSecond = 800

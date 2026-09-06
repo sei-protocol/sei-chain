@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,14 +68,7 @@ func NewWalrusSim(runContext context.Context, config *Config) (*WalrusSim, error
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	engineDirectory := filepath.Join(config.DataDir, engineDirName)
-	engineConfig := walrus.DefaultConfig(engineDirectory, config.Name, config.StoreName)
-	engineConfig.TargetPodSize = config.TargetPodSize
-	engineConfig.BloomFalsePositiveRate = config.BloomFalsePositiveRate
-	engineConfig.RetentionBlocks = config.RetentionBlocks
-	engineConfig.PodBuildConcurrency = config.PodBuildConcurrency
-
-	engine, err := walrus.New(engineConfig)
+	engine, err := walrus.New(config.WalrusConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open the engine: %w", err)
 	}
@@ -97,9 +89,7 @@ func NewWalrusSim(runContext context.Context, config *Config) (*WalrusSim, error
 	}
 
 	if config.EnableSnapshots {
-		stubConfig := statestub.DefaultConfig(
-			filepath.Join(config.DataDir, stubDirName), config.Name, config.StoreName)
-		stub, err := statestub.New(stubConfig)
+		stub, err := statestub.New(config.StateStubConfig())
 		if err != nil {
 			_ = engine.Close()
 			return nil, fmt.Errorf("failed to open the state stub: %w", err)
