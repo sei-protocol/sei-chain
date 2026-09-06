@@ -210,9 +210,10 @@ func TestEngineAnswersFromTheSnapshotFloor(t *testing.T) {
 		require.NoError(t, engine.AppendBlock(block))
 		require.NoError(t, stub.CommitBlock(block.Number, block.ChangeSets))
 
-		// Snapshot every 25 blocks, which lands snapshots inside pods rather than on their boundaries.
+		// Snapshot every 25 blocks, which lands snapshots inside pods rather than on their boundaries. The
+		// engine is deliberately not flushed first: a snapshot retained while blocks are still accumulating
+		// is what happens in a real run, so that is what this covers.
 		if (index+1)%25 == 0 {
-			require.NoError(t, engine.Flush())
 			checkpoint, checkpointBlock, err := stub.Checkpoint()
 			require.NoError(t, err)
 			require.NoError(t, engine.RetainSnapshot(checkpointBlock, checkpoint))

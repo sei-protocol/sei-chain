@@ -203,14 +203,14 @@ func (s *WalrusSim) writeBlock(block walrus.Block) error {
 //
 // Deleting it immediately is the point of hard-linking: the engine's reference keeps the data alive, so the
 // two sides never have to agree about when a snapshot may go.
+//
+// Nothing is flushed first. A snapshot is only ever chosen as the floor for a query at or above its block,
+// and the queryable range stops at the newest written pod, so a snapshot taken while blocks are still
+// accumulating is simply not reachable until pods catch up — at which point they cover the range above it.
+// Cutting a pod to align with the snapshot would stall the write path and shrink pods for no gain.
 func (s *WalrusSim) takeSnapshot() error {
 	start := time.Now()
 
-	// A snapshot can only terminate a walk over pods that are already written, so the accumulated blocks are
-	// cut into a pod first.
-	if err := s.engine.Flush(); err != nil {
-		return fmt.Errorf("failed to flush before snapshotting: %w", err)
-	}
 	directory, blockNumber, err := s.stub.Checkpoint()
 	if err != nil {
 		return fmt.Errorf("failed to checkpoint the state stub: %w", err)
