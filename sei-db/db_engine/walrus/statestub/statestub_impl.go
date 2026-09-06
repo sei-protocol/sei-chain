@@ -11,12 +11,29 @@ import (
 	"sync/atomic"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // The subdirectory holding the live database.
 const databaseDirName = "state"
+
+// The number of levels a pebble database has.
+const pebbleLevelCount = 7
+
+// The bottom level, which is left without a bloom filter.
+const pebbleBottomLevel = 6
+
+// The target file size of level zero. Each level above doubles it.
+const pebbleBaseTargetFileSize = 2 * unit.MB
+
+// The bits per key each level's bloom filter is sized for.
+//
+// It matches what the live state DB writes, because the value is baked into the sstables and the point of
+// setting it here is that a stand-in checkpoint has the shape a reader will meet in production.
+const stateBloomBitsPerKey = 10
 
 // The subdirectory checkpoints are written into before they are handed to a caller.
 const checkpointsDirName = "checkpoints"
@@ -319,6 +336,7 @@ func openDatabase(config *Config) (*pebble.DB, error) {
 		MaxConcurrentCompactions: func() int { return config.CompactionConcurrency },
 		Logger:                   silentLogger{},
 	}
+	configureLevels(options)
 	options.EnsureDefaults()
 
 	path := filepath.Join(config.Path, databaseDirName)
@@ -327,6 +345,28 @@ func openDatabase(config *Config) (*pebble.DB, error) {
 		return nil, fmt.Errorf("failed to open the state stub database at %s: %w", path, err)
 	}
 	return database, nil
+}
+
+// configureLevels gives every level but the bottom one a bloom filter.
+//
+// A point lookup that finds no filter has to read the index and the data block of every table whose range
+// covers the key, at every level. The bottom level is left without one because pebble does not read a
+// bottom level filter for a Get, and because that is where most of the data lives.
+//
+// The target file sizes are set by hand because supplying the levels at all stops pebble from deriving
+// them. Options.Level extrapolates past the end of the slice, doubling the target size once per level, so
+// the single entry pebble defaults to reaches 128 MB at the bottom. Seven entries end that extrapolation,
+// and without setting the sizes here every level would sit at pebble's two megabyte default.
+func configureLevels(options *pebble.Options) {
+	options.Levels = make([]pebble.LevelOptions, pebbleLevelCount)
+	targetFileSize := int64(pebbleBaseTargetFileSize)
+	for level := range options.Levels {
+		options.Levels[level].TargetFileSize = targetFileSize
+		if level != pebbleBottomLevel {
+			options.Levels[level].FilterPolicy = bloom.FilterPolicy(stateBloomBitsPerKey)
+		}
+		targetFileSize *= 2
+	}
 }
 
 // silentLogger discards what the database has to say, which is startup and compaction narration that tells

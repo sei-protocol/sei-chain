@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
@@ -30,6 +31,14 @@ const snapshotsDirName = "snapshots"
 // cache sized for a busy database would cost far more memory across the ladder than it saves on the rare
 // read that reaches one.
 const snapshotCacheSize = 8 * unit.MB
+
+// The bloom filter a snapshot's tables are read with.
+//
+// A reader resolves a table's filter by looking the name recorded in the table up among the policies its
+// own options carry, so a snapshot opened without one ignores the filters its producer wrote. The bits per
+// key are not part of that match and are not required to agree with the producer: the name is
+// "rocksdb.BuiltinBloomFilter" whatever the value, and a probe takes its count from the filter block.
+var snapshotFilterPolicy = bloom.FilterPolicy(10)
 
 var _ Snapshot = (*pebbleSnapshot)(nil)
 
@@ -121,6 +130,7 @@ func (s *pebbleSnapshot) open() (*pebble.DB, error) {
 		Cache:    cache,
 		ReadOnly: true,
 		Logger:   silentPebbleLogger{},
+		Levels:   []pebble.LevelOptions{{FilterPolicy: snapshotFilterPolicy}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open snapshot %s: %w", s.path, err)
