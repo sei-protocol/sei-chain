@@ -1,13 +1,13 @@
 package walrus
 
-// PodIndex is the handle for one pod's index file.
+// PodIndex is the handle for one pod's index.
 //
-// The index answers where a key's versions live inside the pod, in time logarithmic in the number of distinct
-// keys the pod holds.
+// The index answers where a key's versions live inside the pod, in time logarithmic in the number of
+// distinct keys the pod holds.
 //
-// The handle maps the file rather than reading it. Mapping is not residency: a search pages in the slots it
-// probes and the one record it confirms, and the operating system evicts them under pressure, which is the
-// behaviour wanted for indexes far larger than memory.
+// It is two files. The searched one holds a hash per distinct key and is mapped; the other holds the keys
+// themselves and their versions, and is read only once a search has landed on an entry. Path reports the pod
+// directory both live in.
 //
 // A PodIndex is safe for concurrent use: a written index never changes.
 type PodIndex interface {
@@ -33,12 +33,12 @@ type PodIndex interface {
 		err error,
 	)
 
-	// Path returns the file the index lives in.
+	// Path returns the pod directory the index's files live in.
 	Path() string
 
-	// Size returns the bytes the file occupies.
+	// Size returns the bytes the index's files occupy together.
 	Size() int64
 
-	// Delete removes the file.
+	// Delete removes the index's files.
 	Delete() error
 }

@@ -163,8 +163,9 @@ func readWindow(file *os.File, offset int64, length int) ([]byte, error) {
 
 // podEntryRef locates one entry of a pod within its data section. It is what the index is built from.
 type podEntryRef struct {
-	// The first 8 bytes of the key, which level one of the index is ordered by.
-	prefix uint64
+	// The key's hash under this pod's salt. Its top half orders the hash index, and the whole of it seeds
+	// the bloom filter, so the key is hashed once per pod rather than once per structure.
+	hash uint64
 
 	// The key, aliasing the changeset it came from rather than a copy of it.
 	key []byte
@@ -180,7 +181,7 @@ type podEntryRef struct {
 //
 // blocks must be non-empty and in contiguous ascending order. The references come back in write order, which
 // is what makes the last write of a key within one block the one that survives sorting.
-func writePodData(path string, blocks []Block) (refs []podEntryRef, size int64, err error) {
+func writePodData(path string, blocks []Block, salt uint64) (refs []podEntryRef, size int64, err error) {
 	firstBlock := blocks[0].Number
 	lastBlock := blocks[len(blocks)-1].Number
 
@@ -201,7 +202,7 @@ func writePodData(path string, blocks []Block) (refs []podEntryRef, size int64, 
 
 	for _, block := range blocks {
 		blockDelta := block.Number - firstBlock
-		record, refs = encodeBlockRecord(record[:0], refs, block, blockDelta, cursor)
+		record, refs = encodeBlockRecord(record[:0], refs, block, blockDelta, cursor, salt)
 		if _, err := writer.Write(record); err != nil {
 			return nil, 0, fmt.Errorf("failed to write block %d to %s: %w", block.Number, path, err)
 		}
@@ -247,6 +248,7 @@ func encodeBlockRecord(
 	block Block,
 	blockDelta uint64,
 	dataOffset uint64,
+	salt uint64,
 ) ([]byte, []podEntryRef) {
 	record = binary.AppendUvarint(record, blockDelta)
 	entryCount := uint64(countPairs(block)) //nolint:gosec // G115 - bounded by the pod size cap
@@ -256,7 +258,7 @@ func encodeBlockRecord(
 		for _, pair := range changeSet.Changeset.Pairs {
 			//nolint:gosec // G115 - bounded by maxPodDataSize, checked by the caller after each block
 			refs = append(refs, podEntryRef{
-				prefix:     keyPrefix(pair.Key),
+				hash:       podKeyHash(salt, pair.Key),
 				key:        pair.Key,
 				blockDelta: uint32(blockDelta),
 				offset:     uint32(dataOffset + uint64(len(record))),

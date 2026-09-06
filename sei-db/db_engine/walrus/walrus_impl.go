@@ -375,23 +375,28 @@ func New(config *Config) (Walrus, error) {
 // A pod above a gap is deleted rather than kept, because a walk that spans the gap would fall through it and
 // answer from the floor. The blocks it held are gone and the caller resumes appending from the gap, which is
 // how replaying a log behaves anyway.
+//
+// A published pod directory is whole by construction, since the builder renames it into place in one
+// operation. One that is missing a file is damage rather than an interrupted build, so opening it fails here
+// rather than being quietly truncated away.
 func recoverPods(directory string) ([]*Pod, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", directory, err)
 	}
 
-	present := map[string]bool{}
 	infos := make([]*PodInfo, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
 		if strings.HasSuffix(name, podPartialExtension) {
-			if err := os.Remove(filepath.Join(directory, name)); err != nil {
+			if err := os.RemoveAll(filepath.Join(directory, name)); err != nil {
 				return nil, fmt.Errorf("failed to clear the interrupted build %s: %w", name, err)
 			}
 			continue
 		}
-		present[name] = true
+		if !entry.IsDir() {
+			continue
+		}
 		if info, ok := ParsePodName(name); ok {
 			infos = append(infos, info)
 		}
@@ -400,20 +405,15 @@ func recoverPods(directory string) ([]*Pod, error) {
 
 	keep := 0
 	for index, info := range infos {
-		complete := present[filepath.Base(info.IndexPath(""))] && present[filepath.Base(info.BloomPath(""))]
-		contiguous := index == 0 || info.FirstBlock == infos[index-1].LastBlock+1
-		if !complete || !contiguous {
+		if index > 0 && info.FirstBlock != infos[index-1].LastBlock+1 {
 			break
 		}
 		keep++
 	}
 
 	for _, info := range infos[keep:] {
-		paths := []string{info.DataPath(directory), info.IndexPath(directory), info.BloomPath(directory)}
-		for _, path := range paths {
-			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				return nil, fmt.Errorf("failed to truncate %s: %w", path, err)
-			}
+		if err := os.RemoveAll(info.DirPath(directory)); err != nil {
+			return nil, fmt.Errorf("failed to truncate %s: %w", info.DirPath(directory), err)
 		}
 	}
 	if keep < len(infos) {

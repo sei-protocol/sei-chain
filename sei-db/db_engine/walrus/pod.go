@@ -3,6 +3,7 @@ package walrus
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -10,22 +11,25 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// The extension of a pod's data file.
-const podExtension = ".pod"
+// The name of the data file within a pod's directory.
+const podDataFileName = "data"
 
-// The extension of a pod's index sidecar.
-const podIndexExtension = ".pod.idx"
+// The name of the hash index within a pod's directory.
+const podHashIndexFileName = "hash"
 
-// The extension of a pod's bloom filter sidecar.
-const podBloomExtension = ".pod.bloom"
+// The name of the version index within a pod's directory.
+const podVersionIndexFileName = "version"
 
-// The extension a pod's files carry while they are being written. A pod is renamed to its final name only
-// once all three files are complete, so a file left with this extension is the wreckage of an interrupted
-// build and holds nothing worth recovering.
+// The name of the bloom filter within a pod's directory.
+const podBloomFileName = "bloom"
+
+// The extension a pod's directory carries while it is being written. The directory is renamed into place
+// once every file within it is complete, so a directory left with this extension is the wreckage of an
+// interrupted build and holds nothing worth recovering.
 const podPartialExtension = ".partial"
 
-// The name shape of a pod and its sidecars: first block, last block.
-var podNameRegex = regexp.MustCompile(`^(\d+)-(\d+)\.pod$`)
+// The name shape of a pod's directory: first block, last block.
+var podNameRegex = regexp.MustCompile(`^(\d+)-(\d+)$`)
 
 // Block is one block's changes, as the write path receives them.
 type Block struct {
@@ -38,8 +42,8 @@ type Block struct {
 
 // PodInfo identifies a pod by the blocks it holds.
 //
-// A pod's block range is recoverable from its file name alone, so listing the pods a directory holds costs a
-// directory read rather than an open of every file.
+// A pod's block range is recoverable from the name of its directory alone, so listing the pods an archive
+// holds costs a directory read rather than an open of every file.
 type PodInfo struct {
 	// The lowest block number the pod holds, inclusive.
 	FirstBlock uint64
@@ -50,11 +54,14 @@ type PodInfo struct {
 
 // Pod is a written pod, ready to query.
 //
-// Its three handles hold metadata only. Every pod's handles stay resident for the life of the pod, which is
+// Its handles hold metadata only. Every pod's handles stay resident for the life of the pod, which is
 // affordable precisely because none of them pins the pod's data.
 type Pod struct {
 	// Which blocks the pod holds.
 	Info *PodInfo
+
+	// The directory holding the pod's files.
+	Directory string
 
 	// The pod's data file, read once the index has named an offset.
 	Data PodReader
@@ -66,7 +73,7 @@ type Pod struct {
 	Bloom PodBloom
 }
 
-// Delete removes the pod's three files, joining whatever they report.
+// Delete removes the pod's directory and everything in it, joining whatever the handles report.
 func (p *Pod) Delete() error {
 	var problems []error
 	if p.Data != nil {
@@ -84,13 +91,18 @@ func (p *Pod) Delete() error {
 			problems = append(problems, fmt.Errorf("failed to delete pod bloom filter: %w", err))
 		}
 	}
+	// The handles released their mappings and unlinked their own files above. What is left is the directory
+	// itself, and anything an interrupted build left inside it.
+	if err := os.RemoveAll(p.Directory); err != nil {
+		problems = append(problems, fmt.Errorf("failed to delete pod directory %s: %w", p.Directory, err))
+	}
 	if len(problems) == 0 {
 		return nil
 	}
 	return fmt.Errorf("failed to delete %s: %w", p.Info, errors.Join(problems...))
 }
 
-// Size returns the bytes the pod's three files occupy together.
+// Size returns the bytes the pod's files occupy together.
 func (p *Pod) Size() int64 {
 	return p.Data.Size() + p.Index.Size() + p.Bloom.Size()
 }
@@ -105,19 +117,29 @@ func (p *PodInfo) Overlaps(lowBlock uint64, highBlock uint64) bool {
 	return p.LastBlock > lowBlock && p.FirstBlock <= highBlock
 }
 
+// DirPath returns the path of the pod's own directory within directory.
+func (p *PodInfo) DirPath(directory string) string {
+	return filepath.Join(directory, p.baseName())
+}
+
 // DataPath returns the path of the pod's data file within directory.
 func (p *PodInfo) DataPath(directory string) string {
-	return filepath.Join(directory, p.baseName()+podExtension)
+	return filepath.Join(p.DirPath(directory), podDataFileName)
 }
 
-// IndexPath returns the path of the pod's index sidecar within directory.
-func (p *PodInfo) IndexPath(directory string) string {
-	return filepath.Join(directory, p.baseName()+podIndexExtension)
+// HashIndexPath returns the path of the pod's hash index within directory.
+func (p *PodInfo) HashIndexPath(directory string) string {
+	return filepath.Join(p.DirPath(directory), podHashIndexFileName)
 }
 
-// BloomPath returns the path of the pod's bloom filter sidecar within directory.
+// VersionIndexPath returns the path of the pod's version index within directory.
+func (p *PodInfo) VersionIndexPath(directory string) string {
+	return filepath.Join(p.DirPath(directory), podVersionIndexFileName)
+}
+
+// BloomPath returns the path of the pod's bloom filter within directory.
 func (p *PodInfo) BloomPath(directory string) string {
-	return filepath.Join(directory, p.baseName()+podBloomExtension)
+	return filepath.Join(p.DirPath(directory), podBloomFileName)
 }
 
 // String returns a human readable description of the pod.
@@ -125,14 +147,14 @@ func (p *PodInfo) String() string {
 	return fmt.Sprintf("pod [%d, %d]", p.FirstBlock, p.LastBlock)
 }
 
-// baseName returns the pod's name without any extension. All three of a pod's files share it.
+// baseName returns the name of the pod's directory.
 func (p *PodInfo) baseName() string {
 	return fmt.Sprintf("%d-%d", p.FirstBlock, p.LastBlock)
 }
 
-// ParsePodName reads a pod's block range out of its file name.
-func ParsePodName(fileName string) (pod *PodInfo, ok bool) {
-	match := podNameRegex.FindStringSubmatch(fileName)
+// ParsePodName reads a pod's block range out of the name of its directory.
+func ParsePodName(directoryName string) (pod *PodInfo, ok bool) {
+	match := podNameRegex.FindStringSubmatch(directoryName)
 	if match == nil {
 		return nil, false
 	}

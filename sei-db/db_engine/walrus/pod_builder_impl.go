@@ -3,6 +3,7 @@ package walrus
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -10,19 +11,20 @@ import (
 
 // podShape is what one written pod holds and what it cost on disk.
 type podShape struct {
-	blocks     int64
-	keys       int64
-	entries    int64
-	dataBytes  int64
-	indexBytes int64
-	bloomBytes int64
+	blocks       int64
+	keys         int64
+	entries      int64
+	dataBytes    int64
+	hashBytes    int64
+	versionBytes int64
+	bloomBytes   int64
 }
 
 var _ PodBuilder = (*podBuilder)(nil)
 
 // podBuilder writes pods into one directory.
 type podBuilder struct {
-	// Where the pod's three files are written.
+	// The archive directory each pod's own directory is created under.
 	directory string
 
 	// The rate each pod's bloom filter is sized for.
@@ -39,57 +41,71 @@ func (b *podBuilder) Build(blocks []Block) (*Pod, error) {
 	}
 	info := &PodInfo{FirstBlock: blocks[0].Number, LastBlock: blocks[len(blocks)-1].Number}
 
-	dataPath := info.DataPath(b.directory)
-	indexPath := info.IndexPath(b.directory)
-	bloomPath := info.BloomPath(b.directory)
-	partials := []string{
-		dataPath + podPartialExtension,
-		indexPath + podPartialExtension,
-		bloomPath + podPartialExtension,
-	}
-	finals := []string{dataPath, indexPath, bloomPath}
+	final := info.DirPath(b.directory)
+	partial := final + podPartialExtension
 
-	// A failure anywhere leaves only partials behind, which the next open deletes.
-	defer func() {
-		for _, partial := range partials {
-			_ = os.Remove(partial)
-		}
-	}()
+	// A failure anywhere leaves only the partial directory behind, which the next open deletes. Clearing it
+	// first is what lets a build retry after one that died between writing a file and publishing.
+	defer func() { _ = os.RemoveAll(partial) }()
+	if err := os.RemoveAll(partial); err != nil {
+		return nil, fmt.Errorf("failed to clear %s: %w", partial, err)
+	}
+	if err := os.MkdirAll(partial, 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create %s: %w", partial, err)
+	}
+
+	salt, err := newPodSalt()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build %s: %w", info, err)
+	}
 
 	start := time.Now()
-	refs, dataBytes, err := writePodData(partials[0], blocks)
+	refs, dataBytes, err := writePodData(filepath.Join(partial, podDataFileName), blocks, salt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", info, err)
 	}
-	keys, indexBytes, err := writePodIndex(partials[1], refs, info.FirstBlock, info.LastBlock)
+	keyHashes, hashBytes, versionBytes, err := writePodIndex(partial, refs, info.FirstBlock, info.LastBlock, salt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to index %s: %w", info, err)
 	}
-	bloomBytes, err := writePodBloom(partials[2], keys, b.falsePositiveRate)
+	bloomPath := filepath.Join(partial, podBloomFileName)
+	bloomBytes, err := writePodBloom(bloomPath, keyHashes, b.falsePositiveRate, salt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the bloom filter for %s: %w", info, err)
 	}
 
-	// The three files become visible together. Until the last rename lands, an interrupted build leaves only
-	// partials, so a later open cannot mistake half a pod for a whole one.
-	for index, partial := range partials {
-		if err := os.Rename(partial, finals[index]); err != nil {
-			return nil, fmt.Errorf("failed to publish %s: %w", finals[index], err)
-		}
-	}
-	if err := util.SyncPath(b.directory); err != nil {
-		return nil, fmt.Errorf("failed to sync %s after publishing %s: %w", b.directory, info, err)
+	if err := publishPodDirectory(partial, final, b.directory); err != nil {
+		return nil, fmt.Errorf("failed to publish %s: %w", info, err)
 	}
 
 	recordPodBuild(b.name, start, podShape{
-		blocks:     int64(len(blocks)),
-		keys:       int64(len(keys)),
-		entries:    int64(len(refs)),
-		dataBytes:  dataBytes,
-		indexBytes: indexBytes,
-		bloomBytes: bloomBytes,
+		blocks:       int64(len(blocks)),
+		keys:         int64(len(keyHashes)),
+		entries:      int64(len(refs)),
+		dataBytes:    dataBytes,
+		hashBytes:    hashBytes,
+		versionBytes: versionBytes,
+		bloomBytes:   bloomBytes,
 	})
 	return openPod(b.directory, info)
+}
+
+// publishPodDirectory makes a finished pod visible, in one operation.
+//
+// Renaming the directory is what makes the pod appear whole or not at all. Its own entries have to be durable
+// before that, since each file being synced says nothing about the directory listing them: a rename ahead of
+// that sync could publish a directory a crash then leaves missing files.
+func publishPodDirectory(partial string, final string, archive string) error {
+	if err := util.SyncPath(partial); err != nil {
+		return fmt.Errorf("failed to sync %s: %w", partial, err)
+	}
+	if err := os.Rename(partial, final); err != nil {
+		return fmt.Errorf("failed to rename %s to %s: %w", partial, final, err)
+	}
+	if err := util.SyncPath(archive); err != nil {
+		return fmt.Errorf("failed to sync %s: %w", archive, err)
+	}
+	return nil
 }
 
 // newPodBuilder creates a builder writing into the configured directory.
@@ -101,13 +117,14 @@ func newPodBuilder(directory string, config *Config) *podBuilder {
 	}
 }
 
-// openPod opens a pod's three files and returns it ready to query.
+// openPod opens the files in a pod's directory and returns it ready to query.
 func openPod(directory string, info *PodInfo) (*Pod, error) {
+	podDirectory := info.DirPath(directory)
 	data, err := openPodReader(info.DataPath(directory))
 	if err != nil {
 		return nil, err
 	}
-	index, err := openPodIndex(info.IndexPath(directory))
+	index, err := openPodIndex(podDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +137,14 @@ func openPod(directory string, info *PodInfo) (*Pod, error) {
 			info.DataPath(directory), data.info.FirstBlock, data.info.LastBlock,
 			info.FirstBlock, info.LastBlock)
 	}
-	return &Pod{Info: info, Data: data, Index: index, Bloom: bloom}, nil
+	if bloom.salt != index.hashes.salt {
+		return nil, fmt.Errorf("%s has a bloom filter and an index built under different salts", podDirectory)
+	}
+	if index.info.FirstBlock != info.FirstBlock || index.info.LastBlock != info.LastBlock {
+		return nil, fmt.Errorf("%s indexes blocks [%d, %d] but is named for [%d, %d]",
+			podDirectory, index.info.FirstBlock, index.info.LastBlock, info.FirstBlock, info.LastBlock)
+	}
+	return &Pod{Info: info, Directory: podDirectory, Data: data, Index: index, Bloom: bloom}, nil
 }
 
 // checkPodBlocks rejects a block slice a pod cannot be built from.

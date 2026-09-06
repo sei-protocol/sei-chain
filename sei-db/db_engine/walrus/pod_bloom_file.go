@@ -7,7 +7,6 @@ import (
 	"math"
 	"os"
 
-	"github.com/cespare/xxhash/v2"
 	"golang.org/x/sys/unix"
 )
 
@@ -16,10 +15,11 @@ var podBloomMagic = []byte("WALRSBLM")
 
 // The version of the pod bloom filter layout, validated on read so a filter written by an incompatible build
 // is refused rather than misparsed.
-const podBloomFormatVersion = byte(1)
+const podBloomFormatVersion = byte(2)
 
-// The size of a bloom filter header: 8 byte magic, 1 byte version, 8 byte bit count, 1 byte hash count.
-const podBloomHeaderSize = 18
+// The size of a bloom filter header: 8 byte magic, 1 byte version, 8 byte bit count, 1 byte hash count,
+// 8 byte salt.
+const podBloomHeaderSize = 26
 
 // The largest number of hash functions a filter may use. The count is stored in one byte, and a filter
 // needing more than this is one whose false positive rate should have been relaxed instead.
@@ -42,6 +42,7 @@ type podBloom struct {
 	size      int64
 	bitCount  uint64
 	hashCount uint8
+	salt      uint64
 
 	// The whole file as mapped, which is what Munmap has to be given back.
 	mapping []byte
@@ -52,7 +53,7 @@ type podBloom struct {
 
 // MayContain reports whether the pod may hold key.
 func (b *podBloom) MayContain(key []byte) bool {
-	first, second := bloomHashes(key)
+	first, second := bloomPositions(podKeyHash(b.salt, key))
 	for probe := uint8(0); probe < b.hashCount; probe++ {
 		position := (first + uint64(probe)*second) % b.bitCount
 		if b.bits[position/8]&(1<<(position%8)) == 0 {
@@ -131,6 +132,7 @@ func parseMappedBloom(path string, size int64, mapping []byte) (*podBloom, error
 
 	bitCount := binary.BigEndian.Uint64(mapping[9:17])
 	hashCount := mapping[17]
+	salt := binary.BigEndian.Uint64(mapping[18:26])
 	if bitCount == 0 || hashCount == 0 {
 		return nil, fmt.Errorf("pod bloom filter %s declares %d bits and %d hashes", path, bitCount, hashCount)
 	}
@@ -144,18 +146,26 @@ func parseMappedBloom(path string, size int64, mapping []byte) (*podBloom, error
 		size:      size,
 		bitCount:  bitCount,
 		hashCount: hashCount,
+		salt:      salt,
 		mapping:   mapping,
 		bits:      bits,
 	}, nil
 }
 
-// writePodBloom builds and writes a bloom filter holding keys at the configured false positive rate.
-func writePodBloom(path string, keys [][]byte, falsePositiveRate float64) (size int64, err error) {
-	bitCount, hashCount := bloomSizing(uint64(len(keys)), falsePositiveRate)
+// writePodBloom builds and writes a bloom filter over the hashes of a pod's distinct keys, at the configured
+// false positive rate.
+//
+// It takes hashes rather than keys because the index has already computed them under this pod's salt, and
+// because the filter has no use for a key beyond its hash.
+func writePodBloom(path string, keyHashes []uint64, falsePositiveRate float64, salt uint64) (
+	size int64,
+	err error,
+) {
+	bitCount, hashCount := bloomSizing(uint64(len(keyHashes)), falsePositiveRate)
 	bits := make([]byte, (bitCount+7)/8)
 
-	for _, key := range keys {
-		first, second := bloomHashes(key)
+	for _, hash := range keyHashes {
+		first, second := bloomPositions(hash)
 		for probe := uint8(0); probe < hashCount; probe++ {
 			position := (first + uint64(probe)*second) % bitCount
 			bits[position/8] |= 1 << (position % 8)
@@ -167,6 +177,7 @@ func writePodBloom(path string, keys [][]byte, falsePositiveRate float64) (size 
 	header = append(header, podBloomFormatVersion)
 	header = binary.BigEndian.AppendUint64(header, bitCount)
 	header = append(header, hashCount)
+	header = binary.BigEndian.AppendUint64(header, salt)
 
 	if err := writeFileParts(path, header, bits); err != nil {
 		return 0, err
@@ -174,17 +185,16 @@ func writePodBloom(path string, keys [][]byte, falsePositiveRate float64) (size 
 	return int64(len(header)) + int64(len(bits)), nil
 }
 
-// bloomHashes returns the two values a key's bit positions are derived from.
+// bloomPositions returns the two values a key's bit positions are derived from.
 //
-// Positions come from one hash expanded by the Kirsch-Mitzenmacher construction, so a probe hashes once
-// regardless of how many bits it has to test.
-func bloomHashes(key []byte) (first uint64, second uint64) {
-	first = xxhash.Sum64(key)
+// Positions come from one hash expanded by the Kirsch-Mitzenmacher construction, so a probe hashes the key
+// once regardless of how many bits it has to test. The hash is salted per pod, which is what stops a key
+// chosen to set the same bits as another from doing so in every pod it is written to.
+func bloomPositions(hash uint64) (first uint64, second uint64) {
 	// The step is forced odd so that walking by it visits distinct positions rather than cycling early on a
 	// bit count it shares a factor with. It is a mix of the first value rather than a second hash of the key,
 	// which keeps a probe to one pass over the key and no allocation.
-	second = mix64(first) | 1
-	return first, second
+	return hash, mix64(hash) | 1
 }
 
 // mix64 is the SplitMix64 finalizer, used to derive a well distributed second value from the first.
@@ -226,8 +236,8 @@ func bloomSizing(keyCount uint64, falsePositiveRate float64) (bitCount uint64, h
 
 // writeFileParts writes the concatenation of parts to path, durably.
 //
-// It does not rename anything into place: a pod's three files are renamed together by the builder, so that an
-// interrupted build leaves no pod a later open could mistake for a complete one.
+// It does not rename anything into place: a pod's files are written into a directory the builder renames as
+// a whole, so that an interrupted build leaves no pod a later open could mistake for a complete one.
 func writeFileParts(path string, parts ...[]byte) error {
 	temporary := path
 	file, err := os.Create(temporary) //nolint:gosec // path is derived from a validated directory

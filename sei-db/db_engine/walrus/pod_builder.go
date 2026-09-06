@@ -20,7 +20,7 @@ type PodBuilder interface {
 	// range. The returned Pod reads from disk, so nothing reachable from blocks stays pinned in memory once
 	// this returns and the caller is free to release them.
 	//
-	// The three files are written under temporary names and renamed into place together, so an interrupted
+	// The pod's files are written into a directory that is renamed into place as a whole, so an interrupted
 	// build leaves no pod that a later open could mistake for a complete one.
 	Build(blocks []Block) (*Pod, error)
 }

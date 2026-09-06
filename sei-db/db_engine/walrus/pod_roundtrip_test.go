@@ -2,6 +2,8 @@ package walrus
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -180,15 +182,46 @@ func TestPodBuildLeavesNoPartials(t *testing.T) {
 	directory := t.TempDir()
 	config := DefaultConfig(directory, "test", "evm")
 
-	_, err := newPodBuilder(directory, config).Build([]Block{testBlock(1, testPair("k", "v", false))})
+	pod, err := newPodBuilder(directory, config).Build([]Block{testBlock(1, testPair("k", "v", false))})
+	require.NoError(t, err)
+
+	// A build publishes one directory, and nothing of the one it was assembled in survives.
+	entries, err := listDirectory(directory)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1-1"}, entries, "a pod is exactly one directory: %v", entries)
+
+	files, err := listDirectory(pod.Directory)
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		podBloomFileName, podDataFileName, podHashIndexFileName, podVersionIndexFileName,
+	}, files)
+}
+
+func TestPodBuildClearsAnInterruptedBuild(t *testing.T) {
+	directory := t.TempDir()
+	config := DefaultConfig(directory, "test", "evm")
+
+	// A build that died before publishing leaves its directory behind under the partial name. The next build
+	// of the same pod has to clear it rather than write into what it left.
+	info := &PodInfo{FirstBlock: 1, LastBlock: 1}
+	partial := info.DirPath(directory) + podPartialExtension
+	require.NoError(t, os.MkdirAll(partial, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(partial, podDataFileName), []byte("wreckage"), 0o600))
+
+	pod, err := newPodBuilder(directory, config).Build([]Block{testBlock(1, testPair("k", "v", false))})
 	require.NoError(t, err)
 
 	entries, err := listDirectory(directory)
 	require.NoError(t, err)
-	require.Len(t, entries, 3, "a pod is exactly three files: %v", entries)
-	for _, entry := range entries {
-		require.NotContains(t, entry, podPartialExtension)
-	}
+	require.Equal(t, []string{"1-1"}, entries, "the interrupted build should be gone: %v", entries)
+
+	offset, _, found, _, err := pod.Index.FindNewest([]byte("k"), 0, 100)
+	require.NoError(t, err)
+	require.True(t, found, "the rebuilt pod should be queryable")
+
+	value, _, err := pod.Data.ReadEntry(offset)
+	require.NoError(t, err)
+	require.Equal(t, "v", string(value))
 }
 
 func TestPodRejectsNonContiguousBlocks(t *testing.T) {

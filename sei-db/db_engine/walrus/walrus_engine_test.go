@@ -166,9 +166,9 @@ func TestEngineTruncatesPodsAboveAGap(t *testing.T) {
 	}
 	require.Greater(t, len(infos), 2, "the test needs several pods to punch a hole in")
 
-	// Remove the index of a middle pod, which is what an interrupted build would have left.
+	// Remove a middle pod outright, leaving a hole in the run of blocks.
 	holed := infos[len(infos)/2]
-	require.NoError(t, os.Remove(holed.IndexPath(podDirectory)))
+	require.NoError(t, os.RemoveAll(holed.DirPath(podDirectory)))
 
 	reopened, err := New(testConfig(t, directory))
 	require.NoError(t, err)

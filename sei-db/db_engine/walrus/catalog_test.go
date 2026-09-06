@@ -159,16 +159,18 @@ func TestCatalogPanicsOnAPodOutOfOrder(t *testing.T) {
 
 func TestPodInfoPathsAndParsing(t *testing.T) {
 	info := &PodInfo{FirstBlock: 12, LastBlock: 34}
-	require.Equal(t, filepath.Join("d", "12-34.pod"), info.DataPath("d"))
-	require.Equal(t, filepath.Join("d", "12-34.pod.idx"), info.IndexPath("d"))
-	require.Equal(t, filepath.Join("d", "12-34.pod.bloom"), info.BloomPath("d"))
+	require.Equal(t, filepath.Join("d", "12-34"), info.DirPath("d"))
+	require.Equal(t, filepath.Join("d", "12-34", "data"), info.DataPath("d"))
+	require.Equal(t, filepath.Join("d", "12-34", "hash"), info.HashIndexPath("d"))
+	require.Equal(t, filepath.Join("d", "12-34", "version"), info.VersionIndexPath("d"))
+	require.Equal(t, filepath.Join("d", "12-34", "bloom"), info.BloomPath("d"))
 
-	parsed, ok := ParsePodName("12-34.pod")
+	parsed, ok := ParsePodName("12-34")
 	require.True(t, ok)
 	require.Equal(t, info.FirstBlock, parsed.FirstBlock)
 	require.Equal(t, info.LastBlock, parsed.LastBlock)
 
-	for _, bad := range []string{"12-34.pod.idx", "34-12.pod", "12.pod", "pod", "12-34.pod.partial"} {
+	for _, bad := range []string{"12-34.pod", "34-12", "12", "pod", "12-34.partial"} {
 		_, ok := ParsePodName(bad)
 		require.False(t, ok, "%q should not parse as a pod name", bad)
 	}

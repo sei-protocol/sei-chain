@@ -42,10 +42,13 @@ const bloomFalsePositive = "false_positive"
 // The pod file a byte count belongs to.
 const fileData = "data"
 
-// The pod index sidecar.
-const fileIndex = "index"
+// The searched half of the pod index.
+const fileHashIndex = "hash"
 
-// The pod bloom filter sidecar.
+// The dereferenced half of the pod index.
+const fileVersionIndex = "version"
+
+// The pod bloom filter.
 const fileBloom = "bloom"
 
 // The instruments this package records. walrus_pods_probed is the one the project exists to measure: it is
@@ -329,7 +332,8 @@ func recordPodBuild(name string, start time.Time, shape podShape) {
 	metrics.PodBlocks.Record(ctx, shape.blocks, attrs)
 
 	recordWrittenBytes(ctx, name, fileData, shape.dataBytes)
-	recordWrittenBytes(ctx, name, fileIndex, shape.indexBytes)
+	recordWrittenBytes(ctx, name, fileHashIndex, shape.hashBytes)
+	recordWrittenBytes(ctx, name, fileVersionIndex, shape.versionBytes)
 	recordWrittenBytes(ctx, name, fileBloom, shape.bloomBytes)
 }
 
