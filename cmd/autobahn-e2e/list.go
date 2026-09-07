@@ -28,7 +28,10 @@ type nodeReport struct {
 	PublicIP   string `json:"public_ip,omitempty"`
 }
 
-const autobahnNextExecutedBlockMetric = "tendermint_internal_autobahn_data_next_block"
+const (
+	autobahnNextExecutedBlockMetric = "tendermint_internal_autobahn_data_next_block"
+	statusRunning                   = "running"
+)
 
 func (a *application) newListCommand() *cobra.Command {
 	options := listOptions{}
@@ -117,7 +120,7 @@ func (a *application) inspectLocalCluster(ctx context.Context, state clusterStat
 		}
 		status = strings.TrimSpace(status)
 		height := "-"
-		if status == "running" {
+		if status == statusRunning {
 			metrics, metricsErr := a.runner.output(ctx, commandSpec{
 				name: "docker",
 				args: []string{"exec", node.Container, "curl", "-fsS", "http://127.0.0.1:26660/metrics"},
@@ -181,7 +184,7 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 		instanceStatus = strings.TrimSpace(instanceStatus)
 		status := instanceStatus
 		height := "-"
-		if instanceStatus == "running" && instance.PublicIP != "" {
+		if instanceStatus == statusRunning && instance.PublicIP != "" {
 			value, inspectErr := a.runner.output(ctx, sshCommandForInstance(state, instance,
 				"systemctl is-active seid.service"))
 			if inspectErr == nil {
@@ -227,7 +230,7 @@ func (a *application) inspectLegacyAWSCluster(ctx context.Context, state cluster
 	for i, node := range state.Nodes {
 		status := instanceStatus
 		height := "-"
-		if instanceStatus == "running" && instance.PublicIP != "" {
+		if instanceStatus == statusRunning && instance.PublicIP != "" {
 			value, inspectErr := a.runner.output(ctx, sshCommandForInstance(state, instance,
 				"docker inspect --format '{{.State.Status}}' "+shellQuote(node.Container)))
 			if inspectErr == nil {
