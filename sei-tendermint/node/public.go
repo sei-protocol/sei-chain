@@ -28,6 +28,8 @@ type options struct {
 	freezeHeight uint64
 }
 
+var errEVMOnlySeed = errors.New("evm-only is not supported in seed mode")
+
 // Option configures optional node behavior.
 type Option func(*options)
 
@@ -65,7 +67,7 @@ func New(
 	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
 		return nil, err
 	}
-	app, storageManager, err := prepareApplication(conf, app)
+	app, storageManager, err := prepareApplication(ctx, conf, app)
 	if err != nil {
 		return nil, err
 	}
@@ -146,24 +148,25 @@ func validateFreezeMode(mode string, freezeHeight uint64) error {
 }
 
 func validateNodeSetupConfig(conf *config.Config) error {
-	if conf.EVMOnlyInMemory && conf.Mode == config.ModeSeed {
-		return fmt.Errorf("evm-only-in-memory is not supported in seed mode")
+	if conf.EVMOnly && conf.Mode == config.ModeSeed {
+		return errEVMOnlySeed
 	}
 	if conf.MockApp && conf.AutobahnConfigFile == "" {
 		return fmt.Errorf("mock-app requires autobahn-config-file")
 	}
-	if conf.EVMOnlyInMemory && conf.AutobahnConfigFile == "" {
-		return fmt.Errorf("evm-only-in-memory requires autobahn-config-file")
+	if conf.EVMOnly && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("evm-only requires autobahn-config-file")
 	}
 	return nil
 }
 
 func prepareApplication(
+	ctx context.Context,
 	conf *config.Config,
 	app abci.Application,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
-	if conf.EVMOnlyInMemory {
+	if conf.EVMOnly {
 		fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
@@ -172,23 +175,16 @@ func prepareApplication(
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
-		blockStore, receiptStoreParent, err := openAutobahnBlockStore(conf.RootDir, fc)
+		manager, err := openEVMOnlyStorageManager(ctx, conf.RootDir, fc)
 		if err != nil {
-			return nil, noStorage, fmt.Errorf("open EVM-only block store: %w", err)
+			return nil, noStorage, fmt.Errorf("open EVM-only storage: %w", err)
 		}
-		receiptStore, err := evmonly.OpenTemporaryReceiptStore(receiptStoreParent)
-		if err != nil {
-			if closeErr := blockStore.Close(); closeErr != nil {
-				err = errors.Join(err, fmt.Errorf("close EVM-only block store: %w", closeErr))
-			}
-			return nil, noStorage, fmt.Errorf("open EVM-only receipt store: %w", err)
-		}
-		logger.Warn("Autobahn EVM-only in-memory execution enabled; state is ephemeral and unsafe for persistent networks")
-		prepared, manager := evmonlyapp.NewEVMOnlyInMemoryApplication(
-			config.AutobahnEVMOnlyInMemoryChainID,
+		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
+		prepared := evmonlyapp.NewEVMOnlyApplication(
+			config.AutobahnEVMOnlyChainID,
 			validators,
-			blockStore,
-			receiptStore,
+			manager,
+			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
 		)
 		return prepared, utils.Some(manager), nil
 	}

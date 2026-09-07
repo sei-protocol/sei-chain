@@ -1,9 +1,11 @@
 # Autobahn EVM-only E2E clusters
 
-`autobahn-e2e` manages the four-validator, in-memory EVM-only Autobahn
-topology used by the integration load test. It keeps cluster metadata under
-`~/.sei/autobahn-e2e` by default. Override that location with
-`--state-dir` or `AUTOBAHN_E2E_STATE_DIR`.
+`autobahn-e2e` manages the four-validator, disk-backed EVM-only Autobahn
+topology used by the integration load test. Each validator uses the same Giga
+storage manager as the production EVM-only path, including FlatKV state,
+littidx receipts, and littblock blocks. The command keeps cluster metadata
+under `~/.sei/autobahn-e2e` by default. Override that location with `--state-dir`
+or `AUTOBAHN_E2E_STATE_DIR`.
 
 Build the command once:
 

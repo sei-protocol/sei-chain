@@ -693,7 +693,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.NodeInfo = n.nodeInfo
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
-	if n.config.EVMOnlyInMemory {
+	if n.config.EVMOnly {
 		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv)
 		if err != nil {
 			return err

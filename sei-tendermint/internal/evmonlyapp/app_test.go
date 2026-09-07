@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -25,7 +26,7 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,
-		GasPrice: big.NewInt(evmOnlyInMemoryMinGasPrice),
+		GasPrice: big.NewInt(evmOnlyMinGasPrice),
 		Gas:      21_000,
 		To:       &recipient,
 		Value:    big.NewInt(1),
@@ -39,8 +40,7 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 
 func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	t.Helper()
-	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil, evmonly.NewMemoryReceiptStore())
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	app := newEVMOnlyTestApp(t, nil)
 	_, err := app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
 		ConsensusParams: &tmproto.ConsensusParams{
@@ -51,7 +51,15 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	return app
 }
 
-func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
+func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
+	t.Helper()
+	stateStore := evmonly.NewMemoryStore(nil)
+	storage := bootstrap.NewGigaStorageManagerWithStores(nil, stateStore, evmonly.NewMemoryReceiptStore())
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	return NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, stateStore.EncodeChangeSet)
+}
+
+func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	tx := new(ethtypes.Transaction)
@@ -80,13 +88,13 @@ func TestEVMOnlyInMemoryApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.Equal(t, uint64(1), app.EvmNonce(sender))
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
-	receipt, err := app.(*evmOnlyInMemoryApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
+	receipt, err := app.(*evmOnlyApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
 	require.Equal(t, uint64(1), receipt.BlockNumber)
 }
 
-func TestEVMOnlyInMemoryApplicationRejectsWrongChain(t *testing.T) {
+func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID+1, 0)
 
@@ -95,7 +103,7 @@ func TestEVMOnlyInMemoryApplicationRejectsWrongChain(t *testing.T) {
 	require.True(t, response.IsErr())
 }
 
-func TestEVMOnlyInMemoryApplicationProducesDeterministicRoot(t *testing.T) {
+func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	request := &abci.RequestFinalizeBlock{
 		Txs:  [][]byte{raw},
@@ -116,9 +124,8 @@ func TestEVMOnlyInMemoryApplicationProducesDeterministicRoot(t *testing.T) {
 	require.Equal(t, firstResponse.AppHash, secondResponse.AppHash)
 }
 
-func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
-	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil, evmonly.NewMemoryReceiptStore())
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
+	app := newEVMOnlyTestApp(t, nil)
 
 	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
 		Hash: crypto.Keccak256([]byte("block-1")),
@@ -131,10 +138,9 @@ func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEVMOnlyInMemoryApplicationReturnsConfiguredValidators(t *testing.T) {
+func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {
 	configured := []abci.ValidatorUpdate{{Power: 7}}
-	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured, nil, evmonly.NewMemoryReceiptStore())
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	app := newEVMOnlyTestApp(t, configured)
 	configured[0].Power = 11
 
 	first := app.GetValidators()

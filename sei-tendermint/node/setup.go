@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -419,6 +420,33 @@ func openAutobahnStorageManager(cfg *config.Config) (*bootstrap.GigaStorageManag
 		return nil, err
 	}
 	return bootstrap.NewGigaStorageManagerWithStores(blockStore, nil, nil), nil
+}
+
+// openEVMOnlyStorageManager opens the complete disk-backed Giga storage set in
+// Autobahn's persistent-state directory.
+func openEVMOnlyStorageManager(
+	ctx context.Context,
+	rootDir string,
+	fc *config.AutobahnFileConfig,
+) (*bootstrap.GigaStorageManager, error) {
+	commonCfg := &p2p.GigaRouterCommonConfig{PersistentStateDir: fc.PersistentStateDir}
+	if err := preparePersistentStateDir(rootDir, commonCfg); err != nil {
+		return nil, err
+	}
+	directory, ok := commonCfg.PersistentStateDir.Get()
+	if !ok {
+		return nil, fmt.Errorf("EVM-only execution requires Autobahn persistent_state_dir")
+	}
+	storageConfig, err := seidbconfig.DefaultGigaStorageConfig(directory)
+	if err != nil {
+		return nil, fmt.Errorf("build EVM-only storage config: %w", err)
+	}
+	blockConfig, err := fc.BlockDB.LittBlockConfig(filepath.Join(directory, "blockdb"))
+	if err != nil {
+		return nil, fmt.Errorf("build EVM-only block DB config: %w", err)
+	}
+	storageConfig.BlockDBConfig = &blockConfig
+	return bootstrap.NewGigaStorageManager(ctx, storageConfig.WithFullNodeMode())
 }
 
 // openAutobahnBlockStore opens the configured store and returns its resolved

@@ -1448,6 +1448,15 @@ func consumeSemanticMemiavlLeaf(accounts map[string]*semanticAccountDigestState,
 	switch kind {
 	case keys.EVMKeyEmpty:
 		return fmt.Errorf("semantic memiavl %s: empty EVM key", caller)
+	case keys.EVMKeyBalance:
+		if len(rawVal) != 32 {
+			return fmt.Errorf("semantic memiavl %s: balance %X has length %d, want 32", caller, rawKey, len(rawVal))
+		}
+		if accounts == nil {
+			return nil
+		}
+		account := getSemanticAccount(accounts, keyBytes)
+		copy(account.balance[:], rawVal)
 	case keys.EVMKeyNonce:
 		if len(rawVal) != 8 {
 			return fmt.Errorf("semantic memiavl %s: nonce %X has length %d, want 8", caller, rawKey, len(rawVal))

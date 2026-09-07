@@ -148,9 +148,9 @@ fast-check-tx = {{ .BaseConfig.FastCheckTx }}
 # TEST-ONLY
 mock-app = {{ .BaseConfig.MockApp }}
 
-# EVMOnlyInMemory replaces the provided ABCI application with an ephemeral EVM executor.
+# EVMOnly replaces the provided ABCI application with the disk-backed EVM-only executor.
 # TEST-ONLY
-evm-only-in-memory = {{ .BaseConfig.EVMOnlyInMemory }}
+evm-only = {{ .BaseConfig.EVMOnly }}
 
 #######################################################################
 ###                   Autobahn Configuration                        ###

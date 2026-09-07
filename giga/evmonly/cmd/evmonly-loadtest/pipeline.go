@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -106,15 +107,32 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	prebuildElapsed := time.Since(prebuildStartedAt)
 	printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
 
-	stateStore := evmonly.NewMemoryStore(state)
-	receiptStore, err := evmonly.OpenTemporaryReceiptStore("")
+	storageDirectory, err := os.MkdirTemp("", "evmonly-loadtest-storage-")
 	if err != nil {
-		return fmt.Errorf("open receipt store: %w", err)
+		return fmt.Errorf("create storage directory: %w", err)
 	}
-	storage := bootstrap.NewGigaStorageManagerWithStores(nil, stateStore, receiptStore)
+	defer func() {
+		err = errors.Join(err, os.RemoveAll(storageDirectory))
+	}()
+	storageConfig, err := seidbconfig.DefaultGigaStorageConfig(storageDirectory)
+	if err != nil {
+		return fmt.Errorf("configure storage manager: %w", err)
+	}
+	storage, err := bootstrap.NewGigaStorageManager(ctx, storageConfig.WithFullNodeMode())
+	if err != nil {
+		return fmt.Errorf("open storage manager: %w", err)
+	}
 	defer func() {
 		err = errors.Join(err, storage.Close())
 	}()
+	changeSetEncoder := evmonly.NewFlatKVChangeSetEncoder(storage.SC())
+	genesisChanges, err := changeSetEncoder(state.changeSet())
+	if err != nil {
+		return fmt.Errorf("encode generated genesis state: %w", err)
+	}
+	if err := storage.StateStore().CommitStateChanges(1, genesisChanges); err != nil {
+		return fmt.Errorf("commit generated genesis state: %w", err)
+	}
 
 	profiles, err := startProfiles(cfg)
 	if err != nil {
@@ -134,7 +152,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	group, groupCtx := errgroup.WithContext(ctx)
 	executor := evmonly.NewExecutor(
 		executorConfig(cfg),
-		evmonly.WithStorageManager(storage, stateStore.EncodeChangeSet),
+		evmonly.WithStorageManager(storage, changeSetEncoder),
 		evmonly.WithResultSink(sinks),
 	)
 	defer executor.Close()
@@ -184,7 +202,7 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 				if number > cfg.blocks {
 					return nil
 				}
-				request, err := workload.BuildBlock(groupCtx, number)
+				request, err := workload.BuildBlock(groupCtx, number+1)
 				if err != nil {
 					if groupCtx.Err() != nil {
 						return nil

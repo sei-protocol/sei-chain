@@ -88,7 +88,7 @@ const (
 	haltStableTimeout = 2 * time.Minute
 	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
 
-	evmOnlyInMemoryEnv = "AUTOBAHN_EVMONLY_IN_MEMORY"
+	evmOnlyEnv         = "AUTOBAHN_EVMONLY"
 	evmOnlyLoadTxs     = 4_000
 	evmOnlyLoadTimeout = 3 * time.Minute
 	evmOnlyMetricsURL  = "http://127.0.0.1:26660/metrics"
@@ -219,17 +219,17 @@ func assertAutobahnEnabled(t *testing.T) {
 	}
 }
 
-func evmOnlyInMemoryEnabled() bool {
-	return os.Getenv(evmOnlyInMemoryEnv) == "true"
+func evmOnlyEnabled() bool {
+	return os.Getenv(evmOnlyEnv) == "true"
 }
 
-func assertEVMOnlyInMemoryEnabled(t *testing.T) {
+func assertEVMOnlyEnabled(t *testing.T) {
 	t.Helper()
 	for _, name := range listRunningNodes(t) {
 		cmd := exec.Command("docker", "exec", name, "sh", "-c",
-			"grep -q 'Autobahn EVM-only in-memory execution enabled' build/generated/logs/seid-*.log")
+			"grep -q 'Autobahn EVM-only execution enabled with disk-backed Giga storage' build/generated/logs/seid-*.log")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("EVM-only in-memory execution not enabled on %s: %v\n%s", name, err, out)
+			t.Fatalf("EVM-only execution not enabled on %s: %v\n%s", name, err, out)
 		}
 	}
 }
@@ -371,7 +371,7 @@ func TestMain(m *testing.M) {
 		teardownCluster() // best-effort
 		os.Exit(1)
 	}
-	if !evmOnlyInMemoryEnabled() {
+	if !evmOnlyEnabled() {
 		if err := setupFullnodeNode(); err != nil {
 			fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
 			teardownCluster()
@@ -600,7 +600,7 @@ func TestAutobahn(t *testing.T) {
 	// validator sets.
 	maxFaults = (clusterSize - 1) / 3
 	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
-	if evmOnlyInMemoryEnabled() {
+	if evmOnlyEnabled() {
 		t.Run("EVMOnlyLoad", testEVMOnlyLoad)
 		return
 	}
@@ -620,7 +620,7 @@ func (evmOnlyLoadState) SetState(common.Address, common.Hash, common.Hash) {}
 
 func testEVMOnlyLoad(t *testing.T) {
 	assertAutobahnEnabled(t)
-	assertEVMOnlyInMemoryEnabled(t)
+	assertEVMOnlyEnabled(t)
 	assertEVMOnlyTendermintRPCDisabled(t)
 	if clusterSize != 4 {
 		t.Fatalf("EVM-only Docker load test requires four validators, got %d", clusterSize)
@@ -628,7 +628,7 @@ func testEVMOnlyLoad(t *testing.T) {
 
 	workload, err := scenarios.NewTransferWorkload(scenarios.Config{
 		TxsPerBlock:   evmOnlyLoadTxs,
-		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyInMemoryChainID),
+		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID),
 		GasPrice:      big.NewInt(1_000_000_000),
 		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
 		TransferValue: big.NewInt(1),

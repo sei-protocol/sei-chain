@@ -64,7 +64,10 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	}
 	defer snapshot.Close()
 
-	result, err := e.executePreparedBlock(ctx, req, gigaSnapshotStateReader{snapshot: snapshot})
+	result, err := e.executePreparedBlock(ctx, req, gigaSnapshotStateReader{
+		snapshot:     snapshot,
+		missingState: e.missingState,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -100,22 +103,35 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 }
 
 type gigaSnapshotStateReader struct {
-	snapshot gigatypes.EVMStateView
+	snapshot     gigatypes.EVMStateView
+	missingState StateReader
 }
 
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return cloneBig(r.missingState.GetBalance(addr))
+	}
 	balance := r.snapshot.GetBalance(addr)
 	return new(big.Int).SetBytes(balance[:])
 }
 
 func (r gigaSnapshotStateReader) GetNonce(addr common.Address) uint64 {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return r.missingState.GetNonce(addr)
+	}
 	return r.snapshot.GetNonce(addr)
 }
 
 func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return cloneBytes(r.missingState.GetCode(addr))
+	}
 	return cloneBytes(r.snapshot.GetCode(addr))
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return r.missingState.GetState(addr, key)
+	}
 	return r.snapshot.GetStorage(addr, key)
 }

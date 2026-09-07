@@ -28,6 +28,7 @@ type Executor struct {
 	storeMu          sync.Mutex
 	storageManager   *bootstrap.GigaStorageManager
 	changeSetEncoder NamedChangeSetEncoder
+	missingState     StateReader
 	closed           atomic.Bool
 }
 
@@ -36,6 +37,14 @@ type Option func(*Executor)
 func WithResultSink(sink ResultSink) Option {
 	return func(e *Executor) {
 		e.resultSink = sink
+	}
+}
+
+// WithMissingAccountState supplies deterministic state for accounts that are
+// absent from the persistent state snapshot.
+func WithMissingAccountState(state StateReader) Option {
+	return func(e *Executor) {
+		e.missingState = state
 	}
 }
 

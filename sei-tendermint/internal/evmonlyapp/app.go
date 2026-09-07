@@ -17,18 +17,16 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-const evmOnlyInMemoryMinGasPrice = 1_000_000_000
+const evmOnlyMinGasPrice = 1_000_000_000
 
-var evmOnlyInMemoryBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
+var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
-type evmOnlyInMemoryApplication struct {
+type evmOnlyApplication struct {
 	abci.BaseApplication
 
 	chainID          *big.Int
@@ -36,57 +34,56 @@ type evmOnlyInMemoryApplication struct {
 	storage          *bootstrap.GigaStorageManager
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
-	state            utils.Mutex[*evmOnlyInMemoryState]
+	state            utils.Mutex[*evmOnlyState]
 }
 
-type evmOnlyInMemoryState struct {
+type evmOnlyState struct {
 	executor        utils.Option[*evmonly.Executor]
 	gasLimit        uint64
 	nextHeight      int64
 	committedHeight int64
 	appHash         common.Hash
 	parentHash      common.Hash
-	pending         utils.Option[evmOnlyInMemoryPending]
+	pending         utils.Option[evmOnlyPending]
 }
 
-type evmOnlyInMemoryPending struct {
+type evmOnlyPending struct {
 	height    int64
 	appHash   common.Hash
 	blockHash common.Hash
 }
 
-var _ abci.Application = (*evmOnlyInMemoryApplication)(nil)
+var _ abci.Application = (*evmOnlyApplication)(nil)
 
-// NewEVMOnlyInMemoryApplication returns an ephemeral raw-Ethereum application
-// and its storage manager for Autobahn Docker load tests. blockStore may be nil
-// in unit tests; receiptStore must be non-nil.
-func NewEVMOnlyInMemoryApplication(
+// NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
+// load tests. State, receipts, and blocks are owned by storage.
+func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
-	blockStore *blockstore.Store,
-	receiptStore receipt.ReceiptStore,
-) (abci.Application, *bootstrap.GigaStorageManager) {
-	base := evmOnlyFundedState{}
-	stateStore := evmonly.NewMemoryStore(base)
-	storage := bootstrap.NewGigaStorageManagerWithStores(blockStore, stateStore, receiptStore)
+	storage *bootstrap.GigaStorageManager,
+	changeSetEncoder evmonly.NamedChangeSetEncoder,
+) abci.Application {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
-	return &evmOnlyInMemoryApplication{
+	return &evmOnlyApplication{
 		chainID:          new(big.Int).SetUint64(chainID),
 		chainConfig:      &chainConfig,
 		storage:          storage,
-		changeSetEncoder: stateStore.EncodeChangeSet,
+		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
-		state:            utils.NewMutex(&evmOnlyInMemoryState{}),
-	}, storage
+		state:            utils.NewMutex(&evmOnlyState{}),
+	}
 }
 
-func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	if req.InitialHeight <= 0 {
 		return nil, fmt.Errorf("EVM-only initial height must be positive: %d", req.InitialHeight)
 	}
-	gasLimit, err := evmOnlyInMemoryGasLimit(req)
+	gasLimit, err := evmOnlyGasLimit(req)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.seedInitialStateVersion(req.InitialHeight); err != nil {
 		return nil, err
 	}
 	for state := range a.state.Lock() {
@@ -95,11 +92,14 @@ func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abc
 		}
 		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
 			ChainConfig:         a.chainConfig,
-			MinGasPrice:         big.NewInt(evmOnlyInMemoryMinGasPrice),
+			MinGasPrice:         big.NewInt(evmOnlyMinGasPrice),
 			OCCWorkers:          runtime.GOMAXPROCS(0),
 			ParseWorkers:        runtime.GOMAXPROCS(0),
 			BlockResultPoolSize: 1,
-		}, evmonly.WithStorageManager(a.storage, a.changeSetEncoder)))
+		},
+			evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
+			evmonly.WithMissingAccountState(evmOnlyFundedState{}),
+		))
 		state.gasLimit = gasLimit
 		state.nextHeight = req.InitialHeight
 		state.committedHeight = req.InitialHeight - 1
@@ -108,7 +108,25 @@ func (a *evmOnlyInMemoryApplication) InitChain(req *abci.RequestInitChain) (*abc
 	panic("unreachable")
 }
 
-func evmOnlyInMemoryGasLimit(req *abci.RequestInitChain) (uint64, error) {
+func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error {
+	stateStore := a.storage.SC()
+	if stateStore == nil || initialHeight == 1 {
+		return nil
+	}
+	latest, err := stateStore.GetLatestVersion()
+	if err != nil {
+		return fmt.Errorf("read EVM-only state version: %w", err)
+	}
+	if latest != 0 {
+		return fmt.Errorf("EVM-only state is already at height %d before InitChain", latest)
+	}
+	if err := stateStore.SetInitialVersion(initialHeight); err != nil {
+		return fmt.Errorf("seed EVM-only initial state version %d: %w", initialHeight, err)
+	}
+	return nil
+}
+
+func evmOnlyGasLimit(req *abci.RequestInitChain) (uint64, error) {
 	if req.ConsensusParams == nil || req.ConsensusParams.Block == nil || req.ConsensusParams.Block.MaxGas <= 0 {
 		return 0, fmt.Errorf("EVM-only max gas must be positive")
 	}
@@ -119,10 +137,10 @@ func evmOnlyInMemoryGasLimit(req *abci.RequestInitChain) (uint64, error) {
 	return gasLimit, nil
 }
 
-func (a *evmOnlyInMemoryApplication) Info() *abci.ResponseInfo {
+func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
 	for state := range a.state.Lock() {
 		return &abci.ResponseInfo{
-			Data:             "evmonly-in-memory",
+			Data:             "evmonly",
 			LastBlockHeight:  state.committedHeight,
 			LastBlockAppHash: append([]byte(nil), state.appHash[:]...),
 		}
@@ -130,18 +148,18 @@ func (a *evmOnlyInMemoryApplication) Info() *abci.ResponseInfo {
 	panic("unreachable")
 }
 
-func (a *evmOnlyInMemoryApplication) LastBlockHeight() int64 {
+func (a *evmOnlyApplication) LastBlockHeight() int64 {
 	for state := range a.state.Lock() {
 		return state.committedHeight
 	}
 	panic("unreachable")
 }
 
-func (a *evmOnlyInMemoryApplication) GetValidators() []abci.ValidatorUpdate {
+func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
 	return slices.Clone(a.validators)
 }
 
-func (a *evmOnlyInMemoryApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	// TODO(evmonly-production): close the gap between admission and block validity
 	// before accepting arbitrary traffic; this test app assumes executable load-test transactions.
 	tx, sender, err := a.parseTx(req.Tx)
@@ -166,7 +184,7 @@ func (a *evmOnlyInMemoryApplication) CheckTx(_ context.Context, req *abci.Reques
 	}
 }
 
-func (a *evmOnlyInMemoryApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.Address, error) {
+func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.Address, error) {
 	tx := new(ethtypes.Transaction)
 	if err := tx.UnmarshalBinary(raw); err != nil {
 		return nil, common.Address{}, err
@@ -180,8 +198,8 @@ func (a *evmOnlyInMemoryApplication) parseTx(raw []byte) (*ethtypes.Transaction,
 	if tx.Type() == ethtypes.BlobTxType {
 		return nil, common.Address{}, fmt.Errorf("blob transactions are not supported")
 	}
-	if tx.GasPrice().Cmp(big.NewInt(evmOnlyInMemoryMinGasPrice)) < 0 {
-		return nil, common.Address{}, fmt.Errorf("ethereum transaction gas price is below %d", evmOnlyInMemoryMinGasPrice)
+	if tx.GasPrice().Cmp(big.NewInt(evmOnlyMinGasPrice)) < 0 {
+		return nil, common.Address{}, fmt.Errorf("ethereum transaction gas price is below %d", evmOnlyMinGasPrice)
 	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
@@ -196,20 +214,23 @@ func evmOnlyStoreAddress(address common.Address) gigatypes.Address {
 	return storeAddress
 }
 
-func (a *evmOnlyInMemoryApplication) EvmNonce(address common.Address) uint64 {
+func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
 	snapshot := a.storage.StateDB().OpenView()
 	defer snapshot.Close()
 	return snapshot.GetNonce(evmOnlyStoreAddress(address))
 }
 
-func (a *evmOnlyInMemoryApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
+func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
 	snapshot := a.storage.StateDB().OpenView()
 	defer snapshot.Close()
+	if !snapshot.AccountExists(evmOnlyStoreAddress(address)) {
+		return *uint256.MustFromBig(evmOnlyBaseBalance)
+	}
 	balance := snapshot.GetBalance(evmOnlyStoreAddress(address))
 	return *new(uint256.Int).SetBytes(balance[:])
 }
 
-func (a *evmOnlyInMemoryApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
 		return nil, fmt.Errorf("EVM-only block height must be positive: %d", height)
@@ -252,11 +273,11 @@ func (a *evmOnlyInMemoryApplication) FinalizeBlock(ctx context.Context, req *abc
 			return nil, err
 		}
 		defer result.Release()
-		appHash, err := hashEVMOnlyInMemoryResult(state.appHash, number, blockHash, result)
+		appHash, err := hashEVMOnlyResult(state.appHash, number, blockHash, result)
 		if err != nil {
 			return nil, err
 		}
-		state.pending = utils.Some(evmOnlyInMemoryPending{height: height, appHash: appHash, blockHash: blockHash})
+		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -265,7 +286,7 @@ func (a *evmOnlyInMemoryApplication) FinalizeBlock(ctx context.Context, req *abc
 	panic("unreachable")
 }
 
-func (a *evmOnlyInMemoryApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
+func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
 	for state := range a.state.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok {
@@ -275,7 +296,7 @@ func (a *evmOnlyInMemoryApplication) Commit(context.Context) (*abci.ResponseComm
 		state.nextHeight = pending.height + 1
 		state.appHash = pending.appHash
 		state.parentHash = pending.blockHash
-		state.pending = utils.None[evmOnlyInMemoryPending]()
+		state.pending = utils.None[evmOnlyPending]()
 		return &abci.ResponseCommit{}, nil
 	}
 	panic("unreachable")
@@ -294,7 +315,7 @@ func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	return txResults
 }
 
-func hashEVMOnlyInMemoryResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
+func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
 	h := sha256.New()
 	_, _ = h.Write(previous[:])
 	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, height))
@@ -332,7 +353,7 @@ type evmOnlyFundedState struct{}
 
 func (evmOnlyFundedState) AccountExists(common.Address) bool { return true }
 func (evmOnlyFundedState) GetBalance(common.Address) *big.Int {
-	return new(big.Int).Set(evmOnlyInMemoryBaseBalance)
+	return new(big.Int).Set(evmOnlyBaseBalance)
 }
 func (evmOnlyFundedState) GetNonce(common.Address) uint64                   { return 0 }
 func (evmOnlyFundedState) GetCode(common.Address) []byte                    { return nil }

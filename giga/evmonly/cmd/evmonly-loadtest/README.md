@@ -1,10 +1,10 @@
 # evmonly-loadtest
 
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
-the EVM-only executor through process-local Giga state and the real Giga receipt
-backend, without Cosmos SDK state, mempool, RPC, or production persistence. The
-receipt backend writes to a temporary directory that is removed when the load
-test exits.
+the EVM-only executor through the disk-backed Giga state and receipt stores,
+without Cosmos SDK state, mempool, or RPC. It opens the complete production
+storage manager, including the block store, in a temporary directory that is
+removed when the load test exits.
 
 The synthetic workload defaults to local EVM chain ID `1337`; override it with
 `--chain-id` when testing another signing domain.
@@ -13,8 +13,8 @@ It currently generates pure EVM legacy transfer transactions, ERC20 transfer
 transactions using `sei-load`'s compiled contract runtime, and a contract-call
 workload that exercises nested StateDB
 snapshot/revert behavior. By default, each generated sender account has one
-nonce-0 transaction and is funded in the command's in-memory genesis state
-before its block is queued. Recipients are unique by default so the transfer
+nonce-0 transaction and is funded in generated genesis state that is committed
+to FlatKV before the measured blocks run. Recipients are unique by default so the transfer
 workloads exercise the optimistic no-overlap case. Pass
 `--recipient-conflict-rate=<0..1>` to pair that fraction of each block's
 transactions onto shared recipients, or pass `--recipient=0x...` to force all
@@ -180,14 +180,16 @@ The command reports these saturation signals on stdout and at `/metrics`:
 
 Every run uses the Giga executor lifecycle:
 
-- `generatedState` implements `evmonly.StateReader` and supplies immutable
-  generated genesis balances, nonces, code, and storage.
-- `evmonly.MemoryStore` opens versioned snapshots over that genesis state and
-  applies the executor's encoded output through `CommitStateChanges`.
+- `generatedState` builds deterministic genesis balances, nonces, code, and
+  storage, which the harness commits to the disk-backed state store at height 1.
+- The measured workload begins at height 2 and reads and commits state and
+  receipts through the real Giga storage manager. The manager also opens the
+  production block store; the standalone harness has no consensus layer to
+  populate it.
 - `discardResultSink` discards the already-committed block result and receipts;
   it is not responsible for state persistence.
 
-With `--result-sink=file`, after the in-memory Giga commit succeeds the loadtest
+With `--result-sink=file`, after the Giga commit succeeds the loadtest
 harness hands pooled `evmonly.BlockResult` values to an async writer through the
 executor's `evmonly.ResultSink` interface. The writer appends changesets to
 `changesets.rlp` and receipts to `receipts.rlp` under `--persist-dir`; each
