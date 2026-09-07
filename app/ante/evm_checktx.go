@@ -115,9 +115,11 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		return err
 	}
 	if etx.Gas() < intrGas {
+		if ctx.IsCheckTx() {
+			return fmt.Errorf("%w: gas %v, minimum needed %v", core.ErrIntrinsicGas, etx.Gas(), intrGas)
+		}
 		return core.ErrIntrinsicGas
 	}
-
 	if etx.Type() == ethtypes.BlobTxType {
 		return sdkerrors.ErrUnsupportedTxType
 	}
@@ -128,6 +130,16 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		// does not exceed it.
 		if cp.Block.MaxGas > 0 && etx.Gas() > uint64(cp.Block.MaxGas) { //nolint:gosec
 			return sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "tx gas limit %d exceeds block max gas %d", etx.Gas(), cp.Block.MaxGas)
+		}
+	}
+
+	// Floor data gas is a CheckTx/txpool rejection; DeliverTx keeps the execution-time failure as consensus behaviour.
+	if ctx.IsCheckTx() {
+		ethCfg := evmtypes.DefaultChainConfig().EthereumConfig(chainID)
+		if ethCfg.IsPrague(big.NewInt(ctx.BlockHeight()), uint64(ctx.BlockTime().Unix())) { //nolint:gosec
+			if err := checkFloorDataGas(etx); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -142,12 +154,18 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 		// legacy either can have a zero or correct chain ID
 		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
 			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			if ctx.IsCheckTx() {
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidChainID, "%v: have %d want %d", ethtypes.ErrInvalidChainId, txChainID, chainID)
+			}
 			return sdkerrors.ErrInvalidChainID
 		}
 	default:
 		// after legacy, all transactions must have the correct chain ID
 		if txChainID.Cmp(chainID) != 0 {
 			logger.Debug("chainID mismatch", "txChainID", txChainID, "chainID", chainID)
+			if ctx.IsCheckTx() {
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidChainID, "%v: have %d want %d", ethtypes.ErrInvalidChainId, txChainID, chainID)
+			}
 			return sdkerrors.ErrInvalidChainID
 		}
 	}
@@ -155,6 +173,18 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	txGas := txData.GetGas()
 	if txGas > math.MaxInt64 {
 		return errors.New("tx gas exceeds max")
+	}
+	return nil
+}
+
+// checkFloorDataGas checks that etx's gas limit is at least the EIP-7623 floor data gas for its calldata.
+func checkFloorDataGas(etx *ethtypes.Transaction) error {
+	floorDataGas, err := core.FloorDataGas(etx.Data())
+	if err != nil {
+		return err
+	}
+	if etx.Gas() < floorDataGas {
+		return fmt.Errorf("%w: gas %v, minimum needed %v", core.ErrFloorDataGas, etx.Gas(), floorDataGas)
 	}
 	return nil
 }
@@ -232,6 +262,9 @@ func CheckAndDecodeSignature(ctx sdk.Context, txData ethtx.TxData, chainID *big.
 	}
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
+		if ctx.IsCheckTx() {
+			return common.Address{}, sdk.AccAddress{}, nil, 0, sdkerrors.Wrap(sdkerrors.ErrInvalidChainID, err.Error())
+		}
 		return common.Address{}, sdk.AccAddress{}, nil, 0, sdkerrors.ErrInvalidChainID
 	}
 	return evmAddr, seiAddr, seiPubkey, version, nil
@@ -284,10 +317,18 @@ func AssociateAuthorizationAuthorities(ctx sdk.Context, ek *evmkeeper.Keeper, et
 }
 
 func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper, txData ethtx.TxData, etx *ethtypes.Transaction, msg *evmtypes.MsgEVMTransaction, version derived.SignerVersion, statelessChecks bool) (*state.DBImpl, error) {
-	if txData.GetGasFeeCap().Cmp(GetBaseFee(ctx, ek, upgradeKeeper)) < 0 {
+	baseFee := GetBaseFee(ctx, ek, upgradeKeeper)
+	if txData.GetGasFeeCap().Cmp(baseFee) < 0 {
+		if ctx.IsCheckTx() {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFee, "address %s, maxFeePerGas: %s, baseFee: %s", sender.Hex(), txData.GetGasFeeCap(), baseFee)
+		}
 		return nil, sdkerrors.ErrInsufficientFee
 	}
-	if txData.GetGasFeeCap().Cmp(GetMinimumFee(ctx, ek)) < 0 {
+	minimumFee := GetMinimumFee(ctx, ek)
+	if txData.GetGasFeeCap().Cmp(minimumFee) < 0 {
+		if ctx.IsCheckTx() {
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFee, "address %s, maxFeePerGas: %s, minimumFeePerGas: %s", sender.Hex(), txData.GetGasFeeCap(), minimumFee)
+		}
 		return nil, sdkerrors.ErrInsufficientFee
 	}
 	ethCfg := evmtypes.DefaultChainConfig().EthereumConfig(ek.ChainID(ctx))
@@ -329,7 +370,7 @@ func CheckNonce(ctx sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction
 	txNonce := etx.Nonce()
 	nextNonce := ek.GetNonce(ctx, evmAddr)
 	if txNonce < nextNonce {
-		return ctx, sdkerrors.ErrWrongSequence
+		return ctx, sdkerrors.Wrapf(sdkerrors.ErrWrongSequence, "next nonce %d, tx nonce %d", nextNonce, txNonce)
 	}
 	ctx = ctx.WithEVMRequiredBalance(fee)
 

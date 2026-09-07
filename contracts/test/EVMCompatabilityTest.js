@@ -374,7 +374,7 @@ describe("EVM Test", function () {
           blobVersionedHashes: [blobHash],
         }
 
-        await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
+        await expect(signer.sendTransaction(tx)).to.be.rejectedWith("transaction type not supported");
       })
 
       it("trace balance diff matches up with actual balance change", async function() {
@@ -1337,7 +1337,7 @@ describe("EVM Validations ", function() {
         id: 1,
         jsonrpc: "2.0"
       })
-      expect(response.data.error.message).to.include("invalid chain-id")
+      expect(response.data.error.message).to.include("invalid sender: invalid chain id for signer")
     });
 
     it("should prevent wrong chainId for legacy txs", async function() {
@@ -1362,7 +1362,7 @@ describe("EVM Validations ", function() {
         jsonrpc: "2.0"
       })
 
-      expect(response.data.error.message).to.include("invalid chain-id")
+      expect(response.data.error.message).to.include("invalid sender: invalid chain id for signer")
     });
 
     it("should not allow empty chainId for legacy txs", async function() {

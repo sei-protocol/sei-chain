@@ -1,0 +1,11 @@
+// Rejects a type-3 BlobTx (EIP-4844). Sei does not support blob transactions.
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 3, chainId 713714, nonce 0, gas 21000, feeCap 2 gwei, tip 1 gwei,
+//     blobFeeCap 1 gwei, one BlobHash (32 bytes, version prefix 0x01),
+//     to 0x0000000000000000000000000000000000000001, value 0, no data, no sidecar.
+// Signed with types.NewPragueSigner(713714); marshalled with MarshalBinary.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x03f894830ae3f280843b9aca0084773594008252089400000000000000000000000000000000000000018080c0843b9aca00e1a0010000000000000000000000000000000000000000000000000000000000000001a0ed3ffe5613e3e6760c69cb7098948dda754ec99bcc782eecb5207f3e905122d7a075c732d033ecad791c7f4ff39ef9eec96f22ed3bb3911ec1202ae783b7d5ba7e"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message transaction type not supported

@@ -40,7 +40,7 @@ func TestTraceTransaction(t *testing.T) {
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", strings.ToLower(result["from"].(string)))
 	require.Equal(t, "0x3e8", result["gas"])
 	require.Equal(t, "0x616263", result["input"]) // hex of "abc" (Data field in test tx)
-	require.Contains(t, result["error"].(string), "intrinsic gas too low")
+	require.Equal(t, "transaction failed ante handler due to intrinsic gas too low", result["error"])
 	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
 	if callType, ok := result["type"]; ok {
 		require.Equal(t, "CALL", callType)

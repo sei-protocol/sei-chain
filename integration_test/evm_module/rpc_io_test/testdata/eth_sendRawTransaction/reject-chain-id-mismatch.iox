@@ -1,0 +1,10 @@
+// Rejects an EIP-1559 tx signed for chainId 999999 against Sei's EVM chain id 713714.
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 2, chainId 999999, nonce 0, gas 21000, feeCap 2 gwei, tip 1 gwei,
+//     to 0x0000000000000000000000000000000000000001, value 0, no data.
+// Signed with types.LatestSignerForChainID(999999).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x02f86d830f423f80843b9aca0084773594008252089400000000000000000000000000000000000000018080c080a089dc99079653bd09da42ec33a16a30b16bb45a0c329e5a94aa5c851afc851588a043586c25170098120c6cc09f0074196749ebb6885e6fbcc869240dbf1df40eb4"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message invalid sender: invalid chain id for signer: have 999999 want 713714

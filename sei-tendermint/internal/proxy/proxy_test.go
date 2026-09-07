@@ -8,7 +8,7 @@ import (
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 type testApp struct {
@@ -27,7 +27,7 @@ func TestCheckTxSafeReturnsErrorOnPanic(t *testing.T) {
 		},
 	})
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
-	require.Error(t, err)
+	require.Equal(t, errCheckTxPanic, err)
 }
 
 func validEVMResponse() *types.ResponseCheckTxV2 {

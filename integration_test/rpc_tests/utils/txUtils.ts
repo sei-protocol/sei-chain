@@ -668,9 +668,9 @@ export async function sendRevertingTx(
 
 /**
  * Sign (but do not broadcast) a well-formed legacy transaction whose gas limit is
- * below the 21000 intrinsic floor. Submitting it must be *rejected* pre-execution by both
- * nodes (same -32000 code): geth with a descriptive "intrinsic gas too low", Sei with a
- * generic ABCI error from its ante (a documented divergence). Returns the raw payload + hash.
+ * below the 21000 intrinsic floor. Submitting it must be rejected pre-execution by both
+ * nodes with geth's "intrinsic gas too low: gas 1000, minimum needed 21000".
+ * Returns the raw payload + hash.
  */
 export async function signBelowIntrinsicTx(
     provider: ethers.JsonRpcProvider,

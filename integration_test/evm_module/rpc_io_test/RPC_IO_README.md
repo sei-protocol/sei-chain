@@ -5,7 +5,7 @@ Integration tests for Sei EVM RPC compatibility with Ethereum JSON-RPC. The suit
 ### `.io` vs `.iox`
 
 - **`.io`** - vanilla JSON-RPC fixtures (`>>` / `<<`): no Sei-specific harness directives such as `@ expect_body_contains`.
-- **`.iox`** - same line format, plus Sei extensions: `@ bind` / `<< @ ref_pair`, `@ expect_body_contains`, `@ expect_response_header`, `not-supported.iox` (documented `-32000` errors), and other non-vanilla tags the parser accepts.
+- **`.iox`** - same line format, plus Sei extensions: `@ bind` / `<< @ ref_pair`, response/error assertions, `not-supported.iox` (documented `-32000` errors), and other non-vanilla tags the parser accepts.
 
 ## How to run
 
@@ -19,6 +19,8 @@ When the target is localhost, the script sends one EVM tx and deploys one contra
 
 **Legacy `sei_*` gating:** The docker localnet `app.toml` enables every remaining gated method. Deprecation is asserted in `testdata/sei_legacy_deprecation/*.iox`: **gate errors** use `error.data` `legacy_sei_deprecated` and messages mentioning disabled + deprecated; **forwarded** allowlisted calls use `@ expect_response_header Sei-Legacy-RPC-Deprecation`, including when the inner JSON-RPC handler returns an error. **`batch-nonobject-tail-gate.iox`** posts a JSON-RPC batch with an unregistered `sei_*` method and a trailing non-object; it asserts `legacy_sei_deprecated`, `Invalid Request`, and `-32600` in the raw body. Directives:
 - `@ expect_body_contains substring` - response body must contain the substring.
+- `@ expect_error_code N` - response must contain a JSON-RPC error with exactly this code.
+- `@ expect_error_message message` - response must contain a JSON-RPC error with exactly this message.
 - `@ expect_response_header Header-Name` - response must include that HTTP header (case-insensitive lookup).
 
 Production `seid init` defaults remain the three-method allowlist (`sei_getSeiAddress`, `sei_getEVMAddress`, `sei_getCosmosTx`).
@@ -70,9 +72,9 @@ For a fair comparison, both endpoints should serve the **same chain** (same gene
 
 | Kind      | Count | Description                                                                                                                              |
 | --------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **.io**   | 96    | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
-| **.iox**  | 60    | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request; includes `not-supported.iox`, `sei_legacy_deprecation/*.iox`. |
-| **Total** | 156   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
+| **.io**   | 90    | Request/response fixtures; curated from [ethereum/execution-apis](https://github.com/ethereum/execution-apis) plus Sei-added.            |
+| **.iox**  | 64    | Sei-generated; use `@ bind` and optional `@ ref_pair N` so data comes from a first request; includes `not-supported.iox`, `sei_legacy_deprecation/*.iox`. |
+| **Total** | 154   | All under `testdata/`; runner executes every .io and .iox file.                                                                          |
 
 
 Fixtures live in `testdata/`; see `testdata/README.md` (do not overwrite with a raw copy from execution-apis).
@@ -88,11 +90,11 @@ The following fixtures were **removed** (no longer in the suite) because they de
 | `eth_estimateGas/estimate-call-abi-error.io` | Same fixed address, expects revert error | `eth_estimateGas/estimate-call-abi-error-sei.iox` (uses `__REVERTER__`) |
 | `eth_estimateGas/estimate-failed-call.io` | Fixed address `0x17e7ee...`, expects revert error | Revert (Error) and panic covered by `estimate-call-abi-error-sei.iox` and `estimate-call-abi-panic-sei.iox` (same `__REVERTER__`, input `0x01` / `0x02`) |
 
-The total count reflects the current `.io`/`.iox` set under `testdata/` (156 files: main baseline plus three sei deprecation `.iox`, including batch regression).
+The total count reflects the current `.io`/`.iox` set under `testdata/` (154 files: main baseline plus three sei deprecation `.iox`, including batch regression).
 
 ## What is checked
 
-**Spec-only:** For each request/response pair, the runner only checks that the response *kind* matches the expected one: presence of `result` vs `error`. Response values are not compared.
+**Spec-only:** For each request/response pair, the runner checks that the response *kind* matches the expected one: presence of `result` vs `error`. Response values are not compared unless an `.iox` assertion directive requires it.
 
 ## Outcomes
 
@@ -311,11 +313,11 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 
 | Metric                               | Count                                                                                                                      |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| **Total endpoint folders**           | 69                                                                                                                         |
-| **Endpoint folders with ≥1 passing test** | 69                                                                                                                  |
+| **Total endpoint folders**           | 57                                                                                                                         |
+| **Endpoint folders with ≥1 passing test** | 57                                                                                                                  |
 | **Missing / untested endpoints**     | None in this suite. Count = top-level directories under `testdata/` (each has ≥1 `.io`/`.iox`). On **eth parity + legacy batch gate** runs, every folder has at least one passing test. |
 
-**eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed, so the current suite has **69** top-level endpoint folders under `testdata/`.
+**eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed, so the current suite has **57** top-level endpoint folders under `testdata/`.
 
 
 *Re-run `./integration_test/evm_module/scripts/evm_rpc_tests.sh` to refresh counts; **sei_* fix** through **eth parity + legacy batch gate (Mar 2026)** columns assume docker localnet with expanded `[evm].enabled_legacy_sei_apis` (see `docker/localnode/config/app.toml`) and a node image that includes the `evmrpc` parity + legacy batch gate fixes.*

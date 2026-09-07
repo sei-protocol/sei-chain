@@ -1,0 +1,10 @@
+// Rejects a legacy transfer whose gas covers intrinsic gas but not the EIP-7623 floor.
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 0, chainId 713714, nonce 0, gasPrice 1 gwei, gas 22000,
+//     to 0x0000000000000000000000000000000000000001, value 0, 50 non-zero data bytes.
+// Intrinsic gas is 21800; EIP-7623 floor data gas is 23000.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0xf89880843b9aca008255f094000000000000000000000000000000000000000180b201010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101018315c807a06015db3dbe2c4bfea5c1b7f89c81c7c545685b5bdd6a035af8b22c1aaa62fa01a06707f6d9f4b4af0ce00da0076635a898c76b929a44c45d004bcf9f62cc41245a"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message insufficient gas for floor data gas cost: gas 22000, minimum needed 23000

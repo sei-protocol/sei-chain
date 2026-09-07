@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +46,9 @@ type ioxPair struct {
 	// ExpectBodyContains: each substring must appear in the response body (UTF-8).
 	ExpectBodyContains []string
 
+	ExpectErrorCode    *int
+	ExpectErrorMessage *string
+
 	// ExpectResponseHeaders: each name must be present on the HTTP response (case-insensitive).
 	ExpectResponseHeaders []string
 }
@@ -52,7 +56,8 @@ type ioxPair struct {
 // parseIOFile parses .io/.iox content. Markers are >>, <<, and @; optional ASCII whitespace after
 // each marker is trimmed away with the rest of the payload (TrimSpace).
 // Supports ">> request", "<< expected", "@ bind var = path",
-// "<< @ ref_pair N", "@ expect_body_contains substring", "@ expect_response_header Header-Name".
+// "<< @ ref_pair N", "@ expect_body_contains substring", "@ expect_error_code N",
+// "@ expect_error_message message", and "@ expect_response_header Header-Name".
 func parseIOFile(content string) ([]ioxPair, error) {
 	var pairs []ioxPair
 	var curReq []byte
@@ -120,6 +125,22 @@ func parseIOFile(content string) ([]ioxPair, error) {
 				pairs[lastIdx].ExpectBodyContains = append(pairs[lastIdx].ExpectBodyContains, sub)
 				continue
 			}
+			if after, ok := strings.CutPrefix(rest, "expect_error_code "); ok {
+				code, err := strconv.Atoi(strings.TrimSpace(after))
+				if err != nil {
+					return nil, fmt.Errorf("expect_error_code needs an integer: %q", trimmed)
+				}
+				pairs[lastIdx].ExpectErrorCode = &code
+				continue
+			}
+			if after, ok := strings.CutPrefix(rest, "expect_error_message "); ok {
+				message := strings.TrimSpace(after)
+				if message == "" {
+					return nil, fmt.Errorf("expect_error_message needs a non-empty message: %q", trimmed)
+				}
+				pairs[lastIdx].ExpectErrorMessage = &message
+				continue
+			}
 			if after, ok := strings.CutPrefix(rest, "expect_response_header "); ok {
 				name := strings.TrimSpace(after)
 				if name == "" {
@@ -134,13 +155,34 @@ func parseIOFile(content string) ([]ioxPair, error) {
 	return pairs, nil
 }
 
-// assertPairBodyDirectives checks optional @ expect_body_contains rules for one .io pair.
+// assertPairBodyDirectives checks optional body and JSON-RPC error directives for one .io pair.
 func assertPairBodyDirectives(t *testing.T, pair ioxPair, body []byte) {
 	t.Helper()
 	for _, sub := range pair.ExpectBodyContains {
 		if !strings.Contains(string(body), sub) {
 			t.Fatalf("expected response body to contain %q", sub)
 		}
+	}
+	if pair.ExpectErrorCode == nil && pair.ExpectErrorMessage == nil {
+		return
+	}
+	var response struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("decode JSON-RPC error response: %v", err)
+	}
+	if response.Error == nil {
+		t.Fatal("expected JSON-RPC error response")
+	}
+	if pair.ExpectErrorCode != nil && response.Error.Code != *pair.ExpectErrorCode {
+		t.Fatalf("expected JSON-RPC error code %d, got %d", *pair.ExpectErrorCode, response.Error.Code)
+	}
+	if pair.ExpectErrorMessage != nil && response.Error.Message != *pair.ExpectErrorMessage {
+		t.Fatalf("expected JSON-RPC error message %q, got %q", *pair.ExpectErrorMessage, response.Error.Message)
 	}
 }
 

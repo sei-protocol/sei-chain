@@ -1,0 +1,10 @@
+// Rejects a pre-EIP-155 (unprotected) legacy tx signed with HomesteadSigner (v = 27/28).
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 0, no chainId, nonce 0, gasPrice 1 gwei, gas 21000,
+//     to 0x0000000000000000000000000000000000000001, value 0, no data.
+// Signed with types.HomesteadSigner{}.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0xf86380843b9aca0082520894000000000000000000000000000000000000000180801ca0b33b9fe5277aefcdba690555cf2329af57c83d8584de4f5ae88854b488490032a01ce1a071dfafa591574358110ca46b6ca6ea55158f2d466219e1c6c7539d35a6"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message only replay-protected (EIP-155) transactions allowed over RPC

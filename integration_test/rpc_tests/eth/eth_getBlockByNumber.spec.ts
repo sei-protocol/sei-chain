@@ -521,7 +521,7 @@ describe('eth_getBlockByNumber', function () {
         });
     });
 
-    describe('rejected transactions are refused (parity + documented divergence)', () => {
+    describe('rejected transactions are refused', () => {
         it('both reject a tx below the intrinsic gas floor and never mine it', async () => {
             const [seiTx, gethTx] = await Promise.all([
                 signBelowIntrinsicTx(sei, seiRejectSigner),
@@ -531,14 +531,9 @@ describe('eth_getBlockByNumber', function () {
                 rawSei('eth_sendRawTransaction', [seiTx.raw]),
                 rawGeth('eth_sendRawTransaction', [gethTx.raw]),
             ]);
-            // Both reject with code -32000; geth is descriptive while Sei surfaces an
-            // opaque ": unknown" from its mempool — a documented message divergence.
-            expectJsonRpcError(g, -32000, /intrinsic gas too low/);
-            expect(s.error, 'Sei rejects the tx').to.not.equal(undefined);
-            expect(s.error!.code, 'both use -32000').to.equal(g.error!.code);
-            expect(s.error!.message, '[divergence] Sei does not surface the geth reason').to.not.equal(
-                g.error!.message,
-            );
+            // Both nodes reject pre-execution with geth's exact intrinsic-gas string.
+            expectJsonRpcError(g, -32000, /^intrinsic gas too low: gas 1000, minimum needed 21000$/);
+            expectSameError(s, g);
 
             const [seiLookup, gethLookup] = await Promise.all([
                 rawSei('eth_getTransactionByHash', [seiTx.hash]),
