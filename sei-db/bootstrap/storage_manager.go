@@ -38,9 +38,9 @@ type GigaStorageManager struct {
 	gc *controller.StorageGarbageCollector
 }
 
-// NewGigaStorageManagerWithStores returns a manager that owns the supplied block
-// and receipt stores and exposes stateDB. Close does not close resources behind
-// stateDB.
+// NewGigaStorageManagerWithStores returns a manager that owns the supplied
+// stores. Only BlockStore, StateStore, and ReceiptDB are available; configured
+// state components, recovery, and garbage collection are not.
 func NewGigaStorageManagerWithStores(
 	blockStore *blockstore.Store,
 	stateDB giga.StateDB,

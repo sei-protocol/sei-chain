@@ -414,19 +414,26 @@ func openAutobahnStorageManager(cfg *config.Config) (*bootstrap.GigaStorageManag
 	if err != nil {
 		return nil, err
 	}
-	blockStore, err := openAutobahnBlockStore(cfg.RootDir, fc)
+	blockStore, _, err := openAutobahnBlockStore(cfg.RootDir, fc)
 	if err != nil {
 		return nil, err
 	}
 	return bootstrap.NewGigaStorageManagerWithStores(blockStore, nil, nil), nil
 }
 
-func openAutobahnBlockStore(rootDir string, fc *config.AutobahnFileConfig) (*blockstore.Store, error) {
+// openAutobahnBlockStore opens the configured store and returns its resolved
+// persistent-state directory, or an empty string for an in-memory store.
+func openAutobahnBlockStore(rootDir string, fc *config.AutobahnFileConfig) (*blockstore.Store, string, error) {
 	commonCfg := &p2p.GigaRouterCommonConfig{PersistentStateDir: fc.PersistentStateDir}
 	if err := preparePersistentStateDir(rootDir, commonCfg); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return openBlockStore(commonCfg, fc.BlockDB)
+	blockStore, err := openBlockStore(commonCfg, fc.BlockDB)
+	if err != nil {
+		return nil, "", err
+	}
+	directory, _ := commonCfg.PersistentStateDir.Get()
+	return blockStore, directory, nil
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,

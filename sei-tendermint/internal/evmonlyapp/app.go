@@ -17,6 +17,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -56,16 +57,18 @@ type evmOnlyInMemoryPending struct {
 
 var _ abci.Application = (*evmOnlyInMemoryApplication)(nil)
 
-// NewEVMOnlyInMemoryApplication returns an ephemeral raw-Ethereum application and
-// its storage manager for Autobahn Docker load tests.
+// NewEVMOnlyInMemoryApplication returns an ephemeral raw-Ethereum application
+// and its storage manager for Autobahn Docker load tests. blockStore may be nil
+// in unit tests; receiptStore must be non-nil.
 func NewEVMOnlyInMemoryApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	blockStore *blockstore.Store,
+	receiptStore receipt.ReceiptStore,
 ) (abci.Application, *bootstrap.GigaStorageManager) {
 	base := evmOnlyFundedState{}
 	stateStore := evmonly.NewMemoryStore(base)
-	storage := bootstrap.NewGigaStorageManagerWithStores(blockStore, stateStore, evmonly.NewMemoryReceiptStore())
+	storage := bootstrap.NewGigaStorageManagerWithStores(blockStore, stateStore, receiptStore)
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
 	return &evmOnlyInMemoryApplication{

@@ -33,8 +33,8 @@ The `evmonly` package currently provides:
   transaction execution with granular validation and reruns
 - Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
   contract address, and effective gas price
-- receipt persistence through a `ReceiptStore`, with a concurrency-safe
-  in-memory implementation for the ephemeral runtime
+- receipt persistence through the real Giga `ReceiptStore` backend in load-test
+  runtimes, with a concurrency-safe in-memory implementation for unit tests
 - a versioned `MemoryStore` giga implementation over an immutable `StateReader`
   for tests and load generation
 - fail-closed custom precompile placeholders
@@ -97,18 +97,18 @@ including for empty blocks. A receipt failure leaves state unchanged so the
 block can be retried. A state failure can leave receipts behind, but retrying
 the block overwrites them. `ResultSink` runs only after both stores succeed.
 
-`MemoryStore` and `MemoryReceiptStore` are the non-persistent implementations
-installed into a `bootstrap.GigaStorageManager` by the EVM-only app, tests, and
-load harness. They are intended only for tests and ephemeral load generation;
-neither is suitable for persistent nodes, and all contents are lost when the
-process exits. `MemoryStore` wraps an immutable `StateReader`, encodes changes
-directly into typed `NamedChangeSet` key/value pairs, and retains committed
-values in versioned overlays so current and historical snapshots stay stable
-without copying the complete base state per block. `MemoryReceiptStore`
-implements the shared receipt interface and indexes cloned Sei receipt records
-by block number and transaction hash. Every base `StateReader` method must be
-safe for concurrent calls, and returned balances and code must remain immutable
-while read. Call `Close()` to disable future OCC execution on an executor.
+`MemoryStore` is the non-persistent state implementation installed into a
+`bootstrap.GigaStorageManager` by the EVM-only app, tests, and load harness. It
+wraps an immutable `StateReader`, encodes changes directly into typed
+`NamedChangeSet` key/value pairs, and retains committed values in versioned
+overlays so current and historical snapshots stay stable without copying the
+complete base state per block. Load-test runtimes pair it with the real Giga
+receipt backend opened in a temporary directory that is removed on close.
+`MemoryReceiptStore` is a unit-test double for the shared receipt interface and
+indexes cloned Sei receipt records by block number and transaction hash. Every
+base `StateReader` method must be safe for concurrent calls, and returned
+balances and code must remain immutable while read. Call `Close()` to disable
+future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a
 partial output. EVM call failures inside an otherwise valid transaction are

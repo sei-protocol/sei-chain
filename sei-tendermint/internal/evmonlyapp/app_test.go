@@ -9,6 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -38,7 +39,7 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 
 func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	t.Helper()
-	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil, evmonly.NewMemoryReceiptStore())
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	_, err := app.InitChain(&abci.RequestInitChain{
 		InitialHeight: 1,
@@ -116,7 +117,7 @@ func TestEVMOnlyInMemoryApplicationProducesDeterministicRoot(t *testing.T) {
 }
 
 func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
-	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, nil, nil, evmonly.NewMemoryReceiptStore())
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
@@ -132,7 +133,7 @@ func TestEVMOnlyInMemoryApplicationRequiresInitChain(t *testing.T) {
 
 func TestEVMOnlyInMemoryApplicationReturnsConfiguredValidators(t *testing.T) {
 	configured := []abci.ValidatorUpdate{{Power: 7}}
-	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured, nil)
+	app, storage := NewEVMOnlyInMemoryApplication(evmOnlyTestChainID, configured, nil, evmonly.NewMemoryReceiptStore())
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	configured[0].Power = 11
 

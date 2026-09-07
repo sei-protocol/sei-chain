@@ -106,6 +106,16 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	prebuildElapsed := time.Since(prebuildStartedAt)
 	printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
 
+	stateStore := evmonly.NewMemoryStore(state)
+	receiptStore, err := evmonly.OpenTemporaryReceiptStore("")
+	if err != nil {
+		return fmt.Errorf("open receipt store: %w", err)
+	}
+	storage := bootstrap.NewGigaStorageManagerWithStores(nil, stateStore, receiptStore)
+	defer func() {
+		err = errors.Join(err, storage.Close())
+	}()
+
 	profiles, err := startProfiles(cfg)
 	if err != nil {
 		return err
@@ -122,8 +132,6 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 
 	startedAt := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
-	stateStore := evmonly.NewMemoryStore(state)
-	storage := bootstrap.NewGigaStorageManagerWithStores(nil, stateStore, evmonly.NewMemoryReceiptStore())
 	executor := evmonly.NewExecutor(
 		executorConfig(cfg),
 		evmonly.WithStorageManager(storage, stateStore.EncodeChangeSet),

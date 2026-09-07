@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -171,15 +172,23 @@ func prepareApplication(
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
-		blockStore, err := openAutobahnBlockStore(conf.RootDir, fc)
+		blockStore, receiptStoreParent, err := openAutobahnBlockStore(conf.RootDir, fc)
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("open EVM-only block store: %w", err)
+		}
+		receiptStore, err := evmonly.OpenTemporaryReceiptStore(receiptStoreParent)
+		if err != nil {
+			if closeErr := blockStore.Close(); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("close EVM-only block store: %w", closeErr))
+			}
+			return nil, noStorage, fmt.Errorf("open EVM-only receipt store: %w", err)
 		}
 		logger.Warn("Autobahn EVM-only in-memory execution enabled; state is ephemeral and unsafe for persistent networks")
 		prepared, manager := evmonlyapp.NewEVMOnlyInMemoryApplication(
 			config.AutobahnEVMOnlyInMemoryChainID,
 			validators,
 			blockStore,
+			receiptStore,
 		)
 		return prepared, utils.Some(manager), nil
 	}

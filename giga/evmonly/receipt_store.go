@@ -19,9 +19,8 @@ type memoryReceiptEntry struct {
 	receipt     *evmtypes.Receipt
 }
 
-// MemoryReceiptStore is a process-local receipt store for tests and ephemeral
-// load generation. Its contents are lost on exit, so it is not suitable for
-// persistent nodes.
+// MemoryReceiptStore is a process-local receipt store for unit tests. Runtime
+// and load-test code uses the configured receipt backend instead.
 type MemoryReceiptStore struct {
 	mu sync.RWMutex
 
