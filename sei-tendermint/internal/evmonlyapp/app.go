@@ -33,6 +33,7 @@ type evmOnlyApplication struct {
 	chainConfig      *params.ChainConfig
 	storage          *bootstrap.GigaStorageManager
 	changeSetEncoder evmonly.NamedChangeSetEncoder
+	balanceStore     *evmonly.PlaceholderBalanceStore
 	validators       []abci.ValidatorUpdate
 	state            utils.Mutex[*evmOnlyState]
 }
@@ -56,7 +57,8 @@ type evmOnlyPending struct {
 var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
-// load tests. State, receipts, and blocks are owned by storage.
+// load tests. Storage owns non-balance state, receipts, and blocks; balances
+// use a process-local placeholder store.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
@@ -70,6 +72,7 @@ func NewEVMOnlyApplication(
 		chainConfig:      &chainConfig,
 		storage:          storage,
 		changeSetEncoder: changeSetEncoder,
+		balanceStore:     evmonly.NewPlaceholderBalanceStore(evmOnlyFundedBalances{}),
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
 	}
@@ -98,7 +101,7 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 			BlockResultPoolSize: 1,
 		},
 			evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
-			evmonly.WithMissingAccountState(evmOnlyFundedState{}),
+			evmonly.WithBalanceStore(a.balanceStore),
 		))
 		state.gasLimit = gasLimit
 		state.nextHeight = req.InitialHeight
@@ -349,12 +352,8 @@ func writeEVMOnlyHashBytes(w byteWriter, value []byte) {
 	_, _ = w.Write(value)
 }
 
-type evmOnlyFundedState struct{}
+type evmOnlyFundedBalances struct{}
 
-func (evmOnlyFundedState) AccountExists(common.Address) bool { return true }
-func (evmOnlyFundedState) GetBalance(common.Address) *big.Int {
+func (evmOnlyFundedBalances) GetBalance(common.Address) *big.Int {
 	return new(big.Int).Set(evmOnlyBaseBalance)
 }
-func (evmOnlyFundedState) GetNonce(common.Address) uint64                   { return 0 }
-func (evmOnlyFundedState) GetCode(common.Address) []byte                    { return nil }
-func (evmOnlyFundedState) GetState(common.Address, common.Hash) common.Hash { return common.Hash{} }

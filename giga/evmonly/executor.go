@@ -15,7 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -26,9 +27,10 @@ type Executor struct {
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
 	storeMu          sync.Mutex
-	storageManager   *bootstrap.GigaStorageManager
+	stateStore       gigatypes.StateDB
+	receiptStore     receipt.ReceiptStore
 	changeSetEncoder NamedChangeSetEncoder
-	missingState     StateReader
+	balanceStore     BalanceStore
 	closed           atomic.Bool
 }
 
@@ -40,11 +42,11 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// WithMissingAccountState supplies deterministic state for accounts that are
-// absent from the persistent state snapshot.
-func WithMissingAccountState(state StateReader) Option {
+// WithBalanceStore supplies balances when the persistent state view does not
+// implement balance reads.
+func WithBalanceStore(store BalanceStore) Option {
 	return func(e *Executor) {
-		e.missingState = state
+		e.balanceStore = store
 	}
 }
 

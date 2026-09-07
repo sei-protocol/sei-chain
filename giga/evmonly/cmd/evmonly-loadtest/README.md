@@ -13,9 +13,10 @@ It currently generates pure EVM legacy transfer transactions, ERC20 transfer
 transactions using `sei-load`'s compiled contract runtime, and a contract-call
 workload that exercises nested StateDB
 snapshot/revert behavior. By default, each generated sender account has one
-nonce-0 transaction and is funded in generated genesis state that is committed
-to FlatKV before the measured blocks run. Recipients are unique by default so the transfer
-workloads exercise the optimistic no-overlap case. Pass
+nonce-0 transaction and is funded in generated genesis state. Non-balance
+genesis state is committed to FlatKV before the measured blocks run. Recipients
+are unique by default so the transfer workloads exercise the optimistic
+no-overlap case. Pass
 `--recipient-conflict-rate=<0..1>` to pair that fraction of each block's
 transactions onto shared recipients, or pass `--recipient=0x...` to force all
 transactions to a single recipient. Pass `--same-sender` to use one sender per
@@ -181,8 +182,12 @@ The command reports these saturation signals on stdout and at `/metrics`:
 Every run uses the Giga executor lifecycle:
 
 - `generatedState` builds deterministic genesis balances, nonces, code, and
-  storage, which the harness commits to the disk-backed state store at height 1.
-- The measured workload begins at height 2 and reads and commits state and
+  storage. The harness commits nonce, code, and storage state to FlatKV at
+  height 1.
+- Balances use a process-local placeholder until FlatKV exposes balance reads
+  and writes. The placeholder applies every post-block balance change, so load
+  execution preserves balance semantics without changing the storage package.
+- The measured workload begins at height 2 and commits non-balance state and
   receipts through the real Giga storage manager. The manager also opens the
   production block store; the standalone harness has no consensus layer to
   populate it.

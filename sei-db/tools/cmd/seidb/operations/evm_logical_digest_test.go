@@ -100,7 +100,6 @@ func coreEVMRawPairs() []*proto.KVPair {
 	miscValue := []byte{0xAA, 0xBB}
 
 	return []*proto.KVPair{
-		{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr), Value: bytesOfLen(32, 0x11)},
 		{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: nonceBytes(7)},
 		{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: codeHash},
 		{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr), Value: balance},

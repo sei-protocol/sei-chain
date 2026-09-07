@@ -38,21 +38,6 @@ type GigaStorageManager struct {
 	gc *controller.StorageGarbageCollector
 }
 
-// NewGigaStorageManagerWithStores returns a manager that owns the supplied
-// stores. Only BlockStore, StateStore, and ReceiptDB are available; configured
-// state components, recovery, and garbage collection are not.
-func NewGigaStorageManagerWithStores(
-	blockStore *blockstore.Store,
-	stateDB giga.StateDB,
-	receiptDB receipt.ReceiptStore,
-) *GigaStorageManager {
-	return &GigaStorageManager{
-		blockStore: blockStore,
-		stateDB:    stateDB,
-		receiptDB:  receiptDB,
-	}
-}
-
 // NewGigaStorageManager runs the steps that bring storage up:
 //  1. Perform a config validation.
 //  2. Construct and open all DBs with the config.

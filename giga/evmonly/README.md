@@ -75,7 +75,8 @@ data: callers should pass the result of `PrepareBlock` unchanged, because
 The executor is always store-backed. `WithStorageManager(...)` selects the
 `bootstrap.GigaStorageManager` that provides both `giga.StateDB` and the ledger
 receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
-Execution fails closed if the manager, either store, or the encoder is missing.
+Unit tests can supply those dependencies independently. Execution fails closed
+if either store or the encoder is missing.
 For each block the executor opens a current `giga.StateView`, executes against
 its EVM-native read methods, converts the resulting `StateChangeSet`, and calls
 `CommitStateChanges`. Execution and commit on an executor are serialized so
@@ -97,18 +98,20 @@ including for empty blocks. A receipt failure leaves state unchanged so the
 block can be retried. A state failure can leave receipts behind, but retrying
 the block overwrites them. `ResultSink` runs only after both stores succeed.
 
-`MemoryStore` is the non-persistent state implementation installed into a
-`bootstrap.GigaStorageManager` by the EVM-only app, tests, and load harness. It
-wraps an immutable `StateReader`, encodes changes directly into typed
-`NamedChangeSet` key/value pairs, and retains committed values in versioned
-overlays so current and historical snapshots stay stable without copying the
-complete base state per block. Load-test runtimes pair it with the real Giga
-receipt backend opened in a temporary directory that is removed on close.
-`MemoryReceiptStore` is a unit-test double for the shared receipt interface and
-indexes cloned Sei receipt records by block number and transaction hash. Every
-base `StateReader` method must be safe for concurrent calls, and returned
-balances and code must remain immutable while read. Call `Close()` to disable
-future OCC execution on an executor.
+FlatKV does not yet expose balance reads and writes. EVM-only runtimes therefore
+use `PlaceholderBalanceStore` for balances while committing nonce, code, and
+storage changes to the manager-owned state database. The placeholder applies
+post-block balances only after the persistent state commit succeeds.
+
+`MemoryStore` and `MemoryReceiptStore` are non-persistent unit-test doubles.
+`MemoryStore` wraps an immutable `StateReader`, retains committed values in
+versioned overlays, and keeps current and historical snapshots stable without
+copying the complete base state per block. `MemoryReceiptStore` implements the
+shared receipt interface and indexes cloned Sei receipt records by block number
+and transaction hash. Load-test runtimes use the real Giga storage manager
+instead. Every base `StateReader` method must be safe for concurrent calls, and
+returned balances and code must remain immutable while read. Call `Close()` to
+disable future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a
 partial output. EVM call failures inside an otherwise valid transaction are

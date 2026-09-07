@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -17,8 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
-// NewFlatKVChangeSetEncoder returns an encoder for the FlatKV store's logical
-// EVM keyspace. The store is used to expand storage-prefix clears.
+// NewFlatKVChangeSetEncoder returns an encoder for FlatKV's non-balance EVM
+// keyspace. The store is used to expand storage-prefix clears.
 func NewFlatKVChangeSetEncoder(store *flatkv.CommitStore) NamedChangeSetEncoder {
 	return func(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
 		return encodeFlatKVChangeSet(store, changes)
@@ -30,20 +29,10 @@ func encodeFlatKVChangeSet(store *flatkv.CommitStore, changes StateChangeSet) ([
 		return nil, errors.New("flatkv changeset encoder requires a store")
 	}
 	pairs := make([]*proto.KVPair, 0,
-		len(changes.Balances)+len(changes.Nonces)+2*len(changes.Code)+len(changes.Storage))
+		len(changes.Nonces)+2*len(changes.Code)+len(changes.Storage))
 
-	for i, change := range changes.Balances {
-		value, err := flatKVBalanceBytes(change.Balance)
-		if err != nil {
-			return nil, fmt.Errorf("balance change %d for %s: %w", i, change.Address, err)
-		}
-		pair := &proto.KVPair{Key: flatKVAddressKey(keys.EVMKeyBalance, change.Address), Value: value}
-		if change.Balance == nil || change.Balance.Sign() == 0 {
-			pair.Value = nil
-			pair.Delete = true
-		}
-		pairs = append(pairs, pair)
-	}
+	// Balance changes remain in the executor's placeholder balance store until
+	// the persistent state view exposes balance reads and writes.
 	for _, change := range changes.Nonces {
 		value := make([]byte, vtype.NonceLen)
 		binary.BigEndian.PutUint64(value, change.Nonce)
@@ -137,16 +126,4 @@ func flatKVStoragePrefixByte() byte {
 		panic("missing EVM storage prefix")
 	}
 	return prefix
-}
-
-func flatKVBalanceBytes(balance *big.Int) ([]byte, error) {
-	value := make([]byte, vtype.BalanceLen)
-	if balance == nil {
-		return value, nil
-	}
-	if balance.Sign() < 0 || balance.BitLen() > 8*vtype.BalanceLen {
-		return nil, errors.New("balance must fit in an unsigned 256-bit integer")
-	}
-	balance.FillBytes(value)
-	return value, nil
 }

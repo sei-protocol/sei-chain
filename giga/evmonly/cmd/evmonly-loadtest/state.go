@@ -190,12 +190,6 @@ func (s *generatedState) changeSet() evmonly.StateChangeSet {
 
 	var changes evmonly.StateChangeSet
 	for _, address := range ordered {
-		if balance, ok := s.balances[address]; ok {
-			changes.Balances = append(changes.Balances, evmonly.BalanceChange{
-				Address: address,
-				Balance: new(big.Int).Set(balance),
-			})
-		}
 		if nonce, ok := s.nonces[address]; ok {
 			changes.Nonces = append(changes.Nonces, evmonly.NonceChange{Address: address, Nonce: nonce})
 		}

@@ -100,14 +100,6 @@ func New(
 		if err != nil {
 			return nil, err
 		}
-		if conf.AutobahnConfigFile != "" && !storageManager.IsPresent() {
-			manager, err := openAutobahnStorageManager(conf)
-			if err != nil {
-				return nil, fmt.Errorf("open Autobahn storage: %w", err)
-			}
-			storageManager = utils.Some(manager)
-		}
-
 		storageManagerTransferred = true
 		return makeNode(
 			ctx,

@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -158,7 +157,9 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	recipient := testAddress(0xa9)
 
 	snapshot := newMemoryGigaSnapshot(40)
-	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	initialBalances := NewMemoryState()
+	initialBalances.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+	balanceStore := NewPlaceholderBalanceStore(initialBalances)
 	store := &recordingGigaStore{snapshot: snapshot}
 	wantChangesets := []*proto.NamedChangeSet{{
 		Name: "encoded",
@@ -178,7 +179,10 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = 41
-	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), encoder))
+	executor := NewExecutor(Config{},
+		withTestStores(store, NewMemoryReceiptStore(), encoder),
+		WithBalanceStore(balanceStore),
+	)
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockCtx,
 		Txs:     [][]byte{rawTx},
@@ -191,6 +195,9 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	require.Equal(t, []int64{41}, store.commitBlock)
 	require.Equal(t, [][]*proto.NamedChangeSet{wantChangesets}, store.commits)
 	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7)})
+	for _, change := range result.ChangeSet.Balances {
+		require.Equal(t, change.Balance, balanceStore.GetBalance(change.Address))
+	}
 	result.Release()
 }
 
@@ -242,18 +249,17 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 }
 
 func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
-	t.Run("missing storage manager", func(t *testing.T) {
+	t.Run("missing stores", func(t *testing.T) {
 		executor := NewExecutor(Config{})
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.ErrorIs(t, err, errMissingStorageManager)
+		require.ErrorIs(t, err, errMissingStateStore)
 		require.Nil(t, result)
 	})
 
 	t.Run("missing state store", func(t *testing.T) {
-		manager := bootstrap.NewGigaStorageManagerWithStores(nil, nil, NewMemoryReceiptStore())
-		executor := NewExecutor(Config{}, WithStorageManager(manager, EncodeMemoryStoreChangeSet))
+		executor := NewExecutor(Config{}, WithReceiptStore(NewMemoryReceiptStore()))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
@@ -263,8 +269,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 	t.Run("missing receipt store", func(t *testing.T) {
 		store := NewMemoryStore(NewMemoryState())
-		manager := bootstrap.NewGigaStorageManagerWithStores(nil, store, nil)
-		executor := NewExecutor(Config{}, WithStorageManager(manager, store.EncodeChangeSet))
+		executor := NewExecutor(Config{}, WithStore(store, store.EncodeChangeSet))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
@@ -360,15 +365,34 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 	})
 
 	t.Run("commit error", func(t *testing.T) {
+		chainID := big.NewInt(testChainID)
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := testAddress(0xad)
+		initialBalance := big.NewInt(1_000_000_000)
+		initialBalances := NewMemoryState()
+		initialBalances.SetBalance(sender, initialBalance)
+		balanceStore := NewPlaceholderBalanceStore(initialBalances)
 		snapshot := newMemoryGigaSnapshot(0)
 		commitErr := errors.New("commit failed")
 		store := &recordingGigaStore{snapshot: snapshot, commitErr: commitErr}
 		receiptStore := NewMemoryReceiptStore()
-		executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, receiptStore, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
-			return []*proto.NamedChangeSet{}, nil
-		}))
+		executor := NewExecutor(
+			Config{BlockResultPoolSize: 1, MinGasPrice: big.NewInt(0)},
+			withTestStores(store, receiptStore, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+				return []*proto.NamedChangeSet{}, nil
+			}),
+			WithBalanceStore(balanceStore),
+		)
+		rawTx := signLegacyTxWithGasPrice(
+			t, key, chainID, 0, &recipient, big.NewInt(7), nil, 100_000, big.NewInt(0),
+		)
 
-		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
 
 		require.ErrorIs(t, err, commitErr)
 		require.Nil(t, result)
@@ -376,6 +400,8 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
 		require.Equal(t, int64(blockContext(big.NewInt(testChainID)).Number), receiptStore.LatestVersion())
+		require.Equal(t, initialBalance, balanceStore.GetBalance(sender))
+		require.Zero(t, balanceStore.GetBalance(recipient).Sign())
 	})
 
 	t.Run("block number overflow", func(t *testing.T) {
