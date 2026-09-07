@@ -19,7 +19,9 @@ type memoryReceiptEntry struct {
 	receipt     *evmtypes.Receipt
 }
 
-// MemoryReceiptStore retains receipts in memory by transaction hash and block.
+// MemoryReceiptStore is a process-local receipt store for tests and ephemeral
+// load generation. Its contents are lost on exit, so it is not suitable for
+// persistent nodes.
 type MemoryReceiptStore struct {
 	mu sync.RWMutex
 
@@ -29,7 +31,7 @@ type MemoryReceiptStore struct {
 	byTxHash        map[common.Hash]memoryReceiptEntry
 }
 
-// NewMemoryReceiptStore constructs an empty in-memory receipt store.
+// NewMemoryReceiptStore returns an empty MemoryReceiptStore.
 func NewMemoryReceiptStore() *MemoryReceiptStore {
 	return &MemoryReceiptStore{
 		blocks:   make(map[uint64]map[common.Hash]*evmtypes.Receipt),

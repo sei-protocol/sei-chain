@@ -99,7 +99,9 @@ the block overwrites them. `ResultSink` runs only after both stores succeed.
 
 `MemoryStore` and `MemoryReceiptStore` are the non-persistent implementations
 installed into a `bootstrap.GigaStorageManager` by the EVM-only app, tests, and
-load harness. `MemoryStore` wraps an immutable `StateReader`, encodes changes
+load harness. They are intended only for tests and ephemeral load generation;
+neither is suitable for persistent nodes, and all contents are lost when the
+process exits. `MemoryStore` wraps an immutable `StateReader`, encodes changes
 directly into typed `NamedChangeSet` key/value pairs, and retains committed
 values in versioned overlays so current and historical snapshots stay stable
 without copying the complete base state per block. `MemoryReceiptStore`

@@ -1,8 +1,10 @@
 # evmonly-loadtest
 
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
-the EVM-only executor through an in-memory `giga.StateDB`, without Cosmos SDK
-state, mempool, RPC, or production SC/SS persistence.
+the EVM-only executor through process-local Giga state and receipt stores,
+without Cosmos SDK state, mempool, RPC, or production persistence. Both stores
+are for ephemeral load generation only and lose all contents when the process
+exits.
 
 The synthetic workload defaults to local EVM chain ID `1337`; override it with
 `--chain-id` when testing another signing domain.
