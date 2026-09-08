@@ -75,7 +75,7 @@ type CompositeCommitStore struct {
 	// config holds the store configuration
 	config config.StateCommitConfig
 
-	// hashLogger is handed to every flatKV instance this store builds. Nil records nothing.
+	// hashLogger records flatKV's per-block hashes. Never nil.
 	hashLogger hashlog.HashLogger
 
 	// currentWriteMode is the write mode actually driving routing and
@@ -226,8 +226,8 @@ func NewCompositeCommitStore(
 	return store, nil
 }
 
-// adoptFlatKV installs store as this composite's flatKV backend and starts tracking the hash it
-// publishes for each block.
+// adoptFlatKV installs store as this composite's flatKV backend, starts tracking the hash it
+// publishes for each block, and puts those hashes on the hash log.
 func (cs *CompositeCommitStore) adoptFlatKV(store giga.LiveStateStore) error {
 	cs.flatKV = store
 
@@ -236,6 +236,10 @@ func (cs *CompositeCommitStore) adoptFlatKV(store giga.LiveStateStore) error {
 		return fmt.Errorf("failed to register the flatkv hash listener: %w", err)
 	}
 	cs.flatKVHash.Store(&mostRecent)
+
+	if _, err := store.RegisterHashListener(cs.hashLogger.HashListener); err != nil {
+		return fmt.Errorf("failed to register the flatkv hash log listener: %w", err)
+	}
 	return nil
 }
 
