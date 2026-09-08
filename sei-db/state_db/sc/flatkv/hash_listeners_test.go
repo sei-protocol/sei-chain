@@ -183,8 +183,9 @@ func TestANilHashListenerRegistersNothing(t *testing.T) {
 // than to that pipeline, so they survive it — a rollback that silently dropped a listener would leave
 // whatever it feeds frozen at the pre-rollback height.
 //
-// A rollback re-delivers the heights it replays on its way back to the target, so the listener sees
-// them a second time. Nothing observes that in practice — see RegisterHashListener.
+// A rollback re-announces the height it restarts hashing from and re-delivers what it replays on the
+// way back to the target, so the listener sees those heights a second time. Nothing observes that in
+// practice — see RegisterHashListener.
 func TestRegistrationsSurviveARollback(t *testing.T) {
 	s := setupTestStoreWithConfig(t, tightHashPipelineConfig(t))
 	defer func() { require.NoError(t, s.Close()) }()
@@ -202,7 +203,8 @@ func TestRegistrationsSurviveARollback(t *testing.T) {
 	commitBlocks(t, s, 2)
 	require.NoError(t, s.FlushHashes())
 
-	require.Equal(t, []int64{1, 2, 3, 4, 5, 1, 2, 3, 4, 5}, *seen,
+	// 0 is the height the rollback reopened at, then 1 to 3 are replayed, then 4 and 5 re-executed.
+	require.Equal(t, []int64{1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5}, *seen,
 		"the listener registered before the rollback must still be given the blocks after it")
 }
 

@@ -226,8 +226,8 @@ func NewCompositeCommitStore(
 	return store, nil
 }
 
-// adoptFlatKV installs store as this composite's flatKV backend, registering the listener that keeps
-// the hash the commit path reads current and seeding it with the hash that registration reports.
+// adoptFlatKV installs store as this composite's flatKV backend and starts tracking the hash it
+// publishes for each block.
 func (cs *CompositeCommitStore) adoptFlatKV(store giga.LiveStateStore) error {
 	cs.flatKV = store
 
@@ -235,9 +235,7 @@ func (cs *CompositeCommitStore) adoptFlatKV(store giga.LiveStateStore) error {
 	if err != nil {
 		return fmt.Errorf("failed to register the flatkv hash listener: %w", err)
 	}
-	// Stored only if the listener has not run yet. Registration and the hash it returns are atomic
-	// against dispatch, so a block dispatched after it is newer than this seed and must win.
-	cs.flatKVHash.CompareAndSwap(nil, &mostRecent)
+	cs.flatKVHash.Store(&mostRecent)
 	return nil
 }
 

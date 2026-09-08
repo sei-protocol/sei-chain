@@ -1114,6 +1114,12 @@ func (s *CommitStore) startHashing() error {
 		s.config.FinalizationQueueSize,
 		s.hashListeners,
 	)
+
+	// The listeners are told the height hashing starts from, since a store that opened, seeded or
+	// rolled back reached it without any block being committed.
+	if err := s.hashListeners.dispatch(s.ctx, s.loadedHashes); err != nil {
+		return fmt.Errorf("dispatch the loaded hash of block %d: %w", s.loadedHashes.BlockNumber, err)
+	}
 	return nil
 }
 
@@ -1233,14 +1239,6 @@ func (s *CommitStore) PublishedHash() *lthash.BlockHash {
 // RegisterHashListener registers a callback the store hands the hash of each committed block to:
 // exactly one per block, in block order, with no gaps or duplicates. It reports the most recent hash
 // dispatched, which is the block the listener's first delivery follows.
-//
-// The hash reported is the height the store stands at until a block has been dispatched. A nil
-// listener registers nothing and only reports that hash, which is how a caller that wants the height
-// and no deliveries asks for it. A read-only store takes a listener and never calls it: it hashes
-// only inside the call that builds it.
-//
-// A rollback re-executes heights, so across one the reported hash can sit ahead of the listener's
-// next delivery and hashes arrive out of order. Runtime rollback is scheduled for deprecation.
 func (s *CommitStore) RegisterHashListener(listener giga.HashListener) (lthash.BlockHash, error) {
 	return s.hashListeners.register(listener, s.PublishedHash()), nil
 }
