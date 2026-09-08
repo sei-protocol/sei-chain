@@ -7,3 +7,9 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:9090']
     scrape_interval: 5s
+
+  # Host CPU, memory, disk, filesystem. Start with start-node-exporter.sh (Linux only).
+  - job_name: 'node'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+    scrape_interval: 5s

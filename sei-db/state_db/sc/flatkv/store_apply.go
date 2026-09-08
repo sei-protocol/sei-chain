@@ -109,8 +109,9 @@ func (s *CommitStore) prepareWrites(
 ) (preparedWrites, error) {
 	var out preparedWrites
 
-	// A nonce or codehash change carries only its own field, so it has to be merged onto the account as
-	// it stands right now — a live read, since anything an earlier call at this height wrote counts.
+	// A nonce, codehash or balance change carries only its own field, so it has to be merged onto the
+	// account as it stands right now — a live read, since anything an earlier call at this height wrote
+	// counts.
 	s.phaseTimer.SetPhase("apply_change_sets_read_accounts")
 	readStart := time.Now()
 	accountOld, err := s.readAccountsForMerge(changesByType)
@@ -125,7 +126,7 @@ func (s *CommitStore) prepareWrites(
 	accountUpdates, err := mergeAccountUpdates(
 		changesByType[keys.EVMKeyNonce],
 		changesByType[keys.EVMKeyCodeHash],
-		nil, // TODO: update this when we add a balance key!
+		changesByType[keys.EVMKeyBalance],
 	)
 	if err != nil {
 		return out, fmt.Errorf("failed to gather account updates: %w", err)
@@ -154,15 +155,20 @@ func (s *CommitStore) prepareWrites(
 	return out, nil
 }
 
-// readAccountsForMerge reads the accounts that this batch's nonce and codehash changes touch, so those
-// partial updates can be merged onto whole accounts. Keys come from both kinds, since either can name
-// an account the other does not.
+// readAccountsForMerge reads the accounts that this batch's nonce, codehash and balance changes touch,
+// so those partial updates can be merged onto whole accounts. Keys come from all three kinds, since any
+// one of them can name an account the others do not.
 func (s *CommitStore) readAccountsForMerge(
 	changesByType map[keys.EVMKeyKind]map[string][]byte,
 ) (map[string]*vtype.AccountData, error) {
-	touched := make(map[string]struct{},
-		len(changesByType[keys.EVMKeyNonce])+len(changesByType[keys.EVMKeyCodeHash]))
-	for _, kind := range []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash} {
+	accountKinds := []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance}
+
+	size := 0
+	for _, kind := range accountKinds {
+		size += len(changesByType[kind])
+	}
+	touched := make(map[string]struct{}, size)
+	for _, kind := range accountKinds {
 		for key := range changesByType[kind] {
 			touched[key] = struct{}{}
 		}
@@ -440,7 +446,8 @@ func mergeAccountUpdates(
 	balanceChanges map[string][]byte,
 ) (map[string]*vtype.PendingAccountWrite, error) {
 
-	updates := make(map[string]*vtype.PendingAccountWrite, len(nonceChanges)+len(codeHashChanges))
+	updates := make(map[string]*vtype.PendingAccountWrite,
+		len(nonceChanges)+len(codeHashChanges)+len(balanceChanges))
 
 	for key, nonceChange := range nonceChanges {
 		if nonceChange == nil {
