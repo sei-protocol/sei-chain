@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/sei-protocol/seilog"
 
@@ -182,6 +183,9 @@ func (s *StateDB) discardStateAboveTheWAL(head int64) error {
 		// the state it covered as the only record of it.
 		return nil
 	}
+	if err := s.ensureStoresCanRewindTo(head); err != nil {
+		return err
+	}
 	if err := s.discardSCAboveTheWAL(head); err != nil {
 		return err
 	}
@@ -341,6 +345,9 @@ func (s *StateDB) rewindTo(target int64) error {
 		return fmt.Errorf("cannot roll back to %d: the state WAL ends at %d, so no replay reaches the "+
 			"target", target, head)
 	}
+	if err := s.ensureStoresCanRewindTo(target); err != nil {
+		return err
+	}
 
 	if err := s.dropSnapshotsAbove(target); err != nil {
 		return err
@@ -443,19 +450,29 @@ func (s *StateDB) ssFillsForward() (bool, error) {
 	return !stored || first > 1, nil
 }
 
-// matchHeight checks SC and SS against blockNum and reports the one that is not on it. An SS still
-// holding nothing was left out of the replay to fill forward, so it is not held to blockNum.
+// matchHeight checks SC and SS against blockNum and reports the one that is not on it. An SS left empty
+// to fill forward is not held to blockNum.
 func (s *StateDB) matchHeight(blockNum int64) error {
 	if got := s.sc.Version(); got != blockNum {
 		return fmt.Errorf("rollback to %d left the state commit store on %d", blockNum, got)
 	}
-	if s.ss == nil || s.ss.GetLatestVersion() == 0 {
+	if s.ss == nil {
 		return nil
 	}
-	if got := s.ss.GetLatestVersion(); got != blockNum {
-		return fmt.Errorf("rollback to %d left the EVM state store on %d", blockNum, got)
+	got := s.ss.GetLatestVersion()
+	if got == blockNum {
+		return nil
 	}
-	return nil
+	if got == 0 {
+		fillForward, err := s.ssFillsForward()
+		if err != nil {
+			return err
+		}
+		if fillForward {
+			return nil
+		}
+	}
+	return fmt.Errorf("rollback to %d left the EVM state store on %d", blockNum, got)
 }
 
 // rewindSC points SC's files at the snapshot at or below target and drops the snapshots above it. It
@@ -471,26 +488,88 @@ func (s *StateDB) rewindSC(target int64) error {
 }
 
 // rewindSS puts SS's files on the snapshot at or below target and drops the snapshots above it. It runs
-// before SS opens, so the store opens once, on that snapshot.
-//
-// SS keeps no working copy, so this restores its databases from the snapshot outright. With no snapshot
-// at or below target it is cleared, leaving the catch-up to rebuild it from block 1 or to leave it empty
-// to fill forward.
+// with SS closed, so the next open lands on that snapshot. A target with no snapshot at or below it is
+// refused.
 func (s *StateDB) rewindSS(target int64) error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	landedHeight, err := evm.RewindClosedStoreTo(
-		s.ssCfg.EVMDBDirectory, s.ssSnapshotRoot(), s.ssCfg.SeparateEVMSubDBs, target)
-	if err != nil {
+	if _, err := evm.RewindClosedStoreTo(
+		s.ssCfg.EVMDBDirectory, s.ssSnapshotRoot(), s.ssCfg.SeparateEVMSubDBs, target); err != nil {
 		return fmt.Errorf("rewind the EVM state store to a snapshot at or below %d: %w", target, err)
 	}
-	if landedHeight == 0 {
-		logger.Warn("EVM state store cleared by a rollback: it holds no snapshot at or below the target, "+
-			"so the history it had is only as recoverable as the state WAL still reaching block 1",
-			"target", target)
-	}
 	return nil
+}
+
+// ensureStoresCanRewindTo returns an error when SC or SS sits above target and has no snapshot at or
+// below it. A store already at or below target needs no snapshot.
+func (s *StateDB) ensureStoresCanRewindTo(target int64) error {
+	if err := s.ensureSCCanRewindTo(target); err != nil {
+		return err
+	}
+	return s.ensureSSCanRewindTo(target)
+}
+
+// ensureSCCanRewindTo returns an error when SC sits above target and has no snapshot at or below it.
+// Snapshot 0 counts. A store already at or below target needs none.
+func (s *StateDB) ensureSCCanRewindTo(target int64) error {
+	_, snapErr := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
+	if snapErr == nil {
+		return nil
+	}
+	opensAt, err := flatkv.GetWorkingCopyVersion(s.flatkvCfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, err)
+	}
+	if opensAt <= target {
+		return nil
+	}
+	return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, snapErr)
+}
+
+// ensureSSCanRewindTo returns an error when SS sits above target and has no snapshot at or below it.
+// A store at or below target needs no snapshot.
+func (s *StateDB) ensureSSCanRewindTo(target int64) error {
+	if !s.ssCfg.Enable {
+		return nil
+	}
+	base, err := evm.SnapshotAtOrBelow(s.ssSnapshotRoot(), target)
+	if err != nil {
+		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+	}
+	if base > 0 {
+		return nil
+	}
+	openedAt, err := s.ssLatestVersion()
+	if err != nil {
+		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+	}
+	if openedAt <= target {
+		return nil
+	}
+	return fmt.Errorf("cannot roll back the EVM state store to %d: no snapshot at or below target", target)
+}
+
+// ssLatestVersion returns the height SS currently holds, or 0 when the store has never been written.
+func (s *StateDB) ssLatestVersion() (int64, error) {
+	if s.ss != nil {
+		return s.ss.GetLatestVersion(), nil
+	}
+	if _, err := os.Stat(s.ssCfg.EVMDBDirectory); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("stat the EVM state store: %w", err)
+	}
+	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
+	if err != nil {
+		return 0, fmt.Errorf("read the EVM state store version: %w", err)
+	}
+	version := ss.GetLatestVersion()
+	if err := ss.Close(); err != nil {
+		return 0, fmt.Errorf("close the EVM state store after reading its version: %w", err)
+	}
+	return version, nil
 }
 
 // ssSnapshotRoot returns the directory SS keeps its snapshots in.

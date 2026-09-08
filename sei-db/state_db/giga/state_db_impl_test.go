@@ -126,6 +126,18 @@ func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
 	require.NoError(t, s.matchHeight(4))
 }
 
+// An empty SS is only excused when the WAL cannot rebuild it. Excusing every version-0 store would
+// treat a wiped history as a brand-new one whenever the WAL still reaches block 1.
+func TestMatchHeightDoesNotExcuseAnEmptyStoreTheWALCanRebuild(t *testing.T) {
+	_, _, sc := newTestStateDB(t)
+	for block := int64(1); block <= 4; block++ {
+		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
+	}
+	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
+
+	require.ErrorContains(t, s.matchHeight(4), "EVM state store")
+}
+
 // A store that holds nothing is only left empty when the WAL cannot rebuild it. One the WAL still
 // reaches back far enough for comes out of recovery holding real history, which is strictly better, and
 // is how SS is populated at all while the live commit path does not write it.

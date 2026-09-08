@@ -291,6 +291,44 @@ func TestOpenRewindsSSAboveTheWALHead(t *testing.T) {
 	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
 }
 
+// An SS above the WAL head with no snapshot at or below it cannot be rewound. Clearing it would delete
+// the history it holds; refusing leaves that history in place.
+func TestOpenSSAboveTheWALHeadWithoutASnapshotIsRefused(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+	applySSThrough(t, manager, 3)
+	require.Equal(t, int64(3), manager.SS().GetLatestVersion())
+	closeStateDB(t, manager)
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 2))
+
+	require.ErrorContains(t, manager.openStateDB(t.Context()), "no snapshot at or below")
+
+	ss, err := evm.NewEVMStateStore(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, ss.Close()) })
+	require.Equal(t, int64(3), ss.GetLatestVersion(),
+		"a refused open must not have cleared the EVM state store")
+	scVersion, err := flatkv.GetWorkingCopyVersion(cfg.FlatKVConfig.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), scVersion, "a refused open must not have moved SC")
+}
+
+// An SC above the WAL head with no snapshot at or below it cannot be rewound. Rebuilding the working
+// copy from an empty snapshot would delete the history it holds; refusing leaves that history in place.
+func TestOpenSCAboveTheWALHeadWithoutASnapshotIsRefused(t *testing.T) {
+	manager, cfg := openManager(t, disableSS)
+	commitBlocks(t, manager, 3)
+	closeStateDB(t, manager)
+	require.NoError(t, os.RemoveAll(scSnapshotDir(cfg.FlatKVConfig.DataDir, 0)))
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 2))
+
+	require.ErrorContains(t, manager.openStateDB(t.Context()), "no snapshot")
+
+	openedAt, err := flatkv.GetWorkingCopyVersion(cfg.FlatKVConfig.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), openedAt, "a refused open must not have rebuilt SC from an empty snapshot")
+}
+
 // scSnapshotDir returns where SC keeps the snapshot for version under dataDir.
 func scSnapshotDir(dataDir string, version int64) string {
 	return filepath.Join(dataDir, fmt.Sprintf("snapshot-%020d", version))
@@ -496,18 +534,20 @@ func TestOpenAtATargetAboveTheWALHeadFails(t *testing.T) {
 	requireWALTail(t, manager, 3)
 }
 
-// A store with no snapshot at or below the target is rewound to empty and rebuilt from block 1, rather
-// than refused. SC and SS are both derived from the WAL, so a WAL that still reaches back that far can
-// supply the whole of it, and the rollback lands SS on the target holding real state.
-func TestOpenAtATargetRebuildsSSFromTheWAL(t *testing.T) {
+// An SS above the target with no snapshot at or below it is refused before the rollback moves
+// anything. Wiping it and rebuilding from the WAL is not a rewind: the live store still holds history.
+func TestRecoverAboveSSWithoutASnapshotIsRefused(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
 	applySSThrough(t, manager, 3)
 
-	reconverge(t, manager, 2)
+	require.ErrorContains(t, reconvergeErr(t, manager, 2), "no snapshot at or below target")
 
-	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
-	require.Equal(t, int64(2), manager.SC().Version())
+	require.NoError(t, manager.openStateDB(t.Context()))
+	require.Equal(t, int64(3), manager.SC().Version(), "a refused rollback must not have moved SC")
+	require.Equal(t, int64(3), manager.SS().GetLatestVersion(),
+		"a refused rollback must not have cleared the EVM state store")
+	requireWALTail(t, manager, 3)
 }
 
 // A target of 0 has to be refused by the constructor that takes one, and refused there rather than by a

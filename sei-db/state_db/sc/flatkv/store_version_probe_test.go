@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // GetLatestVersion answers, without opening the store, the version a store opened on that directory
@@ -149,4 +150,30 @@ func TestCommitStoreGetLatestVersionUsesMemoryWhileOpen(t *testing.T) {
 	got, err := s.GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), got)
+}
+
+func TestGetWorkingCopyVersionNeverOpenedDirIsZero(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), flatkvRootDir)
+	got, err := GetWorkingCopyVersion(dir)
+	require.NoError(t, err)
+	require.Zero(t, got)
+}
+
+// A working copy above the WAL tail is still the version LoadWorkingCopy opens at. GetLatestVersion
+// follows the WAL, which is the wrong signal for whether a rewind of that working copy needs a snapshot.
+func TestGetWorkingCopyVersionIgnoresTheWALTail(t *testing.T) {
+	s, cfg := newProbeStore(t)
+	for i := int64(1); i <= 3; i++ {
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
+	require.NoError(t, s.Close())
+	require.NoError(t, statewal.PruneAfter(StateWALConfig(cfg.DataDir), 1))
+
+	working, err := GetWorkingCopyVersion(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), working, "the working copy still holds block 3")
+
+	latest, err := GetLatestVersion(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), latest, "LoadLatest would land on the WAL tail")
 }

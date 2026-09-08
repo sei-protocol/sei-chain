@@ -88,3 +88,15 @@ func TestHealInterruptedRestore(t *testing.T) {
 		requireNoLeftovers(t, dst)
 	})
 }
+
+// A rewind with nothing to land on must not clear the live databases. The store above the target still
+// holds history; wiping it is not a rewind.
+func TestRewindClosedStoreToRefusesWhenThereIsNoSnapshot(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "db")
+	writeMarkedDir(t, dir, "live")
+
+	_, err := RewindClosedStoreTo(dir, t.TempDir(), false, 1)
+
+	require.ErrorContains(t, err, "no snapshot at or below target")
+	require.Equal(t, "live", markerOf(t, dir), "a refused rewind must leave the live store in place")
+}
