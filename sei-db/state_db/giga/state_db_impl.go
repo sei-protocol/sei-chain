@@ -443,8 +443,9 @@ func (s *StateDB) requireReachable(target int64, wal storedWALRange) error {
 // rollbackBase returns the height a rollback to target replays forward from: the lower of the snapshots
 // SC and SS land on, since each is rewound to its own newest snapshot at or below target.
 //
-// It reads the snapshot trees rather than the stores, which have not opened yet. A store with no
-// snapshot at or below target lands on 0 and is rebuilt from block 1.
+// It reads the snapshot trees rather than the stores, which have not opened yet. SS is left out when no
+// snapshot of it survives the target: its rewind clears it, and the catch-up then either replays it from
+// block 1 or leaves it empty to fill forward, neither of which the WAL has to be held to here.
 func (s *StateDB) rollbackBase(target int64) (int64, error) {
 	base, err := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
 	if err != nil {
@@ -459,6 +460,9 @@ func (s *StateDB) rollbackBase(target int64) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("cannot roll back to %d: read the EVM state store's snapshots: %w",
 			target, err)
+	}
+	if ssBase == 0 {
+		return base, nil
 	}
 	return min(base, ssBase), nil
 }
@@ -510,15 +514,21 @@ func (s *StateDB) rewindSC(target int64) error {
 // before SS opens, so the store opens once, on that snapshot.
 //
 // SS keeps no working copy, so this restores its databases from the snapshot outright. With no snapshot
-// at or below target it is left empty for the replay to rebuild from block 1.
+// at or below target it is cleared, leaving the catch-up to rebuild it from block 1 or to leave it empty
+// to fill forward.
 func (s *StateDB) rewindSS(target int64) error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	_, err := evm.RewindClosedStoreTo(
+	landedHeight, err := evm.RewindClosedStoreTo(
 		s.ssCfg.EVMDBDirectory, s.ssSnapshotRoot(), s.ssCfg.SeparateEVMSubDBs, target)
 	if err != nil {
 		return fmt.Errorf("rewind the EVM state store to a snapshot at or below %d: %w", target, err)
+	}
+	if landedHeight == 0 {
+		logger.Warn("EVM state store cleared by a rollback: it holds no snapshot at or below the target, "+
+			"so the history it had is only as recoverable as the state WAL still reaching block 1",
+			"target", target)
 	}
 	return nil
 }

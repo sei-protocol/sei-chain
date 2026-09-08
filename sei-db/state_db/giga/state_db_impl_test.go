@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -75,6 +76,18 @@ func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.Com
 	return &StateDB{wal: wal, sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
 }
 
+// snapshotSCThrough commits blocks 1 through height so SC snapshots them, leaving a snapshot a rollback
+// can land on. A BlockInterval of 1 makes every offered version a boundary, and the snapshots are
+// written off the commit path, so they have to be waited for.
+func snapshotSCThrough(t *testing.T, sc *flatkv.CommitStore, height int64) {
+	t.Helper()
+	sc.SetCheckpointScheduler(controller.NewCheckpointScheduler(config.CheckpointConfig{BlockInterval: 1}))
+	for block := int64(1); block <= height; block++ {
+		require.NoError(t, sc.CommitStateChanges(block, changeset("k", "v")))
+	}
+	require.NoError(t, sc.FlushSnapshots())
+}
+
 // gapWAL reports a stored range beginning above the block a replay has to start from, which is what a
 // WAL pruned past a store's head looks like.
 type gapWAL struct {
@@ -118,20 +131,31 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 // A rollback establishes that its replay can bridge the gap its rewinds open before either of them
 // moves anything, since every step of one is irreversible and the replay runs last.
 //
-// A store with no snapshot at or below the target is rewound to empty and rebuilt from block 1, so it
-// asks the WAL for its oldest blocks. A WAL that has had a retention cut no longer holds them, and
-// finding that out after the WAL had been cut back would leave a node that will not start and no longer
-// holds the blocks a second attempt would need.
-func TestRequireReachableRefusesAWALThatCannotRebuildAStore(t *testing.T) {
+// SC with no snapshot at or below the target is rewound to empty and rebuilt from block 1, so it asks
+// the WAL for its oldest blocks. A WAL that has had a retention cut no longer holds them, and finding
+// that out after the WAL had been cut back would leave a node that will not start and no longer holds
+// the blocks a second attempt would need.
+func TestRequireReachableRefusesAWALThatCannotRebuildSC(t *testing.T) {
 	db, _, _ := newTestStateDB(t)
 	s := db.(*StateDB)
-	// A directory holding no snapshots is a store with nothing to restore from, so it is the one that
-	// has to be rebuilt from the first block.
-	s.ssCfg = config.StateStoreConfig{Enable: true, EVMDBDirectory: t.TempDir()}
 
 	err := s.requireReachable(5, storedWALRange{first: 3, last: 5})
 
 	require.ErrorContains(t, err, "needs blocks 1-5, but the state WAL only holds 3-5")
+}
+
+// SS is not held to that, because a rollback does not depend on rebuilding it: with no snapshot to land
+// on it is cleared, and the catch-up then leaves it empty to fill forward rather than replaying it.
+// Holding it to block 1 refuses the rollback outright, and refuses it on every node whose WAL has had a
+// retention cut — which is the state SS is normally in, since nothing yet offers it a version to
+// snapshot at.
+func TestRequireReachableIgnoresAnSSWithNoSnapshotToLandOn(t *testing.T) {
+	db, _, sc := newTestStateDB(t)
+	s := db.(*StateDB)
+	snapshotSCThrough(t, sc, 3)
+	s.ssCfg = config.StateStoreConfig{Enable: true, EVMDBDirectory: t.TempDir()}
+
+	require.NoError(t, s.requireReachable(5, storedWALRange{first: 3, last: 5}))
 }
 
 // A store left to fill forward is not held to the target afterwards. Holding it there would fail the
