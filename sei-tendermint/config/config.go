@@ -80,9 +80,9 @@ type Config struct {
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
 	// configuration. Leave empty to disable Autobahn. The autobahn role
 	// follows the top-level `mode` field: "validator" runs the validator
-	// path; any other mode runs as a fullnode (loads the committee as a
-	// routing table and pulls blocks from committee members). A warning is
-	// logged at startup if mode disagrees with committee membership.
+	// path; any other mode runs as a fullnode (loads the address book and
+	// pulls blocks from committee members). A warning is logged at startup
+	// if mode disagrees with address-book membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
 	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The vault is

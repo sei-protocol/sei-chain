@@ -14,6 +14,37 @@ progressively the deeper you go. Existing package guides include:
 - `evmrpc/AGENTS.md` — EVM JSON-RPC (`eth_*`, `sei_*`, `debug_*`) semantics
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
+- `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
+- `upgradetest/AGENTS.md` — upgrade boundary tests: how a release's upgrade coverage is scoped and selected
+
+## Configuration reads
+
+How a seid node resolves configuration is pinned by the characterization suite in
+`testutil/configtest`. Renaming a key the suite covers, changing a default, or changing
+how a value is cast will fail that suite. **Adding** a key does not always: the completeness
+check compares struct fields, so a second key landing in a field some row already
+claims is uncaught and the row has to be written by hand. Where there is a failure it
+is the review prompt: record the new behavior so the old and new value land in a diff,
+rather than skipping the row or widening the assertion until it passes. Read
+[`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
+configuration read, and before adding one.
+
+## Upgrade names
+
+Appending a name to `app/tags` moves the upgrade boundary this build ships, and
+`upgradetest` derives from that list which test set CI runs. The move fails
+`TestCurrentBoundaryHasATestFile` until a file for the new boundary exists, and
+that failure is the review prompt: state what the upgrade changes and what it may
+not, rather than carrying the previous release's cases forward or deleting them.
+Read [`upgradetest/AGENTS.md`](upgradetest/AGENTS.md) before adding an upgrade
+name, and before changing an upgrade handler.
+
+Create the v6.7 definition with
+`make new-upgrade-test FROM=v6.6 TO=v6.7`; do not hand-name its build tag.
+Exercise its persisted Go boundary with
+`make upgrade-test-offline FROM_REF=release/v6.6 TO_REF=release/v6.7`, and its
+real node boundary with
+`make upgrade-test-cross-version FROM_REF=release/v6.6 TO_REF=release/v6.7`.
 
 ## Code style
 

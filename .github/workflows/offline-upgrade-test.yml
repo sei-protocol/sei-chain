@@ -1,0 +1,63 @@
+name: Offline Minor Upgrade Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source branch (empty derives release/vMAJOR.MINOR)
+        required: false
+        type: string
+      target_ref:
+        description: Target branch or commit (empty uses this workflow commit)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  offline-upgrade:
+    name: Persisted Go boundary
+    runs-on: uci-default
+    timeout-minutes: 30
+    env:
+      FROM_REF: ${{ inputs.source_ref || '' }}
+      TO_REF: ${{ inputs.target_ref || github.sha }}
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+
+      # See: https://github.com/actions/setup-go/releases/tag/v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.25.6'
+          cache: false
+
+      - name: Run persisted cross-branch Go test
+        run: make upgrade-test-offline FROM_REF="$FROM_REF" TO_REF="$TO_REF"
+
+      - name: Upload offline upgrade diagnostics
+        if: ${{ always() }}
+        # See: https://github.com/actions/upload-artifact/releases/tag/v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: offline-upgrade-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sei-offline-upgrade-${{ github.run_id }}/artifacts/*.log
+            ${{ runner.temp }}/sei-offline-upgrade-${{ github.run_id }}/artifacts/revisions.txt
+            ${{ runner.temp }}/sei-offline-upgrade-${{ github.run_id }}/artifacts/state/manifest.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -72,9 +72,12 @@ func TestEvmIterator(t *testing.T) {
 	miscEnd := ktype.PrefixEnd(miscStart)
 	nonceStart := []byte{0x0a}
 	nonceEnd := ktype.PrefixEnd(nonceStart)
+	balanceStart := []byte{0x21}
+	balanceEnd := ktype.PrefixEnd(balanceStart)
 	midAddr := addrN(0x80)
 	crossSpanStart := keys.BuildEVMKey(keys.EVMKeyCodeHash, midAddr[:]) // 0x08 || addr
 	crossSpanEnd := keys.BuildEVMKey(keys.EVMKeyNonce, midAddr[:])      // 0x0a || addr
+	balanceMid := keys.BuildEVMKey(keys.EVMKeyBalance, midAddr[:])      // 0x21 || addr
 	storageResumeStart := evmStorageKey(addrN(0x40), slotN(0x10))       // 0x03 || addr || slot
 
 	cases := []struct {
@@ -94,6 +97,10 @@ func TestEvmIterator(t *testing.T) {
 		{name: "nonce prefix range descending", start: nonceStart, end: nonceEnd, ascending: false},
 		{name: "cross span codehash to nonce ascending", start: crossSpanStart, end: crossSpanEnd, ascending: true},
 		{name: "cross span codehash to nonce descending", start: crossSpanStart, end: crossSpanEnd, ascending: false},
+		{name: "balance prefix range ascending", start: balanceStart, end: balanceEnd, ascending: true},
+		{name: "balance prefix range descending", start: balanceStart, end: balanceEnd, ascending: false},
+		{name: "cross span nonce to balance ascending", start: nonceStart, end: balanceMid, ascending: true},
+		{name: "cross span nonce to balance descending", start: nonceStart, end: balanceMid, ascending: false},
 		{name: "storage resume ascending", start: storageResumeStart, end: nil, ascending: true},
 	}
 
@@ -452,7 +459,7 @@ func TestEvmIteratorDifferential(t *testing.T) {
 	for _, e := range fixture.Sorted {
 		pool = append(pool, bytes.Clone(e.Key))
 	}
-	for _, p := range [][]byte{{0x03}, {0x07}, {0x08}, {0x09}, {0x0a}} {
+	for _, p := range [][]byte{{0x03}, {0x07}, {0x08}, {0x09}, {0x0a}, {0x21}} {
 		pool = append(pool, bytes.Clone(p), ktype.PrefixEnd(p))
 	}
 
@@ -599,8 +606,11 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 		gen.addAccount(disp)
 	}
 
-	// Nonce-only account (no codehash key in iterator output).
+	// Nonce-only account (no codehash or balance key in iterator output).
 	gen.addNonceOnlyAccount()
+
+	// Balance-only account: the row exists because of its balance alone.
+	gen.addBalanceOnlyAccount()
 
 	// Malformed account-prefixed misc key: lands in the account physical
 	// region (evm/0x0a...) but is routed to miscDB, exercising the overlap
@@ -728,6 +738,15 @@ func (g *evmIteratorGenerator) rngCodeHash() vtype.CodeHash {
 	return h
 }
 
+func (g *evmIteratorGenerator) rngBalance() vtype.Balance {
+	var b vtype.Balance
+	g.rng.Read(b[:])
+	if b == (vtype.Balance{}) {
+		b[0] = 1
+	}
+	return b
+}
+
 func (g *evmIteratorGenerator) recordOverlap(key, value []byte) {
 	*g.overlaps = append(*g.overlaps, evmIteratorEntry{
 		Key:   bytes.Clone(key),
@@ -839,32 +858,44 @@ func (g *evmIteratorGenerator) addAccount(disp evmIteratorDisposition) {
 	for ch1 == ch2 {
 		ch2 = g.rngCodeHash()
 	}
+	bal1 := g.rngBalance()
+	bal2 := g.rngBalance()
+	for bal1 == bal2 {
+		bal2 = g.rngBalance()
+	}
 
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
 
 	switch disp {
 	case dispositionPebbleOnly:
-		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1))
+		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1), balancePair(addr, bal1))
 		recordNonceLatest(g.latest, addr, n1)
 		recordCodeHashLatest(g.latest, addr, ch1)
+		recordBalanceLatest(g.latest, addr, bal1)
 	case dispositionPendingOnly:
-		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2))
+		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2), balancePair(addr, bal2))
 		recordNonceLatest(g.latest, addr, n2)
 		recordCodeHashLatest(g.latest, addr, ch2)
+		recordBalanceLatest(g.latest, addr, bal2)
 	case dispositionOverlap:
-		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1))
-		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2))
+		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1), balancePair(addr, bal1))
+		*g.batch2 = append(*g.batch2, noncePair(addr, n2), codeHashPair(addr, ch2), balancePair(addr, bal2))
 		recordNonceLatest(g.latest, addr, n2)
 		recordCodeHashLatest(g.latest, addr, ch2)
+		recordBalanceLatest(g.latest, addr, bal2)
 		g.recordOverlap(nonceKey, nonceBytes(n2))
 		g.recordOverlap(codeHashKey, ch2[:])
+		g.recordOverlap(balanceKey, bal2[:])
 	case dispositionTombstone:
-		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1))
-		*g.batch2 = append(*g.batch2, nonceDeletePair(addr), codeHashDeletePair(addr))
+		*g.batch1 = append(*g.batch1, noncePair(addr, n1), codeHashPair(addr, ch1), balancePair(addr, bal1))
+		*g.batch2 = append(*g.batch2,
+			nonceDeletePair(addr), codeHashDeletePair(addr), balanceDeletePair(addr))
 		removeAccountLatest(g.latest, addr)
 		g.recordTombstone(nonceKey)
 		g.recordTombstone(codeHashKey)
+		g.recordTombstone(balanceKey)
 	}
 }
 
@@ -873,6 +904,16 @@ func (g *evmIteratorGenerator) addNonceOnlyAccount() {
 	n := g.rngNonce()
 	*g.batch1 = append(*g.batch1, noncePair(addr, n))
 	recordNonceLatest(g.latest, addr, n)
+}
+
+// addBalanceOnlyAccount writes an account held up by its balance alone. The balance lane emits it, the
+// codehash lane skips it, and the nonce lane emits the zero nonce every existing row carries.
+func (g *evmIteratorGenerator) addBalanceOnlyAccount() {
+	addr := g.uniqueAddr()
+	bal := g.rngBalance()
+	*g.batch1 = append(*g.batch1, balancePair(addr, bal))
+	recordBalanceLatest(g.latest, addr, bal)
+	recordNonceLatest(g.latest, addr, 0)
 }
 
 func bankNamedCS(pairs ...*proto.KVPair) *proto.NamedChangeSet {
@@ -947,9 +988,19 @@ func recordCodeHashLatest(latest map[string]evmIteratorEntry, addr ktype.Address
 	setEvmLatest(latest, key, ch[:])
 }
 
+func recordBalanceLatest(latest map[string]evmIteratorEntry, addr ktype.Address, bal vtype.Balance) {
+	key := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	if bal == (vtype.Balance{}) {
+		removeEvmLatest(latest, key)
+		return
+	}
+	setEvmLatest(latest, key, bal[:])
+}
+
 func removeAccountLatest(latest map[string]evmIteratorEntry, addr ktype.Address) {
 	removeEvmLatest(latest, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	removeEvmLatest(latest, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
+	removeEvmLatest(latest, keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]))
 }
 
 func sortedEvmEntries(latest map[string]evmIteratorEntry) []evmIteratorEntry {
