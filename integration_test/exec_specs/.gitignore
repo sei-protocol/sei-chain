@@ -1,0 +1,5 @@
+.cache/
+reports/
+.geth-tests.*/
+__pycache__/
+*.pyc

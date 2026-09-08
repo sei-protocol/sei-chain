@@ -1,4 +1,4 @@
-package giga
+package types
 
 import (
 	"io"
@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 // LiveStateStore provides EVM state storage with LtHash integrity.
@@ -155,11 +155,19 @@ type LiveStateStore interface {
 	// anything is modified.
 	Rollback(targetVersion int64) error
 
+	// RewindToSnapshotAtOrBelow rewinds this store to the highest snapshot at or below version and
+	// reports the version it landed on, discarding committed state and snapshots above that point.
+	//
+	// It is Rollback for a store constructed without a WAL: it moves only between snapshot boundaries,
+	// so it needs none, and replaying forward from the version it returns is the caller's to do. The
+	// store must be quiesced and stays open for writing at the returned version.
+	RewindToSnapshotAtOrBelow(version int64) (int64, error)
+
 	// Exporter creates an exporter for the given version (0 = current).
-	Exporter(version int64) (types.Exporter, error)
+	Exporter(version int64) (sctypes.Exporter, error)
 
 	// Importer load data from snapshot to the database
-	Importer(version int64) (types.Importer, error)
+	Importer(version int64) (sctypes.Importer, error)
 
 	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
 	// integration with external phases of execution.

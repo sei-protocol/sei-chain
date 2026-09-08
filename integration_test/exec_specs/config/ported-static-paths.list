@@ -1,0 +1,2 @@
+# Legacy ethereum/tests cases converted into execution-specs source tests.
+tests/ported_static

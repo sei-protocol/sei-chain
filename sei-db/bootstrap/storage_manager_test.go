@@ -15,12 +15,12 @@ import (
 
 // openManager opens a manager over a fresh home directory, applying tweak to the default config
 // first. It registers the Close, so a leaked file lock fails the test that took it.
-func openManager(t *testing.T, tweak func(*config.GigaStorageConfig)) (*GigaStorageManager, config.GigaStorageConfig) {
+func openManager(t *testing.T, tweak func(*config.GigaStorageConfig)) (*GigaStorageManager, *config.GigaStorageConfig) {
 	t.Helper()
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	if tweak != nil {
-		tweak(&cfg)
+		tweak(cfg)
 	}
 	manager, err := NewGigaStorageManager(context.Background(), cfg)
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestOpenLoadsTheCommitStore(t *testing.T) {
 func TestCheckpointScheduleCoversBothHalvesOfState(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
-	require.NotNil(t, manager.checkpointer)
+	require.NotNil(t, manager.StateDB().CheckpointScheduler())
 	require.NotNil(t, manager.SS().Snapshots(),
 		"SS takes no snapshot at all without a snapshot manager, so a height the schedule picks would be dropped")
 }
@@ -98,7 +98,8 @@ func TestStateStoreDisabled(t *testing.T) {
 	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.ReceiptDB())
 
-	require.NotNil(t, manager.checkpointer, "SC still needs the schedule that replaces its own interval")
+	require.NotNil(t, manager.StateDB().CheckpointScheduler(),
+		"SC still needs the schedule that replaces its own interval")
 	require.True(t, manager.SC().ExternalPruning())
 
 	names := make([]string, 0, 4)
@@ -147,9 +148,9 @@ func TestCloseOnAPartialOpen(t *testing.T) {
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
 
-	broken := cfg
+	broken := *cfg
 	broken.ReceiptDBConfig.DBDirectory = "" // NewReceiptStore refuses an unset directory
-	_, err = NewGigaStorageManager(context.Background(), broken)
+	_, err = NewGigaStorageManager(context.Background(), &broken)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "open receipt store")
 
@@ -164,9 +165,9 @@ func TestCloseOnAFailureBeforeAnyStoreOpens(t *testing.T) {
 	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
 
-	broken := cfg
+	broken := *cfg
 	broken.BlockDBConfig = brokenBlockDBConfig(cfg)
-	_, err = NewGigaStorageManager(context.Background(), broken)
+	_, err = NewGigaStorageManager(context.Background(), &broken)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "open block db")
 
@@ -230,7 +231,10 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	for _, store := range manager.prunableStores() {
 		names = append(names, store.Name())
 	}
-	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "EVM SS", "BlockDB"}, names)
+	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
+	// meaning to the collector: it fixes both cut lines as a minimum over every store before pruning
+	// any of them.
+	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS", "ReceiptDB", "BlockDB"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered
@@ -249,7 +253,7 @@ func TestPrunableStoresOmitsDisabledReceipts(t *testing.T) {
 
 // brokenBlockDBConfig returns a copy of cfg's block ledger config that NewBlockDB rejects,
 // leaving the original untouched so the reopen afterwards uses a valid one.
-func brokenBlockDBConfig(cfg config.GigaStorageConfig) *littblock.BlockDBConfig {
+func brokenBlockDBConfig(cfg *config.GigaStorageConfig) *littblock.BlockDBConfig {
 	broken := *cfg.BlockDBConfig
 	litt := *broken.Litt
 	litt.Paths = nil // NewBlockDB refuses an empty path list

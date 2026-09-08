@@ -26,6 +26,13 @@ canonical Pacific-1 traffic and replaying safe, newly signed equivalents on a Se
 testnet. See its [README](./load_generator/README.md) for capture, fixture
 deployment, user provisioning, replay, and observability instructions.
 
+### Ethereum execution specs
+
+`integration_test/exec_specs/` runs the upstream Ethereum transaction, RLP, and
+state-transition vectors against isolated local Sei devnets. See its
+[README](./exec_specs/README.md) for local usage, pinned dependencies, selection
+policy, and CI behavior.
+
 ## Writing Tests
 Each integration test is defined in a YAML file under its specific module folder under the integration_test directory
 

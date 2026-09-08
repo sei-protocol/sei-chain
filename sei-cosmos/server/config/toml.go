@@ -239,6 +239,12 @@ max-recv-msg-size = {{ .GRPC.MaxRecvMsgSize }}
 # MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
 max-open-connections = {{ .GRPC.MaxOpenConnections }}
 
+# max-connections-per-ip is the maximum number of simultaneous open connections one
+# client address may hold, bounding its share of max-open-connections. Addresses are
+# keyed the way rate-limit buckets are, so everything reaching the node over 127.0.0.1
+# shares one allowance, as does anything behind a single egress address. 0 means unlimited.
+max-connections-per-ip = {{ .GRPC.MaxConnectionsPerIP }}
+
 # MaxConnectionIdle is the duration after which an idle connection is closed (e.g. "5m"). 0 means infinity.
 max-connection-idle = "{{ .GRPC.MaxConnectionIdle }}"
 
@@ -271,6 +277,15 @@ ip-rate-limit-rps = {{ .GRPC.IPRateLimitRPS }}
 # Zero disables per-IP throttling (same effect as ip-rate-limit-rps = 0).
 ip-rate-limit-burst = {{ .GRPC.IPRateLimitBurst }}
 
+# max-in-flight-per-ip is the number of RPCs one client address may have in flight at
+# once. An RPC is in flight from the moment its headers arrive until it ends, so this
+# bounds concurrency where ip-rate-limit-rps bounds only arrival rate: without it a
+# client can spend its bucket on headers alone, withhold the request bodies, and release
+# them together. Excess requests are rejected with ResourceExhausted.
+# It shares the same per-address keying as the buckets, and applies only when
+# rate-limiting-enabled is true. Zero disables it.
+max-in-flight-per-ip = {{ .GRPC.MaxInFlightPerIP }}
+
 # rate-limiting-enabled is the master switch for gRPC rate-limit admission.
 # It governs gRPC-Web (:9091) as well as native gRPC (:9090), and both planes draw
 # from the same per-IP buckets.
@@ -299,6 +314,10 @@ enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 
 # MaxOpenConnections defines the number of maximum open connections. 0 means unlimited.
 max-open-connections = {{ .GRPCWeb.MaxOpenConnections }}
+
+# max-connections-per-ip is the maximum number of simultaneous open connections one
+# client address may hold, bounding its share of max-open-connections. 0 means unlimited.
+max-connections-per-ip = {{ .GRPCWeb.MaxConnectionsPerIP }}
 
 ###############################################################################
 ###                         Genesis Configuration (Auto-managed)            ###

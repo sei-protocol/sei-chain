@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
@@ -391,7 +391,7 @@ func rollbackMemiavl(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig
 
 // openFlatKVReadOnly opens a readonly FlatKV store at the given rootmulti
 // home directory at the specified version. Caller must Close() when done.
-func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) giga.LiveStateStore {
+func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) gigatypes.LiveStateStore {
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)

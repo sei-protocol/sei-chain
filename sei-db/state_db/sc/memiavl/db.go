@@ -213,6 +213,7 @@ func OpenDB(targetVersion int64, opts Options) (database *DB, _err error) {
 	// Even in read-only mode we may need WAL replay to reconstruct non-snapshot versions.
 	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(opts.Dir), wal.Config{
 		WriteBufferSize: opts.AsyncCommitBuffer,
+		NoRepairOnOpen:  opts.NoChangelogRepair,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open changelog WAL: %w", err)

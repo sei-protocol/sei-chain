@@ -31,6 +31,7 @@ type EVMStateStore struct {
 	subDBs      map[EVMStoreType]types.StateStore
 	managedDBs  []types.StateStore
 	dir         string
+	ssConfig    config.StateStoreConfig
 	separateDBs bool
 	snapshotMgr *sssnapshot.Manager
 
@@ -44,41 +45,65 @@ type EVMStateStore struct {
 // NewEVMStateStore opens either a single unified MVCC DB for all EVM state
 // or one MVCC DB per EVM sub-type.
 func NewEVMStateStore(dir string, ssConfig config.StateStoreConfig) (*EVMStateStore, error) {
-	opener := backend.ResolveBackend(ssConfig.Backend)
-
 	store := &EVMStateStore{
 		subDBs:          make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes),
 		dir:             dir,
+		ssConfig:        ssConfig,
 		separateDBs:     ssConfig.SeparateEVMSubDBs,
 		externalPruning: ssConfig.ExternalPruning,
 	}
-
-	if ssConfig.SeparateEVMSubDBs {
-		for _, storeType := range AllEVMStoreTypes() {
-			dbDir := filepath.Join(dir, StoreTypeName(storeType))
-			subCfg := subDBConfig(ssConfig, dbDir)
-			db, err := opener(dbDir, subCfg)
-			if err != nil {
-				_ = store.Close()
-				return nil, fmt.Errorf("failed to open EVM MVCC DB for %s: %w", StoreTypeName(storeType), err)
-			}
-			store.subDBs[storeType] = db
-			store.managedDBs = append(store.managedDBs, db)
-		}
-		return store, nil
+	if err := store.openDBs(); err != nil {
+		_ = store.Close()
+		return nil, err
 	}
-
-	cfg := subDBConfig(ssConfig, dir)
-	db, err := opener(dir, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open unified EVM MVCC DB: %w", err)
-	}
-	store.managedDBs = append(store.managedDBs, db)
-	for _, storeType := range AllEVMStoreTypes() {
-		store.subDBs[storeType] = db
-	}
-
 	return store, nil
+}
+
+func (s *EVMStateStore) openDBs() error {
+	opener := backend.ResolveBackend(s.ssConfig.Backend)
+	s.subDBs = make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes)
+	s.managedDBs = nil
+
+	if s.separateDBs {
+		for _, storeType := range AllEVMStoreTypes() {
+			dbDir := filepath.Join(s.dir, StoreTypeName(storeType))
+			if err := healInterruptedRestore(dbDir); err != nil {
+				return err
+			}
+			db, err := opener(dbDir, subDBConfig(s.ssConfig, dbDir))
+			if err != nil {
+				return fmt.Errorf("failed to open EVM MVCC DB for %s: %w", StoreTypeName(storeType), err)
+			}
+			s.subDBs[storeType] = db
+			s.managedDBs = append(s.managedDBs, db)
+		}
+		return nil
+	}
+
+	if err := healInterruptedRestore(s.dir); err != nil {
+		return err
+	}
+	db, err := opener(s.dir, subDBConfig(s.ssConfig, s.dir))
+	if err != nil {
+		return fmt.Errorf("failed to open unified EVM MVCC DB: %w", err)
+	}
+	s.managedDBs = append(s.managedDBs, db)
+	for _, storeType := range AllEVMStoreTypes() {
+		s.subDBs[storeType] = db
+	}
+	return nil
+}
+
+func (s *EVMStateStore) closeDBs() error {
+	var lastErr error
+	for _, db := range s.managedDBs {
+		if err := db.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	s.managedDBs = nil
+	s.subDBs = make(map[EVMStoreType]types.StateStore, NumEVMStoreTypes)
+	return lastErr
 }
 
 func subDBConfig(parent config.StateStoreConfig, dbDir string) config.StateStoreConfig {
@@ -212,6 +237,79 @@ func (s *EVMStateStore) SetEarliestVersion(version int64, ignoreVersion bool) er
 	return nil
 }
 
+// CommitBlock records a committed block and offers its version to the checkpoint schedule. It is the
+// commit path's entry point: the apply methods are raw writes and take no snapshot.
+func (s *EVMStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	evmChangesets := filterEVMChangesets(changesets)
+
+	// Separate-DB mode parses and groups the block's pairs exactly once: the grouping both routes the
+	// apply and names the sub-DBs the block never reached. A unified store routes nothing by sub-type —
+	// its one database takes the whole changeset and stamps the version marker in the same batch, so
+	// only a block that wrote nothing leaves that marker to be moved on its own.
+	var unwritten []types.StateStore
+	switch {
+	case s.separateDBs:
+		grouped := s.groupBySubType(evmChangesets)
+		if err := s.ApplyChangesetAsyncGrouped(version, grouped); err != nil {
+			return err
+		}
+		unwritten = s.dbsWithoutWrites(grouped)
+	case len(evmChangesets) > 0:
+		if err := s.ApplyChangesetAsync(version, evmChangesets); err != nil {
+			return err
+		}
+	default:
+		unwritten = s.managedDBs
+	}
+
+	if err := s.advanceUnwrittenHeads(version, unwritten); err != nil {
+		return err
+	}
+	s.scheduleSnapshot(version)
+	return nil
+}
+
+// advanceUnwrittenHeads moves each given database's version marker to version, at that database's own
+// place in its write order.
+//
+// A database that took a batch is not among these: the batch carries the marker alongside the data.
+// The rest would keep the marker of whichever block last routed to them, and the head is the minimum
+// across all of them, so one left behind holds the head — and the GC floor taken from it — below the
+// committed height. Going through the queue rather than around it keeps the marker from overtaking
+// blocks still queued behind it, which stamp their own lower version as they drain.
+func (s *EVMStateStore) advanceUnwrittenHeads(version int64, dbs []types.StateStore) error {
+	for _, db := range dbs {
+		barrier, ok := db.(types.DrainBarrier)
+		if !ok {
+			if err := db.SetLatestVersion(version); err != nil {
+				return err
+			}
+			continue
+		}
+		// Runs on the database's apply goroutine, which a panic would take down with it.
+		barrier.ScheduleAtDrain(func() {
+			if err := db.SetLatestVersion(version); err != nil {
+				logger.Error("failed to advance EVM state store version marker", "version", version, "err", err)
+			}
+		})
+	}
+	return nil
+}
+
+// dbsWithoutWrites returns the sub-DBs that grouped routes no keys to.
+//
+// Separate-DB mode only. A unified store keys every sub-type to the same database, so it would report
+// that one database once per sub-type the block missed.
+func (s *EVMStateStore) dbsWithoutWrites(grouped map[EVMStoreType][]*proto.KVPair) []types.StateStore {
+	unwritten := make([]types.StateStore, 0, len(s.managedDBs))
+	for storeType, db := range s.subDBs {
+		if len(grouped[storeType]) == 0 {
+			unwritten = append(unwritten, db)
+		}
+	}
+	return unwritten
+}
+
 func (s *EVMStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	if !s.separateDBs {
 		db := s.primaryDB()
@@ -245,7 +343,20 @@ func (s *EVMStateStore) ApplyChangesetAsync(version int64, changesets []*proto.N
 		return db.ApplyChangesetAsync(version, evmChangesets)
 	}
 
-	grouped := s.groupBySubType(changesets)
+	return s.ApplyChangesetAsyncGrouped(version, s.groupBySubType(changesets))
+}
+
+// ApplyChangesetAsyncGrouped applies pairs already grouped by sub-type, skipping the filtering and
+// grouping ApplyChangesetAsync does for itself. It is for callers that already hold a grouping and
+// would otherwise pay to parse every key twice — CommitBlock builds one to find the sub-DBs a block
+// did not write, and applies through here.
+//
+// Separate-DB mode only. A unified store keys every sub-type to the same database, so applying a
+// grouping to one would split a block into a batch per sub-type.
+func (s *EVMStateStore) ApplyChangesetAsyncGrouped(
+	version int64,
+	grouped map[EVMStoreType][]*proto.KVPair,
+) error {
 	if len(grouped) == 0 {
 		return nil
 	}
@@ -421,14 +532,7 @@ func (s *EVMStateStore) Close() error {
 	// A snapshot being published reads and stamps these databases, so it has to finish before they
 	// close rather than race the shutdown.
 	s.stopCheckpoints()
-
-	var lastErr error
-	for _, db := range s.managedDBs {
-		if err := db.Close(); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return s.closeDBs()
 }
 
 func (s *EVMStateStore) SupportsCheckpoint() bool {

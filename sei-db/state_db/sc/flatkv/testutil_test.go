@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -180,7 +180,7 @@ func commitAndCheck(t *testing.T, s *CommitStore) int64 {
 
 // rootHash returns the store's committed root hash, discarding the height it describes. Tests that
 // care about the height assert on it directly rather than through this.
-func rootHash(s giga.LiveStateStore) []byte {
+func rootHash(s gigatypes.LiveStateStore) []byte {
 	hash, _ := s.RootHash()
 	return hash
 }
@@ -210,6 +210,12 @@ func codeHashN(n byte) vtype.CodeHash {
 		h[i] = n
 	}
 	return h
+}
+
+func balanceN(n byte) vtype.Balance {
+	var b vtype.Balance
+	b[31] = n
+	return b
 }
 
 func noncePair(addr ktype.Address, nonce uint64) *proto.KVPair {
@@ -264,6 +270,20 @@ func nonceDeletePair(addr ktype.Address) *proto.KVPair {
 func codeHashDeletePair(addr ktype.Address) *proto.KVPair {
 	return &proto.KVPair{
 		Key:    keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]),
+		Delete: true,
+	}
+}
+
+func balancePair(addr ktype.Address, balance vtype.Balance) *proto.KVPair {
+	return &proto.KVPair{
+		Key:   keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]),
+		Value: balance[:],
+	}
+}
+
+func balanceDeletePair(addr ktype.Address) *proto.KVPair {
+	return &proto.KVPair{
+		Key:    keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]),
 		Delete: true,
 	}
 }

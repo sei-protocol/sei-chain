@@ -59,13 +59,11 @@ func writeRollbackBlock(t *testing.T, store *CompositeStateStore, version int64)
 	commitBlock(t, store, version, rollbackChangeset(version))
 }
 
-// writeEmptyRollbackBlock commits a block with no changesets the way rootmulti
-// does: the state store apply is skipped, so the block writes no changelog
-// entry and only the version watermark moves.
+// writeEmptyRollbackBlock commits a block with no changesets: no changelog entry is written and
+// only the version watermark moves.
 func writeEmptyRollbackBlock(t *testing.T, store *CompositeStateStore, version int64) {
 	t.Helper()
-	require.NoError(t, store.SetLatestVersion(version))
-	store.ScheduleSnapshot(version)
+	require.NoError(t, store.CommitBlock(version, nil))
 }
 
 func TestRollbackRestoresSnapshotAndReplaysWALToTarget(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -16,11 +16,11 @@ var _ DBWrapper = (*flatKVWrapper)(nil)
 // ApplyChangeSets calls may still precede one Commit as long as they all target the
 // same height; Commit() consults PendingVersion() to find that height.
 type flatKVWrapper struct {
-	base giga.LiveStateStore
+	base gigatypes.LiveStateStore
 }
 
 // NewFlatKVWrapper creates a new flatKVWrapper with a given flatkv store.
-func NewFlatKVWrapper(store giga.LiveStateStore) DBWrapper {
+func NewFlatKVWrapper(store gigatypes.LiveStateStore) DBWrapper {
 	return &flatKVWrapper{
 		base: store,
 	}

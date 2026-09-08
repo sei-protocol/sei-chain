@@ -25,34 +25,49 @@ type Resolved struct {
 	// The keys an operator has taken responsibility for, as distinct from the ones tracking the
 	// binary's judgement. This is what a diff renders.
 	Overrides []string
-	// Ignored are declared keys an environment variable was set for and could not supply, sorted.
+	// Ignored are declared keys an environment variable was set for and could not supply, and the reason
+	// for each.
 	//
-	// Separate from Unknown because the two are different mistakes. An unknown key is one nothing reads.
-	// An ignored one is read, and the operator reached for the one channel that cannot carry it, so the
-	// value they wrote elsewhere is what applies. Ignored carries the keys; the reason is the same for all of them, because it is a fact about
-	// the channel rather than about any section.
-	Ignored []string
-	// Refused are the registrations this package could not use, so the key space is missing every key
-	// each of them declared.
+	// Separate from the undeclared keys because the two are different mistakes. An undeclared key is one
+	// nothing reads. An ignored one is read, and the operator reached for the one channel that cannot
+	// carry it, so the value they wrote elsewhere is what applies.
+	//
+	// The reason travels with the key rather than being looked up beside it. A caller reporting an ignored
+	// key is the only thing that can tell the operator why their variable did nothing, and a reason it has
+	// to fetch from somewhere else is one it can be handed empty without noticing.
+	Ignored map[string]string
+	// Refused are the registrations and delivery declarations this package could not use.
+	//
+	// A refused registration means the key space is missing every key it declared. A refused declaration
+	// leaves the key space whole and means a section's values do not reach the thing that reads them.
 	//
 	// Reported rather than an error, for the reason Defect is recorded rather than panicked: every one
 	// of these comes from a call in this binary's own source, so a defect is a mistake a compiler could
 	// have caught and never something an operator wrote. Refusing to resolve would turn that mistake
 	// into a node that will not start, which is the fleet-wide incident the recording exists to avoid.
 	//
-	// What to do about one is the caller's, the same division Unknown draws: a path that writes a
-	// configuration file has cause to refuse, because it would render a file missing whole sections,
-	// while a booting node has cause to say so and run. Neither is stated as a rule here because no
-	// caller consumes this yet: the one path that installs a resolution neither refuses on it nor
-	// carries it into what it reports, so a resolution over a diminished key space installs quietly
-	// today. A section named here is absent from Values, so an operator's written value for one of its
-	// keys arrives in Unknown rather than being applied.
+	// What to do about one is the caller's, the same division the undeclared keys draw: a path that writes
+	// a configuration file has cause to refuse, because it would render a file missing whole sections,
+	// while a booting node has cause to say so and run.
+	//
+	// A section named here is absent from Values, so an operator's written value for one of its keys is
+	// not applied and arrives in UnknownInFile, reading as a key nothing declares.
 	Refused []Defect
-	// Unknown are keys a source carried that no section declares, sorted.
+	// UnknownInFile are keys the file carried that no section declares, sorted.
 	//
 	// Reported rather than an error, because what to do about one is the caller's decision: a
 	// generate path may want to refuse, while a boot on an operator's existing file must not.
-	Unknown []string
+	UnknownInFile []string
+	// UnknownFromFlags are flag names the caller passed that match no declared key, sorted.
+	//
+	// Held apart from the file's keys rather than counted with them, because the two have different
+	// authors and only one of them is a mistake. A caller passing its whole flag set passes flags that
+	// name no setting at all, and every one of those arrives here on every invocation. A key in the file
+	// is something an operator typed meaning to change a setting.
+	//
+	// Counted together, a report about the file names flags the file does not contain, and the one signal
+	// an operator has for catching a typo fires on every run whether or not they made one.
+	UnknownFromFlags []string
 }
 
 // Sources are a node's configuration sources other than its defaults, which Resolve derives itself.
@@ -118,7 +133,7 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	// from the same read, because they are what says which keys the key space is missing, and a list of
 	// missing keys taken separately from the space it describes can name a section the space has or omit
 	// one it lacks.
-	registered, refused := snapshot()
+	registered, refused, _ := snapshot()
 	out.Refused = refused
 
 	defaults, err := defaultValues(mode, registered)
@@ -137,21 +152,18 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 	}
 
 	overrides := map[string]bool{}
-	unknown := map[string]bool{}
-	// Lowest precedence first, so a later source overwrites an earlier one. The one statement of the
-	// order, which is why nothing exports it.
+	unknownInFile := map[string]bool{}
+	unknownFromFlags := map[string]bool{}
+
 	fromEnv, ignored := envValues(declared, undeliverable, from.LookupEnv)
 	out.Ignored = ignored
-	for _, values := range []map[string]any{
-		fileValues(from.File),
-		fromEnv,
-		from.Flags,
-	} {
+
+	// resolveFrom writes one source's values over what is resolved so far, and collects the keys it
+	// carried that no section declares. Dropping one silently is how an operator's typo becomes invisible.
+	resolveFrom := func(values map[string]any, undeclared map[string]bool) {
 		for key, v := range values {
 			if !declared[key] {
-				// A key nothing declares cannot be resolved into anything, and silently dropping it is
-				// how an operator's typo becomes invisible.
-				unknown[key] = true
+				undeclared[key] = true
 				continue
 			}
 			out.Values[key] = v
@@ -159,8 +171,20 @@ func Resolve(mode Mode, from Sources) (Resolved, error) {
 		}
 	}
 
+	// Lowest precedence first, so a later source overwrites an earlier one. The one statement of the
+	// order, which is why nothing exports it.
+	//
+	// The file's undeclared keys and the flags' are kept apart, because what a caller tells an operator
+	// about one is not what it tells them about the other. The environment needs no set of its own: a
+	// variable is found only by asking for a declared key's own name, so every value it answers with is
+	// declared, and the set handed here stays empty.
+	resolveFrom(fileValues(from.File), unknownInFile)
+	resolveFrom(fromEnv, map[string]bool{})
+	resolveFrom(from.Flags, unknownFromFlags)
+
 	out.Overrides = sortedKeys(overrides)
-	out.Unknown = sortedKeys(unknown)
+	out.UnknownInFile = sortedKeys(unknownInFile)
+	out.UnknownFromFlags = sortedKeys(unknownFromFlags)
 	return out, nil
 }
 
@@ -450,12 +474,12 @@ func isSingleValue(k reflect.Kind) bool {
 }
 
 func envValues(declared map[string]bool, undeliverable map[string]string,
-	lookup func(string) (string, bool)) (map[string]any, []string) {
+	lookup func(string) (string, bool)) (map[string]any, map[string]string) {
 	if lookup == nil {
 		return nil, nil
 	}
 	out := map[string]any{}
-	var ignored []string
+	ignored := map[string]string{}
 	for key := range declared {
 		// A key no variable can carry is left to the sources that can. Resolving it would put a string
 		// at the top of the order for a reader that takes the exact type, and installing that stops the
@@ -464,9 +488,9 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 		// The variable is still read, and the value still discarded. Asking is what turns this from a
 		// silent skip into something a caller can report: a reason nothing can attach to an operator's
 		// own action is a reason nobody is ever told.
-		if _, refused := undeliverable[key]; refused {
+		if reason, refused := undeliverable[key]; refused {
 			if v, set := lookup(EnvName(key)); set && v != "" {
-				ignored = append(ignored, key)
+				ignored[key] = reason
 			}
 			continue
 		}
@@ -478,7 +502,9 @@ func envValues(declared map[string]bool, undeliverable map[string]string,
 			out[key] = v
 		}
 	}
-	sort.Strings(ignored)
+	if len(ignored) == 0 {
+		return out, nil
+	}
 	return out, ignored
 }
 
