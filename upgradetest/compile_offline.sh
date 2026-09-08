@@ -12,6 +12,15 @@ die() {
   exit 1
 }
 
+go_toolchain_for() {
+  local checkout="$1"
+  local version
+  version="$(awk '$1 == "go" { print $2; exit }' "$checkout/go.mod")"
+  [[ -n "$version" ]] || die "go.mod in $checkout does not declare a Go version"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] && version="$version.0"
+  printf 'go%s\n' "$version"
+}
+
 cleanup() {
   local exit_code=$?
   trap - EXIT
@@ -107,17 +116,19 @@ compile_phase() {
   local source_file="$2"
   local tags="$3"
   local file="${source_file##*/}"
+  local go_toolchain
   if [[ "$checkout" != "$REPO_ROOT" ]]; then
     install -m 0644 \
       "$REPO_ROOT/app/upgrade_offline_harness_test.go" \
       "$checkout/app/upgrade_offline_harness_test.go"
     install -m 0644 "$REPO_ROOT/app/$source_file" "$checkout/app/$file"
   fi
+  go_toolchain="$(go_toolchain_for "$checkout")"
 
   local included
   if ! included="$(
     cd "$checkout"
-    go list -tags "$tags" \
+    GOTOOLCHAIN="$go_toolchain" go list -tags "$tags" \
       -f '{{range .TestGoFiles}}{{println .}}{{end}}{{range .XTestGoFiles}}{{println .}}{{end}}' \
       ./app
   )"; then
@@ -126,11 +137,11 @@ compile_phase() {
   grep -Fxq "$file" <<<"$included" ||
     die "$file is not selected by build tags $tags"
 
-  printf '=== Compiling app/%s against %s (-tags %s) ===\n' \
-    "$file" "$(git -C "$checkout" rev-parse --short HEAD)" "$tags"
+  printf '=== Compiling app/%s against %s with %s (-tags %s) ===\n' \
+    "$file" "$(git -C "$checkout" rev-parse --short HEAD)" "$go_toolchain" "$tags"
   (
     cd "$checkout"
-    go test -tags "$tags" -run '^$' ./app
+    GOTOOLCHAIN="$go_toolchain" go test -tags "$tags" -run '^$' ./app
   )
 }
 
