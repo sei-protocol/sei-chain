@@ -122,6 +122,8 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
   {"InstanceID":"i-102","PublicIP":"203.0.113.12","PrivateIP":"10.0.0.12"},
   {"InstanceID":"i-103","PublicIP":"203.0.113.13","PrivateIP":"10.0.0.13"}
 ]`, nil
+		case spec.name == "ssh" && strings.Contains(joined, nativeBuildFailedFile):
+			return nativeBuildStatusReady, nil
 		case spec.name == "ssh":
 			return "", nil
 		default:
@@ -240,6 +242,41 @@ func TestDescribeAWSInstancesHandlesMissingPublicIP(t *testing.T) {
 	instances, err := describeAWSInstances(t.Context(), awsClient{runner: runner}, []string{"i-100"})
 	require.NoError(t, err)
 	require.Equal(t, awsInstanceState{InstanceID: "i-100", PrivateIP: "10.0.0.10"}, instances["i-100"])
+}
+
+func TestWaitForNativeBuildReturnsRemoteLogOnFailure(t *testing.T) {
+	pendingInstance := awsInstanceState{NodeIndex: 1, PublicIP: "203.0.113.11"}
+	instance := awsInstanceState{NodeIndex: 2, PublicIP: "203.0.113.12"}
+	state := clusterState{AWS: &awsState{
+		SSHUser:    "ubuntu",
+		SSHKeyPath: "/tmp/test.pem",
+		Instances:  []awsInstanceState{pendingInstance, instance},
+	}}
+	runner := &fakeRunner{outputFn: func(spec commandSpec) (string, error) {
+		joined := strings.Join(spec.args, " ")
+		if strings.Contains(joined, "tail -n 200") {
+			return "compile failed: missing library\n", nil
+		}
+		if strings.Contains(joined, pendingInstance.PublicIP) {
+			return "", nil
+		}
+		return nativeBuildStatusFailed, nil
+	}}
+	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}}
+
+	err := app.waitForNativeBuilds(
+		t.Context(),
+		state,
+		"/remote/build/"+nativeBuildReadyFile,
+		"/remote/build/"+nativeBuildFailedFile,
+		"/remote/build/"+nativeBuildLogFile,
+	)
+
+	require.ErrorContains(t, err, "native build failed")
+	require.ErrorContains(t, err, "node-2")
+	require.ErrorContains(t, err, "compile failed: missing library")
+	require.Len(t, runner.commands, 3)
+	require.Contains(t, strings.Join(runner.commands[2].args, " "), "tail -n 200")
 }
 
 func TestAWSForwardUsesChosenNodePort(t *testing.T) {

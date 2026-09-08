@@ -18,6 +18,11 @@ import (
 const (
 	ubuntuARM64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id"
 	ubuntuAMD64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+	nativeBuildReadyFile    = "autobahn-native-build.ready"
+	nativeBuildFailedFile   = "autobahn-native-build.failed"
+	nativeBuildLogFile      = "autobahn-native-build.log"
+	nativeBuildStatusReady  = "ready"
+	nativeBuildStatusFailed = "failed"
 )
 
 var sshUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
@@ -524,24 +529,26 @@ func (a *application) waitForEC2Bootstrap(ctx context.Context, state clusterStat
 
 func (a *application) startRemoteCluster(ctx context.Context, state clusterState) error {
 	aws := state.AWS
+	buildDir := filepath.Join(aws.RemoteDir, "build")
+	readyMarker := filepath.Join(buildDir, nativeBuildReadyFile)
+	failedMarker := filepath.Join(buildDir, nativeBuildFailedFile)
+	buildLog := filepath.Join(buildDir, nativeBuildLogFile)
 	for _, instance := range aws.Instances {
 		command := strings.Join([]string{
 			"if test ! -d " + shellQuote(filepath.Join(aws.RemoteDir, ".git")) + "; then git clone --filter=blob:none " + shellQuote(aws.RepoURL) + " " + shellQuote(aws.RemoteDir) + "; fi",
 			"cd " + shellQuote(aws.RemoteDir),
 			"git fetch --depth=1 origin " + shellQuote(aws.Ref),
 			"git checkout --detach FETCH_HEAD",
-			"mkdir -p build",
-			"rm -f build/autobahn-native-build.ready",
-			"nohup integration_test/autobahn/scripts/build_native_node.sh " + shellQuote(aws.RemoteDir) + " </dev/null >build/autobahn-native-build.log 2>&1 &",
+			"mkdir -p " + shellQuote(buildDir),
+			"rm -f " + shellQuote(readyMarker) + " " + shellQuote(failedMarker),
+			"nohup integration_test/autobahn/scripts/build_native_node.sh " + shellQuote(aws.RemoteDir) + " </dev/null >" + shellQuote(buildLog) + " 2>&1 &",
 		}, " && ")
 		if err := a.runner.stream(ctx, sshCommandForInstance(state, instance, command)); err != nil {
 			return fmt.Errorf("start native build on node-%d: %w", instance.NodeIndex, err)
 		}
 	}
-	for _, instance := range aws.Instances {
-		if err := a.waitForRemoteCommand(ctx, state, instance, "test -f "+shellQuote(filepath.Join(aws.RemoteDir, "build", "autobahn-native-build.ready"))); err != nil {
-			return fmt.Errorf("wait for native build on node-%d: %w", instance.NodeIndex, err)
-		}
+	if err := a.waitForNativeBuilds(ctx, state, readyMarker, failedMarker, buildLog); err != nil {
+		return fmt.Errorf("wait for native builds: %w", err)
 	}
 
 	privateIPs := make([]string, len(aws.Instances))
@@ -591,6 +598,49 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 		}
 	}
 	return nil
+}
+
+func (a *application) waitForNativeBuilds(
+	ctx context.Context,
+	state clusterState,
+	readyMarker string,
+	failedMarker string,
+	buildLog string,
+) error {
+	command := "if test -f " + shellQuote(failedMarker) + "; then printf " + shellQuote(nativeBuildStatusFailed) +
+		"; elif test -f " + shellQuote(readyMarker) + "; then printf " + shellQuote(nativeBuildStatusReady) + "; fi"
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	readyNodes := make(map[int]struct{}, len(state.AWS.Instances))
+	for {
+		for _, instance := range state.AWS.Instances {
+			if _, ok := readyNodes[instance.NodeIndex]; ok {
+				continue
+			}
+			status, err := a.runner.output(ctx, sshCommandForInstance(state, instance, command))
+			if err != nil {
+				continue
+			}
+			switch strings.TrimSpace(status) {
+			case nativeBuildStatusReady:
+				readyNodes[instance.NodeIndex] = struct{}{}
+			case nativeBuildStatusFailed:
+				logOutput, logErr := a.runner.output(ctx, sshCommandForInstance(state, instance, "tail -n 200 "+shellQuote(buildLog)))
+				if logErr != nil {
+					return fmt.Errorf("node-%d native build failed; read %s: %w", instance.NodeIndex, buildLog, logErr)
+				}
+				return fmt.Errorf("node-%d native build failed:\n%s", instance.NodeIndex, strings.TrimSpace(logOutput))
+			}
+		}
+		if len(readyNodes) == len(state.AWS.Instances) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (a *application) waitForRemoteCluster(ctx context.Context, state clusterState) error {

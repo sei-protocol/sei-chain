@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 5 ]]; then
-  echo "usage: $0 FINAL_HOME NODE0_IP NODE1_IP NODE2_IP NODE3_IP" >&2
+if [[ $# -lt 2 ]]; then
+  echo "usage: $0 FINAL_HOME NODE0_IP [NODE1_IP ...]" >&2
   exit 2
 fi
 
 final_home=$1
 shift
 private_ips=("$@")
+node_count=${#private_ips[@]}
 repo_dir=$(git rev-parse --show-toplevel)
 cd "$repo_dir"
 
@@ -18,7 +19,7 @@ homes_dir=$native_dir/homes
 rm -rf "$generated_dir" "$native_dir"
 mkdir -p "$generated_dir" "$homes_dir"
 
-for node_index in 0 1 2 3; do
+for ((node_index = 0; node_index < node_count; node_index++)); do
   node_home=$homes_dir/node-$node_index
   mkdir -p "$node_home/go/bin"
   HOME=$node_home \
@@ -31,7 +32,7 @@ for node_index in 0 1 2 3; do
 done
 
 : > "$generated_dir/persistent_peers.txt"
-for node_index in 0 1 2 3; do
+for ((node_index = 0; node_index < node_count; node_index++)); do
   node_home=$homes_dir/node-$node_index
   seid=$node_home/go/bin/seid
   node_id=$(HOME=$node_home "$seid" tendermint show-node-id)
@@ -46,12 +47,12 @@ HOME=$node_zero_home \
   ADD_VALIDATOR_SCRIPT=$repo_dir/docker/localnode/scripts/step3_add_validator_to_genesis.sh \
   docker/localnode/scripts/step2_genesis.sh
 
-for node_index in 0 1 2 3; do
+for ((node_index = 0; node_index < node_count; node_index++)); do
   node_home=$homes_dir/node-$node_index
   HOME=$node_home \
     PATH="$node_home/go/bin:/usr/local/go/bin:$PATH" \
     ID=$node_index \
-    CLUSTER_SIZE=4 \
+    CLUSTER_SIZE=$node_count \
     NODE_IP=${private_ips[$node_index]} \
     AUTOBAHN=true \
     AUTOBAHN_EVMONLY_IN_MEMORY=true \

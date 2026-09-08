@@ -80,9 +80,10 @@ deployment time. Use `--ssh-cidr` when running behind a VPN, through NAT with a
 different egress address, or from an IPv6 network.
 
 The default EC2 shape is `c7g.2xlarge` with the current Ubuntu 24.04 ARM64 AMI
-resolved from AWS Systems Manager. For the throughput-test topology, select an
-AMD64 compute instance explicitly and cap the Go scheduler at the measured
-knee:
+resolved from AWS Systems Manager. The readiness timeout defaults to 45 minutes
+to cover initial package installation and a cold native build; override it with
+`--timeout`. For the throughput-test topology, select an AMD64 compute instance
+explicitly and cap the Go scheduler at the measured knee:
 
 ```sh
 ./autobahn-e2e deploy --target aws \
