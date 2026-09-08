@@ -36,11 +36,6 @@ const (
 	// to mirror; this is just sized to match a real EVM word.
 	balanceValueLen = 32
 
-	// contractAddressType tags simulated addresses. The same pool backs storage, balance,
-	// and nonce keys — a small set of hot accounts getting repeated writes, like real
-	// EVM traffic.
-	contractAddressType = 'c'
-
 	// rngStreamMix is the PCG stream constant so seed s and s+1 don't share a sequence.
 	rngStreamMix = 0x9e3779b97f4a7c15
 
@@ -174,7 +169,7 @@ func Open(cfg Config) (*PebbleSim, error) {
 
 	contracts := make([][]byte, cfg.NumContracts)
 	for i := range contracts {
-		contracts[i] = makeContractAddress(rng, int64(i))
+		contracts[i] = makeContractAddress(rng)
 	}
 
 	sim := &PebbleSim{
@@ -453,17 +448,26 @@ func (p *PebbleSim) doRead(ctx context.Context, rng *rand.Rand) {
 // randomStorageKey builds a real EVM storage-slot key (0x03 || address || slot) for a random
 // contract from the simulated pool.
 func (p *PebbleSim) randomStorageKey() []byte {
-	addr := p.randomAddress()
-	slotID := p.rng.Int64N(p.cfg.SlotsPerContract)
-
 	key := make([]byte, 0, len(keys.StateKeyPrefix())+keys.AddressLen+slotLen)
 	key = append(key, keys.StateKeyPrefix()...)
-	key = append(key, addr...)
+	key = append(key, p.randomAddress()...)
+	return append(key, p.randomSlot()...)
+}
 
+// randomSlot builds a 32-byte storage slot, split evenly between array-style (a small,
+// zero-padded index, like a simple Solidity variable) and mapping-style (32 bytes of full
+// entropy, like a keccak256-derived mapping entry). Real EVM storage is a mix of both; using
+// only one style would make this benchmark's data compress unrealistically well or poorly.
+func (p *PebbleSim) randomSlot() []byte {
 	slot := make([]byte, slotLen)
-	//nolint:gosec // G115 - slotID is bounded by cfg.SlotsPerContract, never negative or overflowing
-	binary.BigEndian.PutUint64(slot[slotLen-8:], uint64(slotID))
-	return append(key, slot...)
+	if p.rng.IntN(2) == 0 {
+		slotID := p.rng.Int64N(p.cfg.SlotsPerContract)
+		//nolint:gosec // G115 - slotID is bounded by cfg.SlotsPerContract, never negative or overflowing
+		binary.BigEndian.PutUint64(slot[slotLen-8:], uint64(slotID))
+		return slot
+	}
+	fillBytes(p.rng, slot)
+	return slot
 }
 
 // randomAddress picks a random address from the simulated pool.
@@ -500,16 +504,25 @@ func (p *PebbleSim) Close() error {
 	return p.store.Close()
 }
 
+// Compact forces a full compaction of the store, so its on-disk size reflects steady state
+// rather than whatever background compaction happened to leave after live writes. A no-op
+// if the store doesn't support types.Compactable.
+func (p *PebbleSim) Compact() error {
+	c, ok := p.store.(types.Compactable)
+	if !ok {
+		return nil
+	}
+	return c.Compact()
+}
+
 func newSimRNG(seed int64) *rand.Rand {
 	s := uint64(seed) //nolint:gosec // G115 - benchmark seed, wrap is fine
 	return rand.New(rand.NewPCG(s, s^rngStreamMix))
 }
 
-func makeContractAddress(rng *rand.Rand, id int64) []byte {
+func makeContractAddress(rng *rand.Rand) []byte {
 	addr := make([]byte, keys.AddressLen)
 	fillBytes(rng, addr)
-	addr[0] = contractAddressType
-	binary.BigEndian.PutUint64(addr[9:], uint64(id)) //nolint:gosec // G115 - contract index
 	return addr
 }
 
