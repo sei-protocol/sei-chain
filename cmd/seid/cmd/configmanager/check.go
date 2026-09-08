@@ -6,8 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -138,19 +136,11 @@ func report(out io.Writer, line string) { _, _ = fmt.Fprintln(out, line) }
 // there is nothing here that could be wrong. A file that exists and will not read is the opposite, and is
 // reported as a problem of a file that was found.
 func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err error) {
-	home, err := resolveHomeDir(cmd)
+	// Refused rather than reported when no home is set, because the exit status is this command's answer
+	// and there is nothing to have an opinion about.
+	home, err := theHomeThisCommandRuns(cmd)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("resolve the home directory: %w", err)
-	}
-	// An empty home leaves every path below relative, so the reads land in ./config under whatever
-	// directory this command was run from. That answers for some other node's files, and answering for
-	// the wrong node is worse than not answering: an operator runs this to decide whether to restart.
-	//
-	// The boot declines the same case. Refused rather than reported, because the exit status is this
-	// command's answer and there is nothing here to have an opinion about.
-	if home == "" {
-		return nil, nil, false, fmt.Errorf("no home directory is set, so there is no sei.toml to check. "+
-			"Pass --home, or set %s", theVariableThatSetsTheHome())
+		return nil, nil, false, err
 	}
 	file, err := readSeiTomlAt(home)
 	switch {
@@ -211,42 +201,6 @@ func checkSeiToml(cmd *cobra.Command) (problems, notes []string, found bool, err
 	problems = append(problems, whatADecodeWouldRefuse(resolved, own)...)
 	notes = append(notes, whatTheFileLeavesToTheDeclaration(resolved, written, mode))
 	return problems, notes, true, nil
-}
-
-// theVariableThatSetsTheHome names the environment variable the home resolves from.
-//
-// Derived from the running binary the same way the resolver derives it, so a message naming it cannot
-// drift from the name that actually works.
-func theVariableThatSetsTheHome() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "the home variable for this binary"
-	}
-	return strings.ToUpper(path.Base(exe)) + "_HOME"
-}
-
-// theNodesOwnConfiguration reads the node's own configuration file into the struct a boot decodes it into.
-//
-// Decoded rather than read key by key, so the mode and the rehearsal base below come from one read and both
-// answer for the same file. A boot unmarshals this file over the same defaults, so a key stated with nothing
-// after it arrives empty and an absent key keeps the default, which is what a boot runs with.
-//
-// A file that is not there is the only absence. Every other failure is a file somebody wrote that a boot
-// does not start on, so answering with defaults would pass a node that cannot boot.
-func theNodesOwnConfiguration(home string) (*tmcfg.Config, error) {
-	cfg := tmcfg.DefaultConfig()
-	v := viper.New()
-	v.SetConfigFile(filepath.Join(home, "config", "config.toml"))
-	switch err := v.ReadInConfig(); {
-	case errors.Is(err, fs.ErrNotExist):
-		return cfg, nil
-	case err != nil:
-		return nil, err
-	}
-	if err := v.Unmarshal(cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
 }
 
 // whatTheFileLeavesToTheDeclaration says how much of this node's configuration the file does not state.
