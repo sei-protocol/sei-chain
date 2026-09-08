@@ -54,6 +54,15 @@ contract TestERC20 {
         emit Transfer(address(0), to, value);
     }
 
+    function burn(uint256 value) external {
+        require(balanceOf[msg.sender] >= value, "ERC20: insufficient balance");
+        unchecked {
+            balanceOf[msg.sender] -= value;
+            totalSupply -= value;
+        }
+        emit Transfer(msg.sender, address(0), value);
+    }
+
     function _transfer(address from, address to, uint256 value) internal {
         require(balanceOf[from] >= value, "ERC20: insufficient balance");
         unchecked {

@@ -33,6 +33,7 @@ export async function prepareSemanticFixtures(
     workers: FixturePreparationWorker[],
     deployment: ReplayDeploymentManifest,
     gasLimit: bigint,
+    receiptTimeoutMs = 60_000,
 ): Promise<void> {
     const contracts = requiredPreparationContracts(deployment);
     const targetBalance = ethers.parseEther('1000');
@@ -50,7 +51,7 @@ export async function prepareSemanticFixtures(
         ): Promise<void> => {
             const response = await transaction;
             try {
-                await response.wait();
+                await response.wait(1, receiptTimeoutMs);
                 nonce++;
             } catch (error) {
                 throw new Error(

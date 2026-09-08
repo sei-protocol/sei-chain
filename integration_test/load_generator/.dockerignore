@@ -1,0 +1,11 @@
+node_modules
+artifacts
+cache
+dist
+typechain-types
+runtime
+test
+hardhat-test
+observability
+.env
+*.log

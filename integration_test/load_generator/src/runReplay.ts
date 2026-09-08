@@ -5,7 +5,7 @@
  *   REPLAY_DIR=runtime/replay/pacific-1/<capture> npm run replay:run
  *
  * Execute:
- *   TARGET_NETWORK=arctic-1 REPLAY_DIR=... EXECUTE=1 npm run replay:run
+ *   TARGET_NETWORK=<target> REPLAY_DIR=... EXECUTE=1 npm run replay:run
  */
 import path from 'path';
 import { SigningStargateClient, StargateClient, TimeoutError } from '@cosmjs/stargate';
@@ -21,7 +21,7 @@ import {
 } from './replay/evmAdapters';
 import {
     REPLAY_DEPLOYMENT_SCHEMA_VERSION,
-    REPLAY_V4_CONTRACT_KEYS,
+    REPLAY_CONTRACT_KEYS,
     ReplayBlock,
     ReplayDeploymentManifest,
     ReplayEvmTransaction,
@@ -117,7 +117,7 @@ interface ReplayBlockCheckpoint {
     updatedAt: string;
 }
 
-async function main(): Promise<void> {
+export async function runReplayMain(): Promise<void> {
     if (FOLLOW_SEGMENTS && (MAX_SEGMENTS || REPLAY_THROUGH_BLOCK)) {
         throw new Error(
             'FOLLOW_SEGMENTS cannot be combined with MAX_SEGMENTS or REPLAY_THROUGH_BLOCK',
@@ -164,32 +164,16 @@ async function main(): Promise<void> {
     ]);
     validateTargetManifests(manifest, deployment, target.network, target.evmChainId);
     if (manifest.users.length < 2) throw new Error('At least two replay users are required');
+    const users = { ...manifest, users: manifest.users.slice(0, WORKER_COUNT) };
 
     const provider = new ethers.JsonRpcProvider(target.evmRpcUrl);
     provider.pollingInterval = 200;
-    await verifyTargetRpc(target, provider);
-    const cosmosVerifier = await StargateClient.connect(target.cosmosRpcUrl);
-    try {
-        await verifyTargetCosmosRpc(target, cosmosVerifier);
-    } finally {
-        cosmosVerifier.disconnect();
-    }
-    await verifyDeploymentCode(deployment, provider);
-    const users = { ...manifest, users: manifest.users.slice(0, WORKER_COUNT) };
-    const workers = await createWorkers(users, target.mnemonic, provider);
     const liveMetrics = new ReplayMetrics(
         'pacific-1',
         target.network,
         TIME_SCALE,
         PRIVILEGED_REPLAY_MODE,
     );
-    if (METRICS_PORT > 0) {
-        await liveMetrics.listen(METRICS_PORT, METRICS_HOST);
-        console.log(
-            `Prometheus metrics: http://${METRICS_HOST}:${METRICS_PORT}/metrics ` +
-                `(health: /healthz)`,
-        );
-    }
     const auditRunId = Date.now();
     const bucketAudit = new BucketAuditWriter(
         path.resolve(
@@ -202,7 +186,29 @@ async function main(): Promise<void> {
         ),
         LOG_BUCKETS,
     );
-    await bucketAudit.initialize();
+    let workers: Worker[] = [];
+    try {
+        await verifyTargetRpc(target, provider);
+        const cosmosVerifier = await StargateClient.connect(target.cosmosRpcUrl);
+        try {
+            await verifyTargetCosmosRpc(target, cosmosVerifier);
+        } finally {
+            cosmosVerifier.disconnect();
+        }
+        await verifyDeploymentCode(deployment, provider);
+        workers = await createWorkers(users, target.mnemonic, provider);
+        if (METRICS_PORT > 0) {
+            await liveMetrics.listen(METRICS_PORT, METRICS_HOST);
+            console.log(
+                `Prometheus metrics: http://${METRICS_HOST}:${METRICS_PORT}/metrics ` +
+                    `(health: /healthz)`,
+            );
+        }
+        await bucketAudit.initialize();
+    } catch (error) {
+        await closeReplayResources(provider, liveMetrics, workers);
+        throw error;
+    }
     console.log(`Bucket audit: ${bucketAudit.auditPath}`);
     console.log(`No-semantic-bucket list: ${bucketAudit.unmatchedPath}`);
     let stopRequested = false;
@@ -216,7 +222,12 @@ async function main(): Promise<void> {
 
     try {
         if (!replayConfig.skipFixturePrepare) {
-            await prepareSemanticFixtures(workers, deployment, FIXTURE_PREPARE_GAS_LIMIT);
+            await prepareSemanticFixtures(
+                workers,
+                deployment,
+                FIXTURE_PREPARE_GAS_LIMIT,
+                EVM_RECEIPT_TIMEOUT_MS,
+            );
         }
         let fees = await readFees(provider);
         let feeUpdatedAt = Date.now();
@@ -541,9 +552,23 @@ async function main(): Promise<void> {
         console.log(`Bucket summary: ${JSON.stringify(bucketAudit.summary())}`);
         console.log(`Report: ${reportPath}`);
     } finally {
-        await bucketAudit.flush();
-        for (const worker of workers) worker.cosmosClient?.disconnect();
+        try {
+            await bucketAudit.flush();
+        } finally {
+            await closeReplayResources(provider, liveMetrics, workers);
+        }
+    }
+}
+
+async function closeReplayResources(
+    provider: ethers.JsonRpcProvider,
+    liveMetrics: ReplayMetrics,
+    workers: Worker[],
+): Promise<void> {
+    for (const worker of workers) worker.cosmosClient?.disconnect();
+    try {
         await liveMetrics.close();
+    } finally {
         provider.destroy();
     }
 }
@@ -1074,7 +1099,7 @@ function validateTargetManifests(
         );
     }
     validateSushiV2Provenance(deployment);
-    for (const name of REPLAY_V4_CONTRACT_KEYS) {
+    for (const name of REPLAY_CONTRACT_KEYS) {
         if (!deployment.contracts[name]) throw new Error(`Deployment is missing ${name}`);
     }
 }
@@ -1329,7 +1354,9 @@ function skipReasonLabel(reason: string): string {
     return 'adapter_skipped';
 }
 
-main().catch(error => {
-    console.error('Fatal:', error instanceof Error ? error.message : error);
-    process.exit(1);
-});
+if (require.main === module) {
+    runReplayMain().catch(error => {
+        console.error('Fatal:', error instanceof Error ? error.message : error);
+        process.exitCode = 1;
+    });
+}

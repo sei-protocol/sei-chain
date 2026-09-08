@@ -4,7 +4,10 @@ node_modules/
 /cache/
 typechain-types/
 .env
+# Runner mnemonics are written wherever RUNNER_MNEMONIC_PATH points, so this is unanchored.
+*.mnemonic
 runtime/replay/
 runtime/replay-deployments/
 runtime/replay-users/
+runtime/load-runs/
 *.log

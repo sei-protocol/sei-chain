@@ -17,9 +17,7 @@ interface Dashboard {
 }
 
 describe('replay observability', () => {
-    const dashboardPath = path.resolve(
-        'observability/grafana/dashboards/pacific-replay.json',
-    );
+    const dashboardPath = path.resolve('observability/grafana/dashboards/pacific-replay.json');
 
     it('ships a valid dashboard covering every custom replay metric', () => {
         const dashboard = JSON.parse(fs.readFileSync(dashboardPath, 'utf8')) as Dashboard;
@@ -62,10 +60,7 @@ describe('replay observability', () => {
     });
 
     it('binds dashboard services to localhost', () => {
-        const compose = fs.readFileSync(
-            path.resolve('observability/docker-compose.yml'),
-            'utf8',
-        );
+        const compose = fs.readFileSync(path.resolve('observability/docker-compose.yml'), 'utf8');
         expect(compose).to.include('127.0.0.1:9090:9090');
         expect(compose).to.include('127.0.0.1:3000:3000');
         expect(compose).to.include('GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD');
