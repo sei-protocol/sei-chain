@@ -326,12 +326,12 @@ func (s *StateDB) Close() error {
 	return errs
 }
 
-// rewindTo puts SC and SS on their newest snapshot at or below target and cuts the WAL's tail to it,
-// discarding everything above. All three stores must be closed.
+// rewindTo discards every snapshot of SC and SS above target and cuts the WAL's tail to it. All three
+// stores must be closed.
 //
-// The WAL's head says how far there is to cut: a head below target is a target no replay reaches, and a
-// head on target leaves nothing to cut. State above the head is not this step's, since a crash can
-// leave some there with no rollback asked for; the open drops it.
+// It does not place the stores on target: cutting the WAL to target is what makes target the head the
+// open puts them on, and the open moves only a store that is above it. A WAL ending below target is
+// refused, since no replay reaches it.
 func (s *StateDB) rewindTo(target int64) error {
 	wal, err := s.storedWALRange()
 	if err != nil {
@@ -340,22 +340,31 @@ func (s *StateDB) rewindTo(target int64) error {
 	if head := wal.head(); head < target {
 		return fmt.Errorf("cannot roll back to %d: the state WAL ends at %d, so no replay reaches the "+
 			"target", target, head)
-	} else if head == target {
-		return nil
 	}
 
-	if err := s.requireReachable(target, wal); err != nil {
+	if err := s.dropSnapshotsAbove(target); err != nil {
 		return err
 	}
-	if err := s.rewindSC(target); err != nil {
-		return err
-	}
-	if err := s.rewindSS(target); err != nil {
-		return err
-	}
-	// Last, so that an interruption leaves the WAL still above target and a restart comes back here
-	// rather than down the branch that finds nothing to do.
+	// Last, so that an interruption leaves the WAL still above target and a restart comes back here.
 	return s.truncateWAL(target)
+}
+
+// dropSnapshotsAbove removes the snapshots of SC and SS above target.
+//
+// It runs whether or not either store is above target, because an interrupted rollback leaves exactly a
+// store that is not: it reads as the snapshot it was repointed at, with the branch above it still on
+// disk. Left there, a later rollback lands on a snapshot from the branch this one abandoned.
+func (s *StateDB) dropSnapshotsAbove(target int64) error {
+	if err := flatkv.DropSnapshotsAbove(s.flatkvCfg.DataDir, target); err != nil {
+		return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, err)
+	}
+	if !s.ssCfg.Enable {
+		return nil
+	}
+	if err := evm.DropSnapshotsAbove(s.ssSnapshotRoot(), target); err != nil {
+		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+	}
+	return nil
 }
 
 // catchUpTo replays the WAL into SC and SS up to target, and reports a store that did not land on it.
@@ -416,55 +425,6 @@ func (s *StateDB) ssReplayStart(target int64) (from int64, replays bool, err err
 		return 0, false, nil
 	}
 	return from, true, nil
-}
-
-// requireReachable reports whether the replay after a rollback can cover the gap the rewinds open, and
-// names the missing blocks when it cannot.
-//
-// It runs before the rollback moves anything: deleting snapshots and cutting the WAL cannot be undone,
-// and the replay that needs those blocks runs last.
-func (s *StateDB) requireReachable(target int64, wal storedWALRange) error {
-	base, err := s.rollbackBase(target)
-	if err != nil {
-		return err
-	}
-	if base >= target {
-		return nil
-	}
-	//nolint:gosec // base >= 0 and target > 0
-	from, to := uint64(base)+1, uint64(target)
-	if wal.first > from || wal.last < to {
-		return fmt.Errorf("cannot roll back to %d: replaying onto %d needs blocks %d-%d, but the state "+
-			"WAL only holds %d-%d", target, base, from, to, wal.first, wal.last)
-	}
-	return nil
-}
-
-// rollbackBase returns the height a rollback to target replays forward from: the lower of the snapshots
-// SC and SS land on, since each is rewound to its own newest snapshot at or below target.
-//
-// It reads the snapshot trees rather than the stores, which have not opened yet. SS is left out when no
-// snapshot of it survives the target: its rewind clears it, and the catch-up then either replays it from
-// block 1 or leaves it empty to fill forward, neither of which the WAL has to be held to here.
-func (s *StateDB) rollbackBase(target int64) (int64, error) {
-	base, err := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
-	if err != nil {
-		return 0, fmt.Errorf("cannot roll back to %d: read the state commit store's snapshots: %w",
-			target, err)
-	}
-	if !s.ssCfg.Enable {
-		return base, nil
-	}
-
-	ssBase, err := evm.SnapshotAtOrBelow(s.ssSnapshotRoot(), target)
-	if err != nil {
-		return 0, fmt.Errorf("cannot roll back to %d: read the EVM state store's snapshots: %w",
-			target, err)
-	}
-	if ssBase == 0 {
-		return base, nil
-	}
-	return min(base, ssBase), nil
 }
 
 // ssFillsForward reports whether SS holds no history the WAL can still rebuild, which leaves it out of

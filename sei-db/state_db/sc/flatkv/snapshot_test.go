@@ -1229,6 +1229,40 @@ func TestRewindClosedStoreToFinishesAnInterruptedRewind(t *testing.T) {
 		"the discarded branch must not survive the rollback that abandoned it")
 }
 
+// DropSnapshotsAbove is the cleanup half of a rewind, and runs whether or not the store sits above the
+// target: an interrupted rewind leaves a store that does not, reading as the base it was repointed at
+// with the abandoned branch still on disk for a later rollback to land on.
+func TestDropSnapshotsAboveFinishesAnInterruptedRewind(t *testing.T) {
+	s := interruptedRewindFixture(t)
+	dir := s.flatkvDir()
+	require.NoError(t, s.Close())
+
+	require.NoError(t, DropSnapshotsAbove(dir, 5))
+
+	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+		"the discarded branch must not survive the rollback that abandoned it")
+	require.FileExists(t, filepath.Join(dir, workingDirName, snapshotBaseFile),
+		"a store at or below the target keeps the working copy it would open on")
+}
+
+// A store above the target comes off it, since the current link cannot be left naming a snapshot the
+// cleanup removes.
+func TestDropSnapshotsAboveRepointsAStoreAboveTheTarget(t *testing.T) {
+	s := rollbackFixture(t)
+	dir := s.flatkvDir()
+	_, current, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Positive(t, current, "fixture precondition: current must name a snapshot above the target below")
+	require.NoError(t, s.Close())
+
+	require.NoError(t, DropSnapshotsAbove(dir, current-1))
+
+	_, after, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Less(t, after, current)
+	require.NotContains(t, snapshotVersionsOnDisk(t, s), current)
+}
+
 // TestRewindClosedStoreToMovesCurrentOffTheDiscardedBranch verifies the rewind repoints current before it
 // deletes anything. Deleting the snapshot current names leaves the link dangling, which createWorkingDir
 // resolves to an empty working directory rather than to a failure, so the store would come up holding no

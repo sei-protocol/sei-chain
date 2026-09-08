@@ -58,6 +58,16 @@ func SnapshotAtOrBelow(root string, target int64) (int64, error) {
 // and a replay from block 1 rebuilds it. Establishing that the WAL still reaches block 1 is the
 // caller's, since nothing here can tell an empty store from one whose history this discards.
 //
+// DropSnapshotsAbove deletes every snapshot under root above target and repoints the current link at
+// the newest one left. It leaves the store's databases alone, so a store already at or below target
+// keeps the history it holds.
+func DropSnapshotsAbove(root string, target int64) error {
+	if _, err := sssnapshot.RewindTo(root, target); err != nil {
+		return fmt.Errorf("remove EVM state store snapshots above %d: %w", target, err)
+	}
+	return nil
+}
+
 // The databases under dir must be closed, which is what makes it safe to run before the store is
 // constructed. root is the store's snapshot directory, and separateDBs its layout.
 func RewindClosedStoreTo(dir, root string, separateDBs bool, target int64) (landed int64, err error) {

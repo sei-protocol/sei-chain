@@ -1,7 +1,10 @@
 package bootstrap
 
 import (
+	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -140,6 +143,11 @@ func snapshotSCAt(t *testing.T, manager *GigaStorageManager, height byte) {
 	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(config.CheckpointConfig{BlockInterval: 1}))
 	require.NoError(t, manager.StateDB().CommitStateChanges(int64(height), evmBlock(height, height)))
 	require.NoError(t, manager.SC().FlushSnapshots())
+}
+
+// disableSS turns the EVM state store off, which is where a node stands until the commit path writes it.
+func disableSS(cfg *config.GigaStorageConfig) {
+	cfg.SSConfig.Enable = false
 }
 
 func requireWALTail(t *testing.T, manager *GigaStorageManager, want uint64) {
@@ -281,6 +289,94 @@ func TestOpenRewindsSSAboveTheWALHead(t *testing.T) {
 
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
 	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+}
+
+// scSnapshotDir returns where SC keeps the snapshot for version under dataDir.
+func scSnapshotDir(dataDir string, version int64) string {
+	return filepath.Join(dataDir, fmt.Sprintf("snapshot-%020d", version))
+}
+
+// The target a healthy recovery computes is the WAL's own head, where there is nothing to roll back.
+// The snapshots above it still have to go: a crash can leave one there, and a later rollback that lands
+// on it would replay this branch's blocks over an abandoned one.
+func TestRecoverAtTheWALHeadStillDropsSnapshotsAboveIt(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 4)
+	snapshotSCAt(t, manager, 5)
+	closeStateDB(t, manager)
+	closeReceiptDB(t, manager)
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 3))
+
+	require.NoError(t, manager.recoverStores(t.Context(), 3))
+
+	require.NoDirExists(t, scSnapshotDir(cfg.FlatKVConfig.DataDir, 5))
+	require.Equal(t, int64(3), manager.SC().Version())
+}
+
+// Snapshot retention eventually reclaims the oldest snapshots, so a target can fall below every one SC
+// has left. Nothing can put SC on it then, and the refusal has to say so rather than report the cleanup
+// step it happened to fail in.
+func TestRecoverBelowEverySCSnapshotIsRefused(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 4)
+	snapshotSCAt(t, manager, 5)
+	closeStateDB(t, manager)
+	closeReceiptDB(t, manager)
+	require.NoError(t, os.RemoveAll(scSnapshotDir(cfg.FlatKVConfig.DataDir, 0)))
+
+	err := manager.recoverStores(t.Context(), 3)
+
+	require.ErrorContains(t, err, "cannot roll back the state commit store to 3")
+}
+
+// A target above where SC sits is not a rollback for it: the WAL's tail is cut to the target and SC
+// replays forward from the height it already holds. Its snapshot is far below and stays untouched,
+// since landing on it would discard everything committed since and replay the lot back.
+func TestRecoverReplaysForwardFromTheStoreOwnHeight(t *testing.T) {
+	manager, cfg := openManager(t, disableSS)
+	snapshotSCAt(t, manager, 1)
+	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(
+		config.CheckpointConfig{BlockInterval: 1_000_000}))
+	for block := byte(2); block <= 7; block++ {
+		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
+	}
+	// Block 8 goes to SC under an address the WAL's own block 8 does not carry. It marks the working
+	// copy: a rebuild from the snapshot replays the WAL's block 8 instead and the address is gone.
+	require.NoError(t, manager.SC().CommitStateChanges(8, evmBlock(108, 108)))
+	writeWALOnly(t, manager.StateWAL(), 8, evmBlock(8, 8))
+	writeWALOnly(t, manager.StateWAL(), 9, evmBlock(9, 9))
+	writeWALOnly(t, manager.StateWAL(), 10, evmBlock(10, 10))
+	require.Equal(t, int64(8), manager.SC().Version())
+
+	reconverge(t, manager, 9)
+
+	require.Equal(t, int64(9), manager.SC().Version())
+	requireWALTail(t, manager, 9)
+	require.DirExists(t, scSnapshotDir(cfg.FlatKVConfig.DataDir, 1))
+	marker, ok := manager.SC().OpenView().Get(evm.EVMStoreKey, evmNonceKey(108))
+	require.True(t, ok, "SC replayed forward from 8, so the working copy it held there is still open")
+	require.Equal(t, evmNonce(108), marker)
+}
+
+// A crash that leaves the WAL a block ahead of the rest of the node makes the target the height the
+// stores are already on. Rewinding them to a snapshot for it costs a replay of everything since, and
+// for an SS with no snapshot to land on it is not a rewind at all but a wipe.
+func TestRecoverLeavesAStoreAlreadyOnTheTargetAlone(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 4)
+	applySSThrough(t, manager, 4)
+	// A key no WAL block carries, so a wipe loses it where a replay would not put it back.
+	require.NoError(t, manager.SS().ApplyChangesetSync(4, evmBlock(9, 9)))
+	writeWALOnly(t, manager.StateWAL(), 5, evmBlock(5, 5))
+
+	reconverge(t, manager, 4)
+
+	require.Equal(t, int64(4), manager.SC().Version())
+	require.Equal(t, int64(4), manager.SS().GetLatestVersion())
+	survived, err := manager.SS().Get(evm.EVMStoreKey, 4, evmNonceKey(9))
+	require.NoError(t, err)
+	require.Equal(t, evmNonce(9), survived,
+		"a rollback to the height SS is already on must not clear it")
 }
 
 func TestRecoverSCReplaysAMissedWALBlock(t *testing.T) {
