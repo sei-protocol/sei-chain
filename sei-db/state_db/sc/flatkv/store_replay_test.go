@@ -51,7 +51,12 @@ func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	addr := ktype.Address{0xAB}
 	slot := ktype.Slot{0xCD}
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	cs := makeChangeSet(key, padLeft32(0x11), false)
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	balanceVal := balanceN(0x6D)
+	cs := namedCS(
+		&proto.KVPair{Key: key, Value: padLeft32(0x11)},
+		&proto.KVPair{Key: balanceKey, Value: balanceVal[:]},
+	)
 
 	// History legally begins at 10, so this is a lagging watermark rather than a store that skipped
 	// blocks 1-9.
@@ -71,10 +76,16 @@ func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	require.Equal(t, int64(10), reopened.Version())
 	require.Equal(t, hashAfterCommit, rootHash(reopened))
 
-	height, found, err := reopened.GetBlockHeightModified(keys.EVMStoreKey, key)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, int64(10), height)
+	for _, replayed := range [][]byte{key, balanceKey} {
+		height, found, err := reopened.GetBlockHeightModified(keys.EVMStoreKey, replayed)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, int64(10), height)
+	}
+
+	got, found := reopened.Get(keys.EVMStoreKey, balanceKey)
+	require.True(t, found, "balance should survive WAL replay")
+	require.Equal(t, balanceVal[:], got)
 }
 
 // gappedWALStore returns a store whose WAL holds exactly one block, at firstBlock, with nothing before it.

@@ -3,7 +3,7 @@ package wrappers
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -62,7 +62,7 @@ func (m *memIAVLWrapper) Read(key []byte) (data []byte, found bool, err error) {
 
 // RegisterHashListener reports that this DB publishes no block hashes. memIAVL's root is a
 // Cosmos-layer aggregation over its per-module hashes rather than a hash the store hands out.
-func (m *memIAVLWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+func (m *memIAVLWrapper) RegisterHashListener(_ gigatypes.HashListener) (bool, error) {
 	return false, nil
 }
 

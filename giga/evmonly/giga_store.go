@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
@@ -83,7 +83,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 }
 
 type gigaSnapshotStateReader struct {
-	snapshot gigastore.EVMStateView
+	snapshot gigatypes.EVMStateView
 }
 
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {

@@ -28,7 +28,7 @@ import (
 // the backends had applied — makes that label exact without the request having
 // to wait. The barrier orders only the async block-commit queues. Import,
 // recovery, pruning, and direct version-marker writes bypass those queues and
-// must not call ScheduleSnapshot.
+// must not go through CommitBlock.
 //
 // Cross-member pairing is best-effort, not an invariant. Composite stages every
 // member and commits only after all members stage successfully, so the normal

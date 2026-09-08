@@ -6,7 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -53,7 +53,7 @@ func (n *noOpWrapper) Importer(_ int64) (scTypes.Importer, error) {
 
 // RegisterHashListener reports that this DB publishes no block hashes. A store that persists nothing
 // hashes nothing.
-func (n *noOpWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+func (n *noOpWrapper) RegisterHashListener(_ gigatypes.HashListener) (bool, error) {
 	return false, nil
 }
 

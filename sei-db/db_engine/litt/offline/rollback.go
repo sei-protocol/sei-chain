@@ -1,7 +1,6 @@
-// Package rollback implements an offline rollback utility for LittDB. It rewinds a database to a chosen
-// point by discarding the most recently written keys, and is intended for operational use (for example,
-// rolling a node's state back to a specific block height) while the database is not running.
-package rollback
+// Package offline implements offline utilities for LittDB — operations that read or mutate a database's
+// files directly while it is not running, without starting a live instance.
+package offline
 
 import (
 	"context"
@@ -12,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
@@ -23,24 +23,31 @@ import (
 // from the most recently written key to the oldest. tableName identifies the table the record belongs to:
 // key schemas differ across tables, so the filter must decode the key in a table-aware way. isPrimary is
 // true for primary keys (standalone primaries and primaries that own secondary keys) and false for
-// secondary keys. The first record for which the filter returns true is the rollback point: that record's
-// group is kept along with everything written before it, and everything written after the group is discarded.
+// secondary keys.
+//
+// The first record for which the filter returns true is the rollback point: that record's group is kept
+// along with everything written before it, and everything written after the group is discarded. Returning
+// true for no record in a table therefore asks for a table that retains nothing, and deletes it outright.
+// A filter must not use false to mean "not my table" — every table under config.Paths is subject to it.
 type RollbackFilter func(tableName string, key []byte, isPrimary bool) (bool, error)
 
-// RollbackLittDB performs an offline rollback of the LittDB instance stored across the given data
-// directories (the same paths passed to the database as its storage roots).
+// RollbackLittDB performs an offline rollback of the LittDB instance stored across config.Paths (the same
+// paths passed to the database as its storage roots).
 //
-// For every table found under dataDirs, RollbackLittDB walks that table's key files from newest to oldest
-// and invokes rollbackFilter(tableName, key, isPrimary) for each record. The first key for which the filter
-// returns true marks the rollback point: that key's group (a primary plus any secondary keys written with
-// it) and everything written before it are retained; everything written after the group is permanently
-// deleted from the segment files. A table for which the filter never returns true is left unchanged.
+// For every table found under config.Paths, RollbackLittDB walks that table's key files from newest to
+// oldest and invokes rollbackFilter(tableName, key, isPrimary) for each record. The first key for which the
+// filter returns true marks the rollback point: that key's group (a primary plus any secondary keys
+// written with it) and everything written before it are retained; everything written after the group is
+// permanently deleted from the segment files. A table for which the filter never returns true retains
+// nothing, and is deleted in its entirety.
 //
 // The keymap and any snapshot are discarded rather than edited: the database rebuilds both from the
 // truncated segment files the next time it starts, which keeps them exactly consistent with the
-// rolled-back data (the same approach cli/prune.go uses after an offline mutation). The durable gc-watermark
-// is deliberately left in place; rolling a table back below its gc-watermark — into data that garbage
-// collection has already reclaimed — is refused, because that state cannot be faithfully reconstructed.
+// rolled-back data (the same approach cli/prune.go uses after an offline mutation). A table that retains
+// some of its records keeps its durable gc-watermark, and a rollback point below that watermark — into data
+// that garbage collection has already reclaimed — is refused, because that state cannot be faithfully
+// reconstructed. A table that retains nothing has no such floor to respect: its watermark is deleted along
+// with the rest of it.
 //
 // The database must NOT be running while this is called. RollbackLittDB takes the same directory locks the
 // database uses, so it will fail rather than corrupt a live database, and it assumes nothing else mutates
@@ -48,27 +55,22 @@ type RollbackFilter func(tableName string, key []byte, isPrimary bool) (bool, er
 //
 // The operation is idempotent and safe to re-run: re-running with the same filter completes (and repairs)
 // a rollback that was interrupted partway through.
-func RollbackLittDB(dataDirs []string, rollbackFilter RollbackFilter) error {
+func RollbackLittDB(config *litt.Config, rollbackFilter RollbackFilter) error {
 	logger := slog.Default()
 
-	if len(dataDirs) == 0 {
-		return fmt.Errorf("no data directories provided")
+	if config == nil || len(config.Paths) == 0 {
+		return fmt.Errorf("at least one path must be provided")
 	}
 	if rollbackFilter == nil {
 		return fmt.Errorf("rollback filter must not be nil")
 	}
-
-	roots := make([]string, len(dataDirs))
-	for i, dir := range dataDirs {
-		sanitized, err := util.SanitizePath(dir)
-		if err != nil {
-			return fmt.Errorf("invalid data directory %q: %w", dir, err)
-		}
-		roots[i] = sanitized
+	if err := config.SanitizePaths(); err != nil {
+		return fmt.Errorf("failed to sanitize data directories: %w", err)
 	}
+	roots := config.Paths
 
 	// Refuse to operate on a database that is in active use. The DB holds these same locks while running.
-	releaseLocks, err := util.LockDirectories(logger, roots, util.LockfileName, true)
+	releaseLocks, err := util.LockDirectories(logger, roots, util.LockfileName, config.Fsync)
 	if err != nil {
 		return fmt.Errorf("failed to lock data directories %v: %w", roots, err)
 	}
@@ -80,7 +82,7 @@ func RollbackLittDB(dataDirs []string, rollbackFilter RollbackFilter) error {
 	}
 
 	for _, table := range tables {
-		if err := rollbackTable(logger, roots, table, rollbackFilter); err != nil {
+		if err := rollbackTable(logger, roots, table, config.Fsync, rollbackFilter); err != nil {
 			return fmt.Errorf("failed to roll back table %q: %w", table, err)
 		}
 	}
@@ -101,6 +103,7 @@ func rollbackTable(
 	logger *slog.Logger,
 	roots []string,
 	tableName string,
+	fsync bool,
 	rollbackFilter RollbackFilter,
 ) error {
 	errorMonitor := util.NewErrorMonitor(context.Background(), logger, nil)
@@ -112,7 +115,7 @@ func rollbackTable(
 
 	lowestSegmentIndex, highestSegmentIndex, segments, err := segment.GatherSegmentFiles(
 		logger, errorMonitor, segmentPaths, false /* snapshottingEnabled */, time.Now(),
-		true /* cleanOrphans */, true /* fsync */)
+		true /* cleanOrphans */, fsync)
 	if err != nil {
 		return fmt.Errorf("failed to gather segment files: %w", err)
 	}
@@ -138,8 +141,8 @@ func rollbackTable(
 		return err
 	}
 	if pivot == nil {
-		logger.Warn("no rollback point found, leaving table unchanged", "table", tableName)
-		return nil
+		logger.Info("no record to retain, deleting table", "table", tableName)
+		return deleteTable(roots, tableName)
 	}
 
 	// Refuse to roll back below the durable gc-watermark. Segments below it are logically garbage collected
@@ -246,6 +249,23 @@ func groupEndIndex(keys []*types.ScopedKey, i int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("key group starting at record %d has no terminating final-secondary record", i)
+}
+
+// deleteTable removes a table's entire on-disk footprint from every root, leaving the roots as if the
+// table had never been created.
+//
+// A rollback that retains nothing resolves to this: every record the table holds lies after the rollback
+// point. The gc-watermark is deleted along with everything else, so unlike a partial rollback this cannot
+// leave a lowest-readable-segment pointing past the surviving data, and the below-watermark refusal does
+// not apply. Re-running over a partially deleted table completes the deletion.
+func deleteTable(roots []string, tableName string) error {
+	for _, root := range roots {
+		tableDirectory := filepath.Join(root, tableName)
+		if err := os.RemoveAll(tableDirectory); err != nil {
+			return fmt.Errorf("failed to remove table directory %s: %w", tableDirectory, err)
+		}
+	}
+	return nil
 }
 
 // discardDerivedState removes the keymap and snapshot directories for a table from every root. Both are

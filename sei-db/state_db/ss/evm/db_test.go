@@ -53,6 +53,87 @@ func TestGetEarliestVersionReportsTheFurthestPrunedSubDB(t *testing.T) {
 	require.Equal(t, int64(40), store.GetEarliestVersion())
 }
 
+// A block that changed no EVM state advances the head through the write queue rather than around it.
+// Written straight through, the marker is overwritten by an earlier block still queued behind it,
+// which stamps its own lower version as it drains, and the store comes back from a restart behind the
+// head it reported.
+func TestCommitBlockWithoutEVMChangesAdvancesTheHeadInWriteOrder(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.AsyncWriteBuffer = 8
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	db := store.managedDBs[0]
+
+	// Held so version 1 is still queued when the next block commits.
+	release := make(chan struct{})
+	barrier, ok := db.(types.DrainBarrier)
+	require.True(t, ok)
+	barrier.ScheduleAtDrain(func() { <-release })
+
+	require.NoError(t, store.ApplyChangesetAsync(1, evmChangeset()))
+	require.NoError(t, store.CommitBlock(2, cosmosChangeset()))
+	close(release)
+
+	waiter, ok := db.(types.PendingWriteWaiter)
+	require.True(t, ok)
+	waiter.WaitForPendingWrites()
+	require.NoError(t, store.Close())
+
+	reopened, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+	require.Equal(t, int64(2), reopened.GetLatestVersion(), "the head must survive a restart")
+}
+
+// A database that took the block's writes stamps the version in the same batch as the data, so it
+// needs no marker write of its own.
+func TestCommitBlockTakesTheHeadFromTheBatch(t *testing.T) {
+	cfg := testConfig()
+	cfg.AsyncWriteBuffer = 8
+
+	store, err := NewEVMStateStore(t.TempDir(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.NoError(t, store.CommitBlock(4, evmChangeset()))
+	waiter, ok := store.managedDBs[0].(types.PendingWriteWaiter)
+	require.True(t, ok)
+	waiter.WaitForPendingWrites()
+
+	require.Equal(t, int64(4), store.GetLatestVersion())
+}
+
+// A block's keys route to some sub-DBs and not others, and the head is the minimum across them, so a
+// committed block has to move every sub-DB's marker. One left behind holds the head, and the GC floor
+// taken from it, at the last block that happened to touch that sub-DB.
+func TestCommitBlockAdvancesEverySubDBHead(t *testing.T) {
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+	cfg.AsyncWriteBuffer = 8
+
+	store, err := NewEVMStateStore(t.TempDir(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	require.Greater(t, len(store.managedDBs), 1)
+
+	// One account key, which routes to a single sub-DB.
+	require.Len(t, store.dbsWithoutWrites(store.groupBySubType(evmChangeset())), len(store.managedDBs)-1)
+
+	require.NoError(t, store.CommitBlock(7, evmChangeset()))
+	for _, db := range store.managedDBs {
+		waiter, ok := db.(types.PendingWriteWaiter)
+		require.True(t, ok)
+		waiter.WaitForPendingWrites()
+	}
+
+	require.Equal(t, int64(7), store.GetLatestVersion())
+	head, err := store.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), head)
+}
+
 func TestEVMStateStoreDefaultUsesUnifiedDB(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig()

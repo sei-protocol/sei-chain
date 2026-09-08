@@ -16,7 +16,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -178,8 +178,8 @@ func (a *evmOnlyInMemoryApplication) parseTx(raw []byte) (*ethtypes.Transaction,
 	return tx, sender, nil
 }
 
-func evmOnlyStoreAddress(address common.Address) gigastore.Address {
-	var storeAddress gigastore.Address
+func evmOnlyStoreAddress(address common.Address) gigatypes.Address {
+	var storeAddress gigatypes.Address
 	copy(storeAddress[:], address[:])
 	return storeAddress
 }

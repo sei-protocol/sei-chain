@@ -8,7 +8,7 @@ import (
 	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -49,7 +49,7 @@ func (r *readTrackingWrapper) GetPhaseTimer() *commonmetrics.PhaseTimer {
 	return nil
 }
 
-func (r *readTrackingWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+func (r *readTrackingWrapper) RegisterHashListener(_ gigatypes.HashListener) (bool, error) {
 	return false, nil
 }
 

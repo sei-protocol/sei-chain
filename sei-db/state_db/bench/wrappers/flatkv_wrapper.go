@@ -6,7 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -18,11 +18,11 @@ var _ DBWrapper = (*flatKVWrapper)(nil)
 // ApplyChangeSets calls may still precede one Commit as long as they all target the
 // same height; Commit() consults PendingVersion() to find that height.
 type flatKVWrapper struct {
-	base giga.LiveStateStore
+	base gigatypes.LiveStateStore
 }
 
 // NewFlatKVWrapper creates a new flatKVWrapper with a given flatkv store.
-func NewFlatKVWrapper(store giga.LiveStateStore) DBWrapper {
+func NewFlatKVWrapper(store gigatypes.LiveStateStore) DBWrapper {
 	return &flatKVWrapper{
 		base: store,
 	}
@@ -74,7 +74,7 @@ func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
 
 // RegisterHashListener subscribes listener to flatKV's block hashes. The hash the store returns is
 // dropped: a benchmark waits on the blocks it is about to commit, not the one already behind it.
-func (f *flatKVWrapper) RegisterHashListener(listener giga.HashListener) (bool, error) {
+func (f *flatKVWrapper) RegisterHashListener(listener gigatypes.HashListener) (bool, error) {
 	if _, err := f.base.RegisterHashListener(listener); err != nil {
 		return false, fmt.Errorf("register a hash listener on flatkv: %w", err)
 	}

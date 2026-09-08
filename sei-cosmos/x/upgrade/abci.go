@@ -5,8 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
@@ -33,8 +31,6 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 	beginBlockerStart := time.Now()
 	defer func() {
 		upgradeMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
-		// TODO(PLT-353): remove once upgrade_begin_blocker_duration verified
-		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
 	}()
 
 	plan, planFound := k.GetUpgradePlan(ctx)
@@ -61,15 +57,6 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 	upgradeMetrics.planHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
 		attribute.String("name", plan.Name),
 	))
-	// TODO(PLT-353): remove once upgrade_plan_height verified
-	telemetry.SetGaugeWithLabels(
-		[]string{"cosmos", "upgrade", "plan", "height"},
-		float32(plan.Height),
-		[]metrics.Label{
-			{Name: "name", Value: plan.Name},
-			{Name: "info", Value: plan.Info},
-		},
-	)
 
 	// If the plan's block height has passed, then it must be the executed version
 	// All major and minor releases are REQUIRED to execute on the scheduled block height

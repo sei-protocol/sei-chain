@@ -2,7 +2,6 @@ package registry_test
 
 import (
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -205,9 +204,14 @@ func TestAVariableSetForARefusedKeyIsReported(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	if got := strings.Join(resolved.Ignored, ","); got != "probe.rows" {
-		t.Errorf("the ignored variables are %q, want probe.rows. An operator set it and nothing here can "+
-			"tell them it did nothing", got)
+	reason, ignored := resolved.Ignored["probe.rows"]
+	if !ignored || len(resolved.Ignored) != 1 {
+		t.Errorf("the ignored variables are %v, want probe.rows alone. An operator set it and nothing here "+
+			"can tell them it did nothing", resolved.Ignored)
+	}
+	if reason == "" {
+		t.Error("probe.rows is ignored and carries no reason. The reason is what tells an operator which " +
+			"channel to reach for instead, and a caller reporting the key cannot invent one")
 	}
 	if !reflect.DeepEqual(resolved.Values["probe.rows"], []any{}) {
 		t.Errorf("probe.rows resolved to %#v, and the channel was supposed to be skipped",
@@ -279,12 +283,12 @@ func TestTheEnvironmentCarriesAListOfWordsAndNotAListOfLists(t *testing.T) {
 			"string and this setting is a list of unconstrained elements, so the string would reach a "+
 			"reader that asked for rows", got)
 	}
-	if !slices.Contains(resolved.Ignored, "shapes.rows") {
-		t.Errorf("Ignored is %v and does not name shapes.rows. A variable was set for it and did "+
-			"nothing, and an operator has to be told that", resolved.Ignored)
+	if reason := resolved.Ignored["shapes.rows"]; reason == "" {
+		t.Errorf("Ignored is %v and carries no reason for shapes.rows. A variable was set for it and did "+
+			"nothing, and an operator has to be told that and why", resolved.Ignored)
 	}
 	for _, key := range []string{"shapes.one", "shapes.words"} {
-		if slices.Contains(resolved.Ignored, key) {
+		if _, ignored := resolved.Ignored[key]; ignored {
 			t.Errorf("%s is reported as ignored and its variable answered", key)
 		}
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -24,15 +24,18 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-// failingEVMStore is a mock giga.LiveStateStore whose loads always fail.
+// failingEVMStore is a mock gigatypes.LiveStateStore whose loads always fail.
 type failingEVMStore struct{}
 
-var _ giga.LiveStateStore = (*failingEVMStore)(nil)
+var _ gigatypes.LiveStateStore = (*failingEVMStore)(nil)
 
 func (f *failingEVMStore) LoadLatest() error { return fmt.Errorf("flatkv unavailable") }
 
-func (f *failingEVMStore) LoadVersionReadOnly(int64) (giga.LiveStateStore, error) {
+func (f *failingEVMStore) LoadVersionReadOnly(int64) (gigatypes.LiveStateStore, error) {
 	return nil, fmt.Errorf("flatkv unavailable")
+}
+func (f *failingEVMStore) RewindToSnapshotAtOrBelow(int64) (int64, error) {
+	return 0, fmt.Errorf("flatkv unavailable")
 }
 func (f *failingEVMStore) ApplyChangeSets(int64, []*proto.NamedChangeSet) error {
 	return nil
@@ -41,7 +44,7 @@ func (f *failingEVMStore) Commit(int64) (int64, error) { return 0, nil }
 func (f *failingEVMStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
 	return nil
 }
-func (f *failingEVMStore) OpenView() giga.StateView          { return nil }
+func (f *failingEVMStore) OpenView() gigatypes.StateView     { return nil }
 func (f *failingEVMStore) SetInitialVersion(int64) error     { return nil }
 func (f *failingEVMStore) Get(string, []byte) ([]byte, bool) { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
@@ -53,7 +56,7 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 	return nil, nil
 }
 func (f *failingEVMStore) PublishedHash() *lthash.BlockHash { return lthash.NewBlockHash(nil) }
-func (f *failingEVMStore) RegisterHashListener(giga.HashListener) (lthash.BlockHash, error) {
+func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
 	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
 }
 func (f *failingEVMStore) FlushHashes() error                     { return nil }

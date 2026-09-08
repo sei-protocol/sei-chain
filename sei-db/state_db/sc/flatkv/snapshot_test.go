@@ -680,6 +680,18 @@ func TestRollbackRejectsVersionZero(t *testing.T) {
 	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
 }
 
+// TestRewindToSnapshotAtOrBelowRejectsVersionZero verifies the snapshot-only rewind refuses version 0 as
+// Rollback does. A store keeps a snapshot at 0, so 0 is a version this would otherwise land on and then
+// delete every snapshot above — which is all of them.
+func TestRewindToSnapshotAtOrBelowRejectsVersionZero(t *testing.T) {
+	s := rollbackFixture(t)
+
+	_, err := s.RewindToSnapshotAtOrBelow(0)
+
+	require.ErrorContains(t, err, "nothing to rewind to")
+	require.Equal(t, int64(5), s.Version(), "a refused rewind must leave the store where it was")
+}
+
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
 // its WAL holds 10-12 — a store that legally started mid-chain and has no history behind its first WAL block.
 func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
@@ -1150,6 +1162,80 @@ func TestRollbackRemovesPostTargetSnapshots(t *testing.T) {
 	require.Contains(t, afterRollback, int64(3))
 
 	require.NoError(t, s.Close())
+}
+
+// snapshotVersionsOnDisk lists the snapshot versions under the store's directory, ascending.
+func snapshotVersionsOnDisk(t *testing.T, s *CommitStore) []int64 {
+	t.Helper()
+	var versions []int64
+	require.NoError(t, traverseSnapshots(s.flatkvDir(), true, func(v int64) (bool, error) {
+		versions = append(versions, v)
+		return false, nil
+	}))
+	return versions
+}
+
+// interruptedRewindFixture returns a store in the state a rewind leaves behind when it is interrupted
+// after repointing at the base snapshot but before removing the branch above it: the store reads as the
+// base, and the discarded snapshot is still on disk.
+//
+// The store holds snapshots at 3 and 6 and was committed to 8, and the rewind it is partway through
+// targets 5, whose base is 3.
+func interruptedRewindFixture(t *testing.T) *CommitStore {
+	t.Helper()
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+	t.Cleanup(func() { _ = s.Close() })
+
+	for i := byte(1); i <= 8; i++ {
+		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
+		if i == 3 || i == 6 {
+			require.NoError(t, s.outOfBandSnapshot())
+		}
+	}
+	require.Equal(t, []int64{3, 6}, snapshotVersionsOnDisk(t, s))
+
+	// The first half of RewindToSnapshotAtOrBelow(5), then the reopen a restart performs. What the
+	// removal that would have followed never got to do is the point of the tests below.
+	require.NoError(t, s.repointAtSnapshot(s.flatkvDir(), 3))
+	require.NoError(t, s.open())
+	require.Equal(t, int64(3), s.Version(), "fixture precondition: the store reads as the base snapshot")
+	require.Contains(t, snapshotVersionsOnDisk(t, s), int64(6),
+		"fixture precondition: the discarded snapshot is still on disk")
+	return s
+}
+
+// TestRemoveSnapshotsAboveFinishesAnInterruptedRewind covers the repair an unconditional removal buys.
+//
+// A store left mid-rewind reads as the base snapshot, which is at or below the target, so the rewind is
+// skipped when it is retried and never removes the branch it abandoned. A later rollback would then seek
+// a snapshot at or below its own target, land on one from that abandoned branch, and replay over it.
+func TestRemoveSnapshotsAboveFinishesAnInterruptedRewind(t *testing.T) {
+	s := interruptedRewindFixture(t)
+
+	require.NoError(t, s.RemoveSnapshotsAbove(5))
+
+	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+		"the discarded branch must not survive the rollback that abandoned it")
+	require.Equal(t, int64(3), s.Version(), "removing snapshots must not move the store")
+}
+
+// TestRemoveSnapshotsAboveRefusesToDangleCurrent verifies the removal refuses to delete the snapshot the
+// current link names. Deleting it leaves the link dangling, which createWorkingDir resolves to an empty
+// working directory rather than to a failure, so the store would come up holding no state at all.
+func TestRemoveSnapshotsAboveRefusesToDangleCurrent(t *testing.T) {
+	s := rollbackFixture(t)
+	_, current, err := currentSnapshotDir(s.flatkvDir())
+	require.NoError(t, err)
+	require.Positive(t, current, "fixture precondition: current must name a snapshot above the target below")
+
+	require.ErrorContains(t, s.RemoveSnapshotsAbove(current-1), "would leave the current link dangling")
+
+	require.Contains(t, snapshotVersionsOnDisk(t, s), current,
+		"a refused removal must leave the snapshot in place")
 }
 
 func TestRemoveSnapshotsAboveKeepsTargetAndBelow(t *testing.T) {
@@ -1938,11 +2024,15 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	addr := ktype.Address{0xE3}
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	balanceVal := balanceN(0xE7)
 
+	// Both fields live in one row, so both have to be cleared at v2 for the row to go away.
 	cs1 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+			{Key: nonceKey, Value: []byte{0, 0, 0, 0, 0, 0, 0, 3}},
+			{Key: balanceKey, Value: balanceVal[:]},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
@@ -1956,7 +2046,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	cs2 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: nonceKey, Delete: true},
+			{Key: balanceKey, Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs2}))
@@ -1965,6 +2056,8 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 
 	_, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should be gone at v2")
+	_, found = s.Get(keys.EVMStoreKey, balanceKey)
+	require.False(t, found, "balance should be gone at v2")
 
 	// Rollback to v1: row should be restored
 	require.NoError(t, s.Rollback(1))
@@ -1973,6 +2066,10 @@ func TestAccountRowDeleteAfterSnapshotRollback(t *testing.T) {
 	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be restored after rollback to v1")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 3}, nonceVal)
+
+	got, found := s.Get(keys.EVMStoreKey, balanceKey)
+	require.True(t, found, "balance should be restored after rollback to v1")
+	require.Equal(t, balanceVal[:], got)
 
 	require.NoError(t, s.Close())
 }

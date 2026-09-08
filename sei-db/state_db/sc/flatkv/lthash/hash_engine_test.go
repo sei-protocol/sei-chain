@@ -370,6 +370,9 @@ func TestFlushReturnsOnceTheEngineIsStopped(t *testing.T) {
 	engine, err := NewHashEngine(
 		ctx, DefaultConfig(), pool, engineDBNames, engineModuleOf, NewBlockHash(engineDBNames))
 	require.NoError(t, err)
+	// Registered after the pool's cleanup so it runs before it: the engine's goroutines submit leaf
+	// hashing to the pool, and Close is what waits for them to stop.
+	t.Cleanup(func() { require.NoError(t, engine.Close()) })
 
 	current, previous, _ := blockViews(t, 1, blockDiff(1, 4), nil)
 	require.NoError(t, engine.ScheduleHash(current, previous))

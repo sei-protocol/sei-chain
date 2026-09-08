@@ -6,7 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -69,7 +69,7 @@ func (c *combinedWrapper) Importer(version int64) (scTypes.Importer, error) {
 
 // RegisterHashListener forwards to the SC backend. The SS backend commits the same changesets but
 // computes no block hash of its own.
-func (c *combinedWrapper) RegisterHashListener(listener giga.HashListener) (bool, error) {
+func (c *combinedWrapper) RegisterHashListener(listener gigatypes.HashListener) (bool, error) {
 	return c.sc.RegisterHashListener(listener)
 }
 

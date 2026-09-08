@@ -106,7 +106,7 @@ func (f *File) refuseUnsupportedShapes() error {
 				"holds one value, so a repeated section has no reading", s.Name)
 		}
 		if err := keyIsAddressable(s.Name); err != nil {
-			return fmt.Errorf("table [%s]: %w", s.Name, err)
+			return fmt.Errorf("table [%s]: %w", shortKey(s.Name), err)
 		}
 		name := s.Name.String()
 		if headings[name] {
@@ -166,6 +166,11 @@ func (f *File) refuseUnsupportedShapes() error {
 // in the file, and a segment carrying a dot or a space cannot be split back into the segments it came
 // from.
 func keyIsAddressable(key parser.Key) error {
+	if len(key) > maxKeyDepth {
+		return fmt.Errorf("%s is %d segments deep and this file is read to %d. A setting here is a "+
+			"section and a key inside it, so nothing legitimate reaches that depth", shortKey(key),
+			len(key), maxKeyDepth)
+	}
 	for _, segment := range key {
 		if segment == "" {
 			return fmt.Errorf("%s has an empty segment, which names nothing", key)
@@ -204,6 +209,22 @@ func notBareKeyRune(r rune) bool {
 // space a table's do, so a caller works in that space and an edit there defines the table a second
 // time, producing a file a conforming reader refuses to load.
 func valueIsAddressable(key parser.Key, v parser.Value) error {
+	return valueIsAddressableWithin(key, v, 0)
+}
+
+// valueIsAddressableWithin is valueIsAddressable, carrying how deep into nested arrays it already is.
+//
+// The depth is carried rather than derived because the walk is what finds it: an array holds arrays, so
+// nothing but the walk knows how deep it went.
+//
+// Refused here, between the parse and the decode. Parsing is linear in the bytes whatever shape they take,
+// measured within 14 percent across a deep key, a deep array and a flat file of the same size. What grows
+// faster than the bytes is decoding the result, and nothing downstream of that can refuse a boot.
+func valueIsAddressableWithin(key parser.Key, v parser.Value, depth int) error {
+	if depth > maxArrayDepth {
+		return fmt.Errorf("%s nests arrays %d deep and this file is read to %d. No setting here is a "+
+			"list of lists, so nothing legitimate reaches that depth", key, depth, maxArrayDepth)
+	}
 	switch x := v.X.(type) {
 	case parser.Token:
 		switch x.Type {
@@ -221,7 +242,7 @@ func valueIsAddressable(key parser.Key, v parser.Value) error {
 			if !ok {
 				continue
 			}
-			if err := valueIsAddressable(key, element); err != nil {
+			if err := valueIsAddressableWithin(key, element, depth+1); err != nil {
 				return err
 			}
 		}
@@ -229,14 +250,103 @@ func valueIsAddressable(key parser.Key, v parser.Value) error {
 	return nil
 }
 
+// The bounds this file is read within.
+//
+// None of them is a limit an operator can reach by writing configuration. They exist because nothing
+// downstream of reading can refuse a boot, so a file whose cost outruns its size has to be refused while
+// reading it.
+//
+// They apply at two different points. The byte bound is checked before anything is parsed. The two depth
+// bounds are checked after the parse and before the decode, which is where a cost that outruns the bytes
+// actually falls: parsing is linear in the bytes whatever shape they take.
+const (
+	// maxFileBytes bounds the bytes Load will read. A file stating every declared key is a few tens
+	// of kilobytes.
+	maxFileBytes = 1 << 20
+	// maxKeyDepth bounds the segments in one key. A setting is a section and a key inside it.
+	maxKeyDepth = 8
+	// maxArrayDepth bounds nesting inside a value. No setting here is a list of lists.
+	maxArrayDepth = 8
+)
+
+// shortKey renders a key for a message, bounded.
+//
+// The message that refuses a key for being too deep is the one place that key is certain to be rendered,
+// and rendering it whole makes the refusal as large as the file. Bounded here rather than at each message,
+// because the caller holding the key is the one that cannot know how deep it is.
+func shortKey(key parser.Key) string {
+	if len(key) <= maxKeyDepth {
+		return key.String()
+	}
+	return fmt.Sprintf("%s and %d more segments", key[:maxKeyDepth].String(), len(key)-maxKeyDepth)
+}
+
+// whatALinkToNothingIs reports the error for a path that is a link to a file that is not there. It returns
+// nil for anything else, leaving the caller the error it already has.
+//
+// A caller stays quiet on fs.ErrNotExist, because a node without this file is the ordinary case. A broken
+// link reads as that same error, so without this it would take the same silence and whoever placed it would
+// never learn the file is doing nothing.
+func whatALinkToNothingIs(path string) error {
+	// The link itself, not its target, and the path has to be a link. Lstat also succeeds for a regular
+	// file, so testing only its error would report any readable path as a broken link.
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s is a link to something that is not there", path)
+}
+
 // Load reads the document at path.
 //
 // A path with no file there reports fs.ErrNotExist, which errors.Is matches. That is the one outcome a
 // caller acts on rather than reports, since a node with no sei.toml yet needs New instead.
 func Load(path string) (*File, error) {
-	raw, err := os.ReadFile(path) //nolint:gosec // the caller's configured path is the subject
+	// The kind of thing this is, before opening it. Opening a FIFO blocks until something writes, so a
+	// check made on the open file never runs and the node hangs on start with nothing to say.
+	//
+	// Stat rather than Lstat, so a symlink is judged by what it points at. A configuration file mounted
+	// from a Kubernetes ConfigMap is a symlink, and so is any layout that keeps the real file elsewhere
+	// and links it in, and all of those are ordinary. A symlink to a FIFO is still refused, because Stat
+	// reports the FIFO.
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if dangling := whatALinkToNothingIs(path); dangling != nil {
+			return nil, dangling
+		}
+	}
 	if err != nil {
 		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is a %s rather than a regular file, and this file is read as one",
+			path, info.Mode().Type())
+	}
+
+	fh, err := os.Open(path) //nolint:gosec // the caller's configured path is the subject
+	if err != nil {
+		// The target can be removed between the check above and this open, which is what a mounted file's
+		// directory swap looks like. Checked again here so the error names the broken link instead of
+		// reporting the file as absent.
+		if errors.Is(err, fs.ErrNotExist) {
+			if dangling := whatALinkToNothingIs(path); dangling != nil {
+				return nil, dangling
+			}
+		}
+		return nil, err
+	}
+	defer func() { _ = fh.Close() }()
+
+	// Read through the bound rather than against the size reported a moment ago, so the guard applies to
+	// the bytes that actually arrive. One byte past the limit is enough to know it was exceeded.
+	raw, err := io.ReadAll(io.LimitReader(fh, maxFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > maxFileBytes {
+		return nil, fmt.Errorf("%s holds more than %d bytes, which is what this file is read up to. A "+
+			"file stating every key this binary declares is a small fraction of that, so one this large "+
+			"is not that file", path, maxFileBytes)
 	}
 	f, err := Parse(bytes.NewReader(raw))
 	if err != nil {

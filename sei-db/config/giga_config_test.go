@@ -34,7 +34,7 @@ func TestDefaultGigaStorageConfigDirectories(t *testing.T) {
 	)
 }
 
-func defaultGigaConfig(t *testing.T) GigaStorageConfig {
+func defaultGigaConfig(t *testing.T) *GigaStorageConfig {
 	t.Helper()
 	cfg, err := DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)

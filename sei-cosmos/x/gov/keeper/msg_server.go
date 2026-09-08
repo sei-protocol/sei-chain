@@ -3,11 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
-	"strconv"
 
-	"github.com/armon/go-metrics"
-
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
@@ -36,8 +32,6 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 
 	defer func() {
 		govMetrics.proposalTotal.Add(goCtx, 1)
-		// TODO(PLT-353): remove once gov_proposal_total verified
-		telemetry.IncrCounter(1, types.ModuleName, "proposal")
 	}()
 
 	votingStarted, err := k.AddDeposit(ctx, proposal.ProposalId, msg.GetProposer(), msg.GetInitialDeposit())
@@ -80,14 +74,6 @@ func (k msgServer) Vote(goCtx context.Context, msg *types.MsgVote) (*types.MsgVo
 
 	defer func() {
 		govMetrics.voteTotal.Add(goCtx, 1)
-		// TODO(PLT-353): remove once gov_vote_total verified
-		telemetry.IncrCounterWithLabels(
-			[]string{types.ModuleName, "vote"},
-			1,
-			[]metrics.Label{
-				telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
-			},
-		)
 	}()
 
 	ctx.EventManager().EmitEvent(
@@ -114,14 +100,6 @@ func (k msgServer) VoteWeighted(goCtx context.Context, msg *types.MsgVoteWeighte
 
 	defer func() {
 		govMetrics.voteTotal.Add(goCtx, 1)
-		// TODO(PLT-353): remove once gov_vote_total verified
-		telemetry.IncrCounterWithLabels(
-			[]string{types.ModuleName, "vote"},
-			1,
-			[]metrics.Label{
-				telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
-			},
-		)
 	}()
 
 	ctx.EventManager().EmitEvent(
@@ -148,14 +126,6 @@ func (k msgServer) Deposit(goCtx context.Context, msg *types.MsgDeposit) (*types
 
 	defer func() {
 		govMetrics.depositTotal.Add(goCtx, 1)
-		// TODO(PLT-353): remove once gov_deposit_total verified
-		telemetry.IncrCounterWithLabels(
-			[]string{types.ModuleName, "deposit"},
-			1,
-			[]metrics.Label{
-				telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
-			},
-		)
 	}()
 
 	ctx.EventManager().EmitEvent(

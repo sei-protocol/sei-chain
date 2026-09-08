@@ -103,8 +103,7 @@ func settle(t *testing.T, store *CompositeStateStore) {
 
 func commitBlock(t *testing.T, store *CompositeStateStore, version int64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
-	require.NoError(t, store.ApplyChangesetAsync(version, changesets))
-	store.ScheduleSnapshot(version)
+	require.NoError(t, store.CommitBlock(version, changesets))
 }
 
 func writeBlock(t *testing.T, store *CompositeStateStore, version int64) {

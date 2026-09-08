@@ -10,7 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 )
@@ -178,7 +178,7 @@ func (h *historicalOffloadWrapper) Importer(_ int64) (scTypes.Importer, error) {
 
 // RegisterHashListener reports that this DB publishes no block hashes. An offload stream computes
 // none.
-func (h *historicalOffloadWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+func (h *historicalOffloadWrapper) RegisterHashListener(_ gigatypes.HashListener) (bool, error) {
 	return false, nil
 }
 

@@ -71,7 +71,7 @@ type HashLogger interface {
 	ReportHash(blockNumber uint64, hashType string, hash []byte) error
 
 	// Report one block's flatKV hashes: the store-wide root and each data database's root. The
-	// signature matches giga.HashListener, so this method registers as one directly.
+	// signature matches gigatypes.HashListener, so this method registers as one directly.
 	//
 	// The columns reported here are fixed, and a node declares them when it constructs the logger
 	// (see HashLoggerConfig.HashTypes). Nothing registers a column per block.

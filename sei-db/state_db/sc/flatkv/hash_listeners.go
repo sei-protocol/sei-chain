@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -22,7 +22,7 @@ type hashListenerRegistry struct {
 	mu sync.Mutex
 
 	// The listeners, in registration order.
-	listeners []giga.HashListener
+	listeners []gigatypes.HashListener
 
 	// The most recent hash handed to the listeners, which is the block a listener registering now
 	// is told its first delivery follows. Nil until a block has been dispatched.
@@ -37,7 +37,7 @@ func newHashListenerRegistry() *hashListenerRegistry {
 // register adds a listener and reports the most recent hash dispatched before it was added, or
 // current when nothing has been dispatched yet.
 func (r *hashListenerRegistry) register(
-	listener giga.HashListener,
+	listener gigatypes.HashListener,
 	// The height the store stands at, for a store that has dispatched nothing.
 	current *lthash.BlockHash,
 ) lthash.BlockHash {

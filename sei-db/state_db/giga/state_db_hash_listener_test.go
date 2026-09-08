@@ -1,4 +1,4 @@
-package giga_test
+package giga
 
 import (
 	"context"
