@@ -152,7 +152,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		// Let Pebble run several compactions in parallel so it can keep up with
 		// the tombstone churn produced by pruning. See maxConcurrentCompactions.
 		DisableWAL:                 true, // TODO: it breaks tests.
-		CompactionConcurrencyRange: func() (int, int) { return 4, 10 },
+		CompactionConcurrencyRange: func() (int, int) { return 6, 15 },
 	}
 
 	// Configure L0 with explicit settings
@@ -809,6 +809,15 @@ func (db *Database) compactPrunedRange(first, last []byte) error {
 	// comparers, so the entire deleted span is covered.
 	end := append(slices.Clone(last), 0)
 	return db.storage.Compact(context.Background(), first, end, true)
+}
+
+// Compact forces a full compaction of the entire keyspace. Unlike background compaction,
+// which only runs when Pebble's own heuristics judge a level worth rewriting, this
+// guarantees on-disk size reflects steady state regardless of how compaction happened to
+// leave things after live writes.
+func (db *Database) Compact() error {
+	end := bytes.Repeat([]byte{0xFF}, 128)
+	return db.storage.Compact(context.Background(), nil, end, true)
 }
 
 // Iterator dispatches between descending- and ascending-mode implementations
