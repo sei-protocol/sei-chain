@@ -25,7 +25,7 @@ func storedInfoConfig() config.StateCommitConfig {
 
 func openStoredInfoStore(t *testing.T, dir string) *CompositeCommitStore {
 	t.Helper()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, storedInfoConfig(), nil)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, storedInfoConfig())
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	require.NoError(t, cs.LoadLatest())

@@ -1532,7 +1532,7 @@ func applyTestMigrationBatchSize(t *testing.T, cs *CompositeCommitStore) {
 
 func openComposite(t *testing.T, dir string, cfg config.StateCommitConfig) *CompositeCommitStore {
 	t.Helper()
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize(keys.MemIAVLStoreKeys))
 	err = cs.LoadLatest()
@@ -1579,7 +1579,7 @@ func stateSyncClone(
 	require.NoError(t, exporter.Close())
 
 	dstDir := t.TempDir()
-	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg, nil)
+	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, dst.Initialize(keys.MemIAVLStoreKeys))
 	// Open then close the writable handle so the importer takes over a

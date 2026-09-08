@@ -101,7 +101,7 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode sctype
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, cfg, nil)
+	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create composite commit store: %w", err)
 	}

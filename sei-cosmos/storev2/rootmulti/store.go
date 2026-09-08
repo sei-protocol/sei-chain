@@ -126,8 +126,6 @@ func NewStore(
 	if scConfig.HistoricalProofRateLimit > 0 {
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
-	// Opened before the store it is handed to: flatKV reports its hashes from its own finalization
-	// goroutine, so it needs the logger at construction rather than per block.
 	hashLoggingOn := scConfig.HashLogger.Enable
 	var hashLogger hashlog.HashLogger
 	if hashLoggingOn {
@@ -141,7 +139,7 @@ func NewStore(
 	}
 
 	ctx := context.Background()
-	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig, hashLogger)
+	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
 	if err != nil {
 		panic(err)
 	}

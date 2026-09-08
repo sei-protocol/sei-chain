@@ -1,6 +1,8 @@
 package composite
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
@@ -21,12 +23,23 @@ func (cs *CompositeCommitStore) HashCategories() []string {
 	return categories
 }
 
-// RecordHashes reports memIAVL's hashes for blockNumber. Call right after Commit.
+// RecordHashes reports both backends' hashes for blockNumber. Call right after Commit.
 func (cs *CompositeCommitStore) RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error {
-	if cs.memIAVL == nil {
-		return nil
+	if cs.memIAVL != nil {
+		if err := cs.memIAVL.RecordHashes(hl, blockNumber); err != nil {
+			return err
+		}
 	}
-	return cs.memIAVL.RecordHashes(hl, blockNumber)
+	if cs.flatKV != nil {
+		// Keyed on the block cosmos committed rather than the hash's own height, which is what keeps
+		// this row complete: a block whose writes never reached flatKV leaves its hash on the height
+		// before, and the AppHash reports that same hash for this block.
+		//nolint:gosec // commit versions are non-negative
+		if err := hl.HashListener(cs.ctx, int64(blockNumber), cs.flatKVHash.Load()); err != nil {
+			return fmt.Errorf("record flatkv hashes for block %d: %w", blockNumber, err)
+		}
+	}
+	return nil
 }
 
 // MemIAVLCommitInfo returns the raw memIAVL commit info (its per-store hashes), or nil when memIAVL is

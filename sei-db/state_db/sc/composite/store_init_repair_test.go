@@ -51,7 +51,7 @@ func TestAuto_TornFlatKVSeedRecoversAndReseeds(t *testing.T) {
 	initializeUnseededFlatKV(t, cfg, flatkvDir)
 	stampSeedRecords(t, flatkvDir, 99, "account", "code")
 
-	reopened, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)
+	reopened, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
 	defer func() { _ = reopened.Close() }()
 	require.NoError(t, reopened.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))

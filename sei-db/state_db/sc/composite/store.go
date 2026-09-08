@@ -19,7 +19,6 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -74,9 +73,6 @@ type CompositeCommitStore struct {
 
 	// config holds the store configuration
 	config config.StateCommitConfig
-
-	// hashLogger records flatKV's per-block hashes. Never nil.
-	hashLogger hashlog.HashLogger
 
 	// currentWriteMode is the write mode actually driving routing and
 	// mode-dependent gating. It equals the configured WriteMode unless the
@@ -163,18 +159,10 @@ func NewCompositeCommitStore(
 	ctx context.Context,
 	homeDir string,
 	cfg config.StateCommitConfig,
-	// Receives flatKV's per-block hashes. Nil records nothing.
-	hl hashlog.HashLogger,
 ) (*CompositeCommitStore, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
-	if hl == nil {
-		// Normalized here so that every path that reaches for the listener has a logger to take it
-		// from, rather than each of them nil-checking. flatKV used to do this on this store's behalf.
-		hl = hashlog.NewNoOpHashLogger()
-	}
-
 	alignFlatKVSnapshotWithMemIAVL(&cfg)
 
 	var memIAVL *memiavl.CommitStore
@@ -216,7 +204,6 @@ func NewCompositeCommitStore(
 		config:           cfg,
 		currentWriteMode: cfg.WriteMode,
 		ctx:              ctx,
-		hashLogger:       hl,
 	}
 	if flatKV != nil {
 		if err := store.adoptFlatKV(flatKV); err != nil {
@@ -226,8 +213,8 @@ func NewCompositeCommitStore(
 	return store, nil
 }
 
-// adoptFlatKV installs store as this composite's flatKV backend, starts tracking the hash it
-// publishes for each block, and puts those hashes on the hash log.
+// adoptFlatKV installs store as this composite's flatKV backend and starts tracking the hash it
+// publishes for each block.
 func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) error {
 	cs.flatKV = store
 
@@ -236,10 +223,6 @@ func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) erro
 		return fmt.Errorf("failed to register the flatkv hash listener: %w", err)
 	}
 	cs.flatKVHash.Store(&mostRecent)
-
-	if _, err := store.RegisterHashListener(cs.hashLogger.HashListener); err != nil {
-		return fmt.Errorf("failed to register the flatkv hash log listener: %w", err)
-	}
 	return nil
 }
 
@@ -500,12 +483,11 @@ func (cs *CompositeCommitStore) LoadVersionReadOnly(targetVersion int64) (_ type
 	// inherits cs.ctx so cancellation of the parent context cascades, but buildRouter installs its own
 	// child cancel so closing this handle does not affect the parent.
 	ro := &CompositeCommitStore{
-		memIAVL:    memIAVLCommitter,
-		homeDir:    cs.homeDir,
-		config:     cs.config,
-		ctx:        cs.ctx,
-		hashLogger: cs.hashLogger,
-		derived:    true,
+		memIAVL: memIAVLCommitter,
+		homeDir: cs.homeDir,
+		config:  cs.config,
+		ctx:     cs.ctx,
+		derived: true,
 	}
 	if flatKVStore != nil {
 		if err := ro.adoptFlatKV(flatKVStore); err != nil {
@@ -858,11 +840,9 @@ func (cs *CompositeCommitStore) Commit(version int64) (int64, error) {
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}
-		// Taken whether or not this block's hash reaches the AppHash. shouldAppendLatticeHash answers a
-		// consensus question; taking the hash is a lifecycle obligation of a backend that publishes one.
-		// flatKV's stream has finite depth and blocks commit once full, so a committing flatKV whose
-		// hashes nobody reads halts the node. This is the one place every flatKV block commit passes
-		// through, which is why the obligation is discharged here rather than at the readers below.
+		// Taken whether or not this block's hash reaches the AppHash: shouldAppendLatticeHash answers a
+		// consensus question, while this refreshes the hash that both the AppHash below and the hash log
+		// read. It is done here because this is the one place every flatKV block commit passes through.
 		if _, err := cs.latticeHash(flatkvVersion); err != nil {
 			return 0, fmt.Errorf("failed to obtain flatkv hash for block %d: %w", flatkvVersion, err)
 		}
