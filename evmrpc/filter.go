@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -697,7 +698,7 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 
 	// Early rejection for pruned blocks - avoid wasting resources on blocks that don't exist
 	if earliest > 0 && begin < earliest {
-		return nil, fmt.Errorf("requested block range [%d, %d] includes pruned blocks, earliest available block is %d", begin, end, earliest)
+		return nil, ethrpcerrors.HistoryPruned(begin, earliest)
 	}
 
 	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
@@ -856,7 +857,7 @@ func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.Filte
 		return 0, 0, fmt.Errorf("requested fromBlock %d is greater than toBlock %d", begin, end)
 	}
 	if begin < earliest {
-		return 0, 0, fmt.Errorf("requested fromBlock %d is before earliest available block %d", begin, earliest)
+		return 0, 0, ethrpcerrors.HistoryPruned(begin, earliest)
 	}
 	if end > latest {
 		return 0, 0, fmt.Errorf("requested toBlock %d is after latest available block %d", end, latest)
@@ -865,7 +866,7 @@ func ComputeBlockBounds(latest, earliest, lastToHeight int64, crit filters.Filte
 		return 0, 0, fmt.Errorf("requested fromBlock %d is after latest available block %d", begin, latest)
 	}
 	if end < earliest {
-		return 0, 0, fmt.Errorf("requested toBlock %d is before earliest available block %d", end, earliest)
+		return 0, 0, ethrpcerrors.HistoryPruned(end, earliest)
 	}
 
 	if lastToHeight > begin {
@@ -1414,21 +1415,9 @@ func MatchesCriteria(log *ethtypes.Log, crit filters.FilterCriteria) bool {
 // Optimized fetchBlocksByCrit with batch processing
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]BloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
 	if crit.BlockHash != nil {
-		// Check for invalid zero hash
-		zeroHash := common.Hash{}
-		if *crit.BlockHash == zeroHash {
-			// For invalid hash, return empty channel instead of error
-			res := make(chan *coretypes.ResultBlock)
-			close(res)
-			return res, 0, nil
-		}
-
 		block, err := blockByHashRespectingWatermarks(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
 		if err != nil {
-			// For non-existent blocks, return empty channel instead of error
-			res := make(chan *coretypes.ResultBlock)
-			close(res)
-			return res, 0, nil
+			return nil, 0, ethrpcerrors.ForLogs(err)
 		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		res <- block

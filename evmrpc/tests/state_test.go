@@ -20,7 +20,7 @@ func TestGetBalance(t *testing.T) {
 			res = sendRequestWithNamespace("eth", port, "getBalance", getAddrWithMnemonic(mnemonic1).Hex(), "0x3")
 			fmt.Println(res)
 			err := res["error"].(map[string]interface{})
-			require.Contains(t, err["message"].(string), "not yet available", "expected gating message when querying future blocks")
+			require.Equal(t, "header not found", err["message"].(string), "future blocks answer with go-ethereum's header error")
 		},
 	)
 }

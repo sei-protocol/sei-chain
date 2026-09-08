@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -360,7 +361,8 @@ func TestGetBlockTransactionCountByNumberReceiptsPruned(t *testing.T) {
 
 	_, err := api.GetBlockTransactionCountByNumber(context.Background(), rpc.BlockNumber(100))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "receipts have been pruned")
+	require.ErrorIs(t, err, ethrpcerrors.ErrHistoryPruned)
+	require.Equal(t, "pruned history unavailable", err.Error())
 }
 
 func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
@@ -373,7 +375,8 @@ func TestGetBlockTransactionCountByHashReceiptsPruned(t *testing.T) {
 
 	_, err := api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(highBlockHashHex))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "receipts have been pruned")
+	require.ErrorIs(t, err, ethrpcerrors.ErrHistoryPruned)
+	require.Equal(t, "pruned history unavailable", err.Error())
 }
 
 func TestGetBlockByNumberReceiptsPruned(t *testing.T) {
@@ -386,7 +389,8 @@ func TestGetBlockByNumberReceiptsPruned(t *testing.T) {
 
 	_, err := api.GetBlockByNumber(context.Background(), rpc.BlockNumber(100), false)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "receipts have been pruned")
+	require.ErrorIs(t, err, ethrpcerrors.ErrHistoryPruned)
+	require.Equal(t, "pruned history unavailable", err.Error())
 }
 
 func TestGetBlockByHashReceiptsPruned(t *testing.T) {
@@ -399,7 +403,8 @@ func TestGetBlockByHashReceiptsPruned(t *testing.T) {
 
 	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "receipts have been pruned")
+	require.ErrorIs(t, err, ethrpcerrors.ErrHistoryPruned)
+	require.Equal(t, "pruned history unavailable", err.Error())
 }
 
 func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
@@ -412,5 +417,6 @@ func TestGetBlockReceiptsReceiptsPruned(t *testing.T) {
 
 	_, err := api.GetBlockReceipts(context.Background(), rpc.BlockNumberOrHashWithNumber(rpc.BlockNumber(100)))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "receipts have been pruned")
+	require.ErrorIs(t, err, ethrpcerrors.ErrHistoryPruned)
+	require.Equal(t, "pruned history unavailable", err.Error())
 }

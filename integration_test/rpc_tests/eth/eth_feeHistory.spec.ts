@@ -279,16 +279,16 @@ describe('eth_feeHistory Tests', function () {
             expect(g.error?.message).to.match(/percentile/i);
         });
 
-        it('[divergence] a far-future newest block is rejected by both (-32000)', async () => {
+        it('a far-future newest block is rejected identically (-32000 request beyond head block)', async () => {
             const [s, g] = await Promise.all([
                 rawSei('eth_feeHistory', ['0x2', '0xffffffff', [50]]),
                 rawGeth('eth_feeHistory', ['0x2', '0xffffffff', [50]]),
             ]);
-            expect(s.error?.code, 'sei code').to.equal(-32000);
-            expect(g.error?.code, 'geth code').to.equal(-32000);
-            expect(s.error?.message).to.match(/not yet available|beyond/i);
-            expect(g.error?.message).to.match(/beyond head block/i);
-            expect(s.error?.message).to.not.equal(g.error?.message);
+            // The message carries each node's own head, so it is compared up to that number.
+            const beyondHead = /^request beyond head block: requested 4294967295, head \d+$/;
+            expectJsonRpcError(s, -32000, beyondHead);
+            expectJsonRpcError(g, -32000, beyondHead);
+            expect(s.error!.code, 'error.code parity').to.equal(g.error!.code);
         });
 
         // TODO: Sei returns oldestBlock null (not 0x0) for blockCount 0 — revisit. Skipped for now.

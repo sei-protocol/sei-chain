@@ -3,9 +3,9 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
@@ -15,10 +15,6 @@ import (
 )
 
 var errNoHeightSource = errors.New("unable to determine height information")
-
-// ErrBlockHeightNotYetAvailable is returned when a concrete block height is above the
-// node's safe latest watermark. eth_getBlockByNumber maps this to result null (Ethereum spec).
-var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 
 // WatermarkManager coordinates access to block, state, and receipt stores to
 // determine queryable block heights for RPC consumers. It ensures read-side
@@ -117,10 +113,9 @@ func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, erro
 	return stateEarliest, err
 }
 
-// ResolveHeight normalizes a requested block identifier into a concrete height.
-// If the resolved height sits outside the tracked watermarks, the method returns
-// an error explaining whether it is too old (pruned) or too new (not yet
-// available).
+// ResolveHeight normalizes a requested block identifier into a concrete height whose
+// state can be served. A height outside the state watermarks, or a hash no block carries,
+// is reported as an *ethrpcerrors.BlockUnavailable.
 func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
 	_, stateEarliest, latest, err := m.Watermarks(ctx)
 	if err != nil {
@@ -136,7 +131,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 			return 0, err
 		}
 		height := res.Block.Height
-		if err := ensureWithinWatermarks(height, stateEarliest, latest); err != nil {
+		if err := ensureWithinWatermarks(height, stateEarliest, latest, ethrpcerrors.StatePruned); err != nil {
 			return 0, err
 		}
 		return height, nil
@@ -161,43 +156,45 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	if heightPtr == nil {
 		return latest, nil
 	}
-	if err := ensureWithinWatermarks(*heightPtr, stateEarliest, latest); err != nil {
+	if err := ensureWithinWatermarks(*heightPtr, stateEarliest, latest, ethrpcerrors.StatePruned); err != nil {
 		return 0, err
 	}
 	return *heightPtr, nil
 }
 
-// EnsureBlockHeightAvailable verifies that the provided block height falls within
-// the computed watermarks.
+// EnsureBlockHeightAvailable verifies that the block at height is within the block
+// watermarks, reporting an *ethrpcerrors.BlockUnavailable otherwise.
 func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, height int64) error {
 	blockEarliest, _, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return err
 	}
-	return ensureWithinWatermarks(height, blockEarliest, latest)
+	return ensureWithinWatermarks(height, blockEarliest, latest, ethrpcerrors.HistoryPruned)
 }
 
-// EnsureReceiptHeightAvailable verifies that receipts for the given block height
-// have not been pruned from the receipt store. This is a separate check from
-// EnsureBlockHeightAvailable because the receipt store can be configured with a
-// smaller KeepRecent than the block or state stores.
+// EnsureReceiptHeightAvailable verifies that the receipts at height are still in the receipt
+// store, which may keep fewer heights than the block or state stores, reporting an
+// *ethrpcerrors.BlockUnavailable otherwise.
 func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
 	if m.receiptStore == nil {
 		return receipt.ErrNotConfigured
 	}
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {
-		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)
+		return ethrpcerrors.HistoryPruned(height, earliest)
 	}
 	return nil
 }
 
-func ensureWithinWatermarks(height, earliest, latest int64) error {
+// ensureWithinWatermarks reports a height outside [earliest, latest]. pruned names the store the
+// height fell out of, since state and block history are pruned independently and go-ethereum
+// renders the two differently.
+func ensureWithinWatermarks(height, earliest, latest int64, pruned func(height, earliest int64) *ethrpcerrors.BlockUnavailable) error {
 	if height > latest {
-		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)
+		return ethrpcerrors.BlockAboveLatest(height, latest)
 	}
 	if height < earliest {
-		return fmt.Errorf("requested height %d has been pruned; earliest available is %d", height, earliest)
+		return pruned(height, earliest)
 	}
 	return nil
 }
@@ -243,17 +240,11 @@ func blockByHashRespectingWatermarks(
 	return block, nil
 }
 
-// blockByNumberOrNullForJSONRPC wraps blockByNumberRespectingWatermarks for
-// Ethereum JSON-RPC endpoints that must return null (not an error) when the
-// requested block sits above the safe-latest watermark — i.e. the block does
-// not yet exist from the caller's perspective. This is the spec contract for
-// endpoints that take a block identifier and return null for non-existent
-// blocks (eth_getBlockByNumber, eth_getBlockByHash, eth_getBlockReceipts,
-// eth_getTransactionByHash, eth_getTransactionByBlock*AndIndex, etc.).
-//
-// Internal call sites that genuinely need the error (state queries that must
-// reject invalid heights, simulation paths bound to a specific block) keep
-// using blockByNumberRespectingWatermarks directly.
+// blockByNumberOrNullForJSONRPC is blockByNumberRespectingWatermarks for the endpoints that
+// return a block or something inside one (eth_getBlockByNumber, eth_getBlockReceipts,
+// eth_getTransactionByBlockNumberAndIndex, ...). A block that does not exist from the caller's
+// point of view is (nil, nil), which the endpoint answers with null; pruned history stays an
+// error, as in go-ethereum.
 func blockByNumberOrNullForJSONRPC(
 	ctx context.Context,
 	c client.LocalClient,
@@ -262,17 +253,13 @@ func blockByNumberOrNullForJSONRPC(
 	maxRetries int,
 ) (*coretypes.ResultBlock, error) {
 	block, err := blockByNumberRespectingWatermarks(ctx, c, wm, heightPtr, maxRetries)
-	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
+	if ethrpcerrors.IsBlockMissing(err) {
 		return nil, nil
 	}
 	return block, err
 }
 
-// blockByHashOrNullForJSONRPC is the by-hash counterpart of
-// blockByNumberOrNullForJSONRPC. In addition to the above-watermark case it
-// also converts ErrBlockNotFoundByHash to (nil, nil) — both are forms of
-// "block doesn't exist from the caller's perspective" and the Ethereum
-// JSON-RPC spec maps both to null.
+// blockByHashOrNullForJSONRPC is the by-hash counterpart of blockByNumberOrNullForJSONRPC.
 func blockByHashOrNullForJSONRPC(
 	ctx context.Context,
 	c client.LocalClient,
@@ -281,7 +268,7 @@ func blockByHashOrNullForJSONRPC(
 	maxRetries int,
 ) (*coretypes.ResultBlock, error) {
 	block, err := blockByHashRespectingWatermarks(ctx, c, wm, hash, maxRetries)
-	if errors.Is(err, ErrBlockHeightNotYetAvailable) || errors.Is(err, ErrBlockNotFoundByHash) {
+	if ethrpcerrors.IsBlockMissing(err) {
 		return nil, nil
 	}
 	return block, err

@@ -66,7 +66,7 @@ func TestComputeBlockBounds(t *testing.T) {
 			latest:      100,
 			earliest:    30,
 			fromBlock:   big.NewInt(5),
-			errContains: "before earliest available block 30",
+			errContains: "pruned history unavailable",
 		},
 		{
 			name:        "to after latest fails",
@@ -80,7 +80,7 @@ func TestComputeBlockBounds(t *testing.T) {
 			latest:      100,
 			earliest:    30,
 			toBlock:     big.NewInt(5),
-			errContains: "before earliest available block 30",
+			errContains: "pruned history unavailable",
 		},
 		{
 			name:        "from greater than to fails",

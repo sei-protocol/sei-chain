@@ -1,5 +1,5 @@
-// Package ethrpcerrors maps EVM transaction submission errors onto the go-ethereum
-// errors a JSON-RPC client expects.
+// Package ethrpcerrors maps EVM RPC failures, transaction submission errors and
+// unavailable blocks or state, onto the go-ethereum errors a JSON-RPC client expects.
 package ethrpcerrors
 
 import (

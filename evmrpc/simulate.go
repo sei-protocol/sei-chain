@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -347,7 +348,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	if !isLatest || sdkCtx.BlockHeight() > 0 {
 		tmBlock, isLatest, err := b.getBlockByNumberOrHash(ctx, blockNrOrHash)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, ethrpcerrors.ForState(err)
 		}
 		header.Number = big.NewInt(tmBlock.Block.Height)
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
@@ -427,9 +428,14 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 	return blockNum
 }
 
+// BlockByNumber returns the block at bn, or a nil block when none exists from the caller's point
+// of view, which go-ethereum's tracer API reports as "block #N not found".
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	blockNum := b.ConvertBlockNumber(bn)
 	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNum, 1)
+	if ethrpcerrors.IsBlockMissing(err) {
+		return nil, nil, nil
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -507,8 +513,13 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	return block, metadata, nil
 }
 
+// BlockByHash returns the block with hash, or a nil block when none exists from the caller's
+// point of view, which go-ethereum's tracer API reports as "block 0x… not found".
 func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	tmBlock, err := blockByHashRespectingWatermarks(ctx, b.tmClient, b.watermarks, hash.Bytes(), 1)
+	if ethrpcerrors.IsBlockMissing(err) {
+		return nil, nil, nil
+	}
 	if err != nil {
 		return nil, nil, err
 	}

@@ -386,16 +386,13 @@ describe('eth_estimateGas Tests', function () {
             expect(s.error?.message).to.not.equal(g.error?.message);
         });
 
-        it('[divergence] far-future block: both -32000 but different messages', async () => {
+        it('a far-future block fails identically (-32000 header not found)', async () => {
             const [s, g] = await Promise.all([
                 rawSei('eth_estimateGas', [{ from: seiAdmin, to: BOB, value: '0x1' }, '0xffffffff']),
                 rawGeth('eth_estimateGas', [{ from: gethAdmin, to: BOB, value: '0x1' }, '0xffffffff']),
             ]);
-            expect(s.error?.code, 'sei code').to.equal(-32000);
-            expect(g.error?.code, 'geth code').to.equal(-32000);
-            expect(s.error?.message).to.match(/not yet available/i);
-            expect(g.error?.message).to.match(/header not found/i);
-            expect(s.error?.message).to.not.equal(g.error?.message);
+            expectJsonRpcError(s, -32000, /^header not found$/);
+            expectSameError(s, g);
         });
     });
 

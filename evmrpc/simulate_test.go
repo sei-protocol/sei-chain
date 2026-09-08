@@ -1342,7 +1342,7 @@ func TestBlockByNumberNonTracedTxPassesTxBytes(t *testing.T) {
 //     root over the sparse fields that doesn't match anything stored,
 //     so debug_traceTransaction's blockByNumberAndHash check downstream
 //     sends BlockByHash on a wild goose chase and fails with
-//     ErrBlockNotFoundByHash.
+//     ethrpcerrors.ErrBlockUnknownHash.
 func TestGetTransactionUsesBlockIDHash(t *testing.T) {
 	const txHeight = int64(42)
 
