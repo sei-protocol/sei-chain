@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -185,12 +186,12 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		lastBlockNumber = earliestHeight
 	default:
 		if lastBlockNumber > latestHeight {
-			return nil, fmt.Errorf("requested last block %d is not yet available; safe latest is %d", lastBlockNumber, latestHeight)
+			return nil, ethrpcerrors.BeyondHead(lastBlockNumber, latestHeight)
 		}
 	}
 
 	if lastBlockNumber < earliestHeight {
-		return nil, errors.New("requested last block is before earliest available height")
+		return nil, ethrpcerrors.HistoryPruned(lastBlockNumber, earliestHeight)
 	}
 
 	if uint64(lastBlockNumber-earliestHeight) < uint64(blockCount) { //nolint:gosec

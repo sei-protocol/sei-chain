@@ -269,10 +269,14 @@ describe('eth_getTransactionCount', function () {
             expectSameError(s, g);
         });
 
-        it('an unknown future block returns undefined (does not panic)', async () => {
+        it('a far-future block fails identically (-32000 header not found)', async () => {
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
-            const res = await rawSei('eth_getTransactionCount', [seiAdmin, future]);
-            expect(res.error!.message).to.contain('is not yet available');
+            const [s, g] = await Promise.all([
+                rawSei('eth_getTransactionCount', [seiAdmin, future]),
+                rawGeth('eth_getTransactionCount', [gethAdmin, future]),
+            ]);
+            expectJsonRpcError(s, -32000, /^header not found$/);
+            expectSameError(s, g);
         });
     });
 });

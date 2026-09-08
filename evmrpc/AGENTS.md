@@ -132,6 +132,49 @@ code. A producer that already emits go-ethereum text passes through verbatim.
 - The fallback code is `-32603` where these errors used to be `-32000`; text-matching clients see
   every mapped condition change string, code-matching clients only the fallback.
 
+## Error parity with go-ethereum (block resolution)
+
+A block, receipt set or state version the node cannot serve is one condition rendered several
+ways: go-ethereum answers `null` from the endpoints that return a block or something inside one,
+and an error from the state-backed ones, and its text differs by endpoint family. The producers
+therefore return a typed condition, `*ethrpcerrors.BlockUnavailable`, and each family renders it
+at its own entry point. Nothing between the two builds a message.
+
+**Producers.** `WatermarkManager.ResolveHeight`, `EnsureBlockHeightAvailable` and
+`EnsureReceiptHeightAvailable`, `blockByNumberWithRetry` / `blockByHashWithRetry`, and
+`CheckVersion`. Reasons, selectable with `errors.Is`: `ErrBlockAboveLatest`, `ErrBlockUnknownHash`,
+`ErrBlockNotFound` (the block store has nothing at an in-window height), `ErrHistoryPruned` (block or
+receipts below the earliest kept height), `ErrStatePruned` (state below the earliest kept height, or
+a store with no version at the height). `Detail()` carries the heights for logs and tests; the wire
+message does not, because go-ethereum's does not.
+
+**Renderers.**
+
+| Family | Entry point | Rendering |
+|---|---|---|
+| Block fetch: `eth_getBlockBy*`, `eth_getBlockReceipts`, `eth_getBlockTransactionCountBy*`, `eth_getTransactionByBlock*AndIndex`, `eth_getTransactionByHash`, `eth_getTransactionReceipt` | `blockByNumberOrNullForJSONRPC` / `blockByHashOrNullForJSONRPC` | `IsBlockMissing` → result `null`; pruned → `4444 pruned history unavailable` |
+| State: `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount` | the condition's own `Error()`; `Backend.StateAndHeaderByNumberOrHash` applies `ForState` | above latest or not in store → `-32000 header not found`; unknown hash → `-32000 header for hash not found`; pruned → `-32000 missing trie node: state at height N is not available[; earliest available is M]` |
+| Logs: `eth_getLogs`, `eth_getFilterLogs`, `eth_getFilterChanges` | `ForLogs` in `fetchBlocksByCrit`; `ComputeBlockBounds` and `GetLogs` for the range | missing → `-32000 unknown block`; range below earliest → `4444 pruned history unavailable` |
+| Fee history: `eth_feeHistory` | `BeyondHead`, `HistoryPruned` in `FeeHistory` | `-32000 request beyond head block: requested N, head M`; below earliest → `4444 pruned history unavailable` |
+| Tracers: `debug_traceBlockBy*`, `debug_traceCall` | `Backend.BlockByNumber` / `BlockByHash` return a nil block when `IsBlockMissing` | go-ethereum's own `block #N not found` / `block 0x… not found`; pruned → `4444 pruned history unavailable` |
+
+`4444 pruned history unavailable` is go-ethereum's `history.PrunedHistoryError` (v1.16, where
+history expiry landed); `missing trie node` is the prefix of the trie error its state endpoints
+return when the state at a kept header is gone, with Sei's height in place of the node and root
+hashes it names. Both keep the sentinel as the prefix and any Sei detail after `: `.
+
+Rules that keep the table true:
+
+- A `*BlockUnavailable` is returned as is. `fmt.Errorf("…: %w", err)` keeps `errors.Is` working
+  but reverts the code to `-32000` and prefixes the text (see the send-path typing constraint).
+- A new endpoint that takes a block identifier joins one of the families above and goes through
+  that family's entry point. A new reason gets a row in `block_test.go`'s golden table.
+- `pending`, `safe` and `finalized` resolve to the safe latest height and never produce a
+  condition, so go-ethereum's `pending state is not available` and `safe/finalized block not found`
+  are never emitted (deliberate; see the distinctions list above).
+- Ordering rules the range checks in `ComputeBlockBounds` apply (`fromBlock` above `toBlock`, a
+  range past the head) are not availability conditions and keep their own text.
+
 ## Consistency
 RPC responses for historical heights should never change as the blockchain progresses, or as the blockchain code gets upgraded.
 

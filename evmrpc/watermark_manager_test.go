@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -73,8 +74,9 @@ func TestResolveHeightGating(t *testing.T) {
 
 	tooHigh := rpc.BlockNumber(6)
 	_, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &tooHigh})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet available")
+	require.ErrorIs(t, err, ethrpcerrors.ErrBlockAboveLatest)
+	// State queries speak go-ethereum's header vocabulary on the wire.
+	require.Equal(t, "header not found", err.Error())
 
 	within := rpc.BlockNumber(4)
 	height, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &within})
@@ -103,8 +105,8 @@ func TestEnsureBlockHeightAvailableBounds(t *testing.T) {
 
 	require.NoError(t, wm.EnsureBlockHeightAvailable(t.Context(), 5))
 
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(t.Context(), 7), "not yet available")
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(t.Context(), 2), "has been pruned")
+	require.ErrorIs(t, wm.EnsureBlockHeightAvailable(t.Context(), 7), ethrpcerrors.ErrBlockAboveLatest)
+	require.ErrorIs(t, wm.EnsureBlockHeightAvailable(t.Context(), 2), ethrpcerrors.ErrHistoryPruned)
 }
 
 func TestEnsureReceiptHeightAvailable(t *testing.T) {
@@ -121,8 +123,14 @@ func TestEnsureReceiptHeightAvailable(t *testing.T) {
 	t.Run("pruned receipt height returns error", func(t *testing.T) {
 		rs := &fakeReceiptStore{latest: 200, earliest: 150}
 		wm := NewWatermarkManager(tmClient, watermarkTestCtxProvider(200), nil, rs)
-		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(100), "receipts have been pruned")
-		require.ErrorContains(t, wm.EnsureReceiptHeightAvailable(149), "receipts have been pruned")
+		err := wm.EnsureReceiptHeightAvailable(100)
+		require.ErrorIs(t, err, ethrpcerrors.ErrHistoryPruned)
+		// Pruned history keeps go-ethereum's code and text all the way to the wire.
+		rpcErr, ok := err.(rpc.Error)
+		require.True(t, ok)
+		require.Equal(t, ethrpcerrors.CodePrunedHistory, rpcErr.ErrorCode())
+		require.Equal(t, "pruned history unavailable", err.Error())
+		require.ErrorIs(t, wm.EnsureReceiptHeightAvailable(149), ethrpcerrors.ErrHistoryPruned)
 	})
 
 	t.Run("height within receipt retention succeeds", func(t *testing.T) {
@@ -159,8 +167,8 @@ func TestResolveHeightUsesStateEarliest(t *testing.T) {
 
 	belowState := rpc.BlockNumber(9)
 	_, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &belowState})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "has been pruned")
+	require.ErrorIs(t, err, ethrpcerrors.ErrStatePruned)
+	require.Equal(t, "missing trie node: state at height 9 is not available; earliest available is 10", err.Error())
 
 	within := rpc.BlockNumber(12)
 	resolved, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &within})
@@ -295,8 +303,7 @@ func TestExplicitReadBelowGenesisFloorRejected(t *testing.T) {
 
 	below := rpc.BlockNumber(50)
 	_, err := wm.ResolveHeight(t.Context(), rpc.BlockNumberOrHash{BlockNumber: &below})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "has been pruned")
+	require.ErrorIs(t, err, ethrpcerrors.ErrStatePruned)
 }
 
 func newTestWatermarkManager(tmClient client.LocalClient, ctxHeight int64, stateStore types.StateStore, receiptLatest int64) *WatermarkManager {
@@ -537,7 +544,7 @@ func TestBlockByNumberOrNullForJSONRPC(t *testing.T) {
 		h := int64(50)
 		_, err := blockByNumberOrNullForJSONRPC(t.Context(), c, wm, &h, 0)
 		require.Error(t, err)
-		require.False(t, errors.Is(err, ErrBlockHeightNotYetAvailable))
+		require.False(t, ethrpcerrors.IsBlockMissing(err))
 	})
 }
 
@@ -557,8 +564,8 @@ func TestBlockByHashOrNullForJSONRPC(t *testing.T) {
 	})
 
 	t.Run("unknown hash (Block: nil) returns (nil, nil)", func(t *testing.T) {
-		// blockByHashWithRetry wraps Block:nil as ErrBlockNotFoundByHash;
-		// the helper must catch that sentinel too.
+		// blockByHashWithRetry reports Block:nil as ethrpcerrors.ErrBlockUnknownHash;
+		// the helper must treat that as a missing block too.
 		c := &fakeTMClient{status: stat, blockByHash: &coretypes.ResultBlock{Block: nil}}
 		wm := newTestWatermarkManager(c, 100, nil, 100)
 		block, err := blockByHashOrNullForJSONRPC(t.Context(), c, wm, []byte{0xbb}, 0)

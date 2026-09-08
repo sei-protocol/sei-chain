@@ -97,7 +97,7 @@ func TestFeeHistory(t *testing.T) {
 		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: latestHex},
 		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1"},
 		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1"},
-		{name: "Request on future block", blockCount: 1, lastBlock: fmt.Sprintf("0x%x", MockHeight8+1), rewardPercentiles: []interface{}{0.5}, expectedError: fmt.Errorf("requested last block %d is not yet available; safe latest is %d", MockHeight8+1, MockHeight8)},
+		{name: "Request on future block", blockCount: 1, lastBlock: fmt.Sprintf("0x%x", MockHeight8+1), rewardPercentiles: []interface{}{0.5}, expectedError: fmt.Errorf("request beyond head block: requested %d, head %d", MockHeight8+1, MockHeight8)},
 		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1"},
 		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
 		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},

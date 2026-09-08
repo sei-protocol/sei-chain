@@ -90,16 +90,15 @@ async function mineTransferBlock(sender) {
 }
 
 // Default 2 because the very next block after submit can be empty
-// Like provider.getTransactionReceipt, but treats the Autobahn-specific
-// "requested height N is not yet available; safe latest is N-1"
-// transient as "no receipt yet" (null). That error fires in the
-// narrow race between a tx being indexed in block N and block N
-// becoming safe-latest; it should not propagate out of polling loops.
+// Like provider.getTransactionReceipt, but treats "header not found" as
+// "no receipt yet" (null). That error fires in the narrow race between a
+// tx being indexed in block N and block N becoming safe-latest; it should
+// not propagate out of polling loops.
 async function tryGetReceipt(provider, txHash) {
     try {
         return await provider.getTransactionReceipt(txHash)
     } catch (e) {
-        if (String(e?.message || e).includes("not yet available")) return null
+        if (String(e?.message || e).includes("header not found")) return null
         throw e
     }
 }

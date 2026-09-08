@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -18,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -40,10 +40,6 @@ const LatestCtxHeight int64 = -1
 
 // EVM launch block heights for different chains
 const Pacific1EVMLaunchHeight int64 = 79123881
-
-// ErrBlockNotFoundByHash is returned when no block exists for the given hash (e.g. empty or unknown hash).
-// Ethereum-compatible RPCs should return result: null for this case instead of an error.
-var ErrBlockNotFoundByHash = errors.New("block not found by hash")
 
 // GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
@@ -153,7 +149,11 @@ func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, heig
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for height %d", height)
+		var h int64
+		if height != nil {
+			h = *height
+		}
+		return nil, ethrpcerrors.BlockNotFound(h)
 	}
 	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(height)}, blockRes)
 	return blockRes, err
@@ -177,7 +177,7 @@ func blockByHashWithRetry(ctx context.Context, client client.LocalClient, hash b
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, ErrBlockNotFoundByHash
+		return nil, ethrpcerrors.BlockUnknownHash(common.BytesToHash(hash))
 	}
 	TraceTendermintIfApplicable(ctx, "BlockByHash", []string{hash.String()}, blockRes)
 	return blockRes, err
@@ -298,12 +298,16 @@ func recordMetricsWithError(ctx context.Context, apiMethod string, connectionTyp
 	}
 }
 
+// CheckVersion verifies that the evm and bank stores hold a version at ctx's height, reporting
+// an *ethrpcerrors.BlockUnavailable otherwise.
 func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {
 	if !evmExists(ctx, k) {
-		return fmt.Errorf("evm module does not exist on height %d", ctx.BlockHeight())
+		logger.Debug("evm store has no version at height", "height", ctx.BlockHeight())
+		return ethrpcerrors.StatePruned(ctx.BlockHeight(), 0)
 	}
 	if !bankExists(ctx, k) {
-		return fmt.Errorf("bank module does not exist on height %d", ctx.BlockHeight())
+		logger.Debug("bank store has no version at height", "height", ctx.BlockHeight())
+		return ethrpcerrors.StatePruned(ctx.BlockHeight(), 0)
 	}
 	return nil
 }

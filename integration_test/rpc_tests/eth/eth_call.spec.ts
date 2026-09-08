@@ -401,34 +401,26 @@ describe('eth_call Tests', function () {
         });
 
 
-        it('[divergence] far-future block: both -32000 but different messages', async () => {
+        it('a far-future block fails identically (-32000 header not found)', async () => {
             const latest = await sei.getBlockNumber();
             const data = erc20.balanceOf(seiAdmin);
             const [s, g] = await Promise.all([
                 rawSei('eth_call', [{ to: erc20Sei, data }, ethers.toQuantity(latest + 1_000_000)]),
                 rawGeth('eth_call', [{ to: erc20Geth, data }, '0xffffffff']),
             ]);
-            expect(s.error?.code, 'sei code').to.equal(-32000);
-            expect(g.error?.code, 'geth code').to.equal(-32000);
-            expect(s.error?.code, 'codes still agree').to.equal(g.error?.code);
-            expect(s.error?.message).to.match(/not yet available/i);
-            expect(g.error?.message).to.match(/header not found/i);
-            expect(s.error?.message, 'documented divergence in message').to.not.equal(g.error?.message);
+            expectJsonRpcError(s, -32000, /^header not found$/);
+            expectSameError(s, g);
         });
 
-        it('[divergence] unknown block hash: both -32000 but different messages', async () => {
+        it('an unknown block hash fails identically (-32000 header for hash not found)', async () => {
             const zeroHash = '0x' + '00'.repeat(32);
             const data = erc20.balanceOf(seiAdmin);
             const [s, g] = await Promise.all([
                 rawSei('eth_call', [{ to: erc20Sei, data }, { blockHash: zeroHash }]),
                 rawGeth('eth_call', [{ to: erc20Geth, data }, { blockHash: zeroHash }]),
             ]);
-            expect(s.error?.code, 'sei code').to.equal(-32000);
-            expect(g.error?.code, 'geth code').to.equal(-32000);
-            expect(s.error?.code, 'codes still agree').to.equal(g.error?.code);
-            expect(s.error?.message).to.match(/block not found by hash/i);
-            expect(g.error?.message).to.match(/header for hash not found/i);
-            expect(s.error?.message, 'documented divergence in message').to.not.equal(g.error?.message);
+            expectJsonRpcError(s, -32000, /^header for hash not found$/);
+            expectSameError(s, g);
         });
 
         it('the earliest tag either errors (-32000) or reads genesis state (0x)', async () => {

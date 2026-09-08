@@ -429,8 +429,8 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	}
 	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
 		// Match real Tendermint behavior for unknown hashes: ResultBlock with
-		// Block: nil + no error. blockByHashWithRetry wraps this as
-		// ErrBlockNotFoundByHash, which JSON-RPC endpoints convert to null.
+		// Block: nil + no error. blockByHashWithRetry reports this as
+		// ethrpcerrors.ErrBlockUnknownHash, which JSON-RPC endpoints convert to null.
 		return &coretypes.ResultBlock{Block: nil}, nil
 	}
 	return c.mockBlock(MockHeight8), nil

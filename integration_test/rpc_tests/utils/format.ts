@@ -28,7 +28,8 @@ export const NONCE8 = /^0x[0-9a-fA-F]{16}$/;
 /** Opaque, lower-case hex handle (filter id, subscription id) — random, so not minimally encoded, only "0x + lower hex". */
 export const OPAQUE_HEX_ID = /^0x[0-9a-f]+$/;
 
-export const EARLY_STATE_ERROR = /pruned|evm module does not exist/i;
+/** State-backed query at a height whose state is gone: geth's trie-node error, with Sei's height detail after the colon. */
+export const EARLY_STATE_ERROR = /^missing trie node: state at height \d+ is not available/;
 
 /** A uint256 as its canonical left-padded 32-byte word (ABI word / storage slot value). */
 export const uint256Word = (value: bigint): string => ethers.toBeHex(value, 32);
