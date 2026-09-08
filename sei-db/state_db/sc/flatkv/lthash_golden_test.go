@@ -25,8 +25,8 @@ import (
 // exists and are read back from testdata rather than recomputed.
 //
 // The recorded archive is produced by the same code path that reports hashes in production — the
-// finalization goroutine reporting into a hashlog.HashLogger the store was built with — so the format
-// is a CSV of one row per block, and comparing two runs is hashlog.CompareHashesInRange.
+// store dispatching each block's hash to a hashlog.HashLogger's listener — so the format is a CSV of
+// one row per block, and comparing two runs is hashlog.CompareHashesInRange.
 
 // goldenRecord regenerates the committed archive instead of checking against it. Off by default, and
 // refused outright on CI: see recordGoldenArchive.
@@ -114,10 +114,10 @@ func requireArchivesAgree(t *testing.T, recorded string, fresh string) {
 func writeGoldenRun(t *testing.T, dir string, cfg *config.Config) {
 	t.Helper()
 
-	logger := newGoldenHashLogger(t, dir, hashCategories())
+	logger := newGoldenHashLogger(t, dir, HashTypes())
 	defer func() { require.NoError(t, logger.Close()) }()
 
-	store := setupTestStoreWithHashLogger(t, cfg, logger)
+	store := setupTestStoreReportingTo(t, cfg, logger)
 	defer func() { require.NoError(t, store.Close()) }()
 
 	workload := newFixedSizeAgreementWorkload(

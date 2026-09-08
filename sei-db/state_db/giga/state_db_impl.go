@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
@@ -63,4 +64,14 @@ func (s *stateDB) OpenView() StateView {
 func (s *stateDB) OpenViewAt(blockNum int64) (StateView, bool) {
 	panic(fmt.Sprintf(
 		"giga: OpenViewAt(%d) is not implemented: the historical state DB is not wired in", blockNum))
+}
+
+// RegisterHashListener forwards to the live state DB, which is the layer that hashes blocks and so
+// is the layer that dispatches them.
+func (s *stateDB) RegisterHashListener(listener HashListener) (lthash.BlockHash, error) {
+	mostRecentHash, err := s.liveStateDB.RegisterHashListener(listener)
+	if err != nil {
+		return mostRecentHash, fmt.Errorf("register hash listener on the live state DB: %w", err)
+	}
+	return mostRecentHash, nil
 }

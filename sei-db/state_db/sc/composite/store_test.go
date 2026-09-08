@@ -53,8 +53,8 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 	return nil, nil
 }
 func (f *failingEVMStore) PublishedHash() *lthash.BlockHash { return lthash.NewBlockHash(nil) }
-func (f *failingEVMStore) HashChan() (<-chan *lthash.BlockHash, error) {
-	return nil, fmt.Errorf("flatkv unavailable")
+func (f *failingEVMStore) RegisterHashListener(giga.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
 }
 func (f *failingEVMStore) FlushHashes() error                     { return nil }
 func (f *failingEVMStore) CommitPendingBlock() error              { return nil }
@@ -65,7 +65,6 @@ func (f *failingEVMStore) Rollback(int64) error                   { return nil }
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }
 func (f *failingEVMStore) Importer(int64) (types.Importer, error) { return nil, nil }
 func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer     { return nil }
-func (f *failingEVMStore) HashCategories() []string               { return nil }
 func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error     { return nil }
 func (f *failingEVMStore) Close() error                           { return nil }
 
@@ -1329,7 +1328,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	flatkvWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
 	require.NoError(t, err)
-	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL, nil)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL)
 	require.NoError(t, err)
 	err = evmStore.LoadLatest()
 	require.NoError(t, err)
@@ -1393,7 +1392,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	flatkvWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
 	require.NoError(t, err)
-	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL, nil)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL)
 	require.NoError(t, err)
 	err = evmStore.LoadLatest()
 	require.NoError(t, err)
@@ -1827,7 +1826,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	flatkvWAL, err := flatkv.OpenStateWAL(&flatkvCfg)
 	require.NoError(t, err)
-	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL, nil)
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, flatkvWAL)
 	require.NoError(t, err)
 	err = evmStore.LoadLatest()
 	require.NoError(t, err)

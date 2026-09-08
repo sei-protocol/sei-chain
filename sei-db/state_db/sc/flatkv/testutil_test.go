@@ -149,14 +149,17 @@ func setupTestStore(t *testing.T) *CommitStore {
 	return s
 }
 
-// setupTestStoreWithHashLogger creates a test store that reports each finalized block's hashes to hl.
-func setupTestStoreWithHashLogger(t *testing.T, cfg *config.Config, hl hashlog.HashLogger) *CommitStore {
+// setupTestStoreReportingTo creates a test store with hl registered as a listener, which is how a
+// node puts flatKV's hashes on a hash log.
+func setupTestStoreReportingTo(t *testing.T, cfg *config.Config, hl hashlog.HashLogger) *CommitStore {
 	t.Helper()
 	stateWAL, err := OpenStateWAL(cfg)
 	require.NoError(t, err)
-	s, err := NewCommitStore(t.Context(), cfg, stateWAL, hl)
+	s, err := NewCommitStore(t.Context(), cfg, stateWAL)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
+	_, err = s.RegisterHashListener(hl.HashListener)
+	require.NoError(t, err)
 	return s
 }
 

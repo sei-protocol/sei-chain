@@ -120,12 +120,6 @@ type Config struct {
 	// database's flush frontier, so this bounds how much of the pipeline stays resident.
 	FinalizationQueueSize uint32 `mapstructure:"finalization-queue-size"`
 
-	// HashChanSize is the depth of the channel block hashes are published on.
-	//
-	// Headroom for a consumer that reads later than it commits, not a memory bound: a block's views are
-	// released before its hash is published. A consumer that stops reading entirely stalls commit.
-	HashChanSize uint32 `mapstructure:"hash-chan-size"`
-
 	// LtHashThreadsPerCore * runtime.NumCPU() (clamped to at least 1). LtHash
 	// computation is CPU-bound, so ~1 worker per core is a sensible default.
 	LtHashThreadsPerCore float64
@@ -162,7 +156,6 @@ func DefaultConfig() *Config {
 		LtHashThreadsPerCore:      1.0,
 		HashEngineConfig:          *lthash.DefaultConfig(),
 		FinalizationQueueSize:     64,
-		HashChanSize:              1024,
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB

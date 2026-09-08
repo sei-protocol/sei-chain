@@ -46,6 +46,7 @@ type CryptosimMetrics struct {
 	ctx context.Context
 
 	blocksFinalizedTotal       metric.Int64Counter
+	blockHashWaitDuration      metric.Float64Histogram
 	transactionsProcessedTotal metric.Int64Counter
 	totalAccounts              metric.Int64Gauge
 	hotAccounts                metric.Int64Gauge
@@ -184,6 +185,13 @@ func NewCryptosimMetrics(
 		metric.WithUnit("s"),
 	)
 
+	blockHashWaitDuration, _ := meter.Float64Histogram(
+		"cryptosim_block_hash_wait_duration_seconds",
+		metric.WithDescription("Time the main thread spent waiting for a committed block's hash"),
+		metric.WithExplicitBucketBoundaries(receiptWriteLatencyBuckets...),
+		metric.WithUnit("s"),
+	)
+
 	receiptBlockWriteDuration, _ := meter.Float64Histogram(
 		"cryptosim_receipt_block_write_duration_seconds",
 		metric.WithDescription("Time to write a block of receipts to the parquet store"),
@@ -282,6 +290,7 @@ func NewCryptosimMetrics(
 	m := &CryptosimMetrics{
 		ctx:                            ctx,
 		blocksFinalizedTotal:           blocksFinalizedTotal,
+		blockHashWaitDuration:          blockHashWaitDuration,
 		transactionsProcessedTotal:     transactionsProcessedTotal,
 		totalAccounts:                  totalAccounts,
 		hotAccounts:                    hotAccounts,
@@ -565,6 +574,15 @@ func (m *CryptosimMetrics) SetMainThreadPhase(phase string) {
 		return
 	}
 	m.mainThreadPhase.SetPhase(phase)
+}
+
+// RecordBlockHashWaitDuration records how long the main thread waited for a block's hash. A run that
+// never waits records zeroes; time accumulating here is hashing failing to keep up with execution.
+func (m *CryptosimMetrics) RecordBlockHashWaitDuration(latency time.Duration) {
+	if m == nil || m.blockHashWaitDuration == nil {
+		return
+	}
+	m.blockHashWaitDuration.Record(context.Background(), latency.Seconds())
 }
 
 func (m *CryptosimMetrics) RecordReceiptBlockWriteDuration(latency time.Duration) {

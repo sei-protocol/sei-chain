@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -1815,12 +1817,20 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 // A hash failure is no longer a commit failure: hashing happens after the block is committed, so the
 // commit succeeds and the failure surfaces where the hash does.
 //
-// What must not happen is the failure being lost. It has to reach both a caller waiting for hashes to
-// catch up and a consumer reading the stream, and no hash may be published after it — once a block has
-// failed, the running accumulator describes nothing a later block could be derived from.
-func TestHashFailureSurfacesOnTheStream(t *testing.T) {
+// What must not happen is the failure being lost. It has to reach a caller waiting for hashes to catch
+// up and the block after it, and no hash may be dispatched once a block has failed — the running
+// accumulator then describes nothing a later block could be derived from.
+func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { _ = s.Close() }()
+
+	// Registered before the first block, since a listener only ever sees the blocks after it.
+	dispatched := make(chan int64, 8)
+	_, err := s.RegisterHashListener(func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+		dispatched <- blockNumber
+		return nil
+	})
+	require.NoError(t, err)
 
 	seedAddr := addrN(0xAC)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -1829,9 +1839,8 @@ func TestHashFailureSurfacesOnTheStream(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	hashes, err := s.HashChan()
-	require.NoError(t, err)
-	require.NoError(t, (<-hashes).Error, "the good block hashes normally")
+	require.NoError(t, s.FlushHashes())
+	require.Equal(t, int64(1), <-dispatched, "the good block hashes normally")
 
 	s.moduleOf = func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
@@ -1846,21 +1855,22 @@ func TestHashFailureSurfacesOnTheStream(t *testing.T) {
 	require.NoError(t, err, "hashing runs after the commit, so the commit itself still succeeds")
 	require.Equal(t, int64(2), committed)
 
-	failed := <-hashes
-	require.Error(t, failed.Error, "the failure must reach the stream")
-	require.ErrorContains(t, failed.Error, "injected moduleOf failure")
-
-	_, open := <-hashes
-	require.False(t, open, "nothing may be published after a failed block")
-
 	require.ErrorContains(t, s.FlushHashes(), "injected moduleOf failure",
 		"a caller waiting for hashes must be told they failed, not that they are done")
+	require.Empty(t, dispatched, "a block that failed to hash has no hash to dispatch")
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(storageKey, padLeft32(0xEF), false),
+	}))
+	_, err = s.Commit(s.Version() + 1)
+	require.ErrorContains(t, err, "injected moduleOf failure",
+		"the block after a failed one must be refused rather than committed on hashes nobody has")
 }
 
-// A read-only store does hash blocks — it replays them to reach its target height — but it reads that
-// stream itself, so it has none to hand out. Handing back a live channel that stays empty would leave a
-// consumer waiting forever, and an empty one is indistinguishable from a store that finished.
-func TestReadOnlyStoreRefusesItsHashChan(t *testing.T) {
+// A read-only store does hash blocks — it replays them to reach its target height — but it does so
+// inside the call that builds it, so a listener on one is never called. What such a caller is after is
+// the height, and registration reports it.
+func TestAReadOnlyStoreReportsItsHeight(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { _ = s.Close() }()
 
@@ -1869,21 +1879,22 @@ func TestReadOnlyStoreRefusesItsHashChan(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	stream, err := s.HashChan()
-	require.NoError(t, err, "a committing store hands out its stream")
-	require.NotNil(t, stream)
-
 	ro, err := s.LoadVersionReadOnly(0)
 	require.NoError(t, err)
 	defer func() { _ = ro.Close() }()
 
-	roStream, err := ro.HashChan()
-	require.Error(t, err, "a read-only store must refuse rather than return a stream that stays empty")
-	require.ErrorContains(t, err, "read-only")
-	require.Nil(t, roStream)
+	delivered := make(chan int64, 4)
+	mostRecent, err := ro.RegisterHashListener(
+		func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+			delivered <- blockNumber
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, ro.Version(), mostRecent.BlockNumber,
+		"registration must report the height the read-only store was opened at")
 
-	// The height is still readable, which is what a caller wanting a read-only store's hash actually needs.
-	require.Equal(t, ro.Version(), ro.PublishedHash().BlockNumber)
+	require.NoError(t, ro.FlushHashes())
+	require.Empty(t, delivered, "a read-only store commits nothing, so it delivers nothing")
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {

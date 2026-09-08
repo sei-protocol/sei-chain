@@ -3,6 +3,7 @@ package wrappers
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -37,4 +38,9 @@ type DBWrapper interface {
 	//
 	// If the underlying DB does not support phase timers, return nil.
 	GetPhaseTimer() *metrics.PhaseTimer
+
+	// RegisterHashListener subscribes listener to the hash of each block this DB commits, one per
+	// block in block order. It reports false when the DB publishes no block hashes, in which case
+	// there is nothing for a benchmark to wait on.
+	RegisterHashListener(listener giga.HashListener) (registered bool, err error)
 }

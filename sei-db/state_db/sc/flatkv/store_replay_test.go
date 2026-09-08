@@ -492,7 +492,6 @@ func TestReplayDrainsHashStreamPastItsDepth(t *testing.T) {
 
 	replayCfg := config.DefaultTestConfig(t)
 	replayCfg.DataDir = cfg.DataDir
-	replayCfg.HashChanSize = 4
 	replayCfg.FinalizationQueueSize = 2
 
 	reopened, err := newCommitStoreWithWAL(t.Context(), replayCfg)

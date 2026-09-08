@@ -128,18 +128,20 @@ type LiveStateStore interface {
 	// On a freshly loaded or read-only store it is the height that was loaded.
 	PublishedHash() *lthash.BlockHash
 
-	// HashChan returns a channel producing the hash of each block: exactly one per block committed, in
-	// block order, with no gaps or duplicates, closed once the store stops hashing.
+	// RegisterHashListener registers a callback that gets called for each hash the store produces:
+	// exactly one per block committed, in block order, with no gaps or duplicates. Returning an error
+	// from the listener bricks the store, and every later call reports that error.
 	//
-	// The channel has finite depth, so failure to dequeue hashes for long enough blocks commit. Every
-	// store that returns one therefore needs a consumer.
+	// This method returns the most recent hash dispatched at the moment the listener is registered. If
+	// the first hash the listener observes is for block N, the mostRecentHash returned will have been
+	// block N-1. A nil listener registers nothing and only reports that hash.
 	//
-	// A store that will never carry a stream reports why instead of handing back one that stays empty:
-	// one that is not open, and one that hashes only in order to replay and so consumes its own.
-	HashChan() (<-chan *lthash.BlockHash, error)
+	// A store that hashes only in order to replay its way to a height — a read-only store — refuses,
+	// since a listener there would never be called. PublishedHash is that caller's answer.
+	RegisterHashListener(listener HashListener) (mostRecentHash lthash.BlockHash, err error)
 
-	// FlushHashes blocks until the store has published a hash for every block committed so far, and
-	// recorded each one's metadata alongside the block it describes.
+	// FlushHashes blocks until every block committed so far has been hashed and its hash handed to
+	// every registered listener.
 	FlushHashes() error
 
 	// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A
@@ -149,10 +151,6 @@ type LiveStateStore interface {
 	// the block to be committed. This is that request, made explicitly. Post-Cosmos nothing asks for a
 	// hash mid-block and this goes away.
 	CommitPendingBlock() error
-
-	// HashCategories returns the hash logger category names this store reports (the global root plus one
-	// per data DB). The set is fixed. The caller registers these on the logger.
-	HashCategories() []string
 
 	// Version returns the latest committed version.
 	Version() int64

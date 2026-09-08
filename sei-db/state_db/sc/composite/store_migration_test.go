@@ -1232,7 +1232,6 @@ func TestMigrateEVMBeforeTheBoundaryDrainsTheHashStream(t *testing.T) {
 
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = types.MigrateEVM
-	cfg.FlatKVConfig.HashChanSize = 2
 	cfg.FlatKVConfig.FinalizationQueueSize = 1
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg, nil)

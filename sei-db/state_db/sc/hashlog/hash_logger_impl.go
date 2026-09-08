@@ -12,12 +12,21 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/seilog"
 )
 
 var _ HashLogger = (*hashLoggerImpl)(nil)
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "hashlog")
+
+// Column names for the hashes a flatKV store publishes: the store-wide root, and one per data
+// database, formed by joining the prefix with that database's name. flatkv.HashTypes builds the list
+// a node declares from these.
+const (
+	FlatKVRootHashType = "flatKV/root"
+	FlatKVDBHashPrefix = "flatKV/db/"
+)
 
 // The kind of message sent to the control loop.
 type controlMsgKind int
@@ -433,6 +442,25 @@ func (h *hashLoggerImpl) ReportHash(blockNumber uint64, hashType string, hash []
 	// Blocking send to the control loop, which normally drains controlChan quickly; it can backpressure only
 	// if the downstream writer is itself stalled on a slow disk.
 	h.sendControl(controlMessage{kind: ctrlHashReport, blockNumber: blockNumber, hashType: hashType, hash: hash})
+	return nil
+}
+
+// HashListener records one block's flatKV hashes: the store-wide root and each data database's root.
+// Its signature is giga.HashListener, so it registers as one directly:
+// stateDB.RegisterHashListener(hashLogger.HashListener).
+func (h *hashLoggerImpl) HashListener(_ context.Context, blockNumber int64, hash *lthash.BlockHash) error {
+	block := uint64(blockNumber) //nolint:gosec // commit versions are non-negative
+
+	root := hash.Global.Checksum()
+	if err := h.ReportHash(block, FlatKVRootHashType, root[:]); err != nil {
+		return fmt.Errorf("record the flatkv root hash of block %d: %w", block, err)
+	}
+	for dataDB, dbHash := range hash.PerDB {
+		checksum := dbHash.Checksum()
+		if err := h.ReportHash(block, FlatKVDBHashPrefix+dataDB, checksum[:]); err != nil {
+			return fmt.Errorf("record the flatkv %s hash of block %d: %w", dataDB, block, err)
+		}
+	}
 	return nil
 }
 

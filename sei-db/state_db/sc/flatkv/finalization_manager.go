@@ -6,22 +6,17 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
-
-// stallReportInterval is how often a publish that the hash stream has no room for reports itself.
-const stallReportInterval = 30 * time.Second
 
 // FinalizationManager records each block's lattice hashes onto that block's own views, in the same
 // atomic batch as the data they describe, off the execution goroutine.
 //
 // Sealed blocks go in through Offer(), which reserves the view and releases it once the block's
-// metadata has been written, and hashes come out of HashChan(), one per block in block
-// order and only once that write has happened. PublishedHash() answers with the most recent.
+// metadata has been written, and hashes go out to the store's registered listeners, one per block in
+// block order and only once that write has happened. PublishedHash() answers with the most recent.
 //
 // There are no recoverable errors. The first failure is latched and stops the manager, and every later
 // call reports it.
@@ -33,23 +28,16 @@ type FinalizationManager struct {
 	// queue carries sealed blocks and control messages, in block order.
 	messageChan chan any
 
-	// published is the outbound stream, one entry per block, put there only once the block's metadata is
-	// on its way to disk.
-	publishedHashChan chan *lthash.BlockHash
-
 	// latest is the most recently finalized block's hash, for a reader that wants the current answer
-	// rather than the stream. Single writer, so a plain atomic swap is enough.
+	// rather than a delivery. Single writer, so a plain atomic swap is enough.
 	latest atomic.Pointer[lthash.BlockHash]
 
-	// ctx is cancelled when the manager is stopping, to release a publish that nobody is reading.
+	// ctx is cancelled when the manager is stopping, and is handed to each listener so that one
+	// blocking on a block's hash is released by teardown.
 	ctx context.Context
 
 	// cancel stops the goroutine. Called by Close, and by the store's own context.
 	cancel context.CancelFunc
-
-	// streamClosed guards publishedHashChan, which is closed either when a block fails or at teardown,
-	// whichever comes first.
-	streamClosed sync.Once
 
 	// wg tracks the goroutine, so that Close can wait for it to return.
 	wg sync.WaitGroup
@@ -57,12 +45,9 @@ type FinalizationManager struct {
 	// fatalErr latches the first failure. Nil until something fails.
 	fatalErr atomic.Pointer[error]
 
-	// hashLogger receives each block's hashes as it is finalized. Never nil.
-	hashLogger hashlog.HashLogger
-
-	// reportingFailed stops reporting after the logger first rejects a hash, so a logger closed
-	// underneath this manager costs one log line rather than one per block.
-	reportingFailed bool
+	// listeners receives each block's hash once it has been finalized. Owned by the store, so it
+	// outlives this manager. Never nil.
+	listeners *hashListenerRegistry
 }
 
 // newFinalizationManager starts a manager consuming the hash engine's stream.
@@ -76,19 +61,16 @@ func newFinalizationManager(
 	loaded *lthash.BlockHash,
 	// How many offered blocks may wait to be finalized before Offer blocks.
 	queueSize uint32,
-	// Depth of the channel finalized hashes are published on.
-	chanSize uint32,
-	// Receives each block's hashes as it is finalized.
-	hl hashlog.HashLogger,
+	// Receives each block's hash once it has been finalized.
+	listeners *hashListenerRegistry,
 ) *FinalizationManager {
 	ctx, cancel := context.WithCancel(parent)
 	fm := &FinalizationManager{
-		engineHashChan:    engineHashChan,
-		messageChan:       make(chan any, max(queueSize, 1)),
-		publishedHashChan: make(chan *lthash.BlockHash, max(chanSize, 1)),
-		ctx:               ctx,
-		cancel:            cancel,
-		hashLogger:        hl,
+		engineHashChan: engineHashChan,
+		messageChan:    make(chan any, max(queueSize, 1)),
+		ctx:            ctx,
+		cancel:         cancel,
+		listeners:      listeners,
 	}
 	fm.latest.Store(loaded)
 	fm.wg.Add(1)
@@ -133,15 +115,8 @@ func (fm *FinalizationManager) PublishedHash() *lthash.BlockHash {
 	return fm.latest.Load()
 }
 
-// HashChan returns the stream of block hashes, one per block in block order.
-//
-// A block that failed arrives with Error set and the stream closes behind it, since nothing is
-// published after one. It also closes when the manager does.
-func (fm *FinalizationManager) HashChan() <-chan *lthash.BlockHash {
-	return fm.publishedHashChan
-}
-
-// Flush blocks until the manager has finalized every block offered so far.
+// Flush blocks until the manager has finalized every block offered so far and dispatched each of
+// their hashes to every registered listener.
 func (fm *FinalizationManager) Flush() error {
 	request := newFinalizationFlushRequest()
 	if err := fm.enqueue(request); err != nil {
@@ -183,7 +158,6 @@ func (fm *FinalizationManager) enqueue(message any) error {
 // run finalizes blocks until the manager is stopped or a block fails.
 func (fm *FinalizationManager) run() {
 	defer fm.wg.Done()
-	defer fm.closeStream()
 
 	failed := false
 	for {
@@ -196,12 +170,7 @@ func (fm *FinalizationManager) run() {
 				fm.abandonMessage(message)
 				continue
 			}
-			if failed = !fm.handle(message); failed {
-				// The stream is closed on failure rather than left to teardown, because nothing is
-				// published after a failed block: a consumer waiting on the next hash would otherwise
-				// wait until the store closed.
-				fm.closeStream()
-			}
+			failed = !fm.handle(message)
 		case <-fm.ctx.Done():
 			fm.abandon()
 			return
@@ -215,14 +184,13 @@ func (fm *FinalizationManager) handle(message any) bool {
 	case *pendingFinalization:
 		stopped, err := fm.finalize(request)
 		if err != nil {
-			// Published before the failure is latched, because a consumer reading the stream has to be
-			// told the block failed; a closed channel alone reads as an orderly end.
-			fm.publish(&lthash.BlockHash{BlockNumber: request.blockNumber, Error: err})
 			fm.brick(err)
 			return false
 		}
 		return !stopped
 	case *finalizationFlushRequest:
+		// Answering here is what makes a flush mean the listeners have the hashes: every block queued
+		// ahead of this request has already been dispatched, on this goroutine, before it is reached.
 		close(request.doneChan)
 		return true
 	default:
@@ -231,8 +199,8 @@ func (fm *FinalizationManager) handle(message any) bool {
 	}
 }
 
-// finalize writes one block's hashes onto its own views, releases its reservation, and publishes the
-// hash.
+// finalize writes one block's hashes onto its own views, releases its reservation, and hands the hash
+// to the listeners.
 // It reports stopped when the engine has no more hashes to give, which is teardown rather than failure.
 func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped bool, err error) {
 	hash, ok := <-fm.engineHashChan
@@ -262,16 +230,14 @@ func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped b
 		}
 	}
 
-	// The reservation is only needed while the writes above happen. Released here rather than after
-	// publishing so the databases resume flushing even if nothing is reading the stream.
+	// The reservation is only needed while the writes above happen. Released before the hash goes out
+	// so the databases resume flushing even while a listener is still working.
 	if err := pending.release(); err != nil {
 		return false, fmt.Errorf("release block %d after finalizing: %w", pending.blockNumber, err)
 	}
 
 	fm.latest.Store(hash)
-	fm.reportHashes(hash)
-	fm.publish(hash)
-	return false, nil
+	return false, fm.listeners.dispatch(fm.ctx, hash)
 }
 
 // discard finalizes a block's views with nothing recorded and releases its reservation, for a block
@@ -328,58 +294,6 @@ func (fm *FinalizationManager) abandonMessage(message any) {
 func (fm *FinalizationManager) drainHashes() {
 	for range fm.engineHashChan { //nolint:revive // draining is the point; the values are already accounted for
 	}
-}
-
-// publish puts a block's hash on the outbound stream, giving up if the manager is stopping.
-//
-// Blocking here is the backpressure that stops a consumer falling arbitrarily far behind. Giving up on
-// shutdown costs nothing: the block's metadata is already written by this point, so the hash is a
-// notification rather than a durability step, and a stopped manager has no reader left to notify.
-func (fm *FinalizationManager) publish(hash *lthash.BlockHash) {
-	select {
-	case fm.publishedHashChan <- hash:
-		return
-	default:
-	}
-	fm.publishStalled(hash)
-}
-
-// publishStalled publishes a hash the stream had no room for, reporting it every stallReportInterval
-// until it lands or the manager stops.
-//
-// The reporting exists to make misuse of the stream's threading requirement obvious rather than let it
-// deadlock silently. A store that hands out HashChan() needs a consumer: the stream has finite depth,
-// and a full one blocks this goroutine, then the queue behind it, and finally Offer, which stops block
-// commit. Nothing about that halt names its cause — a stalled node presents a stack sitting in Offer,
-// several frames from the channel nobody is reading — and this is the one place that can tell. It
-// repeats where reportingFailed logs once because a stalled publish is a halt rather than a
-// degradation, and whoever investigates arrives long after the first line scrolled away.
-func (fm *FinalizationManager) publishStalled(hash *lthash.BlockHash) {
-	stalledSince := time.Now()
-	ticker := time.NewTicker(stallReportInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case fm.publishedHashChan <- hash:
-			logger.Warn("flatkv hash stream took a stalled block; commits are moving again",
-				"version", hash.BlockNumber, "stalledFor", time.Since(stalledSince))
-			return
-		case <-fm.ctx.Done():
-			return
-		case <-ticker.C:
-			logger.Error("flatkv hash stream is full and nothing is draining it, so block commit has "+
-				"stopped; a store that hands out HashChan() needs a consumer reading it",
-				"version", hash.BlockNumber,
-				"stalledFor", time.Since(stalledSince),
-				"streamDepth", cap(fm.publishedHashChan))
-		}
-	}
-}
-
-// closeStream closes the outbound stream, which happens exactly once however often it is called.
-func (fm *FinalizationManager) closeStream() {
-	fm.streamClosed.Do(func() { close(fm.publishedHashChan) })
 }
 
 // brick latches err as the manager's fatal error and stops it.

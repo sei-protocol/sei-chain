@@ -8,6 +8,7 @@ import (
 	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -48,6 +49,10 @@ func (r *readTrackingWrapper) GetPhaseTimer() *commonmetrics.PhaseTimer {
 	return nil
 }
 
+func (r *readTrackingWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+	return false, nil
+}
+
 func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -55,7 +60,8 @@ func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
 	cfg.DisableTransactionReads = true
 
 	wrapper := &readTrackingWrapper{}
-	db := NewDatabase(cfg, wrapper, nil, 0)
+	db, err := NewDatabase(cfg, wrapper, nil, 0)
+	require.NoError(t, err)
 
 	txn := &transaction{
 		erc20Contract:     []byte("erc20"),
@@ -70,8 +76,7 @@ func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
 		newDstAccountSlot: []byte("dst-slot-value"),
 	}
 
-	err := txn.Execute(db, []byte("fee"), nil)
-	require.NoError(t, err)
+	require.NoError(t, txn.Execute(db, []byte("fee"), nil))
 	require.Zero(t, wrapper.readCalls)
 
 	_, found, err := db.Get([]byte("src"))

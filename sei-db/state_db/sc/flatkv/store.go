@@ -27,7 +27,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/seilog"
@@ -97,9 +96,10 @@ type CommitStore struct {
 	// the engine's stream. Same lifecycle as hashEngine.
 	finalizer *FinalizationManager
 
-	// hashLogger receives each block's hashes as it is finalized. Held here because restartHashing
-	// rebuilds the finalizer, which is what reports to it. Never nil.
-	hashLogger hashlog.HashLogger
+	// hashListeners holds the callbacks each finalized block's hash is dispatched to. Held here
+	// rather than on the finalizer that dispatches through it, so that a registration survives the
+	// finalizer being rebuilt by restartHashing. Never nil.
+	hashListeners *hashListenerRegistry
 
 	// The four data stores below mediate every read and write of their databases. The block being
 	// applied accumulates its writes inside each store, so a read through a store already sees what
@@ -229,21 +229,12 @@ func NewCommitStore(
 	ctx context.Context,
 	cfg *config.Config,
 	stateWAL statewal.StateWAL,
-	// Receives each block's hashes as it is finalized. Nil records nothing.
-	hl hashlog.HashLogger,
 ) (*CommitStore, error) {
 
-	if hl == nil {
-		hl = hashlog.NewNoOpHashLogger()
-	}
 	cfg = resolveConfig(cfg)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
-	}
-
-	if err := registerHashCategories(hl); err != nil {
-		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -262,7 +253,7 @@ func NewCommitStore(
 	return &CommitStore{
 		ctx:               ctx,
 		cancel:            cancel,
-		hashLogger:        hl,
+		hashListeners:     newHashListenerRegistry(),
 		config:            *cfg,
 		localMeta:         make(map[string]*LocalMeta),
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
@@ -438,9 +429,7 @@ func (s *CommitStore) LoadVersionReadOnly(targetVersion int64) (opened giga.Live
 
 	// The view gets an independent context, not one derived from s.ctx: callers close this store while
 	// still reading from the view, and a derived context would cancel those reads.
-	// No logger: a read-only store replays blocks to reach its target height, and reporting them would
-	// duplicate rows the committing store already logged.
-	ro, err := NewCommitStore(context.Background(), &s.config, nil, nil)
+	ro, err := NewCommitStore(context.Background(), &s.config, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create readonly store: %w", err)
 	}
@@ -1123,20 +1112,8 @@ func (s *CommitStore) startHashing() error {
 		s.hashEngine.AwaitHash(),
 		s.loadedHashes,
 		s.config.FinalizationQueueSize,
-		s.config.HashChanSize,
-		s.hashLogger,
+		s.hashListeners,
 	)
-
-	if s.readOnly {
-		// A read-only store's stream is drained here, and HashChan refuses to hand it out, because the two
-		// have to agree on who reads it. Left unread, replaying past the channel's depth would block on a
-		// hash no one wants. The goroutine ends when the finalizer closes the stream.
-		published := s.finalizer.HashChan()
-		go func() {
-			for range published { //nolint:revive // discarding is the point
-			}
-		}()
-	}
 	return nil
 }
 
@@ -1253,31 +1230,23 @@ func (s *CommitStore) PublishedHash() *lthash.BlockHash {
 	return s.loadedHashes
 }
 
-// HashChan returns a channel producing the hash of each block. Exactly one hash per block committed, in
-// block order, with no gaps or duplicates. It is closed once the store stops hashing.
+// RegisterHashListener registers a callback the store hands the hash of each committed block to:
+// exactly one per block, in block order, with no gaps or duplicates. It reports the most recent hash
+// dispatched, which is the block the listener's first delivery follows.
 //
-// The channel has finite depth, so failure to dequeue hashes for long enough blocks commit. A store that
-// hands one out therefore needs a consumer.
+// The hash reported is the height the store stands at until a block has been dispatched. A nil
+// listener registers nothing and only reports that hash, which is how a caller that wants the height
+// and no deliveries asks for it. A read-only store takes a listener and never calls it: it hashes
+// only inside the call that builds it.
 //
-// The two stores that have no stream to hand out say so rather than returning one that stays empty: a
-// caller cannot tell an empty stream from a store that hashed its blocks and stopped.
-func (s *CommitStore) HashChan() (<-chan *lthash.BlockHash, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if s.readOnly {
-		// Such a store does hash blocks — it replays them to reach its target height — but it consumes
-		// that stream itself, so there is none to give away. Its height is available from PublishedHash.
-		return nil, fmt.Errorf("flatkv: a read-only store consumes its own hash stream")
-	}
-	if s.finalizer == nil {
-		return nil, fmt.Errorf("flatkv: the store is not open, so it is not hashing")
-	}
-	return s.finalizer.HashChan(), nil
+// A rollback re-executes heights, so across one the reported hash can sit ahead of the listener's
+// next delivery and hashes arrive out of order. Runtime rollback is scheduled for deprecation.
+func (s *CommitStore) RegisterHashListener(listener giga.HashListener) (lthash.BlockHash, error) {
+	return s.hashListeners.register(listener, s.PublishedHash()), nil
 }
 
-// FlushHashes blocks until the store has published a hash for every block committed so far, and
-// recorded each one's metadata alongside the block it describes.
+// FlushHashes blocks until every block committed so far has been hashed and its hash handed to every
+// registered listener.
 func (s *CommitStore) FlushHashes() error {
 	s.mu.RLock()
 	engine, finalizer := s.hashEngine, s.finalizer

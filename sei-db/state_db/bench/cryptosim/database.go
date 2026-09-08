@@ -34,6 +34,10 @@ type Database struct {
 
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
+
+	// Takes one block hash per block committed, so that the benchmark cannot outrun hashing. Nil when
+	// the database publishes no block hashes.
+	hashes *blockHashWaiter
 }
 
 // Creates a new database for the cryptosim benchmark.
@@ -42,14 +46,26 @@ func NewDatabase(
 	db wrappers.DBWrapper,
 	metrics *CryptosimMetrics,
 	initialNextBlockNumber uint64,
-) *Database {
-	return &Database{
+) (*Database, error) {
+	database := &Database{
 		config:          config,
 		db:              db,
 		batch:           NewSyncMap[string, []byte](),
 		metrics:         metrics,
 		nextBlockNumber: initialNextBlockNumber,
 	}
+
+	// Registered here because this is before the first block is committed, and that is the only place
+	// a listener can be sure of being handed every block's hash.
+	waiter := newBlockHashWaiter(config.HashLagBlocks, metrics)
+	registered, err := db.RegisterHashListener(waiter.listen)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register a block hash listener: %w", err)
+	}
+	if registered {
+		database.hashes = waiter
+	}
+	return database, nil
 }
 
 // Insert a key-value pair into the database/cache.
@@ -193,6 +209,15 @@ func (d *Database) FinalizeBlock(
 		return fmt.Errorf("failed to commit: %w", err)
 	}
 	d.metrics.ReportDBCommit()
+
+	// Committing a block is not finishing it: the hash of a block committed a bounded number of
+	// blocks ago is taken here, and waited for when hashing has fallen behind execution.
+	if d.hashes != nil {
+		if err := d.hashes.awaitBlock(); err != nil {
+			return fmt.Errorf("failed to obtain a block hash after committing block %d: %w",
+				d.db.Version(), err)
+		}
+	}
 
 	d.metrics.SetMainThreadPhase("executing")
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 )
@@ -173,6 +174,12 @@ func (h *historicalOffloadWrapper) LoadLatest() error {
 
 func (h *historicalOffloadWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, fmt.Errorf("import not supported for historical offload wrapper")
+}
+
+// RegisterHashListener reports that this DB publishes no block hashes. An offload stream computes
+// none.
+func (h *historicalOffloadWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+	return false, nil
 }
 
 func (h *historicalOffloadWrapper) GetPhaseTimer() *metrics.PhaseTimer {

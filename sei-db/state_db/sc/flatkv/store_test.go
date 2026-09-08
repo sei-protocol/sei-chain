@@ -111,7 +111,7 @@ func TestNewCommitStoreLeavesCallerConfigUntouched(t *testing.T) {
 
 	before := *cfg
 
-	s, err := NewCommitStore(t.Context(), cfg, nil, nil)
+	s, err := NewCommitStore(t.Context(), cfg, nil)
 	require.NoError(t, err)
 	defer s.Close()
 
@@ -477,7 +477,7 @@ func TestFileLockPreventsDoubleOpen(t *testing.T) {
 	// conflict would instead surface at construction, from the WAL's own directory lock.)
 	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
-	s2, err := NewCommitStore(t.Context(), cfg, nil, nil)
+	s2, err := NewCommitStore(t.Context(), cfg, nil)
 	require.NoError(t, err)
 	err = s2.LoadLatest()
 	require.Error(t, err, "second open on same dir should fail due to file lock")
@@ -977,7 +977,7 @@ func TestCleanupOrphanedReadOnlyDirsHoldsWriterLock(t *testing.T) {
 
 	// nil WAL on the second store so its construction does not take the WAL's changelog-directory lock;
 	// this isolates the flatkv writer LOCK that CleanupOrphanedReadOnlyDirs must find held by s1.
-	s2, err := NewCommitStore(t.Context(), cfg, nil, nil)
+	s2, err := NewCommitStore(t.Context(), cfg, nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, s2.Close()) }()
 
@@ -1591,7 +1591,7 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	// Reopen without a WAL. With one, replay would rewrite this account from block 1's changeset and
 	// heal the row before anything read it — correct system behavior, but it would leave this test with
 	// nothing to observe. A nil WAL leaves the corruption in place so the read path is what meets it.
-	s2, err := NewCommitStore(t.Context(), cfg, nil, nil)
+	s2, err := NewCommitStore(t.Context(), cfg, nil)
 	require.NoError(t, err)
 	defer s2.Close()
 	require.NoError(t, s2.LoadLatest())

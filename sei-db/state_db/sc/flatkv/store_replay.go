@@ -212,9 +212,6 @@ func replayBlocks(
 		if err := dest.applyAndCommit(int64(block), changesets, alreadyHave); err != nil {
 			return 0, fmt.Errorf("replay block %d: %w", block, err)
 		}
-		if err := dest.discardReplayedHashes(); err != nil {
-			return 0, fmt.Errorf("drain hashes while replaying block %d: %w", block, err)
-		}
 		replayed++
 		// Liveness, not context: only the loop can report that a multi-hour replay is still moving.
 		if replayed%1000 == 0 {
@@ -222,38 +219,6 @@ func replayBlocks(
 		}
 	}
 	return replayed, nil
-}
-
-// discardReplayedHashes takes whatever the hash stream is holding and drops it, reporting instead the
-// failure a failed block carries.
-//
-// Replay seals a block per WAL record and every sealed block publishes a hash, but during replay
-// nothing is reading them: the store is still inside open(), so the consumer that drains the stream in
-// service does not exist yet. Left unread, a replay longer than the stream is deep blocks in Offer and
-// never returns. The hashes are dropped rather than kept because nothing asked for these blocks, and
-// PublishedHash still reports the height replay lands on.
-//
-// A read-only store is exempt: it drains its own stream from startHashing, and a second reader here
-// would race that one.
-func (s *CommitStore) discardReplayedHashes() error {
-	if s.readOnly || s.finalizer == nil {
-		return nil
-	}
-
-	stream := s.finalizer.HashChan()
-	for {
-		select {
-		case hash, open := <-stream:
-			if !open {
-				return nil
-			}
-			if hash.Error != nil {
-				return fmt.Errorf("hash block %d: %w", hash.BlockNumber, hash.Error)
-			}
-		default:
-			return nil
-		}
-	}
 }
 
 // applyAndCommit replays a single block into the store: it applies the changesets, seals the block on

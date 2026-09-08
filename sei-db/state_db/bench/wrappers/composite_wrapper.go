@@ -3,6 +3,7 @@ package wrappers
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -51,6 +52,12 @@ func (c *compositeWrapper) Read(key []byte) (data []byte, found bool, err error)
 	store := c.base.GetChildStoreByName(EVMStoreName)
 	data = store.Get(key)
 	return data, data != nil, nil
+}
+
+// RegisterHashListener reports that this DB publishes no block hashes. The composite store consumes
+// flatKV's hashes itself, in order to answer Cosmos synchronously, so it admits no second consumer.
+func (c *compositeWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+	return false, nil
 }
 
 func (c *compositeWrapper) GetPhaseTimer() *metrics.PhaseTimer {

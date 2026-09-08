@@ -89,7 +89,7 @@ func initializeUnseededFlatKV(t *testing.T, cfg config.StateCommitConfig, flatkv
 
 	wal, err := flatkv.OpenStateWAL(&flatkvCfg)
 	require.NoError(t, err)
-	store, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, wal, nil)
+	store, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg, wal)
 	require.NoError(t, err)
 	require.NoError(t, store.LoadLatest())
 	require.Equal(t, int64(0), store.Version())

@@ -3,6 +3,7 @@ package wrappers
 import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -57,6 +58,12 @@ func (m *memIAVLWrapper) Read(key []byte) (data []byte, found bool, err error) {
 	store := m.base.GetChildStoreByName(EVMStoreName)
 	data = store.Get(key)
 	return data, data != nil, nil
+}
+
+// RegisterHashListener reports that this DB publishes no block hashes. memIAVL's root is a
+// Cosmos-layer aggregation over its per-module hashes rather than a hash the store hands out.
+func (m *memIAVLWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+	return false, nil
 }
 
 func (m *memIAVLWrapper) GetPhaseTimer() *metrics.PhaseTimer {

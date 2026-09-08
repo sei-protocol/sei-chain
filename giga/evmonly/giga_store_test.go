@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 type recordingGigaStore struct {
@@ -31,6 +32,10 @@ func (s *recordingGigaStore) CommitStateChanges(blockNum int64, changeset []*pro
 func (s *recordingGigaStore) OpenView() gigastore.StateView {
 	s.openCount++
 	return s.snapshot
+}
+
+func (s *recordingGigaStore) RegisterHashListener(gigastore.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, nil
 }
 
 func (s *recordingGigaStore) OpenViewAt(int64) (gigastore.StateView, bool) {

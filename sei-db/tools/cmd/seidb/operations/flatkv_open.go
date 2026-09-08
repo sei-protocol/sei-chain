@@ -98,7 +98,7 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 		_ = os.RemoveAll(tempDir)
 		return nil, fmt.Errorf("failed to open FlatKV state WAL: %w", err)
 	}
-	primary, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL, nil)
+	primary, err := flatkv.NewCommitStore(context.Background(), cfg, stateWAL)
 	if err != nil {
 		_ = stateWAL.Close()
 		_ = os.RemoveAll(tempDir)

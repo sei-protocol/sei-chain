@@ -45,6 +45,5 @@ func DefaultTestConfig(t *testing.T) *Config {
 		LtHashThreadsPerCore:   1.0,
 		HashEngineConfig:       *lthash.DefaultConfig(),
 		FinalizationQueueSize:  64,
-		HashChanSize:           1024,
 	}
 }

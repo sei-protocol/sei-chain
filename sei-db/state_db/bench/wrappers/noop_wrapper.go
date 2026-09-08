@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -48,6 +49,12 @@ func (n *noOpWrapper) LoadLatest() error {
 
 func (n *noOpWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, fmt.Errorf("import not supported for no-op wrapper")
+}
+
+// RegisterHashListener reports that this DB publishes no block hashes. A store that persists nothing
+// hashes nothing.
+func (n *noOpWrapper) RegisterHashListener(_ giga.HashListener) (bool, error) {
+	return false, nil
 }
 
 func (n *noOpWrapper) GetPhaseTimer() *metrics.PhaseTimer {

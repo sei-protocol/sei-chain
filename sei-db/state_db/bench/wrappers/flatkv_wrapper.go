@@ -1,6 +1,8 @@
 package wrappers
 
 import (
+	"fmt"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -68,6 +70,15 @@ func (f *flatKVWrapper) Close() error {
 func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
 	val, ok := f.base.Get(keys.EVMStoreKey, key)
 	return val, ok, nil
+}
+
+// RegisterHashListener subscribes listener to flatKV's block hashes. The hash the store returns is
+// dropped: a benchmark waits on the blocks it is about to commit, not the one already behind it.
+func (f *flatKVWrapper) RegisterHashListener(listener giga.HashListener) (bool, error) {
+	if _, err := f.base.RegisterHashListener(listener); err != nil {
+		return false, fmt.Errorf("register a hash listener on flatkv: %w", err)
+	}
+	return true, nil
 }
 
 func (f *flatKVWrapper) GetPhaseTimer() *metrics.PhaseTimer {

@@ -1,6 +1,11 @@
 package hashlog
 
-import "github.com/sei-protocol/sei-chain/sei-db/proto"
+import (
+	"context"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+)
 
 // Logs the hash of each block.
 //
@@ -64,6 +69,13 @@ type HashLogger interface {
 	// changeset hashing is enabled. A subsystem that is disabled should report a nil hash for its type
 	// rather than skipping the call, so that the block can still be completed.
 	ReportHash(blockNumber uint64, hashType string, hash []byte) error
+
+	// Report one block's flatKV hashes: the store-wide root and each data database's root. The
+	// signature matches giga.HashListener, so this method registers as one directly.
+	//
+	// The columns reported here are fixed, and a node declares them when it constructs the logger
+	// (see HashLoggerConfig.HashTypes). Nothing registers a column per block.
+	HashListener(ctx context.Context, blockNumber int64, hash *lthash.BlockHash) error
 
 	// Shut down the HashLogger and release any resources. Flushes pending writes before returning. Only blocks
 	// that are complete (a hash has been reported for every configured type) are written; a block still missing a
