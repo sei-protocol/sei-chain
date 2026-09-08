@@ -507,6 +507,7 @@ func (p *PebbleSim) Close() error {
 // Compact forces a full compaction of the store, so its on-disk size reflects steady state
 // rather than whatever background compaction happened to leave after live writes. A no-op
 // if the store doesn't support types.Compactable.
+/*
 func (p *PebbleSim) Compact() error {
 	c, ok := p.store.(types.Compactable)
 	if !ok {
@@ -514,6 +515,7 @@ func (p *PebbleSim) Compact() error {
 	}
 	return c.Compact()
 }
+*/
 
 func newSimRNG(seed int64) *rand.Rand {
 	s := uint64(seed) //nolint:gosec // G115 - benchmark seed, wrap is fine

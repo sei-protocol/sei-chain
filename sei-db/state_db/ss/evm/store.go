@@ -20,6 +20,7 @@ import (
 
 var _ types.StateStore = (*EVMStateStore)(nil)
 var _ types.ContextIteratorStore = (*EVMStateStore)(nil)
+var _ types.Compactable = (*EVMStateStore)(nil)
 
 // EVMStateStore manages either a single MVCC DB for all EVM data or one DB per
 // EVM sub-type, depending on config. In both modes, the logical store key and
@@ -394,6 +395,35 @@ func (s *EVMStateStore) Prune(version int64) error {
 
 func (s *EVMStateStore) ExternalPruning() bool {
 	return s.externalPruning
+}
+
+// Compact forces a full compaction of every underlying sub-DB that supports it (see
+// types.Compactable), in parallel. Sub-DBs that don't implement it are skipped.
+func (s *EVMStateStore) Compact() error {
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(s.managedDBs))
+
+	for _, db := range s.managedDBs {
+		c, ok := db.(types.Compactable)
+		if !ok {
+			continue
+		}
+		wg.Add(1)
+		go func(c types.Compactable) {
+			defer wg.Done()
+			if err := c.Compact(); err != nil {
+				errCh <- err
+			}
+		}(c)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		return err
+	}
+	return nil
 }
 
 func (s *EVMStateStore) snapshotSourceDirs() []string {

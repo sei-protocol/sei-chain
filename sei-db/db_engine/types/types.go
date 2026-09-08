@@ -178,6 +178,13 @@ type RollbackValidator interface {
 	ValidateRollback(target int64) error
 }
 
+// Compactable is an optional engine capability for stores that can force a full
+// compaction of their entire keyspace on demand, rather than waiting on the
+// engine's own background compaction heuristics.
+type Compactable interface {
+	Compact() error
+}
+
 // The interfaces above are engine capabilities. Deciding when a checkpoint runs,
 // and what version it is labeled with, is coordination rather than engine
 // behavior: sei-db/controller picks the height every store checkpoints at, and
