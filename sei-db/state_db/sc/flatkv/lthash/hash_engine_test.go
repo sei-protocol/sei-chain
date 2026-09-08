@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -356,4 +357,32 @@ func TestHashEngineRefusesWorkAfterFailure(t *testing.T) {
 		require.Equal(t, 1, v.releases, "%s: a refused block's reservation must be released", v.name)
 	}
 	require.ErrorContains(t, engine.Close(), "injected diff failure")
+}
+
+// A flush waits to be told the engine has dealt with everything queued ahead of it, which a stopping
+// engine never will. Its caller has to be released by the shutdown rather than left parked.
+func TestFlushReturnsOnceTheEngineIsStopped(t *testing.T) {
+	pool := threading.NewFixedPool("lthash-flush-shutdown-test", 4, 64)
+	t.Cleanup(pool.Close)
+
+	// The engine gets its own context so the test can stop it; newTestEngine ties one to t.Context().
+	ctx, cancel := context.WithCancel(t.Context())
+	engine, err := NewHashEngine(
+		ctx, DefaultConfig(), pool, engineDBNames, engineModuleOf, NewBlockHash(engineDBNames))
+	require.NoError(t, err)
+
+	current, previous, _ := blockViews(t, 1, blockDiff(1, 4), nil)
+	require.NoError(t, engine.ScheduleHash(current, previous))
+
+	cancel()
+
+	flushed := make(chan error, 1)
+	go func() { flushed <- engine.Flush() }()
+
+	select {
+	case err := <-flushed:
+		require.NoError(t, err, "a flush released by shutdown reports no failure of its own")
+	case <-time.After(30 * time.Second):
+		t.Fatal("Flush never returned after the engine was stopped")
+	}
 }

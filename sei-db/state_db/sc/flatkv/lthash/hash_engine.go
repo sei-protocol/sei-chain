@@ -40,6 +40,10 @@ type HashEngine struct {
 	// combiner sums each block's leaf hashes onto the block before it, and owns the running state.
 	combiner *hashCombiner
 
+	// ctx is cancelled when the engine is stopping, to release a caller waiting on work it will no
+	// longer reach.
+	ctx context.Context
+
 	// cancel stops the gatherer and the combiner. Called by Close, and by the store's own context.
 	cancel context.CancelFunc
 
@@ -79,7 +83,7 @@ func NewHashEngine(
 	}
 
 	ctx, cancel := context.WithCancel(parent)
-	he := &HashEngine{cancel: cancel}
+	he := &HashEngine{ctx: ctx, cancel: cancel}
 	he.gatherer = newBlockGatherer(cfg, newLeafHasher(pool, moduleParser, cfg.ChunkSize), ctx, he.brick)
 	he.combiner = newHashCombiner(
 		dbNames, seed, he.gatherer.combineJobChan, ctx, cfg.HashChanSize, he.brick)
@@ -131,7 +135,12 @@ func (he *HashEngine) Flush() error {
 	if err := he.enqueue(request); err != nil {
 		return fmt.Errorf("flush hash engine: %w", err)
 	}
-	<-request.doneChan
+	select {
+	case <-request.doneChan:
+	case <-he.ctx.Done():
+		// A stopping engine never reaches this request. The blocks behind it are abandoned rather than
+		// hashed, which Close reports, and their rows are still in the WAL for replay to recover.
+	}
 	if err := he.errorIfBricked(); err != nil {
 		return fmt.Errorf("flush hash engine: %w", err)
 	}
