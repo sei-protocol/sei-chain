@@ -25,9 +25,9 @@ const (
 	walEndOfBlockCall = "wal.SignalEndOfBlock"
 )
 
-// fakeStateWAL stands in for the state WAL so a test can watch the WAL half of the fan-out and fail it
-// on demand. It embeds StateWAL without implementing it, so any method the fan-out is not expected to
-// call panics on the nil interface rather than answering with a zero value.
+// fakeStateWAL stands in for the state WAL so a test can watch what StateDB writes to it, and fail it
+// on demand. It embeds StateWAL without implementing it, so any method StateDB is not expected to call
+// panics on the nil interface rather than answering with a zero value.
 type fakeStateWAL struct {
 	statewal.StateWAL
 
@@ -84,12 +84,12 @@ type gapWAL struct {
 
 func (w *gapWAL) GetStoredRange() (bool, uint64, uint64, error) { return true, w.first, w.last, nil }
 
-// A WAL pruned past a half of state has dropped blocks that half still needs. Applying only the blocks
-// the WAL happens to hold and then reporting the target as reached is silent divergence, so the replay
-// refuses instead.
+// A WAL pruned past a store has dropped blocks that store still needs. Applying only the blocks the WAL
+// happens to hold and then reporting the target as reached is silent divergence, so the replay refuses
+// instead.
 //
-// Both halves have to reach this check, which is why they replay through one function rather than each
-// walking the WAL: the half that goes around it is the half that diverges quietly.
+// SC and SS both have to reach this check, which is why they replay through one function rather than
+// each walking the WAL: the store that goes around it is the one that diverges quietly.
 func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 	const missingBlocks = "missing (data loss or corruption)"
 
@@ -106,7 +106,7 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 
 		// The store holds nothing, so the gap is its whole history rather than a hole in it. Refusing
 		// here would report data loss for a store that is merely new, and would do it on every node
-		// past its first retention cut, so it is left out of the pass to fill forward from the target.
+		// past its first retention cut, so it is left out of the replay to fill forward from the target.
 		_, replays, err := s.ssReplayStart(4)
 
 		require.NoError(t, err)
@@ -118,14 +118,14 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 // A rollback establishes that its replay can bridge the gap its rewinds open before either of them
 // moves anything, since every step of one is irreversible and the replay runs last.
 //
-// A half with no snapshot at or below the target is rewound to empty and rebuilt from block 1, so it
+// A store with no snapshot at or below the target is rewound to empty and rebuilt from block 1, so it
 // asks the WAL for its oldest blocks. A WAL that has had a retention cut no longer holds them, and
 // finding that out after the WAL had been cut back would leave a node that will not start and no longer
 // holds the blocks a second attempt would need.
-func TestRequireReachableRefusesAWALThatCannotRebuildAHalf(t *testing.T) {
+func TestRequireReachableRefusesAWALThatCannotRebuildAStore(t *testing.T) {
 	db, _, _ := newTestStateDB(t)
 	s := db.(*StateDB)
-	// A directory holding no snapshots is a half with nothing to restore from, which is the half that
+	// A directory holding no snapshots is a store with nothing to restore from, so it is the one that
 	// has to be rebuilt from the first block.
 	s.ssCfg = config.StateStoreConfig{Enable: true, EVMDBDirectory: t.TempDir()}
 
@@ -134,7 +134,7 @@ func TestRequireReachableRefusesAWALThatCannotRebuildAHalf(t *testing.T) {
 	require.ErrorContains(t, err, "needs blocks 1-5, but the state WAL only holds 3-5")
 }
 
-// A half left to fill forward is not held to the target afterwards. Holding it there would fail the
+// A store left to fill forward is not held to the target afterwards. Holding it there would fail the
 // rollback over exactly the state the catch-up had just decided was the right outcome.
 func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
 	_, _, sc := newTestStateDB(t)

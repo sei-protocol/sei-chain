@@ -113,8 +113,8 @@ func reconvergeErr(t *testing.T, manager *GigaStorageManager, target int64) erro
 	return manager.recoverStores(t.Context(), target)
 }
 
-// closeStateDB closes the two halves of state and their WAL and drops them from the manager, leaving it
-// as it was before the StateDB opened. Manager.Close tolerates that, so a test may still defer it.
+// closeStateDB closes the stores the StateDB owns and drops it from the manager, leaving the manager as
+// it was before the StateDB opened. Manager.Close tolerates that, so a test may still defer it.
 func closeStateDB(t *testing.T, manager *GigaStorageManager) {
 	t.Helper()
 	require.NoError(t, manager.StateDB().Close())
@@ -248,6 +248,41 @@ func TestOpenRebuildsSCAboveTheWALHead(t *testing.T) {
 	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
 }
 
+// The WAL is written unflushed, so a crash can lose its tail while a snapshot published above that tail
+// survives. Rebuilding the working copy does not reach that: the current link names the version above,
+// so the store opens there however often it is rebuilt, and the blocks it holds are ones the WAL can
+// no longer replay to.
+func TestOpenRewindsSCFromASnapshotAboveTheWALHead(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 4)
+	snapshotSCAt(t, manager, 5)
+	require.Equal(t, int64(5), manager.SC().Version())
+	closeStateDB(t, manager)
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 3))
+
+	require.NoError(t, manager.openStateDB(t.Context()))
+
+	require.Equal(t, int64(3), manager.SC().Version())
+	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+}
+
+// SS reaches the same place through its databases rather than a snapshot, since it keeps no working
+// copy to rebuild.
+func TestOpenRewindsSSAboveTheWALHead(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+	snapshotSSAt(t, manager, 1)
+	applySSThrough(t, manager, 3)
+	require.Equal(t, int64(3), manager.SS().GetLatestVersion())
+	closeStateDB(t, manager)
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 2))
+
+	require.NoError(t, manager.openStateDB(t.Context()))
+
+	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
+	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+}
+
 func TestRecoverSCReplaysAMissedWALBlock(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 2)
@@ -331,10 +366,10 @@ func TestRecoverSSRemovesSnapshotsAboveTheTarget(t *testing.T) {
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
 }
 
-// Opening at a target rewinds both halves of state and the WAL that feeds them, so the write head lands
-// on the target. Committing the block after the target is what proves the WAL was truncated rather than
-// only the stores rewound: a WAL still holding that block refuses to write it a second time.
-func TestOpenAtATargetRewindsBothHalvesAndTheWAL(t *testing.T) {
+// Opening at a target rewinds SC, SS and the WAL that feeds them, so the write head lands on the
+// target. Committing the block after the target is what proves the WAL was truncated rather than only
+// the stores rewound: a WAL still holding that block refuses to write it a second time.
+func TestOpenAtATargetRewindsEveryStoreAndTheWAL(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 5)
 
@@ -365,9 +400,9 @@ func TestOpenAtATargetAboveTheWALHeadFails(t *testing.T) {
 	requireWALTail(t, manager, 3)
 }
 
-// A half with no snapshot at or below the target is rewound to empty and rebuilt from block 1, rather
-// than refused. The WAL is the history both halves are derived from, so a WAL that still reaches back
-// that far can supply the whole of it, and the rollback lands SS on the target holding real state.
+// A store with no snapshot at or below the target is rewound to empty and rebuilt from block 1, rather
+// than refused. SC and SS are both derived from the WAL, so a WAL that still reaches back that far can
+// supply the whole of it, and the rollback lands SS on the target holding real state.
 func TestOpenAtATargetRebuildsSSFromTheWAL(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
