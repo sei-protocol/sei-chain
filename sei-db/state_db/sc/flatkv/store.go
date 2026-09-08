@@ -1220,13 +1220,9 @@ func (s *CommitStore) PendingVersion() int64 {
 	return s.pendingBlockHeight
 }
 
-// PublishedHash returns the most recent block hash the store has published: its height, its lattice
-// hash root, and each database's root.
-//
-// On a committing store this is whatever the pipeline has reached, which lags the committed version. On
-// a store that has just been loaded, and on a read-only store, it is the height that was loaded. Use
-// FlushHashes first to make it describe the version just committed.
-func (s *CommitStore) PublishedHash() *lthash.BlockHash {
+// currentHash returns the hash of the height this store stands at: what the pipeline has reached on
+// a committing store, and what was loaded before it has hashed anything.
+func (s *CommitStore) currentHash() *lthash.BlockHash {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -1240,7 +1236,7 @@ func (s *CommitStore) PublishedHash() *lthash.BlockHash {
 // exactly one per block, in block order, with no gaps or duplicates. It reports the most recent hash
 // dispatched, which is the block the listener's first delivery follows.
 func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
-	return s.hashListeners.register(listener, s.PublishedHash()), nil
+	return s.hashListeners.register(listener, s.currentHash()), nil
 }
 
 // FlushHashes blocks until every block committed so far has been hashed and its hash handed to every

@@ -202,7 +202,12 @@ func rootHash(s gigatypes.LiveStateStore) []byte {
 	if err := s.FlushHashes(); err != nil {
 		panic(fmt.Sprintf("flatkv: flush hashes before reading the root: %v", err))
 	}
-	checksum := s.PublishedHash().Global.Checksum()
+	// A nil listener asks the store for the height it stands at without subscribing to anything.
+	current, err := s.RegisterHashListener(nil)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: read the current hash: %v", err))
+	}
+	checksum := current.Global.Checksum()
 	return checksum[:]
 }
 
@@ -220,7 +225,7 @@ func (s *CommitStore) maintainedHashes() *lthash.BlockHash {
 	if err := s.FlushHashes(); err != nil {
 		panic(fmt.Sprintf("flatkv: flush hashes before reading maintained state: %v", err))
 	}
-	return s.PublishedHash()
+	return s.currentHash()
 }
 
 // ---------- helpers to build prefix-encoded changeset pairs ----------

@@ -102,8 +102,8 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	}
 
 	// Step 3: Update in-memory committed state, only once every store accepted the seal. The block's
-	// hash is not part of this: it is computed and recorded asynchronously, and read back through
-	// PublishedHash or HashChan.
+	// hash is not part of this: it is computed and recorded asynchronously, and handed to the
+	// registered listeners once it is.
 	s.committedVersion = version
 
 	// Step 4: Clear per-block bookkeeping

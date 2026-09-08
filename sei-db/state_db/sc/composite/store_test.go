@@ -55,7 +55,6 @@ func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil
 func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *failingEVMStore) PublishedHash() *lthash.BlockHash { return lthash.NewBlockHash(nil) }
 func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
 	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
 }
@@ -78,7 +77,11 @@ func flatKVRootHash(cs *CompositeCommitStore) []byte {
 	if err := cs.flatKV.FlushHashes(); err != nil {
 		panic(fmt.Sprintf("composite: flush flatkv hashes: %v", err))
 	}
-	checksum := cs.flatKV.PublishedHash().Global.Checksum()
+	current, err := cs.flatKV.RegisterHashListener(nil)
+	if err != nil {
+		panic(fmt.Sprintf("composite: read the flatkv hash: %v", err))
+	}
+	checksum := current.Global.Checksum()
 	return checksum[:]
 }
 

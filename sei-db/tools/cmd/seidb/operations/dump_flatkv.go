@@ -389,8 +389,12 @@ func printFlatKVLtHash(hashers map[string]*bucketLtHasher, version int64) {
 // root. A PASS means the physical bytes on disk hash to exactly the root the store reports at this
 // version. Returns an error on mismatch so the CLI exits non-zero.
 func verifyFlatKVLtHash(store gigatypes.LiveStateStore, hashers map[string]*bucketLtHasher) error {
-	// A dump reads a store at rest, so the published hash already describes everything it holds.
-	published := store.PublishedHash()
+	// A dump reads a store at rest, so the height the store stands at already describes everything it
+	// holds. A nil listener asks for it without subscribing to anything.
+	published, err := store.RegisterHashListener(nil)
+	if err != nil {
+		return fmt.Errorf("read the flatkv hash: %w", err)
+	}
 	committedChecksum := published.Global.Checksum()
 	committedTotal := committedChecksum[:]
 

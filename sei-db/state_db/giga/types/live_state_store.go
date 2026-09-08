@@ -122,12 +122,6 @@ type LiveStateStore interface {
 		ascending bool,
 	) (dbm.Iterator, error)
 
-	// PublishedHash returns the most recent block hash the store has published: its height, its
-	// lattice hash root, and each database's root. Hashing is asynchronous, so on a committing store
-	// this lags the committed version; use FlushHashes to make it describe the version just committed.
-	// On a freshly loaded or read-only store it is the height that was loaded.
-	PublishedHash() *lthash.BlockHash
-
 	// RegisterHashListener registers a callback that gets called for each hash the store produces:
 	// exactly one per block committed, in block order, with no gaps or duplicates. Returning an error
 	// from the listener bricks the store, and every later call reports that error.
@@ -136,8 +130,9 @@ type LiveStateStore interface {
 	// the first hash the listener observes is for block N, the mostRecentHash returned will have been
 	// block N-1. A nil listener registers nothing and only reports that hash.
 	//
-	// A store that hashes only in order to replay its way to a height — a read-only store — refuses,
-	// since a listener there would never be called. PublishedHash is that caller's answer.
+	// A read-only store takes a listener and never calls it: it hashes only inside the call that
+	// builds it. The hash it reports is the height it was opened at, which is what such a caller is
+	// after.
 	RegisterHashListener(listener HashListener) (mostRecentHash lthash.BlockHash, err error)
 
 	// FlushHashes blocks until every block committed so far has been hashed and its hash handed to

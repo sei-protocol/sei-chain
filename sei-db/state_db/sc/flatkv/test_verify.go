@@ -51,7 +51,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 	}
 
 	// Read once, so every comparison below describes the same moment.
-	maintained := cs.PublishedHash()
+	maintained := cs.currentHash()
 
 	// Recompute each DB's per-module hashes and stats from disk, validate the
 	// maintained per-module metadata against them, and accumulate the global
