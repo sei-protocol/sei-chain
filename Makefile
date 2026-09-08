@@ -631,6 +631,85 @@ giga-mixed-integration-test:
 .PHONY: giga-mixed-integration-test
 
 
+# Create the tagged app file in which a minor upgrade test is defined.
+#
+#   make new-upgrade-test FROM=v6.6 TO=v6.7
+new-upgrade-test:
+	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then \
+		echo "usage: make new-upgrade-test FROM=v6.6 TO=v6.7" >&2; \
+		exit 2; \
+	fi
+	@go run ./upgradetest/cmd/new -from "$(FROM)" -to "$(TO)"
+.PHONY: new-upgrade-test
+
+# Run only the tests added by the version-specific file for the minor upgrade
+# this build ships. Both the build tag and test names are discovered, so this
+# target keeps selecting the right file without naming a version.
+upgrade-test:
+	@set -e; \
+		boundary=$$(go run ./upgradetest/cmd/boundary); \
+		tag=$$(go run ./upgradetest/cmd/boundary tag) && \
+		tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' 0; \
+		if ! go test -list '^Test' ./app > "$$tmp/base.stdout" 2> "$$tmp/base.stderr"; then \
+			echo "failed to list untagged app tests:" >&2; \
+			cat "$$tmp/base.stdout" "$$tmp/base.stderr" >&2; \
+			exit 1; \
+		fi; \
+		awk '/^Test/ { print }' "$$tmp/base.stdout" | sort > "$$tmp/base"; \
+		if ! go test -tags "$$tag" -list '^Test' ./app > "$$tmp/tagged.stdout" 2> "$$tmp/tagged.stderr"; then \
+			echo "failed to list app tests with build tag $$tag:" >&2; \
+			cat "$$tmp/tagged.stdout" "$$tmp/tagged.stderr" >&2; \
+			exit 1; \
+		fi; \
+		awk '/^Test/ { print }' "$$tmp/tagged.stdout" | sort > "$$tmp/tagged"; \
+		comm -13 "$$tmp/base" "$$tmp/tagged" > "$$tmp/selected"; \
+		if [ ! -s "$$tmp/selected" ]; then \
+			cat "$$tmp/tagged.stderr" >&2; \
+			echo "no tests were added by build tag $$tag" >&2; \
+			exit 1; \
+		fi; \
+		tests=$$(paste -sd'|' "$$tmp/selected"); \
+		echo "=== Upgrade boundary $$boundary (-tags $$tag) ==="; \
+		go test -tags "$$tag" -run "^($$tests)$$" -count=1 -timeout=10m ./app
+.PHONY: upgrade-test
+
+# Compile the current boundary's source phase against one ref, persist its app
+# database, compile the target phase against another ref to apply the upgrade,
+# then reopen the migrated database with the source branch.
+#
+#   make upgrade-test-offline \
+#     FROM_REF=release/v6.6 TO_REF=release/v6.7
+upgrade-test-offline:
+	@FROM_REF="$(FROM_REF)" TO_REF="$(TO_REF)" \
+		bash .github/scripts/offline-upgrade-test.sh
+.PHONY: upgrade-test-offline
+
+# Build two refs, create state with the source binary, coordinate the on-chain
+# upgrade, and run the current build tag's CrossVersion test before and after.
+#
+#   make upgrade-test-cross-version \
+#     FROM_REF=release/v6.6 TO_REF=release/v6.7
+upgrade-test-cross-version:
+	@RELEASE_BRANCH="$(FROM_REF)" MAIN_REF="$(TO_REF)" \
+		bash .github/scripts/release-upgrade-test.sh
+.PHONY: upgrade-test-cross-version
+
+# Compile every version-specific app upgrade test, including versions that have
+# already shipped. Offline phase files are compiled against their release side
+# because source-only APIs may no longer exist in the current checkout.
+upgrade-test-vet:
+	@set -e; \
+		for file in app/upgrade_v*_test.go; do \
+			[ -f "$$file" ] || continue; \
+			case "$$file" in *_offline_target_test.go) continue ;; esac; \
+			tag=$$(basename "$$file" _test.go); \
+			echo "=== Compiling $$file (-tags $$tag) ==="; \
+			go test -tags "$$tag" -run '^$$' ./app; \
+		done; \
+		bash upgradetest/compile_offline.sh
+.PHONY: upgrade-test-vet
+
+
 # Implements test splitting and running. This is pulled directly from
 # the github action workflows for better local reproducibility.
 

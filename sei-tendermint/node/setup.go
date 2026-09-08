@@ -275,9 +275,9 @@ func buildValidatorGigaConfig(
 // buildGigaRouter picks validator-vs-fullnode by cfg.Mode:
 // "validator" runs the validator path, any other mode runs as a fullnode.
 // Mode is the operator's explicit role declaration, kept separate from
-// committee membership so a newly-joined committee member can finish
+// live committee membership so a newly-joined committee member can finish
 // catch-up as a fullnode before the operator flips to mode = "validator".
-// A warning is logged if mode and committee membership disagree so an
+// A warning is logged if mode and address-book membership disagree so an
 // operator misconfiguration is visible at startup.
 //
 // The returned BlockStore is owned by the caller (nodeImpl): open happens here
@@ -296,12 +296,12 @@ func buildGigaRouter(
 		return nil, nil, err
 	}
 	if valKey, ok := validatorKey.Get(); ok {
-		_, inCommittee := validatorAddrs[valKey.Public()]
+		_, inAddressBook := validatorAddrs[valKey.Public()]
 		switch {
-		case cfg.Mode == config.ModeValidator && !inCommittee:
-			logger.Warn("Autobahn: mode is \"validator\" but local validator key is not in the committee", "valKey", valKey.Public())
-		case cfg.Mode != config.ModeValidator && inCommittee:
-			logger.Warn("Autobahn: local validator key is in the committee but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
+		case cfg.Mode == config.ModeValidator && !inAddressBook:
+			logger.Warn("Autobahn: mode is \"validator\" but local validator key is not in the address book", "valKey", valKey.Public())
+		case cfg.Mode != config.ModeValidator && inAddressBook:
+			logger.Warn("Autobahn: local validator key is in the address book but mode is not \"validator\"; starting as fullnode", "mode", cfg.Mode)
 		}
 	}
 	if cfg.Mode == config.ModeValidator {
