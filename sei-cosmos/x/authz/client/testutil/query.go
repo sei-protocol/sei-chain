@@ -14,15 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/authz/client/cli"
 )
 
-const (
-	sendCase             = "send"
-	invalidGranteeCase   = "invalid grantee"
-	genericCase          = "generic"
-	delegateCase         = "delegate"
-	unbondCase           = "unbond"
-	validTransactionCase = "valid txn"
-)
-
 func (s *IntegrationTestSuite) TestQueryAuthorizations() {
 	val := s.network.Validators[0]
 
@@ -33,7 +24,7 @@ func (s *IntegrationTestSuite) TestQueryAuthorizations() {
 		val,
 		[]string{
 			grantee.String(),
-			sendCase,
+			"send",
 			fmt.Sprintf("--%s=100steak", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address),
@@ -54,7 +45,7 @@ func (s *IntegrationTestSuite) TestQueryAuthorizations() {
 			"Error: Invalid grantee",
 			[]string{
 				val.Address.String(),
-				invalidGranteeCase,
+				"invalid grantee",
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},
 			true,
@@ -111,7 +102,7 @@ func (s *IntegrationTestSuite) TestQueryAuthorization() {
 		val,
 		[]string{
 			grantee.String(),
-			sendCase,
+			"send",
 			fmt.Sprintf("--%s=100steak", cli.FlagSpendLimit),
 			fmt.Sprintf("--%s=true", flags.FlagSkipConfirmation),
 			fmt.Sprintf("--%s=%s", flags.FlagFrom, val.Address),
@@ -132,7 +123,7 @@ func (s *IntegrationTestSuite) TestQueryAuthorization() {
 			"Error: Invalid grantee",
 			[]string{
 				val.Address.String(),
-				invalidGranteeCase,
+				"invalid grantee",
 				typeMsgSend,
 				fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 			},

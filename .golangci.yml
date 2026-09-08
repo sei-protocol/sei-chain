@@ -20,6 +20,11 @@ linters:
     - staticcheck
     - unconvert
     - misspell
+  settings:
+    goconst:
+      min-occurrences: 5
+      ignore-string-values:
+        - "^(consensus|error|gasUsed|get hex payload for the given inputs|kind|logsBloom|memiavl|sei-test|src|usei)$"
   exclusions:
     paths:
       - ".*\\.pb\\.go$"
@@ -27,6 +32,18 @@ linters:
       - linters:
           - gosec
         text: "Use of weak random number generator"
+      - linters:
+          - goconst
+        path: "(^|/)testutil(/|$)"
+      - linters:
+          - goconst
+        path: "(^|/)test_fixtures\\.go$"
+      - linters:
+          - goconst
+        path: "(^|/)mocks?(/|$)"
+      - linters:
+          - goconst
+        path: "(^|/)[^/]*mock[^/]*\\.go$"
 
 formatters:
   enable:

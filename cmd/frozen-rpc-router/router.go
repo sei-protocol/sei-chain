@@ -17,12 +17,11 @@ import (
 )
 
 const (
-	jsonRPCParseError            = -32700
-	jsonRPCInvalidRequest        = -32600
-	jsonRPCUnsupportedError      = -32000
-	jsonRPCInvalidRequestMessage = "invalid request"
-	jsonRPCUpstreamError         = -32001
-	rpcRouteHeader               = "Sei-RPC-Route"
+	jsonRPCParseError       = -32700
+	jsonRPCInvalidRequest   = -32600
+	jsonRPCUnsupportedError = -32000
+	jsonRPCUpstreamError    = -32001
+	rpcRouteHeader          = "Sei-RPC-Route"
 )
 
 var blockParameterIndexes = map[string]int{
@@ -202,14 +201,14 @@ func (r *router) serveSingle(w http.ResponseWriter, request *http.Request, body 
 	call, err := decodeCall(body)
 	if err != nil {
 		if json.Valid(body) {
-			writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage})
+			writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"})
 		} else {
 			writeRPCError(w, nil, rpcError{Code: jsonRPCParseError, Message: "parse error"})
 		}
 		return
 	}
 	if !call.isValid {
-		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage})
+		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"})
 		return
 	}
 	target, routingErr := r.route(call)
@@ -237,7 +236,7 @@ func (r *router) serveBatch(w http.ResponseWriter, request *http.Request, body [
 		return
 	}
 	if len(calls) == 0 {
-		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage})
+		writeRPCError(w, nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"})
 		return
 	}
 
@@ -346,7 +345,7 @@ func (r *router) groupBatch(calls []rpcCall) ([]*batchGroup, []json.RawMessage) 
 	localResponses := make([]json.RawMessage, 0)
 	for _, call := range calls {
 		if !call.isValid {
-			localResponses = append(localResponses, marshalRPCError(nil, rpcError{Code: jsonRPCInvalidRequest, Message: jsonRPCInvalidRequestMessage}))
+			localResponses = append(localResponses, marshalRPCError(nil, rpcError{Code: jsonRPCInvalidRequest, Message: "invalid request"}))
 			continue
 		}
 		target, routingErr := r.route(call)

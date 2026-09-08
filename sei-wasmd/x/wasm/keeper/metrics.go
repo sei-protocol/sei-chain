@@ -12,11 +12,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-const (
-	contractLabel   = "contract"
-	metricTypeLabel = "type"
-)
-
 var (
 	meter = otel.Meter("wasm_keeper")
 
@@ -94,37 +89,37 @@ func must[V any](v V, err error) V {
 func recordContractInstantiateDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractInstantiateDuration.Record(ctx, time.Since(start).Seconds())
 	// TODO(PLT-910): remove once wasm_contract_instantiate_duration verified
-	telemetry.MeasureSince(start, "wasm", contractLabel, "instantiate")
+	telemetry.MeasureSince(start, "wasm", "contract", "instantiate")
 }
 
 func recordContractExecuteDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractExecuteDuration.Record(ctx, time.Since(start).Seconds())
 	// TODO(PLT-910): remove once wasm_contract_execute_duration verified
-	telemetry.MeasureSince(start, "wasm", contractLabel, "execute")
+	telemetry.MeasureSince(start, "wasm", "contract", "execute")
 }
 
 func recordContractMigrateDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractMigrateDuration.Record(ctx, time.Since(start).Seconds())
 	// TODO(PLT-910): remove once wasm_contract_migrate_duration verified
-	telemetry.MeasureSince(start, "wasm", contractLabel, "migrate")
+	telemetry.MeasureSince(start, "wasm", "contract", "migrate")
 }
 
 func recordContractSudoDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractSudoDuration.Record(ctx, time.Since(start).Seconds())
 	// TODO(PLT-910): remove once wasm_contract_sudo_duration verified
-	telemetry.MeasureSince(start, "wasm", contractLabel, "sudo")
+	telemetry.MeasureSince(start, "wasm", "contract", "sudo")
 }
 
 func recordContractQuerySmartDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractQuerySmartDuration.Record(ctx, time.Since(start).Seconds())
 	// TODO(PLT-910): remove once wasm_contract_query_smart_duration verified
-	telemetry.MeasureSince(start, "wasm", contractLabel, "query-smart")
+	telemetry.MeasureSince(start, "wasm", "contract", "query-smart")
 }
 
 func recordContractQueryRawDuration(ctx context.Context, start time.Time) {
 	wasmKeeperMetrics.contractQueryRawDuration.Record(ctx, time.Since(start).Seconds())
 	// TODO(PLT-910): remove once wasm_contract_query_raw_duration verified
-	telemetry.MeasureSince(start, "wasm", contractLabel, "query-raw")
+	telemetry.MeasureSince(start, "wasm", "contract", "query-raw")
 }
 
 func recordContractQuerySmartInvocation(contractAddress string) {
@@ -132,7 +127,7 @@ func recordContractQuerySmartInvocation(contractAddress string) {
 	// count, which is recorded unconditionally on every QuerySmart call just like this one.
 	// TODO(PLT-910): remove once wasm_contract_query_smart_duration verified
 	telemetry.IncrCounterWithLabels(
-		[]string{"wasm", contractLabel, "query-smart", "invocation"},
+		[]string{"wasm", "contract", "query-smart", "invocation"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddress)},
 	)
@@ -145,7 +140,7 @@ func recordContractQuerySmartGasUsed(ctx context.Context, contractAddress string
 	wasmKeeperMetrics.contractQuerySmartGasUsed.Record(ctx, int64(gasUsed)) //nolint:gosec
 	// TODO(PLT-910): remove once wasm_contract_query_smart_gas_used verified
 	telemetry.SetGaugeWithLabels(
-		[]string{"wasm", contractLabel, "query-smart", "gas-used"},
+		[]string{"wasm", "contract", "query-smart", "gas-used"},
 		float32(gasUsed),
 		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddress)},
 	)
@@ -177,10 +172,10 @@ type WasmVMMetricsCollector struct {
 func NewWasmVMMetricsCollector(s metricSource) *WasmVMMetricsCollector {
 	return &WasmVMMetricsCollector{
 		source:             s,
-		CacheHitsDescr:     prometheus.NewDesc("wasmvm_cache_hits_total", "Total number of cache hits", []string{metricTypeLabel}, nil),
+		CacheHitsDescr:     prometheus.NewDesc("wasmvm_cache_hits_total", "Total number of cache hits", []string{"type"}, nil),
 		CacheMissesDescr:   prometheus.NewDesc("wasmvm_cache_misses_total", "Total number of cache misses", nil, nil),
-		CacheElementsDescr: prometheus.NewDesc("wasmvm_cache_elements_total", "Total number of elements in the cache", []string{metricTypeLabel}, nil),
-		CacheSizeDescr:     prometheus.NewDesc("wasmvm_cache_size_bytes", "Total number of elements in the cache", []string{metricTypeLabel}, nil),
+		CacheElementsDescr: prometheus.NewDesc("wasmvm_cache_elements_total", "Total number of elements in the cache", []string{"type"}, nil),
+		CacheSizeDescr:     prometheus.NewDesc("wasmvm_cache_size_bytes", "Total number of elements in the cache", []string{"type"}, nil),
 	}
 }
 

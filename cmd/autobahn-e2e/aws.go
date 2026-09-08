@@ -15,11 +15,6 @@ import (
 )
 
 const (
-	awsServiceEC2 = "ec2"
-	awsQueryFlag  = "--query"
-	awsOutputFlag = "--output"
-	awsTextOutput = "text"
-
 	ubuntuARM64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id"
 )
 
@@ -32,11 +27,11 @@ type awsClient struct {
 }
 
 func (c awsClient) output(ctx context.Context, args ...string) (string, error) {
-	return c.runner.output(ctx, commandSpec{name: targetAWS, args: args, env: c.environment()})
+	return c.runner.output(ctx, commandSpec{name: "aws", args: args, env: c.environment()})
 }
 
 func (c awsClient) stream(ctx context.Context, args ...string) error {
-	return c.runner.stream(ctx, commandSpec{name: targetAWS, args: args, env: c.environment()})
+	return c.runner.stream(ctx, commandSpec{name: "aws", args: args, env: c.environment()})
 }
 
 func (c awsClient) environment() []string {
@@ -57,7 +52,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if !sshUserPattern.MatchString(options.sshUser) {
 		return fmt.Errorf("invalid --ssh-user %q", options.sshUser)
 	}
-	for _, name := range []string{targetAWS, commandGit, commandSSH} {
+	for _, name := range []string{"aws", "git", "ssh"} {
 		if err := a.runner.lookPath(name); err != nil {
 			return err
 		}
@@ -75,8 +70,8 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		amiID, err = client.output(ctx,
 			"ssm", "get-parameter",
 			"--name", ubuntuARM64AMIParameter,
-			awsQueryFlag, "Parameter.Value",
-			awsOutputFlag, awsTextOutput,
+			"--query", "Parameter.Value",
+			"--output", "text",
 		)
 		if err != nil {
 			return fmt.Errorf("resolve Ubuntu AMI: %w", err)
@@ -118,12 +113,12 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 
 	securityGroupName := fmt.Sprintf("sei-autobahn-e2e-%s-%d", options.name, time.Now().Unix())
 	securityGroupID, err := client.output(ctx,
-		awsServiceEC2, "create-security-group",
+		"ec2", "create-security-group",
 		"--group-name", securityGroupName,
 		"--description", "SSH access for Sei Autobahn EVM-only E2E",
 		"--vpc-id", vpcID,
-		awsQueryFlag, "GroupId",
-		awsOutputFlag, awsTextOutput,
+		"--query", "GroupId",
+		"--output", "text",
 	)
 	if err != nil {
 		return err
@@ -133,14 +128,14 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		return err
 	}
 	if _, err := client.output(ctx,
-		awsServiceEC2, "create-tags",
+		"ec2", "create-tags",
 		"--resources", state.AWS.SecurityGroupID,
 		"--tags", "Key=sei-autobahn-e2e-cluster,Value="+options.name,
 	); err != nil {
 		return fail(err)
 	}
 	if _, err := client.output(ctx,
-		awsServiceEC2, "authorize-security-group-ingress",
+		"ec2", "authorize-security-group-ingress",
 		"--group-id", state.AWS.SecurityGroupID,
 		"--protocol", "tcp",
 		"--port", "22",
@@ -157,11 +152,11 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		state.AWS.SSHKeyPath = filepath.Join(a.stateDir, options.name+".pem")
 		state.AWS.ManagedKey = true
 		keyMaterial, err := client.output(ctx,
-			awsServiceEC2, "create-key-pair",
+			"ec2", "create-key-pair",
 			"--key-name", state.AWS.KeyName,
 			"--key-type", "ed25519",
-			awsQueryFlag, "KeyMaterial",
-			awsOutputFlag, awsTextOutput,
+			"--query", "KeyMaterial",
+			"--output", "text",
 		)
 		if err != nil {
 			return fail(err)
@@ -186,7 +181,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	}
 	defer func() { _ = os.Remove(userDataPath) }()
 	runArgs := []string{
-		awsServiceEC2, "run-instances",
+		"ec2", "run-instances",
 		"--image-id", amiID,
 		"--instance-type", options.instanceType,
 		"--key-name", state.AWS.KeyName,
@@ -196,8 +191,8 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		"--block-device-mappings", fmt.Sprintf("DeviceName=/dev/sda1,Ebs={VolumeSize=%d,VolumeType=gp3,DeleteOnTermination=true}", options.volumeSize),
 		"--user-data", "file://" + userDataPath,
 		"--tag-specifications", fmt.Sprintf("ResourceType=instance,Tags=[{Key=Name,Value=sei-autobahn-e2e-%s},{Key=sei-autobahn-e2e-cluster,Value=%s}]", options.name, options.name),
-		awsQueryFlag, "Instances[0].InstanceId",
-		awsOutputFlag, awsTextOutput,
+		"--query", "Instances[0].InstanceId",
+		"--output", "text",
 	}
 	if options.subnetID != "" {
 		runArgs = append(runArgs, "--subnet-id", options.subnetID)
@@ -210,17 +205,17 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err := a.store().save(state); err != nil {
 		return err
 	}
-	if err := client.stream(ctx, awsServiceEC2, "wait", "instance-running", "--instance-ids", state.AWS.InstanceID); err != nil {
+	if err := client.stream(ctx, "ec2", "wait", "instance-running", "--instance-ids", state.AWS.InstanceID); err != nil {
 		return fail(err)
 	}
-	if err := client.stream(ctx, awsServiceEC2, "wait", "instance-status-ok", "--instance-ids", state.AWS.InstanceID); err != nil {
+	if err := client.stream(ctx, "ec2", "wait", "instance-status-ok", "--instance-ids", state.AWS.InstanceID); err != nil {
 		return fail(err)
 	}
 	publicIP, err := client.output(ctx,
-		awsServiceEC2, "describe-instances",
+		"ec2", "describe-instances",
 		"--instance-ids", state.AWS.InstanceID,
-		awsQueryFlag, "Reservations[0].Instances[0].PublicIpAddress",
-		awsOutputFlag, awsTextOutput,
+		"--query", "Reservations[0].Instances[0].PublicIpAddress",
+		"--output", "text",
 	)
 	if err != nil {
 		return fail(err)
@@ -253,7 +248,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 }
 
 func (a *application) ensureAWSCredentials(ctx context.Context, client awsClient) error {
-	if _, err := client.output(ctx, "sts", "get-caller-identity", awsOutputFlag, "json"); err == nil {
+	if _, err := client.output(ctx, "sts", "get-caller-identity", "--output", "json"); err == nil {
 		return nil
 	}
 	stdinInfo, statErr := os.Stdin.Stat()
@@ -268,7 +263,7 @@ func (a *application) ensureAWSCredentials(ctx context.Context, client awsClient
 	if err := client.stream(ctx, args...); err != nil {
 		return err
 	}
-	if _, err := client.output(ctx, "sts", "get-caller-identity", awsOutputFlag, "json"); err != nil {
+	if _, err := client.output(ctx, "sts", "get-caller-identity", "--output", "json"); err != nil {
 		return fmt.Errorf("validate configured AWS credentials: %w", err)
 	}
 	return nil
@@ -286,7 +281,7 @@ func (a *application) resolveRemoteSource(ctx context.Context, options deployOpt
 		}
 	}
 	if repoURL == "" {
-		repoURL, err = a.runner.output(ctx, commandSpec{dir: root, name: commandGit, args: []string{"remote", "get-url", "origin"}})
+		repoURL, err = a.runner.output(ctx, commandSpec{dir: root, name: "git", args: []string{"remote", "get-url", "origin"}})
 		if err != nil {
 			return "", "", err
 		}
@@ -296,7 +291,7 @@ func (a *application) resolveRemoteSource(ctx context.Context, options deployOpt
 		repoURL = "https://github.com/" + strings.TrimPrefix(repoURL, "git@github.com:")
 	}
 	if ref == "" {
-		ref, err = a.runner.output(ctx, commandSpec{dir: root, name: commandGit, args: []string{"rev-parse", "HEAD"}})
+		ref, err = a.runner.output(ctx, commandSpec{dir: root, name: "git", args: []string{"rev-parse", "HEAD"}})
 		if err != nil {
 			return "", "", err
 		}
@@ -307,17 +302,17 @@ func (a *application) resolveRemoteSource(ctx context.Context, options deployOpt
 
 func resolveVPC(ctx context.Context, client awsClient, subnetID string) (string, error) {
 	args := []string{
-		awsServiceEC2, "describe-vpcs",
+		"ec2", "describe-vpcs",
 		"--filters", "Name=is-default,Values=true",
-		awsQueryFlag, "Vpcs[0].VpcId",
-		awsOutputFlag, awsTextOutput,
+		"--query", "Vpcs[0].VpcId",
+		"--output", "text",
 	}
 	if subnetID != "" {
 		args = []string{
-			awsServiceEC2, "describe-subnets",
+			"ec2", "describe-subnets",
 			"--subnet-ids", subnetID,
-			awsQueryFlag, "Subnets[0].VpcId",
-			awsOutputFlag, awsTextOutput,
+			"--query", "Subnets[0].VpcId",
+			"--output", "text",
 		}
 	}
 	value, err := client.output(ctx, args...)
@@ -459,7 +454,7 @@ func (a *application) waitForRemoteCluster(ctx context.Context, state clusterSta
 }
 
 func sshCommand(state clusterState, remoteCommand string) commandSpec {
-	return commandSpec{name: commandSSH, args: append(sshBaseArgs(state), remoteCommand)}
+	return commandSpec{name: "ssh", args: append(sshBaseArgs(state), remoteCommand)}
 }
 
 func sshBaseArgs(state clusterState) []string {

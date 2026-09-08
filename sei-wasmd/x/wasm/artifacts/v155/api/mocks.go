@@ -19,8 +19,6 @@ import (
 
 const (
 	MOCK_CONTRACT_ADDR = "contract"
-	mockHumanAddress   = "foobar"
-	mockDenom          = "ATOM"
 )
 
 func MockEnv() types.Env {
@@ -28,7 +26,7 @@ func MockEnv() types.Env {
 		Block: types.BlockInfo{
 			Height:  123,
 			Time:    1578939743_987654321,
-			ChainID: mockHumanAddress,
+			ChainID: "foobar",
 		},
 		Transaction: &types.TransactionInfo{
 			Index: 4,
@@ -54,7 +52,7 @@ func MockInfo(sender types.HumanAddress, funds []types.Coin) types.MessageInfo {
 
 func MockInfoWithFunds(sender types.HumanAddress) types.MessageInfo {
 	return MockInfo(sender, []types.Coin{{
-		Denom:  mockDenom,
+		Denom:  "ATOM",
 		Amount: "100",
 	}})
 }
@@ -373,7 +371,7 @@ func NewMockAPI() *types.GoAPI {
 }
 
 func TestMockApi(t *testing.T) {
-	const human = mockHumanAddress
+	const human = "foobar"
 	canon, cost, err := MockCanonicalAddress(human)
 	require.NoError(t, err)
 	assert.Equal(t, CanonicalLength, len(canon))
@@ -524,8 +522,8 @@ func (q ReflectCustom) Query(request json.RawMessage) ([]byte, error) {
 //************ test code for mocks *************************//
 
 func TestBankQuerierAllBalances(t *testing.T) {
-	addr := mockHumanAddress
-	balance := types.Coins{types.NewCoin(12345678, mockDenom), types.NewCoin(54321, "ETH")}
+	addr := "foobar"
+	balance := types.Coins{types.NewCoin(12345678, "ATOM"), types.NewCoin(54321, "ETH")}
 	q := DefaultQuerier(addr, balance)
 
 	// query existing account
@@ -560,8 +558,8 @@ func TestBankQuerierAllBalances(t *testing.T) {
 }
 
 func TestBankQuerierBalance(t *testing.T) {
-	addr := mockHumanAddress
-	balance := types.Coins{types.NewCoin(12345678, mockDenom), types.NewCoin(54321, "ETH")}
+	addr := "foobar"
+	balance := types.Coins{types.NewCoin(12345678, "ATOM"), types.NewCoin(54321, "ETH")}
 	q := DefaultQuerier(addr, balance)
 
 	// query existing account with matching denom
@@ -569,7 +567,7 @@ func TestBankQuerierBalance(t *testing.T) {
 		Bank: &types.BankQuery{
 			Balance: &types.BalanceQuery{
 				Address: addr,
-				Denom:   mockDenom,
+				Denom:   "ATOM",
 			},
 		},
 	}
@@ -578,7 +576,7 @@ func TestBankQuerierBalance(t *testing.T) {
 	var resp types.BalanceResponse
 	err = json.Unmarshal(res, &resp)
 	require.NoError(t, err)
-	assert.Equal(t, resp.Amount, types.NewCoin(12345678, mockDenom))
+	assert.Equal(t, resp.Amount, types.NewCoin(12345678, "ATOM"))
 
 	// query existing account with missing denom
 	req2 := types.QueryRequest{
@@ -601,7 +599,7 @@ func TestBankQuerierBalance(t *testing.T) {
 		Bank: &types.BankQuery{
 			Balance: &types.BalanceQuery{
 				Address: "someone-else",
-				Denom:   mockDenom,
+				Denom:   "ATOM",
 			},
 		},
 	}
@@ -610,7 +608,7 @@ func TestBankQuerierBalance(t *testing.T) {
 	var resp3 types.BalanceResponse
 	err = json.Unmarshal(res, &resp3)
 	require.NoError(t, err)
-	assert.Equal(t, resp3.Amount, types.NewCoin(0, mockDenom))
+	assert.Equal(t, resp3.Amount, types.NewCoin(0, "ATOM"))
 }
 
 func TestReflectCustomQuerier(t *testing.T) {

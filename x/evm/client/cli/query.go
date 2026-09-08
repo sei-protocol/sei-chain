@@ -113,12 +113,10 @@ func CmdQueryEVMAddress() *cobra.Command {
 	return cmd
 }
 
-const hexPayloadQueryShort = "get hex payload for the given inputs"
-
 func CmdQueryERC20() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "erc20 [addr] [method] [arguments...]",
-		Short: hexPayloadQueryShort,
+		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -180,7 +178,7 @@ func CmdQueryERC20() *cobra.Command {
 func CmdQueryPayload() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "payload [abi-filepath] [method] [arguments...]",
-		Short: hexPayloadQueryShort,
+		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -213,7 +211,7 @@ func CmdQueryPayload() *cobra.Command {
 func CmdQueryERC20Payload() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "erc20-payload [method] [arguments...]",
-		Short: hexPayloadQueryShort,
+		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -265,7 +263,7 @@ func CmdQueryERC20Payload() *cobra.Command {
 func CmdQueryERC721Payload() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "erc721-payload [method] [arguments...]",
-		Short: hexPayloadQueryShort,
+		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -317,7 +315,7 @@ func CmdQueryERC721Payload() *cobra.Command {
 func CmdQueryERC1155Payload() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "erc1155-payload [method] [arguments...]",
-		Short: hexPayloadQueryShort,
+		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)

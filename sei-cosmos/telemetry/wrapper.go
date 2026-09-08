@@ -57,7 +57,7 @@ func MeasureSince(start time.Time, keys ...string) {
 // validator_slashed
 func IncrValidatorSlashedCounter(validator string, slashingType string) {
 	metrics.IncrCounterWithLabels(
-		[]string{"sei", cosmosNamespace, "validator", "slashed"},
+		[]string{"sei", "cosmos", "validator", "slashed"},
 		1,
 		[]metrics.Label{
 			NewLabel("type", slashingType),

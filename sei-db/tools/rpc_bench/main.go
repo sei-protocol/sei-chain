@@ -25,8 +25,6 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-const traceBlockByNumberMethod = "debug_traceBlockByNumber"
-
 type RPCRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Method  string        `json:"method"`
@@ -811,7 +809,7 @@ func main() {
 	// Method registry — add new methods here (one line each)
 	// =========================================================================
 	allMethods := []benchMethod{
-		{traceBlockByNumberMethod, func() []interface{} { return []interface{}{fmt.Sprintf("0x%x", randBlock().Number)} }, 10, true},
+		{"debug_traceBlockByNumber", func() []interface{} { return []interface{}{fmt.Sprintf("0x%x", randBlock().Number)} }, 10, true},
 		{"debug_traceTransaction", func() []interface{} { return []interface{}{randTxHash()} }, 10, true},
 		{"eth_getLogs", func() []interface{} { return randLogsParams() }, 20, true},
 		{"eth_getBalance", func() []interface{} { return []interface{}{randAddr(), referenceHex} }, 25, false},
@@ -878,15 +876,15 @@ func main() {
 	// =========================================================================
 	// Phase 1: Per-block trace — one trace per discovered block, prints each result
 	// =========================================================================
-	if hasMethod(traceBlockByNumberMethod) {
+	if hasMethod("debug_traceBlockByNumber") {
 		fmt.Printf("\n--- Per-block trace (1 req per block, %d blocks) ---\n", len(blocks))
 		fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "BLOCK", "TXS", "GAS_USED", "AVG_GAS/TX", "LATENCY")
 		fmt.Printf("  %-12s  %-6s  %-12s  %-12s  %s\n", "-----", "---", "--------", "----------", "-------")
-		perBlockStats := &LatencyStats{Method: traceBlockByNumberMethod}
+		perBlockStats := &LatencyStats{Method: "debug_traceBlockByNumber"}
 		perBlockSamples := make([]PerBlockTraceSample, 0, len(blocks))
 		for _, b := range blocks {
 			hexNum := fmt.Sprintf("0x%x", b.Number)
-			resp, lat, err := rpcCall(endpoint, traceBlockByNumberMethod, []interface{}{hexNum})
+			resp, lat, err := rpcCall(endpoint, "debug_traceBlockByNumber", []interface{}{hexNum})
 			if err == nil && resp != nil && resp.Error != nil {
 				err = fmt.Errorf("rpc: %s", resp.Error.Message)
 			}
@@ -915,7 +913,7 @@ func main() {
 			totalTime += lat
 		}
 		perBlockStats.Duration = totalTime
-		printStats("Per-block trace summary", map[string]*LatencyStats{traceBlockByNumberMethod: perBlockStats})
+		printStats("Per-block trace summary", map[string]*LatencyStats{"debug_traceBlockByNumber": perBlockStats})
 		if plotDir != "" {
 			paths, err := writePerBlockTracePlots(plotDir, perBlockSamples)
 			if err != nil {

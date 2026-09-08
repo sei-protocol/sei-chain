@@ -11,7 +11,6 @@ import (
 )
 
 const (
-	jsonRPCVersion      = "2.0"
 	invalidRequestCode  = -32600
 	seiLegacyNotEnabled = -32601
 	internalErrorCode   = -32603
@@ -354,11 +353,11 @@ func jsonRPCObjectIDKey(raw json.RawMessage) (idField json.RawMessage, hasKey bo
 
 func marshalJSONRPCError(id json.RawMessage, code int, message string) []byte {
 	b, _ := json.Marshal(map[string]any{
-		rpcFieldJSONRPC: jsonRPCVersion,
-		"id":            id,
-		rpcFieldError: map[string]any{
-			rpcFieldCode:    code,
-			rpcFieldMessage: message,
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
 		},
 	})
 	return b
@@ -439,22 +438,22 @@ func marshalBlockedResponse(id json.RawMessage, gateErr error) []byte {
 	e, ok := gateErr.(*errSeiLegacyNotEnabled)
 	if !ok {
 		fallback, _ := json.Marshal(map[string]interface{}{
-			rpcFieldJSONRPC: jsonRPCVersion,
-			"id":            id,
-			rpcFieldError: map[string]interface{}{
-				rpcFieldCode:    internalErrorCode,
-				rpcFieldMessage: gateErr.Error(),
+			"jsonrpc": "2.0",
+			"id":      id,
+			"error": map[string]interface{}{
+				"code":    internalErrorCode,
+				"message": gateErr.Error(),
 			},
 		})
 		return fallback
 	}
 	m := map[string]interface{}{
-		rpcFieldJSONRPC: jsonRPCVersion,
-		"id":            id,
-		rpcFieldError: map[string]interface{}{
-			rpcFieldCode:    e.ErrorCode(),
-			rpcFieldMessage: e.Error(),
-			"data":          e.ErrorData(),
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error": map[string]interface{}{
+			"code":    e.ErrorCode(),
+			"message": e.Error(),
+			"data":    e.ErrorData(),
 		},
 	}
 	b, _ := json.Marshal(m)

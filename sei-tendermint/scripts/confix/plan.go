@@ -18,11 +18,6 @@ import (
 // Transformation steps are specific to the target config version.  For this
 // reason, you must exercise caution when backporting changes to this script
 // into older releases.
-const (
-	consensusSection = "consensus"
-	mempoolSection   = "mempool"
-)
-
 var plan = transform.Plan{
 	{
 		// Since https://github.com/tendermint/tendermint/pull/5777.
@@ -64,14 +59,14 @@ var plan = transform.Plan{
 		// Since https://github.com/tendermint/tendermint/pull/8217.
 		Desc: "Remove per-node consensus timeouts (converted to consensus parameters)",
 		T: transform.Remove(
-			parser.Key{consensusSection, "skip-timeout-commit"},
-			parser.Key{consensusSection, "timeout-commit"},
-			parser.Key{consensusSection, "timeout-precommit"},
-			parser.Key{consensusSection, "timeout-precommit-delta"},
-			parser.Key{consensusSection, "timeout-prevote"},
-			parser.Key{consensusSection, "timeout-prevote-delta"},
-			parser.Key{consensusSection, "timeout-propose"},
-			parser.Key{consensusSection, "timeout-propose-delta"},
+			parser.Key{"consensus", "skip-timeout-commit"},
+			parser.Key{"consensus", "timeout-commit"},
+			parser.Key{"consensus", "timeout-precommit"},
+			parser.Key{"consensus", "timeout-precommit-delta"},
+			parser.Key{"consensus", "timeout-prevote"},
+			parser.Key{"consensus", "timeout-prevote-delta"},
+			parser.Key{"consensus", "timeout-propose"},
+			parser.Key{"consensus", "timeout-propose-delta"},
 		),
 		ErrorOK: true,
 	},
@@ -80,8 +75,8 @@ var plan = transform.Plan{
 		// Removed version: https://github.com/tendermint/tendermint/pull/7171.
 		Desc: "Remove vestigial mempool.wal-dir settings",
 		T: transform.Remove(
-			parser.Key{mempoolSection, "wal-dir"},
-			parser.Key{mempoolSection, "version"},
+			parser.Key{"mempool", "wal-dir"},
+			parser.Key{"mempool", "version"},
 		),
 		ErrorOK: true,
 	},
@@ -230,7 +225,7 @@ var plan = transform.Plan{
 	{
 		// Since https://github.com/tendermint/tendermint/pull/8514.
 		Desc:    "Remove the recheck option from the [mempool] section",
-		T:       transform.Remove(parser.Key{mempoolSection, "recheck"}),
+		T:       transform.Remove(parser.Key{"mempool", "recheck"}),
 		ErrorOK: true,
 	},
 	{

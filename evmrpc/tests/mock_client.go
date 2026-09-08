@@ -24,10 +24,6 @@ import (
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 )
 
-const (
-	mockChainID = "test"
-)
-
 type MockClient struct {
 	rpcclient.Client
 	blocks           [][][]byte
@@ -243,7 +239,7 @@ func mockHash(height int64, prefix int64) tmbytes.HexBytes {
 
 func mockBlockHeader(height int64) *tmtypes.Header {
 	header := tmtypes.Header{
-		ChainID:            mockChainID,
+		ChainID:            "test",
 		Height:             height,
 		Time:               time.Unix(1696941649+height, 0),
 		DataHash:           mockHash(height, 1),
