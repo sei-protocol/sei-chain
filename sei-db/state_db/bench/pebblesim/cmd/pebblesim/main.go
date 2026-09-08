@@ -32,6 +32,9 @@ func run() error {
 	queueDepth := flag.Int("queue-depth", cfg.QueueDepth, "batches to buffer ahead of the writer")
 	presort := flag.Bool("presort", cfg.Presort, "sort each batch by key on the generator goroutine before it reaches the writer")
 	seed := flag.Int64("seed", cfg.Seed, "random seed")
+	readsPerSecond := flag.Float64("reads-per-second", cfg.ReadsPerSecond, "combined random-read rate across all read workers; 0 disables reads")
+	readWorkers := flag.Int("read-workers", cfg.ReadWorkers, "goroutines issuing random reads against the shared rate limiter")
+	readKeyPoolCapacity := flag.Int("read-key-pool-capacity", cfg.ReadKeyPoolCapacity, "number of known-written keys kept available for reads to sample from")
 	flag.Parse()
 
 	cfg.DataDir = *dataDir
@@ -42,6 +45,9 @@ func run() error {
 	cfg.QueueDepth = *queueDepth
 	cfg.Presort = *presort
 	cfg.Seed = *seed
+	cfg.ReadsPerSecond = *readsPerSecond
+	cfg.ReadWorkers = *readWorkers
+	cfg.ReadKeyPoolCapacity = *readKeyPoolCapacity
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -65,14 +71,15 @@ func run() error {
 	}()
 
 	sim.Generate(ctx)
+	sim.StartReaders(ctx)
 
 	metrics.StartMetricsServer(ctx, reg, *metricsAddr)
 	metrics.StartSystemMetrics(ctx, "pebblesim", 5, []metrics.MonitoredDir{
 		{Name: "data_dir", Path: cfg.DataDir, TrackAvailableSpace: true},
 	})
 
-	log.Printf("writing %d keys (60%% slots / 25%% balances / 15%% nonces) every %s to %s (metrics at http://localhost%s/metrics)",
-		cfg.BatchSize, cfg.BatchInterval, cfg.DataDir, *metricsAddr)
+	log.Printf("writing %d keys (60%% slots / 25%% balances / 15%% nonces) every %s to %s; reading %.0f/s across %d workers (metrics at http://localhost%s/metrics)",
+		cfg.BatchSize, cfg.BatchInterval, cfg.DataDir, cfg.ReadsPerSecond, cfg.ReadWorkers, *metricsAddr)
 
 	ticker := time.NewTicker(cfg.BatchInterval)
 	defer ticker.Stop()

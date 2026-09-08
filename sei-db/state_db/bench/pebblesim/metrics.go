@@ -3,6 +3,8 @@ package pebblesim
 import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 var meter = otel.Meter("pebblesim")
@@ -26,6 +28,13 @@ type simMetrics struct {
 	batchesWritten metric.Int64Counter
 	keysWritten    metric.Int64Counter
 	deadlineMisses metric.Int64Counter
+
+	// readDuration and readErrors cover the read path (see PebbleSim.doRead). The underlying
+	// pebbledb wrapper already emits pebble_get_latency on every Get, split by physical sub-DB —
+	// readDuration exists only to add the hit/miss and kind split that layer can't give, not to
+	// duplicate it.
+	readDuration metric.Float64Histogram
+	readErrors   metric.Int64Counter
 }
 
 func newSimMetrics() *simMetrics {
@@ -65,6 +74,16 @@ func newSimMetrics() *simMetrics {
 		"pebblesim_deadline_misses_total",
 		metric.WithDescription("Batches whose total time exceeded the configured block interval"),
 	)
+	readDuration, _ := meter.Float64Histogram(
+		"pebblesim_read_duration_seconds",
+		metric.WithDescription("Wall-clock time for a single random-read Get, labeled by kind and hit/miss"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(metrics.LatencyBuckets...),
+	)
+	readErrors, _ := meter.Int64Counter(
+		"pebblesim_read_errors_total",
+		metric.WithDescription("Random reads that returned an error (not counting not-found, which is a miss, not an error)"),
+	)
 	return &simMetrics{
 		batchDuration:  batchDuration,
 		writeDuration:  writeDuration,
@@ -73,5 +92,7 @@ func newSimMetrics() *simMetrics {
 		batchesWritten: batchesWritten,
 		keysWritten:    keysWritten,
 		deadlineMisses: deadlineMisses,
+		readDuration:   readDuration,
+		readErrors:     readErrors,
 	}
 }
