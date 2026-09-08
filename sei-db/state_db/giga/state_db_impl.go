@@ -22,12 +22,11 @@ var logger = seilog.NewLogger("db", "state-db", "giga")
 
 var _ gigatypes.StateDB = (*StateDB)(nil)
 
-// StateDB fans a committed block out to the state WAL and the two halves of state, and serves
-// current-block reads from the state commit store.
+// StateDB writes a committed block to the state WAL, the state commit store (SC) and the EVM state
+// store (SS), and serves current-block reads from SC.
 //
-// It owns all three stores: it opens them, converges them onto one height, and closes them. The WAL in
-// particular it owns outright — SC and SS each run without one, so this is the only writer, and the
-// replay that brings either of them onto a height reads through this WAL rather than theirs.
+// It opens all three stores, brings them onto one height, and closes them. SC and SS run without a WAL
+// of their own, so every block either of them replays is read from the WAL here.
 type StateDB struct {
 	// Where the state commit store and the state WAL live.
 	flatkvCfg *flatkvconfig.Config
@@ -41,20 +40,18 @@ type StateDB struct {
 	// The state commit store, which both receives writes and serves current-block reads.
 	sc *flatkv.CommitStore
 
-	// ss is nil when the EVM state store is disabled, which leaves it out of the fan-out and out of
-	// convergence.
+	// ss is nil when the EVM state store is disabled.
 	ss *evm.EVMStateStore
 
-	// The checkpoint schedule both halves of state take their snapshot boundaries from.
+	// The checkpoint schedule SC and SS take their snapshot boundaries from.
 	checkpointer *controller.CheckpointScheduler
 }
 
-// NewStateDB opens the state commit store, the state WAL and the EVM state store from their configs
-// and puts the two halves of state on one checkpoint schedule.
+// NewStateDB opens SC, SS and the state WAL from their configs and puts SC and SS on one checkpoint
+// schedule.
 //
-// It opens them where it finds them and converges them on the WAL: both halves are replayed up to its
-// head, which is the height state committed to, and the returned StateDB commits the block after it. A
-// caller that needs them on an earlier height names it to NewStateDBWithRollback instead.
+// Both stores are replayed up to the WAL's head, so the returned StateDB commits the block after it.
+// NewStateDBWithRollback opens them on an earlier height instead.
 //
 // The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
 // had already opened.
@@ -84,16 +81,12 @@ func NewStateDB(
 	return s, s.catchUpToWAL()
 }
 
-// NewStateDBWithRollback rolls the three stores back to target and then opens them, so the returned
-// StateDB is ready to commit target+1.
+// NewStateDBWithRollback rolls SC, SS and the state WAL back to target and then opens them, so the
+// returned StateDB commits target+1. It cuts the WAL's tail to target and points SC and SS at their
+// newest snapshot at or below it, all while the stores are closed, then opens them the ordinary way.
 //
-// The rollback is over before the open begins: it cuts the WAL's tail to target and points each half of
-// state at the newest snapshot at or below it, all of which needs those stores closed. What is left is
-// a set of stores a plain open converges on the WAL's head, and that head is now target — which is why
-// this ends in the ordinary constructor rather than an open of its own.
-//
-// target must be positive, and one the surviving snapshots and the WAL cannot span is refused before
-// anything moves.
+// target must be positive, and a target the surviving snapshots and the WAL cannot span is refused
+// before anything moves.
 func NewStateDBWithRollback(
 	ctx context.Context,
 	flatkvCfg *flatkvconfig.Config,
@@ -127,7 +120,7 @@ func (s *StateDB) closeOnFailure(retErr *error) {
 	}
 }
 
-// openWAL opens the state WAL this StateDB writes both halves of state through.
+// openWAL opens the state WAL this StateDB commits blocks to.
 func (s *StateDB) openWAL() error {
 	wal, err := flatkv.OpenStateWAL(s.flatkvCfg)
 	if err != nil {
@@ -137,12 +130,9 @@ func (s *StateDB) openWAL() error {
 	return nil
 }
 
-// openSC opens the state commit store with no WAL of its own, on the version its files hold: the
-// working copy, or the snapshot a rollback has just repointed it at.
-//
-// It replays nothing, so the store comes up at or below the WAL's head and catchUpTo is what carries it
-// the rest of the way. That keeps every block SC applies coming through the WAL this StateDB owns,
-// rather than through a WAL SC opens behind it.
+// openSC opens SC with no WAL of its own, on the version its files hold: the working copy, or the
+// snapshot a rollback has just repointed it at. It replays nothing, so it comes up at or below the
+// WAL's head and catchUpTo carries it forward from there.
 func (s *StateDB) openSC(ctx context.Context) error {
 	sc, err := flatkv.NewCommitStore(ctx, s.flatkvCfg, nil)
 	if err != nil {
