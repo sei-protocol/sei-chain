@@ -137,34 +137,51 @@ func TestManagerRetentionKeepsTheSharedFloor(t *testing.T) {
 	require.Equal(t, []int64{30}, versions)
 }
 
-func TestRemoveSnapshotsAboveDropsTheBranch(t *testing.T) {
+// A rewind drops the branch above the target and leaves current naming the newest snapshot that
+// survives, which is the one the store it belongs to then opens on.
+func TestRewindToDropsTheBranch(t *testing.T) {
 	root := t.TempDir()
 	for _, version := range []int64{10, 20, 30} {
 		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
 	}
-	manager := openManager(t, root, &controlledScheduler{pending: make(chan func(), 1)}, 10, false)
+	require.NoError(t, updateCurrentLink(root, SnapshotDirName(30)))
 
-	require.NoError(t, manager.RemoveSnapshotsAbove(20))
+	landed, err := RewindTo(root, 20)
 
-	versions, err := manager.Versions()
+	require.NoError(t, err)
+	require.Equal(t, int64(20), landed)
+	versions, err := ListSnapshotVersions(root)
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 20}, versions)
+	require.Equal(t, SnapshotDirName(20), readCurrentLink(t, root))
 }
 
-// Removal holds back whatever the shared floor names, so a floor above the version leaves a snapshot
-// standing on the branch a rollback discarded, where a later restore can still resolve through it.
-// Answering yes to a removal that did not happen is what puts it there, so the outcome is checked.
-func TestRemoveSnapshotsAboveReportsASurvivor(t *testing.T) {
+// A target below every snapshot leaves nothing to restore from. The whole tree goes and current with
+// it, so the store opens empty for a replay to rebuild, rather than resolving to a snapshot holding
+// state the rollback rejected.
+func TestRewindToBelowEverySnapshotClearsTheTree(t *testing.T) {
 	root := t.TempDir()
-	for _, version := range []int64{10, 20, 30} {
+	for _, version := range []int64{10, 20} {
 		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
 	}
-	scheduler := &controlledScheduler{pending: make(chan func(), 1)}
-	manager := openManagerWithFloor(t, root, scheduler, 10, false, NewFloor(30))
+	require.NoError(t, updateCurrentLink(root, SnapshotDirName(20)))
 
-	err := manager.RemoveSnapshotsAbove(20)
+	landed, err := RewindTo(root, 5)
 
-	require.ErrorContains(t, err, "still above 20")
+	require.NoError(t, err)
+	require.Zero(t, landed)
+	versions, err := ListSnapshotVersions(root)
+	require.NoError(t, err)
+	require.Empty(t, versions)
+	_, err = os.Readlink(filepath.Join(root, snapshotCurrentLink))
+	require.True(t, os.IsNotExist(err), "current must not outlive the tree it named")
+}
+
+func readCurrentLink(t *testing.T, root string) string {
+	t.Helper()
+	target, err := os.Readlink(filepath.Join(root, snapshotCurrentLink))
+	require.NoError(t, err)
+	return filepath.Base(target)
 }
 
 // A hardlink probe left by a crash is reclaimed rather than accumulating, in the source directory and in

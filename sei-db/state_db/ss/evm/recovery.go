@@ -33,59 +33,13 @@ func (s *EVMStateStore) ApplyReplayedBlock(block int64, changesets []*proto.Name
 	return s.SetLatestVersion(block)
 }
 
-// SnapshotAtOrBelow returns the newest snapshot version at or below version, which is where a rewind
-// to version lands. It reads only, so a caller can establish that a target is reachable before a
-// rewind moves anything.
-func (s *EVMStateStore) SnapshotAtOrBelow(version int64) (int64, error) {
-	return s.rollbackBaseVersion(version)
-}
-
-// RewindToSnapshotAtOrBelow rewinds this store to the newest snapshot at or below version and reports
-// the version it landed on, discarding snapshots above that point. It needs no WAL: it moves only
-// between snapshot boundaries, and replaying forward from the version it returns is the caller's to do.
-//
-// The store must have a snapshot at or below version, which is the one way this differs from the state
-// commit store's rewind: SS restores from its own snapshots and has no base to fall back on.
-func (s *EVMStateStore) RewindToSnapshotAtOrBelow(version int64) (int64, error) {
-	if version <= 0 {
-		return 0, fmt.Errorf("invalid rollback target %d", version)
-	}
-	base, err := s.rollbackBaseVersion(version)
+// SnapshotAtOrBelow returns the newest snapshot version under root at or below target, which is where
+// RewindClosedStoreTo lands a store, and 0 when root holds none. It reads only, so a caller can
+// establish that a target is reachable before a rewind moves anything.
+func SnapshotAtOrBelow(root string, target int64) (int64, error) {
+	versions, err := sssnapshot.ListSnapshotVersions(root)
 	if err != nil {
-		return 0, err
-	}
-
-	// A publish in flight reads and stamps the databases this is about to close and replace.
-	resume := s.quiesceCheckpoints()
-	defer resume()
-
-	if err := s.closeDBs(); err != nil {
-		return 0, fmt.Errorf("close EVM state store before rewinding to snapshot %d: %w", base, err)
-	}
-	// Before the restore, not after: it is what decides which way an interrupted rewind points. The
-	// databases still hold a version above the target until the restore lands, so a crash here leaves
-	// the next rewind to redo it. Restoring first would leave the databases at base and the discarded
-	// snapshots on disk, and a store already at the target is one the next rewind skips.
-	if err := s.snapshotMgr.RemoveSnapshotsAbove(version); err != nil {
-		return 0, fmt.Errorf("remove snapshots above %d: %w", version, err)
-	}
-	if err := s.restoreSnapshot(base); err != nil {
-		return 0, fmt.Errorf("restore snapshot %d: %w", base, err)
-	}
-	if err := s.openDBs(); err != nil {
-		return 0, fmt.Errorf("reopen EVM state store after rewinding to snapshot %d: %w", base, err)
-	}
-	s.rewindLastOffered(base)
-	return base, nil
-}
-
-func (s *EVMStateStore) rollbackBaseVersion(target int64) (int64, error) {
-	if s.snapshotMgr == nil {
-		return 0, fmt.Errorf("no snapshot at or below the target")
-	}
-	versions, err := s.snapshotMgr.Versions()
-	if err != nil {
-		return 0, fmt.Errorf("list snapshots: %w", err)
+		return 0, fmt.Errorf("list the EVM state store snapshots under %q: %w", root, err)
 	}
 	var base int64
 	for _, version := range versions {
@@ -93,33 +47,64 @@ func (s *EVMStateStore) rollbackBaseVersion(target int64) (int64, error) {
 			base = version
 		}
 	}
-	if base == 0 {
-		return 0, fmt.Errorf("no snapshot at or below the target")
-	}
 	return base, nil
 }
 
-// restoreSnapshot replaces this store's databases with the contents of the snapshot at version.
+// RewindClosedStoreTo puts the files of the closed store under dir on the newest snapshot at or below
+// target and reports that version, deleting the snapshots above it. The next open of that store lands
+// on the reported version, with the blocks from there to target left for the caller to replay.
+//
+// A store with no snapshot at or below target lands on 0: its databases are cleared, so it opens empty
+// and a replay from block 1 rebuilds it. Establishing that the WAL still reaches block 1 is the
+// caller's, since nothing here can tell an empty store from one whose history this discards.
+//
+// The databases under dir must be closed, which is what makes it safe to run before the store is
+// constructed. root is the store's snapshot directory, and separateDBs its layout.
+func RewindClosedStoreTo(dir, root string, separateDBs bool, target int64) (landed int64, err error) {
+	if target < 1 {
+		return 0, fmt.Errorf("rewind target %d is invalid: version 0 means no state, so there is nothing "+
+			"to rewind to", target)
+	}
+
+	// Before the restore, not after: it is what decides which way an interrupted rewind points. The
+	// databases still hold a version above the target until the restore lands, so a crash here leaves
+	// the next rewind to redo it. Restoring first would leave the databases at base with the discarded
+	// snapshots on disk, and nothing afterwards to say the branch they belong to was abandoned.
+	base, err := sssnapshot.RewindTo(root, target)
+	if err != nil {
+		return 0, fmt.Errorf("remove EVM state store snapshots above %d: %w", target, err)
+	}
+	if err := restoreSnapshot(dir, root, separateDBs, base); err != nil {
+		return 0, fmt.Errorf("restore EVM state store snapshot %d: %w", base, err)
+	}
+	logger.Info("EVM state store rewound a closed store to a snapshot", "version", base, "target", target)
+	return base, nil
+}
+
+// restoreSnapshot replaces the databases under dir with the contents of the snapshot at version, and
+// clears them when version is 0, which leaves an empty store for a replay to rebuild.
 //
 // A unified store is one directory, and the single window where an interruption leaves none is healed
 // on the next open. Separate-DB mode replaces each sub-DB in turn, and an interruption partway leaves
 // them on different branches with no recovery: the head reads as the lowest of them, so the store looks
 // merely behind, and replaying forward cannot delete the rows an untouched sub-DB holds above it. That
 // mode is off by default.
-func (s *EVMStateStore) restoreSnapshot(version int64) error {
-	src := filepath.Join(s.snapshotMgr.Root(), sssnapshot.SnapshotDirName(version))
-	if s.separateDBs {
-		for _, storeType := range AllEVMStoreTypes() {
-			if err := replacePebbleDir(subDBPath(src, storeType), subDBPath(s.dir, storeType)); err != nil {
-				return err
-			}
-		}
-		return nil
+func restoreSnapshot(dir, root string, separateDBs bool, version int64) error {
+	src := filepath.Join(root, sssnapshot.SnapshotDirName(version))
+	if !separateDBs {
+		return replacePebbleDir(src, dir, version == 0)
 	}
-	return replacePebbleDir(src, s.dir)
+	for _, storeType := range AllEVMStoreTypes() {
+		if err := replacePebbleDir(subDBPath(src, storeType), subDBPath(dir, storeType), version == 0); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func replacePebbleDir(src, dst string) error {
+// replacePebbleDir swaps the contents of src into dst through a staged copy. An empty src leaves dst
+// empty, for the caller that has no snapshot to restore from and rebuilds by replay instead.
+func replacePebbleDir(src, dst string, empty bool) error {
 	tmp := dst + restoreTmpSuffix
 	bak := dst + restoreBakSuffix
 	if err := os.RemoveAll(tmp); err != nil {
@@ -128,7 +113,11 @@ func replacePebbleDir(src, dst string) error {
 	if err := os.RemoveAll(bak); err != nil {
 		return err
 	}
-	if err := utils.ClonePebbleDir(src, tmp); err != nil {
+	if empty {
+		if err := os.MkdirAll(tmp, 0750); err != nil {
+			return err
+		}
+	} else if err := utils.ClonePebbleDir(src, tmp); err != nil {
 		return err
 	}
 	if err := os.Rename(dst, bak); err != nil && !os.IsNotExist(err) {

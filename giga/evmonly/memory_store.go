@@ -365,13 +365,6 @@ func (s *MemoryStore) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 	return &memoryStoreSnapshot{store: s, height: blockNum}, true
 }
 
-// RollbackTo reports that this store cannot rewind. Its committed overlays are what keep open and
-// historical views stable, and discarding them is outside what a test and load-generation store stands
-// in for.
-func (s *MemoryStore) RollbackTo(blockNum int64) error {
-	return fmt.Errorf("evmonly: MemoryStore cannot roll back to block %d", blockNum)
-}
-
 // Close releases nothing. This store holds no handle outside its own maps, which go with it.
 func (s *MemoryStore) Close() error { return nil }
 

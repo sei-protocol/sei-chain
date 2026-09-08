@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -92,18 +93,24 @@ func snapshotSSAt(t *testing.T, manager *GigaStorageManager, height byte) {
 		10*time.Second, 10*time.Millisecond, "the snapshot a rollback restores from must be published")
 }
 
-// reconverge re-runs what a restart does: it closes every store recovery touches, opens a StateDB
-// again, recovers every store onto target, and reopens the receipt store on the far side.
+// reconverge re-runs what a restart does: it closes every store recovery touches, recovers them onto
+// target — which is what opens the state DB again — and reopens the receipt store on the far side.
 func reconverge(t *testing.T, manager *GigaStorageManager, target int64) {
 	t.Helper()
+	require.NoError(t, reconvergeErr(t, manager, target))
+	require.NoError(t, manager.openReceiptStore())
+}
+
+// reconvergeErr is reconverge up to the point recovery can fail, for a test that expects it to. The
+// receipt store is left closed, since a failed recovery leaves the manager with no state DB.
+func reconvergeErr(t *testing.T, manager *GigaStorageManager, target int64) error {
+	t.Helper()
 	// Closing first is what a restart does, and it is also required: recovery takes file locks the
-	// open stores hold — the StateDB's for the state it opens, the receipt store's for the rollback
-	// that runs against its files.
+	// open stores hold — the state WAL's directory lock for the reads and the tail cut that precede
+	// opening it, the receipt store's for the rollback that runs against its files.
 	closeStateDB(t, manager)
 	closeReceiptDB(t, manager)
-	require.NoError(t, manager.openStateDB(t.Context()))
-	require.NoError(t, manager.recoverStores(target))
-	require.NoError(t, manager.openReceiptStore())
+	return manager.recoverStores(t.Context(), target)
 }
 
 // closeStateDB closes the two halves of state and their WAL and drops them from the manager, leaving it
@@ -177,11 +184,9 @@ func TestRecoverStoresAtAZeroTargetLeavesReceiptsAlone(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
 	writeReceipts(t, manager, 5)
-	closeReceiptDB(t, manager)
 
-	require.NoError(t, manager.recoverStores(0))
+	reconverge(t, manager, 0)
 
-	require.NoError(t, manager.openReceiptStore())
 	require.Equal(t, int64(5), manager.ReceiptDB().LatestVersion(),
 		"a zero target must leave the receipt store where it was found")
 }
@@ -211,6 +216,36 @@ func TestRecoverStateDropsWALBlocksAboveTheTarget(t *testing.T) {
 
 	requireWALTail(t, manager, 3)
 	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+}
+
+// A plain open replays SC up to the WAL's head. SC comes up on the version its own files hold, which a
+// commit whose WAL write outlived the crash that stopped its state write leaves one block back, and
+// committing from behind the WAL is rejected outright: that block is already written.
+func TestOpenReplaysSCUpToTheWALHead(t *testing.T) {
+	manager, _ := openManager(t, nil)
+	commitBlocks(t, manager, 2)
+	writeWALOnly(t, manager.StateWAL(), 3, evmBlock(3, 3))
+	closeStateDB(t, manager)
+
+	require.NoError(t, manager.openStateDB(t.Context()))
+
+	require.Equal(t, int64(3), manager.SC().Version())
+	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+}
+
+// A plain open discards a working copy holding blocks the WAL no longer has and rebuilds it from the
+// snapshot, then replays back up. Those blocks were never servable, so the WAL's head is the height the
+// store comes up on, and the state above it goes.
+func TestOpenRebuildsSCAboveTheWALHead(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 3)
+	closeStateDB(t, manager)
+	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 2))
+
+	require.NoError(t, manager.openStateDB(t.Context()))
+
+	require.Equal(t, int64(2), manager.SC().Version())
+	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
 }
 
 func TestRecoverSCReplaysAMissedWALBlock(t *testing.T) {
@@ -296,19 +331,18 @@ func TestRecoverSSRemovesSnapshotsAboveTheTarget(t *testing.T) {
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
 }
 
-// RollbackTo on a live StateDB rewinds both halves of state and the WAL that feeds them, so the write
-// head lands on the target. Committing the block after the target is what proves the WAL was truncated
-// rather than only the stores rewound: a WAL still holding that block refuses to write it a second time.
-//
-// Nothing here reads the manager's WAL reference, because the truncation replaced the handle it holds.
-func TestStateDBRollbackToRewindsBothHalvesAndTheWAL(t *testing.T) {
+// Opening at a target rewinds both halves of state and the WAL that feeds them, so the write head lands
+// on the target. Committing the block after the target is what proves the WAL was truncated rather than
+// only the stores rewound: a WAL still holding that block refuses to write it a second time.
+func TestOpenAtATargetRewindsBothHalvesAndTheWAL(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 5)
 
-	require.NoError(t, manager.StateDB().RollbackTo(2))
+	reconverge(t, manager, 2)
 
 	require.Equal(t, int64(2), manager.SC().Version())
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
+	requireWALTail(t, manager, 2)
 
 	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
 	require.Equal(t, int64(3), manager.SC().Version())
@@ -318,52 +352,49 @@ func TestStateDBRollbackToRewindsBothHalvesAndTheWAL(t *testing.T) {
 // moves anything. Every step of a rollback is irreversible while the replay that needs the blocks runs
 // last, so a shortfall found there would have already cut the WAL and dropped the snapshots that a
 // second attempt at a reachable height would need.
-func TestStateDBRollbackToAboveTheWALHeadFails(t *testing.T) {
+func TestOpenAtATargetAboveTheWALHeadFails(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
 
-	require.ErrorContains(t, manager.StateDB().RollbackTo(5), "needs blocks 4-5, but the state WAL only holds 1-3")
+	require.ErrorContains(t, reconvergeErr(t, manager, 5), "the state WAL ends at 3")
 
+	// A failed open leaves nothing behind to read the result through, so the check is what a plain
+	// open finds: the stores as they were.
+	require.NoError(t, manager.openStateDB(t.Context()))
 	require.Equal(t, int64(3), manager.SC().Version(), "a refused rollback must not have moved anything")
 	requireWALTail(t, manager, 3)
 }
 
-// A rollback establishes that both halves can reach the target before it moves either of them, because
-// every step it takes is irreversible and the replays that need the WAL run last.
-//
-// SS is the half that can fail outright here: it restores from its own snapshots and has no base to fall
-// back on, so one sitting above the target with no snapshot at or below it cannot be rewound at all.
-// Discovering that after SC had been rewound, its snapshots above the target deleted and the WAL cut back
-// would leave a node that will not start and no longer holds the blocks a second attempt would need.
-func TestStateDBRollbackToRefusesAnUnreachableTargetBeforeMovingAnything(t *testing.T) {
+// A half with no snapshot at or below the target is rewound to empty and rebuilt from block 1, rather
+// than refused. The WAL is the history both halves are derived from, so a WAL that still reaches back
+// that far can supply the whole of it, and the rollback lands SS on the target holding real state.
+func TestOpenAtATargetRebuildsSSFromTheWAL(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
 	applySSThrough(t, manager, 3)
 
-	require.ErrorContains(t, manager.StateDB().RollbackTo(2), "no snapshot at or below the target")
+	reconverge(t, manager, 2)
 
-	require.Equal(t, int64(3), manager.SC().Version(), "SC must not have been rewound")
-	require.Equal(t, int64(3), manager.SS().GetLatestVersion(), "SS must not have been rewound")
-	requireWALTail(t, manager, 3)
-	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)),
-		"a refused rollback must leave the state DB writable")
+	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
+	require.Equal(t, int64(2), manager.SC().Version())
 }
 
-// A target of 0 has to be refused by RollbackTo itself, because neither rewind it delegates to is
-// reached: each skips a store already at or below the target, and every store is at or below 0.
+// A target of 0 has to be refused by the constructor that takes one, and refused there rather than by a
+// rewind deep inside it.
 //
-// The fixture is the state NewStateDB leaves — SC opened on snapshot 0, replaying nothing, with the WAL
-// holding blocks — so every step between the two rewinds runs. Ungated, the WAL prune empties the WAL,
-// the snapshot removal takes every snapshot, and the landing check passes because both halves really
-// are on 0. The only thing standing between that and a wipe is recoverStores' own target check, and
-// RollbackTo is exported on the StateDB contract.
-func TestStateDBRollbackToZeroIsRefused(t *testing.T) {
+// This fixture's WAL holds a block, so ungated the rollback would reach rewindSC and fail on that
+// function's own refusal to rewind to 0. On an empty WAL nothing would refuse it at all: rewindTo reads
+// a head of 0 as nothing to rewind, and the caller would get a plain open. Recovery routes a target of 0
+// to the plain open and never reaches this, so the guard is what covers a caller naming 0 outright.
+func TestOpenAtAZeroTargetIsRefused(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	writeWALOnly(t, manager.StateWAL(), 1, evmBlock(1, 1))
 	require.Zero(t, manager.SC().Version(), "fixture precondition: SC must read as 0 under a populated WAL")
+	closeStateDB(t, manager)
 
-	require.ErrorContains(t, manager.StateDB().RollbackTo(0), "nothing to roll back to")
+	require.ErrorContains(t, manager.openStateDBAt(t.Context(), 0), "nothing to roll back to")
 
+	require.NoError(t, manager.openStateDB(t.Context()))
 	requireWALTail(t, manager, 1)
 }
 

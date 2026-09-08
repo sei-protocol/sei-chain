@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -64,13 +65,14 @@ func (w *fakeStateWAL) SignalEndOfBlock() error {
 func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.CommitStore) {
 	t.Helper()
 
-	liveStateDB, err := flatkv.NewCommitStore(t.Context(), flatkvconfig.DefaultTestConfig(t), nil)
+	cfg := flatkvconfig.DefaultTestConfig(t)
+	liveStateDB, err := flatkv.NewCommitStore(t.Context(), cfg, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, liveStateDB.Close()) })
 	require.NoError(t, liveStateDB.LoadLatest())
 
 	wal := &fakeStateWAL{}
-	return &StateDB{wal: wal, sc: liveStateDB}, wal, liveStateDB
+	return &StateDB{wal: wal, sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
 }
 
 // gapWAL reports a stored range beginning above the block a replay has to start from, which is what a
@@ -95,7 +97,7 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 		_, _, sc := newTestStateDB(t)
 		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc}
 
-		require.ErrorContains(t, s.catchUpSC(4), missingBlocks)
+		require.ErrorContains(t, s.catchUpTo(4), missingBlocks)
 	})
 
 	t.Run("the EVM state store", func(t *testing.T) {
@@ -104,14 +106,36 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 
 		// The store holds nothing, so the gap is its whole history rather than a hole in it. Refusing
 		// here would report data loss for a store that is merely new, and would do it on every node
-		// past its first retention cut, so it is left empty to fill forward from the target.
-		require.NoError(t, s.catchUpSS(4))
+		// past its first retention cut, so it is left out of the pass to fill forward from the target.
+		_, replays, err := s.ssReplayStart(4)
+
+		require.NoError(t, err)
+		require.False(t, replays)
 		require.Zero(t, s.ss.GetLatestVersion())
 	})
 }
 
+// A rollback establishes that its replay can bridge the gap its rewinds open before either of them
+// moves anything, since every step of one is irreversible and the replay runs last.
+//
+// A half with no snapshot at or below the target is rewound to empty and rebuilt from block 1, so it
+// asks the WAL for its oldest blocks. A WAL that has had a retention cut no longer holds them, and
+// finding that out after the WAL had been cut back would leave a node that will not start and no longer
+// holds the blocks a second attempt would need.
+func TestRequireReachableRefusesAWALThatCannotRebuildAHalf(t *testing.T) {
+	db, _, _ := newTestStateDB(t)
+	s := db.(*StateDB)
+	// A directory holding no snapshots is a half with nothing to restore from, which is the half that
+	// has to be rebuilt from the first block.
+	s.ssCfg = config.StateStoreConfig{Enable: true, EVMDBDirectory: t.TempDir()}
+
+	err := s.requireReachable(5, storedWALRange{first: 3, last: 5})
+
+	require.ErrorContains(t, err, "needs blocks 1-5, but the state WAL only holds 3-5")
+}
+
 // A half left to fill forward is not held to the target afterwards. Holding it there would fail the
-// rollback over exactly the state catchUpSS had just decided was the right outcome.
+// rollback over exactly the state the catch-up had just decided was the right outcome.
 func TestMatchHeightExcusesAStoreLeftToFillForward(t *testing.T) {
 	_, _, sc := newTestStateDB(t)
 	for block := int64(1); block <= 4; block++ {
