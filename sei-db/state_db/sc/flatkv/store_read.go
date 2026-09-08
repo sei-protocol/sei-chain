@@ -55,7 +55,7 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 		}
 		return value, value != nil
 
-	case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
+	case keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get account key %x: %v", key, err))
@@ -63,19 +63,7 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 		if accountData == nil || accountData.IsDelete() {
 			return nil, false
 		}
-
-		if kind == keys.EVMKeyNonce {
-			nonceBytes := make([]byte, vtype.NonceLen)
-			binary.BigEndian.PutUint64(nonceBytes, accountData.GetNonce())
-			return nonceBytes, true
-		}
-		// CodeHash
-		codeHash := accountData.GetCodeHash()
-		var zeroCodeHash vtype.CodeHash
-		if *codeHash == zeroCodeHash {
-			return nil, false
-		}
-		return codeHash[:], true
+		return accountFieldValue(kind, accountData)
 
 	case keys.EVMKeyCode:
 		value, err := s.getCodeValue(keyBytes)
@@ -122,7 +110,7 @@ func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int
 		}
 		return sd.GetBlockHeight(), true, nil
 
-	case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
+	case keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
 			return -1, false, err
@@ -174,6 +162,39 @@ func parseRow[T vtype.VType](raw []byte, found bool, parse func([]byte) (T, erro
 		return zero, nil
 	}
 	return parse(raw)
+}
+
+// accountFieldValue projects the field that kind names out of an account row, encoded the way the
+// logical EVM key for that field carries it: eight big-endian bytes for a nonce, thirty-two for a code
+// hash or a balance. The second return reports whether that field is set.
+//
+// A zero code hash and a zero balance both report false. A deletion is stored by zeroing the field
+// rather than by removing anything (see mergeAccountUpdates), so answering "present" for a zero would
+// hand back a key the block deleted. The nonce is the exception: it answers for every row that exists.
+func accountFieldValue(kind keys.EVMKeyKind, account *vtype.AccountData) ([]byte, bool) {
+	switch kind {
+	case keys.EVMKeyNonce:
+		nonceBytes := make([]byte, vtype.NonceLen)
+		binary.BigEndian.PutUint64(nonceBytes, account.GetNonce())
+		return nonceBytes, true
+
+	case keys.EVMKeyCodeHash:
+		codeHash := account.GetCodeHash()
+		if *codeHash == (vtype.CodeHash{}) {
+			return nil, false
+		}
+		return codeHash[:], true
+
+	case keys.EVMKeyBalance:
+		balance := account.GetBalance()
+		if *balance == (vtype.Balance{}) {
+			return nil, false
+		}
+		return balance[:], true
+
+	default:
+		panic(fmt.Sprintf("flatkv: %v does not name an account field", kind))
+	}
 }
 
 func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error) {

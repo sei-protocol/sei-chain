@@ -109,7 +109,7 @@ func classifyFlatKVPhysicalKey(key []byte) string {
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
-	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		return flatkvBucketAccount
 	case keys.EVMKeyCode:
 		return flatkvBucketCode
