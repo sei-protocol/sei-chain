@@ -60,6 +60,8 @@ installed.
 ```
 docker/monitornode/scripts/start-prometheus.sh
 docker/monitornode/scripts/start-grafana.sh
+docker/monitornode/scripts/start-node-exporter.sh
+
 ```
 
 Then, navigate to http://localhost:3000/ in a web browser to reach the grafana UI. Username and password are "admin".
@@ -73,6 +75,7 @@ You can stop these services by killing their containers, or by running the follo
 ```
 docker/monitornode/scripts/stop-prometheus.sh
 docker/monitornode/scripts/stop-grafana.sh
+docker/monitornode/scripts/stop-node-exporter.sh
 ```
 
 # Running in AWS

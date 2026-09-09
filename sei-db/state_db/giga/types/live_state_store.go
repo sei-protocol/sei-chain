@@ -155,14 +155,6 @@ type LiveStateStore interface {
 	// anything is modified.
 	Rollback(targetVersion int64) error
 
-	// RewindToSnapshotAtOrBelow rewinds this store to the highest snapshot at or below version and
-	// reports the version it landed on, discarding committed state and snapshots above that point.
-	//
-	// It is Rollback for a store constructed without a WAL: it moves only between snapshot boundaries,
-	// so it needs none, and replaying forward from the version it returns is the caller's to do. The
-	// store must be quiesced and stays open for writing at the returned version.
-	RewindToSnapshotAtOrBelow(version int64) (int64, error)
-
 	// Exporter creates an exporter for the given version (0 = current).
 	Exporter(version int64) (sctypes.Exporter, error)
 
