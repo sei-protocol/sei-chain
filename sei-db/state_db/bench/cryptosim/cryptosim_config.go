@@ -105,6 +105,9 @@ type CryptoSimConfig struct {
 	// Configures the cadence the state DB checkpoints both halves of state on.
 	CheckpointConfig config.CheckpointConfig
 
+	// Configures the prune cycle that enforces retention across the state DB's stores.
+	PruningConfig *config.StorageGarbageCollectorConfig
+
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
 	Comment string
@@ -237,6 +240,11 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
 	// That file should contain every available config set to its default value, as a reference.
 
+	ssConfig := config.DefaultStateStoreConfig()
+	// Nothing in the benchmark reads the historical state DB, so a run pays to write it only when
+	// the config asks for it.
+	ssConfig.Enable = false
+
 	cfg := &CryptoSimConfig{
 		NumberOfHotAccounts:               100,
 		MinimumNumberOfColdAccounts:       1_000_000,
@@ -256,8 +264,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		HashLagBlocks:                     32,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
-		StateStoreConfig:                  config.DefaultStateStoreConfig(),
+		StateStoreConfig:                  ssConfig,
 		CheckpointConfig:                  config.DefaultCheckpointConfig(),
+		PruningConfig:                     config.DefaultStorageGarbageCollectorConfig(),
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
@@ -411,6 +420,9 @@ func (c *CryptoSimConfig) Validate() error {
 	default:
 		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
 			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
+	}
+	if err := c.PruningConfig.Validate(); err != nil {
+		return fmt.Errorf("PruningConfig is invalid: %w", err)
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

@@ -49,7 +49,7 @@ func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
 	cfg.DisableTransactionReads = true
 
 	stateDB := &readTrackingStateDB{view: &readTrackingView{}}
-	db, err := NewDatabase(cfg, stateDB, nil)
+	db, err := NewDatabase(cfg, stateDB, nil, nil)
 	require.NoError(t, err)
 
 	txn := &transaction{

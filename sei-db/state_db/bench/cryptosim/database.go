@@ -2,9 +2,11 @@ package cryptosim
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -16,6 +18,9 @@ type Database struct {
 
 	// The database implementation to use for the benchmark.
 	db gigatypes.StateDB
+
+	// Enforces retention across the stores the database opened.
+	garbageCollector *controller.StorageGarbageCollector
 
 	// A read-only view of the most recently committed block, which every read that misses the
 	// current batch is served from. Replaced after each commit.
@@ -48,18 +53,20 @@ type Database struct {
 func NewDatabase(
 	config *CryptoSimConfig,
 	db gigatypes.StateDB,
+	garbageCollector *controller.StorageGarbageCollector,
 	metrics *CryptosimMetrics,
 ) (*Database, error) {
 	// The view is both what reads are served from and where the starting height comes from: the
 	// store accepts only the block after the one it opened at.
 	view := db.OpenView()
 	database := &Database{
-		config:          config,
-		db:              db,
-		view:            view,
-		batch:           NewSyncMap[string, []byte](),
-		metrics:         metrics,
-		nextBlockNumber: view.GetBlockHeight() + 1,
+		config:           config,
+		db:               db,
+		garbageCollector: garbageCollector,
+		view:             view,
+		batch:            NewSyncMap[string, []byte](),
+		metrics:          metrics,
+		nextBlockNumber:  view.GetBlockHeight() + 1,
 	}
 
 	// Registered here because this is before the first block is committed, and that is the only place
@@ -234,14 +241,22 @@ func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 func (d *Database) CloseWithoutFinalizing() error {
 	fmt.Printf("Closing database.\n")
 
+	var errs error
+
+	// The collector prunes the stores closed below, so it stops before them. A failure to stop it
+	// does not skip those closes: every failure here is collected and reported together.
+	if err := d.garbageCollector.Close(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("failed to close the storage garbage collector: %w", err))
+	}
+
 	// The view holds a reference into the store, which cannot release it while the view is open.
 	d.view.Close()
 
 	if err := d.db.Close(); err != nil {
-		return fmt.Errorf("failed to close database: %w", err)
+		errs = errors.Join(errs, fmt.Errorf("failed to close database: %w", err))
 	}
 
-	return nil
+	return errs
 }
 
 // Set the function that flushes the executors. This setter is required to break a circular dependency.

@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 )
 
@@ -139,6 +140,11 @@ func NewCryptoSim(
 	config.StateStoreConfig.EVMDBDirectory = filepath.Join(
 		config.DataDir, "state_store", "evm", config.StateStoreConfig.Backend)
 
+	// Every store the state DB opens is pruned by the collector started below, so each one stands its
+	// own pruner down. This is the same handover bootstrap.GigaStorageManager performs for a node.
+	config.FlatKVConfig.ExternalPruning = true
+	config.StateStoreConfig.ExternalPruning = true
+
 	// giga.NewStateDB is the node's own entry point, and the only one that leaves the state WAL
 	// outside the live state DB: it opens the WAL itself and writes each block to it ahead of the
 	// commit. A live state DB opened directly would own its WAL and write it inline instead.
@@ -146,6 +152,18 @@ func NewCryptoSim(
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to open the state DB: %w", err)
+	}
+
+	// Nothing the state DB opens prunes itself on this path: the state WAL, and the historical state
+	// DB when it is enabled, shrink only when a collector tells them to.
+	garbageCollector, err := controller.NewStorageGarbageCollector(
+		ctx, config.PruningConfig, db.PrunableStores())
+	if err != nil {
+		cancel()
+		if closeErr := db.Close(); closeErr != nil {
+			fmt.Printf("failed to close the state DB during error recovery: %v\n", closeErr)
+		}
+		return nil, fmt.Errorf("failed to start the storage garbage collector: %w", err)
 	}
 
 	metrics := NewCryptosimMetrics(ctx, db.SC().GetPhaseTimer(), config)
@@ -159,9 +177,12 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	database, err := NewDatabase(config, db, metrics)
+	database, err := NewDatabase(config, db, garbageCollector, metrics)
 	if err != nil {
 		cancel()
+		if closeErr := garbageCollector.Close(); closeErr != nil {
+			fmt.Printf("failed to close the garbage collector during error recovery: %v\n", closeErr)
+		}
 		if closeErr := db.Close(); closeErr != nil {
 			fmt.Printf("failed to close database during error recovery: %v\n", closeErr)
 		}
