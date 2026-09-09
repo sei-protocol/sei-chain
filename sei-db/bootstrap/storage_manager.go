@@ -31,7 +31,7 @@ type GigaStorageManager struct {
 	receiptDB receipt.ReceiptStore
 
 	// stateDB owns the state commit store, the EVM state store and the state WAL they share, along
-	// with the checkpoint schedule the two halves run on.
+	// with the checkpoint schedule those stores run on.
 	stateDB *giga.StateDB
 
 	// gc is nil until startGarbageCollector succeeds.
@@ -96,8 +96,8 @@ func (m *GigaStorageManager) BlockStore() *blockstore.Store { return m.blockStor
 // ReceiptDB returns the receipt store, or nil when receipts are disabled.
 func (m *GigaStorageManager) ReceiptDB() receipt.ReceiptStore { return m.receiptDB }
 
-// StateDB returns the Giga state DB over the WAL and the two halves of state, or nil when the open did
-// not reach it.
+// StateDB returns the Giga state DB over the state WAL, the state commit store and the EVM state
+// store, or nil when the open did not reach it.
 func (m *GigaStorageManager) StateDB() *giga.StateDB { return m.stateDB }
 
 // StateWAL returns the state WAL that StateDB writes, or nil before the StateDB is open.
@@ -149,8 +149,8 @@ func (m *GigaStorageManager) Close() error {
 	return errors.Join(errs, m.closeState())
 }
 
-// closeState closes the two halves of state and the WAL they share, which the StateDB owns. It is nil
-// when the open failed before reaching it, and closes its own partial state when it failed partway.
+// closeState closes the stores the StateDB owns. The StateDB is nil when the open failed before
+// reaching it, and closes whatever it had opened when it failed partway.
 func (m *GigaStorageManager) closeState() error {
 	if m.stateDB == nil {
 		return nil

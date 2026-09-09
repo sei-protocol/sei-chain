@@ -680,16 +680,19 @@ func TestRollbackRejectsVersionZero(t *testing.T) {
 	requireRollbackRejected(t, rollbackFixture(t), 0, "nothing to roll back to")
 }
 
-// TestRewindToSnapshotAtOrBelowRejectsVersionZero verifies the snapshot-only rewind refuses version 0 as
+// TestRewindClosedStoreToRejectsVersionZero verifies the closed-store rewind refuses version 0 as
 // Rollback does. A store keeps a snapshot at 0, so 0 is a version this would otherwise land on and then
 // delete every snapshot above — which is all of them.
-func TestRewindToSnapshotAtOrBelowRejectsVersionZero(t *testing.T) {
+func TestRewindClosedStoreToRejectsVersionZero(t *testing.T) {
 	s := rollbackFixture(t)
+	before := snapshotVersionsOnDisk(t, s)
+	require.NoError(t, s.Close())
 
-	_, err := s.RewindToSnapshotAtOrBelow(0)
+	_, err := RewindClosedStoreTo(s.flatkvDir(), 0)
 
 	require.ErrorContains(t, err, "nothing to rewind to")
-	require.Equal(t, int64(5), s.Version(), "a refused rewind must leave the store where it was")
+	require.Equal(t, before, snapshotVersionsOnDisk(t, s),
+		"a refused rewind must leave the snapshots where they were")
 }
 
 // rollbackFixtureMidChainWALStart returns a store seeded to begin at block 10, so its snapshot sits at 9 and
@@ -1198,8 +1201,8 @@ func interruptedRewindFixture(t *testing.T) *CommitStore {
 	}
 	require.Equal(t, []int64{3, 6}, snapshotVersionsOnDisk(t, s))
 
-	// The first half of RewindToSnapshotAtOrBelow(5), then the reopen a restart performs. What the
-	// removal that would have followed never got to do is the point of the tests below.
+	// The first half of a rewind to 5, then the reopen a restart performs. What the removal that would
+	// have followed never got to do is the point of the tests below.
 	require.NoError(t, s.repointAtSnapshot(s.flatkvDir(), 3))
 	require.NoError(t, s.open())
 	require.Equal(t, int64(3), s.Version(), "fixture precondition: the store reads as the base snapshot")
@@ -1208,34 +1211,79 @@ func interruptedRewindFixture(t *testing.T) *CommitStore {
 	return s
 }
 
-// TestRemoveSnapshotsAboveFinishesAnInterruptedRewind covers the repair an unconditional removal buys.
+// TestRewindClosedStoreToFinishesAnInterruptedRewind covers the repair rewinding unconditionally buys.
 //
-// A store left mid-rewind reads as the base snapshot, which is at or below the target, so the rewind is
-// skipped when it is retried and never removes the branch it abandoned. A later rollback would then seek
-// a snapshot at or below its own target, land on one from that abandoned branch, and replay over it.
-func TestRemoveSnapshotsAboveFinishesAnInterruptedRewind(t *testing.T) {
+// A store left mid-rewind reads as the base snapshot, which is at or below the target, so a rewind that
+// asked the store where it was would skip and never remove the branch it abandoned. A later rollback
+// would then seek a snapshot at or below its own target, land on one from that abandoned branch, and
+// replay over it.
+func TestRewindClosedStoreToFinishesAnInterruptedRewind(t *testing.T) {
 	s := interruptedRewindFixture(t)
+	require.NoError(t, s.Close())
 
-	require.NoError(t, s.RemoveSnapshotsAbove(5))
+	landed, err := RewindClosedStoreTo(s.flatkvDir(), 5)
+
+	require.NoError(t, err)
+	require.Equal(t, int64(3), landed)
+	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
+		"the discarded branch must not survive the rollback that abandoned it")
+}
+
+// DropSnapshotsAbove is the cleanup half of a rewind, and runs whether or not the store sits above the
+// target: an interrupted rewind leaves a store that does not, reading as the base it was repointed at
+// with the abandoned branch still on disk for a later rollback to land on.
+func TestDropSnapshotsAboveFinishesAnInterruptedRewind(t *testing.T) {
+	s := interruptedRewindFixture(t)
+	dir := s.flatkvDir()
+	require.NoError(t, s.Close())
+
+	require.NoError(t, DropSnapshotsAbove(dir, 5))
 
 	require.Equal(t, []int64{3}, snapshotVersionsOnDisk(t, s),
 		"the discarded branch must not survive the rollback that abandoned it")
-	require.Equal(t, int64(3), s.Version(), "removing snapshots must not move the store")
+	require.FileExists(t, filepath.Join(dir, workingDirName, snapshotBaseFile),
+		"a store at or below the target keeps the working copy it would open on")
 }
 
-// TestRemoveSnapshotsAboveRefusesToDangleCurrent verifies the removal refuses to delete the snapshot the
-// current link names. Deleting it leaves the link dangling, which createWorkingDir resolves to an empty
-// working directory rather than to a failure, so the store would come up holding no state at all.
-func TestRemoveSnapshotsAboveRefusesToDangleCurrent(t *testing.T) {
+// A store above the target comes off it, since the current link cannot be left naming a snapshot the
+// cleanup removes.
+func TestDropSnapshotsAboveRepointsAStoreAboveTheTarget(t *testing.T) {
 	s := rollbackFixture(t)
-	_, current, err := currentSnapshotDir(s.flatkvDir())
+	dir := s.flatkvDir()
+	_, current, err := currentSnapshotDir(dir)
 	require.NoError(t, err)
 	require.Positive(t, current, "fixture precondition: current must name a snapshot above the target below")
+	require.NoError(t, s.Close())
 
-	require.ErrorContains(t, s.RemoveSnapshotsAbove(current-1), "would leave the current link dangling")
+	require.NoError(t, DropSnapshotsAbove(dir, current-1))
 
-	require.Contains(t, snapshotVersionsOnDisk(t, s), current,
-		"a refused removal must leave the snapshot in place")
+	_, after, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Less(t, after, current)
+	require.NotContains(t, snapshotVersionsOnDisk(t, s), current)
+}
+
+// TestRewindClosedStoreToMovesCurrentOffTheDiscardedBranch verifies the rewind repoints current before it
+// deletes anything. Deleting the snapshot current names leaves the link dangling, which createWorkingDir
+// resolves to an empty working directory rather than to a failure, so the store would come up holding no
+// state at all.
+func TestRewindClosedStoreToMovesCurrentOffTheDiscardedBranch(t *testing.T) {
+	s := rollbackFixture(t)
+	dir := s.flatkvDir()
+	_, current, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Positive(t, current, "fixture precondition: current must name a snapshot above the target below")
+	require.NoError(t, s.Close())
+
+	landed, err := RewindClosedStoreTo(dir, current-1)
+
+	require.NoError(t, err)
+	require.Less(t, landed, current)
+	_, after, err := currentSnapshotDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, landed, after, "current must name the snapshot the rewind landed on")
+	require.NotContains(t, snapshotVersionsOnDisk(t, s), current,
+		"the snapshot above the target must be gone, and current must no longer name it")
 }
 
 func TestRemoveSnapshotsAboveKeepsTargetAndBelow(t *testing.T) {

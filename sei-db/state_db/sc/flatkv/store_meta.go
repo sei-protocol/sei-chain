@@ -2,9 +2,13 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
+
+	"github.com/cockroachdb/pebble/v2"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -397,6 +401,84 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 // CommitStore.GetLatestVersion instead.
 func GetLatestVersion(dir string) (int64, error) {
 	return latestVersion(dir, nil)
+}
+
+// StoredVersions returns where the closed store under dir sits: the version LoadWorkingCopy would open
+// it at, and the highest version any one of its data DBs records. Both ignore the WAL, and a directory
+// that has never been opened reads as 0 for both.
+//
+// The two part only after an interrupted commit, where one data DB records a block the others do not.
+// The store opens at the height they agree on, below that block, while the rows written for it sit in
+// the working copy above, so a rollback to the height the store opens at still has state to discard.
+func StoredVersions(dir string) (opensAt, highest int64, err error) {
+	snapshotVersion, err := currentSnapshotVersion(dir)
+	if err != nil {
+		return 0, 0, err
+	}
+	lowestDB, highestDB, err := dataDBVersions(dir)
+	if err != nil {
+		return 0, 0, err
+	}
+	return max(snapshotVersion, lowestDB), max(snapshotVersion, highestDB), nil
+}
+
+// dataDBVersions returns the lowest and highest committed versions recorded in the working copy's data
+// DBs, both 0 when there is no working copy.
+func dataDBVersions(dir string) (lowest, highest int64, err error) {
+	workDir := filepath.Join(dir, workingDirName)
+	if _, err := os.Stat(workDir); err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("stat the state commit working copy under %q: %w", workDir, err)
+	}
+	for i, dbDir := range dataDBDirs {
+		version, err := readCommittedVersion(filepath.Join(workDir, dbDir))
+		if err != nil {
+			return 0, 0, err
+		}
+		if i == 0 {
+			lowest, highest = version, version
+			continue
+		}
+		lowest, highest = min(lowest, version), max(highest, version)
+	}
+	return lowest, highest, nil
+}
+
+// readCommittedVersion returns the version record in the Pebble DB at dbDir, or 0 when that DB is
+// missing or has never been written.
+func readCommittedVersion(dbDir string) (int64, error) {
+	if _, err := os.Stat(dbDir); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("stat %q: %w", dbDir, err)
+	}
+	db, err := pebble.Open(dbDir, &pebble.Options{
+		ReadOnly:           true,
+		FormatMajorVersion: pebble.FormatVirtualSSTables,
+	})
+	if err != nil {
+		// The directory can exist while the database in it does not: createWorkingDir makes an empty one
+		// for every data DB the snapshot it clones from does not have, and only the store's own open
+		// creates the databases. A read-only open does not create, so it reports that as an error.
+		if errors.Is(err, pebble.ErrDBDoesNotExist) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("open %q to read its version: %w", dbDir, err)
+	}
+	defer func() { _ = db.Close() }()
+
+	val, closer, err := db.Get(ktype.MetaVersionKey)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read the version record in %q: %w", dbDir, err)
+	}
+	defer func() { _ = closer.Close() }()
+	return decodeVersion(ktype.MetaVersionKey, val)
 }
 
 // latestVersion resolves the version a store on dir will open at, reading the WAL range through wal

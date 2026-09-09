@@ -644,30 +644,13 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 	return baseVersion, nil
 }
 
-// Rollback restores state to targetVersion by rewinding to the highest
-// snapshot <= targetVersion, replaying WAL to reach the target, and
-// truncating all WAL entries and snapshots beyond that point.
+// Rollback rewinds the store to targetVersion, discarding the committed state, the WAL blocks and the
+// snapshots above it, and keeps committing from targetVersion+1. A target the snapshots and the WAL
+// cannot reach is refused before anything is modified.
 //
-// An unreachable target is rejected before anything is modified.
-//
-// Not safe to call concurrently with commits, reads or exports: it closes,
-// prunes and reopens the store's WAL, reassigning s.wal, so the caller must
-// have quiesced the store. This is how it is used today — recovery at
-// LoadVersion time — and long term rollback becomes a construction-time
-// concern rather than an action on a live store.
-//
-// Crash safety: the WAL is truncated BEFORE catchup writes any data to
-// PebbleDB. If the process crashes after truncation but before catchup
-// completes, the next restart will simply re-run catchup against the
-// already-truncated WAL, converging to targetVersion.
-//
-// A failure while resetting the WAL leaves the store mid-rollback: "current" and the working directory are
-// already at the rollback snapshot while the WAL still holds the blocks past targetVersion, and s.wal is
-// closed. Retrying in-process does not work, because establishing reachability reads the WAL's stored range
-// and that now fails as closed. No block is lost: the un-pruned WAL still holds them, so a restart replays
-// back to the old tail and the rollback can be retried. The errors from that window say so. Snapshots above
-// the target are already gone by then, which costs a cached checkpoint the next snapshot rebuilds, not
-// history.
+// The store must be quiesced: no commit, read or export may be in flight, and it closes and reopens its
+// own WAL. A failure partway has to be retried after a restart rather than in process, though no block
+// is lost.
 func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	obs := s.observeOp("Rollback", otelMetrics.RollbackLatency,
 		"targetVersion", targetVersion)
@@ -751,6 +734,13 @@ func (s *CommitStore) repointAtSnapshot(dir string, version int64) error {
 	if err := s.closeDBsOnly(); err != nil {
 		return fmt.Errorf("close before rewinding to snapshot %d: %w", version, err)
 	}
+	return repointAtSnapshot(dir, version)
+}
+
+// repointAtSnapshot points the current link at the snapshot named by version and discards the working
+// copy, so the next open clones the working copy from that snapshot. The databases under dir must be
+// closed.
+func repointAtSnapshot(dir string, version int64) error {
 	if err := updateCurrentSymlink(dir, snapshotName(version)); err != nil {
 		return fmt.Errorf("update current symlink to snapshot %d: %w", version, err)
 	}
@@ -762,60 +752,115 @@ func (s *CommitStore) repointAtSnapshot(dir string, version int64) error {
 	return nil
 }
 
-// SnapshotAtOrBelow returns the highest snapshot version at or below version, which is where a rewind
-// to version lands. It reads only, so a caller can establish that a target is reachable before a
-// rewind moves anything.
-func (s *CommitStore) SnapshotAtOrBelow(version int64) (int64, error) {
-	return seekSnapshot(s.flatkvDir(), version)
+// DiscardStateAbove puts the closed store under dir on its newest snapshot at or below target when it
+// holds any state above target, and reports the version its files hold once it returns. A store holding
+// nothing above target is left alone, reported at the version it opens on, for a replay to carry it
+// forward.
+//
+// earliestReplayableBlock is the first block the caller can replay, or 0 when it can replay none. A
+// store that would land too low for that replay to carry it back to target is refused, as is one above
+// target with no snapshot at or below it. Neither refusal moves anything, so a caller that gets an
+// error still has every snapshot it started with. The databases under dir must be closed.
+func DiscardStateAbove(dir string, target, earliestReplayableBlock int64) (landsOn int64, err error) {
+	opensAt, highest, err := StoredVersions(dir)
+	if err != nil {
+		return 0, fmt.Errorf("read the versions it holds: %w", err)
+	}
+	// The highest version any one database records, not the version the store opens on: that one is the
+	// lowest of them, so an interrupted commit or restore reads as merely behind while the rows above
+	// target survive a replay that only writes forward.
+	rewinds := highest > target
+	landsOn = opensAt
+	if rewinds {
+		// Sought before the rewind rather than by it, so a store with nowhere to land is refused with its
+		// files still where they are.
+		if landsOn, err = seekSnapshot(dir, target); err != nil {
+			return 0, fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
+		}
+	}
+	if err := requireReplayable(landsOn, target, earliestReplayableBlock); err != nil {
+		return 0, err
+	}
+	if !rewinds {
+		return landsOn, nil
+	}
+	return RewindClosedStoreTo(dir, target)
 }
 
-// RewindToSnapshotAtOrBelow rewinds this store to the highest snapshot at or below version and reports
-// the version it landed on, discarding committed state and snapshots above that point. It needs no WAL:
-// it moves only between snapshot boundaries, and replaying forward from the version it returns is the
-// caller's to do.
-//
-// It is Rollback for a store whose WAL an outer context owns, split so that no WAL crosses this API. The
-// store must be quiesced, and it stays open for writing at the returned version.
-func (s *CommitStore) RewindToSnapshotAtOrBelow(version int64) (landed int64, retErr error) {
-	obs := s.observeOp("RewindToSnapshotAtOrBelow", otelMetrics.RollbackLatency, "targetVersion", version)
-	defer obs.done(&retErr, func() {
-		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
-	})
-
-	if s.readOnly {
-		return 0, errReadOnly
+// requireReplayable returns an error when a store landing on landsOn cannot be carried back up to
+// target, because the caller's earliest replayable block is above the first one such a replay needs.
+// earliestReplayableBlock is 0 when the caller can replay nothing.
+func requireReplayable(landsOn, target, earliestReplayableBlock int64) error {
+	if landsOn >= target {
+		return nil
 	}
-	if version < 1 {
+	start := landsOn + 1
+	if earliestReplayableBlock == 0 {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but no blocks "+
+			"are available to replay", landsOn, start)
+	}
+	if earliestReplayableBlock > start {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but the "+
+			"earliest block available is %d", landsOn, start, earliestReplayableBlock)
+	}
+	return nil
+}
+
+// RewindClosedStoreTo puts the files of the closed store under dir on the highest snapshot at or below
+// target and reports that version, discarding the working copy and every snapshot above it. The next
+// open of that store lands on the reported version, with the blocks from there to target left for the
+// caller to replay.
+//
+// It is Rollback for a store whose WAL an outer context owns and cuts, split so that no WAL crosses this
+// API and so that the store opens once, already on the version it will replay from. The databases under
+// dir must be closed, which is what makes it safe to run before the store is constructed.
+func RewindClosedStoreTo(dir string, target int64) (landed int64, err error) {
+	if target < 1 {
 		// Left to run, this would land on the initial snapshot and then delete every snapshot above it,
 		// which is the whole set.
 		return 0, fmt.Errorf("rewind target %d is invalid: version 0 means no state, so there is nothing "+
-			"to rewind to", version)
+			"to rewind to", target)
 	}
 
-	dir := s.flatkvDir()
-	baseVersion, err := seekSnapshot(dir, version)
+	baseVersion, err := seekSnapshot(dir, target)
 	if err != nil {
-		return 0, fmt.Errorf("seek snapshot at or below version %d: %w", version, err)
+		return 0, fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
 	}
-	if baseVersion == s.committedVersion {
-		return baseVersion, nil
-	}
-
-	if err := s.repointAtSnapshot(dir, baseVersion); err != nil {
+	if err := repointAtSnapshot(dir, baseVersion); err != nil {
 		return 0, err
 	}
 	if err := removeSnapshotsAbove(dir, baseVersion); err != nil {
 		return 0, err
 	}
-	if err := s.open(); err != nil {
-		return 0, fmt.Errorf("open after rewinding to snapshot %d: %w", baseVersion, err)
-	}
-	if s.committedVersion != baseVersion {
-		return 0, fmt.Errorf("rewind to snapshot %d reached version %d instead", baseVersion, s.committedVersion)
-	}
 
-	logger.Info("FlatKV rewound to snapshot", "version", baseVersion, "elapsed", obs.elapsed())
+	logger.Info("FlatKV rewound a closed store to a snapshot", "version", baseVersion, "target", target)
 	return baseVersion, nil
+}
+
+// DropSnapshotsAbove deletes every snapshot of the closed store under dir above target, repointing the
+// current link first when it names one of them. It leaves the current link alone when it already names
+// a snapshot at or below target.
+//
+// The databases under dir must be closed, which is what makes it safe to run before the store is
+// constructed.
+func DropSnapshotsAbove(dir string, target int64) error {
+	current, err := currentSnapshotVersion(dir)
+	if err != nil {
+		return err
+	}
+	if current > target {
+		// The link cannot be left naming a snapshot the removal below deletes, and a working copy built
+		// on one of them is above target too, so it goes with them.
+		base, err := seekSnapshot(dir, target)
+		if err != nil {
+			return fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
+		}
+		if err := repointAtSnapshot(dir, base); err != nil {
+			return err
+		}
+		logger.Info("FlatKV repointed a closed store below a rollback target", "version", base, "target", target)
+	}
+	return removeSnapshotsAbove(dir, target)
 }
 
 // removeSnapshotsAbove deletes every snapshot directory above targetVersion.
@@ -842,30 +887,6 @@ func removeSnapshotsAbove(dir string, targetVersion int64) error {
 		return fmt.Errorf("list snapshots above rollback target %d: %w", targetVersion, err)
 	}
 	return errors.Join(errs...)
-}
-
-// RemoveSnapshotsAbove deletes every snapshot above version, leaving the store's committed version and
-// its databases untouched. It is idempotent, so it can be run to finish a rewind that was interrupted
-// before its own cleanup did.
-//
-// It refuses while the current link names a snapshot above version, since removing that snapshot would
-// leave the link dangling, and the next open resolves a dangling link to an empty working directory
-// rather than to a failure. Rewind the store first: a store at or below version has a current link at
-// or below it too.
-func (s *CommitStore) RemoveSnapshotsAbove(version int64) error {
-	if s.readOnly {
-		return errReadOnly
-	}
-	dir := s.flatkvDir()
-	_, current, err := currentSnapshotDir(dir)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read the current snapshot to remove snapshots above %d: %w", version, err)
-	}
-	if err == nil && current > version {
-		return fmt.Errorf("cannot remove snapshots above %d: the current snapshot is %d, and removing "+
-			"it would leave the current link dangling", version, current)
-	}
-	return removeSnapshotsAbove(dir, version)
 }
 
 // tryTruncateWAL truncates WAL entries older than the earliest snapshot, keeping enough entries for
