@@ -609,7 +609,7 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 	// identity. Outbound uses the committee book when it has a row; a
 	// book-absent member is not dialed.
 	if utils.IsLoopbackOrLinkLocalURL(evmRPC) {
-		logger.Error("committee member advertised a loopback or link-local EVM RPC; not learning its address",
+		logger.Error("committee member advertised an unroutable EVM RPC; not learning its address",
 			"validator", claim.Validator, "evmRPC", evmRPC.String())
 		return utils.Some(claim.Validator)
 	}

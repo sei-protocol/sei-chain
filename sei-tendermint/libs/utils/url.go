@@ -25,13 +25,13 @@ func CheckHTTPURL(u url.URL) error {
 }
 
 // IsLoopbackOrLinkLocalURL reports whether u's host is the name "localhost", a
-// loopback IP, or a link-local IP. A host that resolves to one of those through
-// DNS is not detected.
+// loopback IP, an unspecified IP (0.0.0.0 / ::), or a link-local IP. A host
+// that resolves to one of those through DNS is not detected.
 func IsLoopbackOrLinkLocalURL(u url.URL) bool {
 	host := u.Hostname()
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && (ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast())
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast())
 }

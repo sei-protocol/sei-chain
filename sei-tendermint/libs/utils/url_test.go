@@ -25,6 +25,8 @@ func TestIsLoopbackOrLinkLocalURL(t *testing.T) {
 		"http://[::1]:8545",
 		"http://169.254.169.254/",
 		"http://[fe80::1]:8545",
+		"http://0.0.0.0:8545",
+		"http://[::]:8545",
 	} {
 		require.True(t, IsLoopbackOrLinkLocalURL(*OrPanic1(url.Parse(s))))
 	}

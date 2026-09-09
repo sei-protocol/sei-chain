@@ -312,7 +312,13 @@ func TestGigaRouterCommon_AcceptInboundRefusesUnroutableEvmRPC(t *testing.T) {
 		liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
-	for _, evmRPC := range []string{"http://127.0.0.1:8545", "http://localhost:8545", "http://169.254.169.254/"} {
+	for _, evmRPC := range []string{
+		"http://127.0.0.1:8545",
+		"http://localhost:8545",
+		"http://169.254.169.254/",
+		"http://0.0.0.0:8545",
+		"http://[::]:8545",
+	} {
 		// The claim proves committee identity, so the peer is still served as a
 		// validator; only its advertised address is refused.
 		accepted := router.acceptInbound(&handshakedConn{msg: &handshakeMsg{
