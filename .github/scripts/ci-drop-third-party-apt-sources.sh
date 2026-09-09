@@ -16,5 +16,5 @@ shopt -s nullglob
 for src in /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources \
   /etc/apt/sources.list.d/*microsoft*.list /etc/apt/sources.list.d/*microsoft*.sources; do
   echo "Removing $src"
-  sudo rm -f "$src"
+  sudo rm -f "$src" || true
 done
