@@ -7,11 +7,13 @@ import (
 )
 
 func (a *App) NewMinter(amount uint64) {
-	today := time.Now()
-	dayAfterTomorrow := today.Add(48 * time.Hour)
+	// UTC calendar dates so DaysBetween(blockTime, end) matches the
+	// formatted start/end regardless of local timezone.
+	today := time.Now().UTC()
+	start := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
 	a.MintKeeper.SetMinter(a.Ctx(), minttypes.Minter{
-		StartDate:           today.Format(minttypes.TokenReleaseDateFormat),
-		EndDate:             dayAfterTomorrow.Format(minttypes.TokenReleaseDateFormat),
+		StartDate:           start.Format(minttypes.TokenReleaseDateFormat),
+		EndDate:             start.AddDate(0, 0, 2).Format(minttypes.TokenReleaseDateFormat),
 		Denom:               "usei",
 		TotalMintAmount:     amount,
 		RemainingMintAmount: amount,
