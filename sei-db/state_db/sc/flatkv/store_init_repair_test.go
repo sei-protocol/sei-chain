@@ -87,6 +87,34 @@ func TestRebuildTriggersOnlyAboveTheReachableVersion(t *testing.T) {
 	require.Equal(t, int64(3), s.Version(), "replay then carries it to the WAL tail")
 }
 
+// TestRebuildIfTornTriggersOnDisagreementNotOnTheSnapshot pins the distinction RebuildIfTorn draws for
+// a store whose WAL holds no blocks, where the reachable ceiling collapses to the current snapshot.
+// Data DBs that agree are the only record of the blocks they hold and are kept however far above that
+// snapshot they sit; one recording a block the others do not sends the working copy back to it.
+func TestRebuildIfTornTriggersOnDisagreementNotOnTheSnapshot(t *testing.T) {
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	defer s.Close()
+	require.NoError(t, s.LoadLatest())
+	for i := int64(1); i <= 3; i++ {
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
+
+	snapVersion, err := currentSnapshotVersion(cfg.DataDir)
+	require.NoError(t, err)
+	require.Less(t, snapVersion, int64(3), "the working copy has to sit above the snapshot to be at risk")
+
+	require.NoError(t, s.RebuildIfTorn())
+	requireAllDataDBsAt(t, s, 3, "an aligned working copy is the only record of blocks the WAL lost")
+
+	s.localMeta[accountDBDir].CommittedVersion = 4
+	require.NoError(t, s.RebuildIfTorn())
+	requireAllDataDBsAt(t, s, snapVersion, "a torn working copy comes back from the snapshot")
+}
+
 // TestUntouchedDataDBsOpenAtZero is the baseline of the classification: four DBs that have never had
 // metadata written agree at 0, so nothing is misaligned and no repair is attempted.
 func TestUntouchedDataDBsOpenAtZero(t *testing.T) {
