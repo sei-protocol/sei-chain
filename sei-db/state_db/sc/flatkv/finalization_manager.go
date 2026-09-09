@@ -73,8 +73,7 @@ func newFinalizationManager(
 		listeners:      listeners,
 	}
 	fm.latest.Store(loaded)
-	fm.wg.Add(1)
-	go fm.run()
+	fm.wg.Go(fm.run)
 	return fm
 }
 
@@ -138,22 +137,10 @@ func (fm *FinalizationManager) Flush() error {
 	return nil
 }
 
-// Close stops the manager once it has finalized every block offered so far, and reports the latched
-// error if it failed.
-//
-// Never call concurrently with another method: behaviour is undefined if anything else is in flight.
-// Cancelling the manager's context stops it the other way, abandoning the blocks it has not reached for
-// the WAL to replay back.
-//
-// The hash engine must be closed before this, so that this manager's read of its stream terminates.
+// Close stops the manager where it stands, abandoning the blocks it has not finalized.
 func (fm *FinalizationManager) Close() error {
-	// The request travels the same queue as the blocks, which is what makes every block offered before
-	// this call finalize first. A manager already stopping refuses it, and there is nothing to drain in
-	// that case because the abandonment is already under way.
-	_ = fm.enqueue(newFinalizationCloseRequest())
-
-	fm.wg.Wait()
 	fm.cancel()
+	fm.wg.Wait()
 
 	if err := fm.errorIfBricked(); err != nil {
 		return fmt.Errorf("close finalization manager: %w", err)
@@ -178,7 +165,6 @@ func (fm *FinalizationManager) enqueue(message any) error {
 // on the way out, whatever the reason: everything waiting on this manager waits under that context, and
 // this goroutine is the only thing that can release it.
 func (fm *FinalizationManager) run() {
-	defer fm.wg.Done()
 	defer fm.cancel()
 
 	for {
@@ -211,10 +197,6 @@ func (fm *FinalizationManager) handle(message any) bool {
 		// ahead of this request has already been dispatched, on this goroutine, before it is reached.
 		close(request.doneChan)
 		return true
-	case *finalizationCloseRequest:
-		// Reached only once every block queued ahead of it has been finalized, so stopping here leaves
-		// nothing behind.
-		return false
 	default:
 		fm.brick(fmt.Errorf("unknown finalization message type %T", message))
 		return false
@@ -223,10 +205,16 @@ func (fm *FinalizationManager) handle(message any) bool {
 
 // finalize writes one block's hashes onto its own views, releases its reservation, and hands the hash
 // to the listeners.
-// It reports stopped when the engine has no more hashes to give, which is teardown rather than failure.
 func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped bool, err error) {
-	hash, ok := <-fm.engineHashChan
-	if !ok {
+	var hash *lthash.BlockHash
+	var open bool
+	select {
+	case hash, open = <-fm.engineHashChan:
+	case <-fm.ctx.Done():
+		// This manager is stopping, so it will never record this block's hash.
+		return true, nil
+	}
+	if !open {
 		// The engine has stopped, so this block will never be hashed. That is teardown rather than
 		// failure: the block is abandoned where it is, and replay recovers it from the WAL.
 		return true, nil

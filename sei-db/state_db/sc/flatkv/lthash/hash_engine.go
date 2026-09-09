@@ -149,23 +149,11 @@ func (he *HashEngine) Flush() error {
 	return nil
 }
 
-// Close stops the engine once it has hashed every block scheduled so far, publishing each one, and
-// reports the latched error if it failed.
-//
-// Never call concurrently with another method: behaviour is undefined if anything else is in flight.
-// Cancelling the engine's context stops it the other way, abandoning whatever it had not reached.
+// Close stops the engine where it stands, abandoning the blocks it has not hashed.
 func (he *HashEngine) Close() error {
-	// The request travels the same queue as the blocks, which is what makes every block scheduled before
-	// this call reach the combiner first. An engine already stopping refuses it, and there is nothing to
-	// drain in that case because the abandonment is already under way.
-	_ = he.enqueue(newCloseRequest())
-
+	he.cancel()
 	he.gatherer.wg.Wait()
 	he.combiner.wg.Wait()
-
-	// Cancelled only once both phases are through. The combiner gives up on a publish under a cancelled
-	// context, so cancelling any earlier would abandon the very blocks this call is draining.
-	he.cancel()
 
 	if err := he.errorIfBricked(); err != nil {
 		return fmt.Errorf("close hash engine: %w", err)

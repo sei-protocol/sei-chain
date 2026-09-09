@@ -1190,12 +1190,44 @@ func (s *CommitStore) startHashing() error {
 	return nil
 }
 
-// stopHashing closes the hash engine and the finalizer, in that order.
+// flushInFlightBlocks waits for the blocks committed so far to be hashed and finalized, so that they
+// reach the databases: a block's rows are written into the same batch its hashes are recorded in, so a
+// block still in flight when hashing stops never lands at all.
 //
-// The order is load-bearing: the engine publishes the blocks it drains and the finalizer is its only
-// reader, so stopping the finalizer first would leave the engine blocked forever.
+// A store whose own context is already cancelled has nothing to wait for, both phases being stopped by
+// that cancellation, and the blocks still in flight are abandoned for replay to recover.
+//
+// Unlike FlushHashes this takes no lock, for the teardown path that already holds one.
+func (s *CommitStore) flushInFlightBlocks() error {
+	if s.hashEngine == nil || s.ctx.Err() != nil {
+		return nil
+	}
+	// The engine first: its output is the finalizer's input, so waiting on the finalizer alone would
+	// return while blocks were still inside the engine.
+	if err := s.hashEngine.Flush(); err != nil {
+		return fmt.Errorf("flush hash engine: %w", err)
+	}
+	if err := s.finalizer.Flush(); err != nil {
+		return fmt.Errorf("flush finalization manager: %w", err)
+	}
+	return nil
+}
+
+// stopHashing finishes the blocks already in flight, then closes the hash engine and the finalizer.
+//
+// This is the one function every teardown path passes through — Close directly, Rollback and
+// resetForImport through closeDBsOnly — so the flush that lands those blocks lives here rather than at
+// each of them.
+//
+// Closing itself needs no ordering between the two: each cancels its own context, and every wait
+// either of them holds is released by that cancellation.
 func (s *CommitStore) stopHashing() error {
 	var errs []error
+
+	if err := s.flushInFlightBlocks(); err != nil {
+		errs = append(errs, err)
+	}
+
 	if s.hashEngine != nil {
 		if err := s.hashEngine.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close hash engine: %w", err))

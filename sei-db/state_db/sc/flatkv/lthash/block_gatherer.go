@@ -63,33 +63,23 @@ func newBlockGatherer(
 // the combiner. It stops the engine on the way out, whatever the reason: a schedule waits under the
 // engine's context, and this goroutine is the only thing that can release it.
 func (g *blockGatherer) run() {
-	// Set only on the path that stops because every scheduled block has been gathered.
-	drained := false
-
 	defer g.teardown()
 	// Cancelled before the drain rather than after it, so that a schedule parked on a full queue is
-	// released by the cancellation instead of being woken by the drain, which nothing follows. A drained
-	// stop is the exception: the combiner is still publishing the blocks this loop handed it, and a
-	// cancelled context makes it give up on them, so Close cancels once it is through.
-	defer func() {
-		if !drained {
-			g.cancel()
-		}
-	}()
+	// released by the cancellation instead of being woken by the drain, which nothing follows.
+	defer g.cancel()
 
 	for {
 		select {
 		case message := <-g.scheduledBlockChan:
 			switch request := message.(type) {
 			case *hashRequest:
-				g.gather(request)
+				if !g.gather(request) {
+					return
+				}
 			case *flushRequest:
-				g.combineJobChan <- request
-			case *closeRequest:
-				// Reached only once every block queued ahead of it has been gathered, so there is
-				// nothing left behind to abandon.
-				drained = true
-				return
+				if !g.forward(request) {
+					return
+				}
 			default:
 				g.brick(fmt.Errorf("unknown engine message type %T", message))
 				return
@@ -120,8 +110,8 @@ func (g *blockGatherer) teardown() {
 	}
 }
 
-// Deal with one block from the gatherer's queue.
-func (g *blockGatherer) gather(request *hashRequest) {
+// Deal with one block from the gatherer's queue, reporting whether the gatherer may carry on.
+func (g *blockGatherer) gather(request *hashRequest) bool {
 	changed, err := gatherChangesFromAllStores(request.current, request.previous)
 
 	// Released even when the read failed: a reservation left held stalls its database's flushes
@@ -139,10 +129,20 @@ func (g *blockGatherer) gather(request *hashRequest) {
 		err = fmt.Errorf("gather block %d: %w", request.blockNumber, err)
 	}
 
-	g.combineJobChan <- &gatheredBlock{
+	return g.forward(&gatheredBlock{
 		blockNumber: request.blockNumber,
 		hashes:      hashes,
 		err:         err,
+	})
+}
+
+// forward hands one message to the combiner
+func (g *blockGatherer) forward(message any) bool {
+	select {
+	case g.combineJobChan <- message:
+		return true
+	case <-g.ctx.Done():
+		return false
 	}
 }
 

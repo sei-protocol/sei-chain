@@ -62,18 +62,24 @@ func (c *hashCombiner) run() {
 	defer close(c.blockHashChan)
 
 	publishing := true
-	for job := range c.combineJobChan {
-		switch job := job.(type) {
-		case *gatheredBlock:
-			if publishing {
-				publishing = c.combineBlock(job)
+	for {
+		select {
+		case job, open := <-c.combineJobChan:
+			if !open {
+				return
 			}
-		case *flushRequest:
-			close(job.doneChan)
-		default:
-			// Bricked rather than stopped: the gatherer's send cannot be abandoned, so this goroutine
-			// has to keep draining combineJobChan until it closes. Close() reports the latched error.
-			c.brick(fmt.Errorf("unknown combine job type %T", job))
+			switch job := job.(type) {
+			case *gatheredBlock:
+				if publishing {
+					publishing = c.combineBlock(job)
+				}
+			case *flushRequest:
+				close(job.doneChan)
+			default:
+				c.brick(fmt.Errorf("unknown combine job type %T", job))
+			}
+		case <-c.ctx.Done():
+			return
 		}
 	}
 }
@@ -91,7 +97,12 @@ func (c *hashCombiner) combineBlock(job *gatheredBlock) bool {
 
 	deltas := make(map[ModuleKey]*ModuleHashInfo)
 	for i := 0; i < job.hashes.count; i++ {
-		result := <-job.hashes.resultChan
+		var result *chunkResult
+		select {
+		case result = <-job.hashes.resultChan:
+		case <-c.ctx.Done():
+			return false
+		}
 		if acc := deltas[result.key]; acc != nil {
 			mergeDelta(acc, result.info)
 		} else {
