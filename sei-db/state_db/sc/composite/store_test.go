@@ -18,7 +18,7 @@ import (
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -52,24 +52,34 @@ func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil
 func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *failingEVMStore) RootHash() ([]byte, int64)                     { return nil, 0 }
-func (f *failingEVMStore) Version() int64                                { return 0 }
-func (f *failingEVMStore) PendingVersion() int64                         { return 0 }
-func (f *failingEVMStore) GetLatestVersion() (int64, error)              { return 0, nil }
-func (f *failingEVMStore) Rollback(int64) error                          { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
-func (f *failingEVMStore) HashCategories() []string                      { return nil }
-func (f *failingEVMStore) RecordHashes(hashlog.HashLogger, uint64) error { return nil }
-func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error            { return nil }
-func (f *failingEVMStore) Close() error                                  { return nil }
+func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
+}
+func (f *failingEVMStore) FlushHashes() error                     { return nil }
+func (f *failingEVMStore) CommitPendingBlock() error              { return nil }
+func (f *failingEVMStore) Version() int64                         { return 0 }
+func (f *failingEVMStore) PendingVersion() int64                  { return 0 }
+func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }
+func (f *failingEVMStore) Rollback(int64) error                   { return nil }
+func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }
+func (f *failingEVMStore) Importer(int64) (types.Importer, error) { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer     { return nil }
+func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error     { return nil }
+func (f *failingEVMStore) Close() error                           { return nil }
 
-// flatKVRootHash returns the committed root hash of the store's flatkv backend, discarding the height
-// it describes. Tests that care about the height assert on it directly rather than through this.
+// flatKVRootHash returns the root hash of the store's flatkv backend once hashing has caught up with
+// what was committed. Hashing is asynchronous, so that barrier is what stops an assertion racing the
+// pipeline. Tests that care about the height assert on it directly rather than through this.
 func flatKVRootHash(cs *CompositeCommitStore) []byte {
-	hash, _ := cs.flatKV.RootHash()
-	return hash
+	if err := cs.flatKV.FlushHashes(); err != nil {
+		panic(fmt.Sprintf("composite: flush flatkv hashes: %v", err))
+	}
+	current, err := cs.flatKV.RegisterHashListener(nil)
+	if err != nil {
+		panic(fmt.Sprintf("composite: read the flatkv hash: %v", err))
+	}
+	checksum := current.Global.Checksum()
+	return checksum[:]
 }
 
 func padLeft32(val ...byte) []byte {
@@ -287,7 +297,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				// no hash to compare against.
 				var expectedEvmHash []byte
 				if tt.expectLattice {
-					expectedEvmHash, _ = cs.flatKV.RootHash()
+					expectedEvmHash = flatKVRootHash(cs)
 				}
 
 				cosmosCount := len(expectedCosmos.StoreInfos)
@@ -324,7 +334,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				expectedCosmosLast := cs.memIAVL.LastCommitInfo()
 				var expectedEvmCommitted []byte
 				if tt.expectLattice {
-					expectedEvmCommitted, _ = cs.flatKV.RootHash()
+					expectedEvmCommitted = flatKVRootHash(cs)
 					require.Equal(t, expectedEvmHash, expectedEvmCommitted)
 				}
 

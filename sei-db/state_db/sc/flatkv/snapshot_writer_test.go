@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
 
 // The bulk of this package's suite reaches the writer through commitAndCheck, which flushes it so a
@@ -29,7 +30,7 @@ import (
 
 var _ view.View = (*fakeView)(nil)
 
-// fakeView is a view whose flush and hand-back outcomes the test chooses, and which counts both. The
+// fakeView is a view whose flush and release outcomes the test chooses, and which counts both. The
 // methods a SnapshotWriter never reaches panic, so a use this stub was not written for is loud rather
 // than silently wrong.
 type fakeView struct {
@@ -39,8 +40,16 @@ type fakeView struct {
 	// Returned by AwaitFlush.
 	awaitFlushErr error
 
+	// When non-nil, AwaitFlush waits on it, standing in for a block whose flush never comes because
+	// its finalization was abandoned. A test that never closes it holds the flush open for good.
+	awaitFlushBlocked chan struct{}
+
 	// Returned by Reserve. A non-nil value also suppresses the reserve count.
 	reserveErr error
+
+	// Returned by every Release call. The count still advances, so a test can tell a release that was
+	// attempted and failed from one that never happened.
+	releaseErr error
 
 	// Counts successful Reserve calls.
 	reserves atomic.Int64
@@ -51,7 +60,16 @@ type fakeView struct {
 
 func (v *fakeView) Name() string { return v.name }
 
-func (v *fakeView) AwaitFlush(context.Context) error { return v.awaitFlushErr }
+func (v *fakeView) AwaitFlush(ctx context.Context) error {
+	if v.awaitFlushBlocked != nil {
+		select {
+		case <-v.awaitFlushBlocked:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return v.awaitFlushErr
+}
 
 func (v *fakeView) Reserve() error {
 	if v.reserveErr != nil {
@@ -63,7 +81,7 @@ func (v *fakeView) Reserve() error {
 
 func (v *fakeView) Release() error {
 	v.releases.Add(1)
-	return nil
+	return v.releaseErr
 }
 
 func (v *fakeView) Get([]byte, bool) ([]byte, bool, error) {
@@ -84,26 +102,40 @@ func (v *fakeView) Finalize([]*proto.KVPair) error {
 
 // fakeViews returns a store view at version backed by one stub per database, as a commit would hand
 // to the writer, alongside the stubs so a test can inspect what the writer did to them.
-func fakeViews(t *testing.T, version int64) (*storeView, map[string]*fakeView) {
+func fakeViews(t *testing.T, version int64) (*sview.StoreView, map[string]*fakeView) {
 	t.Helper()
 	stubs := make(map[string]*fakeView, len(dataDBDirs))
 	for _, name := range dataDBDirs {
 		stubs[name] = &fakeView{name: name}
 	}
-	blockView, err := newStoreView(version,
+	blockView, err := sview.NewStoreView(version,
 		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
 	require.NoError(t, err)
 	return blockView, stubs
 }
 
-// requireAllReleased asserts the writer handed back every reservation it took. A reservation left held
+// bricksOnRelease returns a store view at version whose every view fails to hand a reservation back, for
+// the paths that have to report such a failure rather than only logging it.
+func bricksOnRelease(t *testing.T, version int64) (*sview.StoreView, map[string]*fakeView) {
+	t.Helper()
+	stubs := make(map[string]*fakeView, len(dataDBDirs))
+	for _, name := range dataDBDirs {
+		stubs[name] = &fakeView{name: name, releaseErr: errors.New("view manager is bricked")}
+	}
+	blockView, err := sview.NewStoreView(version,
+		stubs[accountDBDir], stubs[codeDBDir], stubs[storageDBDir], stubs[miscDBDir])
+	require.NoError(t, err)
+	return blockView, stubs
+}
+
+// requireAllReleased asserts the writer released every reservation it took. A reservation left held
 // stalls its database's flushes forever, so this is the invariant every path must preserve.
 func requireAllReleased(t *testing.T, stubs map[string]*fakeView) {
 	t.Helper()
 	for name, stub := range stubs {
 		require.NotZero(t, stub.reserves.Load(), "%s: the writer must take its own reservation", name)
 		require.Equal(t, stub.reserves.Load(), stub.releases.Load(),
-			"%s: the writer must hand back every reservation it took", name)
+			"%s: the writer must release every reservation it took", name)
 	}
 }
 
@@ -255,7 +287,7 @@ func TestSnapshotWriterCloseWakesBlockedOffer(t *testing.T) {
 
 // Close waits for an in-flight checkpoint rather than abandoning it, because that checkpoint holds
 // handles to databases the caller is about to close. Whatever is still queued behind it is discarded,
-// with its reservations handed back.
+// with its reservations released.
 func TestSnapshotWriterCloseWaitsForCheckpointAndDiscardsQueue(t *testing.T) {
 	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
 	w := newTestWriter(t, 1, 4, db)
@@ -277,7 +309,7 @@ func TestSnapshotWriterCloseWaitsForCheckpointAndDiscardsQueue(t *testing.T) {
 	requireAllReleased(t, queuedStubs)
 }
 
-// A block the cadence does not select is handed back unwritten, by the goroutine rather than the
+// A block the cadence does not select is released unwritten, by the goroutine rather than the
 // caller. Flush is how a test observes that the goroutine has got that far.
 func TestSnapshotWriterReleasesBlocksItDoesNotSnapshot(t *testing.T) {
 	db := &fakeCheckpointDB{started: make(chan struct{})}
@@ -449,4 +481,27 @@ func TestStoreWritesSnapshotAsynchronously(t *testing.T) {
 	target, err := os.Readlink(currentPath(dir))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(2), target, "current must point at the snapshot the writer published")
+}
+
+// A block whose finalization was abandoned never flushes, and the store abandons blocks exactly when
+// it is closing. A checkpoint still waiting for that flush would then keep the writer's own Close
+// waiting for good, and the view manager that could release the wait is closed after it.
+//
+// Stopping therefore abandons the checkpoint: what it was writing was never published, and open
+// removes it.
+func TestSnapshotWriterCloseAbandonsACheckpointAwaitingAFlushThatNeverComes(t *testing.T) {
+	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
+	// The copy is not what holds this checkpoint up; the flush before it is.
+	close(db.release)
+	w := newTestWriter(t, 1, 4, db)
+
+	blockView, stubs := fakeViews(t, 7)
+	for _, stub := range stubs {
+		stub.awaitFlushBlocked = make(chan struct{})
+	}
+	require.NoError(t, w.Offer(blockView))
+
+	closed := make(chan error, 1)
+	go func() { closed <- w.Close() }()
+	require.NoError(t, requireReturns(t, closed, "Close with a checkpoint awaiting a flush"))
 }

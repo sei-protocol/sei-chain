@@ -13,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // MemoryStoreChangeSetName identifies MemoryStore's direct key/value format.
@@ -363,6 +364,12 @@ func (s *MemoryStore) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 		return nil, false
 	}
 	return &memoryStoreSnapshot{store: s, height: blockNum}, true
+}
+
+// RegisterHashListener reports that this store hashes nothing. It keeps state in maps rather than
+// in a lattice, so there is no block hash for a listener to be given.
+func (s *MemoryStore) RegisterHashListener(_ gigatypes.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, fmt.Errorf("evmonly: an in-memory store computes no block hashes")
 }
 
 // Close releases nothing. This store holds no handle outside its own maps, which go with it.

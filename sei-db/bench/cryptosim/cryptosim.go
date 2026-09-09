@@ -160,7 +160,14 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	database := NewDatabase(config, db, metrics, 0)
+	database, err := NewDatabase(config, db, metrics, 0)
+	if err != nil {
+		cancel()
+		if closeErr := db.Close(); closeErr != nil {
+			fmt.Printf("failed to close database during error recovery: %v\n", closeErr)
+		}
+		return nil, fmt.Errorf("failed to create database: %w", err)
+	}
 
 	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
 	if err != nil {

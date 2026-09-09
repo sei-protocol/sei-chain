@@ -263,7 +263,7 @@ func TestHashLogReadEndToEnd(t *testing.T) {
 	require.Contains(t, out, "root: 02")
 	require.Contains(t, out, "version: v1.2.3")
 
-	diffs, err := hashlog.CompareHashes(dirA, dirB, -1)
+	diffs, err := hashlog.CompareHashes(dirA, dirB, -1, false)
 	require.NoError(t, err)
 	require.Len(t, diffs, 1)
 	require.Equal(t, uint64(2), pairBlock(diffs[0]))
