@@ -209,6 +209,19 @@ func (s *EVMStateStore) GetLatestVersion() int64 {
 	return minVersion
 }
 
+// HighestDBVersion returns the highest version any one of the store's databases records. It exceeds
+// GetLatestVersion only while the databases disagree, which is what an interrupted commit, restore or
+// reset leaves behind: rows above the head that a replay forward cannot delete.
+func (s *EVMStateStore) HighestDBVersion() int64 {
+	var highest int64
+	for _, db := range s.managedDBs {
+		if v := db.GetLatestVersion(); v > highest {
+			highest = v
+		}
+	}
+	return highest
+}
+
 func (s *EVMStateStore) SetLatestVersion(version int64) error {
 	for _, db := range s.managedDBs {
 		if err := db.SetLatestVersion(version); err != nil {

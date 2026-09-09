@@ -28,10 +28,7 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := m.openStateDB(ctx); err != nil {
-		return err
-	}
-	if err := m.recoverStores(targetHeight); err != nil {
+	if err := m.recoverStores(ctx, targetHeight); err != nil {
 		return err
 	}
 	// The receipt store opens last because its rollback runs against its files: it is the one store
@@ -39,20 +36,25 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 	return m.openReceiptStore()
 }
 
-// recoverStores aligns the block height of the receipt store, the live state (SC) and the historical
-// state (SS, if enabled) on target, cutting the state WAL back to target as it rolls state back.
+// recoverStores puts the receipt store, the state commit store and the EVM state store (when enabled)
+// on target, cutting the state WAL back to it as well. The state stores are rolled back as they open,
+// so this is what leaves the manager holding them.
 //
 // A target of 0 is no height to converge on, and every store is left as it was found: rolling back to
 // it would drop every receipt the node holds along with every block in its WAL. This is the single
-// guard for that, which is why the two rollbacks below it carry none of their own.
-func (m *GigaStorageManager) recoverStores(target int64) error {
+// guard for that, which is why the rollbacks below it carry none of their own.
+//
+// State goes first because it is the rollback that refuses: a target its snapshots and WAL cannot span
+// leaves the node down for an operator to retry at a higher one, and receipts cut to the lower target
+// would no longer be there to reach.
+func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) error {
 	if target == 0 {
-		return nil
+		return m.openStateDB(ctx)
 	}
-	if err := m.recoverReceipt(target); err != nil {
+	if err := m.openStateDBAt(ctx, target); err != nil {
 		return err
 	}
-	return m.stateDB.RollbackTo(target)
+	return m.recoverReceipt(target)
 }
 
 // openBlockStore opens the block ledger consensus reads and writes.
@@ -144,10 +146,24 @@ func recoveryTarget(blockHeight, stateHeight, receiptHeight uint64) uint64 {
 	return target
 }
 
-// openStateDB opens the live state (SC), the historical state (SS, if enabled) and the state WAL they
-// share, where it finds them. recoverStores is what puts them on a height.
+// openStateDB opens the state commit store, the EVM state store (when enabled) and the state WAL,
+// leaving them on the height the WAL holds.
 func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
 	stateDB, err := giga.NewStateDB(ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig)
+	if err != nil {
+		return err
+	}
+	m.stateDB = stateDB
+	return nil
+}
+
+// openStateDBAt opens the same three stores on target, rolling them back to it first.
+//
+// The rollback is part of the open because cutting the state WAL's tail needs the WAL closed, so an
+// already-open state DB would have to close and reopen it.
+func (m *GigaStorageManager) openStateDBAt(ctx context.Context, target int64) error {
+	stateDB, err := giga.NewStateDBWithRollback(
+		ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, target)
 	if err != nil {
 		return err
 	}
