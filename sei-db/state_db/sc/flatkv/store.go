@@ -225,7 +225,7 @@ func routePhysicalKey(physicalKey []byte) (string, error) {
 	}
 	kind, _ := keys.ParseEVMKey(innerKey)
 	switch kind {
-	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash, keys.EVMKeyBalance:
 		return accountDBDir, nil
 	case keys.EVMKeyCode:
 		return codeDBDir, nil
@@ -417,6 +417,43 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 	return nil
 }
 
+// LoadWorkingCopy opens the database on the version its files already hold — the working copy, or the
+// snapshot the current link names when there is no working copy to resume — and leaves this store open
+// for writing without replaying any WAL block.
+//
+// It is LoadLatest for a store whose WAL an outer context owns, and it touches no WAL at all: replaying
+// one forward from the version this opens on is that context's, as is RebuildIfUnreachable, the repair
+// that has to precede it.
+func (s *CommitStore) LoadWorkingCopy() (retErr error) {
+	obs := s.observeOp("LoadWorkingCopy", otelMetrics.OpenLatency).
+		withAttrs(attribute.Bool("read_only", false))
+	defer obs.done(&retErr, func() {
+		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		logger.Info("FlatKV LoadWorkingCopy complete", "version", s.committedVersion, "elapsed", obs.elapsed())
+	})
+
+	if s.readOnly {
+		return errReadOnly
+	}
+
+	_ = s.closeDBsOnly()
+
+	// The lock is released on failure only when this call took it, since open does not track one it
+	// found already held.
+	lockHeldBefore := s.fileLock != nil
+	defer func() {
+		if retErr != nil && !lockHeldBefore && s.fileLock != nil {
+			_ = s.fileLock.Unlock()
+			s.fileLock = nil
+		}
+	}()
+
+	if err := s.open(); err != nil {
+		return fmt.Errorf("open FlatKV store: %w", err)
+	}
+	return nil
+}
+
 // LoadVersionReadOnly returns an isolated read-only view of the database at targetVersion (0 = latest).
 // This store is left untouched and keeps committing; the caller owns the view and must Close it.
 //
@@ -600,7 +637,42 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 }
 
 // rebuildIfAnyDataDBIsUnreachable discards the working copy when a data DB records a version that
-// neither the snapshots nor the WAL can account for, leaving the store at a version replay can reach.
+// neither the snapshots nor this store's own WAL can account for.
+func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
+	reachable, err := latestVersion(s.flatkvDir(), s.wal)
+	if err != nil {
+		return err
+	}
+	return s.rebuildIfAnyDataDBIsAbove(reachable)
+}
+
+// RebuildIfUnreachable discards the working copy when a data DB records a version that neither this
+// store's snapshots nor a WAL ending at walHead can account for.
+//
+// It is the repair inside LoadLatest, for a store whose WAL an outer context owns: that context hands
+// the head over instead, so nothing here opens the WAL. It has to run before that context replays,
+// which erases the evidence it works from.
+func (s *CommitStore) RebuildIfUnreachable(walHead int64) error {
+	snapshotVersion, err := currentSnapshotVersion(s.flatkvDir())
+	if err != nil {
+		return err
+	}
+	return s.rebuildIfAnyDataDBIsAbove(max(snapshotVersion, walHead))
+}
+
+// RebuildIfTorn discards the working copy when its data DBs disagree, one recording a block the others
+// do not, which is what an interrupted commit leaves.
+//
+// It is the repair for a store whose WAL holds no blocks, where RebuildIfUnreachable would measure the
+// working copy against the current snapshot and discard a copy that is legitimately ahead of it. The
+// height the data DBs agree on is the yardstick here instead. The rebuild still comes back from the
+// current snapshot, so the blocks between it and that height are replayed or re-executed afterwards.
+func (s *CommitStore) RebuildIfTorn() error {
+	return s.rebuildIfAnyDataDBIsAbove(s.committedVersion)
+}
+
+// rebuildIfAnyDataDBIsAbove rebuilds the working copy from the current snapshot when a data DB records
+// a version above reachable, leaving the store at a version replay can reach.
 //
 // It must run before replay, because replay erases the evidence: applying an older block to a DB that
 // is past it rewrites that DB's version record downward to match the others while leaving the later
@@ -609,12 +681,7 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 // The blocks discarded here were never servable. A block present in one data DB and absent from the
 // WAL is a block no consistent state includes, so rebuilding from the snapshot loses nothing that
 // could have been read back — which is why this repairs rather than refusing and taking the node down.
-func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
-	reachable, err := latestVersion(s.flatkvDir(), s.wal)
-	if err != nil {
-		return err
-	}
-
+func (s *CommitStore) rebuildIfAnyDataDBIsAbove(reachable int64) error {
 	unreachable := make([]string, 0, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
 		if meta := s.localMeta[dbDir]; meta.CommittedVersion > reachable {

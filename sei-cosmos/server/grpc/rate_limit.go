@@ -6,16 +6,31 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/tap"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 )
 
-var errRateLimited = status.Error(codes.ResourceExhausted, "too many requests")
+var (
+	errRateLimited     = status.Error(codes.ResourceExhausted, "too many requests")
+	errTooManyInFlight = status.Error(codes.ResourceExhausted, "too many concurrent requests")
+)
 
 // admittedIPKey addresses the client IP recorded when the tap handler charges an RPC.
 type admittedIPKey struct{}
+
+// inFlightIPKey addresses the client IP a concurrency slot was taken for, and
+// marks the RPC as one InFlightStatsHandler must release.
+type inFlightIPKey struct{}
+
+// inFlightIP returns the client IP a concurrency slot is held for on this RPC
+// and whether one is held at all.
+func inFlightIP(ctx context.Context) (string, bool) {
+	ip, ok := ctx.Value(inFlightIPKey{}).(string)
+	return ip, ok
+}
 
 // admittedIP returns the client IP the tap handler charged for this RPC and
 // whether the tap handler ran at all.
@@ -41,7 +56,71 @@ func RateLimitTapHandle(registry *ratelimiter.Registry) tap.ServerInHandle {
 		if !registry.Allow(ctx, ip, ratelimiter.PlaneGRPC, info.FullMethodName) {
 			return ctx, errRateLimited
 		}
-		return context.WithValue(ctx, admittedIPKey{}, ip), nil
+		ctx = context.WithValue(ctx, admittedIPKey{}, ip)
+		return acquireInFlightSlot(ctx, registry, ip, info.FullMethodName)
+	}
+}
+
+// acquireInFlightSlot takes ip's concurrency slot for a native-gRPC RPC and
+// returns the context InFlightStatsHandler releases it from, or an error when
+// the IP already holds its share.
+//
+// The slot is taken only for a method the server actually serves, and that is a
+// correctness requirement rather than an optimisation. grpc-go returns from
+// handleStream for an unknown or malformed method name without ever emitting
+// the stats events the release hangs off, so a client spraying HEADERS at
+// "/nope" would leak slots until the IP could open nothing at all — a worse
+// outcome than the burst the cap exists to prevent. An unknown method is
+// answered with Unimplemented either way, and the token bucket still charges it.
+//
+// It follows that the cap is inert until Registry.SetKnownGRPCMethods has run,
+// which StartGRPCServer does before it serves.
+func acquireInFlightSlot(ctx context.Context, registry *ratelimiter.Registry, ip, fullMethod string) (context.Context, error) {
+	if !registry.IsKnownGRPCMethod(fullMethod) {
+		return ctx, nil
+	}
+	if !registry.AcquireInFlight(ctx, ip, ratelimiter.PlaneGRPC, fullMethod) {
+		return ctx, errTooManyInFlight
+	}
+	return context.WithValue(ctx, inFlightIPKey{}, ip), nil
+}
+
+// InFlightStatsHandler returns the stats handler that releases the concurrency
+// slots RateLimitTapHandle takes. registry must be non-nil.
+//
+// stats.End is the only hook that brackets a stream the tap admitted, whatever
+// ends it: a served handler, a client reset, a lost connection, or a panic
+// unwinding through grpc-go's own deferred emit. An interceptor cannot, because
+// grpc-go reaches one only after decoding the request message, which is
+// precisely the event a stockpiling client withholds.
+func InFlightStatsHandler(registry *ratelimiter.Registry) stats.Handler {
+	return inFlightStatsHandler{registry: registry}
+}
+
+type inFlightStatsHandler struct {
+	registry *ratelimiter.Registry
+}
+
+func (inFlightStatsHandler) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
+	return ctx
+}
+func (inFlightStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
+	return ctx
+}
+func (inFlightStatsHandler) HandleConn(context.Context, stats.ConnStats) {}
+
+// HandleRPC releases the slot this RPC holds once, when the RPC ends.
+//
+// Only an RPC whose context carries the marker holds one. gRPC-Web reaches the
+// same server through ServeHTTP, which emits the same stats events but never
+// runs the tap handler; RateLimitHTTPMiddleware releases that plane's slot under
+// its own defer, and leaves no marker here, so the slot is not returned twice.
+func (h inFlightStatsHandler) HandleRPC(ctx context.Context, rpcStats stats.RPCStats) {
+	if _, ok := rpcStats.(*stats.End); !ok {
+		return
+	}
+	if ip, held := inFlightIP(ctx); held {
+		h.registry.ReleaseInFlight(ip)
 	}
 }
 
@@ -66,6 +145,14 @@ func RateLimitHTTPMiddleware(registry *ratelimiter.Registry, next http.Handler) 
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}
+		// The slot is released here rather than from the stats handler, because
+		// this handler brackets the whole request already. No marker goes on the
+		// context, so the stats handler does not release it a second time.
+		if !registry.AcquireInFlight(r.Context(), ip, ratelimiter.PlaneGRPC, r.URL.Path) {
+			http.Error(w, "too many concurrent requests", http.StatusTooManyRequests)
+			return
+		}
+		defer registry.ReleaseInFlight(ip)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), admittedIPKey{}, ip)))
 	})
 }

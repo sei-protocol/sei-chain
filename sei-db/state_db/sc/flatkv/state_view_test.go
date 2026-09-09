@@ -203,22 +203,59 @@ func TestStateViewEVMAccessors(t *testing.T) {
 	})
 }
 
-// Balance has no key kind yet, so nothing can write one (store_apply.go passes nil balance changes).
-// Refusing is the only honest answer: zero would be indistinguishable from a real zero balance, and
-// the caller has no way to tell the two apart. The account below has a nonce, so its row does exist.
-func TestStateViewBalancePanicsUntilWritable(t *testing.T) {
+// GetBalance projects the balance field out of the account row. An account whose row exists only for
+// its nonce reads zero, the same answer an address with no row gets: a single return cannot say which.
+func TestStateViewGetBalance(t *testing.T) {
 	s := setupTestStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 
-	addr := addrN(1)
-	commitNonce(t, s, 1, addr, 7)
+	funded := addrN(1)
+	nonceOnly := addrN(2)
+	absent := addrN(3)
+	balance := balanceN(42)
+
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{
+		namedCS(balancePair(funded, balance), noncePair(nonceOnly, 7)),
+	}))
 
 	stateView := s.OpenView()
 	defer stateView.Close()
 
-	require.PanicsWithValue(t,
-		"flatkv: GetBalance is unimplemented; FlatKV does not store balances",
-		func() { stateView.GetBalance(gigaAddr(addr)) })
+	require.Equal(t, gigatypes.Hash(balance), stateView.GetBalance(gigaAddr(funded)))
+	require.Equal(t, gigatypes.Hash{}, stateView.GetBalance(gigaAddr(nonceOnly)))
+	require.Equal(t, gigatypes.Hash{}, stateView.GetBalance(gigaAddr(absent)))
+}
+
+// A balance write alone brings an account into existence, so the other account-level getters have to
+// answer for it: the row is real even though no nonce or code was ever written to it.
+func TestStateViewBalanceCreatesAccount(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	addr := addrN(1)
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
+
+	stateView := s.OpenView()
+	defer stateView.Close()
+
+	require.True(t, stateView.AccountExists(gigaAddr(addr)))
+	require.Zero(t, stateView.GetNonce(gigaAddr(addr)))
+}
+
+// Zeroing a balance is how a balance is deleted, and the row goes with it when nothing else holds it up.
+func TestStateViewBalanceDeletionRemovesAccount(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	addr := addrN(1)
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{namedCS(balancePair(addr, balanceN(9)))}))
+	require.NoError(t, s.CommitStateChanges(2, []*proto.NamedChangeSet{namedCS(balanceDeletePair(addr))}))
+
+	stateView := s.OpenView()
+	defer stateView.Close()
+
+	require.False(t, stateView.AccountExists(gigaAddr(addr)))
+	require.Equal(t, gigatypes.Hash{}, stateView.GetBalance(gigaAddr(addr)))
 }
 
 // Get answers with the value alone. Each row is stored as version||blockHeight||value, so returning
@@ -234,6 +271,7 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 	slot := slotN(1)
 	bytecode := []byte{0x60, 0x80}
 	codeHash := codeHashN(0xAB)
+	balance := balanceN(0x77)
 
 	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{
 		namedCS(
@@ -241,6 +279,7 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 			codeHashPair(addr, codeHash),
 			codePair(addr, bytecode),
 			storagePair(addr, slot, []byte{0xEE}),
+			balancePair(addr, balance),
 			noncePair(eoa, 9),
 		),
 		{
@@ -264,6 +303,13 @@ func TestStateViewGetReturnsValues(t *testing.T) {
 		require.True(t, found)
 		require.Equal(t, codeHash[:], value,
 			"a code-hash key reads the account row but answers with that one field")
+	})
+
+	t.Run("balance", func(t *testing.T) {
+		value, found := stateView.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]))
+		require.True(t, found)
+		require.Equal(t, balance[:], value,
+			"a balance key reads the account row but answers with that one field")
 	})
 
 	t.Run("storage", func(t *testing.T) {

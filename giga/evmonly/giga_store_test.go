@@ -37,8 +37,6 @@ func (s *recordingGigaStore) OpenViewAt(int64) (gigatypes.StateView, bool) {
 	return nil, false
 }
 
-func (s *recordingGigaStore) RollbackTo(int64) error { return errors.ErrUnsupported }
-
 func (s *recordingGigaStore) Close() error { return nil }
 
 type memoryGigaSnapshot struct {
