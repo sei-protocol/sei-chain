@@ -56,6 +56,38 @@ func TestDecodeGigaClaimEVMRPC(t *testing.T) {
 	}
 }
 
+func TestDecodeGigaClaimRequiresAllFields(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	sig := key.SignWithTag(gigaValidatorHandshakeTag, []byte("x"))
+	evmRPC := "http://validator.example:8545"
+	full := func() *pb.Handshake {
+		return &pb.Handshake{
+			ValidatorAuthKey: key.Public().Bytes(),
+			ValidatorAuthSig: sig.Bytes(),
+			EvmRpc:           &evmRPC,
+		}
+	}
+	for _, drop := range []func(*pb.Handshake){
+		func(p *pb.Handshake) { p.ValidatorAuthKey = nil },
+		func(p *pb.Handshake) { p.ValidatorAuthSig = nil },
+		func(p *pb.Handshake) { p.EvmRpc = nil },
+		func(p *pb.Handshake) { p.ValidatorAuthKey, p.ValidatorAuthSig = nil, nil },
+		func(p *pb.Handshake) { p.ValidatorAuthKey, p.EvmRpc = nil, nil },
+		func(p *pb.Handshake) { p.ValidatorAuthSig, p.EvmRpc = nil, nil },
+	} {
+		p := full()
+		drop(p)
+		_, err := decodeGigaClaim(p)
+		require.Error(t, err)
+	}
+
+	// None of the three is a peer without a claim, rather than a malformed one.
+	got, err := decodeGigaClaim(&pb.Handshake{})
+	require.NoError(t, err)
+	require.False(t, got.IsPresent())
+}
+
 func TestHandshakeWireguardRejectsOversizedEvmRPC(t *testing.T) {
 	tooLong := strings.Repeat("a", 2049)
 	raw, err := proto.Marshal(&pb.Handshake{EvmRpc: &tooLong})
