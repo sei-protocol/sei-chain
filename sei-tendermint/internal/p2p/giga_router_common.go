@@ -737,18 +737,17 @@ func (r *gigaRouterCommon) runPerCommitteeMember(ctx context.Context, tasks ...c
 	})
 }
 
-// runUntilMembershipChange runs f while validator's membership matches
-// isCommittee. It reports whether a membership change ended f.
+// runUntilMembershipChange runs f until validator leaves the current commit
+// committee. It reports whether a leave ended f.
 func (r *gigaRouterCommon) runUntilMembershipChange(
 	ctx context.Context,
 	validator atypes.PublicKey,
-	isCommittee bool,
 	f func(ctx context.Context) error,
 ) (changed bool, err error) {
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
 			_, err := r.nextCommitEpoch.Wait(ctx, func(epoch *atypes.Epoch) bool {
-				return epoch.Committee().HasReplica(validator) != isCommittee
+				return !epoch.Committee().HasReplica(validator)
 			})
 			if err != nil {
 				return err
@@ -800,7 +799,7 @@ func (r *gigaRouterCommon) runInboundValidator(ctx context.Context, hConn *hands
 	server := rpc.NewServer[giga.API]()
 	return r.poolInCommittee.InsertAndRun(ctx, member, server, func(ctx context.Context) error {
 		return r.runInboundMux(ctx, server, hConn, func(ctx context.Context) error {
-			changed, err := r.runUntilMembershipChange(ctx, member, true, func(ctx context.Context) error {
+			changed, err := r.runUntilMembershipChange(ctx, member, func(ctx context.Context) error {
 				return r.service.RunServer(ctx, server, true)
 			})
 			if err != nil {

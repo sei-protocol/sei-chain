@@ -716,7 +716,7 @@ func TestGigaRouterCommon_CommitteeTasksReturnWhenWorkReturns(t *testing.T) {
 	nextEpoch := utils.NewAtomicSend(testEpoch(2, map[atypes.PublicKey]uint64{a: 1}))
 	router := &gigaRouterCommon{nextCommitEpoch: nextEpoch.Subscribe()}
 
-	changed, err := router.runUntilMembershipChange(t.Context(), a, true, func(context.Context) error {
+	changed, err := router.runUntilMembershipChange(t.Context(), a, func(context.Context) error {
 		return nil
 	})
 	require.NoError(t, err)
@@ -732,7 +732,7 @@ func TestGigaRouterCommon_RunUntilMembershipChangeCancelsFWhenMembershipChanges(
 	started := make(chan struct{})
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
-			changed, err := router.runUntilMembershipChange(ctx, a, true, func(ctx context.Context) error {
+			changed, err := router.runUntilMembershipChange(ctx, a, func(ctx context.Context) error {
 				close(started)
 				<-ctx.Done()
 				return ctx.Err()
