@@ -17,7 +17,7 @@ func TestLtHashBasic(t *testing.T) {
 	}
 
 	// Test via ComputeLtHash
-	lth1, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	lth1 := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key"), Value: []byte("value")},
 	})
 	if lth1.IsZero() {
@@ -43,12 +43,12 @@ func TestLtHashBasic(t *testing.T) {
 }
 
 func TestLtHashDeterminism(t *testing.T) {
-	kvPairs := []KVPairWithLastValue{
+	mutations := []KeyMutation{
 		{Key: []byte("key"), Value: []byte("test data for determinism")},
 	}
 
-	lth1, _ := ComputeLtHash(nil, kvPairs)
-	lth2, _ := ComputeLtHash(nil, kvPairs)
+	lth1 := ComputeLtHash(nil, mutations)
+	lth2 := ComputeLtHash(nil, mutations)
 
 	if !bytes.Equal(lth1.Marshal(), lth2.Marshal()) {
 		t.Error("ComputeLtHash should be deterministic")
@@ -61,10 +61,10 @@ func TestLtHashDeterminism(t *testing.T) {
 
 func TestHashKVNoCollision(t *testing.T) {
 	// Verify length-prefixing prevents key||value concatenation collisions
-	lth1, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	lth1 := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("a"), Value: []byte("bc")},
 	})
-	lth2, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	lth2 := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("ab"), Value: []byte("c")},
 	})
 
@@ -75,16 +75,12 @@ func TestHashKVNoCollision(t *testing.T) {
 
 func TestComputeLtHash(t *testing.T) {
 	// Empty input
-	result, timings := ComputeLtHash(nil, nil)
+	result := ComputeLtHash(nil, nil)
 	if !result.IsZero() {
 		t.Error("Empty changeset should produce zero")
 	}
-	if timings == nil {
-		t.Error("Timings should not be nil")
-	}
-
 	// Insert
-	result, _ = ComputeLtHash(nil, []KVPairWithLastValue{
+	result = ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key1"), Value: []byte("value1")},
 	})
 	if result.IsZero() {
@@ -92,10 +88,10 @@ func TestComputeLtHash(t *testing.T) {
 	}
 
 	// Insert then delete should cancel out
-	result1, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	result1 := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key1"), Value: []byte("value1")},
 	})
-	result2, _ := ComputeLtHash(result1, []KVPairWithLastValue{
+	result2 := ComputeLtHash(result1, []KeyMutation{
 		{Key: []byte("key1"), LastValue: []byte("value1"), Delete: true},
 	})
 	if !result2.IsZero() {
@@ -103,14 +99,14 @@ func TestComputeLtHash(t *testing.T) {
 	}
 
 	// Update: old value replaced with new value
-	initial, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	initial := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key1"), Value: []byte("value1")},
 	})
-	updated, _ := ComputeLtHash(initial, []KVPairWithLastValue{
+	updated := ComputeLtHash(initial, []KeyMutation{
 		{Key: []byte("key1"), Value: []byte("value2"), LastValue: []byte("value1")},
 	})
 	// updated should equal direct insert of value2
-	direct, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	direct := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key1"), Value: []byte("value2")},
 	})
 	if updated.Checksum() != direct.Checksum() {
@@ -119,28 +115,22 @@ func TestComputeLtHash(t *testing.T) {
 }
 
 func TestComputeLtHashLarge(t *testing.T) {
-	kvPairs := make([]KVPairWithLastValue, 500)
-	for i := range kvPairs {
-		kvPairs[i] = KVPairWithLastValue{
+	mutations := make([]KeyMutation, 500)
+	for i := range mutations {
+		mutations[i] = KeyMutation{
 			Key:   []byte{byte(i >> 8), byte(i)},
 			Value: []byte{byte(i), byte(i >> 8)},
 		}
 	}
 
-	result, timings := ComputeLtHash(nil, kvPairs)
+	result := ComputeLtHash(nil, mutations)
 	if result.IsZero() {
 		t.Error("Large changeset should produce non-zero result")
-	}
-	if timings.TotalNs <= 0 {
-		t.Error("Total time should be positive")
-	}
-	if timings.Blake3Ns <= 0 {
-		t.Error("Blake3 time should be positive")
 	}
 }
 
 func TestUnmarshal(t *testing.T) {
-	original, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	original := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key"), Value: []byte("test data")},
 	})
 	rawBytes := original.Marshal()
@@ -161,7 +151,7 @@ func TestUnmarshal(t *testing.T) {
 }
 
 func TestChecksumHex(t *testing.T) {
-	lth, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	lth := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key"), Value: []byte("hello")},
 	})
 	checksum := lth.Checksum()
@@ -172,7 +162,7 @@ func TestChecksumHex(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	lth, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	lth := ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key"), Value: []byte("data")},
 	})
 	if lth.IsZero() {
@@ -186,14 +176,14 @@ func TestReset(t *testing.T) {
 
 func TestEmptyKeyOrValue(t *testing.T) {
 	// Empty key or value should be skipped
-	result, _ := ComputeLtHash(nil, []KVPairWithLastValue{
+	result := ComputeLtHash(nil, []KeyMutation{
 		{Key: nil, Value: []byte("value")},
 	})
 	if !result.IsZero() {
 		t.Error("Empty key should be skipped")
 	}
 
-	result, _ = ComputeLtHash(nil, []KVPairWithLastValue{
+	result = ComputeLtHash(nil, []KeyMutation{
 		{Key: []byte("key"), Value: nil},
 	})
 	if !result.IsZero() {
@@ -206,18 +196,18 @@ func TestEmptyKeyOrValue(t *testing.T) {
 func TestParallelConsistency(t *testing.T) {
 	// Create enough pairs to trigger parallel path (> 100)
 	count := 500
-	kvPairs := make([]KVPairWithLastValue, count)
+	mutations := make([]KeyMutation, count)
 	for i := 0; i < count; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		val := fmt.Sprintf("val-%d", i)
-		kvPairs[i] = KVPairWithLastValue{
+		mutations[i] = KeyMutation{
 			Key:   []byte(key),
 			Value: []byte(val),
 		}
 	}
 
 	// 1. Run with parallel workers (default)
-	parallelResult, _ := ComputeLtHash(nil, kvPairs)
+	parallelResult := ComputeLtHash(nil, mutations)
 
 	// 2. Run strictly serial by forcing computeDeltaSerial logic via small chunks or mock?
 	// Actually, we can just call computeDeltaSerial directly if we export it or use reflection,
@@ -227,9 +217,9 @@ func TestParallelConsistency(t *testing.T) {
 	chunkSize := 50
 	for i := 0; i < count; i += chunkSize {
 		end := i + chunkSize
-		chunk := kvPairs[i:end]
+		chunk := mutations[i:end]
 		// Calling ComputeLtHash with small chunk will trigger serial path
-		chunkHash, _ := ComputeLtHash(nil, chunk)
+		chunkHash := ComputeLtHash(nil, chunk)
 		serialResult.MixIn(chunkHash)
 	}
 
@@ -242,13 +232,13 @@ func TestParallelConsistency(t *testing.T) {
 // Commutativity: A + B = B + A
 // Associativity: (A + B) + C = A + (B + C)
 func TestHomomorphicProperties(t *testing.T) {
-	kv1 := []KVPairWithLastValue{{Key: []byte("k1"), Value: []byte("v1")}}
-	kv2 := []KVPairWithLastValue{{Key: []byte("k2"), Value: []byte("v2")}}
-	kv3 := []KVPairWithLastValue{{Key: []byte("k3"), Value: []byte("v3")}}
+	kv1 := []KeyMutation{{Key: []byte("k1"), Value: []byte("v1")}}
+	kv2 := []KeyMutation{{Key: []byte("k2"), Value: []byte("v2")}}
+	kv3 := []KeyMutation{{Key: []byte("k3"), Value: []byte("v3")}}
 
-	h1, _ := ComputeLtHash(nil, kv1)
-	h2, _ := ComputeLtHash(nil, kv2)
-	h3, _ := ComputeLtHash(nil, kv3)
+	h1 := ComputeLtHash(nil, kv1)
+	h2 := ComputeLtHash(nil, kv2)
+	h3 := ComputeLtHash(nil, kv3)
 
 	// Commutativity: h1 + h2 == h2 + h1
 	sum12 := h1.Clone()
@@ -290,7 +280,7 @@ func TestFuzz(t *testing.T) {
 		binary.LittleEndian.PutUint64(val, rng.Uint64())
 
 		// Randomly insert or delete
-		op := KVPairWithLastValue{Key: key}
+		op := KeyMutation{Key: key}
 		if rng.Intn(2) == 0 {
 			// Insert
 			op.Value = val
@@ -300,7 +290,7 @@ func TestFuzz(t *testing.T) {
 			op.Delete = true
 		}
 
-		next, _ := ComputeLtHash(base, []KVPairWithLastValue{op})
+		next := ComputeLtHash(base, []KeyMutation{op})
 		base = next
 	}
 

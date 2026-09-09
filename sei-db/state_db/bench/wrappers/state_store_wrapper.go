@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -64,6 +65,12 @@ func (s *stateStoreWrapper) LoadLatest() error {
 
 func (s *stateStoreWrapper) Importer(_ int64) (scTypes.Importer, error) {
 	return nil, fmt.Errorf("import not supported for state store wrapper")
+}
+
+// RegisterHashListener reports that this DB publishes no block hashes. The historical state store
+// computes none.
+func (s *stateStoreWrapper) RegisterHashListener(_ gigatypes.HashListener) (bool, error) {
+	return false, nil
 }
 
 func (s *stateStoreWrapper) GetPhaseTimer() *metrics.PhaseTimer {

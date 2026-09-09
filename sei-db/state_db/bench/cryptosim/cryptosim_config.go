@@ -83,6 +83,12 @@ type CryptoSimConfig struct {
 	// The number of transactions that will be processed in each "block".
 	TransactionsPerBlock int
 
+	// How many blocks the benchmark may run ahead of block hashing. Databases hash committed blocks
+	// asynchronously, and the benchmark takes one block's hash per block committed once it is this far
+	// ahead — so a block's hash must arrive no later than this many blocks after it was committed, and
+	// the benchmark waits when it does not. A database that publishes no block hashes waits on nothing.
+	HashLagBlocks int
+
 	// The directory to store the benchmark data.
 	DataDir string
 
@@ -253,6 +259,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
+		HashLagBlocks:                     32,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
@@ -342,6 +349,9 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.Erc20InteractionsPerAccount < minErc20InteractionsPerAcct {
 		return fmt.Errorf("Erc20InteractionsPerAccount must be at least %d (got %d)",
 			minErc20InteractionsPerAcct, c.Erc20InteractionsPerAccount)
+	}
+	if c.HashLagBlocks < 1 {
+		return fmt.Errorf("HashLagBlocks must be at least 1 (got %d)", c.HashLagBlocks)
 	}
 	if c.TransactionsPerBlock < 1 {
 		return fmt.Errorf("TransactionsPerBlock must be at least 1 (got %d)", c.TransactionsPerBlock)

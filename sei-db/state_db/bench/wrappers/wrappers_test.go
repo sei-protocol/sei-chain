@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -125,6 +126,10 @@ func (m *mockStateStore) Import(_ int64, _ <-chan dbTypes.SnapshotNode) error {
 
 func (m *mockStateStore) Close() error {
 	return nil
+}
+
+func (m *mockDBWrapper) RegisterHashListener(_ gigatypes.HashListener) (bool, error) {
+	return false, nil
 }
 
 func TestCombinedWrapperApplyChangeSetsUsesAsyncSS(t *testing.T) {
