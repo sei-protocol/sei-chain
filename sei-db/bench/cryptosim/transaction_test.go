@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )

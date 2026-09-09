@@ -1,7 +1,7 @@
 BINARY := bin/walsim
 LOGGER_BINARY := bin/configure-logger
 MODULE_ROOT ?= $(shell git -C "$(CURDIR)" rev-parse --show-toplevel)
-CMD_DIR := ./sei-db/seiwal/walsim/cmd
+CMD_DIR := ./sei-db/bench/walsim/cmd
 
 .PHONY: build
 build:

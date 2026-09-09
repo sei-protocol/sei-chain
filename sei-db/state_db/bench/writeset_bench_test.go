@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 )
 
 // BenchmarkWriteSetReplay replays a captured write-set file against both

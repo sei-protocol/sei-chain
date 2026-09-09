@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
 func TestLoadConfigFromFile_StateStoreConfigOverridePreservesBenchmarkDefaults(t *testing.T) {

@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bench/cryptosim"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/cryptosim"
 )
 
 /*

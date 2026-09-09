@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,9 +18,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -125,73 +124,6 @@ func RampDistribution(startFactor, endFactor float64) KeyDistribution {
 			return 0
 		}
 		return count
-	}
-}
-
-// ProgressReporter reports benchmark progress periodically.
-type ProgressReporter struct {
-	totalKeys   int64
-	totalBlocks int64
-	keysWritten atomic.Int64
-	startTime   time.Time
-	done        chan struct{}
-	interval    time.Duration
-}
-
-// NewProgressReporter creates a new progress reporter.
-func NewProgressReporter(totalKeys, totalBlocks int64, interval time.Duration) *ProgressReporter {
-	return &ProgressReporter{
-		totalKeys:   totalKeys,
-		totalBlocks: totalBlocks,
-		done:        make(chan struct{}),
-		interval:    interval,
-	}
-}
-
-// Start begins periodic progress reporting in a background goroutine.
-func (p *ProgressReporter) Start() {
-	p.startTime = time.Now()
-	go func() {
-		ticker := time.NewTicker(p.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-p.done:
-				return
-			case <-ticker.C:
-				p.report()
-			}
-		}
-	}()
-}
-
-// Stop stops the progress reporter and prints final stats.
-func (p *ProgressReporter) Stop() {
-	close(p.done)
-	elapsed := time.Since(p.startTime).Seconds()
-	keys := p.keysWritten.Load()
-	fmt.Printf("[Final] keys=%d/%d, keys/sec=%.0f, elapsed=%.2fs\n",
-		keys, p.totalKeys, float64(keys)/elapsed, elapsed)
-}
-
-// Add records that keys were written.
-func (p *ProgressReporter) Add(keys int) {
-	p.keysWritten.Add(int64(keys))
-}
-
-func (p *ProgressReporter) report() {
-	keys := p.keysWritten.Load()
-	elapsed := time.Since(p.startTime).Seconds()
-	if elapsed > 0 {
-		keysPerBlock := p.totalKeys / p.totalBlocks
-		if keysPerBlock > 0 {
-			blocks := keys / keysPerBlock
-			fmt.Printf("[Progress] blocks=%d/%d, keys=%d/%d, keys/sec=%.0f\n",
-				blocks, p.totalBlocks, keys, p.totalKeys, float64(keys)/elapsed)
-			return
-		}
-		fmt.Printf("[Progress] blocks=%d/%d, keys=%d/%d, keys/sec=%.0f\n",
-			0, p.totalBlocks, keys, p.totalKeys, float64(keys)/elapsed)
 	}
 }
 
@@ -381,9 +313,9 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 	return importer.Close()
 }
 
-// runBenchmark runs the benchmark with optional progress reporting.
-// If withProgress is true, reports keys/sec every 5 seconds to stdout.
-func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
+// runBenchmark runs the scenario against a freshly opened backend, reporting
+// keys/sec and elapsed seconds as custom benchmark metrics.
+func runBenchmark(b *testing.B, scenario TestScenario) {
 	if scenario.Distribution == nil {
 		scenario.Distribution = EvenDistribution
 	}
@@ -411,12 +343,6 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 			}
 			changesetChannel := startChangesetGenerator(scenario)
 
-			var progress *ProgressReporter
-			if withProgress {
-				progress = NewProgressReporter(scenario.TotalKeys, scenario.NumBlocks, 5*time.Second)
-				progress.Start()
-			}
-
 			baseVersion := cs.Version()
 			b.StartTimer()
 			fmt.Printf("Opening DB with base version %d\n", baseVersion)
@@ -435,17 +361,11 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				version, err := cs.Commit()
 				require.NoError(b, err)
 				require.Equal(b, baseVersion+block, version)
-				if progress != nil {
-					progress.Add(len(changeset.Changeset.Pairs))
-				}
 			}
 			closeErr := cs.Close() // close to make sure all data got flushed
 			require.NoError(b, closeErr)
 
 			b.StopTimer()
-			if progress != nil {
-				progress.Stop()
-			}
 
 			elapsed := b.Elapsed().Seconds()
 			b.ReportMetric(float64(scenario.TotalKeys)/elapsed, "keys/sec")
