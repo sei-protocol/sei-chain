@@ -350,9 +350,9 @@ func (s *StateDB) Close() error {
 	return errs
 }
 
-// rewindTo puts whichever of SC and SS sits above target on its newest snapshot at or below it, drops
-// every snapshot of both above target, and cuts the WAL's tail to it. All three stores must be closed,
-// and a store already at or below target is left where it is, holding state the replay carries forward.
+// rewindTo puts whichever of SC and SS holds state above target on its newest snapshot at or below it,
+// drops every snapshot of both above target, and cuts the WAL's tail to it. All three stores must be
+// closed, and a store holding nothing above target is left where it is, for the replay to carry forward.
 //
 // A target the surviving snapshots and the WAL cannot span is refused before anything moves.
 func (s *StateDB) rewindTo(target int64) error {
