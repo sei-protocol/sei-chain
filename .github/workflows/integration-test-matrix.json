@@ -1,6 +1,6 @@
 [
   {
-    "_comment": "Rows are packed by cluster config: every row that boots the same `env` runs its suites sequentially in one job, so a new suite joins the row with a matching env rather than adding a row (each row costs ~3 min of cluster boot before any test runs). Rows are ordered longest-first so the slowest jobs are dispatched in the first batch.",
+    "_comment": "All rows run concurrently, so workflow wall-clock = prepare-cluster + the slowest row. Rows are packed by cluster config (same `env` => suites run sequentially in one job) to cut runner-minutes, but no row should exceed ~8 min of test time: a new suite joins a short row with a matching env, or gets its own row if every matching row is already near that budget. Rows are ordered longest-first.",
     "name": "EVM GIGA Mixed (Determinism)",
     "env": "GIGA_STORAGE=true",
     "scripts": [
@@ -8,38 +8,57 @@
     ]
   },
   {
-    "_comment": "Suites: EVM Module (Compat), EVM Module (Precompile & Endpoints), EVM RPC .io/.iox (spec fixtures), EVM Precompiles.",
-    "name": "EVM Module & RPC",
+    "_comment": "Suites: EVM Module (Compat), EVM RPC .io/.iox (spec fixtures).",
+    "name": "EVM Module (Compat) & RPC .io/.iox",
     "env": "GIGA_STORAGE=true",
     "scripts": [
       "./integration_test/evm_module/scripts/evm_compat_tests.sh",
+      "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
+    ]
+  },
+  {
+    "_comment": "Suites: EVM Module (Precompile & Endpoints), EVM Precompiles.",
+    "name": "EVM Module (Precompile & Endpoints) & Precompiles",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
       "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
       "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
       "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
-      "./integration_test/evm_module/scripts/evm_rpc_tests.sh",
       "./integration_test/precompile_tests/scripts/run-ci.sh"
     ]
   },
   {
-    "_comment": "Suites: Autobahn EVM Module (Compat), Autobahn EVM Module (Precompile & Endpoints), Autobahn EVM GIGA Module.",
-    "name": "Autobahn EVM Module & GIGA",
+    "_comment": "Suites: Autobahn EVM Module (Compat), Autobahn EVM GIGA Module.",
+    "name": "Autobahn EVM Module (Compat) & GIGA",
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
     "scripts": [
       "./integration_test/evm_module/scripts/evm_compat_tests.sh",
-      "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
-      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
-      "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
       "./integration_test/evm_module/scripts/evm_giga_tests.sh"
     ]
   },
   {
-    "_comment": "Suites: EVM Interoperability (Pointer Tests), EVM Interoperability (Misc Tests), EVM RPC Parity (geth reference).",
-    "name": "EVM Interoperability & RPC Parity",
+    "name": "Autobahn EVM Module (Precompile & Endpoints)",
+    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+    "scripts": [
+      "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
+      "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBFlatKV",
+      "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh"
+    ]
+  },
+  {
+    "name": "EVM Interoperability (Pointer Tests)",
     "env": "GIGA_STORAGE=true",
     "scripts": [
-      "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh",
+      "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
+    ]
+  },
+  {
+    "_comment": "Suites: EVM Interoperability (Misc Tests), EVM RPC Parity (geth reference).",
+    "name": "EVM Interoperability (Misc) & RPC Parity",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
       "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh",
       "./integration_test/rpc_tests/scripts/run-ci.sh"
     ]
@@ -54,19 +73,30 @@
     ]
   },
   {
-    "_comment": "Suites: SeiDB State Store, Mint & Staking & Bank, Gov & Oracle & Authz, Distribution, Wasm Module, Disable WASM. SeiDB State Store runs first because it asserts absolute wasm code counts (genesis + its own fixtures); Disable WASM runs last because it toggles the wasm gov param.",
-    "name": "Cosmos Modules & Wasm",
+    "_comment": "Suites: SeiDB State Store, Mint & Staking & Bank, Distribution. SeiDB State Store runs first because it asserts absolute wasm code counts (genesis + its own fixtures).",
+    "name": "Cosmos Modules (SeiDB SS, Mint & Staking & Bank, Distribution)",
     "scripts": [
       "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
       "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBStateStore",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestBankModule\"",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestDistributionModule"
+    ]
+  },
+  {
+    "_comment": "Suites: Gov & Oracle & Authz, Wasm Module.",
+    "name": "Cosmos Modules (Gov & Oracle & Authz, Wasm)",
+    "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\"",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestDistributionModule",
       "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleCore",
       "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleEmergencyWithdraw",
+      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestWasmModuleEmergencyWithdraw"
+    ]
+  },
+  {
+    "name": "Disable WASM Tests",
+    "scripts": [
       "./integration_test/evm_module/scripts/disable_wasm.sh"
     ]
   },
@@ -83,11 +113,16 @@
     ]
   },
   {
-    "_comment": "Suites: dApp Tests (Uniswap), dApp Tests (NFT & Steak).",
-    "name": "dApp Tests",
+    "name": "dApp Tests (Uniswap)",
     "env": "GIGA_STORAGE=true",
     "scripts": [
-      "./integration_test/dapp_tests/dapp_uniswap_tests.sh",
+      "./integration_test/dapp_tests/dapp_uniswap_tests.sh"
+    ]
+  },
+  {
+    "name": "dApp Tests (NFT & Steak)",
+    "env": "GIGA_STORAGE=true",
+    "scripts": [
       "./integration_test/dapp_tests/dapp_nft_steak_tests.sh"
     ]
   },

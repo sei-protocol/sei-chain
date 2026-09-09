@@ -73,6 +73,9 @@ jobs:
       # image builds so the runner's small root filesystem does not fill up and
       # crash the runner mid-job.
       - name: Reclaim runner disk
+        # Image builds are the disk-heavy path; always reclaim here.
+        env:
+          CI_FREE_DISK_MIN_GIB: 1000
         run: bash .github/scripts/ci-free-disk.sh
       - name: Relocate Docker data-root to /mnt
         run: bash .github/scripts/ci-relocate-docker-data-root.sh
