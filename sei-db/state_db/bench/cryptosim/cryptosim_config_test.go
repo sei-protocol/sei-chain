@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 )
 
 func TestLoadConfigFromFile_StateStoreConfigOverridePreservesBenchmarkDefaults(t *testing.T) {
@@ -16,7 +15,6 @@ func TestLoadConfigFromFile_StateStoreConfigOverridePreservesBenchmarkDefaults(t
 
 	configPath := filepath.Join(t.TempDir(), "cryptosim.json")
 	err := os.WriteFile(configPath, []byte(`{
-  "Backend": "SSComposite",
   "StateStoreConfig": {
     "Backend": "rocksdb"
   },
@@ -27,10 +25,9 @@ func TestLoadConfigFromFile_StateStoreConfigOverridePreservesBenchmarkDefaults(t
 
 	cfg, err := LoadConfigFromFile(configPath)
 	require.NoError(t, err)
-	require.Equal(t, wrappers.SSComposite, cfg.Backend)
 	require.Equal(t, config.RocksDBBackend, cfg.StateStoreConfig.Backend)
 	require.Equal(t, config.DefaultSSAsyncBuffer, cfg.StateStoreConfig.AsyncWriteBuffer)
-	require.True(t, cfg.StateStoreConfig.EVMSplit)
+	require.Equal(t, config.DefaultSSKeepRecent, cfg.StateStoreConfig.KeepRecent)
 }
 
 func TestLoadConfigFromFile_InvalidStateStoreBackend(t *testing.T) {
@@ -74,7 +71,6 @@ func TestLoadConfigFromFile_DisableTransactionReadsOverride(t *testing.T) {
 
 	configPath := filepath.Join(t.TempDir(), "cryptosim.json")
 	err := os.WriteFile(configPath, []byte(`{
-  "Backend": "NoOp",
   "DisableTransactionReads": true,
   "DataDir": "data",
   "LogDir": "logs"
@@ -83,6 +79,5 @@ func TestLoadConfigFromFile_DisableTransactionReadsOverride(t *testing.T) {
 
 	cfg, err := LoadConfigFromFile(configPath)
 	require.NoError(t, err)
-	require.Equal(t, wrappers.NoOp, cfg.Backend)
 	require.True(t, cfg.DisableTransactionReads)
 }

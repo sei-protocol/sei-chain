@@ -5,52 +5,41 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
-	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
-type readTrackingWrapper struct {
+// readTrackingView counts the reads a transaction issues. It embeds StateView without implementing
+// it, so any method the transaction is not expected to call panics on the nil interface rather than
+// answering with a zero value.
+type readTrackingView struct {
+	gigatypes.StateView
+
+	// Reads served, in call order.
 	readCalls int
 }
 
-func (r *readTrackingWrapper) ApplyChangeSets(_ *proto.ChangelogEntry) error {
-	return nil
+func (v *readTrackingView) GetBlockHeight() int64 { return 0 }
+
+func (v *readTrackingView) Get(_ string, _ []byte) ([]byte, bool) {
+	v.readCalls++
+	return nil, false
 }
 
-func (r *readTrackingWrapper) Read(_ []byte) ([]byte, bool, error) {
-	r.readCalls++
-	return nil, false, nil
+func (v *readTrackingView) Close() {}
+
+// readTrackingStateDB serves every view from one readTrackingView, so a test can count the reads
+// made through it.
+type readTrackingStateDB struct {
+	gigatypes.StateDB
+
+	view *readTrackingView
 }
 
-func (r *readTrackingWrapper) Commit() (int64, error) {
-	return 0, nil
-}
+func (s *readTrackingStateDB) OpenView() gigatypes.StateView { return s.view }
 
-func (r *readTrackingWrapper) Close() error {
-	return nil
-}
-
-func (r *readTrackingWrapper) Version() int64 {
-	return 0
-}
-
-func (r *readTrackingWrapper) LoadLatest() error {
-	return nil
-}
-
-func (r *readTrackingWrapper) Importer(_ int64) (scTypes.Importer, error) {
-	return nil, nil
-}
-
-func (r *readTrackingWrapper) GetPhaseTimer() *commonmetrics.PhaseTimer {
-	return nil
-}
-
-func (r *readTrackingWrapper) RegisterHashListener(_ gigatypes.HashListener) (bool, error) {
-	return false, nil
+func (s *readTrackingStateDB) RegisterHashListener(_ gigatypes.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, nil
 }
 
 func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
@@ -59,8 +48,8 @@ func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
 	cfg := DefaultCryptoSimConfig()
 	cfg.DisableTransactionReads = true
 
-	wrapper := &readTrackingWrapper{}
-	db, err := NewDatabase(cfg, wrapper, nil, 0)
+	stateDB := &readTrackingStateDB{view: &readTrackingView{}}
+	db, err := NewDatabase(cfg, stateDB, nil)
 	require.NoError(t, err)
 
 	txn := &transaction{
@@ -77,10 +66,10 @@ func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
 	}
 
 	require.NoError(t, txn.Execute(db, []byte("fee"), nil))
-	require.Zero(t, wrapper.readCalls)
+	require.Zero(t, stateDB.view.readCalls)
 
-	_, found, err := db.Get([]byte("src"))
-	require.NoError(t, err)
+	// The write the transaction made is in the batch, so it is served without reaching the view.
+	_, found := db.Get([]byte("src"))
 	require.True(t, found)
 }
 
@@ -89,5 +78,4 @@ func TestDefaultCryptoSimConfigDisablesTransactionReadsByDefaultFalse(t *testing
 
 	cfg := DefaultCryptoSimConfig()
 	require.False(t, cfg.DisableTransactionReads)
-	require.Equal(t, wrappers.FlatKV, cfg.Backend)
 }

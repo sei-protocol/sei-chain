@@ -3,14 +3,16 @@ package cryptosim
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
-	"golang.org/x/time/rate"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 )
 
 const (
@@ -133,23 +135,20 @@ func NewCryptoSim(
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
-	var dbConfig any
-	switch config.Backend {
-	case wrappers.FlatKV:
-		dbConfig = config.FlatKVConfig
-	case wrappers.SSComposite, wrappers.CompositeDual_SSComposite:
-		dbConfig = config.StateStoreConfig
-	case wrappers.SSHistoricalOffload:
-		dbConfig = config.HistoricalOffload
-	}
+	config.FlatKVConfig.DataDir = config.DataDir
+	config.StateStoreConfig.EVMDBDirectory = filepath.Join(
+		config.DataDir, "state_store", "evm", config.StateStoreConfig.Backend)
 
-	db, err := wrappers.NewDBImpl(ctx, config.Backend, config.DataDir, dbConfig)
+	// giga.NewStateDB is the node's own entry point, and the only one that leaves the state WAL
+	// outside the live state DB: it opens the WAL itself and writes each block to it ahead of the
+	// commit. A live state DB opened directly would own its WAL and write it inline instead.
+	db, err := giga.NewStateDB(ctx, config.FlatKVConfig, config.StateStoreConfig, config.CheckpointConfig)
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to create database: %w", err)
+		return nil, fmt.Errorf("failed to open the state DB: %w", err)
 	}
 
-	metrics := NewCryptosimMetrics(ctx, db.GetPhaseTimer(), config)
+	metrics := NewCryptosimMetrics(ctx, db.SC().GetPhaseTimer(), config)
 	// Server start deferred until after DataGenerator loads DB state and sets gauges,
 	// avoiding rate() spikes when restarting with a preserved DB.
 
@@ -160,7 +159,7 @@ func NewCryptoSim(
 
 	start := time.Now()
 
-	database, err := NewDatabase(config, db, metrics, 0)
+	database, err := NewDatabase(config, db, metrics)
 	if err != nil {
 		cancel()
 		if closeErr := db.Close(); closeErr != nil {
@@ -169,15 +168,9 @@ func NewCryptoSim(
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	dataGenerator, err := NewDataGenerator(config, database, rand, metrics)
-	if err != nil {
-		cancel()
-		if closeErr := db.Close(); closeErr != nil {
-			fmt.Printf("failed to close database during error recovery: %v\n", closeErr)
-		}
-		return nil, fmt.Errorf("failed to create data generator: %w", err)
-	}
-	database.nextBlockNumber = dataGenerator.InitialNextBlockNumber()
+	fmt.Printf("Next block number: %s.\n", int64Commas(database.nextBlockNumber))
+
+	dataGenerator := NewDataGenerator(config, database, rand, metrics)
 	threadCount := int(config.ThreadsPerCore)*runtime.NumCPU() + config.ConstantThreadCount
 	if threadCount < 1 {
 		threadCount = 1

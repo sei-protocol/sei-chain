@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
@@ -100,16 +99,11 @@ type CryptoSimConfig struct {
 	// in undefined behavior, don't change the size unless you are starting a new run from scratch.
 	CannedRandomSize int
 
-	// The backend to use for the benchmark database.
-	Backend wrappers.DBType
+	// Configures the historical state DB.
+	StateStoreConfig config.StateStoreConfig
 
-	// StateStoreConfig controls SS-backed benchmark backends such as SSComposite.
-	// The default preserves the benchmark SS defaults: pebbledb, async buffer 100.
-	StateStoreConfig *config.StateStoreConfig
-
-	// HistoricalOffload configures the transport used by the
-	// SSHistoricalOffload backend.
-	HistoricalOffload *wrappers.HistoricalOffloadConfig
+	// Configures the cadence the state DB checkpoints both halves of state on.
+	CheckpointConfig config.CheckpointConfig
 
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
@@ -163,7 +157,7 @@ type CryptoSimConfig struct {
 	// If true, the log directory will be deleted on a clean shutdown.
 	DeleteLogDirOnShutdown bool
 
-	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
+	// Configures the live state DB.
 	FlatKVConfig *flatkvConfig.Config
 
 	// The capacity of the channel that holds blocks awaiting execution.
@@ -262,8 +256,8 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		HashLagBlocks:                     32,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
-		Backend:                           wrappers.FlatKV,
-		StateStoreConfig:                  wrappers.DefaultBenchStateStoreConfig(),
+		StateStoreConfig:                  config.DefaultStateStoreConfig(),
+		CheckpointConfig:                  config.DefaultCheckpointConfig(),
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
@@ -412,19 +406,11 @@ func (c *CryptoSimConfig) Validate() error {
 		return fmt.Errorf("ReceiptLogFilterMaxBlockRange must be >= ReceiptLogFilterMinBlockRange (got %d < %d)",
 			c.ReceiptLogFilterMaxBlockRange, c.ReceiptLogFilterMinBlockRange)
 	}
-	if c.StateStoreConfig == nil {
-		return fmt.Errorf("StateStoreConfig is required")
-	}
 	switch c.StateStoreConfig.Backend {
 	case config.PebbleDBBackend, config.RocksDBBackend:
 	default:
 		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
 			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
-	}
-	if c.Backend == wrappers.SSHistoricalOffload {
-		if err := c.HistoricalOffload.Validate(); err != nil {
-			return err
-		}
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

@@ -1,6 +1,5 @@
 {
   "Comment": "Basic configuration for the cryptosim benchmark. Intended for basic correctness/sanity testing.",
-  "Backend": "FlatKV",
   "StateStoreConfig": {
     "Enable": true,
     "DBDirectory": "",
@@ -10,8 +9,11 @@
     "PruneIntervalSeconds": 600,
     "ImportNumWorkers": 1,
     "KeepLastVersion": true,
-    "UseDefaultComparer": false,
-    "EVMDBDirectory": ""
+    "UseDefaultComparer": false
+  },
+  "CheckpointConfig": {
+    "TimeInterval": 600000000000,
+    "BlockInterval": 0
   },
   "CannedRandomSize": 1073741824,
   "ConstantThreadCount": 0,

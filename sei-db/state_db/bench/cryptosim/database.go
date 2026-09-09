@@ -4,8 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // Encapsulates the database for the cryptosim benchmark.
@@ -14,7 +15,11 @@ type Database struct {
 	config *CryptoSimConfig
 
 	// The database implementation to use for the benchmark.
-	db wrappers.DBWrapper
+	db gigatypes.StateDB
+
+	// A read-only view of the most recently committed block, which every read that misses the
+	// current batch is served from. Replaced after each commit.
+	view gigatypes.StateView
 
 	// The total number of transactions executed by the benchmark since it last started.
 	transactionCount int64
@@ -22,8 +27,8 @@ type Database struct {
 	// A count of the number of transactions in the current batch.
 	transactionsInCurrentBlock int64
 
-	// The next block number to be persisted. Tracked internally and incremented after each finalized block.
-	nextBlockNumber uint64
+	// The block number the next commit lands on. Incremented after each finalized block.
+	nextBlockNumber int64
 
 	// The current batch of key-value pairs waiting to be committed. Represents changes we are accumulating
 	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
@@ -35,36 +40,36 @@ type Database struct {
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
 
-	// Takes one block hash per block committed, so that the benchmark cannot outrun hashing. Nil when
-	// the database publishes no block hashes.
+	// Takes one block hash per block committed, so that the benchmark cannot outrun hashing.
 	hashes *blockHashWaiter
 }
 
 // Creates a new database for the cryptosim benchmark.
 func NewDatabase(
 	config *CryptoSimConfig,
-	db wrappers.DBWrapper,
+	db gigatypes.StateDB,
 	metrics *CryptosimMetrics,
-	initialNextBlockNumber uint64,
 ) (*Database, error) {
+	// The view is both what reads are served from and where the starting height comes from: the
+	// store accepts only the block after the one it opened at.
+	view := db.OpenView()
 	database := &Database{
 		config:          config,
 		db:              db,
+		view:            view,
 		batch:           NewSyncMap[string, []byte](),
 		metrics:         metrics,
-		nextBlockNumber: initialNextBlockNumber,
+		nextBlockNumber: view.GetBlockHeight() + 1,
 	}
 
 	// Registered here because this is before the first block is committed, and that is the only place
 	// a listener can be sure of being handed every block's hash.
 	waiter := newBlockHashWaiter(config.HashLagBlocks, metrics)
-	registered, err := db.RegisterHashListener(waiter.listen)
-	if err != nil {
+	if _, err := db.RegisterHashListener(waiter.listen); err != nil {
+		view.Close()
 		return nil, fmt.Errorf("failed to register a block hash listener: %w", err)
 	}
-	if registered {
-		database.hashes = waiter
-	}
+	database.hashes = waiter
 	return database, nil
 }
 
@@ -81,20 +86,11 @@ func (d *Database) Put(key []byte, value []byte) error {
 //
 // This method is safe to call concurrently with other calls to Put() and Get(). Is not thread
 // safe with FinalizeBlock().
-func (d *Database) Get(key []byte) ([]byte, bool, error) {
+func (d *Database) Get(key []byte) ([]byte, bool) {
 	if value, found := d.batch.Get(string(key)); found {
-		return value, true, nil
+		return value, true
 	}
-
-	value, found, err := d.db.Read(key)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to read from database: %w", err)
-	}
-	if found {
-		return value, true, nil
-	}
-
-	return nil, false, nil
+	return d.view.Get(keys.EVMStoreKey, key)
 }
 
 // Signal that a transaction has been added to the current block.
@@ -152,7 +148,7 @@ func (d *Database) FinalizeBlock(
 	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+3)
 	for key, value := range d.batch.Iterator() {
 		changeSets = append(changeSets, &proto.NamedChangeSet{
-			Name:      wrappers.EVMStoreName,
+			Name:      keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte(key), Value: value}}},
 		})
 	}
@@ -163,7 +159,7 @@ func (d *Database) FinalizeBlock(
 	//nolint:gosec // G115 - nextAccountID is benchmark counter, overflow acceptable
 	binary.BigEndian.PutUint64(nonceValue, uint64(nextAccountID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
+		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: AccountIDCounterKey(), Value: nonceValue},
 		}},
@@ -174,54 +170,53 @@ func (d *Database) FinalizeBlock(
 	//nolint:gosec // G115 - nextErc20ContractID is benchmark counter, overflow acceptable
 	binary.BigEndian.PutUint64(erc20ContractIDValue, uint64(nextErc20ContractID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
+		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: Erc20IDCounterKey(), Value: erc20ContractIDValue},
 		}},
 	})
 
 	// Persist the block number counter in every batch.
+	blockNum := d.nextBlockNumber
 	blockNumberValue := make([]byte, 8)
-	binary.BigEndian.PutUint64(blockNumberValue, d.nextBlockNumber)
+	//nolint:gosec // G115 - blockNum is a benchmark counter, overflow acceptable
+	binary.BigEndian.PutUint64(blockNumberValue, uint64(blockNum))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
-		Name: wrappers.EVMStoreName,
+		Name: keys.EVMStoreKey,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: BlockNumberCounterKey(), Value: blockNumberValue},
 		}},
 	})
-	d.nextBlockNumber++
-
-	entry := &proto.ChangelogEntry{
-		Version:    d.db.Version() + 1,
-		Changesets: changeSets,
-	}
-	err := d.db.ApplyChangeSets(entry)
-	if err != nil {
-		return fmt.Errorf("failed to apply change sets: %w", err)
-	}
 
 	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
 	d.transactionsInCurrentBlock = 0
 
 	// One commit per block: that is the store contract, so the benchmark must not batch.
 	d.metrics.SetMainThreadPhase("committing")
-	if _, err := d.db.Commit(); err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
+	if err := d.db.CommitStateChanges(blockNum, changeSets); err != nil {
+		return fmt.Errorf("failed to commit block %d: %w", blockNum, err)
 	}
+	d.nextBlockNumber++
 	d.metrics.ReportDBCommit()
+	d.reopenView()
 
 	// Committing a block is not finishing it: the hash of a block committed a bounded number of
 	// blocks ago is taken here, and waited for when hashing has fallen behind execution.
-	if d.hashes != nil {
-		if err := d.hashes.awaitBlock(); err != nil {
-			return fmt.Errorf("failed to obtain a block hash after committing block %d: %w",
-				d.db.Version(), err)
-		}
+	if err := d.hashes.awaitBlock(); err != nil {
+		return fmt.Errorf("failed to obtain a block hash after committing block %d: %w", blockNum, err)
 	}
 
 	d.metrics.SetMainThreadPhase("executing")
 
 	return nil
+}
+
+// reopenView replaces the read view with one over the block just committed. A view never observes
+// writes made after it was opened, so without this every read would keep answering from the height
+// the benchmark started at.
+func (d *Database) reopenView() {
+	d.view.Close()
+	d.view = d.db.OpenView()
 }
 
 // Close the database and release any resources.
@@ -232,20 +227,17 @@ func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 
-	fmt.Printf("Closing database.\n")
-	err := d.db.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close database: %w", err)
-	}
-
-	return nil
+	return d.CloseWithoutFinalizing()
 }
 
 // Close the database and release any resources without finalizing the last batch.
 func (d *Database) CloseWithoutFinalizing() error {
 	fmt.Printf("Closing database.\n")
-	err := d.db.Close()
-	if err != nil {
+
+	// The view holds a reference into the store, which cannot release it while the view is open.
+	d.view.Close()
+
+	if err := d.db.Close(); err != nil {
 		return fmt.Errorf("failed to close database: %w", err)
 	}
 

@@ -103,9 +103,7 @@ func (txn *transaction) Execute(
 		phaseTimer.SetPhase("read_erc20")
 
 		// Read the simulated ERC20 contract.
-		if _, _, err := database.Get(txn.erc20Contract); err != nil {
-			return fmt.Errorf("failed to get ERC20 contract: %w", err)
-		}
+		database.Get(txn.erc20Contract)
 
 		// Read the following:
 		// - the sender's native balance / nonce / codehash
@@ -120,39 +118,29 @@ func (txn *transaction) Execute(
 		// Technically, we are just requesting to read the codehash, but internally the codehash is bundled with
 		// the nonce and balance, so all of this data will be read from low level storage, even if it isn't being
 		// returned to the caller.
-		if _, _, err := database.Get(txn.srcAccount); err != nil {
-			return fmt.Errorf("failed to get source account: %w", err)
-		}
+		database.Get(txn.srcAccount)
 
 		phaseTimer.SetPhase("read_dst_account")
 
 		// Read the receiver's native balance / nonce / codehash.
-		if _, _, err := database.Get(txn.dstAccount); err != nil {
-			return fmt.Errorf("failed to get destination account: %w", err)
-		}
+		database.Get(txn.dstAccount)
 
 		phaseTimer.SetPhase("read_src_account_slot")
 
 		// Read the sender's storage slot for the ERC20 contract.
 		// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
-		if _, _, err := database.Get(txn.srcAccountSlot); err != nil {
-			return fmt.Errorf("failed to get source account slot: %w", err)
-		}
+		database.Get(txn.srcAccountSlot)
 
 		phaseTimer.SetPhase("read_dst_account_slot")
 
 		// Read the receiver's storage slot for the ERC20 contract.
 		// We don't care if the value isn't in the DB yet, since we don't pre-populate the database with storage slots.
-		if _, _, err := database.Get(txn.dstAccountSlot); err != nil {
-			return fmt.Errorf("failed to get destination account slot: %w", err)
-		}
+		database.Get(txn.dstAccountSlot)
 
 		phaseTimer.SetPhase("read_fee_collection_account")
 
 		// Read the fee collection account's native balance.
-		if _, _, err := database.Get(feeCollectionAddress); err != nil {
-			return fmt.Errorf("failed to get fee collection account: %w", err)
-		}
+		database.Get(feeCollectionAddress)
 	}
 
 	phaseTimer.SetPhase("update_balances")
