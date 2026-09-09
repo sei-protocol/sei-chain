@@ -22,7 +22,7 @@ func MintRelease(t *testing.T, app *processblock.App, f BlockRunnable, _ []signi
 		}
 		newPoch := app.EpochKeeper.GetEpoch(app.Ctx())
 		require.Equal(t, oldEpoch.CurrentEpoch+1, newPoch.CurrentEpoch)
-		expectedMintedAmount := oldMinter.GetReleaseAmountToday(app.Ctx().BlockTime()).AmountOf("usei").Uint64()
+		expectedMintedAmount := oldMinter.GetReleaseAmountToday(oldEpoch.CurrentEpochStartTime.UTC()).AmountOf("usei").Uint64()
 		require.Equal(t, expectedMintedAmount, oldMinter.RemainingMintAmount-newMinter.RemainingMintAmount)
 		newSupply := app.BankKeeper.GetSupply(app.Ctx(), "usei")
 		require.Equal(t, expectedMintedAmount, uint64(newSupply.Amount.Int64()-oldSupply.Amount.Int64())) //nolint:gosec
