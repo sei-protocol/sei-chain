@@ -63,10 +63,19 @@ func newBlockGatherer(
 // the combiner. It stops the engine on the way out, whatever the reason: a schedule waits under the
 // engine's context, and this goroutine is the only thing that can release it.
 func (g *blockGatherer) run() {
+	// Set only on the path that stops because every scheduled block has been gathered.
+	drained := false
+
 	defer g.teardown()
 	// Cancelled before the drain rather than after it, so that a schedule parked on a full queue is
-	// released by the cancellation instead of being woken by the drain, which nothing follows.
-	defer g.cancel()
+	// released by the cancellation instead of being woken by the drain, which nothing follows. A drained
+	// stop is the exception: the combiner is still publishing the blocks this loop handed it, and a
+	// cancelled context makes it give up on them, so Close cancels once it is through.
+	defer func() {
+		if !drained {
+			g.cancel()
+		}
+	}()
 
 	for {
 		select {
@@ -76,6 +85,11 @@ func (g *blockGatherer) run() {
 				g.gather(request)
 			case *flushRequest:
 				g.combineJobChan <- request
+			case *closeRequest:
+				// Reached only once every block queued ahead of it has been gathered, so there is
+				// nothing left behind to abandon.
+				drained = true
+				return
 			default:
 				g.brick(fmt.Errorf("unknown engine message type %T", message))
 				return

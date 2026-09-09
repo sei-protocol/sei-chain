@@ -44,7 +44,8 @@ type HashEngine struct {
 	// longer reach.
 	ctx context.Context
 
-	// cancel stops the gatherer and the combiner. Called by Close, and by the store's own context.
+	// cancel stops the gatherer and the combiner where they stand. Called by Close once both are
+	// through, and by the store's own context.
 	cancel context.CancelFunc
 
 	// fatalErr latches the first failure. Nil until something fails.
@@ -53,7 +54,8 @@ type HashEngine struct {
 
 // Construct a new hash engine.
 func NewHashEngine(
-	// Cancelling this stops the engine, exactly as Close does.
+	// Cancelling this stops the engine, abandoning the blocks it has not reached. Close stops it the
+	// other way, hashing them first.
 	parent context.Context,
 	cfg *Config,
 	// Used to compute the leaf hashes. Owned by the caller, and must stay open for at least as long as the
@@ -121,11 +123,6 @@ func (he *HashEngine) ScheduleHash(
 }
 
 // Returns a channel that returns block hashes, as they are computed.
-//
-// One entry per block hashed, in block order, with no gaps or duplicates. A block whose hashing failed
-// arrives with Error set and nothing is published after it. The channel closes when the engine does,
-// which abandons anything it had not reached. It has finite depth, so a consumer that stops reading
-// eventually stalls ScheduleHash().
 func (he *HashEngine) AwaitHash() <-chan *BlockHash {
 	return he.combiner.blockHashChan
 }
@@ -152,16 +149,24 @@ func (he *HashEngine) Flush() error {
 	return nil
 }
 
-// Close stops the engine and waits for it to finish, reporting the latched error if it failed.
+// Close stops the engine once it has hashed every block scheduled so far, publishing each one, and
+// reports the latched error if it failed.
 //
 // Never call concurrently with another method: behaviour is undefined if anything else is in flight.
-// Blocks that have been scheduled but not yet hashed are abandoned rather than
-// finished — their reservations are released, and their rows are still in the WAL for replay to
-// recover.
+// Cancelling the engine's context stops it the other way, abandoning whatever it had not reached.
 func (he *HashEngine) Close() error {
-	he.cancel()
+	// The request travels the same queue as the blocks, which is what makes every block scheduled before
+	// this call reach the combiner first. An engine already stopping refuses it, and there is nothing to
+	// drain in that case because the abandonment is already under way.
+	_ = he.enqueue(newCloseRequest())
+
 	he.gatherer.wg.Wait()
 	he.combiner.wg.Wait()
+
+	// Cancelled only once both phases are through. The combiner gives up on a publish under a cancelled
+	// context, so cancelling any earlier would abandon the very blocks this call is draining.
+	he.cancel()
+
 	if err := he.errorIfBricked(); err != nil {
 		return fmt.Errorf("close hash engine: %w", err)
 	}

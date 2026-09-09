@@ -39,3 +39,11 @@ type finalizationFlushRequest struct {
 func newFinalizationFlushRequest() *finalizationFlushRequest {
 	return &finalizationFlushRequest{doneChan: make(chan struct{})}
 }
+
+// finalizationCloseRequest asks the manager to stop once it has dealt with everything queued ahead of
+// it. It carries nothing: the caller learns the manager is through by waiting on the goroutine itself.
+type finalizationCloseRequest struct{}
+
+func newFinalizationCloseRequest() *finalizationCloseRequest {
+	return &finalizationCloseRequest{}
+}

@@ -138,16 +138,23 @@ func (fm *FinalizationManager) Flush() error {
 	return nil
 }
 
-// Close stops the manager and waits for it to finish, reporting the latched error if it failed.
+// Close stops the manager once it has finalized every block offered so far, and reports the latched
+// error if it failed.
 //
 // Never call concurrently with another method: behaviour is undefined if anything else is in flight.
-// Blocks that have been offered but not yet finalized are abandoned rather than finished; the WAL
-// still holds them for replay to recover.
+// Cancelling the manager's context stops it the other way, abandoning the blocks it has not reached for
+// the WAL to replay back.
 //
 // The hash engine must be closed before this, so that this manager's read of its stream terminates.
 func (fm *FinalizationManager) Close() error {
-	fm.cancel()
+	// The request travels the same queue as the blocks, which is what makes every block offered before
+	// this call finalize first. A manager already stopping refuses it, and there is nothing to drain in
+	// that case because the abandonment is already under way.
+	_ = fm.enqueue(newFinalizationCloseRequest())
+
 	fm.wg.Wait()
+	fm.cancel()
+
 	if err := fm.errorIfBricked(); err != nil {
 		return fmt.Errorf("close finalization manager: %w", err)
 	}
@@ -204,6 +211,10 @@ func (fm *FinalizationManager) handle(message any) bool {
 		// ahead of this request has already been dispatched, on this goroutine, before it is reached.
 		close(request.doneChan)
 		return true
+	case *finalizationCloseRequest:
+		// Reached only once every block queued ahead of it has been finalized, so stopping here leaves
+		// nothing behind.
+		return false
 	default:
 		fm.brick(fmt.Errorf("unknown finalization message type %T", message))
 		return false
