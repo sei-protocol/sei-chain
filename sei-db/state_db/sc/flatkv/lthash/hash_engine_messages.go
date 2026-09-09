@@ -80,11 +80,3 @@ type flushRequest struct {
 func newFlushRequest() *flushRequest {
 	return &flushRequest{doneChan: make(chan struct{})}
 }
-
-// closeRequest asks the engine to stop once it has dealt with everything queued ahead of it. It carries
-// nothing: the caller learns the engine is through by waiting on the phases themselves.
-type closeRequest struct{}
-
-func newCloseRequest() *closeRequest {
-	return &closeRequest{}
-}
