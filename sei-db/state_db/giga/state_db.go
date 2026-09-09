@@ -95,8 +95,9 @@ func NewStateDB(
 // sits above target on its newest snapshot at or below it, all while the stores are closed, then opens
 // them the ordinary way and checks both landed on target.
 //
-// target must be positive, and a target the surviving snapshots and the WAL cannot span is refused
-// before anything moves.
+// target must be positive, and a target the surviving snapshots and the WAL cannot span is refused. A
+// refusal leaves the WAL uncut, so no target this one could reach is lost, but one from SS comes back
+// with SC already rewound.
 func NewStateDBWithRollback(
 	ctx context.Context,
 	flatkvCfg *flatkvconfig.Config,

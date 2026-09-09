@@ -460,6 +460,12 @@ func readCommittedVersion(dbDir string) (int64, error) {
 		FormatMajorVersion: pebble.FormatVirtualSSTables,
 	})
 	if err != nil {
+		// The directory can exist while the database in it does not: createWorkingDir makes an empty one
+		// for every data DB the snapshot it clones from does not have, and only the store's own open
+		// creates the databases. A read-only open does not create, so it reports that as an error.
+		if errors.Is(err, pebble.ErrDBDoesNotExist) {
+			return 0, nil
+		}
 		return 0, fmt.Errorf("open %q to read its version: %w", dbDir, err)
 	}
 	defer func() { _ = db.Close() }()

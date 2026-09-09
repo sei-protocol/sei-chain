@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -155,6 +156,24 @@ func TestCommitStoreGetLatestVersionUsesMemoryWhileOpen(t *testing.T) {
 func TestStoredVersionsNeverOpenedDirIsZero(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), flatkvRootDir)
 	opensAt, highest, err := StoredVersions(dir)
+	require.NoError(t, err)
+	require.Zero(t, opensAt)
+	require.Zero(t, highest)
+}
+
+// A working copy cloned from a snapshot holding no data DBs of its own has the directories without the
+// databases in them, since only the store's own open creates those. The probe opens read-only, which
+// does not create, so it has to read that as version 0 the way it reads a directory that is not there
+// at all: failing instead refuses the open, and the state survives a restart, so the node would never
+// start again.
+func TestStoredVersionsPartiallyCreatedWorkingCopyIsZero(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), flatkvRootDir)
+	snapDir := filepath.Join(dir, snapshotPrefix+"0")
+	require.NoError(t, os.MkdirAll(snapDir, 0o750))
+	require.NoError(t, createWorkingDir(snapDir, filepath.Join(dir, workingDirName)))
+
+	opensAt, highest, err := StoredVersions(dir)
+
 	require.NoError(t, err)
 	require.Zero(t, opensAt)
 	require.Zero(t, highest)

@@ -12,8 +12,9 @@ import (
 // drops every snapshot of both above target, and cuts the WAL's tail to it. All three stores must be
 // closed, and a store holding nothing above target is left where it is, for the replay to carry forward.
 //
-// A target the surviving snapshots and the WAL cannot span is refused, part way through: the snapshots
-// above target are already gone by then, so the rollback cannot be retried at a higher one.
+// A target the surviving snapshots and the WAL cannot span is refused before the WAL is cut, so every
+// target this one could reach is still reachable on a retry. SS is asked once SC has moved, so a
+// refusal from SS leaves SC on its snapshot and a retry replays from there.
 func (s *StateDB) rewindTo(target int64) error {
 	wal, err := s.storedWALRange()
 	if err != nil {
@@ -24,8 +25,8 @@ func (s *StateDB) rewindTo(target int64) error {
 			"target", target, wal.last)
 	}
 
-	// First, so that a refusal comes back with every snapshot still on disk and the rollback can be
-	// retried at a height this one can reach.
+	// First, so that a refusal from SC comes back with every snapshot still on disk. Once SC has moved,
+	// its own snapshots above where it landed are gone.
 	if err := s.discardStateAbove(wal, target); err != nil {
 		return fmt.Errorf("cannot roll back to %d: %w", target, err)
 	}
