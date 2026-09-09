@@ -26,6 +26,10 @@ type blockGatherer struct {
 	// Cancelled when the engine is stopping, to release a send that the combiner is no longer reading.
 	ctx context.Context
 
+	// cancel stops the engine, called when run() returns so that a caller waiting on this queue is
+	// released.
+	cancel context.CancelFunc
+
 	// brick latches a failure on the engine, which reports it from Close().
 	brick func(error)
 
@@ -38,6 +42,8 @@ func newBlockGatherer(
 	hasher *leafHasher,
 	// Cancelled when the engine is stopping, to release a send the combiner is no longer reading.
 	ctx context.Context,
+	// Stops the engine, called when run() returns.
+	cancel context.CancelFunc,
 	// Latches a failure on the engine, which reports it from Close().
 	brick func(error),
 ) *blockGatherer {
@@ -46,6 +52,7 @@ func newBlockGatherer(
 		scheduledBlockChan: make(chan any, cfg.ScheduleQueueSize),
 		combineJobChan:     make(chan any, cfg.CombineQueueSize),
 		ctx:                ctx,
+		cancel:             cancel,
 		brick:              brick,
 	}
 	g.wg.Go(g.run)
@@ -53,9 +60,13 @@ func newBlockGatherer(
 }
 
 // run reads each block's changed values, submits its leaf hashing to the pool, and passes the block to
-// the combiner.
+// the combiner. It stops the engine on the way out, whatever the reason: a schedule waits under the
+// engine's context, and this goroutine is the only thing that can release it.
 func (g *blockGatherer) run() {
 	defer g.teardown()
+	// Cancelled before the drain rather than after it, so that a schedule parked on a full queue is
+	// released by the cancellation instead of being woken by the drain, which nothing follows.
+	defer g.cancel()
 
 	for {
 		select {

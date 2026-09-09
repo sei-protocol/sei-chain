@@ -36,7 +36,7 @@ func TestFinalizationFlushReturnsOnceTheManagerIsStopped(t *testing.T) {
 
 	select {
 	case err := <-flushed:
-		require.NoError(t, err, "a flush released by shutdown reports no failure of its own")
+		require.Error(t, err, "a flush released by shutdown reports that it never flushed")
 	case <-time.After(30 * time.Second):
 		t.Fatal("Flush never returned after the manager was stopped")
 	}

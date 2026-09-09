@@ -126,7 +126,11 @@ func (fm *FinalizationManager) Flush() error {
 	case <-request.doneChan:
 	case <-fm.ctx.Done():
 		// A stopping manager never reaches this request. The blocks behind it are abandoned rather than
-		// finalized, which Close reports, and their rows are still in the WAL for replay to recover.
+		// finalized, and their rows are still in the WAL for replay to recover.
+		if err := fm.errorIfBricked(); err != nil {
+			return fmt.Errorf("flush finalization manager: %w", err)
+		}
+		return fmt.Errorf("flush finalization manager: manager is stopping: %w", fm.ctx.Err())
 	}
 	if err := fm.errorIfBricked(); err != nil {
 		return fmt.Errorf("flush finalization manager: %w", err)

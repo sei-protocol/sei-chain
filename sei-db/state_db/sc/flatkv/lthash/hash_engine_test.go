@@ -311,6 +311,73 @@ func TestHashEngineCloseAbandonsAndReleases(t *testing.T) {
 	}
 }
 
+// A schedule parked on a full queue has to be released once the engine stops, and the block it could
+// not hand over must go back unreserved: a view left reserved can never flush.
+func TestScheduleHashIsReleasedWhenTheEngineStops(t *testing.T) {
+	pool := threading.NewFixedPool("lthash-schedule-shutdown-test", 4, 64)
+	t.Cleanup(pool.Close)
+
+	// One block deep at every stage, so the pipeline saturates within a handful of blocks while nothing
+	// reads AwaitHash. Its own context, so the test can stop it; newTestEngine ties one to t.Context().
+	cfg := DefaultConfig()
+	cfg.ScheduleQueueSize = 1
+	cfg.CombineQueueSize = 1
+	cfg.HashChanSize = 1
+	ctx, cancel := context.WithCancel(t.Context())
+	engine, err := NewHashEngine(ctx, cfg, pool, engineDBNames, engineModuleOf, NewBlockHash(engineDBNames))
+	require.NoError(t, err)
+	// Registered after the pool's cleanup so it runs before it: the engine's goroutines submit leaf
+	// hashing to the pool, and Close is what waits for them to stop.
+	t.Cleanup(func() { require.NoError(t, engine.Close()) })
+
+	// Built here rather than in the goroutine below, which must not touch t.
+	const blocks = 8
+	type pipeBlock struct {
+		current  *sview.StoreView
+		previous *sview.StoreView
+		views    []*pipeView
+	}
+	pending := make([]pipeBlock, 0, blocks)
+	for height := int64(1); height <= blocks; height++ {
+		current, previous, views := blockViews(t, height, blockDiff(height, 4), nil)
+		pending = append(pending, pipeBlock{current: current, previous: previous, views: views})
+	}
+
+	results := make(chan error, blocks)
+	go func() {
+		for _, block := range pending {
+			results <- engine.ScheduleHash(block.current, block.previous)
+		}
+	}()
+
+	// Once a schedule stops reporting, the pipeline is full and that call is parked on the send.
+	accepted := 0
+	for parked := false; !parked; {
+		select {
+		case err := <-results:
+			require.NoError(t, err, "a running engine must take block %d", accepted+1)
+			accepted++
+		case <-time.After(500 * time.Millisecond):
+			parked = true
+		}
+	}
+	require.Less(t, accepted, blocks, "the pipeline never filled, so no schedule was left parked")
+
+	cancel()
+
+	select {
+	case err := <-results:
+		require.Error(t, err, "a schedule parked on a full queue must be released once the engine stops")
+	case <-time.After(30 * time.Second):
+		t.Fatal("ScheduleHash never returned after the engine was stopped")
+	}
+
+	for _, v := range pending[accepted].views {
+		require.Equal(t, v.reserves, v.releases,
+			"%s: a block the engine could not take must hold none of its reservations", v.name)
+	}
+}
+
 // The first failure is delivered on the stream, and nothing is published after it: once a block has
 // failed, the accumulator describes nothing a later block may be derived from.
 func TestHashEngineDeliversFailureAndStops(t *testing.T) {
@@ -384,7 +451,7 @@ func TestFlushReturnsOnceTheEngineIsStopped(t *testing.T) {
 
 	select {
 	case err := <-flushed:
-		require.NoError(t, err, "a flush released by shutdown reports no failure of its own")
+		require.Error(t, err, "a flush released by shutdown reports that it never flushed")
 	case <-time.After(30 * time.Second):
 		t.Fatal("Flush never returned after the engine was stopped")
 	}

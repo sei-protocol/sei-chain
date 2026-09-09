@@ -84,7 +84,8 @@ func NewHashEngine(
 
 	ctx, cancel := context.WithCancel(parent)
 	he := &HashEngine{ctx: ctx, cancel: cancel}
-	he.gatherer = newBlockGatherer(cfg, newLeafHasher(pool, moduleParser, cfg.ChunkSize), ctx, he.brick)
+	he.gatherer = newBlockGatherer(
+		cfg, newLeafHasher(pool, moduleParser, cfg.ChunkSize), ctx, cancel, he.brick)
 	he.combiner = newHashCombiner(
 		dbNames, seed, he.gatherer.combineJobChan, ctx, cfg.HashChanSize, he.brick)
 	return he, nil
@@ -139,7 +140,11 @@ func (he *HashEngine) Flush() error {
 	case <-request.doneChan:
 	case <-he.ctx.Done():
 		// A stopping engine never reaches this request. The blocks behind it are abandoned rather than
-		// hashed, which Close reports, and their rows are still in the WAL for replay to recover.
+		// hashed, and their rows are still in the WAL for replay to recover.
+		if err := he.errorIfBricked(); err != nil {
+			return fmt.Errorf("flush hash engine: %w", err)
+		}
+		return fmt.Errorf("flush hash engine: engine is stopping: %w", he.ctx.Err())
 	}
 	if err := he.errorIfBricked(); err != nil {
 		return fmt.Errorf("flush hash engine: %w", err)
@@ -170,8 +175,12 @@ func (he *HashEngine) enqueue(message any) error {
 	if err := he.errorIfBricked(); err != nil {
 		return fmt.Errorf("hash engine failed: %w", err)
 	}
-	he.gatherer.scheduledBlockChan <- message
-	return nil
+	select {
+	case he.gatherer.scheduledBlockChan <- message:
+		return nil
+	case <-he.ctx.Done():
+		return fmt.Errorf("hash engine is stopping: %w", he.ctx.Err())
+	}
 }
 
 // brick latches err as the engine's fatal error and stops it.
