@@ -35,6 +35,11 @@ type simMetrics struct {
 	// duplicate it.
 	readDuration metric.Float64Histogram
 	readErrors   metric.Int64Counter
+
+	// latestHeight and earliestHeight track the store's retained version window, so pruning or
+	// compaction behavior shows up directly as the gap between them changing over time.
+	latestHeight   metric.Int64Gauge
+	earliestHeight metric.Int64Gauge
 }
 
 func newSimMetrics() *simMetrics {
@@ -84,6 +89,14 @@ func newSimMetrics() *simMetrics {
 		"pebblesim_read_errors_total",
 		metric.WithDescription("Random reads that returned an error (not counting not-found, which is a miss, not an error)"),
 	)
+	latestHeight, _ := meter.Int64Gauge(
+		"pebblesim_latest_height",
+		metric.WithDescription("Most recently written version"),
+	)
+	earliestHeight, _ := meter.Int64Gauge(
+		"pebblesim_earliest_height",
+		metric.WithDescription("Oldest version still retained by the store"),
+	)
 	return &simMetrics{
 		batchDuration:  batchDuration,
 		writeDuration:  writeDuration,
@@ -94,5 +107,7 @@ func newSimMetrics() *simMetrics {
 		deadlineMisses: deadlineMisses,
 		readDuration:   readDuration,
 		readErrors:     readErrors,
+		latestHeight:   latestHeight,
+		earliestHeight: earliestHeight,
 	}
 }

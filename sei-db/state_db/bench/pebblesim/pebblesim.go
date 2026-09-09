@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	evmss "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 )
 
 const (
@@ -94,9 +95,19 @@ type Config struct {
 	// ReadKeyPoolCapacity bounds the reservoir of known-written keys reads sample from. See
 	// readKeyPool.
 	ReadKeyPoolCapacity int
+
+	// KeepRecent is how many recent versions state-store pruning retains; older versions become
+	// eligible for deletion. 0 disables pruning, matching a production node's pruning manager
+	// (state_db/ss/pruning.Manager), which this reuses directly.
+	KeepRecent int64
+
+	// PruneInterval is how often the pruning manager checks for prunable versions. Only
+	// meaningful when KeepRecent > 0.
+	PruneInterval time.Duration
 }
 
-// DefaultConfig returns batches of 1,000 key/value writes, twice a second, with reads disabled.
+// DefaultConfig returns batches of 1,000 key/value writes, twice a second, with reads and
+// pruning disabled.
 func DefaultConfig() Config {
 	return Config{
 		NumContracts:        100,
@@ -109,6 +120,8 @@ func DefaultConfig() Config {
 		ReadsPerSecond:      0,
 		ReadWorkers:         4,
 		ReadKeyPoolCapacity: 100_000,
+		KeepRecent:          0,
+		PruneInterval:       30 * time.Second,
 	}
 }
 
@@ -129,6 +142,9 @@ type PebbleSim struct {
 	// readPool and readWG back StartReaders; see their own docs.
 	readPool *readKeyPool
 	readWG   sync.WaitGroup
+
+	// pruner backs StartPruning; nil when pruning is disabled.
+	pruner *pruning.Manager
 }
 
 // batch is one generated set of key/value updates, along with the per-kind counts WriteBatch
@@ -148,6 +164,8 @@ func Open(cfg Config) (*PebbleSim, error) {
 
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = config.PebbleDBBackend
+	ssConfig.KeepRecent = int(cfg.KeepRecent)
+	ssConfig.PruneIntervalSeconds = int(cfg.PruneInterval.Seconds())
 
 	// TODO: check if fsync is enabled or not.
 	// TODO: check memtables size. increase it.
@@ -297,6 +315,8 @@ func (p *PebbleSim) WriteBatch(ctx context.Context) (BatchResult, error) {
 	p.metrics.keysWritten.Add(ctx, int64(b.nSlots), metric.WithAttributes(attribute.String("kind", "slot")))
 	p.metrics.keysWritten.Add(ctx, int64(b.nBalance), metric.WithAttributes(attribute.String("kind", "balance")))
 	p.metrics.keysWritten.Add(ctx, int64(b.nNonce), metric.WithAttributes(attribute.String("kind", "nonce")))
+	p.metrics.latestHeight.Record(ctx, p.store.GetLatestVersion())
+	p.metrics.earliestHeight.Record(ctx, p.store.GetEarliestVersion())
 	if totalElapsed > p.cfg.BatchInterval {
 		p.metrics.deadlineMisses.Add(ctx, 1)
 	}
@@ -497,9 +517,25 @@ func (p *PebbleSim) Version() int64 {
 	return p.version.Load()
 }
 
-// Close waits for every StartReaders worker to exit, then releases the underlying PebbleDB
-// store. Waiting first guarantees no reader ever calls Get on a closed store.
+// StartPruning starts the same background pruning manager a production node runs
+// (state_db/ss/pruning.Manager): every cfg.PruneInterval it prunes everything older than
+// cfg.KeepRecent versions behind the store's latest. No-op if cfg.KeepRecent <= 0 or
+// cfg.PruneInterval <= 0.
+func (p *PebbleSim) StartPruning() {
+	if p.cfg.KeepRecent <= 0 || p.cfg.PruneInterval <= 0 {
+		return
+	}
+	p.pruner = pruning.NewPruningManager(p.store, p.cfg.KeepRecent, int64(p.cfg.PruneInterval.Seconds()))
+	p.pruner.Start()
+}
+
+// Close stops the pruning manager (if running), waits for every StartReaders worker to exit,
+// then releases the underlying PebbleDB store. Waiting on readers first guarantees none of them
+// ever calls Get on a closed store.
 func (p *PebbleSim) Close() error {
+	if p.pruner != nil {
+		p.pruner.Stop()
+	}
 	p.readWG.Wait()
 	return p.store.Close()
 }

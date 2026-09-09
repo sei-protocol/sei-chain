@@ -35,6 +35,8 @@ func run() error {
 	readsPerSecond := flag.Float64("reads-per-second", cfg.ReadsPerSecond, "combined random-read rate across all read workers; 0 disables reads")
 	readWorkers := flag.Int("read-workers", cfg.ReadWorkers, "goroutines issuing random reads against the shared rate limiter")
 	readKeyPoolCapacity := flag.Int("read-key-pool-capacity", cfg.ReadKeyPoolCapacity, "number of known-written keys kept available for reads to sample from")
+	keepRecent := flag.Int64("keep-recent", cfg.KeepRecent, "number of recent versions the state store retains; older versions become eligible for pruning (0 disables pruning)")
+	pruneInterval := flag.Duration("prune-interval", cfg.PruneInterval, "how often the pruning manager checks for prunable versions; only meaningful when keep-recent > 0")
 	flag.Parse()
 
 	cfg.DataDir = *dataDir
@@ -48,6 +50,8 @@ func run() error {
 	cfg.ReadsPerSecond = *readsPerSecond
 	cfg.ReadWorkers = *readWorkers
 	cfg.ReadKeyPoolCapacity = *readKeyPoolCapacity
+	cfg.KeepRecent = *keepRecent
+	cfg.PruneInterval = *pruneInterval
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -72,14 +76,19 @@ func run() error {
 
 	sim.Generate(ctx)
 	sim.StartReaders(ctx)
+	sim.StartPruning()
 
 	metrics.StartMetricsServer(ctx, reg, *metricsAddr)
 	metrics.StartSystemMetrics(ctx, "pebblesim", 5, []metrics.MonitoredDir{
 		{Name: "data_dir", Path: cfg.DataDir, TrackAvailableSpace: true},
 	})
 
-	log.Printf("writing %d keys (60%% slots / 25%% balances / 15%% nonces) every %s to %s; reading %.0f/s across %d workers (metrics at http://localhost%s/metrics)",
-		cfg.BatchSize, cfg.BatchInterval, cfg.DataDir, cfg.ReadsPerSecond, cfg.ReadWorkers, *metricsAddr)
+	pruning := "pruning disabled"
+	if cfg.KeepRecent > 0 && cfg.PruneInterval > 0 {
+		pruning = fmt.Sprintf("keeping last %d versions, checked every %s", cfg.KeepRecent, cfg.PruneInterval)
+	}
+	log.Printf("writing %d keys (60%% slots / 25%% balances / 15%% nonces) every %s to %s; reading %.0f/s across %d workers; %s (metrics at http://localhost%s/metrics)",
+		cfg.BatchSize, cfg.BatchInterval, cfg.DataDir, cfg.ReadsPerSecond, cfg.ReadWorkers, pruning, *metricsAddr)
 
 	ticker := time.NewTicker(cfg.BatchInterval)
 	defer ticker.Stop()
