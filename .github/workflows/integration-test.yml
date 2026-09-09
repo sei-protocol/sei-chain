@@ -25,6 +25,19 @@ defaults:
   run:
     shell: bash
 
+env:
+  # Non-cone sparse-checkout pattern shared by every job that needs the source
+  # tree: everything except the darwin/aarch64 wasmvm archives, which CI
+  # (linux/amd64 only) never links and which make up ~500 MB of the tree.
+  SPARSE_CHECKOUT: |
+    /*
+    !/sei-wasmvm/internal/api/*darwin*
+    !/sei-wasmvm/internal/api/*aarch64*
+    !/sei-wasmvm/internal/api/*.dylib
+    !/sei-wasmd/x/wasm/artifacts/*/api/*darwin*
+    !/sei-wasmd/x/wasm/artifacts/*/api/*aarch64*
+    !/sei-wasmd/x/wasm/artifacts/*/api/*.dylib
+
 jobs:
   # Generate the integration-test matrix from integration-test-matrix.json.
   # Rows are packed by cluster config (one job per distinct env, suites run
@@ -69,13 +82,18 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          # CI only builds linux/amd64; leave the darwin/aarch64 wasmvm
+          # archives (~500 MB of the tree) out of the fetch.
+          sparse-checkout: ${{ env.SPARSE_CHECKOUT }}
+          sparse-checkout-cone-mode: false
       # Reclaim disk and push Docker + Go caches onto /mnt before the
       # image builds so the runner's small root filesystem does not fill up and
       # crash the runner mid-job.
       - name: Reclaim runner disk
-        # Image builds are the disk-heavy path; always reclaim here.
         env:
-          CI_FREE_DISK_MIN_GIB: 1000
+          # Image build + seid build need more headroom than test jobs.
+          CI_FREE_DISK_MIN_GIB: 60
         run: bash .github/scripts/ci-free-disk.sh
       - name: Relocate Docker data-root to /mnt
         run: bash .github/scripts/ci-relocate-docker-data-root.sh
@@ -115,25 +133,6 @@ jobs:
           labels: sei-chain.ci-run-id=${{ github.run_id }}
           cache-from: type=registry,ref=${{ env.GHCR_LOCALNODE }}:cache
           cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_LOCALNODE) || '' }}
-      - name: Build rpcnode image (cached)
-        uses: docker/build-push-action@v6
-        with:
-          context: docker/rpcnode
-          file: docker/rpcnode/Dockerfile
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: sei-chain/rpcnode
-          labels: sei-chain.ci-run-id=${{ github.run_id }}
-          cache-from: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache
-          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_RPCNODE) || '' }}
-      # rpcnode is independent of the seid build, so push it now: push failures
-      # (retried below) surface before the expensive seid build rather than after.
-      - name: Push rpcnode image to GHCR for test jobs
-        run: |
-          source .github/scripts/docker-registry-retry.sh
-          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
-          push_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -155,9 +154,64 @@ jobs:
           path: integration-build.tar.gz
           retention-days: 1
 
+  # rpcnode does not depend on seid, so it is built and pushed in parallel with
+  # prepare-cluster instead of on its critical path.
+  prepare-rpcnode:
+    name: Prepare integration test rpcnode image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      packages: write
+      contents: read
+    env:
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          sparse-checkout: |
+            .github
+            docker/rpcnode
+      - name: Login to Docker Hub
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GitHub Container Registry
+        # See: https://github.com/docker/login-action/releases/tag/v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+      - name: Build rpcnode image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/rpcnode
+          file: docker/rpcnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/rpcnode
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
+          cache-from: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_RPCNODE) || '' }}
+      - name: Push rpcnode image to GHCR for test jobs
+        run: |
+          source .github/scripts/docker-registry-retry.sh
+          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
+          push_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
+
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
-    needs: [ set-matrix, prepare-cluster ]
+    needs: [ set-matrix, prepare-cluster, prepare-rpcnode ]
     runs-on: ubuntu-large
     timeout-minutes: 30
     permissions:
@@ -180,6 +234,9 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          sparse-checkout: ${{ env.SPARSE_CHECKOUT }}
+          sparse-checkout-cone-mode: false
       - name: Reclaim runner disk
         run: bash .github/scripts/ci-free-disk.sh
       - name: Relocate Docker data-root to /mnt
@@ -335,7 +392,7 @@ jobs:
     name: Integration Test (Autobahn Basic)
     runs-on: ubuntu-large
     timeout-minutes: 45
-    needs: prepare-cluster
+    needs: [ prepare-cluster, prepare-rpcnode ]
     permissions:
       packages: read
       contents: read
@@ -345,6 +402,9 @@ jobs:
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          sparse-checkout: ${{ env.SPARSE_CHECKOUT }}
+          sparse-checkout-cone-mode: false
       - name: Reclaim runner disk
         run: bash .github/scripts/ci-free-disk.sh
       - name: Relocate Docker data-root to /mnt
@@ -355,7 +415,7 @@ jobs:
         with:
           go-version: '1.25.6'
       - name: Install jq
-        run: sudo apt-get install -y jq
+        run: command -v jq >/dev/null || sudo apt-get install -y jq
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         if: env.DOCKERHUB_USERNAME != ''
@@ -381,8 +441,9 @@ jobs:
           # tarball so its copy does not sit on disk for the rest of the job.
           rm -f integration-build.tar.gz
           source .github/scripts/docker-registry-retry.sh
-          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}"
-          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}"
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}" &
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}" &
+          wait
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
           # Drop the redundant run-id-tagged references now that the images are
@@ -416,13 +477,17 @@ jobs:
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: [ prepare-cluster, integration-tests, autobahn-integration-tests ]
+    needs: [ prepare-cluster, prepare-rpcnode, integration-tests, autobahn-integration-tests ]
     if: always()
     steps:
       - name: Verify prepare and test jobs succeeded
         run: |
           if [[ "${{ needs.prepare-cluster.result }}" != "success" ]]; then
             echo "prepare-cluster job did not succeed (${{ needs.prepare-cluster.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.prepare-rpcnode.result }}" != "success" ]]; then
+            echo "prepare-rpcnode job did not succeed (${{ needs.prepare-rpcnode.result }})"
             exit 1
           fi
           if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
