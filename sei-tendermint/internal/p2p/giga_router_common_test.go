@@ -280,6 +280,59 @@ func (e *settledEpochs) store(ep *atypes.Epoch) {
 	e.anchor.Store(testAnchor(ep))
 }
 
+func TestGigaRouterCommon_ValidatorAddrPrefersConfiguredBook(t *testing.T) {
+	rng := utils.TestRng()
+	validator := atypes.GenSecretKey(rng).Public()
+	configured := GigaNodeAddr{
+		Key:      makeKey(rng).Public(),
+		HostPort: tcp.HostPort{Hostname: "configured.example", Port: 26656},
+		EVMRPC:   *utils.OrPanic1(url.Parse("http://configured.example:8545")),
+	}
+	router := &gigaRouterCommon{
+		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{validator: configured}},
+		liveAddrs: utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{validator: {
+			Key:      makeKey(rng).Public(),
+			HostPort: tcp.HostPort{Hostname: "advertised.example", Port: 26656},
+			EVMRPC:   *utils.OrPanic1(url.Parse("http://advertised.example:8545")),
+		}}),
+	}
+	got, ok := router.validatorAddr(validator)
+	require.True(t, ok)
+	require.NoError(t, utils.TestDiff(configured, got))
+}
+
+func TestGigaRouterCommon_AcceptInboundRefusesUnroutableEvmRPC(t *testing.T) {
+	rng := utils.TestRng()
+	validatorKey := atypes.GenSecretKey(rng)
+	peerKey := makeKey(rng)
+	epochs := newSettledEpochs(testEpoch(1, map[atypes.PublicKey]uint64{validatorKey.Public(): 1}))
+	router := &gigaRouterCommon{
+		cfg:             &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{}},
+		nextCommitEpoch: epochs.commitEpoch.Subscribe(),
+		liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
+	}
+	for _, evmRPC := range []string{"http://127.0.0.1:8545", "http://localhost:8545", "http://169.254.169.254/"} {
+		// The claim proves committee identity, so the peer is still served as a
+		// validator; only its advertised address is refused.
+		accepted := router.acceptInbound(&handshakedConn{msg: &handshakeMsg{
+			NodeAuth: NodeChallengeSig{key: peerKey.Public()},
+			handshakeSpec: handshakeSpec{
+				SelfAddr: utils.Some(NodeAddress{
+					NodeID:   peerKey.Public().NodeID(),
+					Hostname: "validator.example",
+					Port:     26656,
+				}),
+				SeiGigaConnection: true,
+			},
+			GigaClaim: utils.Some(gigaHandshakeClaim{Validator: validatorKey.Public(), evmRPC: evmRPC}),
+		}})
+		require.True(t, accepted.IsPresent())
+		_, ok := router.validatorAddr(validatorKey.Public())
+		require.False(t, ok)
+	}
+}
+
 func TestGigaRouterCommon_RunInboundConnLearnsMemberAndClosesOnLeave(t *testing.T) {
 	rng := utils.TestRng()
 	validatorKey := atypes.GenSecretKey(rng)
@@ -443,19 +496,86 @@ func TestGigaRouterCommon_RunPerCommitteeMemberFollowsCommittee(t *testing.T) {
 }
 
 func TestGigaRouterCommon_RunPerCommitteeMemberKeepsLeaversWhileAnchorLags(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		hasStartAnchor bool
+	}{
+		{"no AppQC yet", false},
+		{"AppQC still in the prior epoch", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rng := utils.TestRng()
+			a := atypes.GenSecretKey(rng).Public()
+			b := atypes.GenSecretKey(rng).Public()
+			c := atypes.GenSecretKey(rng).Public()
+			ep1 := testEpoch(1, map[atypes.PublicKey]uint64{a: 1, b: 1})
+			ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, c: 1})
+			startAnchor := utils.None[data.Anchor]()
+			if tc.hasStartAnchor {
+				startAnchor = testAnchor(ep1)
+			}
+			nextEpoch := utils.NewAtomicSend(ep1)
+			anchor := utils.NewAtomicSend(startAnchor)
+			router := &gigaRouterCommon{
+				cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+					a: {Key: makeKey(rng).Public()},
+					b: {Key: makeKey(rng).Public()},
+					c: {Key: makeKey(rng).Public()},
+				}},
+				nextCommitEpoch: nextEpoch.Subscribe(),
+				anchor:          anchor.Subscribe(),
+				liveAddrs:       utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+				liveAddrVersion: utils.NewAtomicSend(uint64(0)),
+			}
+
+			started := make(chan atypes.PublicKey, 3)
+			stoppedB := make(chan struct{}, 1)
+			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+				s.SpawnBg(func() error {
+					return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
+						started <- validator
+						<-ctx.Done()
+						if validator.Compare(b) == 0 {
+							stoppedB <- struct{}{}
+						}
+						return ctx.Err()
+					}))
+				})
+				for range 2 {
+					<-started
+				}
+				nextEpoch.Store(ep2)
+				<-started // c joined, so the prune for ep2 already ran
+				select {
+				case <-stoppedB:
+					return fmt.Errorf("b stopped while Anchor was still catching up")
+				default:
+				}
+				anchor.Store(testAnchor(ep2))
+				<-stoppedB
+				return nil
+			})
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestGigaRouterCommon_RunPerCommitteeMemberDialsBothCommitteesUntilStable(t *testing.T) {
 	rng := utils.TestRng()
 	a := atypes.GenSecretKey(rng).Public()
 	b := atypes.GenSecretKey(rng).Public()
 	c := atypes.GenSecretKey(rng).Public()
-	ep1 := testEpoch(1, map[atypes.PublicKey]uint64{a: 1, b: 1})
-	ep2 := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, c: 1})
-	nextEpoch := utils.NewAtomicSend(ep1)
-	anchor := utils.NewAtomicSend(testAnchor(ep1))
+	d := atypes.GenSecretKey(rng).Public()
+	nextEpoch := utils.NewAtomicSend(testEpoch(4, map[atypes.PublicKey]uint64{a: 1, c: 1}))
+	anchor := utils.NewAtomicSend(testAnchor(testEpoch(1, map[atypes.PublicKey]uint64{a: 1, b: 1})))
+	lagAnchor := testEpoch(2, map[atypes.PublicKey]uint64{a: 1, c: 1, d: 1})
+	dropAnchor := testEpoch(3, map[atypes.PublicKey]uint64{a: 1, c: 1})
 	router := &gigaRouterCommon{
 		cfg: &GigaRouterCommonConfig{ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
 			a: {Key: makeKey(rng).Public()},
 			b: {Key: makeKey(rng).Public()},
 			c: {Key: makeKey(rng).Public()},
+			d: {Key: makeKey(rng).Public()},
 		}},
 		nextCommitEpoch: nextEpoch.Subscribe(),
 		anchor:          anchor.Subscribe(),
@@ -463,8 +583,9 @@ func TestGigaRouterCommon_RunPerCommitteeMemberKeepsLeaversWhileAnchorLags(t *te
 		liveAddrVersion: utils.NewAtomicSend(uint64(0)),
 	}
 
-	started := make(chan atypes.PublicKey, 3)
+	started := make(chan atypes.PublicKey, 4)
 	stoppedB := make(chan struct{}, 1)
+	onStart := map[atypes.PublicKey]struct{}{}
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
 			return utils.IgnoreCancel(router.runPerCommitteeMember(ctx, func(ctx context.Context, validator atypes.PublicKey, _ GigaNodeAddr) error {
@@ -476,21 +597,22 @@ func TestGigaRouterCommon_RunPerCommitteeMemberKeepsLeaversWhileAnchorLags(t *te
 				return ctx.Err()
 			}))
 		})
-		for range 2 {
-			<-started
+		for range 3 {
+			onStart[<-started] = struct{}{}
 		}
-		nextEpoch.Store(ep2)
-		<-started // c joined, so the prune for ep2 already ran
+		anchor.Store(testAnchor(lagAnchor))
+		<-started // d joined, so the prune for lagAnchor already ran
 		select {
 		case <-stoppedB:
-			return fmt.Errorf("b stopped while still on the Anchor committee")
+			return fmt.Errorf("b stopped while Anchor was still more than one epoch behind")
 		default:
 		}
-		anchor.Store(testAnchor(ep2))
+		anchor.Store(testAnchor(dropAnchor))
 		<-stoppedB
 		return nil
 	})
 	require.NoError(t, err)
+	require.Equal(t, map[atypes.PublicKey]struct{}{a: {}, b: {}, c: {}}, onStart)
 }
 
 func TestGigaRouterCommon_RunPerCommitteeMemberRunsOneSessionPerMember(t *testing.T) {

@@ -104,7 +104,7 @@ func handshake(
 			}
 			return nil
 		})
-		msgBytes, err := conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize()))
+		msgBytes, err := conn.ReadSizedMsg(ctx, sc, uint64((&pb.Handshake{}).MaxSize())) //nolint:gosec // MaxSize() returns a small positive constant
 		if err != nil {
 			return nil, fmt.Errorf("conn.ReadSizedMsg(): %w", err)
 		}

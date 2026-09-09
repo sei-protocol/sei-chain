@@ -12,7 +12,7 @@ func (*NodePublicKey) MaxSize() int {
 }
 
 func (*Handshake) MaxSize() int {
-	return 28414
+	return 34878
 }
 
 func init() {
@@ -50,8 +50,8 @@ func init() {
 	runtime.MustRegister[*Handshake](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*NodePublicKey]())},
 		2: {MaxCount: 1, MaxSize: 64},
-		4: {MaxCount: 1, MaxSize: 256},
-		5: {MaxCount: 100, MaxSize: 256},
+		4: {MaxCount: 1, MaxSize: 320},
+		5: {MaxCount: 100, MaxSize: 320},
 		3: {MaxCount: 1},
 		6: {MaxCount: 1, MaxSize: 32},
 		7: {MaxCount: 1, MaxSize: 64},

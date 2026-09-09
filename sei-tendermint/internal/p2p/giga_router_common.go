@@ -572,14 +572,18 @@ func keepReplicas(anchor utils.Option[data.Anchor], commitEpoch *atypes.Epoch) m
 	return keep
 }
 
+// validatorAddr returns the address to dial validator at. The configured
+// committee book wins; the live overlay only covers members it omits.
 func (r *gigaRouterCommon) validatorAddr(validator atypes.PublicKey) (GigaNodeAddr, bool) {
+	if addr, ok := r.cfg.ValidatorAddrs[validator]; ok {
+		return addr, true
+	}
 	for addrs := range r.liveAddrs.RLock() {
 		if addr, ok := addrs[validator]; ok {
 			return addr, true
 		}
 	}
-	addr, ok := r.cfg.ValidatorAddrs[validator]
-	return addr, ok
+	return GigaNodeAddr{}, false
 }
 
 func sameGigaNodeAddr(a, b GigaNodeAddr) bool {
@@ -599,10 +603,20 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 		return utils.None[atypes.PublicKey]()
 	}
 	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
+	evmRPC := *utils.OrPanic1(url.Parse(claim.evmRPC))
+	// The signed advertisement is all-or-nothing: if we will not use its
+	// EVMRPC, we learn none of it. Inbound still uses the proven validator
+	// identity. Outbound uses the committee book when it has a row; a
+	// book-absent member is not dialed.
+	if utils.IsLoopbackOrLinkLocalURL(evmRPC) {
+		logger.Error("committee member advertised a loopback or link-local EVM RPC; not learning its address",
+			"validator", claim.Validator, "evmRPC", evmRPC.String())
+		return utils.Some(claim.Validator)
+	}
 	addr := GigaNodeAddr{
 		Key:      hConn.msg.NodeAuth.Key(),
 		HostPort: tcp.HostPort{Hostname: selfAddr.Hostname, Port: selfAddr.Port},
-		EVMRPC:   *utils.OrPanic1(url.Parse(claim.evmRPC)),
+		EVMRPC:   evmRPC,
 	}
 	for addrs := range r.liveAddrs.Lock() {
 		if old, ok := addrs[claim.Validator]; ok && sameGigaNodeAddr(old, addr) {
@@ -615,31 +629,43 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 	return utils.Some(claim.Validator)
 }
 
-// stopStaleSessions ends sessions whose members left keepReplicas or whose
-// address changed, and drops overlay addresses of members outside keepReplicas.
+// stopStaleSessions stops sessions for validators outside keepReplicas or
+// dialing an address that is no longer current, and drops the overlay addresses
+// of the departed. Departures are only acted on once Anchor is at most one
+// epoch behind commitEpoch: until then the validators of the epochs in between
+// are in neither endpoint committee, and the AppQCs for those epochs cannot
+// form without them.
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
 	anchor utils.Option[data.Anchor],
 	commitEpoch *atypes.Epoch,
 ) error {
+	a, hasAnchor := anchor.Get()
+	settled := hasAnchor && commitEpoch.EpochIndex() <= a.Epoch.EpochIndex()+1
 	keep := keepReplicas(anchor, commitEpoch)
-	dropped := false
-	for addrs := range r.liveAddrs.Lock() {
-		for validator := range addrs {
-			if _, ok := keep[validator]; !ok {
-				delete(addrs, validator)
-				dropped = true
+	if settled {
+		for addrs := range r.liveAddrs.Lock() {
+			dropped := false
+			for validator := range addrs {
+				if _, ok := keep[validator]; !ok {
+					delete(addrs, validator)
+					dropped = true
+				}
 			}
-		}
-		if dropped {
-			r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
+			if dropped {
+				r.liveAddrVersion.Store(r.liveAddrVersion.Load() + 1)
+			}
 		}
 	}
 	var stale []*memberSession
+	// Cancel every stale session before waiting for any of them.
 	for validator, session := range live {
-		addr, ok := r.validatorAddr(validator)
-		if _, kept := keep[validator]; kept && ok && sameGigaNodeAddr(session.addr, addr) {
+		if _, kept := keep[validator]; !kept {
+			if !settled {
+				continue
+			}
+		} else if addr, ok := r.validatorAddr(validator); ok && sameGigaNodeAddr(session.addr, addr) {
 			continue
 		}
 		session.cancel()

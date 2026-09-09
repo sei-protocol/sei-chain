@@ -43,13 +43,15 @@ message Handshake {
   NodePublicKey node_auth_key = 1;
   bytes node_auth_sig = 2 [(wireguard.max_size) = 64];
   // NodeAddress that this peer can be dialed at.
-  optional string self_addr = 4 [(wireguard.max_size) = 256];
+  // 320 fits the longest NodeAddress: "mconn://" + 40-hex node ID + "@" + a
+  // 253-char DNS name + ":" + a 5-digit port.
+  optional string self_addr = 4 [(wireguard.max_size) = 320];
   // Initial peer exchange.
   // It allows to receive peer addresses from a node which doesn't accept any new inbound connections
   // (it is at full capacity).
   repeated string pex_addrs = 5 [
     (wireguard.max_count) = 100,
-    (wireguard.max_size) = 256
+    (wireguard.max_size) = 320
   ];
 
   bool sei_giga_connection = 3;
