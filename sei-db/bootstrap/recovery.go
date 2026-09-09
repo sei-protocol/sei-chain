@@ -43,14 +43,18 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 // A target of 0 is no height to converge on, and every store is left as it was found: rolling back to
 // it would drop every receipt the node holds along with every block in its WAL. This is the single
 // guard for that, which is why the rollbacks below it carry none of their own.
+//
+// State goes first because it is the rollback that refuses: a target its snapshots and WAL cannot span
+// leaves the node down for an operator to retry at a higher one, and receipts cut to the lower target
+// would no longer be there to reach.
 func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) error {
 	if target == 0 {
 		return m.openStateDB(ctx)
 	}
-	if err := m.recoverReceipt(target); err != nil {
+	if err := m.openStateDBAt(ctx, target); err != nil {
 		return err
 	}
-	return m.openStateDBAt(ctx, target)
+	return m.recoverReceipt(target)
 }
 
 // openBlockStore opens the block ledger consensus reads and writes.

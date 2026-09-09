@@ -73,7 +73,7 @@ func NewStateDB(
 	if err := s.openSS(); err != nil {
 		return nil, err
 	}
-	if err := s.discardStateAboveTheWAL(wal.head()); err != nil {
+	if err := s.discardStateAboveTheWAL(wal); err != nil {
 		return nil, err
 	}
 	if err := s.openSC(ctx); err != nil {
@@ -91,8 +91,9 @@ func NewStateDB(
 }
 
 // NewStateDBWithRollback rolls SC, SS and the state WAL back to target and then opens them, so the
-// returned StateDB commits target+1. It cuts the WAL's tail to target and points SC and SS at their
-// newest snapshot at or below it, all while the stores are closed, then opens them the ordinary way.
+// returned StateDB commits target+1. It cuts the WAL's tail to target and puts whichever of SC and SS
+// sits above target on its newest snapshot at or below it, all while the stores are closed, then opens
+// them the ordinary way and checks both landed on target.
 //
 // target must be positive, and a target the surviving snapshots and the WAL cannot span is refused
 // before anything moves.
@@ -184,7 +185,11 @@ func (s *StateDB) openSS() error {
 // A commit writes the WAL unflushed, so a crash can lose its tail while the state committed above that
 // tail survives. Those blocks are re-executed from the block store, which a store still holding them
 // cannot accept, so the state above the WAL is dropped rather than kept.
-func (s *StateDB) discardStateAboveTheWAL(head int64) error {
+//
+// A head the surviving snapshots and the WAL cannot span is refused before anything moves, since every
+// step below deletes snapshots a second attempt at a higher head would need.
+func (s *StateDB) discardStateAboveTheWAL(wal storedWALRange) error {
+	head := wal.head()
 	if head == 0 {
 		// An empty WAL says nothing about where state belongs: one pruned away behind a snapshot leaves
 		// the state it covered as the only record of it.
@@ -193,28 +198,31 @@ func (s *StateDB) discardStateAboveTheWAL(head int64) error {
 	if err := s.ensureStoresCanRewindTo(head); err != nil {
 		return err
 	}
+	if err := s.ensureWALCanReplayTo(wal, head); err != nil {
+		return err
+	}
 	if err := s.discardSCAboveTheWAL(head); err != nil {
 		return err
 	}
 	return s.discardSSAboveTheWAL(head)
 }
 
-// discardSCAboveTheWAL rewinds SC onto its newest snapshot at or below head when it would open above
-// head. It reads the version SC opens at from its files, so it runs before SC opens and the store opens
-// once, on that snapshot.
+// discardSCAboveTheWAL rewinds SC onto its newest snapshot at or below head when its files hold state
+// above head. It reads those files rather than the open store, so it runs before SC opens and the store
+// opens once, on that snapshot.
 func (s *StateDB) discardSCAboveTheWAL(head int64) error {
-	opensAt, err := flatkv.GetLatestVersion(s.flatkvCfg.DataDir)
+	above, err := s.scHoldsStateAbove(head)
 	if err != nil {
-		return fmt.Errorf("read the version the state commit store opens at: %w", err)
+		return err
 	}
-	if opensAt <= head {
+	if !above {
 		return nil
 	}
 	if err := s.rewindSC(head); err != nil {
 		return err
 	}
 	logger.Info("state commit store rewound onto the state WAL's head: the state above it is not one the "+
-		"WAL can replay", "was", opensAt, "head", head)
+		"WAL can replay", "head", head)
 	return nil
 }
 
@@ -342,8 +350,9 @@ func (s *StateDB) Close() error {
 	return errs
 }
 
-// rewindTo discards every snapshot of SC and SS above target and cuts the WAL's tail to it. All three
-// stores must be closed. SS sitting above target is restored onto its newest snapshot at or below it.
+// rewindTo puts whichever of SC and SS sits above target on its newest snapshot at or below it, drops
+// every snapshot of both above target, and cuts the WAL's tail to it. All three stores must be closed,
+// and a store already at or below target is left where it is, holding state the replay carries forward.
 //
 // A target the surviving snapshots and the WAL cannot span is refused before anything moves.
 func (s *StateDB) rewindTo(target int64) error {
@@ -363,6 +372,9 @@ func (s *StateDB) rewindTo(target int64) error {
 	}
 
 	if err := s.dropSnapshotsAbove(target); err != nil {
+		return err
+	}
+	if err := s.rewindSCIfAbove(target); err != nil {
 		return err
 	}
 	if err := s.rewindSSIfAbove(target); err != nil {
@@ -450,20 +462,17 @@ func (s *StateDB) ssReplayStart(target int64) (from int64, replays bool, err err
 	return from, true, nil
 }
 
-// ssFillsForward reports whether SS holds no history the WAL can still rebuild, which leaves it out of
-// the replay: it stays empty and starts filling at the block after the target.
-//
-// This is the treatment recoveryTarget gives an empty receipt store. It applies only to a WAL that has
-// had a retention cut, where the alternative is refusing to start over a store that is merely new.
+// ssFillsForward reports whether the open SS is left out of the replay to fill forward, which is the
+// treatment recoveryTarget gives an empty receipt store.
 func (s *StateDB) ssFillsForward() (bool, error) {
-	if s.ss == nil || s.ss.GetLatestVersion() > 0 {
+	if s.ss == nil {
 		return false, nil
 	}
-	stored, first, _, err := s.wal.GetStoredRange()
+	wal, err := s.openWALRange()
 	if err != nil {
-		return false, fmt.Errorf("read state WAL range: %w", err)
+		return false, err
 	}
-	return !stored || first > 1, nil
+	return wal.leavesSSEmpty(s.ss.GetLatestVersion()), nil
 }
 
 // matchHeight checks SC and SS against blockNum and reports the one that is not on it. An SS left empty
@@ -501,6 +510,36 @@ func (s *StateDB) rewindSC(target int64) error {
 		return fmt.Errorf("rewind the state commit store to a snapshot at or below %d: %w", target, err)
 	}
 	return nil
+}
+
+// rewindSCIfAbove points SC at its newest snapshot at or below target when its files hold state above
+// target, discarding the working copy that holds it.
+//
+// DropSnapshotsAbove reaches a working copy only when the current link named one of the snapshots it
+// removed, and the open's own repair needs a WAL head to measure against, which a rollback that empties
+// the WAL leaves it without.
+func (s *StateDB) rewindSCIfAbove(target int64) error {
+	above, err := s.scHoldsStateAbove(target)
+	if err != nil {
+		return err
+	}
+	if !above {
+		return nil
+	}
+	return s.rewindSC(target)
+}
+
+// scHoldsStateAbove reports whether SC's files hold state above target, which is what a rewind there
+// has to remove. SC must not be open.
+//
+// It is the one question the rewind, the guard that clears it and the WAL span check all ask, so that a
+// store this reports on lands on a snapshot the guard required and the WAL was checked to reach.
+func (s *StateDB) scHoldsStateAbove(target int64) (bool, error) {
+	above, err := flatkv.HoldsStateAbove(s.flatkvCfg.DataDir, target)
+	if err != nil {
+		return false, fmt.Errorf("read the state the state commit store holds above %d: %w", target, err)
+	}
+	return above, nil
 }
 
 // rewindSSIfAbove restores SS onto its newest snapshot at or below target when the live databases sit
@@ -541,11 +580,15 @@ func (s *StateDB) ensureWALCanReplayTo(wal storedWALRange, target int64) error {
 
 // heightSCReplaysFrom returns the version SC will hold after rewindTo, before catch-up replays to target.
 func (s *StateDB) heightSCReplaysFrom(target int64) (int64, error) {
-	opensAt, err := flatkv.GetWorkingCopyVersion(s.flatkvCfg.DataDir)
+	above, err := s.scHoldsStateAbove(target)
 	if err != nil {
-		return 0, fmt.Errorf("read the version the state commit store opens at: %w", err)
+		return 0, err
 	}
-	if opensAt <= target {
+	if !above {
+		opensAt, err := flatkv.GetWorkingCopyVersion(s.flatkvCfg.DataDir)
+		if err != nil {
+			return 0, fmt.Errorf("read the version the state commit store opens at: %w", err)
+		}
 		return opensAt, nil
 	}
 	base, err := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
@@ -575,10 +618,7 @@ func (s *StateDB) heightSSReplaysFrom(wal storedWALRange, target int64) (from in
 		}
 		return base, true, nil
 	}
-	if openedAt == target {
-		return 0, false, nil
-	}
-	if openedAt == 0 && (wal.last == 0 || wal.first > 1) {
+	if openedAt == target || wal.leavesSSEmpty(openedAt) {
 		return 0, false, nil
 	}
 	return openedAt, true, nil
@@ -590,7 +630,7 @@ func (r storedWALRange) mustCoverAfter(from, target int64) error {
 		return nil
 	}
 	start := from + 1
-	if r.last == 0 {
+	if r.isEmpty() {
 		return fmt.Errorf("cannot roll back to %d: the state WAL holds no blocks %d-%d", target, start, target)
 	}
 	if r.first > uint64(start) { //nolint:gosec // start is from+1 with from >= 0
@@ -623,18 +663,18 @@ func (s *StateDB) ensureStoresCanRewindTo(target int64) error {
 	return s.ensureSSCanRewindTo(target)
 }
 
-// ensureSCCanRewindTo returns an error when SC sits above target and has no snapshot at or below it.
-// Snapshot 0 counts. A store already at or below target needs none.
+// ensureSCCanRewindTo returns an error when SC holds state above target and has no snapshot at or below
+// it. Snapshot 0 counts. A store holding nothing above target needs none.
 func (s *StateDB) ensureSCCanRewindTo(target int64) error {
 	_, snapErr := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
 	if snapErr == nil {
 		return nil
 	}
-	opensAt, err := flatkv.GetWorkingCopyVersion(s.flatkvCfg.DataDir)
+	above, err := s.scHoldsStateAbove(target)
 	if err != nil {
 		return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, err)
 	}
-	if opensAt <= target {
+	if !above {
 		return nil
 	}
 	return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, snapErr)
@@ -719,6 +759,19 @@ func (s *StateDB) storedWALRange() (storedWALRange, error) {
 	return storedWALRange{first: first, last: last}, nil
 }
 
+// openWALRange reads the block range from the open WAL handle, which storedWALRange's directory lock
+// rules out reading once the WAL is open.
+func (s *StateDB) openWALRange() (storedWALRange, error) {
+	stored, first, last, err := s.wal.GetStoredRange()
+	if err != nil {
+		return storedWALRange{}, fmt.Errorf("read state WAL range: %w", err)
+	}
+	if !stored {
+		return storedWALRange{}, nil
+	}
+	return storedWALRange{first: first, last: last}, nil
+}
+
 // storedWALRange is the block range a state WAL holds on disk. An empty WAL is the zero value.
 type storedWALRange struct {
 	first, last uint64
@@ -730,25 +783,39 @@ func (r storedWALRange) head() int64 {
 	return int64(r.last)
 }
 
+// isEmpty reports whether the WAL holds no blocks.
+func (r storedWALRange) isEmpty() bool {
+	return r.last == 0
+}
+
+// leavesSSEmpty reports whether an SS holding openedAt is left out of a replay to fill forward: it has
+// no history of its own, and this WAL has had a retention cut, so no replay rebuilds it.
+//
+// It applies only to a WAL that no longer reaches block 1, where the alternative is refusing to start
+// over a store that is merely new.
+func (r storedWALRange) leavesSSEmpty(openedAt int64) bool {
+	return openedAt == 0 && (r.isEmpty() || r.first > 1)
+}
+
 // catchUpToWAL replays the WAL into SC and SS up to the last block it holds, which is the height state
-// committed to. An empty WAL still rebuilds a working copy that sits above the current snapshot.
+// committed to. An empty WAL leaves both stores where they are.
 //
 // A commit writes the WAL before either store, so a crash between the two leaves one of them a block
 // behind. Committing from behind the WAL is rejected, so this is what makes an opened StateDB able to
 // commit.
 func (s *StateDB) catchUpToWAL() error {
-	stored, _, last, err := s.wal.GetStoredRange()
+	wal, err := s.openWALRange()
 	if err != nil {
-		return fmt.Errorf("read state WAL range: %w", err)
+		return err
 	}
-	if !stored {
-		if err := s.sc.RebuildIfUnreachable(0); err != nil {
-			return fmt.Errorf("rebuild the state commit store's working copy: %w", err)
-		}
+	if wal.isEmpty() {
+		// Neither store is touched, for the reason discardStateAboveTheWAL gives: with no head to
+		// measure against, a working copy above the current snapshot is the only record of the blocks it
+		// holds, and dropping it on one store alone would leave the two at different heights. A rollback
+		// that empties the WAL brings both down in rewindTo, where the target says where they belong.
 		return nil
 	}
-	//nolint:gosec // a block number never approaches the int64 ceiling
-	return s.catchUpTo(int64(last))
+	return s.catchUpTo(wal.head())
 }
 
 // replay feeds apply every WAL block in (from, target], in order.

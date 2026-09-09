@@ -418,6 +418,48 @@ func GetWorkingCopyVersion(dir string) (int64, error) {
 	return max(snapshotVersion, workingVersion), nil
 }
 
+// HoldsStateAbove reports whether the store under dir holds any state above target: its current
+// snapshot, or any data DB in its working copy. A directory that has never been opened holds none.
+//
+// It parts from GetWorkingCopyVersion only after an interrupted commit, where one data DB records a
+// block the others do not. The store opens at the height they agree on, below that block, while the
+// rows written for it sit in the working copy, so a rollback to that height has to discard them.
+func HoldsStateAbove(dir string, target int64) (bool, error) {
+	snapshotVersion, err := currentSnapshotVersion(dir)
+	if err != nil {
+		return false, err
+	}
+	if snapshotVersion > target {
+		return true, nil
+	}
+	highest, err := highestDataDBVersion(dir)
+	if err != nil {
+		return false, err
+	}
+	return highest > target, nil
+}
+
+// highestDataDBVersion returns the highest committed version recorded in the working copy's data DBs,
+// or 0 when the working directory is absent.
+func highestDataDBVersion(dir string) (int64, error) {
+	workDir := filepath.Join(dir, workingDirName)
+	if _, err := os.Stat(workDir); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("stat the state commit working copy under %q: %w", workDir, err)
+	}
+	var highest int64
+	for _, dbDir := range dataDBDirs {
+		version, err := readCommittedVersion(filepath.Join(workDir, dbDir))
+		if err != nil {
+			return 0, err
+		}
+		highest = max(highest, version)
+	}
+	return highest, nil
+}
+
 // workingDirVersion returns the lowest committed version recorded in the working copy's data DBs, or 0
 // when the working directory is absent.
 func workingDirVersion(dir string) (int64, error) {

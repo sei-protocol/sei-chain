@@ -482,8 +482,10 @@ func TestRecoverToATargetThatEmptiesTheWALLandsOnTheSnapshot(t *testing.T) {
 	require.NoError(t, manager.StateDB().CommitStateChanges(2, evmBlock(2, 2)))
 }
 
-// A target the WAL no longer spans is refused before snapshots or the WAL tail move, so a second
-// attempt at a reachable height still has the history it needs.
+// A target the WAL no longer spans is refused before snapshots, the WAL tail or the receipt head move,
+// so a second attempt at a reachable height still has the history it needs. Receipts are the ones a
+// retry cannot recover: recoverReceipt drops bodies and range-deletes the tag index, which no replay
+// puts back, so it has to run after the rollback that refuses rather than before it.
 func TestRecoverRefusesATargetTheWALCannotSpan(t *testing.T) {
 	manager, cfg := openManager(t, disableSS)
 	snapshotSCAt(t, manager, 1)
@@ -492,24 +494,32 @@ func TestRecoverRefusesATargetTheWALCannotSpan(t *testing.T) {
 	for block := byte(2); block <= 5; block++ {
 		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
 	}
+	writeReceipts(t, manager, 5)
 	closeStateDB(t, manager)
 	replaceWALWithBlocks(t, cfg, 3, 5)
 
 	require.ErrorContains(t, reconvergeErr(t, manager, 2), "replay must start at block 2")
 
 	require.NoError(t, manager.openStateDB(t.Context()))
+	require.NoError(t, manager.openReceiptStore())
 	require.Equal(t, int64(5), manager.SC().Version(), "a refused rollback must not have moved SC")
 	requireWALTail(t, manager, 5)
+	require.Equal(t, int64(5), manager.ReceiptDB().LatestVersion(),
+		"a refused rollback must not have cut receipts it can no longer reach")
 }
 
-// An empty WAL still has a snapshot the working copy can sit above, and that copy has to be rebuilt
-// rather than opened as the live height.
-func TestOpenRepairsAWorkingCopyWhenTheWALIsEmpty(t *testing.T) {
-	manager, cfg := openManager(t, disableSS)
-	snapshotSCAt(t, manager, 1)
-	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(
-		config.CheckpointConfig{BlockInterval: 1_000_000}))
-	for block := byte(2); block <= 3; block++ {
+// An empty WAL is no evidence about where state belongs, so a plain open leaves both stores holding the
+// blocks they committed above their newest snapshot. Dropping them down to that snapshot is what a
+// rollback does, from a target; doing it here would take SC down on its own and leave the two stores at
+// different heights, with nothing left to reconcile them.
+//
+// Committing afterwards is the check that they are still aligned, not merely reporting the same height.
+func TestOpenWithAnEmptyWALLeavesBothStoresAlone(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	huge := controller.NewCheckpointScheduler(config.CheckpointConfig{BlockInterval: 1_000_000})
+	manager.SC().SetCheckpointScheduler(huge)
+	manager.SS().SetCheckpointScheduler(huge)
+	for block := byte(1); block <= 3; block++ {
 		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
 	}
 	closeStateDB(t, manager)
@@ -517,7 +527,9 @@ func TestOpenRepairsAWorkingCopyWhenTheWALIsEmpty(t *testing.T) {
 
 	require.NoError(t, manager.openStateDB(t.Context()))
 
-	require.Equal(t, int64(1), manager.SC().Version())
+	require.Equal(t, int64(3), manager.SC().Version())
+	require.Equal(t, int64(3), manager.SS().GetLatestVersion())
+	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
 }
 
 // A commit store held above the WAL head by a snapshot of its own is rewound to a snapshot boundary at

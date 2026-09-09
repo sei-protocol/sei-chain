@@ -177,3 +177,47 @@ func TestGetWorkingCopyVersionIgnoresTheWALTail(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), latest, "LoadLatest would land on the WAL tail")
 }
+
+func TestHoldsStateAboveNeverOpenedDirIsFalse(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), flatkvRootDir)
+	above, err := HoldsStateAbove(dir, 0)
+	require.NoError(t, err)
+	require.False(t, above)
+}
+
+func TestHoldsStateAboveItsOwnHeight(t *testing.T) {
+	s, cfg := newProbeStore(t)
+	for i := int64(1); i <= 3; i++ {
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
+	require.NoError(t, s.Close())
+
+	above, err := HoldsStateAbove(cfg.DataDir, 3)
+	require.NoError(t, err)
+	require.False(t, above, "a store on 3 holds nothing above 3")
+
+	above, err = HoldsStateAbove(cfg.DataDir, 2)
+	require.NoError(t, err)
+	require.True(t, above)
+}
+
+// A commit interrupted partway through its four data DBs is where the two probes have to differ: the
+// store opens at the height every DB agrees on, while the blocks the DBs that did commit wrote are
+// still in the working copy. Rolling back to that agreed height reads as nothing to do by the opening
+// height and has to discard those rows, so the rewind asks this question instead.
+func TestHoldsStateAboveSeesAnInterruptedCommit(t *testing.T) {
+	s, cfg := newProbeStore(t)
+	for i := int64(1); i <= 3; i++ {
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
+	rewindVersionRecords(t, s, 2, accountDBDir)
+	require.NoError(t, s.Close())
+
+	opensAt, err := GetWorkingCopyVersion(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), opensAt, "the height every data DB agrees on")
+
+	above, err := HoldsStateAbove(cfg.DataDir, opensAt)
+	require.NoError(t, err)
+	require.True(t, above, "the other data DBs still record block 3")
+}
