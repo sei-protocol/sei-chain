@@ -52,7 +52,7 @@ func BenchmarkMemIAVLWriteWithDifferentBlockSize(b *testing.B) {
 
 	for _, scenario := range scenarios {
 		b.Run(scenario.Name, func(b *testing.B) {
-			runBenchmark(b, scenario, false)
+			runBenchmark(b, scenario)
 		})
 	}
 }
@@ -93,7 +93,7 @@ func BenchmarkFlatKVWriteWithDifferentBlockSize(b *testing.B) {
 
 	for _, scenario := range scenarios {
 		b.Run(scenario.Name, func(b *testing.B) {
-			runBenchmark(b, scenario, false)
+			runBenchmark(b, scenario)
 		})
 	}
 }
@@ -182,91 +182,7 @@ func BenchmarkCompositeWriteWithDifferentBlockSize(b *testing.B) {
 
 	for _, scenario := range scenarios {
 		b.Run(scenario.Name, func(b *testing.B) {
-			runBenchmark(b, scenario, false)
-		})
-	}
-}
-
-// Compares throughput across key distributions with The MemIAVL backend.
-func BenchmarkMemIAVLWriteWithDifferentKeyDistributions(b *testing.B) {
-	const (
-		totalKeys int64 = 1_000_000
-		numBlocks int64 = 10_000
-	)
-
-	scenarios := []TestScenario{
-		{
-			Name:      "even_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.MemIAVL,
-		},
-		{
-			Name:      "bursty_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.MemIAVL,
-		},
-		{
-			Name:      "normal_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.MemIAVL,
-		},
-		{
-			Name:      "ramp_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.MemIAVL,
-		},
-	}
-
-	for _, scenario := range scenarios {
-		b.Run(scenario.Name, func(b *testing.B) {
-			runBenchmark(b, scenario, false)
-		})
-	}
-}
-
-// Compares throughput across key distributions with The FlatKV backend.
-func BenchmarkFlatKVWriteWithDifferentKeyDistributions(b *testing.B) {
-	// Note: FlatKV is currently behaving more slowly than expected, and so
-	// the total number of keys/blocks is reduced by a factor of 10 compared to the equivalent MemIAVL benchmarks.
-	const (
-		totalKeys int64 = 100_000
-		numBlocks int64 = 1_000
-	)
-
-	scenarios := []TestScenario{
-		{
-			Name:      "even_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.FlatKV,
-		},
-		{
-			Name:      "bursty_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.FlatKV,
-		},
-		{
-			Name:      "normal_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.FlatKV,
-		},
-		{
-			Name:      "ramp_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.FlatKV,
-		},
-	}
-
-	for _, scenario := range scenarios {
-		b.Run(scenario.Name, func(b *testing.B) {
-			runBenchmark(b, scenario, false)
+			runBenchmark(b, scenario)
 		})
 	}
 }
@@ -280,26 +196,9 @@ func BenchmarkCompositeWriteWithDifferentKeyDistributions(b *testing.B) {
 		numBlocks int64 = 1_000
 	)
 
+	// The even distribution is covered by BenchmarkCompositeWriteWithDifferentBlockSize
+	// at 100 keys per block, which is the same scenario.
 	scenarios := []TestScenario{
-		// Even distribution
-		{
-			Name:      "cosmos/even_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.CompositeCosmos,
-		},
-		{
-			Name:      "split/even_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.CompositeSplit,
-		},
-		{
-			Name:      "dual/even_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.CompositeDual,
-		},
 		// Bursty distribution
 		{
 			Name:         "cosmos/bursty_distribution",
@@ -370,7 +269,7 @@ func BenchmarkCompositeWriteWithDifferentKeyDistributions(b *testing.B) {
 
 	for _, scenario := range scenarios {
 		b.Run(scenario.Name, func(b *testing.B) {
-			runBenchmark(b, scenario, false)
+			runBenchmark(b, scenario)
 		})
 	}
 }
