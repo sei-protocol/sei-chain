@@ -375,20 +375,29 @@ func scSnapshotDir(dataDir string, version int64) string {
 	return filepath.Join(dataDir, fmt.Sprintf("snapshot-%020d", version))
 }
 
-// The target a healthy recovery computes is the WAL's own head, where there is nothing to roll back.
-// The snapshots above it still have to go: a crash can leave one there, and a later rollback that lands
-// on it would replay this branch's blocks over an abandoned one.
-func TestRecoverAtTheWALHeadStillDropsSnapshotsAboveIt(t *testing.T) {
+// A snapshot above the target has to go even when SC sits at or below the target, which is the one
+// state the rewind cannot sweep up: nothing moves SC, and it is the rewind that otherwise removes the
+// snapshots above where it lands.
+//
+// An interrupted rewind is what leaves that state. SC repoints its current link before it removes the
+// snapshots above, so a crash in between abandons a branch while SC reads as merely behind. A later
+// rollback landing on one of that branch's snapshots would replay over it.
+func TestRecoverDropsASnapshotAboveASCAlreadyAtTheTarget(t *testing.T) {
 	manager, cfg := openManager(t, disableSS)
-	commitBlocks(t, manager, 4)
-	snapshotSCAt(t, manager, 5)
+	dataDir := cfg.FlatKVConfig.DataDir
+	commitBlocks(t, manager, 2)
+	snapshotSCAt(t, manager, 3)
 	closeStateDB(t, manager)
 	closeReceiptDB(t, manager)
-	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 3))
+	// The snapshot the interrupted rewind failed to remove. Its contents do not matter, only that a
+	// later rollback could land on it.
+	require.NoError(t, os.CopyFS(scSnapshotDir(dataDir, 5), os.DirFS(scSnapshotDir(dataDir, 3))))
+	require.DirExists(t, scSnapshotDir(dataDir, 5), "the fixture must plant the snapshot it expects gone")
 
 	require.NoError(t, manager.recoverStores(t.Context(), 3))
 
-	require.NoDirExists(t, scSnapshotDir(cfg.FlatKVConfig.DataDir, 5))
+	require.NoDirExists(t, scSnapshotDir(dataDir, 5),
+		"a rollback that never moved SC still has to drop the branch abandoned above it")
 	require.Equal(t, int64(3), manager.SC().Version())
 }
 
@@ -671,11 +680,16 @@ func TestRecoverAboveSSWithoutASnapshotRebuildsItFromBlockOne(t *testing.T) {
 // can put back.
 func TestRecoverAboveSSWithoutASnapshotOrBlockOneIsRefused(t *testing.T) {
 	manager, cfg := openManager(t, nil)
-	commitBlocks(t, manager, 5)
+	commitBlocks(t, manager, 3)
+	// SC gets a snapshot on the target so that it reaches the target on its own. Without one it lands
+	// on 0, which this WAL cannot replay from either, and SC refuses before SS is ever asked.
+	snapshotSCAt(t, manager, 4)
+	require.NoError(t, manager.StateDB().CommitStateChanges(5, evmBlock(5, 5)))
 	closeStateDB(t, manager)
 	replaceWALWithBlocks(t, cfg, 3, 5)
 
-	require.ErrorContains(t, reconvergeErr(t, manager, 4), "no longer reaches block 1")
+	require.ErrorContains(t, reconvergeErr(t, manager, 4),
+		"no replay from block 1 is available to rebuild it from")
 
 	require.NoError(t, manager.openStateDB(t.Context()))
 	require.Equal(t, int64(5), manager.SS().GetLatestVersion(),

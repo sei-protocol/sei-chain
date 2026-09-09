@@ -752,11 +752,58 @@ func repointAtSnapshot(dir string, version int64) error {
 	return nil
 }
 
-// SnapshotAtOrBelow returns the highest snapshot version at or below target under the store home dir
-// names, which is where RewindClosedStoreTo lands that store. It reads only, so a caller can establish
-// that a target is reachable before a rewind moves anything.
-func SnapshotAtOrBelow(dir string, target int64) (int64, error) {
-	return seekSnapshot(dir, target)
+// DiscardStateAbove puts the closed store under dir on its newest snapshot at or below target when it
+// holds any state above target, and reports the version its files hold once it returns. A store holding
+// nothing above target is left alone, reported at the version it opens on, for a replay to carry it
+// forward.
+//
+// earliestReplayableBlock is the first block the caller can replay, or 0 when it can replay none. A
+// store that would land too low for that replay to carry it back to target is refused, as is one above
+// target with no snapshot at or below it. Neither refusal moves anything, so a caller that gets an
+// error still has every snapshot it started with. The databases under dir must be closed.
+func DiscardStateAbove(dir string, target, earliestReplayableBlock int64) (landsOn int64, err error) {
+	opensAt, highest, err := StoredVersions(dir)
+	if err != nil {
+		return 0, fmt.Errorf("read the versions it holds: %w", err)
+	}
+	// The highest version any one database records, not the version the store opens on: that one is the
+	// lowest of them, so an interrupted commit or restore reads as merely behind while the rows above
+	// target survive a replay that only writes forward.
+	rewinds := highest > target
+	landsOn = opensAt
+	if rewinds {
+		// Sought before the rewind rather than by it, so a store with nowhere to land is refused with its
+		// files still where they are.
+		if landsOn, err = seekSnapshot(dir, target); err != nil {
+			return 0, fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
+		}
+	}
+	if err := requireReplayable(landsOn, target, earliestReplayableBlock); err != nil {
+		return 0, err
+	}
+	if !rewinds {
+		return landsOn, nil
+	}
+	return RewindClosedStoreTo(dir, target)
+}
+
+// requireReplayable returns an error when a store landing on landsOn cannot be carried back up to
+// target, because the caller's earliest replayable block is above the first one such a replay needs.
+// earliestReplayableBlock is 0 when the caller can replay nothing.
+func requireReplayable(landsOn, target, earliestReplayableBlock int64) error {
+	if landsOn >= target {
+		return nil
+	}
+	start := landsOn + 1
+	if earliestReplayableBlock == 0 {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but no blocks "+
+			"are available to replay", landsOn, start)
+	}
+	if earliestReplayableBlock > start {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but the "+
+			"earliest block available is %d", landsOn, start, earliestReplayableBlock)
+	}
+	return nil
 }
 
 // RewindClosedStoreTo puts the files of the closed store under dir on the highest snapshot at or below

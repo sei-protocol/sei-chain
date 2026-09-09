@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 )
@@ -33,21 +34,126 @@ func (s *EVMStateStore) ApplyReplayedBlock(block int64, changesets []*proto.Name
 	return s.SetLatestVersion(block)
 }
 
-// SnapshotAtOrBelow returns the newest snapshot version under root at or below target, which is where
-// RewindClosedStoreTo lands a store, and 0 when root holds none. It reads only, so a caller can
-// establish that a target is reachable before a rewind moves anything.
-func SnapshotAtOrBelow(root string, target int64) (int64, error) {
+// DiscardStateAbove puts the closed store under dir on its newest snapshot at or below target when it
+// holds any state above target, and reports the version its files hold once it returns. A store holding
+// nothing above target is left alone, reported at the version it opens on, for a replay to carry it
+// forward.
+//
+// earliestReplayableBlock is the first block the caller can replay, or 0 when it can replay none. A
+// store that would land too low for that replay to carry it back to target is refused, and so is one
+// above target with no way down at all. Neither refusal moves anything, so a caller that gets an error
+// still has every snapshot it started with. The databases must be closed, and root is the store's
+// snapshot directory.
+//
+// A store above target with no snapshot to land on has a second way down that SC does not: emptying it,
+// which reconstructs it exactly when the caller can replay from block 1. A store already sitting at 0
+// that the caller cannot replay from block 1 is left there to fill forward, rather than refused for
+// being merely new.
+func DiscardStateAbove(
+	cfg config.StateStoreConfig, root string, target, earliestReplayableBlock int64,
+) (landsOn int64, err error) {
+	opensAt, highest, err := StoredVersions(cfg)
+	if err != nil {
+		return 0, fmt.Errorf("read the versions it holds: %w", err)
+	}
+	rebuildsFromEmpty := earliestReplayableBlock == 1
+
+	// The highest version any one database records, not the version the store opens on: that one is the
+	// lowest of them, so an interrupted rewind reads as merely behind while the rows above target
+	// survive a replay that only writes forward.
+	if highest <= target {
+		if opensAt == 0 && !rebuildsFromEmpty {
+			return 0, nil
+		}
+		if err := requireReplayable(opensAt, target, earliestReplayableBlock); err != nil {
+			return 0, err
+		}
+		return opensAt, nil
+	}
+
+	// Sought before either route runs, so a store with nowhere to go is refused with its files still
+	// where they are.
+	base, found, err := snapshotAtOrBelow(root, target)
+	if err != nil {
+		return 0, err
+	}
+	if !found && !rebuildsFromEmpty {
+		return 0, fmt.Errorf("it holds block %d and has no snapshot at or below %d, and no replay from "+
+			"block 1 is available to rebuild it from", highest, target)
+	}
+	if !found {
+		base = 0
+	}
+	if err := requireReplayable(base, target, earliestReplayableBlock); err != nil {
+		return 0, err
+	}
+	if !found {
+		if err := ResetClosedStore(cfg.EVMDBDirectory, root, cfg.SeparateEVMSubDBs); err != nil {
+			return 0, err
+		}
+		return 0, nil
+	}
+	return RewindClosedStoreTo(cfg.EVMDBDirectory, root, cfg.SeparateEVMSubDBs, target)
+}
+
+// requireReplayable returns an error when a store landing on landsOn cannot be carried back up to
+// target, because the caller's earliest replayable block is above the first one such a replay needs.
+// earliestReplayableBlock is 0 when the caller can replay nothing.
+func requireReplayable(landsOn, target, earliestReplayableBlock int64) error {
+	if landsOn >= target {
+		return nil
+	}
+	start := landsOn + 1
+	if earliestReplayableBlock == 0 {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but no blocks "+
+			"are available to replay", landsOn, start)
+	}
+	if earliestReplayableBlock > start {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but the "+
+			"earliest block available is %d", landsOn, start, earliestReplayableBlock)
+	}
+	return nil
+}
+
+// StoredVersions reports where the closed store's databases sit: the version the store opens on, which
+// is the lowest of them, and the highest version any one of them records. A directory that has never
+// been written reads as 0.
+//
+// The two differ only after an interrupted commit, restore or reset, which leaves some databases
+// holding a block the rest do not.
+func StoredVersions(cfg config.StateStoreConfig) (opensAt, highest int64, err error) {
+	if _, err := os.Stat(cfg.EVMDBDirectory); err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	store, err := NewEVMStateStore(cfg.EVMDBDirectory, cfg)
+	if err != nil {
+		return 0, 0, err
+	}
+	opensAt, highest = store.GetLatestVersion(), store.HighestDBVersion()
+	if err := store.Close(); err != nil {
+		return 0, 0, fmt.Errorf("close it again: %w", err)
+	}
+	return opensAt, highest, nil
+}
+
+// snapshotAtOrBelow returns the newest snapshot version under root at or below target, which is where
+// RewindClosedStoreTo lands a store, and reports whether root has one.
+//
+// Version 0 is a snapshot like any other, which is why the answer is a version and a flag.
+func snapshotAtOrBelow(root string, target int64) (version int64, found bool, err error) {
 	versions, err := sssnapshot.ListSnapshotVersions(root)
 	if err != nil {
-		return 0, fmt.Errorf("list the EVM state store snapshots under %q: %w", root, err)
+		return 0, false, fmt.Errorf("list the EVM state store snapshots under %q: %w", root, err)
 	}
-	var base int64
-	for _, version := range versions {
-		if version <= target {
-			base = version
+	for _, candidate := range versions {
+		if candidate <= target {
+			version, found = candidate, true
 		}
 	}
-	return base, nil
+	return version, found, nil
 }
 
 // DropSnapshotsAbove deletes every snapshot under root above target and repoints the current link at
@@ -73,11 +179,11 @@ func RewindClosedStoreTo(dir, root string, separateDBs bool, target int64) (land
 			"to rewind to", target)
 	}
 
-	base, err := SnapshotAtOrBelow(root, target)
+	base, found, err := snapshotAtOrBelow(root, target)
 	if err != nil {
 		return 0, err
 	}
-	if base == 0 {
+	if !found {
 		return 0, fmt.Errorf("cannot rewind the EVM state store to %d: no snapshot at or below target", target)
 	}
 
