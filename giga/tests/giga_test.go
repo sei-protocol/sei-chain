@@ -1171,14 +1171,14 @@ func TestAllModes_ContractExecution(t *testing.T) {
 	t.Logf("Contract deployment and calls produced identical results across all three executor modes")
 }
 
-// TestGigaVsGeth_GasComparison compares gas usage between Geth and Giga executors.
+// TestGigaVsGeth_GasComparison compares gas usage between the V2 (Geth) and Giga executors.
 //
-// Both Geth and Giga use Sei's configurable SSTORE gas cost (SeiSstoreSetGasEIP2200).
-// The GIGA path applies a gas adjustment after evmone execution to match Sei's custom SSTORE cost.
+// Both paths run the same go-ethereum interpreter against the same chain config, so both
+// apply Sei's configurable SSTORE gas cost (SeiSstoreSetGasEIP2200) identically.
 //
 // This test verifies:
 //  1. Deploy gas is exactly the same (no SSTORE involved)
-//  2. Call gas is exactly the same (SSTORE gas adjustment applied in GIGA)
+//  2. Call gas is exactly the same (both paths use the identical SSTORE gas cost)
 func TestGigaVsGeth_GasComparison(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(5)
@@ -1215,7 +1215,7 @@ func TestGigaVsGeth_GasComparison(t *testing.T) {
 	deployDiff := int64(gethResults[0].GasUsed) - int64(gigaResults[0].GasUsed)
 	callDiff := int64(gethResults[1].GasUsed) - int64(gigaResults[1].GasUsed)
 
-	t.Logf("Gas Comparison Report (Geth vs Giga/evmone):")
+	t.Logf("Gas Comparison Report (Geth vs Giga):")
 	t.Logf("  Contract Deploy: Geth=%d, Giga=%d, Diff=%d",
 		gethResults[0].GasUsed, gigaResults[0].GasUsed, deployDiff)
 	t.Logf("  Contract Call:   Geth=%d, Giga=%d, Diff=%d",
@@ -1225,9 +1225,9 @@ func TestGigaVsGeth_GasComparison(t *testing.T) {
 	require.Equal(t, int64(0), deployDiff,
 		"Deploy gas should be identical between Geth and Giga (no SSTORE)")
 
-	// Call gas should now be IDENTICAL since GIGA applies the Sei custom SSTORE gas adjustment
+	// Call gas should be IDENTICAL since both paths use the same Sei custom SSTORE gas cost
 	require.Equal(t, int64(0), callDiff,
-		"Call gas should be identical between Geth and Giga (SSTORE gas adjustment applied)")
+		"Call gas should be identical between Geth and Giga (same SSTORE gas cost)")
 
 	t.Logf("Gas comparison verified: Both deploy and call gas are identical")
 }
@@ -1253,7 +1253,7 @@ func TestGiga_CREATE_CodePath(t *testing.T) {
 	require.Len(t, results, 1)
 
 	// The key assertion: deployment should succeed (code != 0)
-	// This verifies that the interpreter correctly passed initcode to evmone
+	// This verifies that the interpreter correctly passed initcode to the EVM
 	require.Equal(t, uint32(0), results[0].Code, "Contract deployment should succeed")
 	require.NotEmpty(t, results[0].Data, "Deployment should return created contract address")
 
@@ -1336,7 +1336,7 @@ func TestGiga_STATICCALL_ReadOnly(t *testing.T) {
 	t.Logf("STATICCALL/read path verified with Giga executor")
 }
 
-// TestGiga_GasAccounting verifies gas is properly tracked after evmone execution
+// TestGiga_GasAccounting verifies gas is properly tracked after Giga executor execution
 func TestGiga_GasAccounting(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(3)
