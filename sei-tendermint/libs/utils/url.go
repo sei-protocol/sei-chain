@@ -8,9 +8,8 @@ import (
 )
 
 // CheckHTTPURL reports whether u is an http or https URL with a host and
-// without userinfo.
-//
-// TODO: need more complete checks.
+// without userinfo. It does not reject loopback, link-local, unspecified,
+// zone IDs, or names that resolve to those.
 func CheckHTTPURL(u url.URL) error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("scheme %q, want http or https", u.Scheme)

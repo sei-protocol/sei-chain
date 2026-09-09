@@ -41,6 +41,15 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	if err := utils.CheckHTTPURL(self.EVMRPC); err != nil {
 		return nil, fmt.Errorf("local validator %v evmrpc: %w", validatorKey, err)
 	}
+	selfAddr := NodeAddress{
+		NodeID:   key.Public().NodeID(),
+		Hostname: self.HostPort.Hostname,
+		Port:     self.HostPort.Port,
+	}
+	// An invalid local address makes every peer reject our giga claim.
+	if err := selfAddr.Validate(); err != nil {
+		return nil, fmt.Errorf("local validator %v address: %w", validatorKey, err)
+	}
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
@@ -68,11 +77,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 				ValidatorKey: cfg.ValidatorKey,
 				EVMRPC:       self.EVMRPC,
 			}),
-			selfAddr: utils.Some(NodeAddress{
-				NodeID:   key.Public().NodeID(),
-				Hostname: self.HostPort.Hostname,
-				Port:     self.HostPort.Port,
-			}),
+			selfAddr:           utils.Some(selfAddr),
 			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),

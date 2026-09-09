@@ -182,8 +182,6 @@ func TestHandshakeRejectsBadGigaClaimSig(t *testing.T) {
 	require.Error(t, err)
 }
 
-// A claim is meaningless without the address it is signed over, so neither end
-// of the handshake may produce or accept one.
 func TestHandshakeRejectsClaimWithoutSelfAddr(t *testing.T) {
 	rng := utils.TestRng()
 	nodeKey := makeKey(rng)

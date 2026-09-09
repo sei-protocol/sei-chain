@@ -604,10 +604,7 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 	}
 	selfAddr := hConn.msg.SelfAddr.OrPanic("verified giga claim has no SelfAddr")
 	evmRPC := *utils.OrPanic1(url.Parse(claim.evmRPC))
-	// The signed advertisement is all-or-nothing: if we will not use its
-	// EVMRPC, we learn none of it. Inbound still uses the proven validator
-	// identity. Outbound uses the committee book when it has a row; a
-	// book-absent member is not dialed.
+	// If we will not use its EVMRPC, we learn none of the advertisement.
 	if utils.IsLoopbackOrLinkLocalURL(evmRPC) {
 		logger.Error("committee member advertised an unroutable EVM RPC; not learning its address",
 			"validator", claim.Validator, "evmRPC", evmRPC.String())
@@ -632,9 +629,7 @@ func (r *gigaRouterCommon) acceptInbound(hConn *handshakedConn) utils.Option[aty
 // stopStaleSessions stops sessions for validators outside keepReplicas or
 // dialing an address that is no longer current, and drops the overlay addresses
 // of the departed. Departures are only acted on once Anchor is at most one
-// epoch behind commitEpoch: until then the validators of the epochs in between
-// are in neither endpoint committee, and the AppQCs for those epochs cannot
-// form without them.
+// epoch behind commitEpoch.
 func (r *gigaRouterCommon) stopStaleSessions(
 	ctx context.Context,
 	live map[atypes.PublicKey]*memberSession,
@@ -763,10 +758,7 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 
 // RunInboundConn serves an inbound giga connection. A peer proving current
 // commit-committee membership is served as a validator; every other peer is
-// served as a fullnode for the life of this socket. Join is not watched
-// here: a book-absent member who inbounds before they appear in
-// nextCommitEpoch stays undialable until they reconnect, which their
-// outbound dialer does after DialInterval.
+// served as a fullnode for the life of this socket.
 func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")

@@ -56,7 +56,7 @@ message Handshake {
 
   bool sei_giga_connection = 3;
 
-  // Autobahn committee claim. decodeGigaClaim requires all three or none.
+  // Committee claim; all three or none.
   optional bytes validator_auth_key = 6 [(wireguard.max_size) = 32];
   optional bytes validator_auth_sig = 7 [(wireguard.max_size) = 64];
   optional string evm_rpc = 8 [(wireguard.max_size) = 2048];

@@ -356,7 +356,7 @@ type Handshake struct {
 	// (it is at full capacity).
 	PexAddrs          []string `protobuf:"bytes,5,rep,name=pex_addrs,json=pexAddrs,proto3" json:"pex_addrs,omitempty"`
 	SeiGigaConnection bool     `protobuf:"varint,3,opt,name=sei_giga_connection,json=seiGigaConnection,proto3" json:"sei_giga_connection,omitempty"`
-	// Autobahn committee claim. decodeGigaClaim requires all three or none.
+	// Committee claim; all three or none.
 	ValidatorAuthKey []byte  `protobuf:"bytes,6,opt,name=validator_auth_key,json=validatorAuthKey,proto3,oneof" json:"validator_auth_key,omitempty"`
 	ValidatorAuthSig []byte  `protobuf:"bytes,7,opt,name=validator_auth_sig,json=validatorAuthSig,proto3,oneof" json:"validator_auth_sig,omitempty"`
 	EvmRpc           *string `protobuf:"bytes,8,opt,name=evm_rpc,json=evmRpc,proto3,oneof" json:"evm_rpc,omitempty"`

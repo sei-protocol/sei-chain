@@ -338,3 +338,36 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 1)
+	self := &testNodeCfg{
+		validatorKey: validatorKeys[0],
+		nodeKey:      makeKey(rng),
+		addr:         tcp.TestReserveAddr(),
+	}
+	for _, tc := range []struct {
+		name     string
+		hostPort tcp.HostPort
+		want     string
+	}{
+		{"zero port", tcp.HostPort{Hostname: "validator1.example.com"}, "missing port"},
+		{"empty hostname", tcp.HostPort{Port: 26656}, "missing hostname"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := self.GigaNodeAddr()
+			addr.HostPort = tc.hostPort
+			_, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				GigaRouterCommonConfig: GigaRouterCommonConfig{
+					ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+						self.validatorKey.Public(): addr,
+					},
+				},
+				ValidatorKey: self.validatorKey,
+			}, self.nodeKey, nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
