@@ -108,8 +108,6 @@ type Config struct {
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
 
-	// Controls the number of workers in the dedicated lattice-hash pool used to
-	// compute per-module LtHashes during ApplyChangeSets. The worker count is
 	// HashEngineConfig configures the pipeline that hashes each committed block.
 	HashEngineConfig lthash.Config
 
@@ -120,8 +118,9 @@ type Config struct {
 	// database's flush frontier, so this bounds how much of the pipeline stays resident.
 	FinalizationQueueSize uint32 `mapstructure:"finalization-queue-size"`
 
-	// LtHashThreadsPerCore * runtime.NumCPU() (clamped to at least 1). LtHash
-	// computation is CPU-bound, so ~1 worker per core is a sensible default.
+	// Controls the number of workers in the dedicated lattice-hash pool used to compute per-module
+	// LtHashes. The number of workers in this pool is equal to LtHashThreadsPerCore * runtime.NumCPU(),
+	// clamped to at least 1.
 	LtHashThreadsPerCore float64
 }
 
