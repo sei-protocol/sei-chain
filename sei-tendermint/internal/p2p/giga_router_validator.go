@@ -30,6 +30,17 @@ type gigaValidatorRouter struct {
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState);
 // close it if this constructor returns an error.
 func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataState *data.State) (*gigaValidatorRouter, error) {
+	validatorKey := cfg.ValidatorKey.Public()
+	self, ok := cfg.ValidatorAddrs[validatorKey]
+	if !ok {
+		return nil, fmt.Errorf("local validator %v has no configured giga address", validatorKey)
+	}
+	if self.Key != key.Public() {
+		return nil, fmt.Errorf("local validator node key = %v, want %v", self.Key, key.Public())
+	}
+	if err := utils.CheckHTTPURL(self.EVMRPC); err != nil {
+		return nil, fmt.Errorf("local validator %v evmrpc: %w", validatorKey, err)
+	}
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
@@ -42,21 +53,33 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:                &cfg.GigaRouterCommonConfig,
-			key:                key,
-			data:               dataState,
-			nextCommitEpoch:    dataState.NextCommitEpoch(),
-			anchor:             dataState.Anchor(),
-			service:            giga.NewService(consensusState),
-			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:                cfg.App,
+			cfg:             &cfg.GigaRouterCommonConfig,
+			key:             key,
+			data:            dataState,
+			nextCommitEpoch: dataState.NextCommitEpoch(),
+			anchor:          dataState.Anchor(),
+			service:         giga.NewService(consensusState),
+			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
+			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
+			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
+			app:             cfg.App,
+			offer: utils.Some(handshakeOffer{
+				ValidatorKey: cfg.ValidatorKey,
+				EVMRPC:       self.EVMRPC,
+			}),
+			selfAddr: utils.Some(NodeAddress{
+				NodeID:   key.Public().NodeID(),
+				Hostname: self.HostPort.Hostname,
+				Port:     self.HostPort.Port,
+			}),
+			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,
 		producer:     producerState,
-		validatorKey: cfg.ValidatorKey.Public(),
+		validatorKey: validatorKey,
 	}, nil
 }
 
@@ -87,7 +110,7 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
 	getBlock := addr.Key != r.key.Public()
 	for {
-		err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+		err := r.dialAndRunConn(ctx, validatorKey, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
 			return r.service.RunClient(ctx, client, validatorKey, getBlock)
 		})
 		logger.Info("giga connection failed", "addr", addr, "err", err)
@@ -109,11 +132,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}
-	target, ok := r.cfg.ValidatorAddrs[validator]
-	if !ok {
-		return utils.None[*ethrpc.Client]()
-	}
-	if _, ok := r.poolOut.Get(target.Key); !ok {
+	if _, ok := r.poolOut.Get(validator); !ok {
 		return utils.None[*ethrpc.Client]()
 	}
 	return r.evmProxy(validator)

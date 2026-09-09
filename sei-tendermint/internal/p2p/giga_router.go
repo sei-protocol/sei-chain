@@ -20,7 +20,7 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
-	EVMRPC   *url.URL
+	EVMRPC   url.URL
 }
 
 func (a GigaNodeAddr) String() string {
@@ -65,7 +65,8 @@ type GigaValidatorConfig struct {
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
 // *gigaValidatorRouter and *gigaFullnodeRouter; Mempool returns Some only
 // on validators. RunInboundConn is served by both — non-committee peers
-// get the block-sync subset only.
+// get the block-sync subset only. A fullnode accepts committee peers but
+// has no consensus state to serve them.
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
@@ -76,4 +77,5 @@ type GigaRouter interface {
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	Mempool() utils.Option[*producer.State]
 	Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, atypes.GlobalBlockNumber, error)
+	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
 }
