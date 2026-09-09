@@ -764,7 +764,10 @@ func (r *gigaRouterCommon) runUntilMembershipChange(
 
 // RunInboundConn serves an inbound giga connection. A peer proving current
 // commit-committee membership is served as a validator; every other peer is
-// served as a fullnode.
+// served as a fullnode for the life of this socket. Join is not watched
+// here: a book-absent member who inbounds before they appear in
+// nextCommitEpoch stays undialable until they reconnect, which their
+// outbound dialer does after DialInterval.
 func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
