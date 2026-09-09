@@ -637,6 +637,9 @@ func (r *gigaRouterCommon) stopStaleSessions(
 	commitEpoch *atypes.Epoch,
 ) error {
 	a, hasAnchor := anchor.Get()
+	// Until Anchor is within one epoch, validators of the epochs in between are
+	// in neither endpoint committee, and the AppQCs for those epochs cannot form
+	// without them.
 	settled := hasAnchor && commitEpoch.EpochIndex() <= a.Epoch.EpochIndex()+1
 	keep := keepReplicas(anchor, commitEpoch)
 	if settled {
@@ -766,6 +769,9 @@ func (r *gigaRouterCommon) RunInboundConn(ctx context.Context, hConn *handshaked
 	if member, ok := r.acceptInbound(hConn).Get(); ok {
 		return r.runInboundValidator(ctx, hConn, member)
 	}
+	// A member who inbounds before they appear in our nextCommitEpoch view is
+	// served as a fullnode for this socket's life; their own dialer redials
+	// after DialInterval and re-handshakes into the validator role.
 	return r.runInboundFullnode(ctx, hConn)
 }
 
