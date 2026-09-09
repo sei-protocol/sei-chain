@@ -108,7 +108,7 @@ func TestPrepareApplicationEVMOnly(t *testing.T) {
 	require.NotNil(t, manager.BlockStore())
 	require.NotNil(t, manager.StateDB())
 	require.NotNil(t, manager.SC())
-	require.NotNil(t, manager.SS())
+	require.Nil(t, manager.SS())
 	require.NotNil(t, manager.ReceiptDB())
 
 	require.Equal(t, "evmonly", prepared.Info().Data)

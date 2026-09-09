@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -443,7 +443,7 @@ func openBlockStore(c *p2p.GigaRouterCommonConfig, blockDBCfg config.AutobahnBlo
 	return blockStore, nil
 }
 
-// openEVMOnlyStorageManager opens the complete disk-backed Giga storage set in
+// openEVMOnlyStorageManager opens the EVM-only validator storage set in
 // Autobahn's persistent-state directory.
 func openEVMOnlyStorageManager(
 	ctx context.Context,
@@ -458,7 +458,7 @@ func openEVMOnlyStorageManager(
 	if !ok {
 		return nil, fmt.Errorf("EVM-only execution requires Autobahn persistent_state_dir")
 	}
-	storageConfig, err := seidbconfig.DefaultGigaStorageConfig(directory)
+	storageConfig, err := evmonly.NewValidatorStorageConfig(directory)
 	if err != nil {
 		return nil, fmt.Errorf("build EVM-only storage config: %w", err)
 	}
@@ -467,7 +467,7 @@ func openEVMOnlyStorageManager(
 		return nil, fmt.Errorf("build EVM-only block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
-	return bootstrap.NewGigaStorageManager(ctx, storageConfig.WithFullNodeMode())
+	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
 // resolveMaxInboundFullnodePeers: None ⇒ default, Some(0) ⇒ reject all,

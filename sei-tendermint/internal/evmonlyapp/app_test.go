@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -54,9 +53,9 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 
 func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
 	t.Helper()
-	storageConfig, err := seidbconfig.DefaultGigaStorageConfig(t.TempDir())
+	storageConfig, err := evmonly.NewValidatorStorageConfig(t.TempDir())
 	require.NoError(t, err)
-	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig.WithFullNodeMode())
+	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	return NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))

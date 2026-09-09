@@ -2,9 +2,10 @@
 
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
 the EVM-only executor through the disk-backed Giga state and receipt stores,
-without Cosmos SDK state, mempool, or RPC. It opens the complete production
-storage manager, including the block store, in a temporary directory that is
-removed when the load test exits.
+without Cosmos SDK state, mempool, or RPC. It opens the validator-mode Giga
+storage manager with FlatKV state, littidx receipts, and the block store in a
+temporary directory that is removed when the load test exits. GigaSS remains
+disabled because EVM-only execution does not use it.
 
 The synthetic workload defaults to local EVM chain ID `1337`; override it with
 `--chain-id` when testing another signing domain.
