@@ -115,7 +115,14 @@ func NewStateDBWithRollback(
 	if err := offline.rewindTo(target); err != nil {
 		return nil, err
 	}
-	return NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg)
+	db, err := NewStateDB(ctx, flatkvCfg, ssCfg, checkpointCfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.matchHeight(target); err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	return db, nil
 }
 
 // closeOnFailure closes the stores a failed open had reached, so a caller that gets an error holds no
@@ -292,7 +299,12 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 	if err := s.sc.CommitStateChanges(blockNum, changeset); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
 	}
-	// TODO: Commit changes to SS
+	if s.ss != nil {
+		if err := s.ss.CommitBlock(blockNum, changeset); err != nil {
+			return fmt.Errorf("commit block %d to the EVM state store: %w", blockNum, err)
+		}
+		s.ss.WaitForPendingWrites()
+	}
 
 	return nil
 }
@@ -331,11 +343,9 @@ func (s *StateDB) Close() error {
 }
 
 // rewindTo discards every snapshot of SC and SS above target and cuts the WAL's tail to it. All three
-// stores must be closed.
+// stores must be closed. SS sitting above target is restored onto its newest snapshot at or below it.
 //
-// It does not place the stores on target: cutting the WAL to target is what makes target the head the
-// open puts them on, and the open moves only a store that is above it. A WAL ending below target is
-// refused, since no replay reaches it.
+// A target the surviving snapshots and the WAL cannot span is refused before anything moves.
 func (s *StateDB) rewindTo(target int64) error {
 	wal, err := s.storedWALRange()
 	if err != nil {
@@ -348,8 +358,14 @@ func (s *StateDB) rewindTo(target int64) error {
 	if err := s.ensureStoresCanRewindTo(target); err != nil {
 		return err
 	}
+	if err := s.ensureWALCanReplayTo(wal, target); err != nil {
+		return err
+	}
 
 	if err := s.dropSnapshotsAbove(target); err != nil {
+		return err
+	}
+	if err := s.rewindSSIfAbove(target); err != nil {
 		return err
 	}
 	// Last, so that an interruption leaves the WAL still above target and a restart comes back here.
@@ -487,6 +503,103 @@ func (s *StateDB) rewindSC(target int64) error {
 	return nil
 }
 
+// rewindSSIfAbove restores SS onto its newest snapshot at or below target when the live databases sit
+// above it. DropSnapshotsAbove only removes snapshot directories.
+func (s *StateDB) rewindSSIfAbove(target int64) error {
+	if !s.ssCfg.Enable {
+		return nil
+	}
+	openedAt, err := s.ssLatestVersion()
+	if err != nil {
+		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+	}
+	if openedAt <= target {
+		return nil
+	}
+	return s.rewindSS(target)
+}
+
+// ensureWALCanReplayTo returns an error when the WAL does not hold every block from the height a store
+// would land on to target. It reads only.
+func (s *StateDB) ensureWALCanReplayTo(wal storedWALRange, target int64) error {
+	from, err := s.heightSCReplaysFrom(target)
+	if err != nil {
+		return err
+	}
+	if err := wal.mustCoverAfter(from, target); err != nil {
+		return err
+	}
+	ssFrom, ssReplays, err := s.heightSSReplaysFrom(wal, target)
+	if err != nil {
+		return err
+	}
+	if !ssReplays {
+		return nil
+	}
+	return wal.mustCoverAfter(ssFrom, target)
+}
+
+// heightSCReplaysFrom returns the version SC will hold after rewindTo, before catch-up replays to target.
+func (s *StateDB) heightSCReplaysFrom(target int64) (int64, error) {
+	opensAt, err := flatkv.GetWorkingCopyVersion(s.flatkvCfg.DataDir)
+	if err != nil {
+		return 0, fmt.Errorf("read the version the state commit store opens at: %w", err)
+	}
+	if opensAt <= target {
+		return opensAt, nil
+	}
+	base, err := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
+	if err != nil {
+		return 0, fmt.Errorf("cannot roll back the state commit store to %d: %w", target, err)
+	}
+	return base, nil
+}
+
+// heightSSReplaysFrom returns the version SS will hold after rewindTo, and whether catch-up replays it
+// to target. An empty store the WAL cannot rebuild is left out to fill forward.
+func (s *StateDB) heightSSReplaysFrom(wal storedWALRange, target int64) (from int64, replays bool, err error) {
+	if !s.ssCfg.Enable {
+		return 0, false, nil
+	}
+	openedAt, err := s.ssLatestVersion()
+	if err != nil {
+		return 0, false, fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+	}
+	if openedAt > target {
+		base, err := evm.SnapshotAtOrBelow(s.ssSnapshotRoot(), target)
+		if err != nil {
+			return 0, false, fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+		}
+		if base >= target {
+			return 0, false, nil
+		}
+		return base, true, nil
+	}
+	if openedAt == target {
+		return 0, false, nil
+	}
+	if openedAt == 0 && (wal.last == 0 || wal.first > 1) {
+		return 0, false, nil
+	}
+	return openedAt, true, nil
+}
+
+// mustCoverAfter returns an error when this WAL does not hold every block in (from, target].
+func (r storedWALRange) mustCoverAfter(from, target int64) error {
+	if from >= target {
+		return nil
+	}
+	start := from + 1
+	if r.last == 0 {
+		return fmt.Errorf("cannot roll back to %d: the state WAL holds no blocks %d-%d", target, start, target)
+	}
+	if r.first > uint64(start) { //nolint:gosec // start is from+1 with from >= 0
+		return fmt.Errorf("cannot roll back to %d: the state WAL starts at block %d but replay must start "+
+			"at block %d: blocks %d-%d are missing", target, r.first, start, start, r.first-1)
+	}
+	return nil
+}
+
 // rewindSS puts SS's files on the snapshot at or below target and drops the snapshots above it. It runs
 // with SS closed, so the next open lands on that snapshot. A target with no snapshot at or below it is
 // refused.
@@ -618,7 +731,7 @@ func (r storedWALRange) head() int64 {
 }
 
 // catchUpToWAL replays the WAL into SC and SS up to the last block it holds, which is the height state
-// committed to.
+// committed to. An empty WAL still rebuilds a working copy that sits above the current snapshot.
 //
 // A commit writes the WAL before either store, so a crash between the two leaves one of them a block
 // behind. Committing from behind the WAL is rejected, so this is what makes an opened StateDB able to
@@ -629,6 +742,9 @@ func (s *StateDB) catchUpToWAL() error {
 		return fmt.Errorf("read state WAL range: %w", err)
 	}
 	if !stored {
+		if err := s.sc.RebuildIfUnreachable(0); err != nil {
+			return fmt.Errorf("rebuild the state commit store's working copy: %w", err)
+		}
 		return nil
 	}
 	//nolint:gosec // a block number never approaches the int64 ceiling

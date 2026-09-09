@@ -791,8 +791,8 @@ func RewindClosedStoreTo(dir string, target int64) (landed int64, err error) {
 }
 
 // DropSnapshotsAbove deletes every snapshot of the closed store under dir above target, repointing the
-// current link first when it names one of them. It leaves the version the store opens at alone whenever
-// that version is already at or below target, so a working copy the caller means to keep survives.
+// current link first when it names one of them. It leaves the current link alone when it already names
+// a snapshot at or below target.
 //
 // The databases under dir must be closed, which is what makes it safe to run before the store is
 // constructed.

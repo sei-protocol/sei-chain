@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -140,7 +141,7 @@ func TestMatchHeightDoesNotExcuseAnEmptyStoreTheWALCanRebuild(t *testing.T) {
 
 // A store that holds nothing is only left empty when the WAL cannot rebuild it. One the WAL still
 // reaches back far enough for comes out of recovery holding real history, which is strictly better, and
-// is how SS is populated at all while the live commit path does not write it.
+// is how a store that lagged the WAL is populated on restart.
 func TestCatchUpRebuildsAnEmptyStoreTheWALStillCovers(t *testing.T) {
 	_, _, sc := newTestStateDB(t)
 	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
@@ -176,6 +177,31 @@ func TestCommitStateChangesReachesWALAndLiveStateDB(t *testing.T) {
 	value, found := liveStateDB.Get(testModule, []byte("key"))
 	require.True(t, found, "the committed key must be readable from the live state DB")
 	require.Equal(t, []byte("value"), value)
+}
+
+// The EVM state store is a layer of the same fan-out: a commit that reaches WAL and SC but not SS
+// leaves historical EVM reads a block behind with every block.
+func TestCommitStateChangesReachesTheEVMStateStore(t *testing.T) {
+	stateDB, _, _ := newTestStateDB(t)
+	ss, err := evm.NewEVMStateStore(t.TempDir(), config.DefaultStateStoreConfig())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, ss.Close()) })
+	stateDB.(*StateDB).ss = ss
+
+	key := append([]byte{0x0a}, make([]byte, 20)...)
+	value := append(make([]byte, 7), byte(1))
+	cs := []*proto.NamedChangeSet{{
+		Name: evm.EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: key, Value: value}},
+		},
+	}}
+	require.NoError(t, stateDB.CommitStateChanges(1, cs))
+
+	require.Equal(t, int64(1), ss.GetLatestVersion())
+	got, err := ss.Get(evm.EVMStoreKey, 1, key)
+	require.NoError(t, err)
+	require.Equal(t, value, got)
 }
 
 // The WAL yields a block to readers only once it has been told the block is over, and discards an

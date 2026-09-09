@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 )
 
 // openManager opens a manager over a fresh home directory, applying tweak to the default config
@@ -207,11 +208,24 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 	require.NoError(t, manager.StateDB().CommitStateChanges(1, cs))
 
 	require.Equal(t, int64(1), manager.SC().Version())
+	require.Equal(t, int64(1), manager.SS().GetLatestVersion(),
+		"a committed block must advance the EVM state store even when it carries no EVM keys")
 	ok, first, last, err := manager.StateWAL().GetStoredRange()
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, uint64(1), first)
 	require.Equal(t, uint64(1), last)
+}
+
+func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
+	manager, _ := openManager(t, nil)
+
+	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
+
+	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
+	value, err := manager.SS().Get(evm.EVMStoreKey, 1, evmNonceKey(1))
+	require.NoError(t, err)
+	require.Equal(t, evmNonce(1), value)
 }
 
 // TestEveryStoreJoinsThePruneCycle pins which stores the shared cut line covers.
