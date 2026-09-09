@@ -83,9 +83,9 @@ func waitSSWrites(manager *GigaStorageManager) {
 	manager.SS().WaitForPendingWrites()
 }
 
-// snapshotSSEveryBlock puts SS on its own every-block schedule so a later rollback has a snapshot
-// to land on. The node-wide schedule is shared with SC, and a snapshot still publishing there
-// turns later heights down.
+// snapshotSSEveryBlock puts SS on a fresh every-block schedule so a later rollback has a snapshot to
+// land on. The schedule is its own rather than the node-wide one SC is on, whose interval would
+// otherwise decide these heights.
 func snapshotSSEveryBlock(manager *GigaStorageManager) {
 	manager.SS().SetCheckpointScheduler(controller.NewCheckpointScheduler(config.CheckpointConfig{BlockInterval: 1}))
 }
@@ -95,17 +95,19 @@ func waitSSSnapshot(t *testing.T, manager *GigaStorageManager, height int64) {
 	t.Helper()
 	require.Eventually(t, func() bool { return manager.SS().Snapshots().Newest() >= height },
 		10*time.Second, 10*time.Millisecond, "the snapshot a rollback restores from must be published")
-	// Newest moves before the schedule is told the height is done; the next commit must not offer
-	// until that report lands, or the height is turned down.
-	time.Sleep(20 * time.Millisecond)
 }
 
 // commitBlocksWithSSSnapshots commits blocks 1 through through and waits for an SS snapshot at each,
 // so a later rollback has a boundary to land on.
+//
+// Every block gets its own schedule, because a snapshot reports itself done a moment after it becomes
+// visible: a schedule still holding the previous height turns the next one down, and stands by that no
+// for good. Production wants that — the height it skips to is the next block's — but a helper asking
+// for a snapshot at every height has to be free of it.
 func commitBlocksWithSSSnapshots(t *testing.T, manager *GigaStorageManager, through byte) {
 	t.Helper()
-	snapshotSSEveryBlock(manager)
 	for block := byte(1); block <= through; block++ {
+		snapshotSSEveryBlock(manager)
 		require.NoError(t, manager.StateDB().CommitStateChanges(int64(block), evmBlock(block, block)))
 		waitSSSnapshot(t, manager, int64(block))
 	}
@@ -355,7 +357,13 @@ func TestOpenSCAboveTheWALHeadWithoutASnapshotIsRefused(t *testing.T) {
 	require.NoError(t, os.RemoveAll(scSnapshotDir(cfg.FlatKVConfig.DataDir, 0)))
 	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 2))
 
-	require.ErrorContains(t, manager.openStateDB(t.Context()), "no snapshot")
+	err := manager.openStateDB(t.Context())
+
+	require.ErrorContains(t, err, "no snapshot")
+	// The operator is here because a node will not start. Naming a rollback would send them looking for
+	// one nobody ran, rather than at the WAL head the open refused.
+	require.ErrorContains(t, err, "cannot open on the state WAL's head 2")
+	require.NotContains(t, err.Error(), "roll back")
 
 	openedAt, err := flatkv.GetWorkingCopyVersion(cfg.FlatKVConfig.DataDir)
 	require.NoError(t, err)
@@ -397,7 +405,8 @@ func TestRecoverBelowEverySCSnapshotIsRefused(t *testing.T) {
 
 	err := manager.recoverStores(t.Context(), 3)
 
-	require.ErrorContains(t, err, "cannot roll back the state commit store to 3")
+	require.ErrorContains(t, err, "cannot roll back to 3")
+	require.ErrorContains(t, err, "the state commit store cannot reach 3")
 }
 
 // A target above where SC sits is not a rollback for it: the WAL's tail is cut to the target and SC

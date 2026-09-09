@@ -108,6 +108,9 @@ func ResetClosedStore(dir, root string, separateDBs bool) error {
 	if _, err := sssnapshot.RewindTo(root, 0); err != nil {
 		return fmt.Errorf("remove the EVM state store snapshots under %q: %w", root, err)
 	}
+	// Separate-DB mode empties them one at a time, so an interruption partway leaves the rest holding
+	// the branch being discarded while the head, the lowest of them, reads as 0. HighestDBVersion is
+	// what shows that, and is what a caller has to plan its next rewind from.
 	for _, dbDir := range storeDBDirs(dir, separateDBs) {
 		if err := removePebbleDir(dbDir); err != nil {
 			return err
@@ -147,9 +150,9 @@ func removePebbleDir(dst string) error {
 //
 // A unified store is one directory, and the single window where an interruption leaves none is healed
 // on the next open. Separate-DB mode replaces each sub-DB in turn, and an interruption partway leaves
-// them on different branches with no recovery: the head reads as the lowest of them, so the store looks
-// merely behind, and replaying forward cannot delete the rows an untouched sub-DB holds above it. That
-// mode is off by default.
+// them on different branches: the head reads as the lowest of them, so the store looks merely behind,
+// while a sub-DB the restore had not reached still holds rows above it that replaying forward cannot
+// delete. HighestDBVersion is what shows those, and is what a caller has to plan its next rewind from.
 func restoreSnapshot(dir, root string, separateDBs bool, version int64) error {
 	if version < 1 {
 		return fmt.Errorf("restore snapshot version %d is invalid: a rewind lands on a real snapshot", version)

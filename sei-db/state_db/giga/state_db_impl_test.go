@@ -2,6 +2,8 @@ package giga
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -149,6 +151,59 @@ func TestCatchUpRebuildsAnEmptyStoreTheWALStillCovers(t *testing.T) {
 	fillForward, err := s.ssFillsForward()
 	require.NoError(t, err)
 	require.False(t, fillForward, "a WAL starting at block 1 can rebuild an empty store")
+}
+
+// A node that keeps no EVM state store is recognised where the rollback is planned, so nothing later
+// probes a store it does not have. The directory is one an earlier run with SS on could have left, and
+// the WAL reaches block 1, so a plan that read it would come back with a rewind and a replay to run.
+func TestPlanSSRewindLeavesANodeThatKeepsNoEVMStoreAlone(t *testing.T) {
+	const target = int64(7)
+	dir := t.TempDir()
+	s := &StateDB{ssCfg: config.StateStoreConfig{Enable: false, EVMDBDirectory: dir}}
+	wal := storedWALRange{first: 1, last: 9}
+
+	plan, err := s.planSSRewind(wal, target)
+	require.NoError(t, err)
+	require.Equal(t, ssIsAbsent, plan.action)
+	require.False(t, plan.movesFiles())
+
+	from, replays := plan.replaysFrom(wal, target)
+	require.False(t, replays, "a store that is not there must not be held to the target")
+	require.Zero(t, from)
+
+	require.NoError(t, s.applySSRewind(plan, target))
+	require.DirExists(t, dir, "a rollback must not write to the directory of a store this node has not opened")
+}
+
+// An interrupted rewind of a separate-DB SS leaves some of its databases holding blocks above the
+// target and the rest empty. The head is the lowest of them, so the store reads as below the target and
+// planning from that alone would hold position, leaving those blocks for a replay that cannot delete
+// them. The plan has to see the rewind through instead.
+func TestPlanSSRewindSeesAnInterruptedRewind(t *testing.T) {
+	const target = int64(3)
+	ssCfg := config.DefaultStateStoreConfig()
+	ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
+	ssCfg.SeparateEVMSubDBs = true
+	writeTornSS(t, ssCfg, 5)
+	s := &StateDB{ssCfg: ssCfg}
+
+	plan, err := s.planSSRewind(storedWALRange{first: 1, last: 9}, target)
+
+	require.NoError(t, err)
+	require.Equal(t, ssRebuildsFromEmpty, plan.action,
+		"the databases still holding block 5 have to be emptied, not left for the replay")
+}
+
+// writeTornSS leaves a separate-DB EVM state store with its databases disagreeing, as an interrupted
+// rewind between two of them does: all but the first record version, and that one reopens empty.
+func writeTornSS(t *testing.T, ssCfg config.StateStoreConfig, version int64) {
+	t.Helper()
+	ss, err := evm.NewEVMStateStore(ssCfg.EVMDBDirectory, ssCfg)
+	require.NoError(t, err)
+	require.NoError(t, ss.SetLatestVersion(version))
+	require.NoError(t, ss.Close())
+	require.NoError(t, os.RemoveAll(
+		filepath.Join(ssCfg.EVMDBDirectory, evm.StoreTypeName(evm.AllEVMStoreTypes()[0]))))
 }
 
 // changeset builds a changeset setting key to value in the test module.
