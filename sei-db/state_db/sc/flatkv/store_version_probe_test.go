@@ -152,16 +152,17 @@ func TestCommitStoreGetLatestVersionUsesMemoryWhileOpen(t *testing.T) {
 	require.Equal(t, int64(1), got)
 }
 
-func TestGetWorkingCopyVersionNeverOpenedDirIsZero(t *testing.T) {
+func TestStoredVersionsNeverOpenedDirIsZero(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), flatkvRootDir)
-	got, err := GetWorkingCopyVersion(dir)
+	opensAt, highest, err := StoredVersions(dir)
 	require.NoError(t, err)
-	require.Zero(t, got)
+	require.Zero(t, opensAt)
+	require.Zero(t, highest)
 }
 
 // A working copy above the WAL tail is still the version LoadWorkingCopy opens at. GetLatestVersion
 // follows the WAL, which is the wrong signal for whether a rewind of that working copy needs a snapshot.
-func TestGetWorkingCopyVersionIgnoresTheWALTail(t *testing.T) {
+func TestStoredVersionsIgnoreTheWALTail(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 3; i++ {
 		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
@@ -169,43 +170,21 @@ func TestGetWorkingCopyVersionIgnoresTheWALTail(t *testing.T) {
 	require.NoError(t, s.Close())
 	require.NoError(t, statewal.PruneAfter(StateWALConfig(cfg.DataDir), 1))
 
-	working, err := GetWorkingCopyVersion(cfg.DataDir)
+	opensAt, highest, err := StoredVersions(cfg.DataDir)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), working, "the working copy still holds block 3")
+	require.Equal(t, int64(3), opensAt, "the working copy still holds block 3")
+	require.Equal(t, int64(3), highest)
 
 	latest, err := GetLatestVersion(cfg.DataDir)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), latest, "LoadLatest would land on the WAL tail")
 }
 
-func TestHoldsStateAboveNeverOpenedDirIsFalse(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), flatkvRootDir)
-	above, err := HoldsStateAbove(dir, 0)
-	require.NoError(t, err)
-	require.False(t, above)
-}
-
-func TestHoldsStateAboveItsOwnHeight(t *testing.T) {
-	s, cfg := newProbeStore(t)
-	for i := int64(1); i <= 3; i++ {
-		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
-	}
-	require.NoError(t, s.Close())
-
-	above, err := HoldsStateAbove(cfg.DataDir, 3)
-	require.NoError(t, err)
-	require.False(t, above, "a store on 3 holds nothing above 3")
-
-	above, err = HoldsStateAbove(cfg.DataDir, 2)
-	require.NoError(t, err)
-	require.True(t, above)
-}
-
-// A commit interrupted partway through its four data DBs is where the two probes have to differ: the
+// A commit interrupted partway through its four data DBs is where the two versions have to differ: the
 // store opens at the height every DB agrees on, while the blocks the DBs that did commit wrote are
 // still in the working copy. Rolling back to that agreed height reads as nothing to do by the opening
-// height and has to discard those rows, so the rewind asks this question instead.
-func TestHoldsStateAboveSeesAnInterruptedCommit(t *testing.T) {
+// height and has to discard those rows, so the rewind measures itself against the highest instead.
+func TestStoredVersionsSeeAnInterruptedCommit(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 3; i++ {
 		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
@@ -213,11 +192,8 @@ func TestHoldsStateAboveSeesAnInterruptedCommit(t *testing.T) {
 	rewindVersionRecords(t, s, 2, accountDBDir)
 	require.NoError(t, s.Close())
 
-	opensAt, err := GetWorkingCopyVersion(cfg.DataDir)
+	opensAt, highest, err := StoredVersions(cfg.DataDir)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), opensAt, "the height every data DB agrees on")
-
-	above, err := HoldsStateAbove(cfg.DataDir, opensAt)
-	require.NoError(t, err)
-	require.True(t, above, "the other data DBs still record block 3")
+	require.Equal(t, int64(3), highest, "the other data DBs still record block 3")
 }

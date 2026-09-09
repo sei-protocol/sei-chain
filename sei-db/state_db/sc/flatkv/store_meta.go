@@ -403,89 +403,47 @@ func GetLatestVersion(dir string) (int64, error) {
 	return latestVersion(dir, nil)
 }
 
-// GetWorkingCopyVersion returns the version LoadWorkingCopy would open at under dir: the working
-// copy's committed height, or the current snapshot when there is no working copy to resume. It ignores
-// the WAL. A directory that has never been opened reads as 0.
-func GetWorkingCopyVersion(dir string) (int64, error) {
-	snapshotVersion, err := currentSnapshotVersion(dir)
-	if err != nil {
-		return 0, err
-	}
-	workingVersion, err := workingDirVersion(dir)
-	if err != nil {
-		return 0, err
-	}
-	return max(snapshotVersion, workingVersion), nil
-}
-
-// HoldsStateAbove reports whether the store under dir holds any state above target: its current
-// snapshot, or any data DB in its working copy. A directory that has never been opened holds none.
+// StoredVersions returns where the closed store under dir sits: the version LoadWorkingCopy would open
+// it at, and the highest version any one of its data DBs records. Both ignore the WAL, and a directory
+// that has never been opened reads as 0 for both.
 //
-// It parts from GetWorkingCopyVersion only after an interrupted commit, where one data DB records a
-// block the others do not. The store opens at the height they agree on, below that block, while the
-// rows written for it sit in the working copy, so a rollback to that height has to discard them.
-func HoldsStateAbove(dir string, target int64) (bool, error) {
+// The two part only after an interrupted commit, where one data DB records a block the others do not.
+// The store opens at the height they agree on, below that block, while the rows written for it sit in
+// the working copy above, so a rollback to the height the store opens at still has state to discard.
+func StoredVersions(dir string) (opensAt, highest int64, err error) {
 	snapshotVersion, err := currentSnapshotVersion(dir)
 	if err != nil {
-		return false, err
+		return 0, 0, err
 	}
-	if snapshotVersion > target {
-		return true, nil
-	}
-	highest, err := highestDataDBVersion(dir)
+	lowestDB, highestDB, err := dataDBVersions(dir)
 	if err != nil {
-		return false, err
+		return 0, 0, err
 	}
-	return highest > target, nil
+	return max(snapshotVersion, lowestDB), max(snapshotVersion, highestDB), nil
 }
 
-// highestDataDBVersion returns the highest committed version recorded in the working copy's data DBs,
-// or 0 when the working directory is absent.
-func highestDataDBVersion(dir string) (int64, error) {
+// dataDBVersions returns the lowest and highest committed versions recorded in the working copy's data
+// DBs, both 0 when there is no working copy.
+func dataDBVersions(dir string) (lowest, highest int64, err error) {
 	workDir := filepath.Join(dir, workingDirName)
 	if _, err := os.Stat(workDir); err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil
+			return 0, 0, nil
 		}
-		return 0, fmt.Errorf("stat the state commit working copy under %q: %w", workDir, err)
+		return 0, 0, fmt.Errorf("stat the state commit working copy under %q: %w", workDir, err)
 	}
-	var highest int64
-	for _, dbDir := range dataDBDirs {
+	for i, dbDir := range dataDBDirs {
 		version, err := readCommittedVersion(filepath.Join(workDir, dbDir))
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		highest = max(highest, version)
-	}
-	return highest, nil
-}
-
-// workingDirVersion returns the lowest committed version recorded in the working copy's data DBs, or 0
-// when the working directory is absent.
-func workingDirVersion(dir string) (int64, error) {
-	workDir := filepath.Join(dir, workingDirName)
-	if _, err := os.Stat(workDir); err != nil {
-		if os.IsNotExist(err) {
-			return 0, nil
+		if i == 0 {
+			lowest, highest = version, version
+			continue
 		}
-		return 0, fmt.Errorf("stat the state commit working copy under %q: %w", workDir, err)
+		lowest, highest = min(lowest, version), max(highest, version)
 	}
-	var version int64
-	var found bool
-	for _, dbDir := range dataDBDirs {
-		v, err := readCommittedVersion(filepath.Join(workDir, dbDir))
-		if err != nil {
-			return 0, err
-		}
-		if !found || v < version {
-			version = v
-			found = true
-		}
-	}
-	if !found {
-		return 0, nil
-	}
-	return version, nil
+	return lowest, highest, nil
 }
 
 // readCommittedVersion returns the version record in the Pebble DB at dbDir, or 0 when that DB is

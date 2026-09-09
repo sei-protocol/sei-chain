@@ -660,6 +660,17 @@ func (s *CommitStore) RebuildIfUnreachable(walHead int64) error {
 	return s.rebuildIfAnyDataDBIsAbove(max(snapshotVersion, walHead))
 }
 
+// RebuildIfTorn discards the working copy when its data DBs disagree, one recording a block the others
+// do not, which is what an interrupted commit leaves.
+//
+// It is the repair for a store whose WAL holds no blocks, where RebuildIfUnreachable would measure the
+// working copy against the current snapshot and discard a copy that is legitimately ahead of it. The
+// height the data DBs agree on is the yardstick here instead. The rebuild still comes back from the
+// current snapshot, so the blocks between it and that height are replayed or re-executed afterwards.
+func (s *CommitStore) RebuildIfTorn() error {
+	return s.rebuildIfAnyDataDBIsAbove(s.committedVersion)
+}
+
 // rebuildIfAnyDataDBIsAbove rebuilds the working copy from the current snapshot when a data DB records
 // a version above reachable, leaving the store at a version replay can reach.
 //

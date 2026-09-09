@@ -124,7 +124,7 @@ func NewStateDBWithRollback(
 		return nil, err
 	}
 	if err := db.matchHeight(target); err != nil {
-		return nil, errors.Join(err, db.Close())
+		return nil, errors.Join(fmt.Errorf("cannot roll back to %d: %w", target, err), db.Close())
 	}
 	return db, nil
 }
@@ -204,28 +204,26 @@ func (s *StateDB) discardStateAboveTheWAL(wal storedWALRange) error {
 		// the rollback they did not run is an operator not looking at the WAL head that refused.
 		return fmt.Errorf("cannot open on the state WAL's head %d: %w", head, err)
 	}
-	if err := s.discardSCAboveTheWAL(head); err != nil {
+	if err := s.discardSCAboveTheWAL(plan.sc, head); err != nil {
 		return err
 	}
-	return s.discardSSAboveTheWAL(plan, head)
+	return s.discardSSAboveTheWAL(plan.ss, head)
 }
 
-// discardSCAboveTheWAL rewinds SC onto its newest snapshot at or below head when its files hold state
-// above head. It reads those files rather than the open store, so it runs before SC opens and the store
-// opens once, on that snapshot.
-func (s *StateDB) discardSCAboveTheWAL(head int64) error {
-	above, err := s.scHoldsStateAbove(head)
-	if err != nil {
-		return err
-	}
-	if !above {
+// discardSCAboveTheWAL rewinds SC onto the snapshot plan lands it on when its files hold state above
+// head. A plan that moves no files leaves them alone.
+//
+// The rewind runs against closed files, which is why this runs before SC opens: the store then opens
+// once, already on that snapshot.
+func (s *StateDB) discardSCAboveTheWAL(plan scRewind, head int64) error {
+	if !plan.movesFiles() {
 		return nil
 	}
 	if err := s.rewindSC(head); err != nil {
 		return err
 	}
 	logger.Info("state commit store rewound onto the state WAL's head: the state above it is not one the "+
-		"WAL can replay", "head", head)
+		"WAL can replay", "landsOn", plan.landsOn, "head", head)
 	return nil
 }
 
@@ -375,10 +373,10 @@ func (s *StateDB) rewindTo(target int64) error {
 	if err := s.dropSnapshotsAbove(target); err != nil {
 		return err
 	}
-	if err := s.rewindSCIfAbove(target); err != nil {
+	if err := s.applySCRewind(plan.sc, target); err != nil {
 		return err
 	}
-	if err := s.applySSRewind(plan, target); err != nil {
+	if err := s.applySSRewind(plan.ss, target); err != nil {
 		return err
 	}
 	// Last, so that an interruption leaves the WAL still above target and a restart comes back here.
@@ -403,7 +401,7 @@ func (s *StateDB) dropSnapshotsAbove(target int64) error {
 	return nil
 }
 
-// catchUpTo replays the WAL into SC and SS up to target, and reports a store that did not land on it.
+// catchUpTo replays the WAL into SC and SS up to target.
 //
 // One pass feeds both. It spans from the lower of their two versions, and each block goes only to the
 // store still below it, so the WAL is read once rather than once per store.
@@ -438,7 +436,7 @@ func (s *StateDB) catchUpTo(target int64) error {
 	}); err != nil {
 		return err
 	}
-	return s.matchHeight(target)
+	return nil
 }
 
 // ssReplayStart returns the version SS replays forward from, and whether it replays at all. SS is left
@@ -478,9 +476,12 @@ func (s *StateDB) ssFillsForward() (bool, error) {
 
 // matchHeight checks SC and SS against blockNum and reports the one that is not on it. An SS left empty
 // to fill forward is not held to blockNum.
+//
+// The error names no path, since both the open and a rollback converge here; each caller supplies the
+// height it asked for.
 func (s *StateDB) matchHeight(blockNum int64) error {
 	if got := s.sc.Version(); got != blockNum {
-		return fmt.Errorf("rollback to %d left the state commit store on %d", blockNum, got)
+		return fmt.Errorf("the state commit store landed on %d", got)
 	}
 	if s.ss == nil {
 		return nil
@@ -498,7 +499,7 @@ func (s *StateDB) matchHeight(blockNum int64) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("rollback to %d left the EVM state store on %d", blockNum, got)
+	return fmt.Errorf("the EVM state store landed on %d", got)
 }
 
 // rewindSC points SC's files at the snapshot at or below target and drops the snapshots above it. It
@@ -513,34 +514,58 @@ func (s *StateDB) rewindSC(target int64) error {
 	return nil
 }
 
-// rewindSCIfAbove points SC at its newest snapshot at or below target when its files hold state above
-// target, discarding the working copy that holds it.
+// applySCRewind carries out plan against SC's files, which must be closed.
 //
 // DropSnapshotsAbove reaches a working copy only when the current link named one of the snapshots it
 // removed, and the open's own repair needs a WAL head to measure against, which a rollback that empties
 // the WAL leaves it without.
-func (s *StateDB) rewindSCIfAbove(target int64) error {
-	above, err := s.scHoldsStateAbove(target)
-	if err != nil {
-		return err
-	}
-	if !above {
+func (s *StateDB) applySCRewind(plan scRewind, target int64) error {
+	if !plan.movesFiles() {
 		return nil
 	}
 	return s.rewindSC(target)
 }
 
-// scHoldsStateAbove reports whether SC's files hold state above target, which is what a rewind there
-// has to remove. SC must not be open.
+// scRewind is how a rollback brings SC onto a target: the version its files will hold once the rewind
+// has run, and what the rewind does to them.
+type scRewind struct {
+	landsOn int64
+	// restoresSnapshot is set when SC holds state above the target, which only repointing its files at
+	// a snapshot at or below it removes.
+	restoresSnapshot bool
+}
+
+// movesFiles reports whether carrying out this plan writes to the store's directories.
+func (p scRewind) movesFiles() bool { return p.restoresSnapshot }
+
+// planSCRewind decides how a rollback to target brings SC onto it, and reports a target SC cannot
+// reach as an error. It reads only, so the whole rollback is settled before anything moves.
 //
-// It is the one question the rewind, the guard that clears it and the WAL span check all ask, so that a
-// store this reports on lands on a snapshot the guard required and the WAL was checked to reach.
-func (s *StateDB) scHoldsStateAbove(target int64) (bool, error) {
-	above, err := flatkv.HoldsStateAbove(s.flatkvCfg.DataDir, target)
+// A store holding nothing above target stays where it is for the replay to carry forward. One holding
+// state above it can only lose that state by going back to a snapshot at or below target, so a store
+// with no such snapshot is refused. Snapshot 0 counts.
+func (s *StateDB) planSCRewind(target int64) (scRewind, error) {
+	at, err := s.scPosition()
 	if err != nil {
-		return false, fmt.Errorf("read the state the state commit store holds above %d: %w", target, err)
+		return scRewind{}, fmt.Errorf("the state commit store cannot reach %d: %w", target, err)
 	}
-	return above, nil
+	if !at.holdsStateAbove(target) {
+		return scRewind{landsOn: at.head}, nil
+	}
+	base, err := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
+	if err != nil {
+		return scRewind{}, fmt.Errorf("the state commit store cannot reach %d: %w", target, err)
+	}
+	return scRewind{landsOn: base, restoresSnapshot: true}, nil
+}
+
+// scPosition reads where SC's files sit. SC must not be open.
+func (s *StateDB) scPosition() (storePosition, error) {
+	head, highest, err := flatkv.StoredVersions(s.flatkvCfg.DataDir)
+	if err != nil {
+		return storePosition{}, fmt.Errorf("read the versions the state commit store holds: %w", err)
+	}
+	return storePosition{head: head, highest: highest}, nil
 }
 
 // ssRewindAction is what a rollback does to SS's files to bring it onto a target.
@@ -626,40 +651,16 @@ func (s *StateDB) clearSS() error {
 }
 
 // ensureWALCanReplayTo returns an error when the WAL does not hold every block from the height a store
-// would land on to target. It reads only.
-func (s *StateDB) ensureWALCanReplayTo(wal storedWALRange, target int64, plan ssRewind) error {
-	from, err := s.heightSCReplaysFrom(target)
-	if err != nil {
+// lands on under plan to target. It reads only.
+func (s *StateDB) ensureWALCanReplayTo(wal storedWALRange, target int64, plan rewindPlan) error {
+	if err := wal.mustCoverAfter(plan.sc.landsOn, target); err != nil {
 		return err
 	}
-	if err := wal.mustCoverAfter(from, target); err != nil {
-		return err
-	}
-	ssFrom, ssReplays := plan.replaysFrom(wal, target)
+	ssFrom, ssReplays := plan.ss.replaysFrom(wal, target)
 	if !ssReplays {
 		return nil
 	}
 	return wal.mustCoverAfter(ssFrom, target)
-}
-
-// heightSCReplaysFrom returns the version SC will hold after rewindTo, before catch-up replays to target.
-func (s *StateDB) heightSCReplaysFrom(target int64) (int64, error) {
-	above, err := s.scHoldsStateAbove(target)
-	if err != nil {
-		return 0, err
-	}
-	if !above {
-		opensAt, err := flatkv.GetWorkingCopyVersion(s.flatkvCfg.DataDir)
-		if err != nil {
-			return 0, fmt.Errorf("read the version the state commit store opens at: %w", err)
-		}
-		return opensAt, nil
-	}
-	base, err := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
-	if err != nil {
-		return 0, fmt.Errorf("cannot roll back the state commit store to %d: %w", target, err)
-	}
-	return base, nil
 }
 
 // replaysFrom returns the version catch-up carries SS forward from once this plan has run, and whether
@@ -699,45 +700,36 @@ func (s *StateDB) rewindSS(target int64) error {
 	return nil
 }
 
-// planRewindTo settles a rollback to target before anything moves, returning how SS's files get there.
-// It refuses a target either store cannot reach or the WAL cannot replay to.
+// rewindPlan is how a rollback brings SC and SS onto a target.
+type rewindPlan struct {
+	sc scRewind
+	ss ssRewind
+}
+
+// planRewindTo settles a rollback to target before anything moves, returning how each store's files
+// get there. It refuses a target either store cannot reach or the WAL cannot replay to.
 //
-// SS is read once, here: every step below works from the plan this returns, so a rollback opens the
-// store once rather than once per question asked about it.
-func (s *StateDB) planRewindTo(wal storedWALRange, target int64) (ssRewind, error) {
-	if err := s.ensureSCCanRewindTo(target); err != nil {
-		return ssRewind{}, err
-	}
-	plan, err := s.planSSRewind(wal, target)
+// Each store is read once, here: every step below works from the plan this returns, so a rollback opens
+// a store once rather than once per question asked about it.
+func (s *StateDB) planRewindTo(wal storedWALRange, target int64) (rewindPlan, error) {
+	sc, err := s.planSCRewind(target)
 	if err != nil {
-		return ssRewind{}, err
+		return rewindPlan{}, err
 	}
+	ss, err := s.planSSRewind(wal, target)
+	if err != nil {
+		return rewindPlan{}, err
+	}
+	plan := rewindPlan{sc: sc, ss: ss}
 	if err := s.ensureWALCanReplayTo(wal, target, plan); err != nil {
-		return ssRewind{}, err
+		return rewindPlan{}, err
 	}
 	return plan, nil
 }
 
-// ensureSCCanRewindTo returns an error when SC holds state above target and has no snapshot at or below
-// it. Snapshot 0 counts. A store holding nothing above target needs none.
-func (s *StateDB) ensureSCCanRewindTo(target int64) error {
-	_, snapErr := flatkv.SnapshotAtOrBelow(s.flatkvCfg.DataDir, target)
-	if snapErr == nil {
-		return nil
-	}
-	above, err := s.scHoldsStateAbove(target)
-	if err != nil {
-		return fmt.Errorf("the state commit store cannot reach %d: %w", target, err)
-	}
-	if !above {
-		return nil
-	}
-	return fmt.Errorf("the state commit store cannot reach %d: %w", target, snapErr)
-}
-
-// ssPosition is where SS's databases sit: the height the store opens at, and the highest version any
-// one of those databases records.
-type ssPosition struct {
+// storePosition is where a store's databases sit: the height the store opens at, and the highest
+// version any one of those databases records.
+type storePosition struct {
 	head    int64
 	highest int64
 }
@@ -748,29 +740,29 @@ type ssPosition struct {
 // The head is the lowest of those databases, so it is the wrong question to ask: an interrupted commit,
 // restore or reset leaves some holding a block the rest do not, and the store then reads as merely
 // behind while the rows above the target survive a replay that only writes forward.
-func (p ssPosition) holdsStateAbove(target int64) bool {
+func (p storePosition) holdsStateAbove(target int64) bool {
 	return p.highest > target
 }
 
 // ssPosition reads where SS's databases sit, opening the store when this StateDB does not hold it open.
 // A store that has never been written reads as 0.
-func (s *StateDB) ssPosition() (ssPosition, error) {
+func (s *StateDB) ssPosition() (storePosition, error) {
 	if s.ss != nil {
-		return ssPosition{head: s.ss.GetLatestVersion(), highest: s.ss.HighestDBVersion()}, nil
+		return storePosition{head: s.ss.GetLatestVersion(), highest: s.ss.HighestDBVersion()}, nil
 	}
 	if _, err := os.Stat(s.ssCfg.EVMDBDirectory); err != nil {
 		if os.IsNotExist(err) {
-			return ssPosition{}, nil
+			return storePosition{}, nil
 		}
-		return ssPosition{}, fmt.Errorf("stat the EVM state store: %w", err)
+		return storePosition{}, fmt.Errorf("stat the EVM state store: %w", err)
 	}
 	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
 	if err != nil {
-		return ssPosition{}, fmt.Errorf("read the EVM state store version: %w", err)
+		return storePosition{}, fmt.Errorf("read the EVM state store version: %w", err)
 	}
-	at := ssPosition{head: ss.GetLatestVersion(), highest: ss.HighestDBVersion()}
+	at := storePosition{head: ss.GetLatestVersion(), highest: ss.HighestDBVersion()}
 	if err := ss.Close(); err != nil {
-		return ssPosition{}, fmt.Errorf("close the EVM state store after reading its version: %w", err)
+		return storePosition{}, fmt.Errorf("close the EVM state store after reading its version: %w", err)
 	}
 	return at, nil
 }
@@ -865,13 +857,29 @@ func (s *StateDB) catchUpToWAL() error {
 		return err
 	}
 	if wal.isEmpty() {
-		// Neither store is touched, for the reason discardStateAboveTheWAL gives: with no head to
+		// Neither store is carried forward, for the reason discardStateAboveTheWAL gives: with no head to
 		// measure against, a working copy above the current snapshot is the only record of the blocks it
 		// holds, and dropping it on one store alone would leave the two at different heights. A rollback
 		// that empties the WAL brings both down in rewindTo, where the target says where they belong.
+		//
+		// An interrupted commit is still repaired, since the disagreement it leaves needs no head to be
+		// recognised. Nothing below reaches the repair catchUpTo runs.
+		if err := s.sc.RebuildIfTorn(); err != nil {
+			return fmt.Errorf("repair the state commit store's working copy: %w", err)
+		}
 		return nil
 	}
-	return s.catchUpTo(wal.head())
+
+	head := wal.head()
+	if err := s.catchUpTo(head); err != nil {
+		return err
+	}
+	if err := s.matchHeight(head); err != nil {
+		// Named for the open, as discardStateAboveTheWAL's refusals are: no rollback ran, and an
+		// operator sent looking for one is an operator not looking at the head that was not reached.
+		return fmt.Errorf("cannot open on the state WAL's head %d: %w", head, err)
+	}
+	return nil
 }
 
 // replay feeds apply every WAL block in (from, target], in order.

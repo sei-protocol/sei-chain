@@ -138,7 +138,13 @@ func TestMatchHeightDoesNotExcuseAnEmptyStoreTheWALCanRebuild(t *testing.T) {
 	}
 	s := &StateDB{wal: &gapWAL{first: 1, last: 4}, sc: sc, ss: &evm.EVMStateStore{}}
 
-	require.ErrorContains(t, s.matchHeight(4), "EVM state store")
+	err := s.matchHeight(4)
+
+	require.ErrorContains(t, err, "EVM state store")
+	// Both the open and a rollback converge here, so the height belongs to whichever asked. Naming a
+	// rollback would send an operator whose node will not start looking for one nobody ran.
+	require.NotContains(t, err.Error(), "roll back")
+	require.NotContains(t, err.Error(), "4")
 }
 
 // A store that holds nothing is only left empty when the WAL cannot rebuild it. One the WAL still

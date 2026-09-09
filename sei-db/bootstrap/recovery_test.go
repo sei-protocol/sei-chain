@@ -365,7 +365,7 @@ func TestOpenSCAboveTheWALHeadWithoutASnapshotIsRefused(t *testing.T) {
 	require.ErrorContains(t, err, "cannot open on the state WAL's head 2")
 	require.NotContains(t, err.Error(), "roll back")
 
-	openedAt, err := flatkv.GetWorkingCopyVersion(cfg.FlatKVConfig.DataDir)
+	openedAt, _, err := flatkv.StoredVersions(cfg.FlatKVConfig.DataDir)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), openedAt, "a refused open must not have rebuilt SC from an empty snapshot")
 }
