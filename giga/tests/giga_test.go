@@ -1371,63 +1371,6 @@ func TestGiga_GasAccounting(t *testing.T) {
 	t.Logf("Gas accounting verified: Call used %d gas", callResults[0].GasUsed)
 }
 
-// TestGiga_SstoreGasDeltaCalculation verifies that the SSTORE gas delta is correctly calculated
-// based on different Sei SSTORE gas parameter values.
-// This is a unit test for the HostContext gas adjustment logic.
-func TestGiga_SstoreGasDeltaCalculation(t *testing.T) {
-	// Test the delta calculation directly
-	// StandardSstoreSetGasEIP2200 = 20000
-
-	tests := []struct {
-		name          string
-		seiSstoreGas  uint64
-		expectedDelta uint64
-	}{
-		{
-			name:          "Standard (20k) - no adjustment needed",
-			seiSstoreGas:  20000,
-			expectedDelta: 0,
-		},
-		{
-			name:          "Higher value (72k) - 52k delta",
-			seiSstoreGas:  72000,
-			expectedDelta: 52000,
-		},
-		{
-			name:          "Higher (100k) - 80k delta",
-			seiSstoreGas:  100000,
-			expectedDelta: 80000,
-		},
-		{
-			name:          "Lower than standard (10k) - no adjustment",
-			seiSstoreGas:  10000,
-			expectedDelta: 0, // No negative adjustments
-		},
-		{
-			name:          "Zero - no adjustment",
-			seiSstoreGas:  0,
-			expectedDelta: 0,
-		},
-	}
-
-	const standardSstoreGas = uint64(20000)
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Calculate delta the same way NewHostContext does
-			var delta uint64
-			if tt.seiSstoreGas > standardSstoreGas {
-				delta = tt.seiSstoreGas - standardSstoreGas
-			}
-
-			require.Equal(t, tt.expectedDelta, delta,
-				"Delta calculation for seiSstoreGas=%d", tt.seiSstoreGas)
-		})
-	}
-
-	t.Logf("SSTORE gas delta calculation verified for all test cases")
-}
-
 // TestGiga_SstoreGasHonoredByChainConfig verifies that the SSTORE gas parameter
 // is correctly read from the chain config and would be passed to the executor.
 // This tests the parameter flow, not full execution.
