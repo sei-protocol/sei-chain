@@ -2,12 +2,11 @@ package verify
 
 import (
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
-	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	"github.com/stretchr/testify/require"
 )
 
 func MintRelease(t *testing.T, app *processblock.App, f BlockRunnable, _ []signing.Tx) BlockRunnable {
@@ -23,15 +22,7 @@ func MintRelease(t *testing.T, app *processblock.App, f BlockRunnable, _ []signi
 		}
 		newPoch := app.EpochKeeper.GetEpoch(app.Ctx())
 		require.Equal(t, oldEpoch.CurrentEpoch+1, newPoch.CurrentEpoch)
-		startDate, err := time.Parse(minttypes.TokenReleaseDateFormat, oldMinter.StartDate)
-		if err != nil {
-			panic(err)
-		}
-		endDate, err := time.Parse(minttypes.TokenReleaseDateFormat, oldMinter.EndDate)
-		if err != nil {
-			panic(err)
-		}
-		expectedMintedAmount := oldMinter.TotalMintAmount / uint64(endDate.Sub(startDate)/(24*time.Hour)) //nolint:gosec
+		expectedMintedAmount := oldMinter.GetReleaseAmountToday(app.Ctx().BlockTime()).AmountOf("usei").Uint64()
 		require.Equal(t, expectedMintedAmount, oldMinter.RemainingMintAmount-newMinter.RemainingMintAmount)
 		newSupply := app.BankKeeper.GetSupply(app.Ctx(), "usei")
 		require.Equal(t, expectedMintedAmount, uint64(newSupply.Amount.Int64()-oldSupply.Amount.Int64())) //nolint:gosec
