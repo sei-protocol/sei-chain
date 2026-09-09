@@ -11,34 +11,23 @@ From the repo root:
 - Run a single benchmark:
   - `go test ./sei-db/state_db/bench -run ^$ -bench BenchmarkMemIAVLWriteWithDifferentBlockSize -benchmem`
 
-## Long running benchmark
+## CI
 
-The long running benchmark is behind the `slow_bench` build tag and is intended
-to run for a long time while you watch the periodic progress report.
+CI does not measure anything here. `sei-db-tests.yml` runs every benchmark once
+with `-benchtime=1x`, which catches a benchmark that no longer runs but produces
+no usable timings. Treat a green CI run as "the benchmarks still work", and take
+real numbers from a local run on a quiet machine.
 
-- Run it with a long benchtime (interrupt when done):
-  - `go test ./sei-db/state_db/bench -run ^$ -bench BenchmarkLongRunningWrite -benchmem -benchtime=24h -tags=slow_bench`
+A benchmark that cannot run without external infrastructure does not belong in
+this package, because that smoke step will fail on it.
 
-Progress is printed to stdout every few seconds while the benchmark is running.
+## Snapshot pre-population
 
-### With snapshot pre-population
-
-`BenchmarkMemIAVLLongRunningWriteWithInitialState` loads a Cosmos SDK state sync
-snapshot into the database before starting the timed benchmark. This lets you
-measure write throughput on a realistically sized tree instead of an empty one.
-
-Set the `SNAPSHOT_PATH` environment variable to the directory that contains the
-numbered chunk files (`0`, `1`, `2`, …). The typical on-disk layout is
+`TestScenario.SnapshotPath` loads a Cosmos SDK state sync snapshot into the
+database before the timed region, so throughput is measured against a
+realistically sized tree instead of an empty one. Point it at the directory
+holding the numbered chunk files (`0`, `1`, `2`, …), typically
 `<node_home>/data/snapshots/<height>/<format>/`.
-
-```bash
-SNAPSHOT_PATH=/data/snapshots/12345678/1/ \
-  go test ./sei-db/state_db/bench -run ^$ \
-    -bench BenchmarkMemIAVLLongRunningWriteWithInitialState \
-    -benchmem -benchtime=24h -tags=slow_bench
-```
-
-If `SNAPSHOT_PATH` is not set the benchmark is skipped automatically.
 
 ## Define new scenarios
 
@@ -79,5 +68,6 @@ func MyDistribution(numBlocks, totalKeys, block int64) int64 {
 }
 ```
 
-Then set it on a `TestScenario` in `bench_sc_test.go` or
-`bench_sc_long_running_test.go`.
+Then set it on a `TestScenario` in `bench_sc_test.go`. A scenario that leaves
+`Distribution` unset gets `EvenDistribution`, so a named distribution scenario
+that forgets the field silently measures the even case.

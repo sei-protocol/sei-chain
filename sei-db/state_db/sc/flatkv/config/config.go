@@ -6,6 +6,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -106,22 +108,26 @@ type Config struct {
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
 
-	// Controls the number of workers in the dedicated lattice-hash pool used to
-	// compute per-module LtHashes during ApplyChangeSets. The worker count is
-	// LtHashThreadsPerCore * runtime.NumCPU() (clamped to at least 1). LtHash
-	// computation is CPU-bound, so ~1 worker per core is a sensible default.
+	// HashEngineConfig configures the pipeline that hashes each committed block.
+	HashEngineConfig lthash.Config
+
+	// FinalizationQueueSize is how many sealed blocks may be waiting to have their hashes recorded
+	// before Commit blocks.
+	//
+	// A block waiting here holds a reservation on its own views, and a held reservation stops its
+	// database's flush frontier, so this bounds how much of the pipeline stays resident.
+	FinalizationQueueSize uint32 `mapstructure:"finalization-queue-size"`
+
+	// Controls the number of workers in the dedicated lattice-hash pool used to compute per-module
+	// LtHashes. The number of workers in this pool is equal to LtHashThreadsPerCore * runtime.NumCPU(),
+	// clamped to at least 1.
 	LtHashThreadsPerCore float64
 }
-
-// MetaKeyPrefix is the key namespace FlatKV reserves for per-database metadata, and which each
-// view manager owns: Finalize writes land under it and iteration filters it out. It matches
-// ktype.MetaKeyPrefixBytes, restated here because ktype imports this package's siblings.
-const MetaKeyPrefix = "_meta/"
 
 // defaultStoreConfig returns the view manager defaults for one database, named for the database's
 // directory so metrics and per-database hash bookkeeping can tell the stores apart.
 func defaultStoreConfig(name string) view.ViewManagerConfig {
-	return *view.DefaultViewManagerConfig(name, MetaKeyPrefix)
+	return *view.DefaultViewManagerConfig(name, ktype.MetaKeyPrefix)
 }
 
 // DefaultConfig returns Config with safe default values.
@@ -147,6 +153,8 @@ func DefaultConfig() *Config {
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
 		LtHashThreadsPerCore:      1.0,
+		HashEngineConfig:          *lthash.DefaultConfig(),
+		FinalizationQueueSize:     64,
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB

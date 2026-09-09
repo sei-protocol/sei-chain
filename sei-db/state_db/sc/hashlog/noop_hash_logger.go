@@ -1,6 +1,11 @@
 package hashlog
 
-import "github.com/sei-protocol/sei-chain/sei-db/proto"
+import (
+	"context"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+)
 
 var _ HashLogger = (*noOpHashLogger)(nil)
 
@@ -28,6 +33,11 @@ func (n *noOpHashLogger) UnregisterHashType(string) error {
 }
 
 func (n *noOpHashLogger) ReportHash(uint64, string, []byte) error {
+	// intentional no-op
+	return nil
+}
+
+func (n *noOpHashLogger) HashListener(context.Context, int64, *lthash.BlockHash) error {
 	// intentional no-op
 	return nil
 }

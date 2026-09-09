@@ -1,0 +1,86 @@
+package wrappers
+
+import (
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+)
+
+var _ DBWrapper = (*flatKVWrapper)(nil)
+
+// flatKVWrapper wraps a flatkv commit store to implement the DBWrapper interface.
+// FlatKV persists exactly one block per Commit, so benchmarks must commit every
+// block. Several
+// ApplyChangeSets calls may still precede one Commit as long as they all target the
+// same height; Commit() consults PendingVersion() to find that height.
+type flatKVWrapper struct {
+	base gigatypes.LiveStateStore
+}
+
+// NewFlatKVWrapper creates a new flatKVWrapper with a given flatkv store.
+func NewFlatKVWrapper(store gigatypes.LiveStateStore) DBWrapper {
+	return &flatKVWrapper{
+		base: store,
+	}
+}
+
+func (f *flatKVWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
+	version := entry.Version
+	if version <= 0 {
+		version = f.nextVersion()
+	}
+	return f.base.ApplyChangeSets(version, entry.Changesets)
+}
+
+func (f *flatKVWrapper) Commit() (int64, error) {
+	version := f.base.PendingVersion()
+	if version == 0 {
+		version = f.base.Version() + 1
+	}
+	return f.base.Commit(version)
+}
+
+func (f *flatKVWrapper) LoadLatest() error {
+	return f.base.LoadLatest()
+}
+
+func (f *flatKVWrapper) Version() int64 {
+	return f.base.Version()
+}
+
+// nextVersion computes the height for the next ApplyChangeSets call: one past the
+// committed version. It deliberately ignores PendingVersion() — a pending block's
+// writes may be extended at its own height, never continued at the next one.
+func (f *flatKVWrapper) nextVersion() int64 {
+	return f.base.Version() + 1
+}
+
+func (f *flatKVWrapper) Importer(version int64) (types.Importer, error) {
+	return f.base.Importer(version)
+}
+
+func (f *flatKVWrapper) Close() error {
+	return f.base.Close()
+}
+
+func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
+	val, ok := f.base.Get(keys.EVMStoreKey, key)
+	return val, ok, nil
+}
+
+// RegisterHashListener subscribes listener to flatKV's block hashes. The hash the store returns is
+// dropped: a benchmark waits on the blocks it is about to commit, not the one already behind it.
+func (f *flatKVWrapper) RegisterHashListener(listener gigatypes.HashListener) (bool, error) {
+	if _, err := f.base.RegisterHashListener(listener); err != nil {
+		return false, fmt.Errorf("register a hash listener on flatkv: %w", err)
+	}
+	return true, nil
+}
+
+func (f *flatKVWrapper) GetPhaseTimer() *metrics.PhaseTimer {
+	return f.base.GetPhaseTimer()
+}
