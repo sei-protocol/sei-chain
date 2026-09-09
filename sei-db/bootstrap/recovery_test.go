@@ -77,6 +77,12 @@ func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets 
 	require.NoError(t, wal.Flush())
 }
 
+// waitSSWrites blocks until SS has applied every block committed so far. A commit hands SS its block
+// asynchronously and does not wait, so a test reading SS straight after one waits here instead.
+func waitSSWrites(manager *GigaStorageManager) {
+	manager.SS().WaitForPendingWrites()
+}
+
 // snapshotSSEveryBlock puts SS on its own every-block schedule so a later rollback has a snapshot
 // to land on. The node-wide schedule is shared with SC, and a snapshot still publishing there
 // turns later heights down.
@@ -314,25 +320,30 @@ func TestOpenRewindsSSAboveTheWALHead(t *testing.T) {
 	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
 }
 
-// An SS above the WAL head with no snapshot at or below it cannot be rewound. Clearing it would delete
-// the history it holds; refusing leaves that history in place.
-func TestOpenSSAboveTheWALHeadWithoutASnapshotIsRefused(t *testing.T) {
+// An SS above the WAL head with no snapshot at or below it is emptied and replayed from block 1 rather
+// than refused. SS takes its snapshots from the shared checkpoint schedule, whose default is a ten
+// minute interval, so a node has none at all until its first checkpoint lands; refusing inside that
+// window is a node that will not start on any restart until an operator deletes the EVM directory by
+// hand. The WAL still holds every block, so the replay reconstructs the store exactly.
+func TestOpenSSAboveTheWALHeadRebuildsItFromBlockOne(t *testing.T) {
 	manager, cfg := openManager(t, nil)
 	commitBlocks(t, manager, 3)
+	waitSSWrites(manager)
 	require.Equal(t, int64(3), manager.SS().GetLatestVersion())
+	require.Zero(t, manager.SS().Snapshots().Newest(), "fixture precondition: SS has no snapshot to land on")
 	closeStateDB(t, manager)
 	require.NoError(t, statewal.PruneAfter(flatkv.StateWALConfig(cfg.FlatKVConfig.DataDir), 2))
 
-	require.ErrorContains(t, manager.openStateDB(t.Context()), "no snapshot at or below")
+	require.NoError(t, manager.openStateDB(t.Context()))
 
-	ss, err := evm.NewEVMStateStore(cfg.SSConfig.EVMDBDirectory, cfg.SSConfig)
+	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
+	rebuilt, err := manager.SS().Get(evm.EVMStoreKey, 2, evmNonceKey(2))
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, ss.Close()) })
-	require.Equal(t, int64(3), ss.GetLatestVersion(),
-		"a refused open must not have cleared the EVM state store")
-	scVersion, err := flatkv.GetWorkingCopyVersion(cfg.FlatKVConfig.DataDir)
+	require.Equal(t, evmNonce(2), rebuilt, "the replay must have put the blocks below the head back")
+	above, err := manager.SS().Get(evm.EVMStoreKey, 2, evmNonceKey(3))
 	require.NoError(t, err)
-	require.Equal(t, int64(3), scVersion, "a refused open must not have moved SC")
+	require.Nil(t, above, "the block above the head must not have survived")
+	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
 }
 
 // An SC above the WAL head with no snapshot at or below it cannot be rewound. Rebuilding the working
@@ -554,6 +565,7 @@ func TestRecoverSCAboveTheWALHeadRewindsToASnapshotAndReplays(t *testing.T) {
 func TestRecoverSSReplaysEVMChangesets(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 2)
+	waitSSWrites(manager)
 	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
 	writeWALOnly(t, manager.StateWAL(), 3, evmBlock(3, 3))
 
@@ -626,19 +638,40 @@ func TestOpenAtATargetAboveTheWALHeadFails(t *testing.T) {
 	requireWALTail(t, manager, 3)
 }
 
-// An SS above the target with no snapshot at or below it is refused before the rollback moves
-// anything. Wiping it and rebuilding from the WAL is not a rewind: the live store still holds history.
-func TestRecoverAboveSSWithoutASnapshotIsRefused(t *testing.T) {
+// An SS above the target with no snapshot at or below it is emptied and replayed from block 1, the same
+// route the plain open takes. A rollback reaches this more readily than an open does: recovery converges
+// on the lowest of the block, state and receipt heads, so any crash leaving one of them a block behind
+// the WAL lands below an SS that has not checkpointed yet.
+func TestRecoverAboveSSWithoutASnapshotRebuildsItFromBlockOne(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
 
-	require.ErrorContains(t, reconvergeErr(t, manager, 2), "no snapshot at or below target")
+	reconverge(t, manager, 2)
+
+	require.Equal(t, int64(2), manager.SC().Version())
+	require.Equal(t, int64(2), manager.SS().GetLatestVersion())
+	above, err := manager.SS().Get(evm.EVMStoreKey, 2, evmNonceKey(3))
+	require.NoError(t, err)
+	require.Nil(t, above, "the block above the target must not have survived")
+	requireWALTail(t, manager, 2)
+	require.NoError(t, manager.StateDB().CommitStateChanges(3, evmBlock(3, 3)))
+}
+
+// Refusing is still right once the WAL has had a retention cut: with no snapshot at or below the target
+// and no block 1 to replay from, neither route reaches it, and emptying SS would drop history nothing
+// can put back.
+func TestRecoverAboveSSWithoutASnapshotOrBlockOneIsRefused(t *testing.T) {
+	manager, cfg := openManager(t, nil)
+	commitBlocks(t, manager, 5)
+	closeStateDB(t, manager)
+	replaceWALWithBlocks(t, cfg, 3, 5)
+
+	require.ErrorContains(t, reconvergeErr(t, manager, 4), "no longer reaches block 1")
 
 	require.NoError(t, manager.openStateDB(t.Context()))
-	require.Equal(t, int64(3), manager.SC().Version(), "a refused rollback must not have moved SC")
-	require.Equal(t, int64(3), manager.SS().GetLatestVersion(),
-		"a refused rollback must not have cleared the EVM state store")
-	requireWALTail(t, manager, 3)
+	require.Equal(t, int64(5), manager.SS().GetLatestVersion(),
+		"a refused rollback must not have emptied the EVM state store")
+	requireWALTail(t, manager, 5)
 }
 
 // A target of 0 has to be refused by the constructor that takes one, and refused there rather than by a

@@ -206,6 +206,7 @@ func TestStateDBCommitsToWALAndLiveSC(t *testing.T) {
 		},
 	}}
 	require.NoError(t, manager.StateDB().CommitStateChanges(1, cs))
+	waitSSWrites(manager)
 
 	require.Equal(t, int64(1), manager.SC().Version())
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion(),
@@ -221,6 +222,7 @@ func TestStateDBCommitsEVMChangesToSS(t *testing.T) {
 	manager, _ := openManager(t, nil)
 
 	require.NoError(t, manager.StateDB().CommitStateChanges(1, evmBlock(1, 1)))
+	waitSSWrites(manager)
 
 	require.Equal(t, int64(1), manager.SS().GetLatestVersion())
 	value, err := manager.SS().Get(evm.EVMStoreKey, 1, evmNonceKey(1))

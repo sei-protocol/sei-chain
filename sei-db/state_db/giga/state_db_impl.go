@@ -195,7 +195,7 @@ func (s *StateDB) discardStateAboveTheWAL(wal storedWALRange) error {
 		// the state it covered as the only record of it.
 		return nil
 	}
-	if err := s.ensureStoresCanRewindTo(head); err != nil {
+	if err := s.ensureStoresCanRewindTo(wal, head); err != nil {
 		return err
 	}
 	if err := s.ensureWALCanReplayTo(wal, head); err != nil {
@@ -204,7 +204,7 @@ func (s *StateDB) discardStateAboveTheWAL(wal storedWALRange) error {
 	if err := s.discardSCAboveTheWAL(head); err != nil {
 		return err
 	}
-	return s.discardSSAboveTheWAL(head)
+	return s.discardSSAboveTheWAL(wal)
 }
 
 // discardSCAboveTheWAL rewinds SC onto its newest snapshot at or below head when its files hold state
@@ -226,28 +226,34 @@ func (s *StateDB) discardSCAboveTheWAL(head int64) error {
 	return nil
 }
 
-// discardSSAboveTheWAL rewinds SS onto its newest snapshot at or below head when it opened above head.
+// discardSSAboveTheWAL puts SS back on the WAL's head when it opened above it, onto its newest snapshot
+// at or below the head or empty for the replay to rebuild.
 //
 // SS keeps no working copy, so the version it holds is only known once it is open and the rewind needs
-// it closed: it reopens on the snapshot whenever there was something above head to discard.
-func (s *StateDB) discardSSAboveTheWAL(head int64) error {
+// it closed: it reopens whenever there was something above the head to discard.
+func (s *StateDB) discardSSAboveTheWAL(wal storedWALRange) error {
 	if s.ss == nil {
 		return nil
 	}
-	openedAt := s.ss.GetLatestVersion()
-	if openedAt <= head {
+	head := wal.head()
+	plan, err := s.planSSRewind(wal, head)
+	if err != nil {
+		return err
+	}
+	if plan.action == ssHoldsPosition {
 		return nil
 	}
+	openedAt := s.ss.GetLatestVersion()
 	if err := s.ss.Close(); err != nil {
 		return fmt.Errorf("close the EVM state store to rewind it onto %d: %w", head, err)
 	}
 	s.ss = nil
 
-	if err := s.rewindSS(head); err != nil {
+	if err := s.applySSRewind(plan, head); err != nil {
 		return err
 	}
 	logger.Info("EVM state store rewound onto the state WAL's head: the state above it is not one the "+
-		"WAL can replay", "was", openedAt, "head", head)
+		"WAL can replay", "was", openedAt, "landsOn", plan.landsOn, "head", head)
 	return s.openSS()
 }
 
@@ -307,11 +313,12 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 	if err := s.sc.CommitStateChanges(blockNum, changeset); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
 	}
+	// SS takes the block asynchronously and is not waited on: the WAL is written first, so a shutdown
+	// that loses the queue leaves SS behind the WAL, which is the gap catchUpTo replays on the next open.
 	if s.ss != nil {
 		if err := s.ss.CommitBlock(blockNum, changeset); err != nil {
 			return fmt.Errorf("commit block %d to the EVM state store: %w", blockNum, err)
 		}
-		s.ss.WaitForPendingWrites()
 	}
 
 	return nil
@@ -364,7 +371,7 @@ func (s *StateDB) rewindTo(target int64) error {
 		return fmt.Errorf("cannot roll back to %d: the state WAL ends at %d, so no replay reaches the "+
 			"target", target, head)
 	}
-	if err := s.ensureStoresCanRewindTo(target); err != nil {
+	if err := s.ensureStoresCanRewindTo(wal, target); err != nil {
 		return err
 	}
 	if err := s.ensureWALCanReplayTo(wal, target); err != nil {
@@ -377,7 +384,7 @@ func (s *StateDB) rewindTo(target int64) error {
 	if err := s.rewindSCIfAbove(target); err != nil {
 		return err
 	}
-	if err := s.rewindSSIfAbove(target); err != nil {
+	if err := s.rewindSSToTarget(wal, target); err != nil {
 		return err
 	}
 	// Last, so that an interruption leaves the WAL still above target and a restart comes back here.
@@ -542,20 +549,87 @@ func (s *StateDB) scHoldsStateAbove(target int64) (bool, error) {
 	return above, nil
 }
 
-// rewindSSIfAbove restores SS onto its newest snapshot at or below target when the live databases sit
-// above it. DropSnapshotsAbove only removes snapshot directories.
-func (s *StateDB) rewindSSIfAbove(target int64) error {
+// ssRewindAction is what a rollback does to SS's files to bring it onto a target.
+type ssRewindAction int
+
+const (
+	// ssHoldsPosition leaves the files alone, the store holding nothing above the target.
+	ssHoldsPosition ssRewindAction = iota
+	// ssRestoresSnapshot puts the store back on its newest snapshot at or below the target.
+	ssRestoresSnapshot
+	// ssRebuildsFromEmpty empties the store for the replay to fill from block 1.
+	ssRebuildsFromEmpty
+)
+
+// ssRewind is how a rollback brings SS onto a target: the version its files will hold once the rewind
+// has run, and what the rewind does to them.
+type ssRewind struct {
+	landsOn int64
+	action  ssRewindAction
+}
+
+// planSSRewind decides how a rollback to target brings SS onto it, and reports a target SS cannot reach
+// as an error. It reads only, so the whole rollback is settled before anything moves.
+//
+// A store above the target with no snapshot to land on is not a refusal on its own: emptying it and
+// replaying from block 1 reconstructs it exactly, which is the same outcome an SS that reads as 0 gets,
+// so that route is taken whenever the WAL still starts there. Refusing is for a WAL that has had a
+// retention cut, where neither route reaches the target.
+func (s *StateDB) planSSRewind(wal storedWALRange, target int64) (ssRewind, error) {
+	openedAt, err := s.ssLatestVersion()
+	if err != nil {
+		return ssRewind{}, fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+	}
+	if openedAt <= target {
+		return ssRewind{landsOn: openedAt, action: ssHoldsPosition}, nil
+	}
+	base, err := evm.SnapshotAtOrBelow(s.ssSnapshotRoot(), target)
+	if err != nil {
+		return ssRewind{}, fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+	}
+	if base > 0 {
+		return ssRewind{landsOn: base, action: ssRestoresSnapshot}, nil
+	}
+	if wal.reachesBlockOne() {
+		return ssRewind{landsOn: 0, action: ssRebuildsFromEmpty}, nil
+	}
+	return ssRewind{}, fmt.Errorf("cannot roll back the EVM state store to %d: it holds block %d, has no "+
+		"snapshot at or below the target, and the state WAL no longer reaches block 1 to rebuild it from",
+		target, openedAt)
+}
+
+// rewindSSToTarget puts SS's files on the version a rollback to target leaves them holding. SS must be
+// closed.
+func (s *StateDB) rewindSSToTarget(wal storedWALRange, target int64) error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	openedAt, err := s.ssLatestVersion()
+	plan, err := s.planSSRewind(wal, target)
 	if err != nil {
-		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+		return err
 	}
-	if openedAt <= target {
-		return nil
+	return s.applySSRewind(plan, target)
+}
+
+// applySSRewind carries out plan against SS's files, which must be closed.
+func (s *StateDB) applySSRewind(plan ssRewind, target int64) error {
+	if plan.action == ssRebuildsFromEmpty {
+		return s.clearSS()
 	}
-	return s.rewindSS(target)
+	if plan.action == ssRestoresSnapshot {
+		return s.rewindSS(target)
+	}
+	return nil
+}
+
+// clearSS empties SS and its snapshots, leaving the replay to rebuild it from block 1. It runs with SS
+// closed.
+func (s *StateDB) clearSS() error {
+	if err := evm.ResetClosedStore(
+		s.ssCfg.EVMDBDirectory, s.ssSnapshotRoot(), s.ssCfg.SeparateEVMSubDBs); err != nil {
+		return fmt.Errorf("empty the EVM state store: %w", err)
+	}
+	return nil
 }
 
 // ensureWALCanReplayTo returns an error when the WAL does not hold every block from the height a store
@@ -604,24 +678,14 @@ func (s *StateDB) heightSSReplaysFrom(wal storedWALRange, target int64) (from in
 	if !s.ssCfg.Enable {
 		return 0, false, nil
 	}
-	openedAt, err := s.ssLatestVersion()
+	plan, err := s.planSSRewind(wal, target)
 	if err != nil {
-		return 0, false, fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
+		return 0, false, err
 	}
-	if openedAt > target {
-		base, err := evm.SnapshotAtOrBelow(s.ssSnapshotRoot(), target)
-		if err != nil {
-			return 0, false, fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
-		}
-		if base >= target {
-			return 0, false, nil
-		}
-		return base, true, nil
-	}
-	if openedAt == target || wal.leavesSSEmpty(openedAt) {
+	if plan.landsOn >= target || wal.leavesSSEmpty(plan.landsOn) {
 		return 0, false, nil
 	}
-	return openedAt, true, nil
+	return plan.landsOn, true, nil
 }
 
 // mustCoverAfter returns an error when this WAL does not hold every block in (from, target].
@@ -654,13 +718,13 @@ func (s *StateDB) rewindSS(target int64) error {
 	return nil
 }
 
-// ensureStoresCanRewindTo returns an error when SC or SS sits above target and has no snapshot at or
-// below it. A store already at or below target needs no snapshot.
-func (s *StateDB) ensureStoresCanRewindTo(target int64) error {
+// ensureStoresCanRewindTo returns an error when no route brings SC or SS onto target. A store holding
+// nothing above target is already there.
+func (s *StateDB) ensureStoresCanRewindTo(wal storedWALRange, target int64) error {
 	if err := s.ensureSCCanRewindTo(target); err != nil {
 		return err
 	}
-	return s.ensureSSCanRewindTo(target)
+	return s.ensureSSCanRewindTo(wal, target)
 }
 
 // ensureSCCanRewindTo returns an error when SC holds state above target and has no snapshot at or below
@@ -680,27 +744,13 @@ func (s *StateDB) ensureSCCanRewindTo(target int64) error {
 	return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, snapErr)
 }
 
-// ensureSSCanRewindTo returns an error when SS sits above target and has no snapshot at or below it.
-// A store at or below target needs no snapshot.
-func (s *StateDB) ensureSSCanRewindTo(target int64) error {
+// ensureSSCanRewindTo returns an error when no route brings SS onto target.
+func (s *StateDB) ensureSSCanRewindTo(wal storedWALRange, target int64) error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	base, err := evm.SnapshotAtOrBelow(s.ssSnapshotRoot(), target)
-	if err != nil {
-		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
-	}
-	if base > 0 {
-		return nil
-	}
-	openedAt, err := s.ssLatestVersion()
-	if err != nil {
-		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
-	}
-	if openedAt <= target {
-		return nil
-	}
-	return fmt.Errorf("cannot roll back the EVM state store to %d: no snapshot at or below target", target)
+	_, err := s.planSSRewind(wal, target)
+	return err
 }
 
 // ssLatestVersion returns the height SS currently holds, or 0 when the store has never been written.
@@ -786,6 +836,12 @@ func (r storedWALRange) head() int64 {
 // isEmpty reports whether the WAL holds no blocks.
 func (r storedWALRange) isEmpty() bool {
 	return r.last == 0
+}
+
+// reachesBlockOne reports whether the WAL still holds the chain's first block, which is what lets a
+// replay rebuild a store from empty rather than from a snapshot.
+func (r storedWALRange) reachesBlockOne() bool {
+	return !r.isEmpty() && r.first == 1
 }
 
 // leavesSSEmpty reports whether an SS holding openedAt is left out of a replay to fill forward: it has

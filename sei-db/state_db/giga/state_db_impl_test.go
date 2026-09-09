@@ -197,6 +197,8 @@ func TestCommitStateChangesReachesTheEVMStateStore(t *testing.T) {
 		},
 	}}
 	require.NoError(t, stateDB.CommitStateChanges(1, cs))
+	// The commit hands SS its block asynchronously and does not wait, so the read does.
+	ss.WaitForPendingWrites()
 
 	require.Equal(t, int64(1), ss.GetLatestVersion())
 	got, err := ss.Get(evm.EVMStoreKey, 1, key)

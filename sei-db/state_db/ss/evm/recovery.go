@@ -95,6 +95,54 @@ func RewindClosedStoreTo(dir, root string, separateDBs bool, target int64) (land
 	return base, nil
 }
 
+// ResetClosedStore empties the closed store under dir and deletes every snapshot under root, so the
+// next open creates a store at version 0 and a replay rebuilds it from block 1. root is the store's
+// snapshot directory, and separateDBs its layout.
+//
+// It is the route onto a target for a store above it with no snapshot to land on, which RewindClosedStoreTo
+// refuses. The caller owns the WAL and so is the one that knows a replay from block 1 is available.
+func ResetClosedStore(dir, root string, separateDBs bool) error {
+	// Before the databases, for the reason RewindClosedStoreTo gives: they hold a version until they are
+	// removed, so a crash in between leaves the next open to redo the reset rather than to land on a
+	// snapshot from the branch this one abandoned.
+	if _, err := sssnapshot.RewindTo(root, 0); err != nil {
+		return fmt.Errorf("remove the EVM state store snapshots under %q: %w", root, err)
+	}
+	for _, dbDir := range storeDBDirs(dir, separateDBs) {
+		if err := removePebbleDir(dbDir); err != nil {
+			return err
+		}
+	}
+	logger.Info("EVM state store emptied for a replay to rebuild it", "dir", dir)
+	return nil
+}
+
+// storeDBDirs returns the pebble directories a store of this layout keeps under dir.
+func storeDBDirs(dir string, separateDBs bool) []string {
+	if !separateDBs {
+		return []string{dir}
+	}
+	storeTypes := AllEVMStoreTypes()
+	dirs := make([]string, 0, len(storeTypes))
+	for _, storeType := range storeTypes {
+		dirs = append(dirs, subDBPath(dir, storeType))
+	}
+	return dirs
+}
+
+// removePebbleDir deletes dst along with anything an interrupted restore staged beside it.
+//
+// The leftovers go first: promoteInterruptedRestore moves one into an absent dst, so the other order
+// leaves a window where a crash resurrects the store this is removing.
+func removePebbleDir(dst string) error {
+	for _, path := range []string{dst + restoreTmpSuffix, dst + restoreBakSuffix, dst} {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("remove %q while emptying the EVM state store: %w", path, err)
+		}
+	}
+	return nil
+}
+
 // restoreSnapshot replaces the databases under dir with the contents of the snapshot at version.
 //
 // A unified store is one directory, and the single window where an interruption leaves none is healed
