@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 )
 
 func BenchmarkMemIAVLLongRunningWrite(b *testing.B) {

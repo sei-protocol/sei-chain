@@ -6,10 +6,10 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	"golang.org/x/time/rate"
 )
 

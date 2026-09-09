@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 )
 
 // prestateFixture is a real debug_traceCall prestateTracer diffMode response

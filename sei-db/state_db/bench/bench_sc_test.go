@@ -3,7 +3,7 @@ package bench
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 )
 
 // Using MemIAVL, Tests throughput with fixed total keys,
