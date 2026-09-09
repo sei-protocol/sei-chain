@@ -1,0 +1,10 @@
+// Rejects a legacy transfer whose gas limit is below the 21000 intrinsic floor.
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 0, chainId 713714, nonce 0, gasPrice 1 gwei, gas 1000,
+//     to 0x0000000000000000000000000000000000000001, value 0, no data.
+// Signed with types.LatestSignerForChainID(713714).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0xf86680843b9aca008203e894000000000000000000000000000000000000000180808315c808a07739c1602014b4c4bf4acb866e8e7d3edb4dbf84af5bd091626b6ecd1b00019ba04f99fb655d407fd3f7ea2dbec609f377974af656b1cf8e1473b03ec1bc594711"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message intrinsic gas too low: gas 1000, minimum needed 21000

@@ -114,6 +114,28 @@ func TestParseIOFile_ExpectBodyContains(t *testing.T) {
 	}
 }
 
+func TestParseIOFile_ExpectError(t *testing.T) {
+	content := `>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x03"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message transaction type not supported
+`
+	pairs, err := parseIOFile(content)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 pair, got %d", len(pairs))
+	}
+	if pairs[0].ExpectErrorCode == nil || *pairs[0].ExpectErrorCode != -32000 {
+		t.Fatalf("ExpectErrorCode: %v", pairs[0].ExpectErrorCode)
+	}
+	if pairs[0].ExpectErrorMessage == nil || *pairs[0].ExpectErrorMessage != "transaction type not supported" {
+		t.Fatalf("ExpectErrorMessage: %v", pairs[0].ExpectErrorMessage)
+	}
+	assertPairBodyDirectives(t, pairs[0], []byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"transaction type not supported"}}`))
+}
+
 func TestParseIOFile_BareLTLTEmptyExpected(t *testing.T) {
 	// A line that is only << (empty body after the marker) still ends the pair with zero-length Expected;
 	// @ expect_body_* / @ expect_response_* can assert on the raw HTTP body (e.g. JSON array batch).
@@ -510,6 +532,35 @@ func TestRunnerFlow_SubstitutionAndSameBlock(t *testing.T) {
 	responses[1] = resp2
 	if !sameBlockResult(t, resp2, responses[0]) {
 		t.Fatal("ref_pair check should pass")
+	}
+}
+
+func TestParseIOFile_TestdataDir(t *testing.T) {
+	dir, err := ioTestsDir()
+	if err != nil {
+		t.Fatalf("ioTestsDir: %v", err)
+	}
+	files, err := collectIOFiles(dir)
+	if err != nil {
+		t.Fatalf("collectIOFiles: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no .io/.iox files under testdata")
+	}
+	for _, rel := range files {
+		content, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Errorf("%s: read: %v", rel, err)
+			continue
+		}
+		pairs, err := parseIOFile(string(content))
+		if err != nil {
+			t.Errorf("%s: parse: %v", rel, err)
+			continue
+		}
+		if len(pairs) == 0 {
+			t.Errorf("%s: parsed zero pairs", rel)
+		}
 	}
 }
 

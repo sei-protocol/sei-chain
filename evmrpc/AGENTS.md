@@ -52,6 +52,86 @@ Legacy **`sei_*`** JSON-RPC (EVM HTTP only) are **gated** by the `[evm].enabled_
 
 **Tracer gating (deviation from geth defaults):** caller-supplied `TraceConfig.Tracer` values on `debug_traceCall` / `debug_traceTransaction` / `debug_traceBlockBy*` / `debug_traceTransactionProfile` are gated by `[evm]` config in `app.toml`. `trace_allowed_tracers` lists the native geth tracer names callers may request (validated native-only at startup; `muxTracer` nested tracer names are validated recursively with a bounded depth). `trace_allow_js_tracers` (default `false`) is a separate explicit opt-in for request-supplied JavaScript tracer source — upstream geth accepts JS tracers by default, Sei does not. Enabling JS does **not** widen the native allowlist. Validation runs in `validateTraceTracer` (`tracers.go`) before trace-cache lookups and before any tracer is constructed; the default struct logger (no `tracer` field) is always available. `trace_bake_tracers` is held to the same native-only rule at startup.
 
+## Error parity with go-ethereum (`eth_sendRawTransaction`)
+
+Every error leaving `SendAPI.SendRawTransaction` after transaction decoding carries a
+go-ethereum message and JSON-RPC code. One package owns that contract:
+`evmrpc/ethrpcerrors`.
+
+- `ethrpcerrors.Translate(err)` runs once, at the single exit of `SendAPI.SendRawTransaction`,
+  on the error of the `submit` step (proxied call, Cosmos encoding, both broadcast branches).
+  Decode errors from `tx.UnmarshalBinary` are go-ethereum's own and are returned untranslated.
+- `ethrpcerrors.TranslateABCI(codespace, code, log)` replaces the old
+  `sdkerrors.ABCIError(RootCodespace, code, "")`, which discarded the codespace and log and
+  rendered `": incorrect account sequence"` / `": unknown"`.
+- The returned `*ethrpcerrors.Error` implements `rpc.Error` and `rpc.DataError` and **must be the
+  top-level return value**: go-ethereum's `errorMessage` uses `err.(Error)`, so a wrapped one is
+  encoded as `-32000` with the wrapper's text. Do not `fmt.Errorf("...: %w", translated)`.
+- An error that already implements `rpc.Error`, such as a remote node's `*jsonError` on the
+  proxied branch, passes through unchanged.
+- Anything the table does not know becomes `-32603 internal error`, increments
+  `evmrpc_untranslated_error_total` and logs the original text at Warn. That includes transport
+  failures on the proxied branch (`Post "<shard owner url>": …`), so an internal address never
+  reaches a client. When the counter moves, add a row to the table rather than widening a match.
+- `depguard` (`.golangci.yml`) denies `sei-cosmos/types/errors` under `evmrpc/` except in
+  `evmrpc/ethrpcerrors`. It does not cover `_test.go` files (`run.tests: false`) and cannot catch a
+  forwarded `Log` string, which is why the golden test in `ethrpcerrors` and the negative
+  assertion (no Cosmos vocabulary, no leading `": "`) exist. Extend both when adding a mapping.
+
+**Message format.** The go-ethereum sentinel is the prefix; detail follows after `: `. Producers
+in `app/ante` keep their Cosmos SDK error codes and wrap CheckTx-only detail with
+`sdkerrors.Wrapf`; the boundary strips the SDK description and prepends the sentinel for the
+code. A producer that already emits go-ethereum text passes through verbatim.
+
+**Parity table (submit path).** Codes are `-32000` unless stated.
+
+| Condition | Message | go-ethereum |
+|---|---|---|
+| Nonce below account nonce | `nonce too low: next nonce N, tx nonce M` | same |
+| Same nonce already pending (classic mempool) | `replacement transaction underpriced` | same |
+| Nonce gap (autobahn only; classic admits) | `nonce too high: tx nonce N, gapped nonce M` | admitted (see divergences) |
+| Insufficient balance | `insufficient funds for gas * price + value: address 0x… have X want Y` | `…: balance X, tx cost Y, overshot Z` (see divergences) |
+| Fee cap below base fee | `max fee per gas less than block base fee: address 0x…, maxFeePerGas: X, baseFee: Y` | admitted by the txpool when its tip meets the minimum; execution uses this sentinel |
+| Fee cap below Sei minimum fee | `max fee per gas less than block base fee: address 0x…, maxFeePerGas: X, minimumFeePerGas: Y` | no analogue; nearest sentinel, Sei detail |
+| Intrinsic gas too low | `intrinsic gas too low: gas N, minimum needed M` | identical |
+| Floor data gas too low (EIP-7623, CheckTx only) | `insufficient gas for floor data gas cost: gas N, minimum needed M` | identical |
+| Init code exceeds max | `max initcode size exceeded: code size N, limit 49152` | identical |
+| Empty EIP-7702 authorization list | `set code tx must have at least one authorization tuple` | identical |
+| Unprotected legacy tx | `only replay-protected (EIP-155) transactions allowed over RPC` | identical |
+| Gas limit above block max | `exceeds block gas limit: tx gas limit N exceeds block max gas M` | same sentinel |
+| Blob tx / type not enabled | `transaction type not supported` | same |
+| Chain ID mismatch | `invalid sender: invalid chain id for signer: have N want M` | identical |
+| Signature recovery failure | `invalid sender: <reason>` | same |
+| Tip above fee cap | `max priority fee per gas higher than max fee per gas (X > Y)` | same sentinel, no detail |
+| `cap * gas` or value beyond 2^256-1 | `insufficient funds for gas * price + value: fee out of bound` / `…: value overflow` | no such check; fails the balance check |
+| Fee cap / tip beyond 2^256-1 | `max fee per gas higher than 2^256-1` / `max priority fee per gas higher than 2^256-1` | same |
+| Already in mempool cache, duplicate | `already known` | same |
+| Mempool full (classic or autobahn) | `txpool is full` | same |
+| Priority below reservoir cutoff | `transaction underpriced` | same (different mechanism) |
+| Tx bytes above mempool limit | `oversized data: <Sei detail>` | same sentinel |
+| Request or autobahn wait cancelled, commit wait timed out | `-32002 request timed out` | same |
+| Anything else (`not producing`, proxy/RPC-layer internals, transport errors, unknown) | `-32603 internal error` | n/a |
+
+**Deliberate divergences** (documented rather than changed):
+
+- Fee before nonce: `EvmCheckAndChargeFees` runs before `CheckNonce`, so an underfunded account
+  replaying a stale nonce gets `insufficient funds…` where go-ethereum says `nonce too low`.
+- Sei rejects a fee cap below the current base fee during CheckTx. go-ethereum's legacy txpool
+  can retain that transaction for a later base-fee drop when its tip meets the pool minimum.
+- Insufficient-funds detail is go-ethereum's execution-path shape (`address … have X want Y`, from
+  the fork's `BuyGas`), not the txpool's `balance X, tx cost Y, overshot Z`. The sentinel matches.
+- Autobahn requires strictly sequential nonces per sender within a produce session; go-ethereum's
+  legacy/1559 pools admit gaps. The classic mempool matches go-ethereum. Which path a client hits
+  depends on node configuration.
+- `BroadcastTxCommit` is refused under Autobahn; `evm.slow` still submits via `BroadcastTx` there.
+- Per-sender pending caps use a priority reservoir and utilisation threshold, not go-ethereum's
+  slot count, so `account limit exceeded` is never emitted; overdraft across queued transactions is
+  only partially covered by the mempool's required-balance tracking.
+- The tip-above-fee-cap detail is parenthesized (`(X > Y)`), produced by `x/evm/types/ethtx`
+  validation; the leading sentinel is identical.
+- The fallback code is `-32603` where these errors used to be `-32000`; text-matching clients see
+  every mapped condition change string, code-matching clients only the fallback.
+
 ## Consistency
 RPC responses for historical heights should never change as the blockchain progresses, or as the blockchain code gets upgraded.
 

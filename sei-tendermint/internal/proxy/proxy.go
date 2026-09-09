@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"time"
@@ -12,7 +13,12 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "proxy")
+
+var errCheckTxPanic = errors.New("panic recovered in CheckTxSafe")
 
 // Proxy wraps an ABCI application and records ABCI method timings.
 type Proxy struct {
@@ -63,7 +69,9 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 	defer addTimeSample(Global.MethodTimingAt("check_tx", "sync"))()
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic recovered in CheckTxSafe: %v\n%v", r, string(debug.Stack()))
+			logger.Error("panic recovered in CheckTxSafe", "panic", r, "stack", string(debug.Stack()))
+			res = nil
+			err = errCheckTxPanic
 		}
 	}()
 	res = app.app.CheckTx(ctx, req)

@@ -9,6 +9,7 @@ linters:
   default: none
   enable:
     - bodyclose
+    - depguard
     - dogsled
     - errcheck
     - goconst
@@ -20,6 +21,19 @@ linters:
     - staticcheck
     - unconvert
     - misspell
+  settings:
+    depguard:
+      rules:
+        # evmrpc/ethrpcerrors owns the eth_sendRawTransaction parity table.
+        # Cosmos SDK errors must not be built or rendered elsewhere under evmrpc.
+        evmrpc-eth-error-parity:
+          list-mode: lax
+          files:
+            - "**/evmrpc/**"
+            - "!**/evmrpc/ethrpcerrors/**"
+          deny:
+            - pkg: github.com/sei-protocol/sei-chain/sei-cosmos/types/errors
+              desc: translate errors with evmrpc/ethrpcerrors instead of emitting Cosmos SDK errors from evmrpc
   exclusions:
     paths:
       - ".*\\.pb\\.go$"

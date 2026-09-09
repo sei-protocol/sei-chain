@@ -43,7 +43,7 @@ describe('eth_sendRawTransaction', function () {
     });
 
     describe('wrong params / error handling', () => {
-        it('[divergence] both reject a below-intrinsic-gas tx; geth is descriptive, Sei is generic', async () => {
+        it('rejects a below-intrinsic-gas tx identically to geth', async () => {
             const [seiTx, gethTx] = await Promise.all([
                 signBelowIntrinsicTx(sei, intrinsicTester),
                 signBelowIntrinsicTx(geth, gethSender),
@@ -52,14 +52,9 @@ describe('eth_sendRawTransaction', function () {
                 rawSei('eth_sendRawTransaction', [seiTx.raw]),
                 rawGeth('eth_sendRawTransaction', [gethTx.raw]),
             ]);
-            // geth rejects pre-execution with the exact reason; Sei rejects too (same -32000 code)
-            // but its ante surfaces a generic ABCI error rather than the descriptive message.
-            expectJsonRpcError(g, -32000, /intrinsic gas too low/);
-            expect(s.error, 'Sei rejects the below-intrinsic tx').to.not.equal(undefined);
-            expect(s.error!.code, 'both use -32000').to.equal(g.error!.code);
-            expect(s.error!.message, '[divergence] Sei does not surface the geth reason').to.not.equal(
-                g.error!.message,
-            );
+            // Both nodes reject pre-execution with geth's exact intrinsic-gas string.
+            expectJsonRpcError(g, -32000, /^intrinsic gas too low: gas 1000, minimum needed 21000$/);
+            expectSameError(s, g);
         });
 
         it('rejects malformed transaction bytes identically to geth', async () => {
@@ -72,8 +67,8 @@ describe('eth_sendRawTransaction', function () {
         });
 
         it('rejects a tx whose nonce is already used (stale nonce)', async () => {
-            // Consume nonce 0, then re-submit a freshly signed tx pinned to nonce 0. Sei's Cosmos
-            // ante reports "incorrect account sequence" where geth would say "nonce too low".
+            // Consume nonce 0, then submit different bytes pinned to nonce 0 so the request
+            // reaches the nonce check rather than the transaction-hash cache.
             const first = await signRawTransfer(sei, nonceTester, 2, { nonce: 0 });
             await sendRaw(sei, first.raw);
             await sei.waitForTransaction(first.hash, 1, 60_000);
@@ -81,8 +76,9 @@ describe('eth_sendRawTransaction', function () {
             const stale = await signRawTransfer(sei, nonceTester, 2, { nonce: 0 });
             const res = await rawSei('eth_sendRawTransaction', [stale.raw]);
             expect(res.error, JSON.stringify(res)).to.not.equal(undefined);
-            expect(res.error!.message, 'stale-nonce signature').to.match(
-                /incorrect account sequence|nonce too low|already known/i,
+            expect(res.error!.code).to.equal(-32000);
+            expect(res.error!.message, 'stale-nonce signature').to.equal(
+                'nonce too low: next nonce 1, tx nonce 0',
             );
         });
 
@@ -99,10 +95,10 @@ describe('eth_sendRawTransaction', function () {
 
             const replayRes = await rawSei('eth_sendRawTransaction', [signed.raw]);
             expect(replayRes.error, 'replay must be rejected').to.not.equal(undefined);
-            // Sei dedups in the mempool cache ("tx already exists in cache") before the nonce
-            // check, so accept that alongside the canonical nonce/replay rejection reasons.
+            // Sei may still dedup in the mempool cache before the nonce check; that condition
+            // is now rendered as geth's "already known".
             expect(replayRes.error!.message, 'replay rejection reason').to.match(
-                /incorrect account sequence|nonce too low|already known|tx already exists in cache/i,
+                /^(nonce too low: next nonce \d+, tx nonce \d+|already known)$/,
             );
         });
 
@@ -127,6 +123,11 @@ describe('eth_sendRawTransaction', function () {
             });
             const res = await rawSei('eth_sendRawTransaction', [tx]);
             expect(res.error, 'wrong chain ID must be rejected').to.not.equal(undefined);
+            expectJsonRpcError(
+                res,
+                -32000,
+                /^invalid sender: invalid chain id for signer: have \d+ want \d+$/,
+            );
         });
     });
 });

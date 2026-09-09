@@ -1,0 +1,10 @@
+// Rejects an EIP-1559 tx whose priority fee exceeds its fee cap (4 gwei > 2 gwei).
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 2, chainId 713714, nonce 0, gas 21000, feeCap 2 gwei, tip 4 gwei,
+//     to 0x0000000000000000000000000000000000000001, value 0, no data.
+// Signed with types.LatestSignerForChainID(713714).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x02f86d830ae3f28084ee6b280084773594008252089400000000000000000000000000000000000000018080c001a088887558142fc3589fd4a5a14a1bd7fe777ecdf3bdbf9809b7c63fffe065926fa010743968a1875cc305256b88e361ad5422c5c99d0d33633d77c8697a71b1df5e"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message max priority fee per gas higher than max fee per gas (4000000000 > 2000000000)

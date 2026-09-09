@@ -1,0 +1,10 @@
+// Rejects a legacy tx whose gas limit exceeds the localnet block gas limit by one.
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 0, chainId 713714, nonce 0, gasPrice 1 gwei, gas 35000001,
+//     to 0x0000000000000000000000000000000000000001, value 0, no data.
+// Signed with types.LatestSignerForChainID(713714).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0xf86880843b9aca008402160ec194000000000000000000000000000000000000000180808315c808a093c9c6b0b5a268ed1a8a63ec41d535864c7811abf12e24eaf305299636f339c4a043796c22794d3198ee2a6f9927eb0523bd13db79a784b4c7b0c15d304e09ea77"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message exceeds block gas limit: tx gas limit 35000001 exceeds block max gas 35000000

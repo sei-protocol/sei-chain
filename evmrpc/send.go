@@ -16,11 +16,11 @@ import (
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/evmrpc/ethrpcerrors"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -91,32 +91,65 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		recordMetricsWithError(ctx, "eth_sendRawTransaction", s.connectionType, startTime, err, recover())
 	}()
 	tx := new(ethtypes.Transaction)
+	// go-ethereum's own decode errors are already what a client expects; they are returned untranslated.
 	if err = tx.UnmarshalBinary(input); err != nil {
 		return
 	}
 	hash = tx.Hash()
+	// Every error past decoding is Sei's. One translation at the exit covers each submit branch,
+	// including branches added later, and runs before the deferred metric reads err.
+	err = ethrpcerrors.Translate(s.submit(ctx, tx, input))
+	return
+}
+
+func (s *SendAPI) submit(ctx context.Context, tx *ethtypes.Transaction, input hexutil.Bytes) error {
 	// getSender fails for AccessListTx, in which case we are not able to proxy or simulate,
 	// but we still need to handle it.
 	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
 	if senderErr == nil {
 		if client, ok := s.tmClient.EvmProxy(sender).Get(); ok {
 			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
-
-			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-				// No error wrapping, because evm server is too dumb to handle wrapped error.
-				return hash, err
-			}
-			return hash, nil
+			var remoteHash common.Hash
+			return client.CallContext(ctx, &remoteHash, "eth_sendRawTransaction", input)
 		}
 	}
 
+	txbz, err := s.encodeCosmosTx(ctx, tx, sender, senderErr)
+	if err != nil {
+		return err
+	}
+
+	// Autobahn rejects BroadcastTxCommit before InsertTx. evm.slow still
+	// submits via BroadcastTx so eth_sendRawTransaction lands the tx; only
+	// seid -b block / broadcast_tx_commit itself fail-fasts.
+	if s.sendConfig.slow && !s.sendConfig.autobahn {
+		res, err := s.tmClient.BroadcastTxCommit(ctx, txbz)
+		if err != nil {
+			return err
+		}
+		if res == nil {
+			return errors.New("missing broadcast response")
+		}
+		return ethrpcerrors.TranslateABCI(res.CheckTx.Codespace, res.CheckTx.Code, res.CheckTx.Log)
+	}
+	res, err := s.tmClient.BroadcastTx(ctx, txbz)
+	if err != nil {
+		return err
+	}
+	if res == nil {
+		return errors.New("missing broadcast response")
+	}
+	return ethrpcerrors.TranslateABCI(res.Codespace, res.Code, res.Log)
+}
+
+func (s *SendAPI) encodeCosmosTx(ctx context.Context, tx *ethtypes.Transaction, sender common.Address, senderErr error) ([]byte, error) {
 	txData, err := ethtx.NewTxDataFromTx(tx)
 	if err != nil {
-		return hash, err
+		return nil, err
 	}
 	msg, err := types.NewMsgEVMTransaction(txData)
 	if err != nil {
-		return hash, err
+		return nil, err
 	}
 	gasUsedEstimate := tx.Gas()                            // if issue simulating, fallback to gas limit
 	if s.sendConfig.enableSimulation && senderErr == nil { // simulation requires sender.
@@ -126,37 +159,10 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	}
 	txBuilder := s.txConfigProvider(LatestCtxHeight).NewTxBuilder()
 	if err := txBuilder.SetMsgs(msg); err != nil {
-		return hash, err
+		return nil, err
 	}
 	txBuilder.SetGasEstimate(gasUsedEstimate)
-	txbz, encodeErr := s.txConfigProvider(LatestCtxHeight).TxEncoder()(txBuilder.GetTx())
-	if encodeErr != nil {
-		return hash, encodeErr
-	}
-
-	// Autobahn rejects BroadcastTxCommit before InsertTx. evm.slow still
-	// submits via BroadcastTx so eth_sendRawTransaction lands the tx; only
-	// seid -b block / broadcast_tx_commit itself fail-fasts.
-	if s.sendConfig.slow && !s.sendConfig.autobahn {
-		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
-		if broadcastError != nil {
-			err = broadcastError
-		} else if res == nil {
-			err = errors.New("missing broadcast response")
-		} else if res.CheckTx.Code != 0 {
-			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.CheckTx.Code, "")
-		}
-	} else {
-		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
-		if broadcastError != nil {
-			err = broadcastError
-		} else if res == nil {
-			err = errors.New("missing broadcast response")
-		} else if res.Code != 0 {
-			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.Code, "")
-		}
-	}
-	return
+	return s.txConfigProvider(LatestCtxHeight).TxEncoder()(txBuilder.GetTx())
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {

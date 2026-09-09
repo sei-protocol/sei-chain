@@ -1,0 +1,10 @@
+// Rejects an EIP-1559 tx from an unfunded throwaway key (gas*feeCap exceeds balance 0).
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 2, chainId 713714, nonce 0, gas 21000, feeCap 100 gwei, tip 1 gwei,
+//     to 0x0000000000000000000000000000000000000001, value 0, no data.
+// Signed with types.LatestSignerForChainID(713714).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x02f86e830ae3f280843b9aca0085174876e8008252089400000000000000000000000000000000000000018080c001a0b255a96aee0c6400af2e68f3f0add89982d8da99704b61e8398f6320864caa8ca069dba50fbac5f47355296a0dbfdb855dca9fa6c54987455ad0f83524de6a6d7e"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_error_message insufficient funds for gas * price + value: address 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F have 0 want 2100000000000000

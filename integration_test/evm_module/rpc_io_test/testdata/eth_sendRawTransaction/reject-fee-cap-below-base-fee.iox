@@ -1,0 +1,10 @@
+// Rejects an EIP-1559 tx whose fee cap (1 wei) is below the block base fee.
+// Signing key (throwaway): 0x4646464646464646464646464646464646464646464646464646464646464646
+// Sender: 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F
+// Tx: type 2, chainId 713714, nonce 0, gas 21000, feeCap 1 wei, tip 0,
+//     to 0x0000000000000000000000000000000000000001, value 0, no data.
+// Signed with types.LatestSignerForChainID(713714).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x02f865830ae3f28080018252089400000000000000000000000000000000000000018080c080a025fe5f5c75fa1dab6009bfef0b0bdca562108f07532b610fd261cc632ea0af0ba07786ec009843c2c5aa3b74cfa386b42d08a4d6b1b4bf47d60a47c746e263bab3"]}
+<< {"jsonrpc":"2.0","id":1,"error":{}}
+@ expect_error_code -32000
+@ expect_body_contains max fee per gas less than block base fee: address 0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F, maxFeePerGas: 1, baseFee:

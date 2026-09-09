@@ -875,8 +875,8 @@ async function deployEvmContract(name, args=[]) {
     return contract;
 }
 
-// Wrap a signer's sendTransaction with retry on "incorrect account
-// sequence". Under Autobahn the post-commit window in which
+// Wrap a signer's sendTransaction with retry on the old and new nonce errors.
+// Under Autobahn the post-commit window in which
 // eth_getTransactionCount may briefly return a stale nonce is wider
 // than under CometBFT, so an ethers-managed send right after an
 // awaited prior tx can hit a one-off nonce mismatch even though the
@@ -894,7 +894,7 @@ function _wrapSignerWithNonceRetry(signer) {
                 return await original(...args)
             } catch (e) {
                 lastErr = e
-                if (!/incorrect account sequence/i.test(e?.message || '')) throw e
+                if (!/(?:incorrect account sequence|nonce too low)/i.test(e?.message || '')) throw e
                 await new Promise(r => setTimeout(r, TX_NONCE_RETRY_DELAY_MS))
             }
         }

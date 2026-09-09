@@ -4,17 +4,21 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	legacyabci "github.com/sei-protocol/sei-chain/app/legacyabci"
@@ -22,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -57,6 +62,34 @@ func (c *sendCaptureClient) BroadcastTxCommit(_ context.Context, tx tmtypes.Tx) 
 	c.commitCount++
 	c.tx = tx
 	return &coretypes.ResultBroadcastTxCommit{}, nil
+}
+
+type sendRejectClient struct {
+	*MockClient
+	res *coretypes.ResultBroadcastTx
+	err error
+}
+
+func (c *sendRejectClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
+	return c.res, c.err
+}
+
+type sendCommitRejectClient struct {
+	*MockClient
+	res *coretypes.ResultBroadcastTxCommit
+	err error
+}
+
+func (c *sendCommitRejectClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
+	return c.res, c.err
+}
+
+func requireRPCError(t *testing.T, err error, code int, message string) {
+	t.Helper()
+	rpcErr, ok := err.(rpc.Error)
+	require.True(t, ok, "err should implement rpc.Error, got %T: %v", err, err)
+	require.Equal(t, code, rpcErr.ErrorCode())
+	require.Equal(t, message, rpcErr.Error())
 }
 
 func newTestSendAPI(tmClient client.LocalClient, sendConfig *evmrpc.SendConfig) *evmrpc.SendAPI {
@@ -126,7 +159,8 @@ func TestSendRawTransaction(t *testing.T) {
 	// bad server
 	resObj = sendRequestBad(t, "sendRawTransaction", payload)
 	errMap = resObj["error"].(map[string]interface{})
-	require.Equal(t, ": invalid sequence", errMap["message"].(string))
+	require.Equal(t, "internal error", errMap["message"].(string))
+	require.Equal(t, float64(-32603), errMap["code"].(float64))
 }
 
 func TestSendRawTransactionUsesProxy(t *testing.T) {
@@ -247,6 +281,169 @@ func TestSendRawTransactionSlowOnCometUsesBroadcastTxCommit(t *testing.T) {
 	require.Equal(t, tx.Hash(), hash)
 	require.Equal(t, 0, tmClient.syncCount)
 	require.Equal(t, 1, tmClient.commitCount)
+}
+
+func TestSendRawTransactionTranslatesBroadcastErrors(t *testing.T) {
+	ethTxBytes, _ := mustSignTestTx(t)
+	tests := []struct {
+		name      string
+		res       *coretypes.ResultBroadcastTx
+		broadcast error
+		code      int
+		message   string
+		sentinel  error
+	}{
+		{
+			name:     "nonce too low",
+			res:      &coretypes.ResultBroadcastTx{Codespace: "sdk", Code: 32, Log: "next nonce 5, tx nonce 3: incorrect account sequence"},
+			code:     -32000,
+			message:  "nonce too low: next nonce 5, tx nonce 3",
+			sentinel: core.ErrNonceTooLow,
+		},
+		{
+			name:    "insufficient fee",
+			res:     &coretypes.ResultBroadcastTx{Codespace: "sdk", Code: 13, Log: "insufficient fee"},
+			code:    -32000,
+			message: "max fee per gas less than block base fee",
+		},
+		{
+			name:      "already known",
+			broadcast: errors.New("tx already exists in cache"),
+			code:      -32000,
+			message:   "already known",
+		},
+		{
+			name:      "unmapped broadcast error",
+			broadcast: errors.New("some unexpected internal thing"),
+			code:      -32603,
+			message:   "internal error",
+		},
+		{
+			name:    "missing broadcast response",
+			code:    -32603,
+			message: "internal error",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sendAPI := newTestSendAPI(
+				&sendRejectClient{MockClient: &MockClient{}, res: tc.res, err: tc.broadcast},
+				evmrpc.NewSendConfig(false, false, false),
+			)
+			_, err := sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+			requireRPCError(t, err, tc.code, tc.message)
+			if tc.sentinel != nil {
+				require.True(t, errors.Is(err, tc.sentinel))
+			}
+		})
+	}
+}
+
+func TestSendRawTransactionSlowCommitTranslatesNonceTooLow(t *testing.T) {
+	ethTxBytes, _ := mustSignTestTx(t)
+	sendAPI := newTestSendAPI(
+		&sendCommitRejectClient{
+			MockClient: &MockClient{},
+			res: &coretypes.ResultBroadcastTxCommit{
+				CheckTx: abci.ResponseCheckTx{
+					Codespace: "sdk",
+					Code:      32,
+					Log:       "next nonce 5, tx nonce 3: incorrect account sequence",
+				},
+			},
+		},
+		evmrpc.NewSendConfig(true, false, false),
+	)
+	_, err := sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+	requireRPCError(t, err, -32000, "nonce too low: next nonce 5, tx nonce 3")
+}
+
+func TestSendRawTransactionProxyPassesThroughRemoteError(t *testing.T) {
+	ethTxBytes, _ := mustSignTestTx(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"error": map[string]any{
+				"code":    -32000,
+				"message": "nonce too low: next nonce 5, tx nonce 3",
+			},
+		}))
+	}))
+	defer server.Close()
+
+	proxyClient, err := rpc.DialContext(t.Context(), server.URL)
+	require.NoError(t, err)
+	t.Cleanup(proxyClient.Close)
+
+	sendAPI := newTestSendAPI(
+		&sendProxyClient{MockClient: &MockClient{}, proxyClient: proxyClient},
+		&evmrpc.SendConfig{},
+	)
+	_, err = sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+	requireRPCError(t, err, -32000, "nonce too low: next nonce 5, tx nonce 3")
+}
+
+func TestSendRawTransactionProxyHidesTransportURL(t *testing.T) {
+	ethTxBytes, _ := mustSignTestTx(t)
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	proxyClient, err := rpc.DialContext(t.Context(), server.URL)
+	require.NoError(t, err)
+	t.Cleanup(proxyClient.Close)
+	server.Close()
+
+	sendAPI := newTestSendAPI(
+		&sendProxyClient{MockClient: &MockClient{}, proxyClient: proxyClient},
+		&evmrpc.SendConfig{},
+	)
+	_, err = sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+	requireRPCError(t, err, -32603, "internal error")
+	require.False(t, strings.Contains(err.Error(), server.URL))
+}
+
+func TestSendRawTransactionMapsEmptySetCodeAuthorizationList(t *testing.T) {
+	chainID := EVMKeeper.ChainID(Ctx)
+	key, err := crypto.HexToECDSA(strings.Repeat("46", 32))
+	require.NoError(t, err)
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.SetCodeTx{
+		ChainID:   uint256.MustFromBig(chainID),
+		GasTipCap: uint256.NewInt(1),
+		GasFeeCap: uint256.NewInt(2),
+		Gas:       21000,
+		To:        common.Address{1},
+		Value:     uint256.NewInt(0),
+		AuthList:  nil,
+	}), ethtypes.NewPragueSigner(chainID), key)
+	require.NoError(t, err)
+	raw, err := tx.MarshalBinary()
+	require.NoError(t, err)
+
+	sendAPI := newTestSendAPI(&MockClient{}, evmrpc.NewSendConfig(false, false, false))
+	_, err = sendAPI.SendRawTransaction(t.Context(), raw)
+	requireRPCError(t, err, -32000, "set code tx must have at least one authorization tuple")
+}
+
+func TestSendRawTransactionMapsOversizedSignature(t *testing.T) {
+	chainID := EVMKeeper.ChainID(Ctx)
+	v := new(big.Int).Add(new(big.Int).Mul(chainID, big.NewInt(2)), big.NewInt(35))
+	to := common.Address{1}
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1),
+		Gas:      21000,
+		To:       &to,
+		Value:    new(big.Int),
+		V:        v,
+		R:        new(big.Int).Lsh(big.NewInt(1), 256),
+		S:        big.NewInt(1),
+	})
+	raw, err := tx.MarshalBinary()
+	require.NoError(t, err)
+
+	sendAPI := newTestSendAPI(&MockClient{}, evmrpc.NewSendConfig(false, false, false))
+	_, err = sendAPI.SendRawTransaction(t.Context(), raw)
+	requireRPCError(t, err, -32000, "invalid sender: invalid transaction v, r, s values")
 }
 
 func mustSignTestTx(t *testing.T) ([]byte, *ethtypes.Transaction) {
