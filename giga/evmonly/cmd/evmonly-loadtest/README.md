@@ -182,13 +182,9 @@ The command reports these saturation signals on stdout and at `/metrics`:
 Every run uses the Giga executor lifecycle:
 
 - `generatedState` builds deterministic genesis balances, nonces, code, and
-  storage. The harness commits nonce, code, and storage state to FlatKV at
-  height 1.
-- Balances use a process-local placeholder until FlatKV exposes balance reads
-  and writes. The placeholder applies every post-block balance change, so load
-  execution preserves balance semantics without changing the storage package.
-- The measured workload begins at height 2 and commits non-balance state and
-  receipts through the real Giga storage manager. The manager also opens the
+  storage. The harness commits that state to FlatKV at height 1.
+- The measured workload begins at height 2 and commits state and receipts
+  through the real Giga storage manager. The manager also opens the
   production block store; the standalone harness has no consensus layer to
   populate it.
 - `discardResultSink` discards the already-committed block result and receipts;

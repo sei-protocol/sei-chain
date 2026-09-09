@@ -98,10 +98,11 @@ including for empty blocks. A receipt failure leaves state unchanged so the
 block can be retried. A state failure can leave receipts behind, but retrying
 the block overwrites them. `ResultSink` runs only after both stores succeed.
 
-FlatKV does not yet expose balance reads and writes. EVM-only runtimes therefore
-use `PlaceholderBalanceStore` for balances while committing nonce, code, and
-storage changes to the manager-owned state database. The placeholder applies
-post-block balances only after the persistent state commit succeeds.
+The FlatKV encoder persists balance, nonce, code, and storage changes, and the
+executor reads them through the current Giga state view. EVM-only Autobahn load
+tests use `WithMissingAccountState(...)` to supply the initial funded state for
+synthetic accounts that have not appeared in FlatKV yet; after their first
+change, subsequent reads come from the persisted account row.
 
 `MemoryStore` and `MemoryReceiptStore` are non-persistent unit-test doubles.
 `MemoryStore` wraps an immutable `StateReader`, retains committed values in

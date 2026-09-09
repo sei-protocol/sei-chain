@@ -126,7 +126,6 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 		err = errors.Join(err, storage.Close())
 	}()
 	changeSetEncoder := evmonly.NewFlatKVChangeSetEncoder(storage.SC())
-	balanceStore := evmonly.NewPlaceholderBalanceStore(state)
 	genesisChanges, err := changeSetEncoder(state.changeSet())
 	if err != nil {
 		return fmt.Errorf("encode generated genesis state: %w", err)
@@ -154,7 +153,6 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	executor := evmonly.NewExecutor(
 		executorConfig(cfg),
 		evmonly.WithStorageManager(storage, changeSetEncoder),
-		evmonly.WithBalanceStore(balanceStore),
 		evmonly.WithResultSink(sinks),
 	)
 	defer executor.Close()

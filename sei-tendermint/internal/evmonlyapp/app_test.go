@@ -72,6 +72,8 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.True(t, check.IsEVM)
 	require.Equal(t, sender, check.EVMSenderAddress)
 	require.Equal(t, uint64(0), app.EvmNonce(sender))
+	gotBalance := app.EvmBalance(sender, nil)
+	require.Equal(t, evmOnlyBaseBalance, gotBalance.ToBig())
 
 	response, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
 		Txs:  [][]byte{raw},
@@ -89,6 +91,12 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), app.LastBlockHeight())
 	require.Equal(t, uint64(1), app.EvmNonce(sender))
+	wantBalance := new(big.Int).Sub(
+		new(big.Int).Sub(new(big.Int).Set(evmOnlyBaseBalance), big.NewInt(1)),
+		new(big.Int).Mul(big.NewInt(evmOnlyMinGasPrice), big.NewInt(response.TxResults[0].GasUsed)),
+	)
+	gotBalance = app.EvmBalance(sender, nil)
+	require.Equal(t, wantBalance, gotBalance.ToBig())
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
 	receipt, err := app.(*evmOnlyApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())

@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -22,8 +23,9 @@ func TestFlatKVChangeSetEncoderPersistsExecutorState(t *testing.T) {
 	slotA, slotB := common.Hash{0x21}, common.Hash{0x22}
 	encode := NewFlatKVChangeSetEncoder(store)
 	changes, err := encode(StateChangeSet{
-		Nonces: []NonceChange{{Address: address, Nonce: 7}},
-		Code:   []CodeChange{{Address: address, Code: []byte{0x60, 0x01}}},
+		Balances: []BalanceChange{{Address: address, Balance: big.NewInt(99)}},
+		Nonces:   []NonceChange{{Address: address, Nonce: 7}},
+		Code:     []CodeChange{{Address: address, Code: []byte{0x60, 0x01}}},
 		Storage: []StorageChange{
 			{Address: address, Key: slotA, Value: common.Hash{0xaa}},
 			{Address: address, Key: slotB, Value: common.Hash{0xbb}},
@@ -33,6 +35,7 @@ func TestFlatKVChangeSetEncoderPersistsExecutorState(t *testing.T) {
 	require.NoError(t, store.CommitStateChanges(1, changes))
 
 	view := store.OpenView()
+	require.Equal(t, common.BigToHash(big.NewInt(99)), view.GetBalance(address))
 	require.Equal(t, uint64(7), view.GetNonce(address))
 	require.Equal(t, []byte{0x60, 0x01}, view.GetCode(address))
 	require.Equal(t, common.Hash{0xaa}, view.GetStorage(address, slotA))

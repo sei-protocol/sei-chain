@@ -30,7 +30,7 @@ type Executor struct {
 	stateStore       gigatypes.StateDB
 	receiptStore     receipt.ReceiptStore
 	changeSetEncoder NamedChangeSetEncoder
-	balanceStore     BalanceStore
+	missingState     StateReader
 	closed           atomic.Bool
 }
 
@@ -42,11 +42,11 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// WithBalanceStore supplies balances when the persistent state view does not
-// implement balance reads.
-func WithBalanceStore(store BalanceStore) Option {
+// WithMissingAccountState supplies state for accounts absent from the
+// persistent state snapshot.
+func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
-		e.balanceStore = store
+		e.missingState = state
 	}
 }
 
