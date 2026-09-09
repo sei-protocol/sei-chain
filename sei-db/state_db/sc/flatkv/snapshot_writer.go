@@ -220,8 +220,8 @@ func (w *SnapshotWriter) Flush() error {
 	}
 }
 
-// Close stops the writer and waits for its goroutine to exit, which may include finishing blocks that
-// are still queued. Reports the latched error if the writer failed. Idempotent.
+// Close stops the writer and waits for its goroutine to exit, abandoning whatever it was writing and
+// whatever is still queued. Reports the latched error if the writer failed. Idempotent.
 func (w *SnapshotWriter) Close() error {
 	w.stop()
 	// The goroutine closes exited from a deferred call on every exit path, so this cannot strand.
@@ -298,6 +298,11 @@ func (w *SnapshotWriter) run() {
 			err = w.handleMessage(message)
 		}
 		if err != nil {
+			if w.ctx.Err() != nil {
+				// Stopped mid-work. What it abandoned was never published, so there is nothing to
+				// report and nothing to repair.
+				return
+			}
 			w.brick(err)
 			return
 		}
@@ -435,21 +440,19 @@ func (w *SnapshotWriter) writeCheckpoint(request *snapshotRequest) (err error) {
 		}
 	}()
 
-	// Work already under way is not abandoned when the writer is told to stop. w.ctx is cancelled to
-	// release callers blocked on the queue, but Close is documented to let an in-flight snapshot finish,
-	// and the databases it is reading are closed only after the drain. Handing it a cancellable context
-	// would instead abort its AwaitFlush and brick the writer on the way out.
-	workCtx := context.WithoutCancel(w.ctx)
-
+	// Work under way is abandoned when the writer is told to stop, rather than finished: the block it
+	// is checkpointing may be one the finalizer abandoned on the way out, whose views never flush, and
+	// waiting for that flush would hang the store's own Close. What it abandons is a "-tmp" directory
+	// that was never published, which open removes (see removeTmpDirs).
 	tmpPath, err := checkpointDatabases(
-		workCtx, w.dir, request.blockView, w.dbs, w.phaseTimer)
+		w.ctx, w.dir, request.blockView, w.dbs, w.phaseTimer)
 	if err != nil {
 		return fmt.Errorf("snapshot version %d: %w", request.blockView.BlockHeight(), err)
 	}
 
 	w.phaseTimer.SetPhase("publish_snapshot")
 	pruned, err := publishSnapshot(
-		workCtx, w.dir, w.keepRecent, w.externalPruning, request.blockView.BlockHeight(), tmpPath)
+		w.ctx, w.dir, w.keepRecent, w.externalPruning, request.blockView.BlockHeight(), tmpPath)
 	if err != nil {
 		return fmt.Errorf("publish snapshot at version %d: %w", request.blockView.BlockHeight(), err)
 	}

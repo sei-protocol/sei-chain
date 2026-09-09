@@ -40,6 +40,10 @@ type fakeView struct {
 	// Returned by AwaitFlush.
 	awaitFlushErr error
 
+	// When non-nil, AwaitFlush waits on it, standing in for a block whose flush never comes because
+	// its finalization was abandoned. A test that never closes it holds the flush open for good.
+	awaitFlushBlocked chan struct{}
+
 	// Returned by Reserve. A non-nil value also suppresses the reserve count.
 	reserveErr error
 
@@ -56,7 +60,16 @@ type fakeView struct {
 
 func (v *fakeView) Name() string { return v.name }
 
-func (v *fakeView) AwaitFlush(context.Context) error { return v.awaitFlushErr }
+func (v *fakeView) AwaitFlush(ctx context.Context) error {
+	if v.awaitFlushBlocked != nil {
+		select {
+		case <-v.awaitFlushBlocked:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return v.awaitFlushErr
+}
 
 func (v *fakeView) Reserve() error {
 	if v.reserveErr != nil {
@@ -468,4 +481,27 @@ func TestStoreWritesSnapshotAsynchronously(t *testing.T) {
 	target, err := os.Readlink(currentPath(dir))
 	require.NoError(t, err)
 	require.Equal(t, snapshotName(2), target, "current must point at the snapshot the writer published")
+}
+
+// A block whose finalization was abandoned never flushes, and the store abandons blocks exactly when
+// it is closing. A checkpoint still waiting for that flush would then keep the writer's own Close
+// waiting for good, and the view manager that could release the wait is closed after it.
+//
+// Stopping therefore abandons the checkpoint: what it was writing was never published, and open
+// removes it.
+func TestSnapshotWriterCloseAbandonsACheckpointAwaitingAFlushThatNeverComes(t *testing.T) {
+	db := &fakeCheckpointDB{started: make(chan struct{}), release: make(chan struct{})}
+	// The copy is not what holds this checkpoint up; the flush before it is.
+	close(db.release)
+	w := newTestWriter(t, 1, 4, db)
+
+	blockView, stubs := fakeViews(t, 7)
+	for _, stub := range stubs {
+		stub.awaitFlushBlocked = make(chan struct{})
+	}
+	require.NoError(t, w.Offer(blockView))
+
+	closed := make(chan error, 1)
+	go func() { closed <- w.Close() }()
+	require.NoError(t, requireReturns(t, closed, "Close with a checkpoint awaiting a flush"))
 }

@@ -21,8 +21,8 @@ import (
 // There are no recoverable errors. The first failure is latched and stops the manager, and every later
 // call reports it.
 type FinalizationManager struct {
-	// hashes is the engine's stream. This manager is its sole consumer, and must drain it to completion
-	// even while failing, or the engine blocks forever trying to publish.
+	// engineHashChan is the engine's stream, one hash per block scheduled, in block order. This manager
+	// is its sole consumer.
 	engineHashChan <-chan *lthash.BlockHash
 
 	// queue carries sealed blocks and control messages, in block order.
@@ -122,7 +122,12 @@ func (fm *FinalizationManager) Flush() error {
 	if err := fm.enqueue(request); err != nil {
 		return fmt.Errorf("flush finalization manager: %w", err)
 	}
-	<-request.doneChan
+	select {
+	case <-request.doneChan:
+	case <-fm.ctx.Done():
+		// A stopping manager never reaches this request. The blocks behind it are abandoned rather than
+		// finalized, which Close reports, and their rows are still in the WAL for replay to recover.
+	}
 	if err := fm.errorIfBricked(); err != nil {
 		return fmt.Errorf("flush finalization manager: %w", err)
 	}
@@ -132,9 +137,8 @@ func (fm *FinalizationManager) Flush() error {
 // Close stops the manager and waits for it to finish, reporting the latched error if it failed.
 //
 // Never call concurrently with another method: behaviour is undefined if anything else is in flight.
-// Blocks that have been offered but not yet finalized are abandoned rather than
-// finished — their reservations are released, and their rows are still in the WAL for replay to
-// recover.
+// Blocks that have been offered but not yet finalized are abandoned rather than finished; the WAL
+// still holds them for replay to recover.
 //
 // The hash engine must be closed before this, so that this manager's read of its stream terminates.
 func (fm *FinalizationManager) Close() error {
@@ -146,33 +150,36 @@ func (fm *FinalizationManager) Close() error {
 	return nil
 }
 
-// enqueue puts a message on the queue, blocking while it is full.
+// enqueue puts a message on the queue, blocking while it is full and failing once the manager stops.
 func (fm *FinalizationManager) enqueue(message any) error {
 	if err := fm.errorIfBricked(); err != nil {
 		return fmt.Errorf("finalization manager failed: %w", err)
 	}
-	fm.messageChan <- message
-	return nil
+	select {
+	case fm.messageChan <- message:
+		return nil
+	case <-fm.ctx.Done():
+		return fmt.Errorf("finalization manager is stopping: %w", fm.ctx.Err())
+	}
 }
 
-// run finalizes blocks until the manager is stopped or a block fails.
+// run finalizes blocks until the manager is stopped or a block fails. It cancels the manager's context
+// on the way out, whatever the reason: everything waiting on this manager waits under that context, and
+// this goroutine is the only thing that can release it.
 func (fm *FinalizationManager) run() {
 	defer fm.wg.Done()
+	defer fm.cancel()
 
-	failed := false
 	for {
 		select {
 		case message := <-fm.messageChan:
-			if failed {
-				// Once a block has failed, the hashes any later block would record cannot be
-				// trusted, so nothing more is written. What is still queued is given back rather
-				// than finalized.
-				fm.abandonMessage(message)
-				continue
+			if !fm.handle(message) {
+				// Whatever is still queued is left as it was offered. An unfinalized view never
+				// flushes, so those blocks' rows stay out of the databases and each one's recorded
+				// version keeps matching what it holds.
+				return
 			}
-			failed = !fm.handle(message)
 		case <-fm.ctx.Done():
-			fm.abandon()
 			return
 		}
 	}
@@ -206,27 +213,20 @@ func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped b
 	hash, ok := <-fm.engineHashChan
 	if !ok {
 		// The engine has stopped, so this block will never be hashed. That is teardown rather than
-		// failure: its rows are in the WAL and replay recovers them. Discarding releases the reservation,
-		// which is the part that must not be skipped.
-		return true, fm.discard(pending)
+		// failure: the block is abandoned where it is, and replay recovers it from the WAL.
+		return true, nil
 	}
 	if hash.Error != nil {
-		return false, errors.Join(
-			fmt.Errorf("hash block %d: %w", pending.blockNumber, hash.Error),
-			fm.discard(pending))
+		return false, fmt.Errorf("hash block %d: %w", pending.blockNumber, hash.Error)
 	}
 	if hash.BlockNumber != pending.blockNumber {
-		return false, errors.Join(
-			fmt.Errorf("finalization is out of step: holding block %d, hashed block %d",
-				pending.blockNumber, hash.BlockNumber),
-			fm.discard(pending))
+		return false, fmt.Errorf("finalization is out of step: holding block %d, hashed block %d",
+			pending.blockNumber, hash.BlockNumber)
 	}
 
 	for _, dbView := range pending.blockView.Views() {
 		if err := finalizeStore(dbView, pending.blockNumber, pending.alreadyHave, hash); err != nil {
-			return false, errors.Join(
-				fmt.Errorf("finalize %s at block %d: %w", dbView.Name(), pending.blockNumber, err),
-				pending.release())
+			return false, fmt.Errorf("finalize %s at block %d: %w", dbView.Name(), pending.blockNumber, err)
 		}
 	}
 
@@ -238,62 +238,6 @@ func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped b
 
 	fm.latest.Store(hash)
 	return false, fm.listeners.dispatch(fm.ctx, hash)
-}
-
-// discard finalizes a block's views with nothing recorded and releases its reservation, for a block
-// that will never get a hash. Releasing the last reservation on an unfinalized view is a fatal error in the view
-// manager, so an abandoned block still has to be finalized — and its data is still in the WAL, so a
-// restart recovers it.
-func (fm *FinalizationManager) discard(pending *pendingFinalization) error {
-	var errs []error
-	for _, dbView := range pending.blockView.Views() {
-		if err := dbView.Finalize(nil); err != nil {
-			errs = append(errs, fmt.Errorf("finalize discarded %s: %w", dbView.Name(), err))
-		}
-	}
-	errs = append(errs, pending.release())
-	return errors.Join(errs...)
-}
-
-// abandon gives back everything still queued, without finalizing it. Queued blocks are discarded rather
-// than finalized — after a failure the hashes they would record cannot be trusted, and during teardown
-// they have no hashes at all — but their reservations are released either way, since a view left
-// reserved can never flush. The engine's stream is drained so it is not left blocked publishing into it.
-func (fm *FinalizationManager) abandon() {
-	for {
-		select {
-		case message := <-fm.messageChan:
-			fm.abandonMessage(message)
-		default:
-			fm.drainHashes()
-			return
-		}
-	}
-}
-
-// abandonMessage gives one message back without acting on it: a block is discarded, which releases its
-// reservation, and anything with a waiting caller is answered so that caller is not left blocked.
-func (fm *FinalizationManager) abandonMessage(message any) {
-	switch request := message.(type) {
-	case *pendingFinalization:
-		if err := fm.discard(request); err != nil {
-			logger.Error("failed to discard an abandoned block",
-				"version", request.blockNumber, "err", err)
-		}
-	case *finalizationFlushRequest:
-		close(request.doneChan)
-	default:
-		fm.brick(fmt.Errorf("unknown finalization message type %T", message))
-	}
-}
-
-// drainHashes reads the engine's stream to completion.
-//
-// The engine blocks publishing a hash nobody reads, and this manager is its only reader, so a manager
-// that stopped reading would leave the engine's own Close unable to return.
-func (fm *FinalizationManager) drainHashes() {
-	for range fm.engineHashChan { //nolint:revive // draining is the point; the values are already accounted for
-	}
 }
 
 // brick latches err as the manager's fatal error and stops it.
