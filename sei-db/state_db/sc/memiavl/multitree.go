@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -122,7 +123,7 @@ func LoadMultiTree(ctx context.Context, dir string, opts Options) (*MultiTree, e
 	if elapsed > slowLoadThreshold {
 		logger.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.")
 	}
-	sort.Strings(treeNames)
+	slices.Sort(treeNames)
 
 	trees := make([]NamedTree, len(treeNames))
 	treesByName := make(map[string]int, len(trees))
@@ -246,15 +247,6 @@ func (t *MultiTree) apply(entry proto.ChangelogEntry) error {
 }
 
 // ApplyUpgrades store name upgrades
-func indexNamedTree(trees []NamedTree, name string) int {
-	for i, tree := range trees {
-		if tree.Name == name {
-			return i
-		}
-	}
-	return -1
-}
-
 func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	if len(upgrades) == 0 {
 		return nil
@@ -265,7 +257,9 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	for _, upgrade := range upgrades {
 		switch {
 		case upgrade.Delete:
-			i := indexNamedTree(t.trees, upgrade.Name)
+			i := slices.IndexFunc(t.trees, func(entry NamedTree) bool {
+				return entry.Name == upgrade.Name
+			})
 			if i < 0 {
 				return fmt.Errorf("unknown tree name %s", upgrade.Name)
 			}
@@ -274,7 +268,9 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			t.trees = t.trees[:len(t.trees)-1]
 		case upgrade.RenameFrom != "":
 			// rename tree
-			i := indexNamedTree(t.trees, upgrade.RenameFrom)
+			i := slices.IndexFunc(t.trees, func(entry NamedTree) bool {
+				return entry.Name == upgrade.RenameFrom
+			})
 			if i < 0 {
 				return fmt.Errorf("unknown tree name %s", upgrade.RenameFrom)
 			}

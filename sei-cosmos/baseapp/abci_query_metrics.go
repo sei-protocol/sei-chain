@@ -35,7 +35,7 @@ func (app *BaseApp) abciQueryMetricRoute(reqPath string) string {
 	case "app":
 		if len(parts) >= 2 {
 			switch parts[1] {
-			case runTxModeSimulateName, "version", "snapshots":
+			case "simulate", "version", "snapshots":
 				return "app/" + parts[1]
 			}
 		}

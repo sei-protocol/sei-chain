@@ -45,7 +45,7 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() != 2 {
-		log.Fatal("Usage: condiff <lhs> <rhs>")
+		log.Fatalf("Usage: %[1]s <lhs> <rhs>", filepath.Base(os.Args[0])) //nolint:gosec // program name in local CLI usage text.
 	}
 	lhs := mustParse(flag.Arg(0))
 	rhs := mustParse(flag.Arg(1))

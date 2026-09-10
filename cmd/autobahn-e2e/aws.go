@@ -14,9 +14,7 @@ import (
 	"time"
 )
 
-const (
-	ubuntuARM64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id"
-)
+const ubuntuARM64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id"
 
 var sshUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 

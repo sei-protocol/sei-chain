@@ -36,7 +36,7 @@ var _ walStore = (*legacyWALShim)(nil)
 // openWALStore opens the WAL backend selected by the configuration.
 func openWALStore(ctx context.Context, config *WalsimConfig) (walStore, error) {
 	switch config.Backend {
-	case seiwalBackend:
+	case "seiwal":
 		cfg := config.Seiwal
 		// walsim owns the storage path and metric name.
 		cfg.Path = config.DataDir

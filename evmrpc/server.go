@@ -180,7 +180,7 @@ func NewEVMHTTPServer(
 			),
 		},
 		{
-			Namespace: "sei",
+			Namespace: SeiNamespace,
 			Service:   NewAssociationAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP, watermarks),
 		},
 		{

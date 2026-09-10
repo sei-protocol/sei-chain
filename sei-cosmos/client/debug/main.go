@@ -118,11 +118,11 @@ $ %s debug raw-bytes [72 101 108 108 111 44 32 112 108 97 121 103 114 111 117 11
 
 			byteArray := []byte{}
 			for _, s := range spl {
-				b, err := strconv.ParseUint(s, 10, 8)
+				b, err := strconv.ParseInt(s, 10, 8)
 				if err != nil {
 					return err
 				}
-				byteArray = append(byteArray, byte(b))
+				byteArray = append(byteArray, byte(b)) //nolint:gosec // ParseInt with bitSize 8 bounds b to one byte.
 			}
 			fmt.Printf("%X\n", byteArray)
 			return nil

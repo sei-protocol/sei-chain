@@ -88,5 +88,5 @@
 // module, and importing it would pull the controller's controller-runtime/AWS
 // dependency graph into the seid build. The handle methods here
 // intentionally mirror sei.NodeHandle / sei.NetworkHandle so a thin adapter can
-// satisfy the SDK interface once the skew is resolved — see Node and Network.
+// satisfy the SDK interface — see Node and Network.
 package inprocess

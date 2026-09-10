@@ -17,9 +17,7 @@ import (
 
 /** helper constructors **/
 
-const (
-	MOCK_CONTRACT_ADDR = "contract"
-)
+const MOCK_CONTRACT_ADDR = "contract"
 
 func MockEnv() types.Env {
 	return types.Env{

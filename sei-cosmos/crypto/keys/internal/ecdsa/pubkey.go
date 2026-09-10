@@ -94,15 +94,13 @@ func (pk *PubKey) MarshalTo(dAtA []byte) (int, error) {
 }
 
 // Unmarshal implements proto.Marshaler interface.
-//
-//nolint:staticcheck // Legacy key decoding is consensus-sensitive and must retain its elliptic-coordinate behavior.
 func (pk *PubKey) Unmarshal(bz []byte, curve elliptic.Curve, expectedSize int) error {
 	if len(bz) != expectedSize {
 		return errors.Wrapf(errors.ErrInvalidPubKey, "wrong ECDSA PK bytes, expecting %d bytes, got %d", expectedSize, len(bz))
 	}
 	cpk := ecdsa.PublicKey{Curve: curve}
-	cpk.X, cpk.Y = elliptic.UnmarshalCompressed(curve, bz)
-	if cpk.X == nil || cpk.Y == nil {
+	cpk.X, cpk.Y = elliptic.UnmarshalCompressed(curve, bz) //nolint:staticcheck // SA1019: deprecated UnmarshalCompressed keeps the legacy key decoding.
+	if cpk.X == nil || cpk.Y == nil {                      //nolint:staticcheck // SA1019: nil coordinates signal a decode failure.
 		return errors.Wrapf(errors.ErrInvalidPubKey, "wrong ECDSA PK bytes, unknown curve type: %d", bz[0])
 	}
 	pk.PublicKey = cpk

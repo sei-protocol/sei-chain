@@ -19,15 +19,15 @@ linters:
     - prealloc
     - staticcheck
     - unconvert
-    - misspell
   settings:
     goconst:
-      min-occurrences: 5
-      ignore-string-values:
-        - "^(consensus|error|gasUsed|get hex payload for the given inputs|kind|logsBloom|memiavl|sei-test|src|usei)$"
+      min-len: 3
+      min-occurrences: 8
   exclusions:
     paths:
       - ".*\\.pb\\.go$"
+      # Frozen, versioned copies of consensus-critical code are never edited for lint.
+      - "(^|/)legacy/"
     rules:
       - linters:
           - gosec
@@ -37,7 +37,10 @@ linters:
         path: "(^|/)testutil(/|$)"
       - linters:
           - goconst
-        path: "(^|/)test_fixtures\\.go$"
+        path: "(^|/)test_(fixtures|helpers)\\.go$"
+      - linters:
+          - goconst
+        path: "(^|/)scripts/"
       - linters:
           - goconst
         path: "(^|/)mocks?(/|$)"

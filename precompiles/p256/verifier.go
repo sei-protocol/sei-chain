@@ -6,18 +6,15 @@ import (
 	"math/big"
 )
 
-//nolint:staticcheck // P-256 precompile verification is consensus-sensitive and must retain its established coordinate handling.
 func newPublicKey(x, y *big.Int) *ecdsa.PublicKey {
 	// Check if the given coordinates are valid
-	if x == nil || y == nil || !elliptic.P256().IsOnCurve(x, y) {
+	if x == nil || y == nil || !elliptic.P256().IsOnCurve(x, y) { //nolint:staticcheck // SA1019: deprecated IsOnCurve keeps the established coordinate check.
 		return nil
 	}
 
-	return &ecdsa.PublicKey{
-		Curve: elliptic.P256(),
-		X:     x,
-		Y:     y,
-	}
+	pk := &ecdsa.PublicKey{Curve: elliptic.P256()}
+	pk.X, pk.Y = x, y //nolint:staticcheck // SA1019: raw coordinates are the precompile's wire format.
+	return pk
 }
 
 // Verify verifies the given signature (r, s) for the given hash and public key (x, y).

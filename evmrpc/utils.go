@@ -317,10 +317,10 @@ func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
 }
 
 func shouldIncludeSynthetic(namespace string) bool {
-	if namespace != EthNamespace && namespace != "sei" {
+	if namespace != EthNamespace && namespace != SeiNamespace {
 		panic(fmt.Sprintf("unknown namespace %s", namespace))
 	}
-	return namespace == "sei"
+	return namespace == SeiNamespace
 }
 
 type typedTxHash struct {

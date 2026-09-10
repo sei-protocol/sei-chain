@@ -3,9 +3,9 @@ package types
 import (
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -143,19 +143,13 @@ func (info NodeInfo) CompatibleWith(other NodeInfo) error {
 }
 
 // AddChannel is used by the router when a channel is opened to add it to the node info
-func (info *NodeInfo) AddChannel(channel uint16) {
-	if channel > math.MaxUint8 {
+func (info *NodeInfo) AddChannel(channel byte) {
+	// check that the channel doesn't already exist
+	if slices.Contains(info.Channels, channel) {
 		return
 	}
 
-	// check that the channel doesn't already exist
-	for _, ch := range info.Channels {
-		if ch == byte(channel) {
-			return
-		}
-	}
-
-	info.Channels = append(info.Channels, byte(channel))
+	info.Channels = append(info.Channels, channel)
 }
 
 func (info NodeInfo) ToProto() *tmp2p.NodeInfo {
