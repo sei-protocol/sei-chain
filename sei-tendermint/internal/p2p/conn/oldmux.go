@@ -36,6 +36,10 @@ type ChannelDescriptorT[T gogoproto.Message] struct {
 	SendQueueCapacity   int
 	RecvMessageCapacity int
 
+	// DiscardOversized drops a message that exceeds RecvMessageCapacity instead of
+	// closing the multiplexed connection.
+	DiscardOversized bool
+
 	// RecvBufferCapacity defines the max buffer size of inbound messages for a
 	// given p2p Channel queue.
 	RecvBufferCapacity int
@@ -52,6 +56,7 @@ func (chDesc ChannelDescriptorT[T]) ToGeneric() ChannelDescriptor {
 		MessageType:         chDesc.MessageType,
 		SendQueueCapacity:   chDesc.SendQueueCapacity,
 		RecvMessageCapacity: chDesc.RecvMessageCapacity,
+		DiscardOversized:    chDesc.DiscardOversized,
 		RecvBufferCapacity:  chDesc.RecvBufferCapacity,
 		Name:                chDesc.Name,
 	}
@@ -471,8 +476,9 @@ func (ch *sendChannel) popMsg(maxPayload int) *pb.PacketMsg {
 }
 
 type recvChannel struct {
-	desc ChannelDescriptor
-	buf  []byte
+	desc       ChannelDescriptor
+	buf        []byte
+	discarding bool
 }
 
 func newRecvChannel(desc ChannelDescriptor) *recvChannel {
@@ -486,8 +492,24 @@ func newRecvChannel(desc ChannelDescriptor) *recvChannel {
 // complete, which is owned by the caller and will not be modified.
 // Not goroutine-safe
 func (ch *recvChannel) pushMsg(packet *pb.PacketMsg) ([]byte, error) {
+	if ch.discarding {
+		if packet.Eof {
+			ch.discarding = false
+		}
+		return nil, nil
+	}
 	if got, wantMax := len(ch.buf)+len(packet.Data), ch.desc.RecvMessageCapacity; got > wantMax {
-		return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", wantMax, got)
+		if !ch.desc.DiscardOversized {
+			return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", wantMax, got)
+		}
+		logger.Error("discarding oversized p2p message",
+			"channel", ch.desc.Name,
+			"capacity", wantMax,
+			"size", got,
+		)
+		ch.buf = make([]byte, 0, ch.desc.RecvBufferCapacity)
+		ch.discarding = !packet.Eof
+		return nil, nil
 	}
 	ch.buf = append(ch.buf, packet.Data...)
 	if packet.Eof {

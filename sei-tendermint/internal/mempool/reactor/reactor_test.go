@@ -419,6 +419,103 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestGetChannelDescriptorProtocolRecvCapacity(t *testing.T) {
+	// Setup: mempool channel descriptor used by every node.
+	desc := GetChannelDescriptor()
+
+	// Test: receive capacity is the protocol gossip envelope, not local max-tx-bytes.
+	// Verify: capacity covers MaxGossipTxBytes and oversized messages are discarded.
+	require.Equal(t, mempoolRecvMessageCapacity(), desc.RecvMessageCapacity)
+	require.GreaterOrEqual(t, desc.RecvMessageCapacity, types.MaxGossipTxBytes)
+	require.True(t, desc.DiscardOversized)
+}
+
+func TestReactorMismatchedMaxTxBytesKeepsConnection(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: sender admits a larger tx than the receiver; both share protocol recv capacity.
+	senderMaxTxBytes := 512
+	receiverMaxTxBytes := 64
+	rts := setupReactorsWithMaxTxBytes(ctx, t, senderMaxTxBytes, receiverMaxTxBytes)
+	t.Cleanup(leaktest.Check(t))
+
+	sender := rts.nodes[0]
+	receiver := rts.nodes[1]
+	rts.start(t)
+	rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
+	require.Eventually(t, func() bool {
+		return peerFailedCheckTxCount(rts.reactors[receiver], sender) == utils.Some(0)
+	}, time.Second, 50*time.Millisecond)
+
+	largeTx := []byte("large=" + strings.Repeat("x", 200))
+	smallTx := []byte("small=ok")
+	require.Greater(t, len(largeTx), receiverMaxTxBytes)
+	require.LessOrEqual(t, len(largeTx), senderMaxTxBytes)
+
+	// Test: gossip a tx the receiver's mempool rejects, then a tx it accepts.
+	_, err := rts.mempools[sender].CheckTx(ctx, largeTx)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return peerFailedCheckTxCount(rts.reactors[receiver], sender) == utils.Some(1)
+	}, time.Minute, 250*time.Millisecond)
+	require.Equal(t, 0, rts.mempools[receiver].Size())
+
+	_, err = rts.mempools[sender].CheckTx(ctx, smallTx)
+	require.NoError(t, err)
+
+	// Verify: the small tx arrives, so the multiplexed connection survived the oversized gossip.
+	rts.waitForTxns(t, []types.Tx{smallTx}, receiver)
+	require.Equal(t, 1, rts.mempools[receiver].Size())
+}
+
+func setupReactorsWithMaxTxBytes(ctx context.Context, t *testing.T, senderMaxTxBytes, receiverMaxTxBytes int) *reactorTestSuite {
+	t.Helper()
+
+	rts := &reactorTestSuite{
+		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 2}),
+		reactors: make(map[types.NodeID]*Reactor, 2),
+		mempools: make(map[types.NodeID]*mempool.TxMempool, 2),
+		kvstores: make(map[types.NodeID]*kvstore.Application, 2),
+	}
+	limits := []int{senderMaxTxBytes, receiverMaxTxBytes}
+	cfg := config.TestMempoolConfig()
+
+	for i, node := range rts.network.Nodes() {
+		nodeID := node.NodeID
+		rts.kvstores[nodeID] = kvstore.NewApplication()
+		app := rts.kvstores[nodeID]
+		proxyApp := proxy.New(app)
+
+		mpCfg, err := config.ResetTestRoot(t.TempDir(), fmt.Sprintf("%s-%d", strings.ReplaceAll(t.Name(), "/", "|"), i))
+		require.NoError(t, err)
+		mpCfg.Mempool.CacheSize = 0
+		mpCfg.Mempool.DropUtilisationThreshold = 0.0
+		mpCfg.Mempool.MaxTxBytes = limits[i]
+		t.Cleanup(func() { os.RemoveAll(mpCfg.RootDir) })
+
+		txmp := mempool.NewTxMempool(mpCfg.Mempool.ToMempoolConfig(), proxyApp, mempool.NopTxConstraintsFetcher)
+		rts.mempools[nodeID] = txmp
+
+		reactor, err := NewReactor(cfg, txmp, node.Router)
+		if err != nil {
+			t.Fatalf("NewReactor(): %v", err)
+		}
+		rts.reactors[nodeID] = reactor
+		rts.reactors[nodeID].MarkReadyToStart()
+		rts.nodes = append(rts.nodes, nodeID)
+
+		require.NoError(t, rts.reactors[nodeID].Start(ctx))
+		require.True(t, rts.reactors[nodeID].IsRunning())
+	}
+
+	t.Cleanup(func() {
+		for _, reactor := range rts.reactors {
+			reactor.Stop()
+		}
+	})
+	return rts
+}
+
 func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode")

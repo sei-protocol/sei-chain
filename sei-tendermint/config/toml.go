@@ -436,8 +436,7 @@ duplicate-txs-cache-size = "{{ .Mempool.DuplicateTxsCacheSize }}"
 # again in the future.
 keep-invalid-txs-in-cache = {{ .Mempool.KeepInvalidTxsInCache }}
 
-# Maximum size of a single transaction.
-# NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+# Maximum size of a single transaction accepted into this node's mempool.
 max-tx-bytes = {{ .Mempool.MaxTxBytes }}
 
 # Maximum size of a batch of transactions to send to a peer

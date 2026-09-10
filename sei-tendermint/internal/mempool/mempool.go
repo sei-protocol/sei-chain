@@ -53,8 +53,7 @@ type Config struct {
 	// valid again in the future.
 	KeepInvalidTxsInCache bool
 
-	// Maximum size of a single transaction
-	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+	// Maximum size of a single transaction accepted into this node's mempool.
 	MaxTxBytes int
 
 	// time after which transaction is removed from mempool.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
@@ -22,6 +23,15 @@ var (
 	logger = seilog.NewLogger("tendermint", "internal", "mempool")
 
 	_ service.Service = (*Reactor)(nil)
+
+	// mempoolRecvMessageCapacity is the encoded size of one MaxGossipTxBytes transaction.
+	mempoolRecvMessageCapacity = sync.OnceValue(func() int {
+		return (&pb.Message{
+			Sum: &pb.Message_Txs{
+				Txs: &pb.Txs{Txs: [][]byte{make([]byte, types.MaxGossipTxBytes)}},
+			},
+		}).Size()
+	})
 )
 
 const MempoolChannel p2p.ChannelID = 0x30
@@ -45,7 +55,7 @@ type Reactor struct {
 
 // NewReactor returns a reference to a new reactor.
 func NewReactor(cfg *config.MempoolConfig, txmp *mempool.TxMempool, router *p2p.Router) (*Reactor, error) {
-	channel, err := p2p.OpenChannel(router, GetChannelDescriptor(cfg))
+	channel, err := p2p.OpenChannel(router, GetChannelDescriptor())
 	if err != nil {
 		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
 	}
@@ -65,19 +75,13 @@ func (r *Reactor) MarkReadyToStart() { r.readyToStart <- struct{}{} }
 
 // GetChannelDescriptor produces an instance of a descriptor for this package's
 // required channels.
-func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor[*pb.Message] {
-	largestTx := make([]byte, cfg.MaxTxBytes)
-	batchMsg := &pb.Message{
-		Sum: &pb.Message_Txs{
-			Txs: &pb.Txs{Txs: [][]byte{largestTx}},
-		},
-	}
-
+func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  MempoolChannel,
 		MessageType:         new(pb.Message),
 		Priority:            5,
-		RecvMessageCapacity: batchMsg.Size(),
+		RecvMessageCapacity: mempoolRecvMessageCapacity(),
+		DiscardOversized:    true,
 		RecvBufferCapacity:  128,
 		Name:                "mempool",
 	}
@@ -101,9 +105,8 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 func (r *Reactor) OnStop() {}
 
 // handleMempoolMessage handles envelopes sent from peers on the MempoolChannel.
-// For every tx in the message, we execute CheckTx. It returns an error if an
-// empty set of txs are sent in an envelope or if we receive an unexpected
-// message type.
+// For every tx in the message, we execute CheckTx. It returns an error for protocol
+// violations such as an empty set of txs, incorrect message types, and oversized messages.
 func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) error {
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_Txs:
@@ -112,6 +115,11 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		}
 		protoTxs := msg.Txs.GetTxs()
 		for _, tx := range protoTxs {
+			if len(tx) > types.MaxGossipTxBytes {
+				// Reject tx propagation over the protocol max size.
+				r.accountFailedCheckTx(m.From, mempool.ErrTxTooLarge)
+				continue
+			}
 			if _, err := r.mempool.CheckTx(ctx, tx); err != nil {
 				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, mempool.ErrTxInCache) {
@@ -239,11 +247,13 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		}
 		for {
 			tx := next.Value()
-			r.channel.Send(&pb.Message{
-				Sum: &pb.Message_Txs{
-					Txs: &pb.Txs{Txs: [][]byte{tx}},
-				},
-			}, peerID)
+			if len(tx) <= types.MaxGossipTxBytes {
+				r.channel.Send(&pb.Message{
+					Sum: &pb.Message_Txs{
+						Txs: &pb.Txs{Txs: [][]byte{tx}},
+					},
+				}, peerID)
+			}
 
 			next, err = next.NextWait(ctx)
 			if err != nil {
