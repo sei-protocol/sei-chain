@@ -20,7 +20,9 @@ func main() {
 	}
 }
 
-func run() error {
+// run returns the first error the benchmark hit, so that an automated harness sees a failed run in the
+// exit code rather than only in the console output.
+func run() (err error) {
 	if len(os.Args) != 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <config-file>\n", os.Args[0])
 		os.Exit(1)
@@ -54,8 +56,8 @@ func run() error {
 		return fmt.Errorf("failed to create gigasim: %w", err)
 	}
 	defer func() {
-		if err := gs.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error closing gigasim: %v\n", err)
+		if closeErr := gs.Close(); closeErr != nil && err == nil {
+			err = closeErr
 		}
 	}()
 

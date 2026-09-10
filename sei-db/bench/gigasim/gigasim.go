@@ -66,6 +66,10 @@ type GigaSim struct {
 	totalBlocks  atomic.Int64
 	highestBlock atomic.Int64
 
+	// The first error the run hit, which Close reports. Written only from the run goroutine and read
+	// only after closeChan has been received from, which is what orders the two.
+	runErr error
+
 	// A message is sent on this channel when the benchmark is fully stopped.
 	closeChan chan struct{}
 
@@ -96,7 +100,11 @@ func NewGigaSim(
 		return nil, err
 	}
 
-	storageCtx, stopStorage := context.WithCancel(ctx)
+	// The databases are opened under a scope of their own rather than the caller's. An interrupt has to
+	// stop block production while leaving the stores open, because the blocks already staged are drained
+	// through them on the way out; a cancelled store would fail those writes and leave the ledger ahead
+	// of the state DB. Only teardown releases this scope.
+	storageCtx, stopStorage := context.WithCancel(context.Background())
 
 	fmt.Printf("Opening storage.\n")
 	storage, err := bootstrap.NewGigaStorageManager(storageCtx, storageConfig)
@@ -105,29 +113,30 @@ func NewGigaSim(
 		return nil, fmt.Errorf("failed to open storage: %w", err)
 	}
 
-	// The run scope is nested inside the storage scope so that the two can be stopped in order: block
-	// production first, and the databases only once nothing is still writing to them.
-	runCtx, cancel := context.WithCancel(storageCtx)
+	// The run scope covers the main loop, the generator and the executor pool, and follows the caller's
+	// context so that an interrupt reaches them and only them.
+	runCtx, cancel := context.WithCancel(ctx)
 
-	// Every construction failure past this point releases through here. The stores hold exclusive locks
-	// on their directories, so a handle left open makes an in-process retry fail to reopen them.
-	releaseStorage := func() {
+	g, err := assemble(runCtx, cancel, config, metrics, storage)
+	if err != nil {
+		// A failure here has no pipeline to unwind, so it releases the stores directly. They hold
+		// exclusive locks on their directories, so a handle left open makes an in-process retry fail to
+		// reopen them.
 		cancel()
 		if closeErr := storage.Close(); closeErr != nil {
 			fmt.Printf("failed to close storage during error recovery: %v\n", closeErr)
 		}
 		stopStorage()
-	}
-
-	g, err := assemble(runCtx, cancel, config, metrics, storage)
-	if err != nil {
-		releaseStorage()
 		return nil, err
 	}
 	g.stopStorage = stopStorage
 
+	// Setup runs over the assembled pipeline, so its failure unwinds through the same ordered shutdown
+	// a completed run uses rather than a second copy of that order.
 	if err := g.setup(); err != nil {
-		releaseStorage()
+		if closeErr := g.closePipeline(); closeErr != nil {
+			fmt.Printf("failed to close storage during error recovery: %v\n", closeErr)
+		}
 		return nil, err
 	}
 
@@ -268,25 +277,22 @@ func (g *GigaSim) setupErc20Contracts() error {
 	return nil
 }
 
+// setupAccounts creates the configured account population, assigning each account to the cold or the
+// dormant set by its identifier rather than by a draw, so that a run holds the counts its config asked
+// for.
 func (g *GigaSim) setupAccounts() error {
-	// One account above the configured populations, because the fee collection account takes identifier
-	// zero and is never selected as a transfer counterparty.
-	target := 1 + int64(g.config.NumberOfHotAccounts) +
-		int64(g.config.MinimumNumberOfColdAccounts) +
-		int64(g.config.MinimumNumberOfDormantAccounts)
-	if g.accounts.NextAccountID() >= target {
+	population := plannedAccountPopulation(g.config)
+	if g.accounts.NextAccountID() >= population.total {
 		return nil
 	}
-	fmt.Printf("Creating accounts up to %s.\n", utils.Int64Commas(target))
+	fmt.Printf("Creating accounts up to %s.\n", utils.Int64Commas(population.total))
 
 	staged := 0
-	for g.accounts.NextAccountID() < target {
+	for g.accounts.NextAccountID() < population.total {
 		if err := g.ctx.Err(); err != nil {
 			return fmt.Errorf("interrupted while creating accounts: %w", err)
 		}
-		if _, err := g.accounts.CreateAccount(); err != nil {
-			return fmt.Errorf("failed to create an account: %w", err)
-		}
+		g.accounts.CreateAccount(g.accounts.NextAccountID() >= population.firstCold)
 		staged++
 		if staged >= g.config.TransactionsPerBlock {
 			if err := g.finalizeSetupBlock(); err != nil {
@@ -294,7 +300,7 @@ func (g *GigaSim) setupAccounts() error {
 			}
 			staged = 0
 			fmt.Printf("Created %s of %s accounts.      \r",
-				utils.Int64Commas(g.accounts.NextAccountID()), utils.Int64Commas(target))
+				utils.Int64Commas(g.accounts.NextAccountID()), utils.Int64Commas(population.total))
 		}
 	}
 	if staged > 0 {
@@ -441,7 +447,7 @@ func (g *GigaSim) persistExecutionResults(
 }
 
 // awaitGenerator waits for block production to stop and the staging queue to empty, which it does by
-// consuming whatever is left in it.
+// consuming whatever is left in it, and reports the error that ended generation if one did.
 //
 // The stores cannot close while the generator still holds the block ledger, and a generator part-way
 // through handing over a block never gets to release it. After a clean run there is nothing left to
@@ -450,13 +456,26 @@ func (g *GigaSim) awaitGenerator() {
 	g.cancel()
 	for range g.generator.blocksChan {
 	}
+	// The generator sets this before closing the channel, so draining it above orders the read.
+	if err := g.generator.failure; err != nil {
+		g.recordFailure(err)
+	}
 }
 
 // fail reports an error that stops the benchmark. Errors on the write path are not recoverable: the
 // stores are left mid-block, and continuing would measure a stack that is no longer consistent.
 func (g *GigaSim) fail(err error) {
-	fmt.Printf("\n%v\n", err)
+	g.recordFailure(err)
 	g.cancel()
+}
+
+// recordFailure prints an error and keeps the first one, which Close returns so that a harness reading
+// the exit code can tell a completed run from one that died part-way through.
+func (g *GigaSim) recordFailure(err error) {
+	fmt.Printf("\n%v\n", err)
+	if g.runErr == nil {
+		g.runErr = err
+	}
 }
 
 // suspend stops consuming blocks until the benchmark is resumed. Generation stops with it: the
@@ -486,31 +505,38 @@ func (g *GigaSim) suspend() {
 
 func (g *GigaSim) teardown() {
 	g.awaitGenerator()
-	g.stopExecutors()
-	fmt.Printf("Flushing and closing storage.\n")
 
-	// The read view holds a reference the state commit store cannot release while it is open, so it
-	// closes before the storage manager closes the stores below it.
-	g.state.Close()
-	if err := g.storage.Close(); err != nil {
-		fmt.Printf("failed to close storage: %v\n", err)
+	fmt.Printf("Flushing and closing storage.\n")
+	if err := g.closePipeline(); err != nil {
+		g.recordFailure(fmt.Errorf("failed to close storage: %w", err))
 	}
-	g.stopStorage()
 
 	if g.config.CleanDataOnExit {
 		fmt.Printf("CleanDataOnExit is enabled, removing contents of: %s\n", g.config.DataDir)
 		if err := removeContents(g.config.DataDir); err != nil {
-			fmt.Printf("failed to clean the data directory on exit: %v\n", err)
+			g.recordFailure(fmt.Errorf("failed to clean the data directory on exit: %w", err))
 		}
 	}
 	if g.config.CleanLogsOnExit {
 		fmt.Printf("CleanLogsOnExit is enabled, removing contents of: %s\n", g.config.LogDir)
 		if err := removeContents(g.config.LogDir); err != nil {
-			fmt.Printf("failed to clean the log directory on exit: %v\n", err)
+			g.recordFailure(fmt.Errorf("failed to clean the log directory on exit: %w", err))
 		}
 	}
 
 	g.closeChan <- struct{}{}
+}
+
+// closePipeline stops the executor pool and releases every database, in the order the stores require:
+// the executors stop reading first, then the state read view closes, because the commit store cannot
+// release the reference it holds while a view is open, and the storage manager closes last.
+func (g *GigaSim) closePipeline() error {
+	g.cancel()
+	g.stopExecutors()
+	g.state.Close()
+	err := g.storage.Close()
+	g.stopStorage()
+	return err
 }
 
 func (g *GigaSim) generateConsoleReport(force bool) {
@@ -553,11 +579,16 @@ func (g *GigaSim) BlockUntilHalted() {
 	g.closeChan <- struct{}{}
 }
 
-// Close shuts down the benchmark and releases every database it opened.
+// Close shuts down the benchmark and releases every database it opened. It returns the first error the
+// run hit, so that a run which died part-way through is distinguishable from one that completed.
 func (g *GigaSim) Close() error {
 	g.cancel()
 	<-g.closeChan
 	g.closeChan <- struct{}{}
+	if g.runErr != nil {
+		fmt.Printf("Benchmark terminated with an error.\n")
+		return g.runErr
+	}
 	fmt.Printf("Benchmark terminated successfully.\n")
 	return nil
 }

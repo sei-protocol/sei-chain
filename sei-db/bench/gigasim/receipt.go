@@ -107,8 +107,8 @@ func newReceiptBuffer(count int, hasher hash.Hash) *receiptBuffer {
 // measured on is the volume and shape of what it stores.
 func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) {
 	contractAddress := addressFromKey(txn.erc20Contract)
-	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccountSlot))
-	receiverTopic := indexedAddressTopic(addressFromKey(txn.dstAccountSlot))
+	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccount))
+	receiverTopic := indexedAddressTopic(addressFromKey(txn.dstAccount))
 
 	txType := uint32(ethtypes.DynamicFeeTxType)
 	if rand.Int64Range(0, 5) == 0 {

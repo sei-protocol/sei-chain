@@ -74,6 +74,10 @@ type blockGenerator struct {
 
 	blocksChan chan *simulatedBlock
 
+	// The error that stopped generation, if one did. Written before blocksChan is closed and read only
+	// once that channel has drained, which is what orders the two.
+	failure error
+
 	// The keccak hasher every receipt's bloom is built with, held here because only this goroutine
 	// builds receipts.
 	bloomHasher hash.Hash
@@ -134,13 +138,11 @@ func (g *blockGenerator) mainLoop() {
 
 		block, err := g.buildBlock()
 		if err != nil {
-			fmt.Printf("failed to generate block %d: %v\n", g.next, err)
-			g.cancel()
+			g.abort(fmt.Errorf("failed to generate block %d: %w", g.next, err))
 			return
 		}
 		if err := g.storeBlock(block); err != nil {
-			fmt.Printf("%v\n", err)
-			g.cancel()
+			g.abort(err)
 			return
 		}
 
@@ -148,6 +150,14 @@ func (g *blockGenerator) mainLoop() {
 		// cancellation: the consumer drains the queue before it closes the stores.
 		g.blocksChan <- block
 	}
+}
+
+// abort records the error that stopped generation and ends the run. The consumer reports it once the
+// queue has drained, so that a run which died producing blocks is visible in the exit code rather than
+// only on the console.
+func (g *blockGenerator) abort(err error) {
+	g.failure = err
+	g.cancel()
 }
 
 // buildBlock assembles the next block: its transactions, the payload standing in for their encoded

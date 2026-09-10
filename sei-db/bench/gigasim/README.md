@@ -63,6 +63,11 @@ Those setup blocks go through the same stores at the same heights as measured bl
 excluded from the reported rates. Setup is skipped when the data directory already holds the
 population, which is what makes a large data set worth keeping between runs.
 
+Setup creates exactly the cold and dormant counts the config asks for, assigning each account to a set
+by its identifier: the hot accounts take the lowest identifiers, the dormant accounts follow, and the
+cold accounts take the highest, which is the range cold selection draws from.
+`NewAccountDormancyProbability` governs only the accounts minted during the run itself.
+
 # Configuring Gigasim
 
 Every option and its default live in the [gigasim config struct](./gigasim_config.go). Fields in the

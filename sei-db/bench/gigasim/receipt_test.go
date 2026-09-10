@@ -14,7 +14,7 @@ import (
 func TestSyntheticTxHashesAreUniqueAcrossPositions(t *testing.T) {
 	t.Parallel()
 
-	rand := crand.NewCannedRandom(1337, 1<<20)
+	rand := crand.NewCannedRandom(1<<20, 1337)
 
 	const (
 		blocks               = 40
@@ -39,8 +39,8 @@ func TestSyntheticTxHashesAreUniqueAcrossPositions(t *testing.T) {
 func TestSyntheticTxHashDependsOnlyOnItsPosition(t *testing.T) {
 	t.Parallel()
 
-	first := crand.NewCannedRandom(1337, 1<<20)
-	second := crand.NewCannedRandom(1337, 1<<20)
+	first := crand.NewCannedRandom(1<<20, 1337)
+	second := crand.NewCannedRandom(1<<20, 1337)
 
 	// Advance one source, so that a hash that depended on the buffer cursor would differ.
 	second.Bytes(1024)

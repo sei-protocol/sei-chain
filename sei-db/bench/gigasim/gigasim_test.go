@@ -1,6 +1,8 @@
 package gigasim
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -137,6 +139,111 @@ func TestGenerationRunsAheadOfExecution(t *testing.T) {
 		require.NoError(t, err)
 		return int64(ledger) > benchmark.HighestBlock() //nolint:gosec // test heights are small
 	}, time.Minute, time.Millisecond, "the ledger never led the state DB, so generation is not running ahead")
+}
+
+// TestAnInterruptedRunLeavesTheStoresConsistent pins what Ctrl-C has to do: the command hands its
+// signal context to NewGigaSim, and cancelling it must stop generation while still draining the blocks
+// already staged, so the ledger and the state DB come to rest on one height.
+//
+// The databases are therefore opened under a scope of their own. Opening them under the caller's
+// context instead cancels them at the same instant, which fails the very writes the drain is made of.
+func TestAnInterruptedRunLeavesTheStoresConsistent(t *testing.T) {
+	config := testConfig(t)
+
+	ctx, interrupt := context.WithCancel(t.Context())
+	benchmark, err := NewGigaSim(ctx, config, NewGigasimMetrics())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return benchmark.BlocksProcessed() >= blocksToProcess
+	}, time.Minute, 10*time.Millisecond, "the benchmark did not process %d blocks", blocksToProcess)
+
+	interrupt()
+	benchmark.BlockUntilHalted()
+	require.NoError(t, benchmark.Close(), "an interrupted run should drain rather than fail")
+
+	highest := benchmark.HighestBlock()
+	require.Positive(t, highest)
+
+	storageConfig, err := config.storageConfig()
+	require.NoError(t, err)
+	manager, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+
+	blockStoreHead, err := manager.BlockStore().GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(highest), blockStoreHead, //nolint:gosec // test heights are small
+		"the ledger should hold exactly the blocks the drain completed")
+
+	view := manager.StateDB().OpenView()
+	defer view.Close()
+	require.Equal(t, highest, view.GetBlockHeight(),
+		"the state DB should have drained up onto the ledger's height")
+}
+
+// TestARunResumesAfterAnInterrupt is the consequence of draining: a directory an interrupted run left
+// behind is one the next run can pick up, rather than the torn height that has to be cleaned.
+func TestARunResumesAfterAnInterrupt(t *testing.T) {
+	config := testConfig(t)
+
+	ctx, interrupt := context.WithCancel(t.Context())
+	benchmark, err := NewGigaSim(ctx, config, NewGigasimMetrics())
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return benchmark.BlocksProcessed() >= blocksToProcess
+	}, time.Minute, 10*time.Millisecond, "the benchmark did not process %d blocks", blocksToProcess)
+
+	interrupt()
+	benchmark.BlockUntilHalted()
+	require.NoError(t, benchmark.Close())
+	interrupted := benchmark.HighestBlock()
+
+	require.Greater(t, runBlocks(t, config), interrupted,
+		"a run following an interrupted one should resume rather than refuse the directory")
+}
+
+// TestColdAccountsExistWhenEveryNewAccountIsDormant pins the account split against its degenerate case.
+// A dormancy probability of 1 makes every account minted during the run dormant, so the cold accounts
+// transactions select from can only be the ones setup created. Classifying each account by a draw
+// rather than by its identifier left none of them, and the first cold selection aborted the run.
+func TestColdAccountsExistWhenEveryNewAccountIsDormant(t *testing.T) {
+	config := testConfig(t)
+	config.NewAccountDormancyProbability = 1
+
+	require.Positive(t, runBlocks(t, config))
+}
+
+// TestCloseReportsTheFirstFailure pins how a died run is reported: Close returns the error, which is
+// what gives the command a non-zero exit code. Later errors are dropped because they are usually
+// consequences of the first.
+func TestCloseReportsTheFirstFailure(t *testing.T) {
+	t.Parallel()
+
+	benchmark := &GigaSim{cancel: func() {}, closeChan: make(chan struct{}, 1)}
+	benchmark.recordFailure(errors.New("the failure that stopped the run"))
+	benchmark.recordFailure(errors.New("a later failure"))
+	benchmark.closeChan <- struct{}{}
+
+	require.EqualError(t, benchmark.Close(), "the failure that stopped the run")
+}
+
+// TestTheColdAccountsTakeTheHighestIdentifiers pins the layout the cold selection window depends on:
+// RandomAccount draws from the identifiers just below the newest account, so setup has to create the
+// dormant accounts before the cold ones.
+func TestTheColdAccountsTakeTheHighestIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NumberOfHotAccounts = 5
+	config.MinimumNumberOfDormantAccounts = 10
+	config.MinimumNumberOfColdAccounts = 20
+
+	population := plannedAccountPopulation(config)
+	require.Equal(t, int64(36), population.total,
+		"the fee collection account plus the hot, dormant and cold populations")
+	require.Equal(t, int64(16), population.firstCold,
+		"the cold accounts should be the last ones created")
 }
 
 func TestARunResumesWhereTheLastOneStopped(t *testing.T) {

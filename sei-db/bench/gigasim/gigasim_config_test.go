@@ -25,7 +25,9 @@ func TestShippedConfigsAreValid(t *testing.T) {
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			t.Parallel()
-			require.NoError(t, utils.LoadConfigFromFile(path, DefaultGigasimConfig()))
+			config := DefaultGigasimConfig()
+			require.NoError(t, utils.LoadConfigFromFile(path, config))
+			require.NoError(t, config.Validate())
 		})
 	}
 }

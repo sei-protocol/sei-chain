@@ -56,6 +56,33 @@ func paddedCounterKey(name string) []byte {
 	return padded
 }
 
+// accountPopulation is the identifier layout setup lays down. The fee collection account takes
+// identifier zero, the hot accounts follow, then the dormant accounts, and the cold accounts take the
+// highest identifiers.
+type accountPopulation struct {
+	// The number of accounts a fully prepopulated run holds.
+	total int64
+
+	// The lowest identifier belonging to a cold account.
+	firstCold int64
+}
+
+// plannedAccountPopulation returns the layout the configured counts describe.
+//
+// Cold accounts are placed last because RandomAccount draws them from the identifiers just below the
+// newest account rather than from a recorded set, so they have to occupy the top of the range.
+func plannedAccountPopulation(config *GigasimConfig) accountPopulation {
+	// One account above the configured populations, because the fee collection account takes identifier
+	// zero and is never selected as a transfer counterparty.
+	total := 1 + int64(config.NumberOfHotAccounts) +
+		int64(config.MinimumNumberOfDormantAccounts) +
+		int64(config.MinimumNumberOfColdAccounts)
+	return accountPopulation{
+		total:     total,
+		firstCold: total - int64(config.MinimumNumberOfColdAccounts),
+	}
+}
+
 // accountModel picks which accounts, contracts and storage slots each transaction touches, and mints
 // new ones. It holds the account population the benchmark's read and write distribution is drawn from.
 //
@@ -106,7 +133,7 @@ func newAccountModel(
 		nextAccountID:        nextAccountID,
 		nextErc20ContractID:  nextErc20ContractID,
 		highestSafeAccountID: nextAccountID - 1,
-		numberOfColdAccounts: min(int64(config.MinimumNumberOfColdAccounts), max(0, nextAccountID-1)),
+		numberOfColdAccounts: max(0, nextAccountID-plannedAccountPopulation(config).firstCold),
 		feeAccount:           keys.BuildEVMKey(accountKeyPrefix, rand.Address(accountPrefix, 0, keys.AddressLen)),
 		metrics:              metrics,
 	}
@@ -146,14 +173,13 @@ func (a *accountModel) FeeCollectionAddress() []byte {
 	return a.feeAccount
 }
 
-// CreateAccount mints an account and writes it to state. It reports whether the account joined the
-// cold population, as opposed to the dormant one that is never selected.
-func (a *accountModel) CreateAccount() (isCold bool, err error) {
+// CreateAccount mints an account and writes it to state, joining either the cold population that
+// transactions select from or the dormant one that is never selected.
+func (a *accountModel) CreateAccount(isCold bool) {
 	accountID := a.nextAccountID
 	a.nextAccountID++
 
 	address := keys.BuildEVMKey(accountKeyPrefix, a.rand.Address(accountPrefix, accountID, keys.AddressLen))
-	isCold = a.rand.Float64() >= a.config.NewAccountDormancyProbability
 
 	record := make([]byte, accountRecordLen)
 	//nolint:gosec // G115 - simulated balance, overflow acceptable
@@ -164,7 +190,6 @@ func (a *accountModel) CreateAccount() (isCold bool, err error) {
 	if isCold {
 		a.numberOfColdAccounts++
 	}
-	return isCold, nil
 }
 
 // CreateErc20Contract mints an ERC20 contract and writes its code to state.
