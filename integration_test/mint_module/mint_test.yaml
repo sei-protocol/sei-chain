@@ -20,6 +20,9 @@
     # Compare the total supply and make sure that it increased
     - cmd: seid q bank total --output json | jq -r -M ".supply[] | select(.denom==\"usei\").amount"
       env: TOTAL_SUPPLY
+    # Re-read after the supply query so a mint landing between the two reads is accounted for
+    - cmd: seid q mint minter --output json | jq -r .remaining_mint_amount
+      env: REMAINING_AFTER_SUPPLY
     # Number of daily mints so far (one at genesis, plus one per UTC midnight the cluster has lived through)
     - cmd: echo $(( (TOTAL_MINT_AMOUNT - REMAINING_MINT_AMOUNT) / LAST_MINT_AMOUNT ))
       env: MINTS_SO_FAR
@@ -40,4 +43,4 @@
       expr: MINTS_SO_FAR * LAST_MINT_AMOUNT + REMAINING_MINT_AMOUNT == TOTAL_MINT_AMOUNT
     # Genesis supply (5e21 usei) plus everything the schedule has minted so far
     - type: eval
-      expr: TOTAL_SUPPLY == 5000000000000000000000 + TOTAL_MINT_AMOUNT - REMAINING_MINT_AMOUNT
+      expr: TOTAL_SUPPLY >= 5000000000000000000000 + TOTAL_MINT_AMOUNT - REMAINING_MINT_AMOUNT and TOTAL_SUPPLY <= 5000000000000000000000 + TOTAL_MINT_AMOUNT - REMAINING_AFTER_SUPPLY
