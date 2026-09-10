@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sei-protocol/sei-chain/sei-db/bench/wrappers"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
@@ -86,7 +85,7 @@ type CryptoSimConfig struct {
 	// How many blocks the benchmark may run ahead of block hashing. Databases hash committed blocks
 	// asynchronously, and the benchmark takes one block's hash per block committed once it is this far
 	// ahead — so a block's hash must arrive no later than this many blocks after it was committed, and
-	// the benchmark waits when it does not. A database that publishes no block hashes waits on nothing.
+	// the benchmark waits when it does not.
 	HashLagBlocks int
 
 	// The directory to store the benchmark data.
@@ -100,16 +99,14 @@ type CryptoSimConfig struct {
 	// in undefined behavior, don't change the size unless you are starting a new run from scratch.
 	CannedRandomSize int
 
-	// The backend to use for the benchmark database.
-	Backend wrappers.DBType
+	// Configures the historical state DB.
+	StateStoreConfig config.StateStoreConfig
 
-	// StateStoreConfig controls SS-backed benchmark backends such as SSComposite.
-	// The default preserves the benchmark SS defaults: pebbledb, async buffer 100.
-	StateStoreConfig *config.StateStoreConfig
+	// Configures the cadence the state DB checkpoints both halves of state on.
+	CheckpointConfig config.CheckpointConfig
 
-	// HistoricalOffload configures the transport used by the
-	// SSHistoricalOffload backend.
-	HistoricalOffload *wrappers.HistoricalOffloadConfig
+	// Configures the prune cycle that enforces retention across the state DB's stores.
+	PruningConfig *config.StorageGarbageCollectorConfig
 
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
@@ -163,7 +160,7 @@ type CryptoSimConfig struct {
 	// If true, the log directory will be deleted on a clean shutdown.
 	DeleteLogDirOnShutdown bool
 
-	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
+	// Configures the live state DB.
 	FlatKVConfig *flatkvConfig.Config
 
 	// The capacity of the channel that holds blocks awaiting execution.
@@ -243,6 +240,11 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 	// Note: if you add new fields or modify default values, be sure to keep config/basic-config.json in sync.
 	// That file should contain every available config set to its default value, as a reference.
 
+	ssConfig := config.DefaultStateStoreConfig()
+	// Nothing in the benchmark reads the historical state DB, so a run pays to write it only when
+	// the config asks for it.
+	ssConfig.Enable = false
+
 	cfg := &CryptoSimConfig{
 		NumberOfHotAccounts:               100,
 		MinimumNumberOfColdAccounts:       1_000_000,
@@ -262,8 +264,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		HashLagBlocks:                     32,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
-		Backend:                           wrappers.FlatKV,
-		StateStoreConfig:                  wrappers.DefaultBenchStateStoreConfig(),
+		StateStoreConfig:                  ssConfig,
+		CheckpointConfig:                  config.DefaultCheckpointConfig(),
+		PruningConfig:                     config.DefaultStorageGarbageCollectorConfig(),
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
@@ -412,19 +415,14 @@ func (c *CryptoSimConfig) Validate() error {
 		return fmt.Errorf("ReceiptLogFilterMaxBlockRange must be >= ReceiptLogFilterMinBlockRange (got %d < %d)",
 			c.ReceiptLogFilterMaxBlockRange, c.ReceiptLogFilterMinBlockRange)
 	}
-	if c.StateStoreConfig == nil {
-		return fmt.Errorf("StateStoreConfig is required")
-	}
 	switch c.StateStoreConfig.Backend {
 	case config.PebbleDBBackend, config.RocksDBBackend:
 	default:
 		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
 			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
 	}
-	if c.Backend == wrappers.SSHistoricalOffload {
-		if err := c.HistoricalOffload.Validate(); err != nil {
-			return err
-		}
+	if err := c.PruningConfig.Validate(); err != nil {
+		return fmt.Errorf("PruningConfig is invalid: %w", err)
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

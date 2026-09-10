@@ -427,7 +427,7 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 		"git clone --filter=blob:none " + shellQuote(aws.RepoURL) + " " + shellQuote(aws.RemoteDir),
 		"cd " + shellQuote(aws.RemoteDir),
 		"git checkout --detach " + shellQuote(aws.Ref),
-		"AUTOBAHN=true AUTOBAHN_EVMONLY_IN_MEMORY=true DOCKER_DETACH=true make docker-cluster-start",
+		"AUTOBAHN=true AUTOBAHN_EVMONLY=true DOCKER_DETACH=true make docker-cluster-start",
 	}, " && ")
 	if err := a.runner.stream(ctx, sshCommand(state, command)); err != nil {
 		return fmt.Errorf("start remote cluster: %w", err)

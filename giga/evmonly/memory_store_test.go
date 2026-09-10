@@ -198,7 +198,7 @@ func TestExecutorCommitsConsecutiveBlocksThroughMemoryStore(t *testing.T) {
 	base := NewMemoryState()
 	base.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	store := NewMemoryStore(base)
-	executor := NewExecutor(Config{}, WithStore(store, store.EncodeChangeSet))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
 
 	for nonce := uint64(0); nonce < 2; nonce++ {
 		ctx := blockContext(chainID)

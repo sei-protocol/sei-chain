@@ -13,8 +13,6 @@ const (
 	accountIdCounterKey = "accountIdCounterKey"
 	// Used to store the next ERC20 contract ID in the database.
 	erc20IdCounterKey = "erc20IdCounterKey"
-	// Used to store the next block number in the database.
-	blockNumberCounterKey = "blockNumberCounterKey"
 
 	// Use the code hash as a proxy. There is currently no mechanism to force FlatKV to update the account balance
 	// field, and code hash keys will cause the account DB to get updated, which is the important part for this
@@ -31,10 +29,6 @@ type DataGenerator struct {
 
 	// The next ERC20 contract ID to be used when creating a new ERC20 contract.
 	nextErc20ContractID int64
-
-	// The next block number at startup time. Not updated after initialization;
-	// the block builder tracks the ongoing value.
-	initialNextBlockNumber uint64
 
 	// The random number generator.
 	rand *crand.CannedRandom
@@ -67,12 +61,9 @@ func NewDataGenerator(
 	database *Database,
 	rand *crand.CannedRandom,
 	metrics *CryptosimMetrics,
-) (*DataGenerator, error) {
+) *DataGenerator {
 
-	nextAccountIDBinary, found, err := database.Get(AccountIDCounterKey())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read account counter: %w", err)
-	}
+	nextAccountIDBinary, found := database.Get(AccountIDCounterKey())
 	var nextAccountID int64
 	if found {
 		//nolint:gosec // G115 - persisted counter value, overflow acceptable
@@ -84,10 +75,7 @@ func NewDataGenerator(
 	cold := min(int64(config.MinimumNumberOfColdAccounts), max(0, nextAccountID-1-hot))
 	metrics.SetTotalNumberOfAccounts(nextAccountID, hot, cold)
 
-	nextErc20ContractIDBinary, found, err := database.Get(Erc20IDCounterKey())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read ERC20 contract counter: %w", err)
-	}
+	nextErc20ContractIDBinary, found := database.Get(Erc20IDCounterKey())
 	var nextErc20ContractID int64
 	if found {
 		//nolint:gosec // G115 - persisted counter value, overflow acceptable
@@ -96,17 +84,6 @@ func NewDataGenerator(
 
 	fmt.Printf("There are currently %s ERC20 contracts in the database.\n", int64Commas(nextErc20ContractID))
 	metrics.SetTotalNumberOfERC20Contracts(nextErc20ContractID)
-
-	nextBlockNumberBinary, found, err := database.Get(BlockNumberCounterKey())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read block number counter: %w", err)
-	}
-	var nextBlockNumber uint64
-	if found {
-		nextBlockNumber = binary.BigEndian.Uint64(nextBlockNumberBinary)
-	}
-
-	fmt.Printf("Next block number: %s.\n", int64Commas(int64(nextBlockNumber))) //nolint:gosec
 
 	feeCollectionAddress := keys.BuildEVMKey(
 		accountKeyPrefix,
@@ -117,14 +94,13 @@ func NewDataGenerator(
 		config:                      config,
 		nextAccountID:               nextAccountID,
 		nextErc20ContractID:         nextErc20ContractID,
-		initialNextBlockNumber:      nextBlockNumber,
 		rand:                        rand,
 		feeCollectionAddress:        feeCollectionAddress,
 		database:                    database,
 		highestSafeAccountIDInBlock: nextAccountID - 1,
 		numberOfColdAccounts:        int64(config.MinimumNumberOfColdAccounts),
 		metrics:                     metrics,
-	}, nil
+	}
 }
 
 // Get the next account ID to be used when creating a new account. This is also the total number of accounts
@@ -147,11 +123,6 @@ func (d *DataGenerator) ReportAccountCounts() {
 // ERC20 contracts currently in the database.
 func (d *DataGenerator) NextErc20ContractID() int64 {
 	return d.nextErc20ContractID
-}
-
-// Get the next block number as it was at startup time.
-func (d *DataGenerator) InitialNextBlockNumber() uint64 {
-	return d.initialNextBlockNumber
 }
 
 // Creates a new account and optionally writes it to the database. Returns the address of the new
