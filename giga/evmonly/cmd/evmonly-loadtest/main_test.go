@@ -28,7 +28,10 @@ import (
 
 func withGeneratedState(state evmonly.StateReader) evmonly.Option {
 	store := evmonly.NewMemoryStore(state)
-	return evmonly.WithStore(store, store.EncodeChangeSet)
+	return func(executor *evmonly.Executor) {
+		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
+	}
 }
 
 type readOnlyGeneratedStore struct {
@@ -41,7 +44,10 @@ func (*readOnlyGeneratedStore) CommitStateChanges(int64, []*proto.NamedChangeSet
 
 func withReadOnlyGeneratedState(state evmonly.StateReader) evmonly.Option {
 	store := &readOnlyGeneratedStore{MemoryStore: evmonly.NewMemoryStore(state)}
-	return evmonly.WithStore(store, store.EncodeChangeSet)
+	return func(executor *evmonly.Executor) {
+		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
+	}
 }
 
 func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {

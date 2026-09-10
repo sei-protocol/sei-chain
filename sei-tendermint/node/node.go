@@ -20,6 +20,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -125,13 +126,14 @@ type nodeImpl struct {
 	freezeHeight    uint64
 
 	// network
-	router                  *p2p.Router
-	giga                    utils.Option[p2p.GigaRouter]
-	gigaBlockStore          utils.Option[atypes.BlockStore] // owned here; closed after giga.Run (sync.Once)
-	gigaBlockStoreCloseOnce sync.Once
-	ServiceRestartCh        utils.Option[chan []string]
-	nodeInfo                types.NodeInfo
-	nodeKey                 types.NodeKey // our node privkey
+	router               *p2p.Router
+	giga                 utils.Option[p2p.GigaRouter]
+	gigaStorageManager   utils.Option[*bootstrap.GigaStorageManager]
+	gigaBlockStore       utils.Option[atypes.BlockStore]
+	gigaStorageCloseOnce sync.Once
+	ServiceRestartCh     utils.Option[chan []string]
+	nodeInfo             types.NodeInfo
+	nodeKey              types.NodeKey // our node privkey
 
 	// services
 	eventSinks        []indexer.EventSink
@@ -162,6 +164,7 @@ func makeNode(
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy types.ConsensusPolicy,
+	gigaStorageManager utils.Option[*bootstrap.GigaStorageManager],
 	nodeOptions ...Option,
 ) (_ local.NodeService, err error) {
 	opts := resolveOptions(nodeOptions...)
@@ -173,10 +176,12 @@ func makeNode(
 	closers := []closer{convertCancelCloser(cancel)}
 	defer func() {
 		if err != nil {
-			// Close BlockStore on construct failure after it was opened. Must not
+			// Close Giga storage on construct failure after it was opened. Must not
 			// live in shutdownOps (see OnStart comment on SpawnCritical).
 			if node != nil {
-				_ = node.closeGigaBlockStore()
+				_ = node.closeGigaStorage()
+			} else if manager, ok := gigaStorageManager.Get(); ok {
+				_ = manager.Close()
 			}
 			err = combineCloseError(err, makeCloser(closers))
 		}
@@ -250,11 +255,12 @@ func makeNode(
 	}
 	// TODO construct node here:
 	node = &nodeImpl{
-		config:          cfg,
-		genesisDoc:      genDoc,
-		privValidator:   privValidator,
-		consensusPolicy: consensusPolicy,
-		freezeHeight:    opts.freezeHeight,
+		config:             cfg,
+		genesisDoc:         genDoc,
+		privValidator:      privValidator,
+		consensusPolicy:    consensusPolicy,
+		freezeHeight:       opts.freezeHeight,
+		gigaStorageManager: gigaStorageManager,
 
 		nodeKey: nodeKey,
 
@@ -297,6 +303,7 @@ func makeNode(
 		utils.Some(proxyApp),
 		genDoc,
 		dbProvider,
+		gigaStorageManager,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
@@ -305,7 +312,7 @@ func makeNode(
 	node.router = router
 	node.giga = router.Giga()
 	node.gigaBlockStore = gigaBlockStore
-	// BlockStore is NOT closed in OnStop: BaseService runs OnStop before
+	// Giga storage is NOT closed in OnStop: BaseService runs OnStop before
 	// SpawnCritical (giga.Run) finishes, so closing there would race with
 	// still-running persist/execute. Close paths:
 	//   - makeNode defer on construct failure
@@ -519,8 +526,8 @@ func makeNode(
 // OnStart starts the Node. It implements service.Service.
 func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// If Start fails before giga is spawned, BaseService does not call OnStop
-	// and never cancels SpawnCritical — so BlockStore would otherwise leak.
-	// When giga has already been spawned, its wrapper closes BlockStore after
+	// and never cancels SpawnCritical — so Giga storage would otherwise leak.
+	// When giga has already been spawned, its wrapper closes storage after
 	// Run observes the service-context cancel issued once OnStart returns.
 	gigaSpawned := false
 	if n.freezeHeight > 0 {
@@ -530,7 +537,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		if err == nil || gigaSpawned {
 			return
 		}
-		_ = n.closeGigaBlockStore()
+		_ = n.closeGigaStorage()
 	}()
 
 	// EventBus and IndexerService must be started before the handshake because
@@ -665,7 +672,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	if giga, ok := n.giga.Get(); ok {
 		gigaSpawned = true
 		n.SpawnCritical("giga", func(ctx context.Context) error {
-			defer func() { _ = n.closeGigaBlockStore() }()
+			defer func() { _ = n.closeGigaStorage() }()
 			return giga.Run(ctx)
 		})
 	}
@@ -688,8 +695,12 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	n.rpcEnv.NodeInfo = n.nodeInfo
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
-	if n.config.EVMOnlyInMemory {
-		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv)
+	if n.config.EVMOnly {
+		storage, ok := n.gigaStorageManager.Get()
+		if !ok {
+			return errors.New("EVM-only RPC requires Giga storage")
+		}
+		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB())
 		if err != nil {
 			return err
 		}
@@ -757,14 +768,19 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// closeGigaBlockStore closes the Autobahn BlockStore at most once. Safe to call from
-// makeNode's failure defer, OnStart's pre-giga failure path, and the giga
-// SpawnCritical wrapper.
-func (n *nodeImpl) closeGigaBlockStore() error {
+// closeGigaStorage closes the manager-owned storage or standalone Autobahn
+// block store at most once.
+func (n *nodeImpl) closeGigaStorage() error {
 	var err error
-	n.gigaBlockStoreCloseOnce.Do(func() {
-		if db, ok := n.gigaBlockStore.Get(); ok {
-			if err = db.Close(); err != nil {
+	n.gigaStorageCloseOnce.Do(func() {
+		if manager, ok := n.gigaStorageManager.Get(); ok {
+			if err = manager.Close(); err != nil {
+				logger.Error("failed to close Giga storage manager", "err", err)
+			}
+			return
+		}
+		if blockStore, ok := n.gigaBlockStore.Get(); ok {
+			if err = blockStore.Close(); err != nil {
 				logger.Error("failed to close Autobahn BlockStore", "err", err)
 			}
 		}
