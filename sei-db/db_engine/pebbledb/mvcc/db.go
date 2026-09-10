@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"path/filepath"
 	"strings"
@@ -947,11 +948,18 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		keptBelowPrune                  bool
 		prevStore                       string
 		scanReads                       int64
+		totalDeleted                    int64
 		firstDeletedKey, lastDeletedKey []byte
 	)
 
 	for itr.First(); itr.Valid(); {
 		scanReads++
+		// TEMPORARY DIAGNOSTIC, remove once prune-pass progress is no longer under
+		// investigation: this pass has no visibility until it returns, which made a
+		// multi-hour pass indistinguishable from a hang.
+		if scanReads%1_000_000 == 0 {
+			log.Printf("prune[%s]: scanned %d keys, deleted %d so far, target version %d", db.dbName, scanReads, totalDeleted, version)
+		}
 		currKeyEncoded := slices.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
@@ -1023,6 +1031,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 				}
 				lastDeletedKey = currKeyEncoded
 				counter++
+				totalDeleted++
 				if counter >= PruneCommitBatchSize {
 					writeCount := int64(batch.Count())
 					if err := batch.Commit(defaultWriteOpts); err != nil {
