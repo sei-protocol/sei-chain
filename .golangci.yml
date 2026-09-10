@@ -21,17 +21,22 @@ linters:
     - unconvert
   settings:
     goconst:
-      min-len: 3
       min-occurrences: 8
   exclusions:
     paths:
       - ".*\\.pb\\.go$"
       # Frozen, versioned copies of consensus-critical code are never edited for lint.
-      - "(^|/)legacy/"
+      - "^(precompiles/[^/]+|utils/helpers)/legacy/"
     rules:
       - linters:
           - gosec
         text: "Use of weak random number generator"
+      # Any edit to precompiles/p256/ makes scripts/bump_version archive a new legacy copy,
+      # so the deprecated elliptic/ecdsa coordinate use is silenced here rather than in source.
+      - linters:
+          - staticcheck
+        path: "^precompiles/p256/verifier\\.go$"
+        text: "SA1019"
       - linters:
           - goconst
         path: "(^|/)testutil(/|$)"

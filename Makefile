@@ -20,7 +20,7 @@ COMMIT := $(shell git log -1 --format='%H')
 BUILDDIR ?= $(CURDIR)/build
 INVARIANT_CHECK_INTERVAL ?= $(INVARIANT_CHECK_INTERVAL:-0)
 # Pinned here so the lint targets and .github/workflows/golangci.yml cannot drift apart.
-GOLANGCI_LINT := GOTOOLCHAIN=$(shell go list -m -f 'go{{.GoVersion}}') go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+GOLANGCI_LINT := GOTOOLCHAIN=$(shell ./scripts/go-toolchain.sh) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
 # Parent of the Go module cache. Derived from `go env GOMODCACHE` so that the
 # container/compose mounts (`$(GO_PKG_PATH)/mod`) follow a relocated GOMODCACHE

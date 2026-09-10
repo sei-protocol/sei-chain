@@ -8,13 +8,15 @@ import (
 
 func newPublicKey(x, y *big.Int) *ecdsa.PublicKey {
 	// Check if the given coordinates are valid
-	if x == nil || y == nil || !elliptic.P256().IsOnCurve(x, y) { //nolint:staticcheck // SA1019: deprecated IsOnCurve keeps the established coordinate check.
+	if x == nil || y == nil || !elliptic.P256().IsOnCurve(x, y) {
 		return nil
 	}
 
-	pk := &ecdsa.PublicKey{Curve: elliptic.P256()}
-	pk.X, pk.Y = x, y //nolint:staticcheck // SA1019: raw coordinates are the precompile's wire format.
-	return pk
+	return &ecdsa.PublicKey{
+		Curve: elliptic.P256(),
+		X:     x,
+		Y:     y,
+	}
 }
 
 // Verify verifies the given signature (r, s) for the given hash and public key (x, y).
