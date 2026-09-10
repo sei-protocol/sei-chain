@@ -89,7 +89,9 @@ func TestStore_Delete(t *testing.T) {
 		saved <- err
 	}()
 
-	time.Sleep(10 * time.Millisecond)
+	// An unbuffered send completes only once Save is receiving chunks, i.e.
+	// after it has marked the height as being saved.
+	ch <- io.NopCloser(bytes.NewBuffer([]byte{1, 2, 3}))
 	err = store.Delete(9, 1)
 	require.Error(t, err)
 
