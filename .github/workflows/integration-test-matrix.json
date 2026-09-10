@@ -1,6 +1,6 @@
 [
   {
-    "_comment": "All rows run concurrently, so workflow wall-clock = prepare-cluster + the slowest row. Rows are packed by cluster config (same `env` => suites run sequentially in one job) to cut runner-minutes, but no row should exceed ~8 min of test time: a new suite joins a short row with a matching env, or gets its own row if every matching row is already near that budget. Rows are ordered longest-first.",
+    "_comment": "Packing policy (which suites may share a row, ordering, isolation) is documented above the set-matrix job in integration-test.yml.",
     "name": "EVM GIGA Mixed (Determinism)",
     "env": "GIGA_STORAGE=true",
     "scripts": [
@@ -83,7 +83,7 @@
     ]
   },
   {
-    "_comment": "Suites: SeiDB State Store, Mint & Staking & Bank, Distribution. SeiDB State Store runs first because it asserts absolute wasm code counts (genesis + its own fixtures).",
+    "_comment": "Suites: SeiDB State Store, Mint & Staking & Bank, Distribution. SeiDB State Store runs first because it asserts absolute wasm code counts (genesis + its own fixtures). TestMintModule asserts an absolute usei total supply, so nothing upstream of it in this row may mint or burn usei (SeiDB SS is safe today: fees are not burned and tokenfactory creation does not burn usei).",
     "name": "Cosmos Modules (SeiDB SS, Mint & Staking & Bank, Distribution)",
     "scripts": [
       "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
@@ -94,7 +94,7 @@
     ]
   },
   {
-    "_comment": "Suites: Gov & Oracle & Authz, Wasm Module.",
+    "_comment": "Suites: Gov & Oracle & Authz, Wasm Module. Gov runs first: it changes chain params (quorum, unbonding time, recheck_tx, NumKeysToMigratePerBlock) that the Wasm suite does not depend on; Wasm's undelegate/redelegate cases assert only tx code 0.",
     "name": "Cosmos Modules (Gov & Oracle & Authz, Wasm)",
     "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\"",
@@ -105,13 +105,14 @@
     ]
   },
   {
+    "_comment": "Stays alone: disables the wasm module on the cluster, so no other suite may share this row.",
     "name": "Disable WASM Tests",
     "scripts": [
       "./integration_test/evm_module/scripts/disable_wasm.sh"
     ]
   },
   {
-    "_comment": "Suites: Autobahn SeiDB State Store, Autobahn Mint & Staking & Bank, Autobahn Gov & Oracle & Authz. SeiDB State Store runs first because it asserts absolute wasm code counts.",
+    "_comment": "Suites: Autobahn SeiDB State Store, Autobahn Mint & Staking & Bank, Autobahn Gov & Oracle & Authz. SeiDB State Store runs first because it asserts absolute wasm code counts. TestMintModule and TestGovModule (burn case) assert absolute usei total supply, so nothing upstream of them in this row may mint or burn usei (SeiDB SS, Staking and Bank are safe today: fees are not burned and tokenfactory creation does not burn usei).",
     "name": "Autobahn Cosmos Modules",
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
     "scripts": [
@@ -137,7 +138,7 @@
     ]
   },
   {
-    "_comment": "Umbrella job for all FlatKV-specific docker-level coverage. Future FlatKV scenarios (additional bucket layouts, snapshot rotation, etc.) should be appended here rather than added as new matrix rows, so the CI surface stays one row per concern. The cluster boots with GIGA_STORAGE=true, so FlatKV is enabled from genesis (sc-write-mode = test_only_dual_write) and the FlatKV LtHash is folded into every block's AppHash from block 1. No mid-life migration is exercised here; an offline memiavl -> FlatKV import would change the AppHash trajectory at the import boundary and break tendermint replay. Step ordering: 1-3 deploy an EVM fixture, smoke-check EVM RPC reads, and verify the fixture round-tripped through dual_write into physical FlatKV; 4 SIGKILL one validator, restart, and assert 4-node FlatKV digest equality (WAL recovery on a live FlatKV cluster); 5-7 destructive disaster-recovery scenarios, run last because they wipe or damage one validator's local state.",
+    "_comment": "Umbrella row for all FlatKV-specific docker-level coverage; future FlatKV scenarios (additional bucket layouts, snapshot rotation, etc.) are appended here. Non-FlatKV suites must not join it: steps 5-7 are destructive, so per the packing policy the row stays alone. The cluster boots with GIGA_STORAGE=true, so FlatKV is enabled from genesis (sc-write-mode = test_only_dual_write) and the FlatKV LtHash is folded into every block's AppHash from block 1. No mid-life migration is exercised here; an offline memiavl -> FlatKV import would change the AppHash trajectory at the import boundary and break tendermint replay. Step ordering: 1-3 deploy an EVM fixture, smoke-check EVM RPC reads, and verify the fixture round-tripped through dual_write into physical FlatKV; 4 SIGKILL one validator, restart, and assert 4-node FlatKV digest equality (WAL recovery on a live FlatKV cluster); 5-7 destructive disaster-recovery scenarios, run last because they wipe or damage one validator's local state.",
     "name": "FlatKV Integration",
     "env": "GIGA_STORAGE=true",
     "scripts": [
@@ -151,7 +152,7 @@
     ]
   },
   {
-    "_comment": "Post-migration FlatKV-only state-sync coverage. The cluster boots directly in sc-write-mode = flatkv_only, so memiavl is not allocated and all module state is served from FlatKV. The script kills and wipes one validator, configures it for state-sync from the remaining validators, and verifies the recovered FlatKV digest matches the donors at a shared height.",
+    "_comment": "Post-migration FlatKV-only state-sync coverage; destructive (kills and wipes a validator), so the row stays alone. The cluster boots directly in sc-write-mode = flatkv_only, so memiavl is not allocated and all module state is served from FlatKV. The script kills and wipes one validator, configures it for state-sync from the remaining validators, and verifies the recovered FlatKV digest matches the donors at a shared height.",
     "name": "FlatKV Only State Sync",
     "env": "GIGA_FLATKV_ONLY=true",
     "scripts": [
@@ -160,6 +161,7 @@
     ]
   },
   {
+    "_comment": "Stays alone: TestChainOperation/TestStateSync stop, wipe and state-sync validators.",
     "name": "Chain Operation Test",
     "env": "GIGA_STORAGE=true",
     "scripts": [

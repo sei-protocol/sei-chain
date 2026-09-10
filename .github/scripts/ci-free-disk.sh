@@ -18,6 +18,7 @@ echo "::endgroup::"
 # filesystem already has enough headroom (large runners ship with >80 GiB free).
 min_free_gib="${CI_FREE_DISK_MIN_GIB:-40}"
 avail_gib=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
+avail_gib=${avail_gib:-0}
 if [ "${avail_gib}" -ge "${min_free_gib}" ]; then
   echo "Root filesystem has ${avail_gib}G free (>= ${min_free_gib}G); skipping reclaim."
   exit 0

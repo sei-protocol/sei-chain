@@ -40,11 +40,25 @@ env:
 
 jobs:
   # Generate the integration-test matrix from integration-test-matrix.json.
-  # Rows are packed by cluster config (one job per distinct env, suites run
-  # sequentially inside it) and ordered longest-first. Runs the full matrix on
-  # every event (pull_request, push, merge_group) — all Autobahn coverage runs
-  # on every PR. The matrix is built here, in a job
+  # Runs the full matrix on every event (pull_request, push, merge_group) — all
+  # Autobahn coverage runs on every PR. The matrix is built here, in a job
   # output, because the `matrix` context is NOT available to a job-level `if:`.
+  #
+  # Packing policy for integration-test-matrix.json. Every row is its own job
+  # and all rows start at once, so wall-clock = prepare-cluster + the slowest
+  # row, while each extra row costs its ~2 min of fixed setup in runner-minutes.
+  # A row is a list of suites that share one cluster boot (same `env`) and run
+  # back-to-back against the same chain state. When adding a suite:
+  #   - Keep every row under ~8 min of test time. Join an existing row with a
+  #     matching `env` that has room; otherwise add a new row.
+  #   - Suites that assert absolute chain state (total supply, wasm code
+  #     counts, ...) run first in their row, and the row's `_comment` names the
+  #     assertion so a later suite is not appended ahead of it.
+  #   - Destructive suites stay alone: anything that kills, wipes, or
+  #     state-syncs a validator, disables a module, or runs a chain upgrade
+  #     leaves the cluster in a state no other suite should inherit.
+  #   - A suite that boots its own cluster (Autobahn Basic) is a separate job,
+  #     not a matrix row.
   set-matrix:
     name: Resolve integration test matrix
     runs-on: ubuntu-latest
@@ -218,6 +232,11 @@ jobs:
       packages: read
       contents: read
     env:
+      # Per `go test` invocation, not per row. A row can run several
+      # invocations, so this only guarantees a goroutine dump (rather than a
+      # job cancel from timeout-minutes) while the row's total stays under
+      # timeout-minutes; rows are kept far shorter than that by the packing
+      # policy above.
       JOB_TIMEOUT: 28m
       GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
       GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
@@ -280,7 +299,8 @@ jobs:
           source .github/scripts/docker-registry-retry.sh
           pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}" & localnode_pull=$!
           pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}" & rpcnode_pull=$!
-          wait "${localnode_pull}" && wait "${rpcnode_pull}"
+          wait "${localnode_pull}"
+          wait "${rpcnode_pull}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
           # Drop the redundant run-id-tagged references now that the images are
@@ -314,10 +334,11 @@ jobs:
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
           IFS=$'\n'   # change the internal field separator to newline
-          echo $scripts
           for script in $scripts
           do
+            echo "::group::${script}"
             bash -c "${script}"
+            echo "::endgroup::"
           done
           unset IFS  # revert the internal field separator back to default
 
@@ -443,7 +464,8 @@ jobs:
           source .github/scripts/docker-registry-retry.sh
           pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}" & localnode_pull=$!
           pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}" & rpcnode_pull=$!
-          wait "${localnode_pull}" && wait "${rpcnode_pull}"
+          wait "${localnode_pull}"
+          wait "${rpcnode_pull}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
           # Drop the redundant run-id-tagged references now that the images are
