@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// gigasimMeterName is the OTel meter every gigasim instrument is created on.
 const gigasimMeterName = "gigasim"
 
 // GigasimMetrics holds the OpenTelemetry instruments for the gigasim benchmark.

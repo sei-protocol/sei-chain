@@ -61,11 +61,9 @@ func (e *transactionExecutor) stop() {
 	close(e.workChan)
 }
 
-// mainLoop executes shares until the work channel closes.
-//
-// It does not watch for cancellation: an executor that stopped early would leave the block it was
-// given half executed, and the dispatcher waiting on it forever. The pool outlives the run loop and is
-// stopped by teardown instead.
+// mainLoop executes shares until the work channel closes. It does not watch for cancellation: an
+// executor stopping early would leave a block half executed and the dispatcher waiting on it forever, so
+// the pool outlives the run loop and teardown stops it.
 func (e *transactionExecutor) mainLoop() {
 	for batch := range e.workChan {
 		for _, txn := range batch.transactions {

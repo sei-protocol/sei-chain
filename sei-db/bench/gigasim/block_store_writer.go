@@ -16,8 +16,8 @@ const gasPerTransaction = 21_000
 // QC covering a range of blocks is written before any block in it, so a crash can only ever leave a QC
 // without its blocks and never a block without its QC.
 //
-// The QCs are synthetic. The block store verifies no signatures on the write path, so a QC only has to
-// carry the range it covers for the store to accept it and to index blocks under it.
+// The QCs are synthetic: the store verifies no signatures on the write path, so a QC only has to carry
+// the range it covers.
 type blockStoreWriter struct {
 	store  *blockstore.Store
 	config *GigasimConfig

@@ -20,6 +20,7 @@ const (
 	indexedAddressBase = hashLen - keys.AddressLen
 )
 
+// erc20TransferEventSignatureBytes is the Transfer event signature in the form the bloom filter hashes.
 var erc20TransferEventSignatureBytes = [hashLen]byte{
 	0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b,
 	0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
@@ -44,23 +45,18 @@ const (
 // synthetic transaction hash is unique across the run. It caps a block at a million transactions.
 const txIDBlockStride int64 = 1_000_000
 
-// Where the position is written inside a synthetic transaction hash. It sits past the leading bytes so
-// that consecutive transactions do not produce lexicographically adjacent hashes.
+// txHashPositionOffset is where the position is written inside a synthetic transaction hash. It sits
+// past the leading bytes so that consecutive transactions do not produce adjacent hashes.
 const txHashPositionOffset = 8
 
-// writeSyntheticTxHash writes the deterministic transaction hash for a position in the chain into dst,
-// which must be hashLen bytes.
-//
-// The position is written into the hash rather than only seeding it. Seeding alone draws from the
-// canned random buffer at a hashed offset, which two positions can share: at a block's worth of draws
-// that is a birthday collision every few dozen blocks, and the receipt store rejects a block that
-// carries one transaction hash twice.
-//
-// The hash still depends only on the seed and the position, so any holder of an identically seeded
-// buffer can recompute it from the block number and transaction index alone.
+// writeSyntheticTxHash writes into dst, which must be hashLen bytes, the transaction hash for a position
+// in the chain. The hash is unique across the run and depends only on the seed and the position, so an
+// identically seeded buffer reproduces it from the block number and transaction index alone.
 func writeSyntheticTxHash(dst []byte, rand *crand.CannedRandom, blockNumber int64, txIndex int) {
 	position := blockNumber*txIDBlockStride + int64(txIndex)
 	copy(dst, rand.SeededBytes(hashLen, position))
+	// The position is embedded rather than left to seed the draw alone: two positions can draw from the
+	// same buffer offset, and the receipt store rejects a block carrying one transaction hash twice.
 	//nolint:gosec // G115 - a position is non-negative, and wrapping would still be injective
 	binary.BigEndian.PutUint64(dst[txHashPositionOffset:], uint64(position))
 }
@@ -68,9 +64,8 @@ func writeSyntheticTxHash(dst []byte, rand *crand.CannedRandom, blockNumber int6
 // topicsPerTransferLog is the Transfer event signature plus its two indexed address topics.
 const topicsPerTransferLog = 3
 
-// receiptBuffer holds a block's receipts in a fixed number of allocations rather than a dozen per
-// transaction. Every array a receipt points into is carved out of one slice, so the generator's cost
-// per block is the data it writes rather than the objects it leaves for the collector.
+// receiptBuffer holds one block's receipts in a fixed number of allocations: every array a receipt
+// points into is carved out of a slice the buffer owns.
 type receiptBuffer struct {
 	receipts []*evmtypes.Receipt
 
@@ -100,11 +95,9 @@ func newReceiptBuffer(count int, hasher hash.Hash) *receiptBuffer {
 	}
 }
 
-// build fills in the receipt an ERC20 transfer would leave behind, sized and shaped like a real one:
-// one Transfer log with two indexed address topics, and a bloom covering them.
-//
-// The values are synthetic rather than derived from the transfer, because what the receipt store is
-// measured on is the volume and shape of what it stores.
+// build fills in the receipt an ERC20 transfer would leave behind: one Transfer log with two indexed
+// address topics, and a bloom covering them. The values are synthetic, since the receipt store is
+// measured on the volume and shape of what it stores rather than on the arithmetic behind it.
 func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) {
 	contractAddress := addressFromKey(txn.erc20Contract)
 	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccount))
@@ -208,11 +201,8 @@ func indexedAddressTopic(address []byte) [hashLen]byte {
 	return topic
 }
 
-// bytesToHex renders bytes as the 0x-prefixed lowercase hex the receipt fields hold. It accepts at
-// most hashLen bytes, which is the widest field a receipt carries.
-//
-// Encoding through a stack buffer costs one allocation, the returned string. Encoding to a string and
-// prefixing it costs three, on five fields of every receipt.
+// bytesToHex renders bytes as the 0x-prefixed lowercase hex the receipt fields hold. It accepts at most
+// hashLen bytes, which is the widest field a receipt carries.
 func bytesToHex(b []byte) string {
 	var buf [len("0x") + 2*hashLen]byte
 	buf[0], buf[1] = '0', 'x'

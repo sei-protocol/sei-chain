@@ -96,8 +96,8 @@ func newBlockGenerator(
 	metrics *GigasimMetrics,
 ) *blockGenerator {
 	var rateLimiter *rate.Limiter
-	if config.BlocksPerSecond > 0 {
-		rateLimiter = rate.NewLimiter(rate.Limit(config.BlocksPerSecond), 1)
+	if config.MaxBlocksPerSecond > 0 {
+		rateLimiter = rate.NewLimiter(rate.Limit(config.MaxBlocksPerSecond), 1)
 	}
 
 	return &blockGenerator{
@@ -224,6 +224,7 @@ func (g *blockGenerator) finalFlush() {
 	}
 }
 
+// flush pushes the block ledger's buffered writes to disk and records that it happened.
 func (g *blockGenerator) flush() error {
 	g.metrics.SetGeneratorPhase("flush")
 	if err := g.blocks.Flush(); err != nil {

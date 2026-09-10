@@ -70,44 +70,29 @@ cold accounts take the highest, which is the range cold selection draws from.
 
 # Configuring Gigasim
 
-Every option and its default live in the [gigasim config struct](./gigasim_config.go). Fields in the
-JSON file mirror the struct field names exactly, and an unrecognised field is an error rather than a
-silent no-op. Anything left out takes its default.
+Every option, its default and what it means live in the [gigasim config struct](./gigasim_config.go),
+which is the reference for them rather than this document. Fields in the JSON file mirror the struct
+field names exactly, and an unrecognised field is an error rather than a silent no-op. Anything left
+out takes its default, so the shipped configs in [`config/`](./config) set only what they change and
+read as worked examples.
 
-The knobs that shape a run:
-
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `TransactionsPerBlock` | 2000 | Transactions per block, and the parallel batch size |
-| `BytesPerTransaction` | 1024 | Payload bytes per transaction on the ledger's write path |
-| `BlocksPerSecond` | 100 | Generation ceiling; 0 runs as fast as the stack allows |
-| `StagedBlockQueueSize` | 8 | How many blocks generation may run ahead of execution |
-| `NumberOfHotAccounts` | 100 | Accounts chosen most often |
-| `MinimumNumberOfColdAccounts` | 100,000 | Accounts chosen occasionally |
-| `MinimumNumberOfDormantAccounts` | 100,000 | Accounts never chosen, resident only |
-| `HotAccountProbability` | 0.5 | Chance a selection comes from the hot set |
-| `NewAccountProbability` | 0.01 | Chance a non-hot selection mints an account |
-| `RollbackWindow` | 1,000 | Blocks of history every store keeps for rollback |
-| `LookbackWindow` | 0 | Queryable history below the rollback window; -1 keeps everything |
-| `PruneIntervalSeconds` | 300 | How often the garbage collector runs |
-| `CheckpointIntervalSeconds` | 600 | Wall-clock gap between checkpoints; 0 disables |
-| `CheckpointBlockInterval` | 0 | Checkpoint only at multiples of this height; 0 accepts any |
-| `EnableStateStore` | true | Whether the historical EVM state store is opened at all |
-| `EnableReceiptStore` | true | Whether the receipt store is opened at all |
-| `ThreadsPerCore` | 2 | Executor threads per core, plus `ConstantThreadCount` |
+Two relationships between the options are worth knowing before changing any of them, because neither is
+visible from a single field.
 
 The default block is the largest consensus accepts: `TransactionsPerBlock` sits at autobahn's
 `MaxTxsPerBlock`, and `TransactionsPerBlock * BytesPerTransaction` is exactly `MaxTxsBytesPerBlock`.
 Raising either one therefore means lowering the other, and configuration validation rejects the
 combination rather than generating a block the ledger would refuse.
 
-The default `BlocksPerSecond` is a ceiling rather than a target. At the default block size it stands
-for 200,000 transactions a second, which is well above what the stack sustains today, so a run against
-the default configuration is not in practice throttled.
+Generation is unthrottled by default, so a measured run reports what the stack sustains rather than a
+rate chosen in advance. `MaxBlocksPerSecond` exists for the runs that are not measurements — the debug
+config throttles itself well below what a machine can do, because a smoke test should confirm the
+pipeline works rather than saturate the laptop it runs on — and for holding two builds at the same
+offered load, which is what makes their latencies comparable.
 
 ## Optional Stores
 
-`EnableStateStore` and `EnableReceiptStore` control whether those stores exist, not merely whether they
+`EnableSS` and `EnableReceiptStore` control whether those stores exist, not merely whether they
 are written: a disabled store is never opened, no receipts are built for it, and it leaves no directory
 behind. Turning both off is what `config/validator.json` does, and it is how to measure a validator's
 stack rather than a full node's.

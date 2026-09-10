@@ -3,6 +3,6 @@
   "Seed": 1337,
   "DataDir": "~/gigasim/data",
   "LogDir": "~/gigasim/logs",
-  "EnableStateStore": false,
+  "EnableSS": false,
   "EnableReceiptStore": false
 }

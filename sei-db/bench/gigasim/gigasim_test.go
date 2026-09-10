@@ -101,7 +101,7 @@ func TestEveryStoreAdvancesTogether(t *testing.T) {
 
 func TestDisabledStoresAreNeverWritten(t *testing.T) {
 	config := testConfig(t)
-	config.EnableStateStore = false
+	config.EnableSS = false
 	config.EnableReceiptStore = false
 
 	require.Positive(t, runBlocks(t, config))

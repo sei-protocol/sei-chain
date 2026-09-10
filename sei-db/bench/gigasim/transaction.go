@@ -36,12 +36,9 @@ type transaction struct {
 	captureMetrics bool
 }
 
-// buildTransaction resolves every key and value one transfer needs into txn, which the caller owns.
-// Filling a transaction the caller allocated lets a block's transactions live in one allocation
-// instead of one each.
-//
-// The values are slices of the canned random buffer rather than copies. The buffer is written once at
-// startup and only read afterwards, so a slice of it stays valid for the run.
+// buildTransaction resolves every key and value one transfer needs into txn, which the caller owns. The
+// values alias the canned random buffer rather than copying out of it, and stay valid for the life of
+// the run because the buffer is written once at startup and only read afterwards.
 //
 // Not thread safe: it draws from the account model, which belongs to a single goroutine.
 func buildTransaction(txn *transaction, accounts *accountModel) error {

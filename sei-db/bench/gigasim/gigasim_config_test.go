@@ -15,6 +15,13 @@ func TestDefaultConfigIsValid(t *testing.T) {
 	require.NoError(t, DefaultGigasimConfig().Validate())
 }
 
+// TestGenerationIsUnthrottledByDefault pins that a measured run is bounded by the stack rather than by
+// a rate chosen in advance. Only the debug config throttles, and it says so explicitly.
+func TestGenerationIsUnthrottledByDefault(t *testing.T) {
+	t.Parallel()
+	require.Zero(t, DefaultGigasimConfig().MaxBlocksPerSecond)
+}
+
 func TestShippedConfigsAreValid(t *testing.T) {
 	t.Parallel()
 
@@ -55,7 +62,7 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		// than the default overflows it unless the block also gets shorter.
 		{"a default block with wider transactions", func(c *GigasimConfig) { c.BytesPerTransaction++ }},
 		{"a probability above one", func(c *GigasimConfig) { c.HotAccountProbability = 1.5 }},
-		{"a negative block rate", func(c *GigasimConfig) { c.BlocksPerSecond = -1 }},
+		{"a negative block rate", func(c *GigasimConfig) { c.MaxBlocksPerSecond = -1 }},
 		{"a lookback window below the infinite sentinel", func(c *GigasimConfig) { c.LookbackWindow = -2 }},
 		{"a prune interval of zero", func(c *GigasimConfig) { c.PruneIntervalSeconds = 0 }},
 		{"a hot ERC20 set as large as the whole population", func(c *GigasimConfig) {
@@ -102,7 +109,7 @@ func TestDisablingAStoreKeepsItOutOfTheStorageConfig(t *testing.T) {
 
 	config := DefaultGigasimConfig()
 	config.DataDir = t.TempDir()
-	config.EnableStateStore = false
+	config.EnableSS = false
 	config.EnableReceiptStore = false
 
 	storage, err := config.storageConfig()

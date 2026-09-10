@@ -12,7 +12,8 @@ import (
 
 var _ utils.Config = (*GigasimConfig)(nil)
 
-// Configuration for the gigasim benchmark.
+// GigasimConfig is the full set of options a gigasim run takes. Fields in the JSON config file mirror
+// these names exactly, and anything left out keeps its default.
 type GigasimConfig struct {
 
 	// The number of transactions in each simulated block. Every transaction is executed against the
@@ -24,7 +25,7 @@ type GigasimConfig struct {
 	BytesPerTransaction int
 
 	// Throttle block production to this many blocks per second. 0 means unthrottled.
-	BlocksPerSecond float64
+	MaxBlocksPerSecond float64
 
 	// The number of blocks finalized by each generated QC. One QC is written per batch of this many
 	// blocks, matching how consensus commits a range at a time.
@@ -92,7 +93,7 @@ type GigasimConfig struct {
 
 	// If true, the historical EVM state store is opened and every committed block is written to it.
 	// When false the store is never opened and nothing is written to it.
-	EnableStateStore bool
+	EnableSS bool
 
 	// If true, the receipt store is opened and each block's receipts are written to it. When false no
 	// receipts are built and the store is never opened.
@@ -146,28 +147,23 @@ type GigasimConfig struct {
 	// Log level for seilog output. One of debug, info, warn, error.
 	LogLevel string
 
-	// If true, delete the contents of DataDir before opening the databases.
+	// If true, delete the contents of DataDir and LogDir before opening the databases.
 	CleanDataOnStart bool
 
-	// If true, delete the contents of LogDir before starting.
-	CleanLogsOnStart bool
-
-	// If true, delete the contents of DataDir after the benchmark finishes.
+	// If true, delete the contents of DataDir and LogDir after the benchmark finishes.
 	CleanDataOnExit bool
-
-	// If true, delete the contents of LogDir after the benchmark finishes.
-	CleanLogsOnExit bool
 
 	// This field is ignored, but allows for a comment to be added to the config file.
 	Comment string
 }
 
-// Returns the default configuration for the gigasim benchmark.
+// DefaultGigasimConfig returns the configuration a run takes when its file sets nothing: a full node's
+// stack driven at the largest block consensus accepts.
 func DefaultGigasimConfig() *GigasimConfig {
 	return &GigasimConfig{
 		TransactionsPerBlock:            2000,
 		BytesPerTransaction:             1024,
-		BlocksPerSecond:                 100,
+		MaxBlocksPerSecond:              0,
 		BlocksPerQc:                     1,
 		StagedBlockQueueSize:            8,
 		FlushIntervalBlocks:             100,
@@ -187,7 +183,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		PruneIntervalSeconds:            300,
 		CheckpointIntervalSeconds:       600,
 		CheckpointBlockInterval:         0,
-		EnableStateStore:                true,
+		EnableSS:                        true,
 		EnableReceiptStore:              true,
 		ThreadsPerCore:                  2,
 		ConstantThreadCount:             0,
@@ -221,7 +217,7 @@ func (c *GigasimConfig) storageConfig() (*config.GigaStorageConfig, error) {
 		return nil, fmt.Errorf("failed to build the storage config: %w", err)
 	}
 
-	storage.SSConfig.Enable = c.EnableStateStore
+	storage.SSConfig.Enable = c.EnableSS
 	storage.ReceiptDBConfig.Enable = c.EnableReceiptStore
 
 	storage.PruningConfig.RollbackWindow = c.RollbackWindow
@@ -234,7 +230,7 @@ func (c *GigasimConfig) storageConfig() (*config.GigaStorageConfig, error) {
 	return storage, nil
 }
 
-// Validate checks that the configuration is sane and returns an error if not.
+// Validate reports the first unusable setting, or nil when the whole configuration is sound.
 func (c *GigasimConfig) Validate() error {
 	if err := c.validateBlockShape(); err != nil {
 		return err
@@ -274,12 +270,14 @@ func (c *GigasimConfig) validateBlockShape() error {
 	if c.FlushIntervalBlocks < 0 {
 		return fmt.Errorf("FlushIntervalBlocks must be non-negative (got %d)", c.FlushIntervalBlocks)
 	}
-	if c.BlocksPerSecond < 0 {
-		return fmt.Errorf("BlocksPerSecond must be non-negative (got %f)", c.BlocksPerSecond)
+	if c.MaxBlocksPerSecond < 0 {
+		return fmt.Errorf("MaxBlocksPerSecond must be non-negative (got %f)", c.MaxBlocksPerSecond)
 	}
 	return nil
 }
 
+// validateAccountDistribution checks the account and contract populations, and the probabilities
+// transactions select them with.
 func (c *GigasimConfig) validateAccountDistribution() error {
 	if c.NumberOfHotAccounts < 1 {
 		return fmt.Errorf("NumberOfHotAccounts must be at least 1 (got %d)", c.NumberOfHotAccounts)
@@ -322,6 +320,8 @@ func (c *GigasimConfig) validateAccountDistribution() error {
 	return nil
 }
 
+// validateRetention checks how much history the stores keep, and the cadence of the prune and
+// checkpoint cycles that enforce it.
 func (c *GigasimConfig) validateRetention() error {
 	if c.LookbackWindow < -1 {
 		return fmt.Errorf("LookbackWindow must be >= 0, or -1 for infinite retention (got %d)", c.LookbackWindow)
@@ -341,6 +341,7 @@ func (c *GigasimConfig) validateRetention() error {
 	return nil
 }
 
+// validateRuntime checks the executor pool, the directories, and the console and metrics settings.
 func (c *GigasimConfig) validateRuntime() error {
 	if c.ThreadsPerCore < 0 {
 		return fmt.Errorf("ThreadsPerCore must be non-negative (got %f)", c.ThreadsPerCore)

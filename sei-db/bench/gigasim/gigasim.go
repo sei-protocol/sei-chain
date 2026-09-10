@@ -4,6 +4,7 @@ package gigasim
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,7 +19,8 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// The benchmark runner for the gigasim benchmark.
+// GigaSim runs the benchmark, driving generated blocks through the block store, the state DB and the
+// receipt store.
 type GigaSim struct {
 	// The run scope, covering the main loop, the generator and the executor pool. Cancelling it stops
 	// block production; the stores stay open until teardown.
@@ -77,7 +79,8 @@ type GigaSim struct {
 	suspendChan chan bool
 }
 
-// Creates a new gigasim benchmark runner. The returned benchmark is already running.
+// NewGigaSim opens the stores, brings the account population up to size and starts the benchmark. The
+// returned runner is already running; Close stops it and releases everything it opened.
 func NewGigaSim(
 	ctx context.Context,
 	config *GigasimConfig,
@@ -93,7 +96,7 @@ func NewGigaSim(
 	fmt.Printf("Running gigasim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 	fmt.Printf("The historical state store is %s and the receipt store is %s.\n",
-		enabledLabel(config.EnableStateStore), enabledLabel(config.EnableReceiptStore))
+		enabledLabel(config.EnableSS), enabledLabel(config.EnableReceiptStore))
 
 	storageConfig, err := config.storageConfig()
 	if err != nil {
@@ -220,13 +223,8 @@ func (g *GigaSim) stopExecutors() {
 }
 
 // agreedNextBlockNumber returns the height the next block commits at, refusing a data directory whose
-// block store and state DB disagree on where they left off.
-//
-// Generation runs ahead of execution during a run, so the ledger leads until the queue drains on
-// shutdown. A gap that survives into the next run is what an interrupted one leaves behind: recovery
-// cuts state and receipts back to a common height but never rolls the ledger back, and this benchmark
-// generates blocks rather than replaying them, so it has no way to close the gap. Such a directory has
-// to be cleaned rather than resumed.
+// block store and state DB disagree on where they left off. That gap is what a run which died without
+// draining leaves behind, and such a directory has to be cleaned rather than resumed.
 func agreedNextBlockNumber(state *executionState, blocks *blockStoreWriter) (int64, error) {
 	next := state.height() + 1
 	if blockStoreNext, ok := blocks.nextBlockNumber(); ok && blockStoreNext != next {
@@ -238,11 +236,8 @@ func agreedNextBlockNumber(state *executionState, blocks *blockStoreWriter) (int
 	return next, nil
 }
 
-// setup brings the account population up to the configured size before measurement begins, so that the
-// benchmark's reads land in a state DB of a realistic resident size rather than an empty one.
-//
-// Setup blocks go through the same stores as measured ones, which is what keeps the block store and the
-// state DB on a single height.
+// setup brings the ERC20 contracts and the account population up to the configured size before
+// measurement begins. Its blocks go through the same stores, at the same heights, as measured ones.
 func (g *GigaSim) setup() error {
 	if err := g.setupErc20Contracts(); err != nil {
 		return err
@@ -250,6 +245,8 @@ func (g *GigaSim) setup() error {
 	return g.setupAccounts()
 }
 
+// setupErc20Contracts creates ERC20 contracts up to the configured count, committing them a block at a
+// time.
 func (g *GigaSim) setupErc20Contracts() error {
 	target := int64(g.config.MinimumNumberOfErc20Contracts)
 	if g.accounts.NextErc20ContractID() >= target {
@@ -278,8 +275,7 @@ func (g *GigaSim) setupErc20Contracts() error {
 }
 
 // setupAccounts creates the configured account population, assigning each account to the cold or the
-// dormant set by its identifier rather than by a draw, so that a run holds the counts its config asked
-// for.
+// dormant set by its identifier so that a run holds exactly the counts its config asked for.
 func (g *GigaSim) setupAccounts() error {
 	population := plannedAccountPopulation(g.config)
 	if g.accounts.NextAccountID() >= population.total {
@@ -330,13 +326,9 @@ func (g *GigaSim) finalizeSetupBlock() error {
 	return nil
 }
 
-// The main loop of the benchmark: it takes each generated block through execution and into the stores
-// that record its results. The block ledger already holds the block; the generator wrote it there
-// before handing it over.
-//
-// The loop ends when the generator closes the channel, and not on cancellation, so that a run being
-// shut down first drains the blocks already in the ledger. Draining is what leaves the ledger and the
-// state DB on the same height, which is the condition for resuming the data directory later.
+// run takes each generated block through execution and into the stores that record its results, until
+// the generator closes the channel. It ends on that close rather than on cancellation, so that a run
+// being shut down drains the blocks already in the ledger and leaves every store on one height.
 func (g *GigaSim) run() {
 	defer g.teardown()
 
@@ -384,11 +376,8 @@ func (g *GigaSim) halt() {
 }
 
 // executeAndRecord runs one block's transactions and writes what they produced to the receipt store and
-// the state DB.
-//
-// It is deliberately atomic with respect to shutdown — it never returns early on cancellation, and the
-// loop above observes shutdown between blocks. A height half-written across the stores is a height
-// recovery has to reconcile on the next open, so do not add a mid-block abort.
+// the state DB. It never returns early on cancellation: a height half-written across the stores is one
+// recovery has to reconcile on the next open, so shutdown is observed between blocks instead.
 func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 	g.executeBlock(block)
 
@@ -446,12 +435,9 @@ func (g *GigaSim) persistExecutionResults(
 	return g.state.commitBlock(number, counters)
 }
 
-// awaitGenerator waits for block production to stop and the staging queue to empty, which it does by
-// consuming whatever is left in it, and reports the error that ended generation if one did.
-//
-// The stores cannot close while the generator still holds the block ledger, and a generator part-way
-// through handing over a block never gets to release it. After a clean run there is nothing left to
-// take; after a failure the blocks discarded here are ones the failure already orphaned.
+// awaitGenerator stops block production and drains the staging queue, reporting the error that ended
+// generation if one did. The stores cannot close while the generator still holds the block ledger, and
+// a generator blocked handing over a block never releases it.
 func (g *GigaSim) awaitGenerator() {
 	g.cancel()
 	for range g.generator.blocksChan {
@@ -462,15 +448,14 @@ func (g *GigaSim) awaitGenerator() {
 	}
 }
 
-// fail reports an error that stops the benchmark. Errors on the write path are not recoverable: the
-// stores are left mid-block, and continuing would measure a stack that is no longer consistent.
+// fail records an error and stops the benchmark. Errors on the write path leave the stores mid-block
+// and are not recoverable in place.
 func (g *GigaSim) fail(err error) {
 	g.recordFailure(err)
 	g.cancel()
 }
 
-// recordFailure prints an error and keeps the first one, which Close returns so that a harness reading
-// the exit code can tell a completed run from one that died part-way through.
+// recordFailure prints an error and keeps the first one, which is what Close returns.
 func (g *GigaSim) recordFailure(err error) {
 	fmt.Printf("\n%v\n", err)
 	if g.runErr == nil {
@@ -503,6 +488,8 @@ func (g *GigaSim) suspend() {
 	}
 }
 
+// teardown drains the generator, releases every database and applies CleanDataOnExit, then reports that
+// the benchmark has stopped.
 func (g *GigaSim) teardown() {
 	g.awaitGenerator()
 
@@ -512,15 +499,9 @@ func (g *GigaSim) teardown() {
 	}
 
 	if g.config.CleanDataOnExit {
-		fmt.Printf("CleanDataOnExit is enabled, removing contents of: %s\n", g.config.DataDir)
-		if err := removeContents(g.config.DataDir); err != nil {
-			g.recordFailure(fmt.Errorf("failed to clean the data directory on exit: %w", err))
-		}
-	}
-	if g.config.CleanLogsOnExit {
-		fmt.Printf("CleanLogsOnExit is enabled, removing contents of: %s\n", g.config.LogDir)
-		if err := removeContents(g.config.LogDir); err != nil {
-			g.recordFailure(fmt.Errorf("failed to clean the log directory on exit: %w", err))
+		fmt.Printf("CleanDataOnExit is enabled.\n")
+		if err := cleanDirectories(g.config); err != nil {
+			g.recordFailure(err)
 		}
 	}
 
@@ -539,6 +520,8 @@ func (g *GigaSim) closePipeline() error {
 	return err
 }
 
+// generateConsoleReport prints the progress line once the configured time or block interval has passed,
+// or immediately when force is set.
 func (g *GigaSim) generateConsoleReport(force bool) {
 	now := time.Now()
 	totalBlocks := g.totalBlocks.Load()
@@ -609,8 +592,8 @@ func (g *GigaSim) Resume() {
 	}
 }
 
-// resolveDirectories expands the configured paths and applies the clean-on-start options, leaving the
-// config holding absolute paths that every store's location is derived from.
+// resolveDirectories expands the configured paths and applies CleanDataOnStart, leaving the config
+// holding absolute paths that every store's location is derived from.
 func resolveDirectories(config *GigasimConfig) error {
 	var err error
 	if config.DataDir, err = utils.ResolveAndCreateDir(config.DataDir); err != nil {
@@ -621,18 +604,25 @@ func resolveDirectories(config *GigasimConfig) error {
 	}
 
 	if config.CleanDataOnStart {
-		fmt.Printf("CleanDataOnStart is enabled, removing contents of: %s\n", config.DataDir)
-		if err := removeContents(config.DataDir); err != nil {
-			return fmt.Errorf("failed to clean the data directory: %w", err)
-		}
-	}
-	if config.CleanLogsOnStart {
-		fmt.Printf("CleanLogsOnStart is enabled, removing contents of: %s\n", config.LogDir)
-		if err := removeContents(config.LogDir); err != nil {
-			return fmt.Errorf("failed to clean the log directory: %w", err)
+		fmt.Printf("CleanDataOnStart is enabled.\n")
+		if err := cleanDirectories(config); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// cleanDirectories empties the data and log directories, naming each on the console as it goes. It
+// attempts both even when the first fails, and reports every failure.
+func cleanDirectories(config *GigasimConfig) error {
+	var errs []error
+	for _, dir := range []string{config.DataDir, config.LogDir} {
+		fmt.Printf("Removing contents of: %s\n", dir)
+		if err := removeContents(dir); err != nil {
+			errs = append(errs, fmt.Errorf("failed to clean %s: %w", dir, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // removeContents deletes all entries inside dir without removing dir itself.
@@ -652,6 +642,7 @@ func removeContents(dir string) error {
 	return nil
 }
 
+// enabledLabel renders a flag as the word the console prints for it.
 func enabledLabel(enabled bool) string {
 	if enabled {
 		return "enabled"

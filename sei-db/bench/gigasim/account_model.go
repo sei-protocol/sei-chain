@@ -270,10 +270,12 @@ func (a *accountModel) Close() {
 	a.rand = nil
 }
 
+// accountAddress returns the state key holding an account's record.
 func (a *accountModel) accountAddress(accountID int64) []byte {
 	return keys.BuildEVMKey(accountKeyPrefix, a.rand.Address(accountPrefix, accountID, keys.AddressLen))
 }
 
+// contractAddress returns the state key holding an ERC20 contract's code.
 func (a *accountModel) contractAddress(contractID int64) []byte {
 	return keys.BuildEVMKey(keys.EVMKeyCode, a.rand.Address(contractPrefix, contractID, keys.AddressLen))
 }

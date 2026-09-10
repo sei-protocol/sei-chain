@@ -82,10 +82,8 @@ func (s *executionState) Get(key []byte) ([]byte, bool) {
 }
 
 // commitBlock writes the staged batch to the state DB as blockNum, reopens the read view over it, and
-// waits for a block hash once the benchmark is a full lag window ahead of hashing.
-//
-// The account and ERC20 counters ride along in every block so a reopened data directory can resume
-// generating identifiers where the previous run stopped.
+// waits for a block hash once the benchmark is a full lag window ahead of hashing. The identifier
+// counters ride along, so that a reopened data directory resumes where the previous run stopped.
 //
 // Must not run concurrently with Put or Get.
 func (s *executionState) commitBlock(blockNum int64, counters identifierCounters) error {

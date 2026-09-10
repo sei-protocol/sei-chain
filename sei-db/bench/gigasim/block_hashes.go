@@ -52,12 +52,9 @@ func newBlockHashWaiter(lagBlocks int, metrics *GigasimMetrics) *blockHashWaiter
 	}
 }
 
-// listen takes one block's hash from the state DB, blocking while the benchmark is further ahead
-// than its window allows.
-//
-// Blocking here is the backpressure: it stops the state DB finalizing blocks faster than the
-// benchmark accepts their hashes. The context is the release, cancelled when the state DB shuts down,
-// since a send with no taker left would otherwise never return.
+// listen takes one block's hash from the state DB, blocking while the benchmark is further ahead than
+// its window allows. That block is the backpressure on hashing; the context releases it when the state
+// DB shuts down, since a send with no taker left would never return.
 func (w *blockHashWaiter) listen(ctx context.Context, _ int64, hash *lthash.BlockHash) error {
 	select {
 	case w.hashes <- hash:

@@ -12,14 +12,12 @@ import (
 // a slot after the one-byte EVM prefix.
 const maxStagedKeyLen = 1 + storageKeyLen
 
-// batchShards is how many independently locked maps the staged writes are spread across. Every
-// executor writes several keys per transaction, so one map behind one lock would serialise the pool at
-// exactly the point the benchmark exists to measure. It must not exceed 256, which is the range of the
-// key byte the shard is chosen by.
+// batchShards is how many independently locked maps the staged writes are spread across, which keeps the
+// executor pool from serialising on a single lock. It must not exceed 256, the range of the key byte the
+// shard is chosen by.
 const batchShards = 256
 
-// stagedKey is an EVM key held by value, so that using it as a map key costs no allocation. A string or
-// slice key allocates on every write, and a block stages thousands.
+// stagedKey is an EVM key held by value, so that using it as a map key costs no allocation.
 type stagedKey struct {
 	length uint8
 	data   [maxStagedKeyLen]byte
@@ -36,8 +34,8 @@ func newStagedKey(key []byte) stagedKey {
 	return staged
 }
 
-// stagedWrite is one pending write. It holds the caller's key rather than a copy: the key comes from a
-// freshly built EVM key that nothing mutates, so retaining it saves copying every key twice per block.
+// stagedWrite is one pending write. It retains the caller's key rather than copying it, which is safe
+// because every key staged is a freshly built EVM key that nothing mutates.
 type stagedWrite struct {
 	key   []byte
 	value []byte
@@ -95,9 +93,6 @@ func (b *stateBatch) Get(key []byte) ([]byte, bool) {
 
 // drainToChangeSet empties the batch into a single changeset over the EVM store, appending the
 // identifier counters that ride along with every block.
-//
-// The pairs are carved out of one allocation rather than allocated per write, which is what keeps a
-// commit's cost proportional to the data rather than to the number of keys.
 //
 // Must not run concurrently with Put or Get.
 func (b *stateBatch) drainToChangeSet(counters identifierCounters) []*proto.NamedChangeSet {

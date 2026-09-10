@@ -24,6 +24,7 @@ func main() {
 	}
 }
 
+// run prints the seilog environment for the config file named on the command line.
 func run() error {
 	if len(os.Args) != 2 {
 		return fmt.Errorf("usage: configure-logger <config-file>")
@@ -47,6 +48,7 @@ func run() error {
 	return nil
 }
 
+// shellQuote wraps a value in single quotes so a shell reads it literally.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
