@@ -69,6 +69,10 @@ func CreateConfig(t *testing.T, testName string) (*config.Config, error) {
 	c.P2P.ListenAddress = p2pAddr
 	c.RPC.ListenAddress = rpcAddr
 	c.RPC.EventLogWindowSize = 5 * time.Minute
+	// Loaded CI runners can take longer than the 10s default to produce the
+	// first block; timeout-write must stay above this value.
+	c.RPC.TimeoutBroadcastTxCommit = 60 * time.Second
+	c.RPC.TimeoutWrite = 90 * time.Second
 	c.Consensus.WalPath = "rpc-test"
 	c.RPC.CORSAllowedOrigins = []string{"https://tendermint.com/"}
 	return c, nil
