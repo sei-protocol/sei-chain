@@ -65,6 +65,9 @@ jobs:
           fetch-depth: 0
 
       - name: Reclaim runner disk
+        env:
+          # Builds two seid trees from a full-history checkout.
+          CI_FREE_DISK_MIN_GIB: 60
         run: bash .github/scripts/ci-free-disk.sh
 
       - name: Relocate Docker data-root to /mnt

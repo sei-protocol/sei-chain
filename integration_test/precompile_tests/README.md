@@ -122,7 +122,8 @@ npm run precompile:ci              # == bash scripts/run-ci.sh
 ```
 
 `scripts/run-ci.sh` is the single orchestrator, used both locally and by the
-`EVM Precompiles` matrix entry in `.github/workflows/integration-test.yml`. It
+`EVM Module (Precompile & Endpoints) & Precompiles` matrix row in
+`.github/workflows/integration-test-matrix.json`. It
 assumes a Sei EVM RPC is already reachable (the workflow boots the 4-node
 cluster; locally you start it yourself), then end to end:
 
