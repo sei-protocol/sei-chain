@@ -166,20 +166,16 @@ func (s *EVMStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool)
 }
 
 func (s *EVMStateStore) GetLatestVersion() int64 {
-	// TEMPORARY HACK, DO NOT SHIP: takes the max instead of the min, purely to read out a real
-	// height for inspection when some sub-DB's marker is known-stuck (see the DisableWAL
-	// flush-loss bug). Unsafe for real use: a caller can be told "version N is ready" while a
-	// lagging sub-DB silently doesn't have it yet. Revert to min once you're done inspecting.
-	var maxVersion int64 = -1
+	var minVersion int64 = -1
 	for _, db := range s.managedDBs {
-		if v := db.GetLatestVersion(); v > maxVersion {
-			maxVersion = v
+		if v := db.GetLatestVersion(); minVersion < 0 || v < minVersion {
+			minVersion = v
 		}
 	}
-	if maxVersion < 0 {
+	if minVersion < 0 {
 		return 0
 	}
-	return maxVersion
+	return minVersion
 }
 
 func (s *EVMStateStore) SetLatestVersion(version int64) error {

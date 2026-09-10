@@ -59,6 +59,12 @@ const (
 	// mappingSlotReusePct is the percentage of mapping-style slot draws that reuse an existing
 	// pool entry rather than minting a new one.
 	mappingSlotReusePct = 95
+
+	// codeValueLen approximates a small-to-average real contract's bytecode size.
+	codeValueLen = 4096
+
+	// codeHashValueLen matches a real keccak256 hash's output size.
+	codeHashValueLen = 32
 )
 
 // Config controls the synthetic write load.
@@ -259,6 +265,16 @@ func (p *PebbleSim) buildBatch() batch {
 		pairs = append(pairs, &proto.KVPair{Key: p.randomNonceKey(), Value: val})
 	}
 
+	// One code and one codehash write per batch: pebblesim otherwise never touches these two
+	// EVM store types at all, so their sub-DBs never see enough volume to cross Pebble's
+	// size-triggered flush threshold on their own (see randomCodeKey/randomCodeHashKey).
+	codeVal := make([]byte, codeValueLen)
+	fillBytes(p.rng, codeVal)
+	pairs = append(pairs, &proto.KVPair{Key: p.randomCodeKey(), Value: codeVal})
+	codeHashVal := make([]byte, codeHashValueLen)
+	fillBytes(p.rng, codeHashVal)
+	pairs = append(pairs, &proto.KVPair{Key: p.randomCodeHashKey(), Value: codeHashVal})
+
 	var sortElapsed time.Duration
 	if p.cfg.Presort {
 		sortStart := time.Now()
@@ -327,6 +343,8 @@ func (p *PebbleSim) WriteBatch(ctx context.Context) (BatchResult, error) {
 	p.metrics.keysWritten.Add(ctx, int64(b.nSlots), metric.WithAttributes(attribute.String("kind", "slot")))
 	p.metrics.keysWritten.Add(ctx, int64(b.nBalance), metric.WithAttributes(attribute.String("kind", "balance")))
 	p.metrics.keysWritten.Add(ctx, int64(b.nNonce), metric.WithAttributes(attribute.String("kind", "nonce")))
+	p.metrics.keysWritten.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "code")))
+	p.metrics.keysWritten.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "codehash")))
 	p.metrics.latestHeight.Record(ctx, p.store.GetLatestVersion())
 	p.metrics.earliestHeight.Record(ctx, p.store.GetEarliestVersion())
 	if totalElapsed > p.cfg.BatchInterval {
@@ -410,6 +428,8 @@ func keyKind(key []byte) string {
 		return "unknown"
 	}
 	noncePrefix, _ := keys.EVMKeyPrefixByte(keys.EVMKeyNonce)
+	codePrefix, _ := keys.EVMKeyPrefixByte(keys.EVMKeyCode)
+	codeHashPrefix, _ := keys.EVMKeyPrefixByte(keys.EVMKeyCodeHash)
 	switch key[0] {
 	case keys.StateKeyPrefix()[0]:
 		return "slot"
@@ -417,6 +437,10 @@ func keyKind(key []byte) string {
 		return "nonce"
 	case byte(evmss.StoreBalance):
 		return "balance"
+	case codePrefix:
+		return "code"
+	case codeHashPrefix:
+		return "codehash"
 	default:
 		return "unknown"
 	}
@@ -528,6 +552,18 @@ func (p *PebbleSim) randomAddress() []byte {
 // simulated pool.
 func (p *PebbleSim) randomNonceKey() []byte {
 	return keys.BuildEVMKey(keys.EVMKeyNonce, p.randomAddress())
+}
+
+// randomCodeKey builds a real EVM contract-code key (0x07 || address) for a random address from
+// the simulated pool.
+func (p *PebbleSim) randomCodeKey() []byte {
+	return keys.BuildEVMKey(keys.EVMKeyCode, p.randomAddress())
+}
+
+// randomCodeHashKey builds a real EVM code-hash key (0x08 || address) for a random address from
+// the simulated pool.
+func (p *PebbleSim) randomCodeHashKey() []byte {
+	return keys.BuildEVMKey(keys.EVMKeyCodeHash, p.randomAddress())
 }
 
 // randomBalanceKey builds a synthetic balance key (evmss.StoreBalance || address) for a random
