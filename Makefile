@@ -200,11 +200,6 @@ build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 .PHONY: build
 
-build-giga:
-	mkdir -p ./build
-	go build $(BUILD_FLAGS) -o ./build/giga ./cmd/giga
-.PHONY: build-giga
-
 build-frozen-rpc-router:
 	mkdir -p ./build
 	go build -o ./build/frozen-rpc-router ./cmd/frozen-rpc-router
@@ -250,16 +245,6 @@ build-linux:
 	fi
 .PHONY: build-linux
 
-build-giga-linux:
-	@if [ "$$(uname -m)" = "aarch64" ] || [ "$$(uname -m)" = "arm64" ]; then \
-		echo "Building giga for ARM64..."; \
-		GOOS=linux GOARCH=arm64 CGO_ENABLED=1 make build-giga; \
-	else \
-		echo "Building giga for AMD64..."; \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc make build-giga; \
-	fi
-.PHONY: build-giga-linux
-
 # Auto-detect platform: use arm64 on ARM Macs, amd64 elsewhere
 DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
 export DOCKER_PLATFORM
@@ -280,7 +265,7 @@ ensure-integration-ci-images:
 	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
 .PHONY: ensure-integration-ci-images
 
-# Build the node binaries once inside the localnode image (integration-test prepare job).
+# Build seid once inside the localnode image (integration-test prepare job).
 build-seid-in-localnode: build-docker-node
 	@mkdir -p build $(shell go env GOMODCACHE) $(shell go env GOCACHE)
 	@docker run --rm \
@@ -292,7 +277,7 @@ build-seid-in-localnode: build-docker-node
 		-w /sei-protocol/sei-chain \
 		-e LEDGER_ENABLED=false \
 		sei-chain/localnode \
-		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && make build-giga-linux && make build-frozen-rpc-router && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && make build-frozen-rpc-router && mkdir -p build/generated && echo DONE > build/generated/build.complete'
 .PHONY: build-seid-in-localnode
 
 # CI variant: assumes localnode image already built by Buildx in prepare-cluster (skips docker build).
@@ -307,10 +292,10 @@ build-seid-in-localnode-ci: ensure-integration-ci-images
 		-w /sei-protocol/sei-chain \
 		-e LEDGER_ENABLED=false \
 		sei-chain/localnode \
-		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && make build-giga-linux && make build-frozen-rpc-router && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && make build-frozen-rpc-router && mkdir -p build/generated && echo DONE > build/generated/build.complete'
 .PHONY: build-seid-in-localnode-ci
 
-# Images plus node and frozen-rpc-router binaries for integration-test CI.
+# Images plus seid and frozen-rpc-router binaries for integration-test CI.
 # build-seid-in-localnode already depends on build-docker-node, so omit it here to avoid building localnode twice.
 build-integration-ci-artifacts: build-rpc-node build-seid-in-localnode
 .PHONY: build-integration-ci-artifacts
@@ -440,12 +425,9 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 
 .PHONY: localnet-start
 
-# Use this to skip the node binary build process
+# Use this to skip the seid build process
 docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@if [ "$(AUTOBAHN_EVMONLY)" = "true" ]; then \
-		test -f $(PROJECT_HOME)/build/giga || (echo "build/giga missing; run make build-giga-linux" && exit 1); \
-	fi
 	@cd docker && \
 		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
 			DETACH_FLAG="-d"; \
@@ -455,13 +437,10 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
 
-# Integration-test matrix jobs reuse images and node binaries from prepare-cluster.
+# Integration-test matrix jobs: reuse prebuilt images and build/seid from prepare-cluster.
 docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@test -f $(PROJECT_HOME)/build/seid || (echo "build/seid missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
-	@if [ "$(AUTOBAHN_EVMONLY)" = "true" ]; then \
-		test -f $(PROJECT_HOME)/build/giga || (echo "build/giga missing; download integration-build.tar.gz from prepare-cluster" && exit 1); \
-	fi
 	@mkdir -p $(shell go env GOMODCACHE)
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && \

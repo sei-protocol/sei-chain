@@ -7,9 +7,6 @@ VALIDATOR=${VALIDATOR:-true}
 echo "Configure and initialize environment"
 
 cp build/seid "$GOBIN"/
-if [ "${AUTOBAHN_EVMONLY:-false}" = "true" ]; then
-  cp build/giga "$GOBIN"/
-fi
 
 # Prepare shared folders
 NODE_DIR="build/generated/node_${NODE_ID}"

@@ -4,20 +4,6 @@ This package contains the EVM-only execution boundary for the final-form giga
 path. It is intentionally separate from the current Cosmos-backed giga wiring in
 `app/app.go`.
 
-The consensus node entrypoint is the standalone `giga` binary under
-`cmd/giga`. Given a node home initialized with genesis, validator, node, and
-Autobahn configuration, start it with:
-
-```sh
-make build-giga
-./build/giga start --home ~/.sei
-```
-
-The binary reads `<home>/config/config.toml`, constructs the EVM-only
-application directly, and starts Tendermint without constructing the Cosmos
-application. `seid` remains the initialization and genesis-authoring tool for
-the current Docker topology.
-
 The target execution model is based on the `sei-v3` executor:
 
 - raw transaction bytes are Ethereum RLP transactions, not Cosmos SDK txs

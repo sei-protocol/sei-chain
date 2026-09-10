@@ -5,8 +5,8 @@ NODE_ID=${ID:-0}
 ARCH=$(uname -m)
 MOCK_BALANCES=${MOCK_BALANCES:-false}
 
-# Build the node binaries
-echo "Building node binaries from local branch"
+# Build seid
+echo "Building seid from local branch"
 git config --global --add safe.directory /sei-protocol/sei-chain
 export LEDGER_ENABLED=false
 make clean
@@ -18,7 +18,6 @@ else
     echo "Building with standard configuration..."
     make build-linux
 fi
-make build-giga-linux
 make build-frozen-rpc-router
 mkdir -p build/generated
 echo "DONE" > build/generated/build.complete

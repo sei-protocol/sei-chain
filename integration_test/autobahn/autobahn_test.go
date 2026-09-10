@@ -208,9 +208,9 @@ func assertAutobahnEnabled(t *testing.T) {
 		t.Fatalf("no running sei-node-* containers")
 	}
 	for _, name := range names {
-		// The node-start script writes logs to a file inside the container (not
-		// stdout), so grep via docker exec rather than `docker logs`. The filename
-		// remains seid-<id>.log for compatibility even when giga is the process.
+		// seid writes logs to a file inside the container (not stdout), so we
+		// grep via docker exec rather than `docker logs`. Each container only
+		// has its own seid-<id>.log under the repo-relative build/generated/logs.
 		cmd := exec.Command("docker", "exec", name, "sh", "-c",
 			"grep -q 'GigaRouter initialized' build/generated/logs/seid-*.log")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -811,17 +811,17 @@ func prometheusSample(metrics []byte, name string, labels ...string) (float64, b
 	return 0, false
 }
 
-// restartNode re-invokes the container's node-start script inside sei-node-<i>.
-// The script backgrounds the selected node binary and exits, so `docker exec -d`
-// is the right mode: it returns immediately while the node keeps running.
+// restartNode re-invokes the container's seid-start script inside sei-node-<i>.
+// The script backgrounds seid and exits, so `docker exec -d` is the right mode:
+// it returns immediately while seid keeps running.
 //
-// Precondition: the node must NOT already be running on the target. start_sei.sh
-// unconditionally spawns a new process; calling this while one is alive produces
-// two node instances in the same container (port/CMS-lock conflict).
+// Precondition: seid must NOT already be running on the target. start_sei.sh
+// unconditionally spawns a new seid process; calling this while one is alive
+// produces two seid instances in the same container (port/CMS-lock conflict).
 // Callers should `killNode` first, or extend the script to pkill defensively.
 func restartNode(t *testing.T, i int) {
 	t.Helper()
-	t.Logf("restarting node %d...", i)
+	t.Logf("restarting seid on node %d...", i)
 	name := fmt.Sprintf("sei-node-%d", i)
 	cmd := exec.Command("docker", "exec", "-d",
 		"-e", fmt.Sprintf("ID=%d", i),
@@ -1009,16 +1009,12 @@ func testEVMTransfer(t *testing.T) {
 	t.Logf("evm transfer committed at height %d (balance %s -> %s)", h, before, after)
 }
 
-// killNode kills the selected node binary inside sei-node-<i> via pkill. It
-// tolerates a non-zero exit because pkill returns 1 if the process is gone.
+// killNode kills seid inside sei-node-<i> via pkill. Tolerates non-zero exit
+// (e.g. the process already gone).
 func killNode(t *testing.T, i int) {
 	t.Helper()
-	process := "seid"
-	if evmOnlyEnabled() {
-		process = "giga"
-	}
-	t.Logf("killing %s on node %d...", process, i)
-	dockerExecAllowFail(fmt.Sprintf("sei-node-%d", i), "pkill "+process)
+	t.Logf("killing seid on node %d...", i)
+	dockerExecAllowFail(fmt.Sprintf("sei-node-%d", i), "pkill seid")
 }
 
 // testLivenessUnderMaxFaults kills f = maxFaults nodes (from the highest index
