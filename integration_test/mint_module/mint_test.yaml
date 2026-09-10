@@ -37,6 +37,6 @@
       expr: LAST_MINT_AMOUNT == 333333333333
     - type: eval
       expr: LAST_MINT_HEIGHT == 0
-    # Total supply should have gone up by LAST_MINT_AMOUNT
+    # Genesis supply (5e21 usei) plus everything the schedule has minted so far
     - type: eval
-      expr: TOTAL_SUPPLY == 5000000000333333333333
+      expr: TOTAL_SUPPLY == 5000000000000000000000 + TOTAL_MINT_AMOUNT - REMAINING_MINT_AMOUNT

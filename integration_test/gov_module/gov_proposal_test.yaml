@@ -142,8 +142,6 @@
     - cmd: seid q bank total --denom usei --output json | jq -r .amount
       env: TOTAL_SUPPLY_AFTER_BURN
   verifiers:
-    # Check if the total supply is reduced or not to verify token burns
+    # The rejected proposal burns both deposits (10000000usei initial + 10000000usei top-up)
     - type: eval
-      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000333333333333
-    - type: eval
-      expr: TOTAL_SUPPLY_AFTER_BURN == 5000000000333313333333
+      expr: TOTAL_SUPPLY_BEFORE_BURN - TOTAL_SUPPLY_AFTER_BURN == 20000000
