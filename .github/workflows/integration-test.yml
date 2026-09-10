@@ -61,7 +61,7 @@ jobs:
   #     not a matrix row.
   set-matrix:
     name: Resolve integration test matrix
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     outputs:
       tests: ${{ steps.build.outputs.tests }}
@@ -83,7 +83,7 @@ jobs:
   # from GHCR (tagged with the run id) and download seid as a small artifact.
   prepare-cluster:
     name: Prepare integration test cluster
-    runs-on: ubuntu-large
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 45
     # packages:write required to push images and buildx cache to GHCR. Fork PRs
     # cannot publish org packages, so integration tests cannot run from forks; a
@@ -228,7 +228,7 @@ jobs:
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
     needs: [ set-matrix, prepare-cluster, prepare-rpcnode ]
-    runs-on: ubuntu-large
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
       packages: read
@@ -420,7 +420,7 @@ jobs:
   # cluster.
   autobahn-integration-tests:
     name: Integration Test (Autobahn Basic)
-    runs-on: ubuntu-large
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 45
     needs: [ prepare-cluster, prepare-rpcnode ]
     permissions:
@@ -507,7 +507,7 @@ jobs:
 
   integration-test-check:
     name: Integration Test Check
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [ prepare-cluster, prepare-rpcnode, integration-tests, autobahn-integration-tests ]
     if: always()
     steps:

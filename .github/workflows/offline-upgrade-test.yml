@@ -29,7 +29,7 @@ defaults:
 jobs:
   offline-upgrade:
     name: Persisted Go boundary
-    runs-on: uci-default
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
     env:
       FROM_REF: ${{ inputs.source_ref || '' }}

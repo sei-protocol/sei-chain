@@ -7,7 +7,7 @@ on:
 jobs:
   run-tests-devnet:
     name: Run Tests on Devnet
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     environment:
       name: devnet
     env:
@@ -31,7 +31,7 @@ jobs:
 
   run-tests-testnet:
     name: Run Tests on Testnet
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     environment:
       name: testnet
     env:

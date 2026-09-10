@@ -20,7 +20,7 @@ env:
 jobs:
   transaction-rlp:
     name: Ethereum Transaction and RLP Tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     permissions:
       contents: read
@@ -41,7 +41,7 @@ jobs:
 
   plan:
     name: Plan Execution Specs
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -57,7 +57,7 @@ jobs:
 
   prepare-cluster:
     name: Prepare Execution Specs Cluster
-    runs-on: ubuntu-large
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 45
     permissions:
       packages: write
@@ -142,7 +142,7 @@ jobs:
     name: Execution Specs (${{ matrix.name }})
     needs: [ plan, prepare-cluster ]
     if: needs.plan.result == 'success' && needs.prepare-cluster.result == 'success'
-    runs-on: ubuntu-large
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 60
     permissions:
       packages: read
@@ -277,7 +277,7 @@ jobs:
     name: Execution Specs Summary
     if: always()
     needs: [ plan, execution-specs ]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
@@ -299,7 +299,7 @@ jobs:
     name: Remove Execution Specs Images
     if: always()
     needs: [ prepare-cluster, execution-specs ]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: read

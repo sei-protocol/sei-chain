@@ -51,7 +51,7 @@ defaults:
 jobs:
   release-to-main:
     name: Minor release boundary
-    runs-on: ubuntu-large
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 90
     env:
       MAIN_REF: ${{ inputs.target_ref || github.sha }}

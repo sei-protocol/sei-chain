@@ -18,7 +18,7 @@ env:
 jobs:
   linux-amd64:
     name: "Linux AMD64"
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout code
         # See: https://github.com/actions/checkout/releases/tag/v7.0.0
@@ -58,7 +58,7 @@ jobs:
 
   linux-arm64:
     name: "Linux ARM64"
-    runs-on: ubuntu-24.04-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - name: Checkout code
         # See: https://github.com/actions/checkout/releases/tag/v7.0.0
@@ -105,7 +105,7 @@ jobs:
   # only gets exercised once it reaches a release branch.
   static-paths:
     name: "Static build inputs changed?"
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     if: github.event_name == 'pull_request'
     outputs:
       changed: ${{ steps.diff.outputs.changed }}
@@ -125,7 +125,7 @@ jobs:
 
   linux-amd64-static:
     name: "Linux AMD64 (static)"
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [static-paths]
     # The static seid is a release artefact: build it for release work (PRs into
     # release/**, pushes to release/**, merge-queue entries targeting release/**)
@@ -187,7 +187,7 @@ jobs:
 
   linux-arm64-static:
     name: "Linux ARM64 (static)"
-    runs-on: ubuntu-24.04-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs: [static-paths]
     # Same gating as the amd64 static job. The release hook also boots the arm64 binary
     # through binfmt, but only this job boots it on arm64 hardware, which is what the
@@ -239,7 +239,7 @@ jobs:
           retention-days: 14
   macos-arm64:
     name: "macOS ARM64"
-    runs-on: macos-latest
+    runs-on: blacksmith-6vcpu-macos-15
     steps:
       - name: Checkout code
         # See: https://github.com/actions/checkout/releases/tag/v7.0.0

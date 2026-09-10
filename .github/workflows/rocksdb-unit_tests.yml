@@ -16,7 +16,7 @@ concurrency:
 jobs:
   tests-rocksdb:
     name: RocksDB Tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/setup-go@v6
         with:

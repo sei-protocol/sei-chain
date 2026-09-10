@@ -20,7 +20,7 @@ env:
 jobs:
   test:
     name: Race Detection
-    runs-on: uci-default
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
