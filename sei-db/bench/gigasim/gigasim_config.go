@@ -189,7 +189,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		ThreadsPerCore:                  2,
 		ConstantThreadCount:             0,
 		TransactionMetricsSampleRate:    0.01,
-		MaxHashLagBlocks:                1000,
+		MaxHashLagBlocks:                100,
 		Seed:                            1337,
 		CannedRandomSize:                64 * 1024 * 1024, // 64 MiB
 		DataDir:                         "data",

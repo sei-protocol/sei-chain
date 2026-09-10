@@ -87,7 +87,7 @@ func TestCatchUpRefusesAWALMissingTheBlocksAStoreNeeds(t *testing.T) {
 		_, _, sc := newTestStateDB(t)
 		s := &StateDB{wal: &gapWAL{first: 3, last: 4}, sc: sc}
 
-		require.ErrorContains(t, s.catchUpTo(4), missingBlocks)
+		require.ErrorContains(t, s.catchUpTo(t.Context(), 4), missingBlocks)
 	})
 
 	t.Run("the EVM state store", func(t *testing.T) {

@@ -82,6 +82,10 @@ type CommitStore struct {
 	// The height of the most recently committed block. The next Commit must be exactly this plus one.
 	committedVersion int64
 
+	// Summarises committed blocks for the log. Read and written only under mu, which the commit path
+	// holds for its whole length.
+	commitLog commitSampler
+
 	// The hash state read off disk at load, which the hash engine is seeded from and which every
 	// hash query answers from until the first block has been finalized. Rebuilt by every path that
 	// reopens the databases underneath the engine.

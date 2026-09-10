@@ -1,6 +1,7 @@
 package giga
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -106,7 +107,7 @@ func (s *StateDB) dropSnapshotsAbove(target int64) error {
 // A commit writes the WAL before either store, so a crash between the two leaves one of them a block
 // behind. Committing from behind the WAL is rejected, so this is what makes an opened StateDB able to
 // commit.
-func (s *StateDB) catchUpToWAL() error {
+func (s *StateDB) catchUpToWAL(ctx context.Context) error {
 	wal, err := s.openWALRange()
 	if err != nil {
 		return err
@@ -126,7 +127,7 @@ func (s *StateDB) catchUpToWAL() error {
 	}
 
 	head := wal.last
-	if err := s.catchUpTo(head); err != nil {
+	if err := s.catchUpTo(ctx, head); err != nil {
 		return err
 	}
 	if err := s.matchHeight(head); err != nil {
@@ -141,7 +142,7 @@ func (s *StateDB) catchUpToWAL() error {
 //
 // One pass feeds both. It spans from the lower of their two versions, and each block goes only to the
 // store still below it, so the WAL is read once rather than once per store.
-func (s *StateDB) catchUpTo(target int64) error {
+func (s *StateDB) catchUpTo(ctx context.Context, target int64) error {
 	// Ahead of the pass, which is what erases the evidence it works from, and here rather than in the
 	// open because every replay of this WAL comes through this function.
 	if err := s.sc.RebuildIfUnreachable(target); err != nil {
@@ -157,7 +158,7 @@ func (s *StateDB) catchUpTo(target int64) error {
 		from = min(from, ssFrom)
 	}
 
-	if err := s.replay(from, target, func(block int64, changesets []*proto.NamedChangeSet) error {
+	if err := s.replay(ctx, from, target, func(block int64, changesets []*proto.NamedChangeSet) error {
 		if block > scFrom {
 			// SC owns no WAL, so re-committing a block read from this one appends nothing. It does run
 			// SC's commit path, so the checkpoint schedule is asked at each block SC takes.
@@ -180,7 +181,14 @@ func (s *StateDB) catchUpTo(target int64) error {
 // Blocks are contiguous from block 1, so a replay always starts at from+1. A WAL that begins later is
 // missing history the destination needs: starting at the WAL's own first block would skip those blocks
 // and commit a state matching no chain history, so it is reported as data loss.
-func (s *StateDB) replay(from, target int64, apply func(int64, []*proto.NamedChangeSet) error) error {
+//
+// A cancelled ctx stops the replay between blocks and is reported as an error. The blocks already
+// applied stay applied, and the next open resumes from the version they left behind.
+func (s *StateDB) replay(
+	ctx context.Context,
+	from, target int64,
+	apply func(int64, []*proto.NamedChangeSet) error,
+) error {
 	stored, first, last, err := s.wal.GetStoredRange()
 	if err != nil {
 		return fmt.Errorf("read state WAL range: %w", err)
@@ -216,6 +224,9 @@ func (s *StateDB) replay(from, target int64, apply func(int64, []*proto.NamedCha
 			break
 		}
 		block, changesets := it.Entry()
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("replay stopped at block %d of %d: %w", block, end, err)
+		}
 		if err := apply(int64(block), changesets); err != nil { //nolint:gosec // block <= end
 			return fmt.Errorf("replay block %d: %w", block, err)
 		}

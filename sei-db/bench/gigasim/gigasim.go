@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -110,9 +111,7 @@ func NewGigaSim(
 	storageCtx, stopStorage := context.WithCancel(context.Background())
 
 	fmt.Printf("Opening storage.\n")
-	stopReporting := reportSlowStep("opening storage")
-	storage, err := bootstrap.NewGigaStorageManager(storageCtx, storageConfig)
-	stopReporting()
+	storage, err := openStorage(ctx, storageCtx, stopStorage, storageConfig)
 	if err != nil {
 		stopStorage()
 		return nil, fmt.Errorf("failed to open storage: %w", err)
@@ -157,6 +156,47 @@ func NewGigaSim(
 
 // slowStepReportInterval is how often a step that has not finished says so on the console.
 const slowStepReportInterval = 15 * time.Second
+
+// openStorage opens every database the benchmark drives, abandoning the open if ctx is cancelled.
+//
+// The stores are opened under storageCtx, a scope that outlives the run so that an interrupt during it
+// drains the staged blocks rather than failing them. Nothing is staged yet while the open runs, so an
+// interrupt there has nothing to protect and ends the open instead, which spares an operator waiting
+// out a WAL replay they no longer want.
+func openStorage(
+	ctx context.Context,
+	storageCtx context.Context,
+	stopStorage context.CancelFunc,
+	storageConfig *dbconfig.GigaStorageConfig,
+) (*bootstrap.GigaStorageManager, error) {
+	stopReporting := reportSlowStep("opening storage")
+	defer stopReporting()
+
+	watching := make(chan struct{})
+	go func() {
+		select {
+		case <-watching:
+		case <-ctx.Done():
+			fmt.Printf("\nInterrupted while opening storage. Abandoning the open.\n")
+			stopStorage()
+		}
+	}()
+
+	storage, err := bootstrap.NewGigaStorageManager(storageCtx, storageConfig)
+	close(watching)
+	if err != nil {
+		return nil, err
+	}
+	// An interrupt landing as the open finished leaves stores under a cancelled scope, which nothing can
+	// be written through. An interrupt anywhere in the open abandons it, including at its very end.
+	if err := ctx.Err(); err != nil {
+		if closeErr := storage.Close(); closeErr != nil {
+			fmt.Printf("failed to close storage after an interrupted open: %v\n", closeErr)
+		}
+		return nil, err
+	}
+	return storage, nil
+}
 
 // reportSlowStep prints a console line every slowStepReportInterval until the returned function is
 // called. seilog output goes to a file, so a step that logs its progress there leaves the console with

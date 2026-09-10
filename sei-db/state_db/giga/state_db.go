@@ -85,7 +85,7 @@ func NewStateDB(
 	}
 	s.startCheckpointSchedule(checkpointCfg)
 
-	if err := s.catchUpToWAL(); err != nil {
+	if err := s.catchUpToWAL(ctx); err != nil {
 		return nil, err
 	}
 	return s, nil
