@@ -696,7 +696,11 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	// Start the RPC server before the P2P server
 	// so we can eg. receive txs for the first block
 	if n.config.EVMOnly {
-		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv)
+		storage, ok := n.gigaStorageManager.Get()
+		if !ok {
+			return errors.New("EVM-only RPC requires Giga storage")
+		}
+		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB())
 		if err != nil {
 			return err
 		}

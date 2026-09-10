@@ -176,7 +176,7 @@ if [ "$AUTOBAHN" = "true" ]; then
     sed -i '/^\[api\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
     sed -i '/^\[grpc\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
     sed -i '/^\[grpc-web\]/,/^\[/ s/^enable = .*/enable = false/' ~/.sei/config/app.toml
-    echo "Enabled Autobahn EVM-only execution with only eth_sendRawTransaction RPC for node $NODE_ID"
+    echo "Enabled Autobahn EVM-only execution with transaction submission and receipt RPC for node $NODE_ID"
   else
     seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
   fi

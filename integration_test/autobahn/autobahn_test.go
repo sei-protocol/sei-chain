@@ -30,6 +30,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"golang.org/x/sync/errgroup"
@@ -675,10 +676,55 @@ func testEVMOnlyLoad(t *testing.T) {
 	}
 
 	lastHeight, included := waitForEVMOnlyTxs(t, ctx, listRunningNodes(t), len(block.Txs))
+	assertEVMOnlyReceipts(t, ctx, clients, block.Txs)
 	elapsed := time.Since(started)
 	t.Logf("Autobahn finalized %d raw EVM transfers through %d validators in %s (%.0f tx/s)",
 		included, clusterSize, elapsed.Round(time.Millisecond), float64(included)/elapsed.Seconds())
 	t.Logf("all validators executed through at least height %d", lastHeight)
+}
+
+func assertEVMOnlyReceipts(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
+	t.Helper()
+	for nodeIndex, client := range clients {
+		tx := new(ethtypes.Transaction)
+		if err := tx.UnmarshalBinary(txs[nodeIndex]); err != nil {
+			t.Fatalf("decode EVM-only transaction %d: %v", nodeIndex, err)
+		}
+		txHash := tx.Hash()
+		var got *struct {
+			BlockHash        common.Hash     `json:"blockHash"`
+			BlockNumber      hexutil.Uint64  `json:"blockNumber"`
+			GasUsed          hexutil.Uint64  `json:"gasUsed"`
+			Status           hexutil.Uint64  `json:"status"`
+			To               *common.Address `json:"to"`
+			TransactionHash  common.Hash     `json:"transactionHash"`
+			TransactionIndex hexutil.Uint64  `json:"transactionIndex"`
+		}
+		if err := client.CallContext(ctx, &got, "eth_getTransactionReceipt", txHash); err != nil {
+			t.Fatalf("read EVM-only receipt %s from node %d: %v", txHash, nodeIndex, err)
+		}
+		if got == nil {
+			t.Fatalf("node %d returned null for finalized EVM-only receipt %s", nodeIndex, txHash)
+		}
+		if got.BlockHash == (common.Hash{}) {
+			t.Fatalf("node %d returned an empty block hash for receipt %s", nodeIndex, txHash)
+		}
+		if got.BlockNumber == 0 {
+			t.Fatalf("node %d returned block zero for receipt %s", nodeIndex, txHash)
+		}
+		if got.GasUsed != hexutil.Uint64(21_000) {
+			t.Fatalf("node %d returned gasUsed %d for receipt %s", nodeIndex, got.GasUsed, txHash)
+		}
+		if got.Status != hexutil.Uint64(ethtypes.ReceiptStatusSuccessful) {
+			t.Fatalf("node %d returned status %d for receipt %s", nodeIndex, got.Status, txHash)
+		}
+		if got.To == nil || tx.To() == nil || *got.To != *tx.To() {
+			t.Fatalf("node %d returned to %v for receipt %s", nodeIndex, got.To, txHash)
+		}
+		if got.TransactionHash != txHash {
+			t.Fatalf("node %d returned transaction hash %s, want %s", nodeIndex, got.TransactionHash, txHash)
+		}
+	}
 }
 
 func assertEVMOnlyTendermintRPCDisabled(t *testing.T) {

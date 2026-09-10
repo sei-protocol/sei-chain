@@ -34,8 +34,9 @@ host port. `list` shows those ports. `forward` starts a TCP relay when the
 requested port differs from the existing mapping.
 
 The EVM-only network does not start Tendermint RPC, the Cosmos REST API, or
-gRPC. Port 8545 exposes a deliberately minimal JSON-RPC service with only
-`eth_sendRawTransaction`; other EVM methods currently return method-not-found.
+gRPC. Port 8545 exposes a deliberately minimal JSON-RPC service with
+`eth_sendRawTransaction` and `eth_getTransactionReceipt`; other EVM methods
+currently return method-not-found.
 `list` reads execution height from the node's internal Prometheus endpoint
 inside its container, so cluster inspection does not require Tendermint RPC.
 
