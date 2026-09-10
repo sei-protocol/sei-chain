@@ -16,11 +16,14 @@ type URL struct{ *url.URL }
 
 func (u URL) MarshalText() ([]byte, error) { return []byte(u.String()), nil }
 func (u *URL) UnmarshalText(text []byte) error {
-	url, err := url.Parse(string(text))
+	parsed, err := url.Parse(string(text))
 	if err != nil {
 		return err
 	}
-	u.URL = url
+	if err := utils.CheckHTTPURL(*parsed); err != nil {
+		return err
+	}
+	u.URL = parsed
 	return nil
 }
 
@@ -106,6 +109,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	for _, v := range fc.Validators {
 		if v.EVMRPC.URL == nil {
 			return fmt.Errorf("validator %s is missing evmrpc URL", v.ValidatorKey)
+		}
+		if err := utils.CheckHTTPURL(*v.EVMRPC.URL); err != nil {
+			return fmt.Errorf("validator %s evmrpc: %w", v.ValidatorKey, err)
 		}
 	}
 	if fc.MaxTxsPerBlock == 0 {

@@ -233,11 +233,15 @@ async function pricing(
     return { maxFeePerGas, maxPriorityFeePerGas: tip, gasPrice: maxFeePerGas };
 }
 
-async function waitForNextBlock(provider: ethers.JsonRpcProvider, label: string): Promise<void> {
+async function waitForNextBlock(
+    provider: ethers.JsonRpcProvider,
+    label: string,
+    blocks = 1,
+): Promise<void> {
     const start = await provider.getBlockNumber();
     await waitUntil(
-        async () => ((await provider.getBlockNumber()) > start ? true : null),
-        { timeoutMs: 10_000, intervalMs: 25, label },
+        async () => ((await provider.getBlockNumber()) >= start + blocks ? true : null),
+        { timeoutMs: 10_000 * blocks, intervalMs: 25, label },
     );
 }
 
@@ -253,8 +257,10 @@ const ERC20_POINTER_IFACE = new ethers.Interface([
  * Broadcast one transaction of every kind, each from its own signer, and wait for
  * them to land in a single block. Retries the whole batch if the chain happens to
  * split them across blocks — each retry re-prices with a higher fee multiplier and
- * tip so the batch outbids its way into one block on a congested chain instead of
- * waiting the chain out. `signers` must hold at least 7 funded accounts.
+ * tip so the batch outbids its way into one block on a congested chain, and backs
+ * off by one more block per attempt so a transient stall on the cluster (a slow
+ * proposer, a backlog left by a preceding load test) has time to clear. `signers`
+ * must hold at least 9 funded accounts.
  *
  * When the chain has wasm enabled (runtime.wasm is populated by the bootstrap), the
  * block additionally carries a dual-VM pair for the same CW20 token: an EVM `transfer`
@@ -446,12 +452,11 @@ export async function buildRichSeiBlock(
             // CW20 transfer and the EVM batch together. Broadcasting the EVM txs first lets a
             // fast proposer seal them one height before the Cosmos tx, which made the rich-block
             // fixture flaky.
-            if (wasm) {
-                await waitForNextBlock(
-                    provider,
-                    `next Sei block before rich batch attempt ${attempt + 1}`,
-                );
-            }
+            await waitForNextBlock(
+                provider,
+                `next Sei block before rich batch attempt ${attempt + 1}`,
+                1 + attempt,
+            );
             const cosmosPending = preparedCosmos
                 ? preparedCosmos
                       .broadcast()
@@ -508,8 +513,11 @@ export async function buildRichSeiBlock(
                     cosmosShellGas: wasm && cosmos ? cosmos.gasUsed : undefined,
                 };
             }
+            const placement = specs
+                .map((s, i) => `${s.kind}@${receipts[i]?.blockNumber ?? 'none'}:${receipts[i]?.status ?? '?'}`)
+                .join(' ');
             lastErr = new Error(
-                `attempt ${attempt + 1}: EVM blocks ${[...uniqueBlocks].join(',')}` +
+                `attempt ${attempt + 1}: EVM blocks ${[...uniqueBlocks].join(',')} [${placement}]` +
                     (wasm
                         ? `, cosmos cw20 ${cosmos ? `code ${cosmos.code} @ block ${cosmos.height}` : 'failed'} ` +
                           `(EVM block ${blockNumbers[0]})`
