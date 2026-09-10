@@ -260,9 +260,12 @@ build-rpc-node:
 .PHONY: build-rpc-node
 
 # Integration-test CI: verify images pulled from GHCR by the matrix job.
-ensure-integration-ci-images:
+ensure-integration-ci-localnode-image:
 	@docker image inspect sei-chain/localnode >/dev/null 2>&1 || (echo "sei-chain/localnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
-	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
+.PHONY: ensure-integration-ci-localnode-image
+
+ensure-integration-ci-images: ensure-integration-ci-localnode-image
+	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; pull from GHCR (see prepare-rpcnode job)" && exit 1)
 .PHONY: ensure-integration-ci-images
 
 # Build seid once inside the localnode image (integration-test prepare job).
@@ -281,7 +284,7 @@ build-seid-in-localnode: build-docker-node
 .PHONY: build-seid-in-localnode
 
 # CI variant: assumes localnode image already built by Buildx in prepare-cluster (skips docker build).
-build-seid-in-localnode-ci: ensure-integration-ci-images
+build-seid-in-localnode-ci: ensure-integration-ci-localnode-image
 	@mkdir -p build $(shell go env GOMODCACHE) $(shell go env GOCACHE)
 	@docker run --rm \
 		--user="$(shell id -u):$(shell id -g)" \
