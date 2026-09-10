@@ -157,6 +157,7 @@ func (s *StateDB) catchUpTo(ctx context.Context, target int64) error {
 	if ssReplays {
 		from = min(from, ssFrom)
 	}
+	s.logReplayPlan(scFrom, ssFrom, ssReplays, target)
 
 	if err := s.replay(ctx, from, target, func(block int64, changesets []*proto.NamedChangeSet) error {
 		if block > scFrom {
@@ -174,6 +175,35 @@ func (s *StateDB) catchUpTo(ctx context.Context, target int64) error {
 		return err
 	}
 	return nil
+}
+
+// logReplayPlan reports the height each store resumes from and the blocks the pass about to run will
+// feed it.
+//
+// It is logged even when nothing is replayed, because an open that had no catching up to do is
+// otherwise indistinguishable from one still working through a long pass.
+func (s *StateDB) logReplayPlan(scFrom int64, ssFrom int64, ssReplays bool, target int64) {
+	fields := append([]any{"target", target}, replayPlanFields("sc", scFrom, target)...)
+	if s.ss != nil {
+		// A store left out of the pass replays nothing, which is a range ending where it already sits.
+		to := target
+		if !ssReplays {
+			ssFrom = s.ss.GetLatestVersion()
+			to = ssFrom
+		}
+		fields = append(fields, replayPlanFields("ss", ssFrom, to)...)
+	}
+	logger.Info("State DB replay plan", fields...)
+}
+
+// replayPlanFields describes one store's share of a replay: the version it holds, and the blocks it is
+// about to take. The range is omitted when there are none, so an empty plan reads as one.
+func replayPlanFields(store string, from int64, to int64) []any {
+	fields := []any{store + "_version", from, store + "_replay_blocks", to - from}
+	if to > from {
+		fields = append(fields, store+"_replay_from", from+1, store+"_replay_to", to)
+	}
+	return fields
 }
 
 // replay feeds apply every WAL block in (from, target], in order.

@@ -158,6 +158,10 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	littConfig.TargetSegmentKeyFileSize = 5 * unit.GB
 	littConfig.KeymapType = keymap.PebbleDBKeymapType
 
+	// MetricsServeEndpoint stays false: litt records into the process-wide MeterProvider rather than
+	// standing up a registry and port of its own.
+	littConfig.MetricsEnabled = cfg.LittMetricsEnabled
+
 	values, err := littbuilder.NewDB(littConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open littdb: %w", err)

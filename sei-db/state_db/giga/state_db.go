@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
@@ -46,7 +48,17 @@ type StateDB struct {
 
 	// The checkpoint schedule SC and SS take their snapshot boundaries from.
 	checkpointer *controller.CheckpointScheduler
+
+	// Splits a commit into the three stores it writes. Driven only by CommitStateChanges, which
+	// callers serialize.
+	commitPhases *metrics.PhaseTimer
 }
+
+// commitPhaseTimerName prefixes the instruments the commit phase breakdown is published on.
+const commitPhaseTimerName = "giga_state_commit"
+
+// gigaMeterName is the OTel meter this package's instruments are created on.
+const gigaMeterName = "seidb_giga"
 
 // NewStateDB opens SC, SS and the state WAL from their configs and puts SC and SS on one checkpoint
 // schedule.
@@ -63,7 +75,11 @@ func NewStateDB(
 	ssCfg config.StateStoreConfig,
 	checkpointCfg config.CheckpointConfig,
 ) (db *StateDB, retErr error) {
-	s := &StateDB{flatkvCfg: flatkvCfg, ssCfg: ssCfg}
+	s := &StateDB{
+		flatkvCfg:    flatkvCfg,
+		ssCfg:        ssCfg,
+		commitPhases: metrics.NewPhaseTimer(otel.Meter(gigaMeterName), commitPhaseTimerName),
+	}
 	defer s.closeOnFailure(&retErr)
 
 	wal, err := s.storedWALRange()
@@ -301,6 +317,11 @@ func (s *StateDB) PrunableStores() []controller.PrunableStore {
 	return stores
 }
 
+// CommitStateChanges writes a block to the state WAL, the state commit store and the EVM state store,
+// in that order. Callers must not run two commits at once.
+//
+// The time each of the three takes is published under commitPhaseTimerName, split by phase, which is
+// what makes a slow store on the commit path attributable to that store.
 func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
 	if blockNum < 0 {
 		// The WAL numbers blocks with a uint64, so a negative height converts to a block far in the
@@ -308,7 +329,11 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 		return fmt.Errorf("commit block %d: block number must not be negative", blockNum)
 	}
 
+	// Ends the phase in flight, so the gap until the next commit is not charged to the last store.
+	defer s.commitPhases.Reset()
+
 	// No need to flush WAL, since this WAL isn't used for crash recoverability safety (that's the BlockDB's job).
+	s.commitPhases.SetPhase("write_state_wal")
 	if err := s.wal.Write(uint64(blockNum), changeset); err != nil {
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
 	}
@@ -316,12 +341,15 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 		return fmt.Errorf("end block %d in state WAL: %w", blockNum, err)
 	}
 
+	s.commitPhases.SetPhase("commit_sc")
 	if err := s.sc.CommitStateChanges(blockNum, changeset); err != nil {
 		return fmt.Errorf("commit block %d to live state DB: %w", blockNum, err)
 	}
 	// SS takes the block asynchronously and is not waited on: the WAL is written first, so a shutdown
 	// that loses the queue leaves SS behind the WAL, which is the gap catchUpTo replays on the next open.
+	// What is timed here is therefore the wait to hand the block over, not the write itself.
 	if s.ss != nil {
+		s.commitPhases.SetPhase("enqueue_ss")
 		if err := s.ss.CommitBlock(blockNum, changeset); err != nil {
 			return fmt.Errorf("commit block %d to the EVM state store: %w", blockNum, err)
 		}

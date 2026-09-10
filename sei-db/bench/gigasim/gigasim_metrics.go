@@ -6,11 +6,21 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
 // gigasimMeterName is the OTel meter every gigasim instrument is created on.
 const gigasimMeterName = "gigasim"
+
+// The stores write volume is attributed to, as the store label on gigasim_store_bytes_written_total.
+// Each names the directory the store occupies under the data directory.
+const (
+	storeBlockDB     = "block_db"
+	storeReceiptDB   = "receipt_db"
+	storeStateCommit = "state_commit"
+	storeStateStore  = "state_store"
+)
 
 // GigasimMetrics holds the OpenTelemetry instruments for the gigasim benchmark.
 //
@@ -19,7 +29,7 @@ const gigasimMeterName = "gigasim"
 type GigasimMetrics struct {
 	blocksProcessedTotal      metric.Int64Counter
 	transactionsExecutedTotal metric.Int64Counter
-	blockBytesWrittenTotal    metric.Int64Counter
+	storeBytesWrittenTotal    metric.Int64Counter
 	qcsWrittenTotal           metric.Int64Counter
 	stateCommitsTotal         metric.Int64Counter
 	stateChangesTotal         metric.Int64Counter
@@ -30,6 +40,7 @@ type GigasimMetrics struct {
 	totalAccounts       metric.Int64Gauge
 	hotAccounts         metric.Int64Gauge
 	coldAccounts        metric.Int64Gauge
+	dormantAccounts     metric.Int64Gauge
 	erc20Contracts      metric.Int64Gauge
 	stagedBlockQueueLen metric.Int64Gauge
 
@@ -38,6 +49,7 @@ type GigasimMetrics struct {
 	mainThreadPhase   *metrics.PhaseTimer
 	generatorPhase    *metrics.PhaseTimer
 	transactionPhases *metrics.PhaseTimerFactory
+	lifecyclePhases   *metrics.PhaseTimerFactory
 }
 
 // NewGigasimMetrics creates the benchmark's instruments on the global OTel MeterProvider, which the
@@ -55,9 +67,9 @@ func NewGigasimMetrics() *GigasimMetrics {
 		metric.WithDescription("Total number of simulated transactions executed against the state DB"),
 		metric.WithUnit("{count}"),
 	)
-	blockBytesWrittenTotal, _ := meter.Int64Counter(
-		"gigasim_block_bytes_written_total",
-		metric.WithDescription("Total bytes of block payload written to the block store"),
+	storeBytesWrittenTotal, _ := meter.Int64Counter(
+		"gigasim_store_bytes_written_total",
+		metric.WithDescription("Total bytes handed to each store, labelled by store"),
 		metric.WithUnit("By"),
 	)
 	qcsWrittenTotal, _ := meter.Int64Counter(
@@ -106,6 +118,11 @@ func NewGigasimMetrics() *GigasimMetrics {
 		metric.WithDescription("Number of accounts eligible for cold selection"),
 		metric.WithUnit("{count}"),
 	)
+	dormantAccounts, _ := meter.Int64Gauge(
+		"gigasim_accounts_dormant",
+		metric.WithDescription("Number of accounts that exist but are never selected"),
+		metric.WithUnit("{count}"),
+	)
 	erc20Contracts, _ := meter.Int64Gauge(
 		"gigasim_erc20_contracts_total",
 		metric.WithDescription("Number of simulated ERC20 contracts in existence"),
@@ -127,7 +144,7 @@ func NewGigasimMetrics() *GigasimMetrics {
 	return &GigasimMetrics{
 		blocksProcessedTotal:      blocksProcessedTotal,
 		transactionsExecutedTotal: transactionsExecutedTotal,
-		blockBytesWrittenTotal:    blockBytesWrittenTotal,
+		storeBytesWrittenTotal:    storeBytesWrittenTotal,
 		qcsWrittenTotal:           qcsWrittenTotal,
 		stateCommitsTotal:         stateCommitsTotal,
 		stateChangesTotal:         stateChangesTotal,
@@ -137,13 +154,32 @@ func NewGigasimMetrics() *GigasimMetrics {
 		totalAccounts:             totalAccounts,
 		hotAccounts:               hotAccounts,
 		coldAccounts:              coldAccounts,
+		dormantAccounts:           dormantAccounts,
 		erc20Contracts:            erc20Contracts,
 		stagedBlockQueueLen:       stagedBlockQueueLen,
 		blockHashWaitSeconds:      blockHashWaitSeconds,
 		mainThreadPhase:           metrics.NewPhaseTimer(meter, "gigasim_main_thread"),
 		generatorPhase:            metrics.NewPhaseTimer(meter, "gigasim_generator"),
 		transactionPhases:         metrics.NewPhaseTimerFactory(meter, "gigasim_transaction"),
+		lifecyclePhases:           metrics.NewPhaseTimerFactory(meter, "gigasim_lifecycle"),
 	}
+}
+
+// NewLifecycleTimer returns a timer recording one goroutine's share of a block's critical path.
+//
+// A block is produced on the generator's goroutine and consumed on the main loop's, so the phases that
+// make up its latency are spread over both and each needs a timer of its own. They publish to one set
+// of instruments, which is what lets a single query stack the whole path.
+//
+// The phases recorded here are only the work a block passes through. Time a goroutine spends waiting
+// for the other one is left out, so that the phases sum to the latency of a block rather than to the
+// wall clock of two goroutines. The commit itself is left to the state DB, which is the layer that can
+// tell the state WAL, SC and SS apart.
+func (m *GigasimMetrics) NewLifecycleTimer() *metrics.PhaseTimer {
+	if m == nil || m.lifecyclePhases == nil {
+		return nil
+	}
+	return m.lifecyclePhases.Build()
 }
 
 // NewTransactionPhaseTimer returns a phase timer for one executor. Each executor needs its own: a
@@ -172,7 +208,7 @@ func (m *GigasimMetrics) SetGeneratorPhase(phase string) {
 }
 
 // ReportBlockProcessed records one block completing every stage of the pipeline.
-func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64, payloadBytes int64) {
+func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64) {
 	if m == nil {
 		return
 	}
@@ -183,12 +219,20 @@ func (m *GigasimMetrics) ReportBlockProcessed(number int64, transactions int64, 
 	if m.transactionsExecutedTotal != nil {
 		m.transactionsExecutedTotal.Add(ctx, transactions)
 	}
-	if m.blockBytesWrittenTotal != nil {
-		m.blockBytesWrittenTotal.Add(ctx, payloadBytes)
-	}
 	if m.highestBlockHeight != nil {
 		m.highestBlockHeight.Record(ctx, number)
 	}
+}
+
+// ReportStoreBytesWritten records bytes handed to one store, named by a store constant. It is the
+// volume the benchmark asked the store to take, so it excludes whatever the engine below amplifies it
+// to; the pebble_ and litt_ instruments carry that.
+func (m *GigasimMetrics) ReportStoreBytesWritten(store string, bytes int64) {
+	if m == nil || m.storeBytesWrittenTotal == nil {
+		return
+	}
+	m.storeBytesWrittenTotal.Add(context.Background(), bytes,
+		metric.WithAttributes(attribute.String("store", store)))
 }
 
 // ReportQCWritten records one commit QC reaching the block store.
@@ -237,8 +281,8 @@ func (m *GigasimMetrics) RecordBlockHashWaitDuration(d time.Duration) {
 	m.blockHashWaitSeconds.Record(context.Background(), d.Seconds())
 }
 
-// SetAccountCounts records the size of the account population and of the sets transactions draw from.
-func (m *GigasimMetrics) SetAccountCounts(total int64, hot int64, cold int64) {
+// SetAccountCounts records the size of the account population and of the sets it divides into.
+func (m *GigasimMetrics) SetAccountCounts(total int64, hot int64, cold int64, dormant int64) {
 	if m == nil {
 		return
 	}
@@ -251,6 +295,9 @@ func (m *GigasimMetrics) SetAccountCounts(total int64, hot int64, cold int64) {
 	}
 	if m.coldAccounts != nil {
 		m.coldAccounts.Record(ctx, cold)
+	}
+	if m.dormantAccounts != nil {
+		m.dormantAccounts.Record(ctx, dormant)
 	}
 }
 

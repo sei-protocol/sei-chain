@@ -256,7 +256,11 @@ func (a *accountModel) RandomErc20Contract() ([]byte, error) {
 // block that created it has been committed.
 func (a *accountModel) ReportEndOfBlock() {
 	a.highestSafeAccountID = a.nextAccountID - 1
-	a.metrics.SetAccountCounts(a.nextAccountID, int64(a.config.NumberOfHotAccounts), a.numberOfColdAccounts)
+	hot := int64(a.config.NumberOfHotAccounts)
+	// Every account belongs to exactly one set, less the fee collection account at identifier zero, so
+	// what is neither hot nor cold is dormant.
+	dormant := max(0, a.nextAccountID-1-hot-a.numberOfColdAccounts)
+	a.metrics.SetAccountCounts(a.nextAccountID, hot, a.numberOfColdAccounts, dormant)
 	a.metrics.SetErc20ContractCount(a.nextErc20ContractID)
 }
 

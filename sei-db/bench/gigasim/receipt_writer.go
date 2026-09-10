@@ -28,6 +28,7 @@ func (w *receiptWriter) writeBlock(number int64, receipts []*evmtypes.Receipt) e
 		return nil
 	}
 
+	var encodedBytes int64
 	records := make([]receipt.ReceiptRecord, 0, len(receipts))
 	for _, rcpt := range receipts {
 		// The store accepts pre-marshaled bytes, and marshaling here keeps the cost of producing them
@@ -37,6 +38,7 @@ func (w *receiptWriter) writeBlock(number int64, receipts []*evmtypes.Receipt) e
 			return fmt.Errorf("failed to marshal the receipt for transaction %d of block %d: %w",
 				rcpt.TransactionIndex, number, err)
 		}
+		encodedBytes += int64(len(encoded))
 		records = append(records, receipt.ReceiptRecord{
 			TxHash:       common.HexToHash(rcpt.TxHashHex),
 			Receipt:      rcpt,
@@ -48,5 +50,6 @@ func (w *receiptWriter) writeBlock(number int64, receipts []*evmtypes.Receipt) e
 		return fmt.Errorf("failed to write the receipts for block %d: %w", number, err)
 	}
 	w.metrics.ReportReceiptsWritten(int64(len(records)))
+	w.metrics.ReportStoreBytesWritten(storeReceiptDB, encodedBytes)
 	return nil
 }

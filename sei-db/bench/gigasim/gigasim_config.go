@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -139,6 +140,11 @@ type GigasimConfig struct {
 	// How often to scrape background metrics such as data directory size, in seconds. 0 disables them.
 	BackgroundMetricsScrapeInterval int
 
+	// If true, the LittDB-backed block store and receipt store record their litt_* instruments onto the
+	// same endpoint the gigasim_* ones are served from. They carry the size and the queue depth of those
+	// two stores, which nothing else reports.
+	LittMetricsEnabled bool
+
 	// If true, pressing Enter in the terminal toggles suspend/resume.
 	EnableSuspension bool
 
@@ -198,6 +204,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		MaxRuntimeSeconds:               0,
 		MetricsAddr:                     ":9090",
 		BackgroundMetricsScrapeInterval: 60,
+		LittMetricsEnabled:              true,
 		EnableSuspension:                true,
 		LogDir:                          "logs",
 		LogLevel:                        "info",
@@ -221,6 +228,9 @@ func (c *GigasimConfig) storageConfig() (*config.GigaStorageConfig, error) {
 	storage.SSConfig.Enable = c.EnableSS
 	storage.ReceiptDBConfig.Enable = c.EnableReceiptStore
 
+	storage.BlockDBConfig.Litt.MetricsEnabled = c.LittMetricsEnabled
+	storage.ReceiptDBConfig.LittMetricsEnabled = c.LittMetricsEnabled
+
 	storage.PruningConfig.RollbackWindow = c.RollbackWindow
 	storage.PruningConfig.LookbackWindow = c.LookbackWindow
 	storage.PruningConfig.PruneInterval = time.Duration(c.PruneIntervalSeconds) * time.Second
@@ -229,6 +239,28 @@ func (c *GigasimConfig) storageConfig() (*config.GigaStorageConfig, error) {
 	storage.CheckpointConfig.BlockInterval = c.CheckpointBlockInterval
 
 	return storage, nil
+}
+
+// MonitoredDirs returns every directory whose size the run reports: the data and log directories, and
+// each store's own directory beneath them.
+//
+// The state WAL sits inside the state commit store's directory, so its size is counted in both.
+//
+// DataDir must already be resolved to an absolute path, since every store's location derives from it.
+func (c *GigasimConfig) MonitoredDirs() ([]metrics.MonitoredDir, error) {
+	storage, err := c.storageConfig()
+	if err != nil {
+		return nil, err
+	}
+	return []metrics.MonitoredDir{
+		{Name: "data_dir", Path: c.DataDir, TrackAvailableSpace: true},
+		{Name: "log_dir", Path: c.LogDir},
+		{Name: storeBlockDB, Path: utils.GetBlockStorePath(c.DataDir)},
+		{Name: storeReceiptDB, Path: storage.ReceiptDBConfig.DBDirectory},
+		{Name: storeStateCommit, Path: storage.FlatKVConfig.DataDir},
+		{Name: storeStateStore, Path: storage.SSConfig.EVMDBDirectory},
+		{Name: "state_wal", Path: utils.GetChangelogPath(storage.FlatKVConfig.DataDir)},
+	}, nil
 }
 
 // Validate reports the first unusable setting, or nil when the whole configuration is sound.

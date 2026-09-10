@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -42,11 +43,7 @@ type identifierCounters struct {
 
 // payloadBytes is the block's size on the block store's write path.
 func (b *simulatedBlock) payloadBytes() int64 {
-	var total int64
-	for _, tx := range b.payload {
-		total += int64(len(tx))
-	}
-	return total
+	return payloadBytes(b.payload)
 }
 
 // blockGenerator produces blocks on its own goroutine, persists each one to the block ledger, and hands
@@ -82,6 +79,9 @@ type blockGenerator struct {
 	// builds receipts.
 	bloomHasher hash.Hash
 
+	// This goroutine's share of a block's critical path: building it and storing it.
+	lifecycle *metrics.PhaseTimer
+
 	metrics *GigasimMetrics
 }
 
@@ -109,6 +109,7 @@ func newBlockGenerator(
 		rateLimiter: rateLimiter,
 		blocksChan:  make(chan *simulatedBlock, config.StagedBlockQueueSize),
 		bloomHasher: sha3.NewLegacyKeccak256(),
+		lifecycle:   metrics.NewLifecycleTimer(),
 		metrics:     metrics,
 	}
 }
@@ -136,15 +137,21 @@ func (g *blockGenerator) mainLoop() {
 		}
 		g.throttle()
 
+		g.lifecycle.SetPhase("generate")
 		block, err := g.buildBlock()
 		if err != nil {
 			g.abort(fmt.Errorf("failed to generate block %d: %w", g.next, err))
 			return
 		}
+		g.lifecycle.SetPhase("write_block")
 		if err := g.storeBlock(block); err != nil {
 			g.abort(err)
 			return
 		}
+		// The block is finished, so the clock stops before the hand-off below. Waiting for the consumer
+		// is this goroutine idling rather than a stage the block passes through, and charging it to the
+		// block would make the critical path grow as the pipeline drains.
+		g.lifecycle.Reset()
 
 		// A block already in the ledger has to reach execution, so this hand-off is not abandoned on
 		// cancellation: the consumer drains the queue before it closes the stores.

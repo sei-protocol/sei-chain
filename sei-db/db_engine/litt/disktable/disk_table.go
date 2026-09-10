@@ -802,6 +802,11 @@ func (d *DiskTable) IsDropped() bool {
 	return d.destroyed.Load()
 }
 
+// WriteQueueDepths returns how many messages are waiting in the control loop and in the flush loop.
+func (d *DiskTable) WriteQueueDepths() (control int, flush int) {
+	return len(d.controlLoop.controllerChannel), len(d.flushLoop.flushChannel)
+}
+
 // Drop stops the disk table and deletes all files.
 func (d *DiskTable) Drop() error {
 	firstTimeDestroying := d.destroyed.CompareAndSwap(false, true)

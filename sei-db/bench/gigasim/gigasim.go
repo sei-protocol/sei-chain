@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -53,6 +54,9 @@ type GigaSim struct {
 	// Counts the shares of the current block still executing, and the executor goroutines still alive.
 	executing        sync.WaitGroup
 	executorsRunning sync.WaitGroup
+
+	// This goroutine's share of a block's critical path, shared with executionState.
+	lifecycle *metrics.PhaseTimer
 
 	metrics *GigasimMetrics
 
@@ -229,7 +233,11 @@ func assemble(
 	metrics *GigasimMetrics,
 	storage *bootstrap.GigaStorageManager,
 ) (*GigaSim, error) {
-	state, err := newExecutionState(config, storage.StateDB(), metrics)
+	// One timer for the whole consuming goroutine: the run loop and the state it commits through both
+	// run on it, and a timer tracks a single goroutine's current phase.
+	lifecycle := metrics.NewLifecycleTimer()
+
+	state, err := newExecutionState(config, storage.StateDB(), metrics, lifecycle)
 	if err != nil {
 		return nil, err
 	}
@@ -258,6 +266,7 @@ func assemble(
 		state:               state,
 		receipts:            receipts,
 		accounts:            accounts,
+		lifecycle:           lifecycle,
 		metrics:             metrics,
 		consoleUpdatePeriod: time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second)),
 		closeChan:           make(chan struct{}, 1),
@@ -457,7 +466,7 @@ func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 	g.totalTransactions += int64(len(block.transactions))
 	g.totalPayloadBytes += block.payloadBytes()
 	g.highestBlock.Store(block.number)
-	g.metrics.ReportBlockProcessed(block.number, int64(len(block.transactions)), block.payloadBytes())
+	g.metrics.ReportBlockProcessed(block.number, int64(len(block.transactions)))
 	return nil
 }
 
@@ -465,6 +474,7 @@ func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 // wait is what makes the writes a complete block before any of them is committed.
 func (g *GigaSim) executeBlock(block *simulatedBlock) {
 	g.metrics.SetMainThreadPhase("execute_block")
+	g.lifecycle.SetPhase("execute")
 
 	transactions := block.transactions
 	share := len(transactions) / len(g.executors)
@@ -496,6 +506,7 @@ func (g *GigaSim) persistExecutionResults(
 ) error {
 	if g.receipts != nil {
 		g.metrics.SetMainThreadPhase("write_receipts")
+		g.lifecycle.SetPhase("write_receipts")
 		if err := g.receipts.writeBlock(number, receipts); err != nil {
 			return err
 		}

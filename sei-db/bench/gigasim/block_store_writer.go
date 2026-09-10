@@ -94,9 +94,19 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	if err := w.store.WriteBlock(globalNumber, block); err != nil {
 		return fmt.Errorf("failed to write block %d to the block store: %w", number, err)
 	}
+	w.metrics.ReportStoreBytesWritten(storeBlockDB, payloadBytes(payload))
 	w.parentHash = block.Header().Hash()
 	w.laneBlockNumber = block.Header().Next()
 	return nil
+}
+
+// payloadBytes is the size of the transactions a block carries into the ledger.
+func payloadBytes(payload [][]byte) int64 {
+	var total int64
+	for _, tx := range payload {
+		total += int64(len(tx))
+	}
+	return total
 }
 
 // writeCoveringQC writes the QC finalizing the range that starts at first.

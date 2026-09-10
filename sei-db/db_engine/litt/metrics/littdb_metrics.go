@@ -45,6 +45,10 @@ type LittDBMetrics struct {
 	// The number of currently-open iterators for individual tables in the database.
 	openIteratorCount metric.Int64Gauge
 
+	// The depth of the control loop and the flush loop queues, which is where a table's writes back up.
+	controlQueueDepth metric.Int64Gauge
+	flushQueueDepth   metric.Int64Gauge
+
 	// The number of bytes read from disk since startup.
 	bytesReadCounter metric.Int64Counter
 
@@ -132,6 +136,22 @@ func NewLittDBMetrics() *LittDBMetrics {
 		metric.WithDescription(
 			"The number of currently-open iterators for individual tables in the database. "+
 				"A persistently nonzero value indicates a leaked iterator, which suspends garbage collection."),
+		metric.WithUnit("{count}"),
+	)
+
+	controlQueueDepth, _ := meter.Int64Gauge(
+		"litt_control_queue_depth",
+		metric.WithDescription(
+			"The number of messages waiting in a table's control loop. A depth sitting at the configured "+
+				"control channel size means writes to the table are blocking on it."),
+		metric.WithUnit("{count}"),
+	)
+
+	flushQueueDepth, _ := meter.Int64Gauge(
+		"litt_flush_queue_depth",
+		metric.WithDescription(
+			"The number of flushes waiting in a table's flush loop. A depth sitting at the configured "+
+				"flush channel size means the control loop is blocking behind flushes."),
 		metric.WithUnit("{count}"),
 	)
 
@@ -265,6 +285,8 @@ func NewLittDBMetrics() *LittDBMetrics {
 		tableSizeInBytes:         tableSizeInBytes,
 		tableKeyCount:            tableKeyCount,
 		openIteratorCount:        openIteratorCount,
+		controlQueueDepth:        controlQueueDepth,
+		flushQueueDepth:          flushQueueDepth,
 		bytesReadCounter:         bytesReadCounter,
 		keysReadCounter:          keysReadCounter,
 		cacheHitCounter:          cacheHitCounter,
@@ -314,6 +336,10 @@ func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTab
 
 		tableKeyCount := table.KeyCount()
 		m.tableKeyCount.Record(ctx, int64(tableKeyCount), attrs) //nolint:gosec // key count fits int64
+
+		control, flush := table.WriteQueueDepths()
+		m.controlQueueDepth.Record(ctx, int64(control), attrs)
+		m.flushQueueDepth.Record(ctx, int64(flush), attrs)
 	}
 }
 

@@ -81,11 +81,11 @@ func run() (err error) {
 	// The server starts after setup so that the rates it reports describe the measured workload rather
 	// than the account prepopulation that precedes it.
 	metrics.StartMetricsServer(ctx, reg, config.MetricsAddr)
-	metrics.StartSystemMetrics(ctx, "gigasim", config.BackgroundMetricsScrapeInterval,
-		[]metrics.MonitoredDir{
-			{Name: "data_dir", Path: config.DataDir, TrackAvailableSpace: true},
-			{Name: "log_dir", Path: config.LogDir},
-		})
+	monitoredDirs, err := config.MonitoredDirs()
+	if err != nil {
+		return err
+	}
+	metrics.StartSystemMetrics(ctx, "gigasim", config.BackgroundMetricsScrapeInterval, monitoredDirs)
 
 	if config.EnableSuspension {
 		go func() {

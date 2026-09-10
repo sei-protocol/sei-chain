@@ -116,14 +116,26 @@ the one on disk.
 
 # Metrics
 
-Metrics are served for Prometheus at `MetricsAddr` (`:9090` by default; empty disables the server). All
-instruments are prefixed `gigasim_`, and cover per-store throughput, the staged block queue depth, the
-account population, block hash wait time, and a phase breakdown for the generator thread, the consumer
-thread and the executors.
+Metrics are served for Prometheus at `MetricsAddr` (`:9090` by default; empty disables the server). The
+benchmark's own instruments are prefixed `gigasim_` and cover per-store write volume, the staged block
+queue depth, the account population, on-disk size per store, block hash wait time, and a phase
+breakdown for the generator thread, the consumer thread and the executors. The stores served on the
+same endpoint publish their own: `flatkv_`, `seiwal_`, `litt_`, `pebble_` and `giga_state_commit_`.
 
-The queue depth is the first number to read when interpreting a run: a queue that stays full means
-execution and the state DB are the limit, and one that stays empty means generation or the block ledger
-is.
+`LittMetricsEnabled` controls the last of those for the two LittDB-backed stores, the block ledger and
+the receipt store. It is on by default and is the only source of their size and queue depth.
+
+## Reading a run
+
+`gigasim_lifecycle_phase_duration_seconds_total` and `giga_state_commit_phase_duration_seconds_total`
+together break one block's latency into the stages it blocks in — generating it, writing it to the
+ledger, executing it, writing its receipts, and the three stores the commit fans out to. Only blocking
+work is counted, so waiting for another goroutine is excluded and an asynchronous store contributes the
+wait to hand the block over rather than the write itself. Stacked, they sum to the critical path of one
+block, which is what makes the tallest band the thing to fix.
+
+The queue depths say which stage is applying the backpressure: one that stays full is the limit, and
+one that stays empty means the stage feeding it is.
 
 For local Prometheus and Grafana containers, see the corresponding section of the
 [cryptosim README](../cryptosim/README.md#setting-up-prometheus--grafana); the setup is the same.

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -30,6 +32,10 @@ type executionState struct {
 	// Takes one block hash per block committed, so that the benchmark cannot outrun hashing.
 	hashes *blockHashWaiter
 
+	// The main loop's share of a block's critical path, shared with the run loop because both run on
+	// that goroutine and a timer tracks one goroutine's current phase.
+	lifecycle *metrics.PhaseTimer
+
 	metrics *GigasimMetrics
 }
 
@@ -39,6 +45,7 @@ func newExecutionState(
 	config *GigasimConfig,
 	db *giga.StateDB,
 	metrics *GigasimMetrics,
+	lifecycle *metrics.PhaseTimer,
 ) (*executionState, error) {
 	view := db.OpenView()
 
@@ -51,11 +58,12 @@ func newExecutionState(
 	}
 
 	return &executionState{
-		db:      db,
-		view:    view,
-		batch:   newStateBatch(),
-		hashes:  waiter,
-		metrics: metrics,
+		db:        db,
+		view:      view,
+		batch:     newStateBatch(),
+		hashes:    waiter,
+		lifecycle: lifecycle,
+		metrics:   metrics,
 	}, nil
 }
 
@@ -89,22 +97,52 @@ func (s *executionState) Get(key []byte) ([]byte, bool) {
 func (s *executionState) commitBlock(blockNum int64, counters identifierCounters) error {
 	s.metrics.SetMainThreadPhase("finalizing")
 
+	s.lifecycle.SetPhase("drain_batch")
 	changeSets := s.batch.drainToChangeSet(counters)
+
+	// SC and SS are handed the same changeset, so the volume they take in is the same. SS is reported
+	// only when it is open, which is what makes it fall to zero on a validator's stack rather than
+	// claiming writes nothing performed.
+	staged := changesetBytes(changeSets)
+	s.metrics.ReportStoreBytesWritten(storeStateCommit, staged)
+	if s.db.SS() != nil {
+		s.metrics.ReportStoreBytesWritten(storeStateStore, staged)
+	}
 
 	// One commit per block: that is the store contract, so the benchmark must not batch.
 	s.metrics.SetMainThreadPhase("committing_state")
+	// The state DB splits the commit across the state WAL, SC and SS and times each itself, being the
+	// layer that can tell them apart. Standing down here keeps one commit out of two breakdowns.
+	s.lifecycle.Reset()
 	if err := s.db.CommitStateChanges(blockNum, changeSets); err != nil {
 		return fmt.Errorf("failed to commit block %d to the state DB: %w", blockNum, err)
 	}
 	s.metrics.ReportStateCommit(int64(len(changeSets[0].Changeset.Pairs)))
+
+	s.lifecycle.SetPhase("reopen_view")
 	s.reopenView()
 
 	// Committing a block is not finishing it: the hash of a block committed a bounded number of blocks
 	// ago is taken here, and waited for when hashing has fallen behind execution.
-	if err := s.hashes.awaitBlock(); err != nil {
+	s.lifecycle.SetPhase("await_hash")
+	err := s.hashes.awaitBlock()
+	s.lifecycle.Reset()
+	if err != nil {
 		return fmt.Errorf("failed to obtain a block hash after committing block %d: %w", blockNum, err)
 	}
 	return nil
+}
+
+// changesetBytes is the size of the keys and values a block commits, which is the volume the state WAL,
+// SC and SS each take in.
+func changesetBytes(changeSets []*proto.NamedChangeSet) int64 {
+	var total int64
+	for _, named := range changeSets {
+		for _, pair := range named.Changeset.Pairs {
+			total += int64(len(pair.Key) + len(pair.Value))
+		}
+	}
+	return total
 }
 
 // reopenView replaces the read view with one over the block just committed. A view never observes
