@@ -342,7 +342,11 @@ jobs:
             if [ "${remaining}" -lt 60 ]; then remaining=60; fi
             export JOB_TIMEOUT="${remaining}s"
             echo "::group::${script} (JOB_TIMEOUT=${JOB_TIMEOUT})"
-            bash -c "${script}"
+            if ! bash -c "${script}"; then
+              echo "::endgroup::"
+              echo "::error::suite failed: ${script}"
+              exit 1
+            fi
             echo "::endgroup::"
           done
           unset IFS  # revert the internal field separator back to default
