@@ -56,6 +56,7 @@ func TestGetFinalizeBlockResponsePropagatesFullConsensusParams(t *testing.T) {
 
 	app := &App{}
 	resp := app.getFinalizeBlockResponse(
+		t.Context(),
 		[]byte("hash"),
 		nil,
 		nil,
