@@ -66,6 +66,9 @@ jobs:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Reclaim runner disk
+        env:
+          # Image build + seid build need more headroom than test shards.
+          CI_FREE_DISK_MIN_GIB: 60
         run: bash .github/scripts/ci-free-disk.sh
       - name: Relocate Docker data-root to /mnt
         run: bash .github/scripts/ci-relocate-docker-data-root.sh
@@ -151,6 +154,8 @@ jobs:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Reclaim runner disk
+        env:
+          CI_FREE_DISK_MIN_GIB: 40
         run: bash .github/scripts/ci-free-disk.sh
       - name: Relocate Docker data-root to /mnt
         run: bash .github/scripts/ci-relocate-docker-data-root.sh
