@@ -4,7 +4,7 @@ import "time"
 
 // CheckpointConfig configures a CheckpointScheduler: how far apart the heights it picks are.
 //
-// A height has to clear every interval set above 0, so with both set the tighter one paces the
+// A height has to clear every interval set above 0, so with both set the slower one paces the
 // cadence. A value of 0 or less is unused, and with neither set checkpointing is off.
 type CheckpointConfig struct {
 	// TimeInterval is the wall-clock gap between checkpoints, measured from the last one completing.
