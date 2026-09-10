@@ -957,7 +957,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		// TEMPORARY DIAGNOSTIC, remove once prune-pass progress is no longer under
 		// investigation: this pass has no visibility until it returns, which made a
 		// multi-hour pass indistinguishable from a hang.
-		if scanReads%1_000_000 == 0 {
+		if scanReads%1_000 == 0 {
 			log.Printf("prune[%s]: scanned %d keys, deleted %d so far, target version %d", db.dbName, scanReads, totalDeleted, version)
 		}
 		currKeyEncoded := slices.Clone(itr.Key())
