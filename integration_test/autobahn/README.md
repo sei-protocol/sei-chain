@@ -1,9 +1,12 @@
 # Autobahn EVM-only E2E clusters
 
-`autobahn-e2e` manages the four-validator, in-memory EVM-only Autobahn
-topology used by the integration load test. It keeps cluster metadata under
-`~/.sei/autobahn-e2e` by default. Override that location with
-`--state-dir` or `AUTOBAHN_E2E_STATE_DIR`.
+`autobahn-e2e` manages the four-validator, disk-backed EVM-only Autobahn
+topology used by the integration load test. Each validator uses the same Giga
+storage manager as the production EVM-only path, in validator mode with FlatKV
+state, littidx receipts, and littblock blocks. GigaSS remains disabled because
+EVM-only execution does not use it. The command keeps cluster metadata under
+`~/.sei/autobahn-e2e` by default. Override that location with `--state-dir` or
+`AUTOBAHN_E2E_STATE_DIR`.
 
 Build the command once:
 
@@ -31,8 +34,9 @@ host port. `list` shows those ports. `forward` starts a TCP relay when the
 requested port differs from the existing mapping.
 
 The EVM-only network does not start Tendermint RPC, the Cosmos REST API, or
-gRPC. Port 8545 exposes a deliberately minimal JSON-RPC service with only
-`eth_sendRawTransaction`; other EVM methods currently return method-not-found.
+gRPC. Port 8545 exposes a deliberately minimal JSON-RPC service with
+`eth_sendRawTransaction` and `eth_getTransactionReceipt`; other EVM methods
+currently return method-not-found.
 `list` reads execution height from the node's internal Prometheus endpoint
 inside its container, so cluster inspection does not require Tendermint RPC.
 

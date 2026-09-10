@@ -348,6 +348,37 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
 }
 
+func TestSelectAutobahnBlockStoreOwnership(t *testing.T) {
+	commonConfig := &p2p.GigaRouterCommonConfig{}
+	blockDBConfig := config.AutobahnBlockDBConfig{}
+
+	t.Run("manager-owned", func(t *testing.T) {
+		managed, err := openBlockStore(commonConfig, blockDBConfig)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, managed.Close()) })
+
+		selected, owned, err := selectAutobahnBlockStore(
+			commonConfig,
+			blockDBConfig,
+			utils.Some[atypes.BlockStore](managed),
+		)
+		require.NoError(t, err)
+		require.Equal(t, managed, selected)
+		require.Nil(t, owned)
+	})
+
+	t.Run("standalone", func(t *testing.T) {
+		selected, owned, err := selectAutobahnBlockStore(
+			commonConfig,
+			blockDBConfig,
+			utils.None[atypes.BlockStore](),
+		)
+		require.NoError(t, err)
+		require.Equal(t, selected, owned)
+		require.NoError(t, owned.Close())
+	})
+}
+
 // Every other RouterOptions construction site substitutes rate.Inf, so this
 // derivation is the only place the production accept rate is exercised.
 func TestP2PRouterOptions_PacingAndBudgetWiring(t *testing.T) {

@@ -25,10 +25,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-# Install the platform evmone shared library next to the other native libraries
-# so the Giga executor can load it from a fixed, trusted absolute path (/usr/lib)
-# at runtime instead of relying on the dynamic linker's search path.
-RUN cp giga/executor/lib/libevmone.0.12.0_linux_${TARGETARCH}.so /go/lib/
 ENV CGO_ENABLED=1
 ARG SEI_CHAIN_REF=""
 ARG GO_BUILD_TAGS=""

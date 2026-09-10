@@ -14,6 +14,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -28,10 +29,11 @@ const (
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
-// Backend submits transactions locally or returns the RPC client for their
-// Autobahn shard owner.
+// Backend submits transactions, reads finalized blocks, and returns the RPC
+// client for an Autobahn shard owner.
 type Backend interface {
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 }
 
@@ -84,8 +86,8 @@ type Server struct {
 }
 
 // Start binds the EVM-only JSON-RPC listener and returns its server.
-func Start(backend Backend) (*Server, error) {
-	rpcServer, err := newHandler(backend)
+func Start(backend Backend, receiptStore receipt.ReceiptStore) (*Server, error) {
+	rpcServer, err := newHandler(backend, receiptStore)
 	if err != nil {
 		return nil, err
 	}
@@ -104,10 +106,16 @@ func Start(backend Backend) (*Server, error) {
 	}, nil
 }
 
-func newHandler(backend Backend) (*ethrpc.Server, error) {
+func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Server, error) {
+	if receiptStore == nil {
+		return nil, errors.New("EVM-only RPC requires a receipt store")
+	}
 	rpcServer := ethrpc.NewServer()
 	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &receiptAPI{backend: backend, store: receiptStore}); err != nil {
+		return nil, fmt.Errorf("register EVM-only receipt RPC: %w", err)
 	}
 	return rpcServer, nil
 }

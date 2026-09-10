@@ -60,13 +60,14 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			MockApp:     true,
 			FastCheckTx: true,
 		},
 	}, app)
 	require.NoError(t, err)
+	require.False(t, storage.IsPresent())
 
 	_, ok := prepared.(*MockApp)
 	require.True(t, ok)
@@ -75,42 +76,51 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 	app := abci.BaseApplication{}
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
 	}, app)
 	require.NoError(t, err)
+	require.False(t, storage.IsPresent())
 
 	_, ok := prepared.(fastCheckTxApplication)
 	require.True(t, ok)
 }
 
-func TestPrepareApplicationEVMOnlyInMemory(t *testing.T) {
+func TestPrepareApplicationEVMOnly(t *testing.T) {
 	app := abci.BaseApplication{}
 	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
-	prepared, err := prepareApplication(&config.Config{
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig: config.BaseConfig{
-			EVMOnlyInMemory: true,
-			MockApp:         true,
-			FastCheckTx:     true,
+			EVMOnly:     true,
+			MockApp:     true,
+			FastCheckTx: true,
 		},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, app)
 	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.NotNil(t, manager.BlockStore())
+	require.NotNil(t, manager.StateDB())
+	require.NotNil(t, manager.SC())
+	require.Nil(t, manager.SS())
+	require.NotNil(t, manager.ReceiptDB())
 
-	require.Equal(t, "evmonly-in-memory", prepared.Info().Data)
+	require.Equal(t, "evmonly", prepared.Info().Data)
 	validators := prepared.GetValidators()
 	require.Len(t, validators, 1)
 	require.Equal(t, int64(1), validators[0].Power)
 	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
 }
 
-func TestPrepareApplicationEVMOnlyInMemoryRequiresReadableAutobahnConfig(t *testing.T) {
-	_, err := prepareApplication(&config.Config{
-		BaseConfig:         config.BaseConfig{EVMOnlyInMemory: true},
+func TestPrepareApplicationEVMOnlyRequiresReadableAutobahnConfig(t *testing.T) {
+	_, _, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig:         config.BaseConfig{EVMOnly: true},
 		AutobahnConfigFile: "/missing/autobahn.json",
 	}, abci.BaseApplication{})
 
@@ -138,25 +148,37 @@ func TestValidateNodeSetupConfigAllowsMockAppWithAutobahn(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestValidateNodeSetupConfigRejectsEVMOnlyInMemoryWithoutAutobahn(t *testing.T) {
+func TestValidateNodeSetupConfigRejectsEVMOnlyWithoutAutobahn(t *testing.T) {
 	err := validateNodeSetupConfig(&config.Config{
 		BaseConfig: config.BaseConfig{
-			EVMOnlyInMemory: true,
+			EVMOnly: true,
 		},
 	})
 
 	require.Error(t, err)
 }
 
-func TestValidateNodeSetupConfigAllowsEVMOnlyInMemoryWithAutobahn(t *testing.T) {
+func TestValidateNodeSetupConfigAllowsEVMOnlyWithAutobahn(t *testing.T) {
 	err := validateNodeSetupConfig(&config.Config{
 		BaseConfig: config.BaseConfig{
-			EVMOnlyInMemory: true,
+			EVMOnly: true,
 		},
 		AutobahnConfigFile: "/tmp/autobahn.json",
 	})
 
 	require.NoError(t, err)
+}
+
+func TestValidateNodeSetupConfigRejectsEVMOnlySeed(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			Mode:    config.ModeSeed,
+			EVMOnly: true,
+		},
+		AutobahnConfigFile: "/tmp/autobahn.json",
+	})
+
+	require.ErrorIs(t, err, errEVMOnlySeed)
 }
 
 type checkTxCountingApp struct {

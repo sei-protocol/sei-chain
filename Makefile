@@ -260,9 +260,12 @@ build-rpc-node:
 .PHONY: build-rpc-node
 
 # Integration-test CI: verify images pulled from GHCR by the matrix job.
-ensure-integration-ci-images:
+ensure-integration-ci-localnode-image:
 	@docker image inspect sei-chain/localnode >/dev/null 2>&1 || (echo "sei-chain/localnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
-	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
+.PHONY: ensure-integration-ci-localnode-image
+
+ensure-integration-ci-images: ensure-integration-ci-localnode-image
+	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; pull from GHCR (see prepare-rpcnode job)" && exit 1)
 .PHONY: ensure-integration-ci-images
 
 # Build seid once inside the localnode image (integration-test prepare job).
@@ -281,7 +284,7 @@ build-seid-in-localnode: build-docker-node
 .PHONY: build-seid-in-localnode
 
 # CI variant: assumes localnode image already built by Buildx in prepare-cluster (skips docker build).
-build-seid-in-localnode-ci: ensure-integration-ci-images
+build-seid-in-localnode-ci: ensure-integration-ci-localnode-image
 	@mkdir -p build $(shell go env GOMODCACHE) $(shell go env GOCACHE)
 	@docker run --rm \
 		--user="$(shell id -u):$(shell id -g)" \
@@ -403,7 +406,7 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_OCC=$(GIGA_OCC) \
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
-	AUTOBAHN_EVMONLY_IN_MEMORY=$(AUTOBAHN_EVMONLY_IN_MEMORY) \
+	AUTOBAHN_EVMONLY=$(AUTOBAHN_EVMONLY) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
 	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
 	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
@@ -559,9 +562,9 @@ autobahn-integration-test:
 	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
-# Run the minimal in-memory EVM-only executor behind a four-validator Autobahn cluster.
+# Run the disk-backed EVM-only executor behind a four-validator Autobahn cluster.
 autobahn-evmonly-integration-test:
-	@AUTOBAHN_EVMONLY_IN_MEMORY=true GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
+	@AUTOBAHN_EVMONLY=true GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
 .PHONY: autobahn-evmonly-integration-test
 
 # Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.

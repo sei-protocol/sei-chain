@@ -971,29 +971,44 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {
-		tEnv := newTestEnv(t)
-		// Test the error message format by overwhelming the rate limiter
-		const numRequests = 20
-		results := make(chan error, numRequests)
-		start := make(chan struct{})
-		var wg sync.WaitGroup
+		// Test the error message format by overwhelming the rate limiter.
+		// A single burst can occasionally avoid contention on overloaded CI workers,
+		// so retry a synchronized burst a few times.
+		const (
+			numRequests = 20
+			maxAttempts = 5
+		)
+		runBurst := func(tEnv *testEnv) []error {
+			results := make(chan error, numRequests)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
 
-		// Release all requests at once to reliably saturate the limiter.
-		for range numRequests {
-			wg.Go(func() {
-				<-start
-				_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
-				results <- err
-			})
+			// Release all requests at once to saturate the limiter.
+			for range numRequests {
+				wg.Go(func() {
+					<-start
+					_, err := tEnv.simAPI.Call(t.Context(), tEnv.args, nil, nil, nil)
+					results <- err
+				})
+			}
+			close(start)
+			wg.Wait()
+			close(results)
+
+			var rateLimitErrors []error
+			for err := range results {
+				if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
+					rateLimitErrors = append(rateLimitErrors, err)
+				}
+			}
+			return rateLimitErrors
 		}
-		close(start)
-		wg.Wait()
-		close(results)
 
 		var rateLimitErrors []error
-		for err := range results {
-			if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
-				rateLimitErrors = append(rateLimitErrors, err)
+		for range maxAttempts {
+			rateLimitErrors = runBurst(newTestEnv(t))
+			if len(rateLimitErrors) > 0 {
+				break
 			}
 		}
 

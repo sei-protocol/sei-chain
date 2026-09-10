@@ -145,7 +145,7 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	commands := joinedCommands(runner.commands)
 	require.Contains(t, commands, "authorize-security-group-ingress")
 	require.Contains(t, commands, "--cidr 198.51.100.4/32")
-	require.Contains(t, commands, "AUTOBAHN_EVMONLY_IN_MEMORY=true")
+	require.Contains(t, commands, "AUTOBAHN_EVMONLY=true")
 	require.Contains(t, commands, "-o StrictHostKeyChecking=accept-new")
 }
 

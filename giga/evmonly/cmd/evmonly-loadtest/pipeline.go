@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -105,6 +106,33 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	prebuildElapsed := time.Since(prebuildStartedAt)
 	printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
 
+	storageDirectory, err := os.MkdirTemp("", "evmonly-loadtest-storage-")
+	if err != nil {
+		return fmt.Errorf("create storage directory: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, os.RemoveAll(storageDirectory))
+	}()
+	storageConfig, err := evmonly.NewValidatorStorageConfig(storageDirectory)
+	if err != nil {
+		return fmt.Errorf("configure storage manager: %w", err)
+	}
+	storage, err := bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	if err != nil {
+		return fmt.Errorf("open storage manager: %w", err)
+	}
+	defer func() {
+		err = errors.Join(err, storage.Close())
+	}()
+	changeSetEncoder := evmonly.NewFlatKVChangeSetEncoder(storage.SC())
+	genesisChanges, err := changeSetEncoder(state.changeSet())
+	if err != nil {
+		return fmt.Errorf("encode generated genesis state: %w", err)
+	}
+	if err := storage.StateDB().CommitStateChanges(1, genesisChanges); err != nil {
+		return fmt.Errorf("commit generated genesis state: %w", err)
+	}
+
 	profiles, err := startProfiles(cfg)
 	if err != nil {
 		return err
@@ -121,10 +149,9 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 
 	startedAt := time.Now()
 	group, groupCtx := errgroup.WithContext(ctx)
-	store := evmonly.NewMemoryStore(state)
 	executor := evmonly.NewExecutor(
 		executorConfig(cfg),
-		evmonly.WithStore(store, store.EncodeChangeSet),
+		evmonly.WithStorageManager(storage, changeSetEncoder),
 		evmonly.WithResultSink(sinks),
 	)
 	defer executor.Close()
@@ -174,7 +201,7 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 				if number > cfg.blocks {
 					return nil
 				}
-				request, err := workload.BuildBlock(groupCtx, number)
+				request, err := workload.BuildBlock(groupCtx, number+1)
 				if err != nil {
 					if groupCtx.Err() != nil {
 						return nil

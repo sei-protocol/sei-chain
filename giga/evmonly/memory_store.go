@@ -33,7 +33,7 @@ const (
 var _ gigatypes.StateDB = (*MemoryStore)(nil)
 
 // MemoryStore adapts an immutable StateReader to the giga StateDB interface. It
-// is intended for tests and load generation, not production persistence.
+// is intended only for tests, not runtime persistence.
 // Commits are retained as versioned in-memory overlays so open and historical
 // snapshots remain stable without cloning the complete base state per block.
 type MemoryStore struct {
