@@ -15,8 +15,10 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestParseFastCheckTxEVMTransaction(t *testing.T) {
@@ -179,6 +181,20 @@ func TestValidateNodeSetupConfigRejectsEVMOnlySeed(t *testing.T) {
 	})
 
 	require.ErrorIs(t, err, errEVMOnlySeed)
+}
+
+func TestNewRejectsEVMOnlyConfig(t *testing.T) {
+	_, err := New(
+		t.Context(),
+		&config.Config{BaseConfig: config.BaseConfig{EVMOnly: true}},
+		func() {},
+		abci.BaseApplication{},
+		nil,
+		[]trace.TracerProviderOption{},
+		tmtypes.DefaultConsensusPolicy(),
+	)
+
+	require.ErrorIs(t, err, errEVMOnlyRequiresDedicatedConstructor)
 }
 
 type checkTxCountingApp struct {

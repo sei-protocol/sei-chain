@@ -28,7 +28,10 @@ type options struct {
 	freezeHeight uint64
 }
 
-var errEVMOnlySeed = errors.New("evm-only is not supported in seed mode")
+var (
+	errEVMOnlyRequiresDedicatedConstructor = errors.New("evm-only nodes must be created with node.NewEVMOnly")
+	errEVMOnlySeed                         = errors.New("evm-only is not supported in seed mode")
+)
 
 // Option configures optional node behavior.
 type Option func(*options)
@@ -51,6 +54,55 @@ func resolveOptions(nodeOptions ...Option) options {
 // New constructs a Tendermint node around an in-process ABCI application.
 // A non-nil genesis document overrides the file selected by the node config.
 func New(
+	ctx context.Context,
+	conf *config.Config,
+	restartEvent func(),
+	app abci.Application,
+	gen *tmtypes.GenesisDoc,
+	tracerProviderOptions []trace.TracerProviderOption,
+	consensusPolicy tmtypes.ConsensusPolicy,
+	nodeOptions ...Option,
+) (local.NodeService, error) {
+	if conf.EVMOnly {
+		return nil, errEVMOnlyRequiresDedicatedConstructor
+	}
+	return newNode(
+		ctx,
+		conf,
+		restartEvent,
+		app,
+		gen,
+		tracerProviderOptions,
+		consensusPolicy,
+		nodeOptions...,
+	)
+}
+
+// NewEVMOnly constructs an EVM-only Tendermint node backed by Giga storage.
+func NewEVMOnly(
+	ctx context.Context,
+	conf *config.Config,
+	restartEvent func(),
+	gen *tmtypes.GenesisDoc,
+	tracerProviderOptions []trace.TracerProviderOption,
+	consensusPolicy tmtypes.ConsensusPolicy,
+	nodeOptions ...Option,
+) (local.NodeService, error) {
+	evmOnlyConfig := *conf
+	evmOnlyConfig.EVMOnly = true
+	return newNode(
+		ctx,
+		&evmOnlyConfig,
+		restartEvent,
+		abci.BaseApplication{},
+		gen,
+		tracerProviderOptions,
+		consensusPolicy,
+		nodeOptions...,
+	)
+}
+
+func newNode(
 	ctx context.Context,
 	conf *config.Config,
 	restartEvent func(),
