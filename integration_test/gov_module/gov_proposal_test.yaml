@@ -135,10 +135,6 @@
     # the expedited proposal auto-converts to regular; drive progress until it reaches a terminal status
     - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && wait_for_proposal_status $PROPOSAL_ID PROPOSAL_STATUS_REJECTED admin
       env: PROPOSAL_STATUS
-    # Get the tally params again after proposal is passed
-    - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
-      env: NEW_PARAM
-    # Get the current tally params
     - cmd: seid q bank total --denom usei --output json | jq -r .amount
       env: TOTAL_SUPPLY_AFTER_BURN
   verifiers:
