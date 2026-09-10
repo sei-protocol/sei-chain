@@ -2,11 +2,15 @@ package giga
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 )
+
+// replayLogInterval bounds how often a running replay reports how far it has got.
+const replayLogInterval = 30 * time.Second
 
 // rewindTo puts whichever of SC and SS holds state above target on its newest snapshot at or below it,
 // drops every snapshot of both above target, and cuts the WAL's tail to it. All three stores must be
@@ -201,6 +205,8 @@ func (s *StateDB) replay(from, target int64, apply func(int64, []*proto.NamedCha
 	}
 	defer func() { _ = it.Close() }()
 
+	//nolint:gosec // both are WAL block numbers, which never approach the int64 ceiling
+	progress := newReplayProgress(int64(start), int64(end))
 	for {
 		hasNext, err := it.Next()
 		if err != nil {
@@ -213,8 +219,61 @@ func (s *StateDB) replay(from, target int64, apply func(int64, []*proto.NamedCha
 		if err := apply(int64(block), changesets); err != nil { //nolint:gosec // block <= end
 			return fmt.Errorf("replay block %d: %w", block, err)
 		}
+		progress.observe(int64(block)) //nolint:gosec // block <= end
 	}
+	progress.finish()
 	return nil
+}
+
+// replayProgress reports where a replay has got to while it runs. A replay spans every block between a
+// store's version and the WAL's head, which after a crash is the longest step of an open.
+type replayProgress struct {
+	first, last int64
+	started     time.Time
+	lastReport  time.Time
+}
+
+// newReplayProgress announces a replay of the blocks in [first, last] and starts timing it.
+func newReplayProgress(first, last int64) *replayProgress {
+	logger.Info("Replaying the state WAL", "from", first, "to", last, "blocks", last-first+1)
+	now := time.Now()
+	return &replayProgress{first: first, last: last, started: now, lastReport: now}
+}
+
+// observe records that block has been applied, reporting the position, the rate and the time left no
+// more often than replayLogInterval.
+func (p *replayProgress) observe(block int64) {
+	now := time.Now()
+	if now.Sub(p.lastReport) < replayLogInterval {
+		return
+	}
+	p.lastReport = now
+
+	remaining := p.last - block
+	rate := float64(block-p.first+1) / now.Sub(p.started).Seconds()
+	logger.Info("Replaying the state WAL",
+		"block", block,
+		"to", p.last,
+		"remaining", remaining,
+		"blocks_per_second", int64(rate),
+		"time_left", estimate(remaining, rate))
+}
+
+// finish reports the replay that has just completed.
+func (p *replayProgress) finish() {
+	logger.Info("Replayed the state WAL",
+		"from", p.first,
+		"to", p.last,
+		"blocks", p.last-p.first+1,
+		"elapsed", time.Since(p.started).Truncate(time.Millisecond))
+}
+
+// estimate returns how long remaining blocks take at rate, or 0 when there is no rate to project from.
+func estimate(remaining int64, rate float64) time.Duration {
+	if rate <= 0 {
+		return 0
+	}
+	return (time.Duration(float64(remaining)/rate) * time.Second).Truncate(time.Second)
 }
 
 // ssReplayStart returns the version SS replays forward from, and whether it replays at all. SS is left

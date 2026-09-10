@@ -110,7 +110,9 @@ func NewGigaSim(
 	storageCtx, stopStorage := context.WithCancel(context.Background())
 
 	fmt.Printf("Opening storage.\n")
+	stopReporting := reportSlowStep("opening storage")
 	storage, err := bootstrap.NewGigaStorageManager(storageCtx, storageConfig)
+	stopReporting()
 	if err != nil {
 		stopStorage()
 		return nil, fmt.Errorf("failed to open storage: %w", err)
@@ -151,6 +153,32 @@ func NewGigaSim(
 
 	go g.run()
 	return g, nil
+}
+
+// slowStepReportInterval is how often a step that has not finished says so on the console.
+const slowStepReportInterval = 15 * time.Second
+
+// reportSlowStep prints a console line every slowStepReportInterval until the returned function is
+// called. seilog output goes to a file, so a step that logs its progress there leaves the console with
+// nothing to show for as long as it runs, which for opening storage is however long its WAL takes to
+// replay.
+func reportSlowStep(what string) (stop func()) {
+	done := make(chan struct{})
+	started := time.Now()
+	go func() {
+		ticker := time.NewTicker(slowStepReportInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				fmt.Printf("Still %s after %s. Progress is in the log directory.\n",
+					what, time.Since(started).Truncate(time.Second))
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 // assemble builds the pipeline over already-opened storage, leaving it stopped.

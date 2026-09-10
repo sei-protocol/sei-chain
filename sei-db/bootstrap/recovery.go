@@ -49,8 +49,10 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 // would no longer be there to reach.
 func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) error {
 	if target == 0 {
+		logger.Info("No height to converge on, opening the state DB where its files sit")
 		return m.openStateDB(ctx)
 	}
+	logger.Info("Opening the state DB on the recovery target", "target", target)
 	if err := m.openStateDBAt(ctx, target); err != nil {
 		return err
 	}
@@ -109,7 +111,13 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 			return 0, fmt.Errorf("read receipt store head: %w", err)
 		}
 	}
-	return int64(recoveryTarget(blockHeight, stateHeight, receiptHeight)), nil //nolint:gosec // heights fit within int64
+	target := recoveryTarget(blockHeight, stateHeight, receiptHeight)
+	logger.Info("Read the store heads recovery converges on",
+		"block_store", blockHeight,
+		"state_wal", stateHeight,
+		"receipt_store", receiptHeight,
+		"target", target)
+	return int64(target), nil //nolint:gosec // heights fit within int64
 }
 
 // stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
