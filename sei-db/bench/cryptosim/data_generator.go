@@ -13,8 +13,6 @@ const (
 	accountIdCounterKey = "accountIdCounterKey"
 	// Used to store the next ERC20 contract ID in the database.
 	erc20IdCounterKey = "erc20IdCounterKey"
-	// Used to store the next block number in the database.
-	blockNumberCounterKey = "blockNumberCounterKey"
 
 	// Use the code hash as a proxy. There is currently no mechanism to force FlatKV to update the account balance
 	// field, and code hash keys will cause the account DB to get updated, which is the important part for this

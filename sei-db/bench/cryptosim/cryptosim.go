@@ -166,6 +166,19 @@ func NewCryptoSim(
 		return nil, fmt.Errorf("failed to start the storage garbage collector: %w", err)
 	}
 
+	// Every construction failure past this point releases through here. The state DB holds the state
+	// WAL directory's exclusive lock, so a handle left open makes an in-process retry fail to open the
+	// WAL rather than only leaking descriptors.
+	releaseStorage := func() {
+		cancel()
+		if closeErr := garbageCollector.Close(); closeErr != nil {
+			fmt.Printf("failed to close the garbage collector during error recovery: %v\n", closeErr)
+		}
+		if closeErr := db.Close(); closeErr != nil {
+			fmt.Printf("failed to close the state DB during error recovery: %v\n", closeErr)
+		}
+	}
+
 	metrics := NewCryptosimMetrics(ctx, db.SC().GetPhaseTimer(), config)
 	// Server start deferred until after DataGenerator loads DB state and sets gauges,
 	// avoiding rate() spikes when restarting with a preserved DB.
@@ -179,13 +192,7 @@ func NewCryptoSim(
 
 	database, err := NewDatabase(config, db, garbageCollector, metrics)
 	if err != nil {
-		cancel()
-		if closeErr := garbageCollector.Close(); closeErr != nil {
-			fmt.Printf("failed to close the garbage collector during error recovery: %v\n", closeErr)
-		}
-		if closeErr := db.Close(); closeErr != nil {
-			fmt.Printf("failed to close database during error recovery: %v\n", closeErr)
-		}
+		releaseStorage()
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
@@ -209,7 +216,7 @@ func NewCryptoSim(
 		recieptsChan = make(chan *block, config.RecieptChannelCapacity)
 		_, err := NewRecieptStoreSimulator(ctx, config, recieptsChan, metrics, rand.Clone(false))
 		if err != nil {
-			cancel()
+			releaseStorage()
 			return nil, fmt.Errorf("failed to create receipt store simulator: %w", err)
 		}
 		metrics.startReceiptChannelDepthSampling(recieptsChan, config.BackgroundMetricsScrapeInterval)
@@ -244,6 +251,7 @@ func NewCryptoSim(
 
 	err = c.setup()
 	if err != nil {
+		releaseStorage()
 		return nil, fmt.Errorf("failed to setup benchmark: %w", err)
 	}
 

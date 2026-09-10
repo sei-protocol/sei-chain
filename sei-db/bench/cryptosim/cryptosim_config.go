@@ -85,7 +85,7 @@ type CryptoSimConfig struct {
 	// How many blocks the benchmark may run ahead of block hashing. Databases hash committed blocks
 	// asynchronously, and the benchmark takes one block's hash per block committed once it is this far
 	// ahead — so a block's hash must arrive no later than this many blocks after it was committed, and
-	// the benchmark waits when it does not. A database that publishes no block hashes waits on nothing.
+	// the benchmark waits when it does not.
 	HashLagBlocks int
 
 	// The directory to store the benchmark data.

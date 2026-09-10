@@ -183,17 +183,7 @@ func (d *Database) FinalizeBlock(
 		}},
 	})
 
-	// Persist the block number counter in every batch.
 	blockNum := d.nextBlockNumber
-	blockNumberValue := make([]byte, 8)
-	//nolint:gosec // G115 - blockNum is a benchmark counter, overflow acceptable
-	binary.BigEndian.PutUint64(blockNumberValue, uint64(blockNum))
-	changeSets = append(changeSets, &proto.NamedChangeSet{
-		Name: keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: BlockNumberCounterKey(), Value: blockNumberValue},
-		}},
-	})
 
 	d.metrics.ReportBlockFinalized(d.transactionsInCurrentBlock)
 	d.transactionsInCurrentBlock = 0
@@ -230,11 +220,14 @@ func (d *Database) reopenView() {
 func (d *Database) Close(nextAccountID int64, nextErc20ContractID int64) error {
 	fmt.Printf("Committing final batch.\n")
 
+	// A failed final commit still has to release the stores below: they hold the state WAL directory's
+	// exclusive lock, which an in-process retry needs back.
+	var errs error
 	if err := d.FinalizeBlock(nextAccountID, nextErc20ContractID); err != nil {
-		return fmt.Errorf("failed to commit batch: %w", err)
+		errs = errors.Join(errs, fmt.Errorf("failed to commit batch: %w", err))
 	}
 
-	return d.CloseWithoutFinalizing()
+	return errors.Join(errs, d.CloseWithoutFinalizing())
 }
 
 // Close the database and release any resources without finalizing the last batch.
