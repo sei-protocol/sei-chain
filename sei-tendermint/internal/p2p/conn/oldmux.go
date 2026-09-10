@@ -384,7 +384,7 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	channels := map[ChannelID]*recvChannel{}
 	for q := range c.sendQueue.Lock() {
 		for _, ch := range q.channels {
-			channels[ch.desc.ID] = newRecvChannel(ch.desc)
+			channels[ch.desc.ID] = newRecvChannel(ch.desc, c.String())
 		}
 	}
 
@@ -479,12 +479,14 @@ type recvChannel struct {
 	desc       ChannelDescriptor
 	buf        []byte
 	discarding bool
+	peer       string
 }
 
-func newRecvChannel(desc ChannelDescriptor) *recvChannel {
+func newRecvChannel(desc ChannelDescriptor, peer string) *recvChannel {
 	return &recvChannel{
 		desc: desc.withDefaults(),
 		buf:  make([]byte, 0, desc.RecvBufferCapacity),
+		peer: peer,
 	}
 }
 
@@ -502,8 +504,9 @@ func (ch *recvChannel) pushMsg(packet *pb.PacketMsg) ([]byte, error) {
 		if !ch.desc.DiscardOversized {
 			return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", wantMax, got)
 		}
-		logger.Error("discarding oversized p2p message",
+		logger.Warn("discarding oversized p2p message",
 			"channel", ch.desc.Name,
+			"peer", ch.peer,
 			"capacity", wantMax,
 			"size", got,
 		)

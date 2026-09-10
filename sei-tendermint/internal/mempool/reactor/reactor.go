@@ -105,8 +105,9 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 func (r *Reactor) OnStop() {}
 
 // handleMempoolMessage handles envelopes sent from peers on the MempoolChannel.
-// For every tx in the message, we execute CheckTx. It returns an error for protocol
-// violations such as an empty set of txs, incorrect message types, and oversized messages.
+// For every tx in the message, we execute CheckTx. It returns an error on protocol
+// violations — an empty tx set or an unexpected message type. Individual txs above
+// the protocol gossip size are counted against the sender and skipped.
 func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) error {
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_Txs:
@@ -247,7 +248,12 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		}
 		for {
 			tx := next.Value()
-			if len(tx) <= types.MaxGossipTxBytes {
+			if len(tx) > types.MaxGossipTxBytes {
+				logger.Debug("skipping gossip of tx above protocol size",
+					"tx", types.Tx(tx).Hash(),
+					"size", len(tx),
+					"peer", peerID)
+			} else {
 				r.channel.Send(&pb.Message{
 					Sum: &pb.Message_Txs{
 						Txs: &pb.Txs{Txs: [][]byte{tx}},
