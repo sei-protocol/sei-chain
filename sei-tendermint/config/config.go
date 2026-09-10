@@ -249,9 +249,9 @@ type BaseConfig struct {
 	// TEST-ONLY
 	MockApp bool `mapstructure:"mock-app"`
 
-	// EVMOnlyInMemory replaces the provided ABCI application with an ephemeral EVM executor.
+	// EVMOnly replaces the provided ABCI application with the disk-backed EVM-only executor.
 	// TEST-ONLY
-	EVMOnlyInMemory bool `mapstructure:"evm-only-in-memory"`
+	EVMOnly bool `mapstructure:"evm-only"`
 
 	// Deprecated: out-of-process ABCI has been removed and this option no longer
 	// has any effect.

@@ -33,6 +33,8 @@ The `evmonly` package currently provides:
   transaction execution with granular validation and reruns
 - Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
   contract address, and effective gas price
+- receipt persistence through the real Giga `ReceiptStore` backend in load-test
+  runtimes, with a concurrency-safe in-memory implementation for unit tests
 - a versioned `MemoryStore` giga implementation over an immutable `StateReader`
   for tests and load generation
 - fail-closed custom precompile placeholders
@@ -70,34 +72,47 @@ prepare then execute in one call. `PreparedBlock` is trusted executor-produced
 data: callers should pass the result of `PrepareBlock` unchanged, because
 `ExecutePreparedBlock` does not recover senders again.
 
-The executor is always store-backed. `WithStore(...)` selects the `giga.StateDB`
-implementation and its `NamedChangeSetEncoder`; execution fails closed if
-either is missing. For each block the executor opens a current
-`giga.StateView`, executes against its EVM-native read methods, converts the
-resulting `StateChangeSet`, and calls `CommitStateChanges`. Execution and commit
-on an executor are serialized so blocks cannot share a stale snapshot or
-overlap commits; callers must still submit block heights in order. The snapshot
-stays open through the commit and is always closed afterward. An empty block
-still commits an encoded empty changeset so the store can advance its height.
-Stateless preparation can continue concurrently with store-backed execution.
+The executor is always store-backed. `WithStorageManager(...)` selects the
+`bootstrap.GigaStorageManager` that provides both `giga.StateDB` and the ledger
+receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
+Unit tests can supply those dependencies independently. Execution fails closed
+if either store or the encoder is missing.
+For each block the executor opens a current `giga.StateView`, executes against
+its EVM-native read methods, converts the resulting `StateChangeSet`, and calls
+`CommitStateChanges`. Execution and commit on an executor are serialized so
+blocks cannot share a stale snapshot or overlap commits; callers must still
+submit block heights in order. The snapshot stays open through the commit and
+is always closed afterward. An empty block still commits an encoded empty
+changeset so the store can advance its height. Stateless preparation can
+continue concurrently with store-backed execution.
 
 The encoder is explicit because `giga.StateDB` defines the protobuf commit
 transport but does not define an on-disk key layout. In particular, an encoder
 must preserve `StorageClears` as prefix clears rather than silently dropping
-persisted slots that were not read during execution. Encoding or commit failures
-release the block result and return an error without invoking `ResultSink`.
-`ResultSink` runs after the state commit succeeds; a sink error does not roll
-back that commit.
+persisted slots that were not read during execution. Encoding, state commit, or
+receipt-store failures release the block result and return an error without
+invoking `ResultSink`. Ethereum receipts are converted into
+`receipt.ReceiptRecord` values and persisted through the shared
+`receipt.ReceiptStore` interface before the height-advancing state commit,
+including for empty blocks. A receipt failure leaves state unchanged so the
+block can be retried. A state failure can leave receipts behind, but retrying
+the block overwrites them. `ResultSink` runs only after both stores succeed.
 
-`MemoryStore` is the non-persistent implementation used by tests and the load
-harness. It wraps an immutable `StateReader`, encodes changes directly into
-typed `NamedChangeSet` key/value pairs, and retains committed values in
-versioned overlays so current and historical snapshots stay stable without
-copying the complete base state per block. It is not the production SC/SS
-implementation. Every base
-`StateReader` method must be safe for concurrent calls, and returned balances
-and code must remain immutable while read. Call `Close()` to disable future OCC
-execution on an executor.
+The FlatKV encoder persists balance, nonce, code, and storage changes, and the
+executor reads them through the current Giga state view. EVM-only Autobahn load
+tests use `WithMissingAccountState(...)` to supply the initial funded state for
+synthetic accounts that have not appeared in FlatKV yet; after their first
+change, subsequent reads come from the persisted account row.
+
+`MemoryStore` and `MemoryReceiptStore` are non-persistent unit-test doubles.
+`MemoryStore` wraps an immutable `StateReader`, retains committed values in
+versioned overlays, and keeps current and historical snapshots stable without
+copying the complete base state per block. `MemoryReceiptStore` implements the
+shared receipt interface and indexes cloned Sei receipt records by block number
+and transaction hash. Load-test runtimes use the real Giga storage manager
+instead. Every base `StateReader` method must be safe for concurrent calls, and
+returned balances and code must remain immutable while read. Call `Close()` to
+disable future OCC execution on an executor.
 
 A non-nil `error` means block validation failed and the caller must not commit a
 partial output. EVM call failures inside an otherwise valid transaction are

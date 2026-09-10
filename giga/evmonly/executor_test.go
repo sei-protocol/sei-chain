@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 const (
@@ -32,6 +34,18 @@ type recordingResultSink struct {
 	heights  []uint64
 	results  []*BlockResult
 	releases []func()
+}
+
+type failingReceiptStore struct {
+	*MemoryReceiptStore
+	err error
+}
+
+func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+	if s.err != nil {
+		return s.err
+	}
+	return s.MemoryReceiptStore.SetReceipts(ctx, records)
 }
 
 func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64, result *BlockResult, release func()) error {
@@ -108,6 +122,69 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 	require.Len(t, sink.releases, 1)
 	require.Equal(t, []uint64{ctx.Number}, sink.heights)
 	require.Same(t, result, sink.results[0])
+	sink.releases[0]()
+}
+
+func TestExecutorStoresReceipts(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a9")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+	receiptStore := NewMemoryReceiptStore()
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	stateStore := NewMemoryStore(state)
+	executor := NewExecutor(Config{}, withTestStores(stateStore, receiptStore, stateStore.EncodeChangeSet))
+	ctx := blockContext(chainID)
+	ctx.Number = 77
+
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 1)
+	stored, err := receiptStore.GetReceipt(newReceiptContext(t.Context(), int64(ctx.Number)), result.Receipts[0].TxHash)
+	require.NoError(t, err)
+	require.Equal(t, result.Receipts[0].TxHash.Hex(), stored.TxHashHex)
+	require.Equal(t, ctx.Number, stored.BlockNumber)
+	require.Equal(t, sender.Hex(), stored.From)
+	require.Equal(t, recipient.Hex(), stored.To)
+	require.Equal(t, uint64(ethtypes.ReceiptStatusSuccessful), uint64(stored.Status))
+}
+
+func TestExecutorReturnsReceiptStoreError(t *testing.T) {
+	storeErr := errors.New("receipt write failed")
+	receiptStore := &failingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), err: storeErr}
+	stateStore := NewMemoryStore(NewMemoryState())
+	sink := &recordingResultSink{}
+	executor := NewExecutor(
+		Config{BlockResultPoolSize: 1},
+		withTestStores(stateStore, receiptStore, EncodeMemoryStoreChangeSet),
+		WithResultSink(sink),
+	)
+	request := BlockRequest{Context: blockContext(big.NewInt(testChainID))}
+
+	result, err := executor.ExecuteBlock(t.Context(), request)
+
+	require.ErrorIs(t, err, storeErr)
+	require.Nil(t, result)
+	require.Empty(t, sink.results)
+	require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+	view := stateStore.OpenView()
+	require.Zero(t, view.GetBlockHeight())
+	view.Close()
+
+	receiptStore.err = nil
+	result, err = executor.ExecuteBlock(t.Context(), request)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, sink.results, 1)
+	result.Release()
 	sink.releases[0]()
 }
 

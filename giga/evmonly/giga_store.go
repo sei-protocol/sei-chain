@@ -15,7 +15,8 @@ import (
 const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var (
-	errMissingStore                 = errors.New("executor requires a giga store")
+	errMissingStateStore            = errors.New("executor requires a state store")
+	errMissingReceiptStore          = errors.New("executor requires a receipt store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
 )
 
@@ -28,8 +29,13 @@ var _ StateReader = gigaSnapshotStateReader{}
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
-	if e.store == nil {
-		return nil, errMissingStore
+	stateStore := e.stateStore
+	if stateStore == nil {
+		return nil, errMissingStateStore
+	}
+	receiptStore := e.receiptStore
+	if receiptStore == nil {
+		return nil, errMissingReceiptStore
 	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
@@ -48,13 +54,16 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot := e.store.OpenView()
+	snapshot := stateStore.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
 	defer snapshot.Close()
 
-	result, err := e.executePreparedBlock(ctx, req, gigaSnapshotStateReader{snapshot: snapshot})
+	result, err := e.executePreparedBlock(ctx, req, gigaSnapshotStateReader{
+		snapshot:     snapshot,
+		missingState: e.missingState,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +84,14 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := e.store.CommitStateChanges(blockNumber, changesets); err != nil {
+	records, err := receiptRecords(req.Context.Number, result)
+	if err != nil {
+		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+	}
+	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+	}
+	if err := stateStore.CommitStateChanges(blockNumber, changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
@@ -83,22 +99,35 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 }
 
 type gigaSnapshotStateReader struct {
-	snapshot gigatypes.EVMStateView
+	snapshot     gigatypes.EVMStateView
+	missingState StateReader
 }
 
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return cloneBig(r.missingState.GetBalance(addr))
+	}
 	balance := r.snapshot.GetBalance(addr)
 	return new(big.Int).SetBytes(balance[:])
 }
 
 func (r gigaSnapshotStateReader) GetNonce(addr common.Address) uint64 {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return r.missingState.GetNonce(addr)
+	}
 	return r.snapshot.GetNonce(addr)
 }
 
 func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return cloneBytes(r.missingState.GetCode(addr))
+	}
 	return cloneBytes(r.snapshot.GetCode(addr))
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
+	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+		return r.missingState.GetState(addr, key)
+	}
 	return r.snapshot.GetStorage(addr, key)
 }

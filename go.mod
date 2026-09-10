@@ -25,7 +25,6 @@ require (
 	github.com/creachadair/taskgroup v0.3.2
 	github.com/creachadair/tomledit v0.0.29
 	github.com/dvsekhvalnov/jose2go v1.7.0
-	github.com/ethereum/evmc/v12 v12.1.0
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/go-git/go-git/v5 v5.17.2

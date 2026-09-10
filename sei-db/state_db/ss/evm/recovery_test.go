@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
 	"github.com/stretchr/testify/require"
 )
 
@@ -87,4 +88,110 @@ func TestHealInterruptedRestore(t *testing.T) {
 		require.Equal(t, "live", markerOf(t, dst))
 		requireNoLeftovers(t, dst)
 	})
+}
+
+// A rewind with nothing to land on must not clear the live databases. The store above the target still
+// holds history; wiping it is not a rewind.
+func TestRewindClosedStoreToRefusesWhenThereIsNoSnapshot(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "db")
+	writeMarkedDir(t, dir, "live")
+
+	_, err := RewindClosedStoreTo(dir, t.TempDir(), false, 1)
+
+	require.ErrorContains(t, err, "no snapshot at or below target")
+	require.Equal(t, "live", markerOf(t, dir), "a refused rewind must leave the live store in place")
+}
+
+func TestResetClosedStore(t *testing.T) {
+	t.Run("empties a unified store and every snapshot", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "db")
+		root := t.TempDir()
+		writeMarkedDir(t, dir, "live")
+		writeSnapshots(t, root, 10, 20)
+
+		require.NoError(t, ResetClosedStore(dir, root, false))
+
+		require.NoDirExists(t, dir, "the next open must create a store at version 0")
+		requireNoSnapshots(t, root)
+	})
+
+	t.Run("empties every sub-DB of a separate-DB store", func(t *testing.T) {
+		dir := t.TempDir()
+		for _, storeType := range AllEVMStoreTypes() {
+			writeMarkedDir(t, subDBPath(dir, storeType), "live")
+		}
+
+		require.NoError(t, ResetClosedStore(dir, t.TempDir(), true))
+
+		for _, storeType := range AllEVMStoreTypes() {
+			require.NoDirExists(t, subDBPath(dir, storeType),
+				"a sub-DB left behind would read as state above a store the replay rebuilds from block 1")
+		}
+	})
+
+	// promoteInterruptedRestore moves a leftover into an absent directory, so one surviving the reset
+	// would have the next open resurrect the store this emptied.
+	t.Run("clears the copies an interrupted restore staged", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "db")
+		writeMarkedDir(t, dir, "live")
+		writeMarkedDir(t, dir+restoreTmpSuffix, "staged")
+		writeMarkedDir(t, dir+restoreBakSuffix, "displaced")
+
+		require.NoError(t, ResetClosedStore(dir, t.TempDir(), false))
+
+		require.NoDirExists(t, dir)
+		requireNoLeftovers(t, dir)
+		require.NoError(t, healInterruptedRestore(dir))
+		require.NoDirExists(t, dir, "the heal on the next open must have nothing to promote")
+	})
+
+	t.Run("leaves a store that has never been written empty", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "db")
+
+		require.NoError(t, ResetClosedStore(dir, filepath.Join(t.TempDir(), "snapshots"), false))
+
+		require.NoDirExists(t, dir)
+	})
+}
+
+// A separate-DB store is emptied one sub-DB at a time, so an interruption partway leaves the rest still
+// holding the branch the reset was discarding. The head is the lowest of them, so the recreated empty
+// sub-DB has the store read as new, and a caller that trusted it would leave those rows in place for a
+// replay that only ever writes forward.
+func TestHighestDBVersionSeesAnInterruptedReset(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	require.Greater(t, len(store.managedDBs), 1)
+	require.NoError(t, store.SetLatestVersion(5))
+	require.NoError(t, store.Close())
+
+	require.NoError(t, removePebbleDir(subDBPath(dir, AllEVMStoreTypes()[0])))
+
+	reopened, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
+	require.Zero(t, reopened.GetLatestVersion(), "the sub-DB the reset removed reopens empty")
+	require.Equal(t, int64(5), reopened.HighestDBVersion(),
+		"the sub-DBs it had not reached still record the block the reset was discarding")
+}
+
+func writeSnapshots(t *testing.T, root string, versions ...int64) {
+	t.Helper()
+	for _, version := range versions {
+		writeMarkedDir(t, filepath.Join(root, sssnapshot.SnapshotDirName(version)), "snapshot")
+	}
+}
+
+// requireNoSnapshots asserts the reset left nothing for a later rewind to land on: every snapshot of a
+// store emptied to be replayed from block 1 belongs to the branch that reset abandoned.
+func requireNoSnapshots(t *testing.T, root string) {
+	t.Helper()
+	versions, err := sssnapshot.ListSnapshotVersions(root)
+	require.NoError(t, err)
+	require.Empty(t, versions)
 }

@@ -2,9 +2,13 @@ package flatkv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
+
+	"github.com/cockroachdb/pebble/v2"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -13,6 +17,35 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
+
+// LocalMeta stores one data DB's own view of its committed state, held at
+// _meta/version, _meta/hash and _meta/x:<module>/hash.
+//
+// The version and the root are written together or not at all, so a DB either
+// reports both or has never had metadata written to it: a brand-new DB reports
+// neither, a seeded DB reports a version with the identity root, and a DB that
+// has committed a block reports its real root.
+type LocalMeta struct {
+	// CommittedVersion is the version this DB last committed. It reads as 0 when
+	// no metadata has been written, which is indistinguishable from a genuine 0.
+	CommittedVersion int64
+
+	// LtHash is this DB's root over its own keys. nil only when no metadata has
+	// been written; writeLocalMetaToBatch refuses to record a version without one.
+	LtHash *lthash.LtHash
+
+	// ModuleLtHashes holds the LtHash of each module's keys within this DB,
+	// keyed by module name (e.g. "evm", "gov"). The per-DB root (LtHash)
+	// equals the homomorphic sum of these module hashes. nil/empty when the
+	// DB has never been written (fresh store).
+	ModuleLtHashes map[string]*lthash.LtHash
+
+	// ModuleStats holds the auxiliary key-count / byte totals of each module's
+	// keys within this DB, keyed by module name and mirroring ModuleLtHashes.
+	// Consensus-irrelevant; per-DB / global totals are derived on demand.
+	// nil/empty when the DB has never been written (fresh store).
+	ModuleStats map[string]lthash.ModuleStats
+}
 
 // versionToBytes encodes a non-negative version as 8-byte big-endian.
 // Panics on negative input to catch programming errors early.
@@ -28,8 +61,8 @@ func versionToBytes(v int64) []byte {
 
 // loadLocalMeta loads per-DB metadata by reading separate keys. A DB missing its version record is
 // reported as one that has never been written, and rejected if it carries any other metadata.
-func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
-	meta := &ktype.LocalMeta{}
+func loadLocalMeta(db types.KeyValueDB) (*LocalMeta, error) {
+	meta := &LocalMeta{}
 
 	versionData, err := db.Get(ktype.MetaVersionKey)
 	if err != nil {
@@ -45,7 +78,7 @@ func loadLocalMeta(db types.KeyValueDB) (*ktype.LocalMeta, error) {
 			if err := requireNoMetadata(db); err != nil {
 				return nil, err
 			}
-			return &ktype.LocalMeta{CommittedVersion: 0}, nil
+			return &LocalMeta{CommittedVersion: 0}, nil
 		}
 		return nil, fmt.Errorf("could not read meta version: %w", err)
 	}
@@ -234,7 +267,7 @@ func encodeLocalMeta(
 //     per-DB root and thus the global store hash / AppHash.
 //
 // Fail loudly at load instead of corrupting consensus-critical state.
-func validatePerModuleMetadata(dbDir string, meta *ktype.LocalMeta) error {
+func validatePerModuleMetadata(dbDir string, meta *LocalMeta) error {
 	if meta == nil || meta.LtHash == nil {
 		return nil
 	}
@@ -354,8 +387,8 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	seededVersion := initialVersion - 1
 
 	for _, dir := range dataDBDirs {
-		if s.perDBWorkingLtHash[dir] == nil {
-			s.perDBWorkingLtHash[dir] = lthash.New()
+		if s.loadedHashes.PerDB[dir] == nil {
+			s.loadedHashes.PerDB[dir] = lthash.New()
 		}
 	}
 
@@ -364,15 +397,22 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	for _, dir := range dataDBDirs {
-		s.localMeta[dir] = &ktype.LocalMeta{
+		s.localMeta[dir] = &LocalMeta{
 			CommittedVersion: seededVersion,
-			LtHash:           s.perDBWorkingLtHash[dir].Clone(),
-			ModuleLtHashes:   cloneModuleHashes(s.perDBModuleWorkingLtHash[dir]),
-			ModuleStats:      cloneModuleStats(s.perDBModuleWorkingStats[dir]),
+			LtHash:           s.loadedHashes.PerDB[dir].Clone(),
+			ModuleLtHashes:   cloneModuleHashes(s.loadedHashes.PerModule[dir]),
+			ModuleStats:      cloneModuleStats(s.loadedHashes.PerModuleStats[dir]),
 		}
 	}
 
 	s.committedVersion = seededVersion
+	s.loadedHashes.BlockNumber = seededVersion
+
+	// The engine must carry back what this established, or the first real block would be measured
+	// against different state than was persisted.
+	if err := s.restartHashing(); err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: %w", err)
+	}
 
 	// The seal only stages the records; the view managers flush asynchronously. Wait for them so the seed is
 	// durable across a restart, as this method promises. For a non-genesis seed the snapshot below supplies
@@ -397,6 +437,84 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 // CommitStore.GetLatestVersion instead.
 func GetLatestVersion(dir string) (int64, error) {
 	return latestVersion(dir, nil)
+}
+
+// StoredVersions returns where the closed store under dir sits: the version LoadWorkingCopy would open
+// it at, and the highest version any one of its data DBs records. Both ignore the WAL, and a directory
+// that has never been opened reads as 0 for both.
+//
+// The two part only after an interrupted commit, where one data DB records a block the others do not.
+// The store opens at the height they agree on, below that block, while the rows written for it sit in
+// the working copy above, so a rollback to the height the store opens at still has state to discard.
+func StoredVersions(dir string) (opensAt, highest int64, err error) {
+	snapshotVersion, err := currentSnapshotVersion(dir)
+	if err != nil {
+		return 0, 0, err
+	}
+	lowestDB, highestDB, err := dataDBVersions(dir)
+	if err != nil {
+		return 0, 0, err
+	}
+	return max(snapshotVersion, lowestDB), max(snapshotVersion, highestDB), nil
+}
+
+// dataDBVersions returns the lowest and highest committed versions recorded in the working copy's data
+// DBs, both 0 when there is no working copy.
+func dataDBVersions(dir string) (lowest, highest int64, err error) {
+	workDir := filepath.Join(dir, workingDirName)
+	if _, err := os.Stat(workDir); err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("stat the state commit working copy under %q: %w", workDir, err)
+	}
+	for i, dbDir := range dataDBDirs {
+		version, err := readCommittedVersion(filepath.Join(workDir, dbDir))
+		if err != nil {
+			return 0, 0, err
+		}
+		if i == 0 {
+			lowest, highest = version, version
+			continue
+		}
+		lowest, highest = min(lowest, version), max(highest, version)
+	}
+	return lowest, highest, nil
+}
+
+// readCommittedVersion returns the version record in the Pebble DB at dbDir, or 0 when that DB is
+// missing or has never been written.
+func readCommittedVersion(dbDir string) (int64, error) {
+	if _, err := os.Stat(dbDir); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("stat %q: %w", dbDir, err)
+	}
+	db, err := pebble.Open(dbDir, &pebble.Options{
+		ReadOnly:           true,
+		FormatMajorVersion: pebble.FormatVirtualSSTables,
+	})
+	if err != nil {
+		// The directory can exist while the database in it does not: createWorkingDir makes an empty one
+		// for every data DB the snapshot it clones from does not have, and only the store's own open
+		// creates the databases. A read-only open does not create, so it reports that as an error.
+		if errors.Is(err, pebble.ErrDBDoesNotExist) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("open %q to read its version: %w", dbDir, err)
+	}
+	defer func() { _ = db.Close() }()
+
+	val, closer, err := db.Get(ktype.MetaVersionKey)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read the version record in %q: %w", dbDir, err)
+	}
+	defer func() { _ = closer.Close() }()
+	return decodeVersion(ktype.MetaVersionKey, val)
 }
 
 // latestVersion resolves the version a store on dir will open at, reading the WAL range through wal

@@ -7,7 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -122,17 +122,30 @@ type LiveStateStore interface {
 		ascending bool,
 	) (dbm.Iterator, error)
 
-	// RootHash returns the 32-byte checksum of the committed LtHash and the height that checksum
-	// describes. Note: the checksum is the Blake3-256 digest of the underlying 2048-byte raw LtHash
-	// vector.
-	RootHash() ([]byte, int64)
+	// RegisterHashListener registers a callback that gets called for each hash the store produces:
+	// exactly one per block committed, in block order, with no gaps or duplicates. Returning an error
+	// from the listener bricks the store, and every later call reports that error.
+	//
+	// This method returns the most recent hash dispatched at the moment the listener is registered. If
+	// the first hash the listener observes is for block N, the mostRecentHash returned will have been
+	// block N-1. A nil listener registers nothing and only reports that hash.
+	//
+	// A read-only store takes a listener and never calls it: it hashes only inside the call that
+	// builds it. The hash it reports is the height it was opened at, which is what such a caller is
+	// after.
+	RegisterHashListener(listener HashListener) (mostRecentHash lthash.BlockHash, err error)
 
-	// HashCategories returns the hash logger category names this store reports (the global root plus one
-	// per data DB). The set is fixed. The caller registers these on the logger.
-	HashCategories() []string
+	// FlushHashes blocks until every block committed so far has been hashed and its hash handed to
+	// every registered listener.
+	FlushHashes() error
 
-	// RecordHashes reports this store's hashes (root + per-DB) for blockNumber. Call right after Commit.
-	RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error
+	// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A
+	// no-op on a store with no pending writes.
+	//
+	// A block that has not been committed has no hash, so a caller wanting one mid-block is asking for
+	// the block to be committed. This is that request, made explicitly. Post-Cosmos nothing asks for a
+	// hash mid-block and this goes away.
+	CommitPendingBlock() error
 
 	// Version returns the latest committed version.
 	Version() int64
@@ -154,14 +167,6 @@ type LiveStateStore interface {
 	// and the result keeps committing from targetVersion+1. An unreachable target is rejected before
 	// anything is modified.
 	Rollback(targetVersion int64) error
-
-	// RewindToSnapshotAtOrBelow rewinds this store to the highest snapshot at or below version and
-	// reports the version it landed on, discarding committed state and snapshots above that point.
-	//
-	// It is Rollback for a store constructed without a WAL: it moves only between snapshot boundaries,
-	// so it needs none, and replaying forward from the version it returns is the caller's to do. The
-	// store must be quiesced and stays open for writing at the returned version.
-	RewindToSnapshotAtOrBelow(version int64) (int64, error)
 
 	// Exporter creates an exporter for the given version (0 = current).
 	Exporter(version int64) (sctypes.Exporter, error)

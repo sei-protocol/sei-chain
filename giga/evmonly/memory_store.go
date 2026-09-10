@@ -13,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // MemoryStoreChangeSetName identifies MemoryStore's direct key/value format.
@@ -32,7 +33,7 @@ const (
 var _ gigatypes.StateDB = (*MemoryStore)(nil)
 
 // MemoryStore adapts an immutable StateReader to the giga StateDB interface. It
-// is intended for tests and load generation, not production persistence.
+// is intended only for tests, not runtime persistence.
 // Commits are retained as versioned in-memory overlays so open and historical
 // snapshots remain stable without cloning the complete base state per block.
 type MemoryStore struct {
@@ -365,11 +366,10 @@ func (s *MemoryStore) OpenViewAt(blockNum int64) (gigatypes.StateView, bool) {
 	return &memoryStoreSnapshot{store: s, height: blockNum}, true
 }
 
-// RollbackTo reports that this store cannot rewind. Its committed overlays are what keep open and
-// historical views stable, and discarding them is outside what a test and load-generation store stands
-// in for.
-func (s *MemoryStore) RollbackTo(blockNum int64) error {
-	return fmt.Errorf("evmonly: MemoryStore cannot roll back to block %d", blockNum)
+// RegisterHashListener reports that this store hashes nothing. It keeps state in maps rather than
+// in a lattice, so there is no block hash for a listener to be given.
+func (s *MemoryStore) RegisterHashListener(_ gigatypes.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, fmt.Errorf("evmonly: an in-memory store computes no block hashes")
 }
 
 // Close releases nothing. This store holds no handle outside its own maps, which go with it.

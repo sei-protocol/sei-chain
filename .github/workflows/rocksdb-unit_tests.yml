@@ -26,6 +26,7 @@ jobs:
 
       - name: Install RocksDB dependencies
         run: |
+          bash .github/scripts/ci-drop-third-party-apt-sources.sh
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config cmake git zlib1g-dev libbz2-dev libsnappy-dev liblz4-dev libzstd-dev libjemalloc-dev libgflags-dev liburing-dev
 

@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"github.com/sei-protocol/seilog"
@@ -76,47 +77,29 @@ type CommitStore struct {
 	// the metadata lands in the same atomic batch as the data it describes and a database on disk can
 	// never disagree with its own bookkeeping. This map is the in-memory copy of what was written, and
 	// is adopted only once every store has accepted the seal.
-	localMeta map[string]*ktype.LocalMeta
+	localMeta map[string]*LocalMeta
 
 	// The height of the most recently committed block. The next Commit must be exactly this plus one.
 	committedVersion int64
 
-	// The root LtHash as of committedVersion — the value reported to anyone asking for the committed
-	// hash. It does not move until a Commit has succeeded on all four stores.
-	committedLtHash *lthash.LtHash
+	// The hash state read off disk at load, which the hash engine is seeded from and which every
+	// hash query answers from until the first block has been finalized. Rebuilt by every path that
+	// reopens the databases underneath the engine.
+	loadedHashes *lthash.BlockHash
 
-	// The root LtHash including the most recently sealed block. Commit folds that block in and then copies
-	// the result into committedLtHash. Writes buffered by ApplyChangeSets are not reflected here until
-	// that seal, so a block still being applied has no hash.
-	//
-	// LtHash is homomorphic: a new value is mixed in and the value it replaced is mixed out, in any
-	// order. That is what lets a block be folded in from its own changed values rather than by re-hashing
-	// all of state, and it is the property that will eventually allow hashing to move off the execution
-	// thread — a Merkle root could not be deferred that way. The seal is what supplies those changed
-	// values, as the diff of the block's view against the previous one, which is why there is no hash
-	// before it.
-	workingLtHash *lthash.LtHash
+	// hashEngine folds each sealed block into the running lattice hash, off the execution goroutine.
+	// Built by openStores once the stores exist and torn down by closeStores. Nil on a read-only store,
+	// which never commits — such a store answers hash queries from what it loaded.
+	hashEngine *lthash.HashEngine
 
-	// Per-DB working LTHash tracking. Authoritative copies live in each
-	// DB's LocalMeta (atomically committed with data). On startup the
-	// working hashes are loaded from LocalMeta.
-	perDBWorkingLtHash map[string]*lthash.LtHash
+	// finalizer records each block's hashes onto that block's own views, and is the sole consumer of
+	// the engine's stream. Same lifecycle as hashEngine.
+	finalizer *FinalizationManager
 
-	// Per-DB, per-module working LtHash: dbDir -> module name -> hash.
-	// The per-DB root (perDBWorkingLtHash[dir]) is the homomorphic sum of
-	// the module hashes here. account/code/storage DBs only ever carry the
-	// "evm" module; miscDB may carry several (evm plus cosmos modules).
-	// Persisted alongside the per-DB root in each DB's LocalMeta and reloaded
-	// on startup. This is bookkeeping metadata only: it does not feed the
-	// global evm_lattice/AppHash.
-	perDBModuleWorkingLtHash map[string]map[string]*lthash.LtHash
-
-	// Per-DB, per-module working stats: dbDir -> module name -> key-count /
-	// byte totals. Accumulated alongside perDBModuleWorkingLtHash using the
-	// same key-membership rule, persisted in each DB's LocalMeta, and reloaded
-	// on startup. Consensus-irrelevant bookkeeping; per-DB / global totals are
-	// derived on demand.
-	perDBModuleWorkingStats map[string]map[string]lthash.ModuleStats
+	// hashListeners holds the callbacks each finalized block's hash is dispatched to. Held here
+	// rather than on the finalizer that dispatches through it, so that a registration survives the
+	// finalizer being rebuilt by restartHashing. Never nil.
+	hashListeners *hashListenerRegistry
 
 	// The four data stores below mediate every read and write of their databases. The block being
 	// applied accumulates its writes inside each store, so a read through a store already sees what
@@ -143,7 +126,7 @@ type CommitStore struct {
 	// The views of the most recently committed block, one reservation held for as long as they stay
 	// installed, which is what keeps any later block out of pebble. Nil outside the window in which the
 	// view managers exist.
-	lastSealed *atomicStoreView
+	lastSealed *sview.AtomicStoreView
 
 	// The state WAL. Injected at construction: non-nil ⇒ FlatKV writes/replays/prunes it; nil ⇒ the outer
 	// context owns the whole WAL pipeline and FlatKV no-ops every WAL operation. FlatKV owns Close of whatever
@@ -194,11 +177,10 @@ type CommitStore struct {
 	// Uses a fixed-size pool, same lifecycle as readPool / miscPool.
 	ltHashPool threading.Pool
 
-	// ltCalc encapsulates the lattice-hash pipeline (old-value reads, per-key
-	// hashing, and worker-combine into final per-DB / per-module hashes) over
-	// ltHashPool. The commit path is serialized by s.mu, so the calculator has
-	// a single caller at a time.
-	ltCalc *lthash.HashCalculator
+	// moduleOf names the module a physical key belongs to, for bucketing a block's pairs into per-module
+	// hashes. A field rather than a direct call to moduleOfKey, and read on every call rather than
+	// captured, so that a test can inject a failing one into an open store.
+	moduleOf lthash.ModuleParser
 }
 
 // routePhysicalKey names the database directory a physical DB key belongs to.
@@ -267,25 +249,21 @@ func NewCommitStore(
 
 	ltHashPoolSize := lthashWorkerCount(cfg, coreCount)
 	ltHashPool := threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
-	ltCalc := lthash.NewHashCalculator(ltHashPool, dataDBDirs, moduleOfKey)
 
 	return &CommitStore{
-		ctx:                      ctx,
-		cancel:                   cancel,
-		config:                   *cfg,
-		localMeta:                make(map[string]*ktype.LocalMeta),
-		pendingChangeSets:        make([]*proto.NamedChangeSet, 0),
-		committedLtHash:          lthash.New(),
-		workingLtHash:            lthash.New(),
-		perDBWorkingLtHash:       make(map[string]*lthash.LtHash),
-		perDBModuleWorkingLtHash: newPerDBModuleLtHashMap(),
-		perDBModuleWorkingStats:  newPerDBModuleStatsMap(),
-		phaseTimer:               metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
-		readPool:                 readPool,
-		miscPool:                 miscPool,
-		ltHashPool:               ltHashPool,
-		ltCalc:                   ltCalc,
-		wal:                      stateWAL,
+		ctx:               ctx,
+		cancel:            cancel,
+		hashListeners:     newHashListenerRegistry(),
+		config:            *cfg,
+		localMeta:         make(map[string]*LocalMeta),
+		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
+		loadedHashes:      lthash.NewBlockHash(dataDBDirs),
+		phaseTimer:        metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
+		readPool:          readPool,
+		miscPool:          miscPool,
+		ltHashPool:        ltHashPool,
+		moduleOf:          moduleOfKey,
+		wal:               stateWAL,
 	}, nil
 }
 
@@ -360,7 +338,6 @@ func (s *CommitStore) resetPools() {
 
 	ltHashPoolSize := lthashWorkerCount(&s.config, coreCount)
 	s.ltHashPool = threading.NewFixedPool("flatkv-lthash", ltHashPoolSize, ltHashPoolSize)
-	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, moduleOfKey)
 }
 
 func (s *CommitStore) flatkvDir() string {
@@ -413,6 +390,43 @@ func (s *CommitStore) LoadLatest() (retErr error) {
 
 	if err := s.openTo(0); err != nil {
 		return fmt.Errorf("failed to open FlatKV store: %w", err)
+	}
+	return nil
+}
+
+// LoadWorkingCopy opens the database on the version its files already hold — the working copy, or the
+// snapshot the current link names when there is no working copy to resume — and leaves this store open
+// for writing without replaying any WAL block.
+//
+// It is LoadLatest for a store whose WAL an outer context owns, and it touches no WAL at all: replaying
+// one forward from the version this opens on is that context's, as is RebuildIfUnreachable, the repair
+// that has to precede it.
+func (s *CommitStore) LoadWorkingCopy() (retErr error) {
+	obs := s.observeOp("LoadWorkingCopy", otelMetrics.OpenLatency).
+		withAttrs(attribute.Bool("read_only", false))
+	defer obs.done(&retErr, func() {
+		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		logger.Info("FlatKV LoadWorkingCopy complete", "version", s.committedVersion, "elapsed", obs.elapsed())
+	})
+
+	if s.readOnly {
+		return errReadOnly
+	}
+
+	_ = s.closeDBsOnly()
+
+	// The lock is released on failure only when this call took it, since open does not track one it
+	// found already held.
+	lockHeldBefore := s.fileLock != nil
+	defer func() {
+		if retErr != nil && !lockHeldBefore && s.fileLock != nil {
+			_ = s.fileLock.Unlock()
+			s.fileLock = nil
+		}
+	}()
+
+	if err := s.open(); err != nil {
+		return fmt.Errorf("open FlatKV store: %w", err)
 	}
 	return nil
 }
@@ -600,7 +614,42 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 }
 
 // rebuildIfAnyDataDBIsUnreachable discards the working copy when a data DB records a version that
-// neither the snapshots nor the WAL can account for, leaving the store at a version replay can reach.
+// neither the snapshots nor this store's own WAL can account for.
+func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
+	reachable, err := latestVersion(s.flatkvDir(), s.wal)
+	if err != nil {
+		return err
+	}
+	return s.rebuildIfAnyDataDBIsAbove(reachable)
+}
+
+// RebuildIfUnreachable discards the working copy when a data DB records a version that neither this
+// store's snapshots nor a WAL ending at walHead can account for.
+//
+// It is the repair inside LoadLatest, for a store whose WAL an outer context owns: that context hands
+// the head over instead, so nothing here opens the WAL. It has to run before that context replays,
+// which erases the evidence it works from.
+func (s *CommitStore) RebuildIfUnreachable(walHead int64) error {
+	snapshotVersion, err := currentSnapshotVersion(s.flatkvDir())
+	if err != nil {
+		return err
+	}
+	return s.rebuildIfAnyDataDBIsAbove(max(snapshotVersion, walHead))
+}
+
+// RebuildIfTorn discards the working copy when its data DBs disagree, one recording a block the others
+// do not, which is what an interrupted commit leaves.
+//
+// It is the repair for a store whose WAL holds no blocks, where RebuildIfUnreachable would measure the
+// working copy against the current snapshot and discard a copy that is legitimately ahead of it. The
+// height the data DBs agree on is the yardstick here instead. The rebuild still comes back from the
+// current snapshot, so the blocks between it and that height are replayed or re-executed afterwards.
+func (s *CommitStore) RebuildIfTorn() error {
+	return s.rebuildIfAnyDataDBIsAbove(s.committedVersion)
+}
+
+// rebuildIfAnyDataDBIsAbove rebuilds the working copy from the current snapshot when a data DB records
+// a version above reachable, leaving the store at a version replay can reach.
 //
 // It must run before replay, because replay erases the evidence: applying an older block to a DB that
 // is past it rewrites that DB's version record downward to match the others while leaving the later
@@ -609,12 +658,7 @@ func (s *CommitStore) openTo(catchupTarget int64) error {
 // The blocks discarded here were never servable. A block present in one data DB and absent from the
 // WAL is a block no consistent state includes, so rebuilding from the snapshot loses nothing that
 // could have been read back — which is why this repairs rather than refusing and taking the node down.
-func (s *CommitStore) rebuildIfAnyDataDBIsUnreachable() error {
-	reachable, err := latestVersion(s.flatkvDir(), s.wal)
-	if err != nil {
-		return err
-	}
-
+func (s *CommitStore) rebuildIfAnyDataDBIsAbove(reachable int64) error {
 	unreachable := make([]string, 0, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
 		if meta := s.localMeta[dbDir]; meta.CommittedVersion > reachable {
@@ -836,7 +880,7 @@ func (s *CommitStore) openRawDBs() (dbs rawDBs, retErr error) {
 
 // loadLocalMeta reads each data database's persisted metadata into localMeta.
 func (s *CommitStore) loadLocalMeta(dbs rawDBs) error {
-	s.localMeta = make(map[string]*ktype.LocalMeta)
+	s.localMeta = make(map[string]*LocalMeta)
 	for _, dir := range dataDBDirs {
 		meta, err := loadLocalMeta(dbs.forDir(dir))
 		if err != nil {
@@ -905,6 +949,10 @@ func (s *CommitStore) openStores(dbs rawDBs) (retErr error) {
 	// "before", so every key in the first replayed block would be mixed in as new with nothing mixed out and
 	// the view would report a hash matching no real chain history.
 	if err := s.sealBaseline(); err != nil {
+		return err
+	}
+
+	if err := s.startHashing(); err != nil {
 		return err
 	}
 
@@ -984,6 +1032,12 @@ func (s *CommitStore) rawDBFor(name string) seidbtypes.KeyValueDB {
 func (s *CommitStore) closeStores() error {
 	var errs []error
 
+	// Hashing stops before the writer, which can be waiting for a block to flush — something only
+	// finalization makes possible.
+	if err := s.stopHashing(); err != nil {
+		errs = append(errs, err)
+	}
+
 	// The writer must stop before anything below runs: closing a view manager closes the database it
 	// owns, and a checkpoint in progress would then be reading a closed handle. This is the choke point
 	// every teardown path reaches — Close directly, Rollback and resetForImport through closeDBsOnly —
@@ -995,7 +1049,7 @@ func (s *CommitStore) closeStores() error {
 		s.snapshotWriter = nil
 	}
 
-	// Hand back the reservations on the last sealed block and forget the handles. They belong to the
+	// Release the reservations on the last sealed block and forget the handles. They belong to the
 	// stores being torn down here, so keeping them would leave a reopened store (rollback, restore)
 	// awaiting a flush on views whose store is already gone.
 	if s.lastSealed != nil {
@@ -1058,26 +1112,23 @@ func (s *CommitStore) loadGlobalMetadata() error {
 	return nil
 }
 
-// hydratePerDBState populates the working per-DB and per-module hash state from
-// each data DB's LocalMeta. It rejects a DB whose per-module hashes do not sum
-// to its recorded root.
+// hydratePerDBState rebuilds loadedHashes from each data DB's LocalMeta. It rejects a DB whose
+// per-module hashes do not sum to its recorded root.
 func (s *CommitStore) hydratePerDBState() error {
+	s.loadedHashes = lthash.NewBlockHash(dataDBDirs)
 	for _, dbDir := range dataDBDirs {
 		meta := s.localMeta[dbDir]
 		if err := validatePerModuleMetadata(dbDir, meta); err != nil {
 			return err
 		}
 		if meta != nil && meta.LtHash != nil {
-			s.perDBWorkingLtHash[dbDir] = meta.LtHash.Clone()
+			s.loadedHashes.PerDB[dbDir] = meta.LtHash.Clone()
 		} else {
-			s.perDBWorkingLtHash[dbDir] = lthash.New()
+			s.loadedHashes.PerDB[dbDir] = lthash.New()
 		}
 		if meta != nil {
-			s.perDBModuleWorkingLtHash[dbDir] = cloneModuleHashes(meta.ModuleLtHashes)
-			s.perDBModuleWorkingStats[dbDir] = cloneModuleStats(meta.ModuleStats)
-		} else {
-			s.perDBModuleWorkingLtHash[dbDir] = make(map[string]*lthash.LtHash)
-			s.perDBModuleWorkingStats[dbDir] = make(map[string]lthash.ModuleStats)
+			s.loadedHashes.PerModule[dbDir] = cloneModuleHashes(meta.ModuleLtHashes)
+			s.loadedHashes.PerModuleStats[dbDir] = cloneModuleStats(meta.ModuleStats)
 		}
 	}
 	return nil
@@ -1087,9 +1138,7 @@ func (s *CommitStore) hydratePerDBState() error {
 // reached and the committed LtHash to the homomorphic sum of their roots.
 func (s *CommitStore) deriveGlobalState() {
 	version := s.localMeta[dataDBDirs[0]].CommittedVersion
-	global := lthash.New()
 	for _, dbDir := range dataDBDirs {
-		global.MixIn(s.perDBWorkingLtHash[dbDir])
 		if v := s.localMeta[dbDir].CommittedVersion; v < version {
 			version = v
 		}
@@ -1105,8 +1154,133 @@ func (s *CommitStore) deriveGlobalState() {
 	}
 
 	s.committedVersion = version
-	s.committedLtHash = global
-	s.workingLtHash = global.Clone()
+	s.loadedHashes.BlockNumber = version
+	s.loadedHashes.Global = lthash.SumDBHashes(dataDBDirs, s.loadedHashes.PerDB)
+}
+
+// startHashing builds the hash engine and the finalizer that consumes it, both seeded from what load
+// read off disk. They are built together and only here, so neither outlives the stores it reads.
+//
+// A read-only store gets them too: it replays blocks to reach its target height, and each replayed block
+// is hashed against the one before it exactly as a committed block is.
+func (s *CommitStore) startHashing() error {
+	// Called through a closure rather than passed directly, so the field stays the live source of truth
+	// and a test can swap it on an open store.
+	moduleParser := func(key []byte) (string, error) { return s.moduleOf(key) }
+
+	engine, err := lthash.NewHashEngine(
+		s.ctx, &s.config.HashEngineConfig, s.ltHashPool, dataDBDirs, moduleParser, s.loadedHashes)
+	if err != nil {
+		return fmt.Errorf("create hash engine: %w", err)
+	}
+	s.hashEngine = engine
+	s.finalizer = newFinalizationManager(
+		s.ctx,
+		s.hashEngine.AwaitHash(),
+		s.loadedHashes,
+		s.config.FinalizationQueueSize,
+		s.hashListeners,
+	)
+
+	// The listeners are told the height hashing starts from, since a store that opened, seeded or
+	// rolled back reached it without any block being committed.
+	if err := s.hashListeners.dispatch(s.ctx, s.loadedHashes); err != nil {
+		return fmt.Errorf("dispatch the loaded hash of block %d: %w", s.loadedHashes.BlockNumber, err)
+	}
+	return nil
+}
+
+// flushInFlightBlocks waits for the blocks committed so far to be hashed and finalized, so that they
+// reach the databases: a block's rows are written into the same batch its hashes are recorded in, so a
+// block still in flight when hashing stops never lands at all.
+//
+// A store whose own context is already cancelled has nothing to wait for, both phases being stopped by
+// that cancellation, and the blocks still in flight are abandoned for replay to recover.
+//
+// Unlike FlushHashes this takes no lock, for the teardown path that already holds one.
+func (s *CommitStore) flushInFlightBlocks() error {
+	if s.hashEngine == nil || s.ctx.Err() != nil {
+		return nil
+	}
+	// The engine first: its output is the finalizer's input, so waiting on the finalizer alone would
+	// return while blocks were still inside the engine.
+	if err := s.hashEngine.Flush(); err != nil {
+		return fmt.Errorf("flush hash engine: %w", err)
+	}
+	if err := s.finalizer.Flush(); err != nil {
+		return fmt.Errorf("flush finalization manager: %w", err)
+	}
+	return nil
+}
+
+// stopHashing finishes the blocks already in flight, then closes the hash engine and the finalizer.
+//
+// This is the one function every teardown path passes through — Close directly, Rollback and
+// resetForImport through closeDBsOnly — so the flush that lands those blocks lives here rather than at
+// each of them.
+//
+// Closing itself needs no ordering between the two: each cancels its own context, and every wait
+// either of them holds is released by that cancellation.
+func (s *CommitStore) stopHashing() error {
+	var errs []error
+
+	if err := s.flushInFlightBlocks(); err != nil {
+		errs = append(errs, err)
+	}
+
+	if s.hashEngine != nil {
+		if err := s.hashEngine.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close hash engine: %w", err))
+		}
+		s.hashEngine = nil
+	}
+	if s.finalizer != nil {
+		if err := s.finalizer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close finalization manager: %w", err))
+		}
+		s.finalizer = nil
+	}
+	return errors.Join(errs...)
+}
+
+// restartHashing rebuilds the hash engine and the finalizer from what the store has just loaded, for a
+// caller that has replaced the databases underneath them.
+//
+// Discarding and rebuilding rather than reseeding in place: the caller has already quiesced the store,
+// so there is nothing in flight to preserve, and the pair has to move together anyway — the finalizer
+// captures the engine's stream when it is built.
+func (s *CommitStore) restartHashing() error {
+	if s.hashEngine == nil {
+		return nil
+	}
+	if err := s.stopHashing(); err != nil {
+		return err
+	}
+	return s.startHashing()
+}
+
+// reloadLocalMeta re-reads each data database's recorded metadata from disk, for a caller that needs
+// what the finalizer has written rather than what load saw.
+//
+// It waits for both barriers first, because without them the read is meaningless: a block's metadata is
+// written by the finalizer, on its own goroutine, into the same batch as the block's data — and that
+// batch reaches disk asynchronously after that. Waiting here rather than at each caller is what stops
+// the next one reading a database that has not caught up yet.
+func (s *CommitStore) reloadLocalMeta() error {
+	if err := s.FlushHashes(); err != nil {
+		return fmt.Errorf("flush hashes before reading local meta: %w", err)
+	}
+	if err := s.flushLatestVersion(); err != nil {
+		return fmt.Errorf("flush to disk before reading local meta: %w", err)
+	}
+	for _, dir := range dataDBDirs {
+		meta, err := loadLocalMeta(s.rawDBFor(dir))
+		if err != nil {
+			return fmt.Errorf("reload %s local meta: %w", dir, err)
+		}
+		s.localMeta[dir] = meta
+	}
+	return nil
 }
 
 // requireAlignedDataDBs returns an error unless every data DB sits at the store's committed version.
@@ -1116,6 +1290,11 @@ func (s *CommitStore) deriveGlobalState() {
 // This is what makes summing the per-DB roots into the store root sound: the sum only describes a real
 // state if every DB contributed at the same version.
 func (s *CommitStore) requireAlignedDataDBs() error {
+	// s.localMeta describes what load saw, not what the replay above has since recorded.
+	if err := s.reloadLocalMeta(); err != nil {
+		return fmt.Errorf("flatkv: reload local meta before checking data DB alignment: %w", err)
+	}
+
 	misaligned := make([]string, 0, len(dataDBDirs))
 	for _, dbDir := range dataDBDirs {
 		if meta := s.localMeta[dbDir]; meta.CommittedVersion != s.committedVersion {
@@ -1140,18 +1319,64 @@ func (s *CommitStore) PendingVersion() int64 {
 	return s.pendingBlockHeight
 }
 
-// RootHash returns the Blake3-256 digest of the committed LtHash and the height that digest
-// describes.
-//
-// The hash is computed from the snapshots a commit produces, so a block that has not been committed
-// has no hash: while one is being applied this reports the previous block's hash and height. A caller
-// that needs a block's own hash commits it first and checks the height it gets back.
-func (s *CommitStore) RootHash() ([]byte, int64) {
+// currentHash returns the hash of the height this store stands at: what the pipeline has reached on
+// a committing store, and what was loaded before it has hashed anything.
+func (s *CommitStore) currentHash() *lthash.BlockHash {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	checksum := s.committedLtHash.Checksum()
-	return checksum[:], s.committedVersion
+	if s.finalizer != nil {
+		return s.finalizer.PublishedHash()
+	}
+	return s.loadedHashes
+}
+
+// RegisterHashListener registers a callback the store hands the hash of each committed block to:
+// exactly one per block, in block order, with no gaps or duplicates. It reports the most recent hash
+// dispatched, which is the block the listener's first delivery follows.
+func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
+	return s.hashListeners.register(listener, s.currentHash()), nil
+}
+
+// FlushHashes blocks until every block committed so far has been hashed and its hash handed to every
+// registered listener.
+func (s *CommitStore) FlushHashes() error {
+	s.mu.RLock()
+	engine, finalizer := s.hashEngine, s.finalizer
+	s.mu.RUnlock()
+
+	if engine == nil {
+		return nil
+	}
+	// The engine first: its output is the finalizer's input, so waiting on the finalizer alone would
+	// return before blocks still inside the engine had reached it.
+	if err := engine.Flush(); err != nil {
+		return fmt.Errorf("flush hashes: %w", err)
+	}
+	if err := finalizer.Flush(); err != nil {
+		return fmt.Errorf("flush hashes: %w", err)
+	}
+	return nil
+}
+
+// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A no-op
+// on a store with no pending writes, which is every store between blocks and every read-only store.
+//
+// A block that has not been committed has no hash — the hash is computed from the views a commit
+// produces — so a caller wanting one mid-block is asking for the block to be committed. This is that
+// request, made explicitly. Post-Cosmos nothing asks for a hash mid-block and this goes away.
+func (s *CommitStore) CommitPendingBlock() error {
+	if s.readOnly {
+		return nil
+	}
+	pending := s.PendingVersion()
+	if pending == 0 {
+		return nil
+	}
+	if _, err := s.Commit(pending); err != nil {
+		return fmt.Errorf("commit pending block %d: %w", pending, err)
+	}
+	return nil
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
@@ -1249,11 +1474,7 @@ func (s *CommitStore) resetForImport() error {
 	}
 
 	s.committedVersion = 0
-	s.committedLtHash = lthash.New()
-	s.workingLtHash = lthash.New()
-	s.perDBWorkingLtHash = newPerDBLtHashMap()
-	s.perDBModuleWorkingLtHash = newPerDBModuleLtHashMap()
-	s.perDBModuleWorkingStats = newPerDBModuleStatsMap()
+	s.loadedHashes = lthash.NewBlockHash(dataDBDirs)
 
 	return nil
 }

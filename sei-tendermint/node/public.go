@@ -3,14 +3,18 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evmonlyapp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -23,6 +27,8 @@ var logger = seilog.NewLogger("tendermint", "node")
 type options struct {
 	freezeHeight uint64
 }
+
+var errEVMOnlySeed = errors.New("evm-only is not supported in seed mode")
 
 // Option configures optional node behavior.
 type Option func(*options)
@@ -53,7 +59,7 @@ func New(
 	tracerProviderOptions []trace.TracerProviderOption,
 	consensusPolicy tmtypes.ConsensusPolicy,
 	nodeOptions ...Option,
-) (local.NodeService, error) {
+) (_ local.NodeService, err error) {
 	if err := validateNodeSetupConfig(conf); err != nil {
 		return nil, err
 	}
@@ -61,10 +67,19 @@ func New(
 	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
 		return nil, err
 	}
-	app, err := prepareApplication(conf, app)
+	app, storageManager, err := prepareApplication(ctx, conf, app)
 	if err != nil {
 		return nil, err
 	}
+	storageManagerTransferred := false
+	defer func() {
+		if err == nil || storageManagerTransferred {
+			return
+		}
+		if manager, ok := storageManager.Get(); ok {
+			err = errors.Join(err, manager.Close())
+		}
+	}()
 	proxyApp := proxy.New(app)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -85,7 +100,7 @@ func New(
 		if err != nil {
 			return nil, err
 		}
-
+		storageManagerTransferred = true
 		return makeNode(
 			ctx,
 			conf,
@@ -97,6 +112,7 @@ func New(
 			config.DefaultDBProvider,
 			tracerProviderOptions,
 			consensusPolicy,
+			storageManager,
 			nodeOptions...,
 		)
 	case config.ModeSeed:
@@ -124,38 +140,56 @@ func validateFreezeMode(mode string, freezeHeight uint64) error {
 }
 
 func validateNodeSetupConfig(conf *config.Config) error {
+	if conf.EVMOnly && conf.Mode == config.ModeSeed {
+		return errEVMOnlySeed
+	}
 	if conf.MockApp && conf.AutobahnConfigFile == "" {
 		return fmt.Errorf("mock-app requires autobahn-config-file")
 	}
-	if conf.EVMOnlyInMemory && conf.AutobahnConfigFile == "" {
-		return fmt.Errorf("evm-only-in-memory requires autobahn-config-file")
+	if conf.EVMOnly && conf.AutobahnConfigFile == "" {
+		return fmt.Errorf("evm-only requires autobahn-config-file")
 	}
 	return nil
 }
 
-func prepareApplication(conf *config.Config, app abci.Application) (abci.Application, error) {
-	if conf.EVMOnlyInMemory {
-		validators, err := evmOnlyValidatorUpdates(conf.AutobahnConfigFile)
+func prepareApplication(
+	ctx context.Context,
+	conf *config.Config,
+	app abci.Application,
+) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
+	noStorage := utils.None[*bootstrap.GigaStorageManager]()
+	if conf.EVMOnly {
+		fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 		if err != nil {
-			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
+			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
-		logger.Warn("Autobahn EVM-only in-memory execution enabled; state is ephemeral and unsafe for persistent networks")
-		return p2p.NewEVMOnlyInMemoryApplication(config.AutobahnEVMOnlyInMemoryChainID, validators), nil
+		validators, err := evmOnlyValidatorUpdates(fc)
+		if err != nil {
+			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
+		}
+		manager, err := openEVMOnlyStorageManager(ctx, conf.RootDir, fc)
+		if err != nil {
+			return nil, noStorage, fmt.Errorf("open EVM-only storage: %w", err)
+		}
+		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
+		prepared := evmonlyapp.NewEVMOnlyApplication(
+			config.AutobahnEVMOnlyChainID,
+			validators,
+			manager,
+			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
+		)
+		return prepared, utils.Some(manager), nil
 	}
 	if conf.MockApp {
-		return NewMockApp(app), nil
+		return NewMockApp(app), noStorage, nil
 	}
 	if conf.FastCheckTx {
-		return fastCheckTxApplication{Application: app}, nil
+		return fastCheckTxApplication{Application: app}, noStorage, nil
 	}
-	return app, nil
+	return app, noStorage, nil
 }
 
-func evmOnlyValidatorUpdates(autobahnConfigFile string) ([]abci.ValidatorUpdate, error) {
-	fc, _, err := loadAutobahnCommittee(autobahnConfigFile)
-	if err != nil {
-		return nil, err
-	}
+func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpdate, error) {
 	validators := make([]abci.ValidatorUpdate, len(fc.Validators))
 	for i, validator := range fc.Validators {
 		key, err := ed25519.PublicKeyFromBytes(validator.ValidatorKey.Bytes())

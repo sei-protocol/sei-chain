@@ -416,12 +416,12 @@ func (m *stateModel) expect() *expectedState {
 	}
 	for _, dir := range dataDBDirs {
 		byKey := byDB[dir]
-		pairs := make([]lthash.KVPairWithLastValue, 0, len(byKey))
+		pairs := make([]lthash.KeyMutation, 0, len(byKey))
 		for physKey, value := range byKey {
-			pairs = append(pairs, lthash.KVPairWithLastValue{Key: []byte(physKey), Value: value})
+			pairs = append(pairs, lthash.KeyMutation{Key: []byte(physKey), Value: value})
 			out.rows[physKey] = value
 		}
-		root, _ := lthash.ComputeLtHash(nil, pairs)
+		root := lthash.ComputeLtHash(nil, pairs)
 		out.perDB[dir] = root
 		out.root.MixIn(root)
 	}
@@ -439,13 +439,13 @@ func requireModelAgrees(t *testing.T, s *CommitStore, m *stateModel, because str
 
 	want := m.expect()
 	for _, dir := range dataDBDirs {
-		require.True(t, want.perDB[dir].Equal(s.perDBWorkingLtHash[dir]),
+		require.True(t, want.perDB[dir].Equal(s.maintainedHashes().PerDB[dir]),
 			"%s: %s per-DB root disagrees with the model\n  model: %x\n  store: %x",
-			because, dir, want.perDB[dir].Checksum(), s.perDBWorkingLtHash[dir].Checksum())
+			because, dir, want.perDB[dir].Checksum(), s.maintainedHashes().PerDB[dir].Checksum())
 	}
-	require.True(t, want.root.Equal(s.workingLtHash),
+	require.True(t, want.root.Equal(s.maintainedHashes().Global),
 		"%s: store-wide root disagrees with the model\n  model: %x\n  store: %x",
-		because, want.root.Checksum(), s.workingLtHash.Checksum())
+		because, want.root.Checksum(), s.maintainedHashes().Global.Checksum())
 
 	requireRowsEqual(t, s, want, because)
 }
@@ -502,14 +502,13 @@ func requireStoresAgree(t *testing.T, want *CommitStore, got *CommitStore, becau
 func (sc *storeComparator) requireAgree(t *testing.T, want *CommitStore, got *CommitStore, because string) {
 	t.Helper()
 
-	wantHash, wantVersion := want.RootHash()
-	gotHash, gotVersion := got.RootHash()
+	wantVersion, gotVersion := want.Version(), got.Version()
 	require.Equalf(t, wantVersion, gotVersion, "%s: version", because)
-	require.Equalf(t, wantHash, gotHash,
+	require.Equalf(t, rootHash(want), rootHash(got),
 		"%s: store-wide root at version %d", because, wantVersion)
 
 	for _, dir := range dataDBDirs {
-		require.Truef(t, want.perDBWorkingLtHash[dir].Equal(got.perDBWorkingLtHash[dir]),
+		require.Truef(t, want.maintainedHashes().PerDB[dir].Equal(got.maintainedHashes().PerDB[dir]),
 			"%s: %s per-DB root", because, dir)
 	}
 	sc.requireModuleBookkeepingAgrees(t, want, got, because)
@@ -535,15 +534,15 @@ func (sc *storeComparator) requireModuleBookkeepingAgrees(
 	var problems []string
 	for _, dir := range dataDBDirs {
 		modules := make(map[string]bool)
-		for module := range want.perDBModuleWorkingLtHash[dir] {
+		for module := range want.maintainedHashes().PerModule[dir] {
 			modules[module] = true
 		}
-		for module := range got.perDBModuleWorkingLtHash[dir] {
+		for module := range got.maintainedHashes().PerModule[dir] {
 			modules[module] = true
 		}
 		for _, module := range sortedStrings(modules) {
-			wantHash, wantOK := want.perDBModuleWorkingLtHash[dir][module]
-			gotHash, gotOK := got.perDBModuleWorkingLtHash[dir][module]
+			wantHash, wantOK := want.maintainedHashes().PerModule[dir][module]
+			gotHash, gotOK := got.maintainedHashes().PerModule[dir][module]
 			if wantOK != gotOK {
 				present, absent := wantHash, "second"
 				if !wantOK {
@@ -569,8 +568,8 @@ func (sc *storeComparator) requireModuleBookkeepingAgrees(
 			}
 		}
 
-		wantStats := want.perDBModuleWorkingStats[dir]
-		gotStats := got.perDBModuleWorkingStats[dir]
+		wantStats := want.maintainedHashes().PerModuleStats[dir]
+		gotStats := got.maintainedHashes().PerModuleStats[dir]
 		statModules := make(map[string]bool)
 		for module := range wantStats {
 			statModules[module] = true
@@ -740,6 +739,10 @@ type miscCoord struct {
 type agreementWorkload struct {
 	rng *rand.Rand
 
+	// blockSize decides one block's total operation budget, which planBlock splits across the four
+	// categories.
+	blockSize func() int
+
 	// Index-derived pools rather than the byte-indexed addrN/slotN helpers, which top out at 256
 	// values — too few to absorb hundreds of operations per block.
 	addrs       []ktype.Address
@@ -765,7 +768,26 @@ const (
 	agreementAimAttempts = 8
 )
 
+// newAgreementWorkload draws each block's operation budget from the agreementMinOpsPerBlock..
+// agreementMaxOpsPerBlock range.
 func newAgreementWorkload(rng *rand.Rand) *agreementWorkload {
+	w := buildAgreementWorkload(rng)
+	span := agreementMaxOpsPerBlock - agreementMinOpsPerBlock + 1
+	w.blockSize = func() int { return agreementMinOpsPerBlock + rng.Intn(span) }
+	return w
+}
+
+// newFixedSizeAgreementWorkload gives every block the same operation budget. For a caller whose expected
+// output is recorded rather than derived, and so must not move if the randomized range is ever retuned.
+func newFixedSizeAgreementWorkload(rng *rand.Rand, opsPerBlock int) *agreementWorkload {
+	w := buildAgreementWorkload(rng)
+	w.blockSize = func() int { return opsPerBlock }
+	return w
+}
+
+// buildAgreementWorkload assembles the generator state shared by both constructors, leaving blockSize
+// for the caller to set.
+func buildAgreementWorkload(rng *rand.Rand) *agreementWorkload {
 	w := &agreementWorkload{
 		rng:             rng,
 		miscModules:     []string{keys.EVMStoreKey, "bank", "staking"},
@@ -822,8 +844,7 @@ func (p blockPlan) total() int { return p.creates + p.updates + p.deletes + p.ab
 // get a guaranteed share: a category that only appears sometimes is a category that is untested on the
 // blocks where it does not.
 func (w *agreementWorkload) planBlock() blockPlan {
-	span := agreementMaxOpsPerBlock - agreementMinOpsPerBlock + 1
-	total := agreementMinOpsPerBlock + w.rng.Intn(span)
+	total := w.blockSize()
 	plan := blockPlan{
 		creates:       total * 40 / 100,
 		updates:       total * 30 / 100,

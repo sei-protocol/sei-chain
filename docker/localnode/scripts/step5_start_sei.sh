@@ -16,7 +16,7 @@ echo "Node $NODE_ID seid is started now"
 # launch.complete means the node's query surface is available, not merely that
 # the process has started.
 node_query_ready() {
-  if [ "${AUTOBAHN_EVMONLY_IN_MEMORY:-false}" = "true" ]; then
+  if [ "${AUTOBAHN_EVMONLY:-false}" = "true" ]; then
     curl -fsS -X POST \
       -H 'content-type: application/json' \
       --data '{"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["0x01"]}' \

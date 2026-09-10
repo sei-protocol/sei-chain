@@ -113,7 +113,6 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	gigaprecompiles "github.com/sei-protocol/sei-chain/giga/executor/precompiles"
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -758,12 +757,6 @@ func New(
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
-		// evmone is loaded best-effort
-		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
-			app.GigaEvmKeeper.EvmoneVM = evmoneVM
-		} else {
-			logger.Debug("failed to load evmone VM", "error", err)
-		}
 		// evm_giga_mixed_tests.sh matches these ENABLED/DISABLED strings to guard node roles; keep them in sync.
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")

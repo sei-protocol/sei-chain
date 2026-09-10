@@ -93,9 +93,11 @@ func executeHashLogCompare(cmd *cobra.Command, args []string) {
 		result.ranged = true
 		result.low, _ = cmd.Flags().GetUint64("low")
 		result.high, _ = cmd.Flags().GetUint64("high")
-		diffs, err = hashlog.CompareHashesInRange(archiveA, archiveB, result.low, result.high, maxDiffs)
+		// Coverage is not required: an operator comparing two nodes wants the deviant blocks listed, and a
+		// block only one node reached is such a block rather than a reason to abandon the comparison.
+		diffs, err = hashlog.CompareHashesInRange(archiveA, archiveB, result.low, result.high, maxDiffs, false)
 	} else {
-		diffs, err = hashlog.CompareHashes(archiveA, archiveB, maxDiffs)
+		diffs, err = hashlog.CompareHashes(archiveA, archiveB, maxDiffs, false)
 	}
 	if err != nil {
 		panic(fmt.Errorf("compare hash archives: %w", err))

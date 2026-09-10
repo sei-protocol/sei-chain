@@ -127,6 +127,12 @@ var DebugTraceNonPanicTx sdk.Tx
 var DebugTraceSyntheticTx sdk.Tx
 var TxNonEvm sdk.Tx
 var TxNonEvmWithSyntheticLog sdk.Tx
+
+// Tx1Bz and TxNonEvmWithSyntheticLogBz are encoded once in init: the tx
+// encoder memoizes into the tx wrapper, which is unsafe under the concurrent
+// mockBlock calls made by rate-limiter tests.
+var Tx1Bz []byte
+var TxNonEvmWithSyntheticLogBz []byte
 var UnconfirmedTx sdk.Tx
 
 var SConfig = evmrpc.SimulateConfig{GasCap: 10000000, MaxStateOverrideAccounts: 100, MaxStateOverrideSlots: 1000}
@@ -304,16 +310,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 		Block: &tmtypes.Block{
 			Header: mockBlockHeader(height),
 			Data: tmtypes.Data{
-				Txs: []tmtypes.Tx{
-					func() []byte {
-						bz, _ := Encoder(Tx1)
-						return bz
-					}(),
-					func() []byte {
-						bz, _ := Encoder(TxNonEvmWithSyntheticLog)
-						return bz
-					}(),
-				},
+				Txs: []tmtypes.Tx{Tx1Bz, TxNonEvmWithSyntheticLogBz},
 			},
 			LastCommit: &tmtypes.Commit{
 				Height: MockHeight8 - 1,
@@ -937,6 +934,9 @@ func generateTxData() {
 	TestSyntheticTxHash = syntheticEthTx.Hash().Hex()
 	TxNonEvm = app.TestTx{}
 	TxNonEvmWithSyntheticLog = app.TestTx{}
+	Tx1Bz = mustEncode(Tx1)
+	// app.TestTx is rejected by the encoder and appears in blocks as empty bytes.
+	TxNonEvmWithSyntheticLogBz = nil
 	bloomTx1 := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		Topics: []common.Hash{common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
@@ -1007,6 +1007,14 @@ func generateTxData() {
 
 	tracerTestTxFrom := common.HexToAddress("0x5b4eba929f3811980f5ae0c5d04fa200f837df4e")
 	EVMKeeper.SetAddressMapping(Ctx, sdk.AccAddress(tracerTestTxFrom[:]), tracerTestTxFrom)
+}
+
+func mustEncode(tx sdk.Tx) []byte {
+	bz, err := Encoder(tx)
+	if err != nil {
+		panic(err)
+	}
+	return bz
 }
 
 func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {

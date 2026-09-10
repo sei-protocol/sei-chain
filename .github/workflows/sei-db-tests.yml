@@ -53,6 +53,21 @@ jobs:
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             ./sei-db/state_db/...
 
+      # The run above compiles the benchmarks but never executes them, so a
+      # benchmark can stop running without failing anything. One iteration each
+      # is enough to catch that; the timings it prints are not measurements.
+      # Runs without -race, which the job-level GOFLAGS would otherwise apply.
+      - name: Benchmark smoke
+        env:
+          GOFLAGS: -tags=ledger,test_ledger_mock
+        run: |
+          go test \
+            -timeout=${{ env.GO_TEST_TIMEOUT }} \
+            -run '^$' \
+            -bench . \
+            -benchtime=1x \
+            ./sei-db/bench/...
+
   coverage:
     name: Coverage
     runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-latest' || 'uci-default' }}
