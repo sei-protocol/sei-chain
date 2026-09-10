@@ -32,9 +32,12 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			anchor:             dataState.Anchor(),
 			service:            giga.NewFullNodeService(dataState),
 			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			poolInCommittee:    giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
+			poolOut:            giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
 			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
 			app:                cfg.App,
+			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil
@@ -107,8 +110,8 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 				break
 			}
 			addr := r.cfg.ValidatorAddrs[validator]
-			left, err := r.runUntilMembershipChange(ctx, validator, true, func(ctx context.Context) error {
-				return r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+			left, err := r.runUntilMembershipChange(ctx, validator, func(ctx context.Context) error {
+				return r.dialAndRunConn(ctx, validator, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
 					// Consensus PublicKey (committee member), not GigaNodeAddr.Key (p2p NodePublicKey).
 					return r.service.RunClient(ctx, client, validator, true)
 				})

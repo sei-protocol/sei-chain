@@ -33,14 +33,13 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	rng := utils.TestRng()
 	_, validatorKeys := atypes.GenCommittee(rng, 5)
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
-	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	urlByValidator := map[atypes.PublicKey]url.URL{}
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		// Every committee member needs an EVMRPC URL for fullnode mode —
 		// NewGigaRouter enforces this at construction so a missing URL
 		// can't lead to silently-dropped txs.
-		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
-		require.NoError(t, err)
+		rpcURL := *utils.OrPanic1(url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i)))
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},

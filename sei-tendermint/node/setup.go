@@ -217,7 +217,7 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
 			Key:      entry.NodeKey,
 			HostPort: entry.Address,
-			EVMRPC:   entry.EVMRPC.URL,
+			EVMRPC:   *entry.EVMRPC.URL,
 		}
 	}
 	return fc, validatorAddrs, nil
