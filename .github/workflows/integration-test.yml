@@ -234,12 +234,11 @@ jobs:
       packages: read
       contents: read
     env:
-      # Per `go test` invocation, not per row. A row can run several
-      # invocations, so this only guarantees a goroutine dump (rather than a
-      # job cancel from timeout-minutes) while the row's total stays under
-      # timeout-minutes; rows are kept far shorter than that by the packing
-      # policy above.
-      JOB_TIMEOUT: 28m
+      # Wall-clock budget for a whole row's scripts. Each `go test` invocation
+      # gets `-timeout $JOB_TIMEOUT` set to whatever is left of this budget, so
+      # a hang anywhere in the row hits Go's timeout (goroutine dump) before
+      # timeout-minutes cancels the job.
+      ROW_BUDGET_SECONDS: 1560
       GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
       GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -335,10 +334,14 @@ jobs:
       - name: ${{ matrix.test.name }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
+          row_start=$SECONDS
           IFS=$'\n'   # change the internal field separator to newline
           for script in $scripts
           do
-            echo "::group::${script}"
+            remaining=$(( ROW_BUDGET_SECONDS - (SECONDS - row_start) ))
+            if [ "${remaining}" -lt 60 ]; then remaining=60; fi
+            export JOB_TIMEOUT="${remaining}s"
+            echo "::group::${script} (JOB_TIMEOUT=${JOB_TIMEOUT})"
             bash -c "${script}"
             echo "::endgroup::"
           done
