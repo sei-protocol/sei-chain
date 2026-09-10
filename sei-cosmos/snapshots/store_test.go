@@ -83,7 +83,11 @@ func TestStore_Delete(t *testing.T) {
 
 	// Deleting a snapshot being saved should error
 	ch := make(chan io.ReadCloser)
-	go store.Save(9, 1, ch)
+	saved := make(chan error, 1)
+	go func() {
+		_, err := store.Save(9, 1, ch)
+		saved <- err
+	}()
 
 	time.Sleep(10 * time.Millisecond)
 	err = store.Delete(9, 1)
@@ -91,7 +95,7 @@ func TestStore_Delete(t *testing.T) {
 
 	// But after it's saved it should work
 	close(ch)
-	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, <-saved)
 	err = store.Delete(9, 1)
 	require.NoError(t, err)
 }
