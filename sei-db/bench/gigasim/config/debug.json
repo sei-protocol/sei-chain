@@ -1,0 +1,18 @@
+{
+  "Comment": "Configuration for local smoke testing and debugging: a small account population and a short run.",
+  "Seed": 1337,
+  "DataDir": "~/gigasim/data",
+  "LogDir": "~/gigasim/logs",
+  "TransactionsPerBlock": 100,
+  "BlocksPerSecond": 0,
+  "MinimumNumberOfColdAccounts": 2000,
+  "MinimumNumberOfDormantAccounts": 2000,
+  "MinimumNumberOfErc20Contracts": 100,
+  "RollbackWindow": 100,
+  "PruneIntervalSeconds": 10,
+  "CheckpointIntervalSeconds": 30,
+  "CleanDataOnStart": true,
+  "CleanLogsOnStart": true,
+  "CleanDataOnExit": true,
+  "CleanLogsOnExit": true
+}

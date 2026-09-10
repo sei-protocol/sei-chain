@@ -68,5 +68,6 @@ sei-db/bench/cryptosim/data/**
 sei-db/bench/cryptosim/bin/
 sei-db/bench/cryptosim/logs/
 sei-db/bench/blocksim/bin/
+sei-db/bench/gigasim/bin/
 sei-db/bench/walsim/bin/
 sei-db/db_engine/litt/bin/

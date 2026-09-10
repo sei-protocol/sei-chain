@@ -1,0 +1,8 @@
+{
+  "Comment": "Standard gigasim configuration: a full node's stack, with the historical state store and the receipt store both enabled.",
+  "Seed": 1337,
+  "DataDir": "~/gigasim/data",
+  "LogDir": "~/gigasim/logs",
+  "EnableStateStore": true,
+  "EnableReceiptStore": true
+}

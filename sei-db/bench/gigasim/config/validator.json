@@ -1,0 +1,8 @@
+{
+  "Comment": "A validator's stack: no historical state store and no receipt store, so only the block store and the live state DB are written.",
+  "Seed": 1337,
+  "DataDir": "~/gigasim/data",
+  "LogDir": "~/gigasim/logs",
+  "EnableStateStore": false,
+  "EnableReceiptStore": false
+}
