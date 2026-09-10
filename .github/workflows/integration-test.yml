@@ -278,9 +278,9 @@ jobs:
           # tarball so its copy does not sit on disk for the rest of the job.
           rm -f integration-build.tar.gz
           source .github/scripts/docker-registry-retry.sh
-          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}" &
-          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}" &
-          wait
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}" & localnode_pull=$!
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}" & rpcnode_pull=$!
+          wait "${localnode_pull}" && wait "${rpcnode_pull}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
           # Drop the redundant run-id-tagged references now that the images are
@@ -441,9 +441,9 @@ jobs:
           # tarball so its copy does not sit on disk for the rest of the job.
           rm -f integration-build.tar.gz
           source .github/scripts/docker-registry-retry.sh
-          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}" &
-          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}" &
-          wait
+          pull_with_retry "${GHCR_LOCALNODE}:${{ github.run_id }}" & localnode_pull=$!
+          pull_with_retry "${GHCR_RPCNODE}:${{ github.run_id }}" & rpcnode_pull=$!
+          wait "${localnode_pull}" && wait "${rpcnode_pull}"
           docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
           docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
           # Drop the redundant run-id-tagged references now that the images are
