@@ -68,11 +68,12 @@ func TestTimeoutVotes_SameViewAfterQCDoesNotChangeView(t *testing.T) {
 	for _, k := range e.quorum {
 		e.tv.pushVerifiedVote(c, types.NewFullTimeoutVote(k, e.view, utils.None[*types.PrepareQC]()))
 	}
-	require.True(t, e.tv.qc.Load().IsPresent())
-	e.tv.pushVerifiedVote(c, types.NewFullTimeoutVote(e.keys[3], e.view, utils.None[*types.PrepareQC]()))
+	before, ok := e.tv.qc.Load().Get()
+	require.True(t, ok)
+	e.tv.pushVerifiedVote(c, types.NewFullTimeoutVote(e.keys[len(e.quorum)], e.view, utils.None[*types.PrepareQC]()))
 	got, ok := e.tv.qc.Load().Get()
 	require.True(t, ok)
-	require.Equal(t, e.view, got.View())
+	require.True(t, before == got)
 }
 
 func TestTimeoutVotes_IgnoresStaleVoteFromSameKey(t *testing.T) {

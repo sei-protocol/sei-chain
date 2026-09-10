@@ -19,6 +19,7 @@ func newTimeoutVotes() *timeoutVotes {
 	}
 }
 
+// pushVerifiedVote inserts a timeout vote the caller has already verified against c.
 func (tv *timeoutVotes) pushVerifiedVote(c *types.Committee, vote *types.FullTimeoutVote) {
 	key := vote.Vote().Key()
 	view := vote.Vote().Msg().View()
