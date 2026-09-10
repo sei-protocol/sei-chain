@@ -44,7 +44,7 @@ func newExecutionState(
 
 	// Registered before the first block is committed, which is the only point a listener can be sure
 	// of being handed every block's hash.
-	waiter := newBlockHashWaiter(config.HashLagBlocks, metrics)
+	waiter := newBlockHashWaiter(config.MaxHashLagBlocks, metrics)
 	if _, err := db.RegisterHashListener(waiter.listen); err != nil {
 		view.Close()
 		return nil, fmt.Errorf("failed to register a block hash listener: %w", err)

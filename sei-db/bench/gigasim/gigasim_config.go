@@ -110,8 +110,9 @@ type GigasimConfig struct {
 	// cost of instrumentation off the hot path.
 	TransactionMetricsSampleRate float64
 
-	// The number of block hashes the benchmark may run ahead of the state DB's hasher before it waits.
-	HashLagBlocks int
+	// The most block hashes the benchmark may run ahead of the state DB's hasher before it waits. 0
+	// makes every block wait for its own hash, which is what a node does.
+	MaxHashLagBlocks int
 
 	// The seed for the random number generator. Changing this against an existing data directory gives
 	// undefined behavior; only change it when starting a run from scratch.
@@ -167,9 +168,9 @@ func DefaultGigasimConfig() *GigasimConfig {
 		BlocksPerQc:                     1,
 		StagedBlockQueueSize:            8,
 		FlushIntervalBlocks:             100,
-		NumberOfHotAccounts:             100,
-		MinimumNumberOfColdAccounts:     100_000,
-		MinimumNumberOfDormantAccounts:  100_000,
+		NumberOfHotAccounts:             10_000,
+		MinimumNumberOfColdAccounts:     1_000_000,
+		MinimumNumberOfDormantAccounts:  100_000_000,
 		HotAccountProbability:           0.5,
 		NewAccountProbability:           0.01,
 		NewAccountDormancyProbability:   0.5,
@@ -188,7 +189,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		ThreadsPerCore:                  2,
 		ConstantThreadCount:             0,
 		TransactionMetricsSampleRate:    0.01,
-		HashLagBlocks:                   32,
+		MaxHashLagBlocks:                1000,
 		Seed:                            1337,
 		CannedRandomSize:                64 * 1024 * 1024, // 64 MiB
 		DataDir:                         "data",
@@ -335,8 +336,8 @@ func (c *GigasimConfig) validateRetention() error {
 	if c.CheckpointBlockInterval < 0 {
 		return fmt.Errorf("CheckpointBlockInterval must be non-negative (got %d)", c.CheckpointBlockInterval)
 	}
-	if c.HashLagBlocks < 0 {
-		return fmt.Errorf("HashLagBlocks must be non-negative (got %d)", c.HashLagBlocks)
+	if c.MaxHashLagBlocks < 0 {
+		return fmt.Errorf("MaxHashLagBlocks must be non-negative (got %d)", c.MaxHashLagBlocks)
 	}
 	return nil
 }

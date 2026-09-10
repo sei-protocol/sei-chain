@@ -36,7 +36,7 @@ func testConfig(t *testing.T) *GigasimConfig {
 
 	config.ThreadsPerCore = 0
 	config.ConstantThreadCount = 2
-	config.HashLagBlocks = 4
+	config.MaxHashLagBlocks = 4
 	config.CheckpointBlockInterval = 5
 	config.PruneIntervalSeconds = 1
 	config.FlushIntervalBlocks = 5
