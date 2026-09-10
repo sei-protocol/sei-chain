@@ -1,0 +1,21 @@
+[Unit]
+Description=Sei Autobahn native validator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__SERVICE_HOME__
+EnvironmentFile=/etc/seid-native.env
+ExecStart=/opt/seid/bin/seid start --home __SERVICE_HOME__/.sei --chain-id sei --inv-check-period 0
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=90
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitMEMLOCK=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target

@@ -28,23 +28,34 @@ type clusterState struct {
 type node struct {
 	Index       int    `json:"index"`
 	Name        string `json:"name"`
-	Container   string `json:"container"`
+	Container   string `json:"container,omitempty"`
 	EVMHostPort int    `json:"evm_host_port"`
 }
 
 type awsState struct {
-	Region          string `json:"region"`
-	Profile         string `json:"profile,omitempty"`
-	InstanceID      string `json:"instance_id,omitempty"`
-	PublicIP        string `json:"public_ip,omitempty"`
-	SecurityGroupID string `json:"security_group_id,omitempty"`
-	KeyName         string `json:"key_name,omitempty"`
-	SSHKeyPath      string `json:"ssh_key_path,omitempty"`
-	SSHUser         string `json:"ssh_user"`
-	RemoteDir       string `json:"remote_dir"`
-	ManagedKey      bool   `json:"managed_key"`
-	RepoURL         string `json:"repo_url"`
-	Ref             string `json:"ref"`
+	Region          string             `json:"region"`
+	Profile         string             `json:"profile,omitempty"`
+	Instances       []awsInstanceState `json:"instances,omitempty"`
+	InstanceID      string             `json:"instance_id,omitempty"`
+	PublicIP        string             `json:"public_ip,omitempty"`
+	SecurityGroupID string             `json:"security_group_id,omitempty"`
+	KeyName         string             `json:"key_name,omitempty"`
+	SSHKeyPath      string             `json:"ssh_key_path,omitempty"`
+	SSHUser         string             `json:"ssh_user"`
+	RemoteDir       string             `json:"remote_dir"`
+	ManagedKey      bool               `json:"managed_key"`
+	RepoURL         string             `json:"repo_url"`
+	Ref             string             `json:"ref"`
+	GoMaxProcs      int                `json:"gomaxprocs,omitempty"`
+	GoGC            string             `json:"gogc,omitempty"`
+	Architecture    string             `json:"architecture,omitempty"`
+}
+
+type awsInstanceState struct {
+	NodeIndex  int    `json:"node_index"`
+	InstanceID string `json:"instance_id"`
+	PublicIP   string `json:"public_ip"`
+	PrivateIP  string `json:"private_ip"`
 }
 
 type stateStore struct {
@@ -183,6 +194,18 @@ func clusterNodes(count int) []node {
 			Name:        fmt.Sprintf("node-%d", i),
 			Container:   fmt.Sprintf("sei-node-%d", i),
 			EVMHostPort: 8545 + 2*i,
+		}
+	}
+	return nodes
+}
+
+func nativeClusterNodes(count int) []node {
+	nodes := make([]node, count)
+	for i := range count {
+		nodes[i] = node{
+			Index:       i,
+			Name:        fmt.Sprintf("node-%d", i),
+			EVMHostPort: 8545,
 		}
 	}
 	return nodes

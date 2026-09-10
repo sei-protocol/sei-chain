@@ -59,18 +59,37 @@ func (a *application) teardownAWS(ctx context.Context, state clusterState) error
 	if err := a.ensureAWSCredentials(ctx, client); err != nil {
 		return err
 	}
-	if state.AWS.PublicIP != "" && state.AWS.RemoteDir != "" {
+	if len(state.AWS.Instances) == 0 && state.AWS.PublicIP != "" && state.AWS.RemoteDir != "" {
 		command := "cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-cluster-stop"
-		if err := a.runner.stream(ctx, sshCommand(state, command)); err != nil {
+		instance := awsInstanceState{InstanceID: state.AWS.InstanceID, PublicIP: state.AWS.PublicIP}
+		if err := a.runner.stream(ctx, sshCommandForInstance(state, instance, command)); err != nil {
 			_, _ = fmt.Fprintf(a.stderr, "warning: remote Docker teardown failed: %v\n", err)
 		}
 	}
 	var errs []error
-	if state.AWS.InstanceID != "" {
-		if _, err := client.output(ctx, "ec2", "terminate-instances", "--instance-ids", state.AWS.InstanceID); err != nil {
+	instanceIDs := make([]string, 0, len(state.AWS.Instances)+1)
+	for _, instance := range state.AWS.Instances {
+		if instance.PublicIP != "" {
+			if err := a.runner.stream(ctx, sshCommandForInstance(state, instance, "sudo systemctl stop seid.service")); err != nil {
+				_, _ = fmt.Fprintf(a.stderr, "warning: stop native validator node-%d failed: %v\n", instance.NodeIndex, err)
+			}
+		}
+		if instance.InstanceID != "" {
+			instanceIDs = append(instanceIDs, instance.InstanceID)
+		}
+	}
+	if len(instanceIDs) == 0 && state.AWS.InstanceID != "" {
+		instanceIDs = append(instanceIDs, state.AWS.InstanceID)
+	}
+	if len(instanceIDs) > 0 {
+		terminateArgs := append([]string{"ec2", "terminate-instances", "--instance-ids"}, instanceIDs...)
+		if _, err := client.output(ctx, terminateArgs...); err != nil {
 			errs = append(errs, err)
-		} else if err := client.stream(ctx, "ec2", "wait", "instance-terminated", "--instance-ids", state.AWS.InstanceID); err != nil {
-			errs = append(errs, err)
+		} else {
+			waitArgs := append([]string{"ec2", "wait", "instance-terminated", "--instance-ids"}, instanceIDs...)
+			if err := client.stream(ctx, waitArgs...); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 	if state.AWS.SecurityGroupID != "" {

@@ -61,7 +61,8 @@ cp -r build/generated/gentx/* ~/.sei/config/gentx
 cp -r build/generated/exported_keys ~/exported_keys
 
 # add validators to genesis
-/usr/bin/add_validator_to_gensis.sh
+ADD_VALIDATOR_SCRIPT=${ADD_VALIDATOR_SCRIPT:-/usr/bin/add_validator_to_gensis.sh}
+"$ADD_VALIDATOR_SCRIPT"
 
 # collect gentxs
 echo "Collecting all gentx"
