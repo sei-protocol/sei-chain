@@ -61,6 +61,14 @@ type ViewManagerConfig struct {
 	// lost (but the DB is not corrupted), and crash durability is instead provided by an upstream
 	// fsync'd WAL / block replay. Set true for deployments that want per-flush durability regardless.
 	FlushSync bool
+
+	// How far over its size budget a shard's read cache may run between maintenance passes, expressed
+	// as a divisor of that budget: a value of N permits an overshoot of budget/N.
+	EvictionSlackDivisor uint64
+
+	// The number of entries a shard's read cache considers when choosing an eviction victim: it evicts
+	// the least recently used of a sample this size.
+	EvictionSampleSize uint64
 }
 
 // Default configuration for a production view manager. name and reservedPrefix are arguments
@@ -78,6 +86,8 @@ func DefaultViewManagerConfig(name string, reservedPrefix string) *ViewManagerCo
 		TargetBytesPerFlush:          unit.MB * 4,
 		ReservedPrefix:               reservedPrefix,
 		FlushSync:                    false,
+		EvictionSlackDivisor:         16,
+		EvictionSampleSize:           8,
 	}
 }
 
@@ -117,6 +127,14 @@ func (c *ViewManagerConfig) Validate() error {
 	}
 	if c.TargetBytesPerFlush == 0 {
 		return fmt.Errorf("TargetBytesPerFlush must be greater than 0")
+	}
+	// Zero would divide by zero in the cache's hard-cap calculation.
+	if c.EvictionSlackDivisor == 0 {
+		return fmt.Errorf("EvictionSlackDivisor must be greater than 0")
+	}
+	// Zero would leave eviction unable to find a victim, so the cache would grow without bound.
+	if c.EvictionSampleSize == 0 {
+		return fmt.Errorf("EvictionSampleSize must be greater than 0")
 	}
 	if c.ReservedPrefix == "" {
 		return fmt.Errorf("ReservedPrefix must be non-empty")
