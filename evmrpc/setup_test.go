@@ -934,8 +934,9 @@ func generateTxData() {
 	TestSyntheticTxHash = syntheticEthTx.Hash().Hex()
 	TxNonEvm = app.TestTx{}
 	TxNonEvmWithSyntheticLog = app.TestTx{}
-	Tx1Bz = encodeOrNil(Tx1)
-	TxNonEvmWithSyntheticLogBz = encodeOrNil(TxNonEvmWithSyntheticLog)
+	Tx1Bz = mustEncode(Tx1)
+	// app.TestTx is rejected by the encoder and appears in blocks as empty bytes.
+	TxNonEvmWithSyntheticLogBz = nil
 	bloomTx1 := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		Topics: []common.Hash{common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
@@ -1008,10 +1009,11 @@ func generateTxData() {
 	EVMKeeper.SetAddressMapping(Ctx, sdk.AccAddress(tracerTestTxFrom[:]), tracerTestTxFrom)
 }
 
-// encodeOrNil mirrors the mock block's tolerance for txs the encoder rejects
-// (app.TestTx), which appear in blocks as empty bytes.
-func encodeOrNil(tx sdk.Tx) []byte {
-	bz, _ := Encoder(tx)
+func mustEncode(tx sdk.Tx) []byte {
+	bz, err := Encoder(tx)
+	if err != nil {
+		panic(err)
+	}
 	return bz
 }
 
