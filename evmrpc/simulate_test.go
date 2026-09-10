@@ -1005,7 +1005,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		}
 
 		var rateLimitErrors []error
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
+		for range maxAttempts {
 			rateLimitErrors = runBurst(newTestEnv(t))
 			if len(rateLimitErrors) > 0 {
 				break
