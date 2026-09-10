@@ -50,6 +50,15 @@ const (
 	// BatchSize can run into the hundreds of thousands; the reservoir only needs a steady trickle
 	// of representative samples, not a full copy of every write.
 	readPoolKeysPerBatch = 100
+
+	// mappingSlotPoolCapacity bounds how many distinct mapping-style slot values get reused
+	// across writes, so mapping traffic concentrates on a bounded set of "active keys" (like a
+	// real mapping's frequently-touched holders) instead of growing the keyspace forever.
+	mappingSlotPoolCapacity = 100_000
+
+	// mappingSlotReusePct is the percentage of mapping-style slot draws that reuse an existing
+	// pool entry rather than minting a new one.
+	mappingSlotReusePct = 95
 )
 
 // Config controls the synthetic write load.
@@ -138,6 +147,9 @@ type PebbleSim struct {
 	version   atomic.Int64
 	metrics   *simMetrics
 	batches   chan batch
+
+	// mappingSlotPool backs randomMappingSlot; owned exclusively by buildBatch's goroutine.
+	mappingSlotPool [][]byte
 
 	// readPool and readWG back StartReaders; see their own docs.
 	readPool *readKeyPool
@@ -486,7 +498,24 @@ func (p *PebbleSim) randomSlot() []byte {
 		binary.BigEndian.PutUint64(slot[slotLen-8:], uint64(slotID))
 		return slot
 	}
+	return p.randomMappingSlot()
+}
+
+// randomMappingSlot returns a mapping-style slot, mostly reused from a bounded pool of
+// previously-generated values rather than freshly random every time — like a real mapping's
+// active keys (e.g. token holders) getting rewritten repeatedly instead of the keyspace growing
+// forever. Owned exclusively by buildBatch's goroutine, so the pool needs no locking.
+func (p *PebbleSim) randomMappingSlot() []byte {
+	if len(p.mappingSlotPool) > 0 && p.rng.IntN(100) < mappingSlotReusePct {
+		return p.mappingSlotPool[p.rng.IntN(len(p.mappingSlotPool))]
+	}
+	slot := make([]byte, slotLen)
 	fillBytes(p.rng, slot)
+	if len(p.mappingSlotPool) < mappingSlotPoolCapacity {
+		p.mappingSlotPool = append(p.mappingSlotPool, slot)
+	} else {
+		p.mappingSlotPool[p.rng.IntN(mappingSlotPoolCapacity)] = slot
+	}
 	return slot
 }
 
