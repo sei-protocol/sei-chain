@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -343,7 +344,7 @@ func TestStartGRPCServer_ConnectionsPerIPCapRefusesExcess(t *testing.T) {
 
 	// Closing a connection returns its slot.
 	require.NoError(t, held.Close())
-	requireConnAlive(t, dialRaw(t, server.addr))
+	requireEventuallyConnAlive(t, server.addr)
 }
 
 // TestStartGRPCServer_ConnectionsPerIPCapAppliesWithRateLimitingDisabled pins
@@ -391,7 +392,7 @@ func TestStartGRPCWeb_ConnectionsPerIPCapRefusesExcess(t *testing.T) {
 
 	// Closing a connection returns its slot on this listener too.
 	require.NoError(t, held.Close())
-	requireConnAlive(t, dialRaw(t, webAddr))
+	requireEventuallyConnAlive(t, webAddr)
 }
 
 // connRejectedCountsByPlane returns the connection-rejection counter's value per
@@ -440,7 +441,32 @@ func requireServerHungUp(t *testing.T, conn net.Conn) {
 // rather than reaching EOF.
 func requireConnAlive(t *testing.T, conn net.Conn) {
 	t.Helper()
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
+	require.NotErrorIs(t, readOneByte(conn), io.EOF)
+}
+
+// requireEventuallyConnAlive pins that a fresh connection to addr is kept open
+// within the deadline. A slot is returned when the server closes its side of a
+// connection, which happens after the client's close, so a dial racing that
+// close may still be refused.
+func requireEventuallyConnAlive(t *testing.T, addr string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = conn.Close() }()
+		return !errors.Is(readOneByte(conn), io.EOF)
+	}, 10*time.Second, 50*time.Millisecond)
+}
+
+// readOneByte reads one byte from conn with a 500ms deadline and returns the
+// read error: io.EOF when the server hung up, a timeout when it held the
+// connection open.
+func readOneByte(conn net.Conn) error {
+	if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		return err
+	}
 	_, err := conn.Read(make([]byte, 1))
-	require.NotErrorIs(t, err, io.EOF)
+	return err
 }
