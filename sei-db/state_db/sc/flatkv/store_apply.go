@@ -87,7 +87,7 @@ func (s *CommitStore) applyChangeSets(
 	logger.Debug("FlatKV ApplyChangeSets complete",
 		"version", version,
 		"changesets", len(changeSets),
-		"writes", len(prepared.accounts)+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
+		"writes", prepared.accountCount()+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
 		"elapsed", obs.elapsed())
 	return nil
 }
@@ -96,7 +96,7 @@ func (s *CommitStore) applyChangeSets(
 // ApplyChangeSets call. Nothing here reaches a store until every kind has validated — see
 // writeToStores.
 type preparedWrites struct {
-	accounts map[string]*vtype.AccountData
+	accounts *accountUpdater
 	storage  map[string]*vtype.StorageData
 	code     map[string]*vtype.CodeData
 	misc     map[string]*vtype.MiscData
@@ -109,29 +109,20 @@ func (s *CommitStore) prepareWrites(
 ) (preparedWrites, error) {
 	var out preparedWrites
 
-	// A nonce, codehash or balance change carries only its own field, so it has to be merged onto the
-	// account as it stands right now — a live read, since anything an earlier call at this height wrote
-	// counts.
-	s.phaseTimer.SetPhase("apply_change_sets_read_accounts")
-	readStart := time.Now()
-	accountOld, err := s.readAccountsForMerge(changesByType)
-	otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(readStart),
-		metric.WithAttributes(successAttr(err)))
-	if err != nil {
-		return out, err
-	}
-
 	s.phaseTimer.SetPhase("apply_change_sets_gather_values")
 
-	accountUpdates, err := mergeAccountUpdates(
+	// Only the changeset's own field values are parsed here. Folding them onto the rows those
+	// accounts already hold is left to the account store, which does it off this thread; see
+	// accountUpdater.
+	accountWrites, err := newAccountUpdater(
 		changesByType[keys.EVMKeyNonce],
 		changesByType[keys.EVMKeyCodeHash],
 		changesByType[keys.EVMKeyBalance],
+		blockHeight,
 	)
 	if err != nil {
-		return out, fmt.Errorf("failed to gather account updates: %w", err)
+		return out, fmt.Errorf("prepare account writes for block %d: %w", blockHeight, err)
 	}
-	newAccounts := deriveNewAccountValues(accountUpdates, accountOld, blockHeight)
 
 	storageWrites, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
@@ -148,44 +139,89 @@ func (s *CommitStore) prepareWrites(
 		return out, fmt.Errorf("failed to parse misc changes: %w", err)
 	}
 
-	out.accounts = newAccounts
+	out.accounts = accountWrites
 	out.storage = storageWrites
 	out.code = codeWrites
 	out.misc = miscWrites
 	return out, nil
 }
 
-// readAccountsForMerge reads the accounts that this batch's nonce, codehash and balance changes touch,
-// so those partial updates can be merged onto whole accounts. Keys come from all three kinds, since any
-// one of them can name an account the others do not.
-func (s *CommitStore) readAccountsForMerge(
-	changesByType map[keys.EVMKeyKind]map[string][]byte,
-) (map[string]*vtype.AccountData, error) {
-	accountKinds := []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance}
+var _ view.BatchUpdater = (*accountUpdater)(nil)
 
-	size := 0
-	for _, kind := range accountKinds {
-		size += len(changesByType[kind])
+// accountUpdater folds one block's per-field account changes onto the rows those accounts already
+// hold.
+//
+// An account is stored as one row but written a field at a time, so a change carrying only a nonce or
+// only a code hash has to be applied on top of the row as it stands. The account store does that fold
+// on its own threads, after the write has been staged, so no part of it runs on the thread applying
+// the block.
+type accountUpdater struct {
+	// pending is the fields this block set, keyed by physical key. Parsed up front, so a fold can
+	// never fail on a malformed change.
+	pending map[string]*vtype.PendingAccountWrite
+
+	// keys names every account the block touched, in the form BatchUpdate takes them.
+	keys []string
+
+	// blockHeight is stamped on every row written, whether or not any field value changed, because
+	// GetBlockHeightModified reports it.
+	blockHeight int64
+}
+
+// newAccountUpdater parses one batch's per-field account changes into the fields to set on each
+// account. Reports nil when the batch touches no account.
+//
+// Parsing here rather than during the fold is what keeps a malformed changeset from being discovered
+// halfway through writing the block: by the time the folds run, the block has already been accepted.
+func newAccountUpdater(
+	nonceChanges map[string][]byte,
+	codeHashChanges map[string][]byte,
+	balanceChanges map[string][]byte,
+	blockHeight int64,
+) (*accountUpdater, error) {
+	pending, err := mergeAccountUpdates(nonceChanges, codeHashChanges, balanceChanges)
+	if err != nil {
+		return nil, fmt.Errorf("failed to gather account updates: %w", err)
 	}
-	touched := make(map[string]struct{}, size)
-	for _, kind := range accountKinds {
-		for key := range changesByType[kind] {
-			touched[key] = struct{}{}
-		}
-	}
-	if len(touched) == 0 {
+	if len(pending) == 0 {
 		return nil, nil
 	}
 
-	physKeys := make([][]byte, 0, len(touched))
-	for key := range touched {
-		physKeys = append(physKeys, []byte(key))
+	physKeys := make([]string, 0, len(pending))
+	for key := range pending {
+		physKeys = append(physKeys, key)
 	}
-	raw, err := s.accountStore.BatchGet(physKeys)
-	if err != nil {
-		return nil, fmt.Errorf("read accounts to merge onto: %w", err)
+	return &accountUpdater{pending: pending, keys: physKeys, blockHeight: blockHeight}, nil
+}
+
+// NewValueFor folds this block's changes to one account onto the row it already holds. An account the
+// store does not hold starts from zero, and a row left with no balance, nonce or code hash is deleted.
+func (u *accountUpdater) NewValueFor(key string, priorValue []byte) ([]byte, error) {
+	var stored *vtype.AccountData
+	if priorValue != nil {
+		parsed, err := vtype.DeserializeAccountData(priorValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize accountDB old value: %w", err)
+		}
+		stored = parsed
 	}
-	return deserializeOldAccounts(raw)
+
+	// Merge copies rather than writing through, so the value handed back does not alias the row the
+	// store still holds for earlier versions.
+	merged := u.pending[key].Merge(stored, u.blockHeight)
+	if merged.IsDelete() {
+		return nil, nil
+	}
+	return merged.Serialize(), nil
+}
+
+// accountCount reports how many accounts the block writes, treating a block that touches none as zero
+// rather than requiring the caller to nil-check.
+func (p preparedWrites) accountCount() int {
+	if p.accounts == nil {
+		return 0
+	}
+	return len(p.accounts.keys)
 }
 
 // writeToStores writes one successful ApplyChangeSets batch into the four data stores and records the
@@ -207,11 +243,15 @@ func (s *CommitStore) writeToStores(
 
 	// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL replay is external,
 	// we may be able to simplify this code since we will be able to assume that all stores start at the same block.
-	if alreadyHave[accountDBDir] < version {
-		if err := serializeAndPut(s.accountStore, prepared.accounts); err != nil {
+	if alreadyHave[accountDBDir] < version && prepared.accounts != nil {
+		start := time.Now()
+		err := s.accountStore.BatchUpdate(prepared.accounts.keys, prepared.accounts)
+		otelMetrics.AccountUpdateLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		if err != nil {
 			return fmt.Errorf("write %s values: %w", accountDBDir, err)
 		}
-		addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
+		addKVPairs(s.ctx, accountDBDir, len(prepared.accounts.keys))
 	}
 	if alreadyHave[storageDBDir] < version {
 		if err := serializeAndPut(s.storageStore, prepared.storage); err != nil {
@@ -259,33 +299,15 @@ func serializeAndPut[T vtype.VType](store view.ViewManager, values map[string]T)
 	return nil
 }
 
-// deserializeOldAccounts parses the account database's old values into AccountData. A partial update —
-// a nonce without a codehash, say — has to be merged onto the account that is already there, which
-// needs the old value in structured form rather than as bytes.
-//
-// raw is keyed by physical key, and a key that had no prior value maps to nil; those are dropped
-// rather than deserialized, so the result holds only accounts that already existed.
-func deserializeOldAccounts(raw map[string][]byte) (map[string]*vtype.AccountData, error) {
-	old := make(map[string]*vtype.AccountData, len(raw))
-	for key, b := range raw {
-		if b == nil {
-			continue
-		}
-		v, err := vtype.DeserializeAccountData(b)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize accountDB old value: %w", err)
-		}
-		old[key] = v
-	}
-	return old, nil
-}
-
 // moduleOfKey extracts the owning module from a physical key. Injected into the
 // lthash HashCalculator so it can bucket pairs by module without importing ktype
 // (ktype already imports lthash).
 func moduleOfKey(physicalKey []byte) (string, error) {
 	module, _, err := ktype.StripModulePrefix(physicalKey)
-	return module, err
+	if err != nil {
+		return "", fmt.Errorf("strip the module prefix from key %x: %w", physicalKey, err)
+	}
+	return module, nil
 }
 
 // classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
@@ -490,24 +512,4 @@ func mergeAccountUpdates(
 		}
 	}
 	return updates, nil
-}
-
-// Combine the pending account writes with prior values to determine the new account values.
-//
-// We need to take this step because accounts are split into multiple fields, and it's possible to overwrite just a
-// single field (thus requiring us to copy the unmodified fields from the prior value).
-func deriveNewAccountValues(
-	pendingWrites map[string]*vtype.PendingAccountWrite,
-	oldValues map[string]*vtype.AccountData,
-	blockHeight int64,
-) map[string]*vtype.AccountData {
-	result := make(map[string]*vtype.AccountData, len(pendingWrites))
-
-	for addrStr, pendingWrite := range pendingWrites {
-		oldValue := oldValues[addrStr]
-
-		newValue := pendingWrite.Merge(oldValue, blockHeight)
-		result[addrStr] = newValue
-	}
-	return result
 }
