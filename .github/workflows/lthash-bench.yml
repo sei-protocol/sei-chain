@@ -22,8 +22,14 @@ env:
 
 jobs:
   bench:
-    name: Default vs SIMD
-    runs-on: uci-default
+    name: Default vs SIMD (${{ matrix.runner }})
+    # Not every runner pool has AVX-512; several are tried so at least one is
+    # likely to execute the SIMD backend.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [uci-default, ubuntu-latest]
+    runs-on: ${{ matrix.runner }}
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
@@ -41,7 +47,7 @@ jobs:
       - name: CPU
         run: |
           {
-            echo '## CPU'
+            echo '## CPU (${{ matrix.runner }})'
             echo '```'
             lscpu | grep -E 'Model name|^Flags' | sed -E 's/^Flags:\s+/Flags: /' | fold -w 120
             echo '```'
@@ -74,15 +80,21 @@ jobs:
           {
             echo '## LtHash backends (`benchstat -col /backend`)'
             echo
-            echo 'Only backends the runner CPU can execute appear as columns; the SIMD'
-            echo 'backend needs AVX-512F + VBMI2. `hashChunk` is the end-to-end per-block path.'
+            if grep -q 'backend=simd' bench.txt; then
+              echo '`hashChunk` is the end-to-end per-block path.'
+            else
+              echo '**This runner CPU lacks AVX-512F + VBMI2, so only the default backend ran.**'
+            fi
             echo
             echo '```'
             benchstat -col /backend bench.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          if ! grep -q 'backend=simd' bench.txt; then
+            echo '::warning::SIMD backend unavailable on this runner CPU; only the default backend was benchmarked'
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lthash-bench
+          name: lthash-bench-${{ matrix.runner }}
           path: bench.txt
