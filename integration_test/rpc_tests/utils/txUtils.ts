@@ -249,6 +249,10 @@ async function waitForNextBlock(
 const RICH_BLOCK_BUDGET_MS = 120_000;
 /** Attempt index past which fee/tip escalation and the per-attempt block back-off stop growing. */
 const RICH_BLOCK_MAX_ESCALATION = 5;
+/** Attempt ceiling so a deterministic (fast-throwing) breakage fails fast instead of spinning out the budget. */
+const RICH_BLOCK_MAX_ATTEMPTS = 30;
+/** Number of most recent attempt placements kept in the terminal error. */
+const RICH_BLOCK_HISTORY_TAIL = 10;
 
 const TRANSFER_VALUE = ethers.parseEther('0.001');
 const rand = (): string => ethers.Wallet.createRandom().address;
@@ -305,7 +309,11 @@ export async function buildRichSeiBlock(
 
     const deadline = Date.now() + budgetMs;
     const history: string[] = [];
-    for (let attempt = 0; attempt === 0 || Date.now() < deadline; attempt++) {
+    for (
+        let attempt = 0;
+        attempt === 0 || (attempt < RICH_BLOCK_MAX_ATTEMPTS && Date.now() < deadline);
+        attempt++
+    ) {
         const escalation = Math.min(attempt, RICH_BLOCK_MAX_ESCALATION);
         const p = await pricing(provider, BigInt(3 + escalation * 2), BigInt(1 + escalation));
         const [sLegacy, sAccess, s1559, sSetCode, sDeploy, sErc20, sPrecompile, sOutOfGas, sRevert] =
@@ -543,8 +551,9 @@ export async function buildRichSeiBlock(
         }
     }
     throw new Error(
-        `buildRichSeiBlock: could not pack one block within ${budgetMs}ms (${history.length} attempts):\n  ` +
-            history.join('\n  '),
+        `buildRichSeiBlock: could not pack one block within ${budgetMs}ms (${history.length} attempts, ` +
+            `showing last ${Math.min(history.length, RICH_BLOCK_HISTORY_TAIL)}):\n  ` +
+            history.slice(-RICH_BLOCK_HISTORY_TAIL).join('\n  '),
     );
 }
 
@@ -561,16 +570,15 @@ export async function sharedRichBlock(
     runtime: RuntimeState,
 ): Promise<RichBlock> {
     if (cachedRichBlock) return cachedRichBlock;
-    // Guard against two specs' `before` hooks racing the first build in the same process.
+    // Guard against two specs' `before` hooks racing the first build in the same process. The
+    // promise is kept on rejection too: the build already retried for its whole budget, so a
+    // failure is a cluster problem every dependent spec should fail on once, not re-spend on.
     if (!cachedRichBlockPromise) {
         cachedRichBlockPromise = (async () => {
             const signers = claimPool(runtime, provider, 9, 'shared-rich-block');
             cachedRichBlock = await buildRichSeiBlock(provider, runtime, signers);
             return cachedRichBlock;
-        })().catch(e => {
-            cachedRichBlockPromise = undefined;
-            throw e;
-        });
+        })();
     }
     return cachedRichBlockPromise;
 }
