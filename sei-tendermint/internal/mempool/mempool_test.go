@@ -553,14 +553,14 @@ func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {
 	txmp := setup(cfg, proxy.New(client), NopTxConstraintsFetcher)
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	tx := make([]byte, txmp.config.MaxTxBytes+1)
+	tx := make([]byte, types.MaxGossipTxBytes+1)
 	_, err := rng.Read(tx)
 	require.NoError(t, err)
 
 	_, err = txmp.CheckTx(ctx, tx)
 	require.Error(t, err)
 
-	tx = make([]byte, txmp.config.MaxTxBytes-1)
+	tx = make([]byte, types.MaxGossipTxBytes-1)
 	_, err = rng.Read(tx)
 	require.NoError(t, err)
 

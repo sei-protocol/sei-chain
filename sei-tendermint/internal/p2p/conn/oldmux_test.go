@@ -270,6 +270,78 @@ func TestConnVectors(t *testing.T) {
 	}
 }
 
+func TestMConnectionRecvCapacityOverflow(t *testing.T) {
+	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		// Setup: receive capacity smaller than the message we will send.
+		chDescs := []*ChannelDescriptor{{
+			ID: 0x01, Priority: 1, SendQueueCapacity: 1,
+			RecvMessageCapacity: 32,
+		}}
+		client, server := NewTestConn()
+		m1 := newMConnectionWithCh(client, chDescs)
+		m2 := newMConnectionWithCh(server, chDescs)
+		s.Spawn(func() error {
+			if err := m1.Run(ctx); err == nil {
+				return fmt.Errorf("expected recv capacity error, got nil")
+			}
+			return nil
+		})
+		s.SpawnBg(func() error { return utils.IgnoreCancel(m2.Run(ctx)) })
+
+		// Test: deliver a message over RecvMessageCapacity.
+		if err := m2.Send(ctx, 0x01, make([]byte, 64)); err != nil {
+			return fmt.Errorf("m2.Send(): %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMConnectionDiscardOversized(t *testing.T) {
+	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		// Setup: mempool-style channel that discards over-capacity messages.
+		chDescs := []*ChannelDescriptor{{
+			ID: 0x01, Priority: 1, SendQueueCapacity: 1,
+			RecvMessageCapacity: 32,
+			DiscardOversized:    true,
+			Name:                "mempool",
+		}}
+		cfg := makeCfg()
+		cfg.MaxPacketMsgPayloadSize = 16
+		client, server := NewTestConn()
+		m1 := newMConnectionWithCfg(client, chDescs, cfg)
+		m2 := newMConnectionWithCfg(server, chDescs, cfg)
+		s.SpawnBgNamed("m1", func() error { return utils.IgnoreCancel(m1.Run(ctx)) })
+		s.SpawnBgNamed("m2", func() error { return utils.IgnoreCancel(m2.Run(ctx)) })
+
+		// Test: oversized fragmented message, then a valid follow-up.
+		if err := m2.Send(ctx, 0x01, make([]byte, 64)); err != nil {
+			return fmt.Errorf("m2.Send() oversized: %w", err)
+		}
+		want := []byte("ok")
+		if err := m2.Send(ctx, 0x01, want); err != nil {
+			return fmt.Errorf("m2.Send() follow-up: %w", err)
+		}
+
+		// Verify: connection stays up and the follow-up is delivered.
+		_, got, err := m1.Recv(ctx)
+		if err != nil {
+			return fmt.Errorf("m1.Recv(): %w", err)
+		}
+		if err := utils.TestDiff(want, got); err != nil {
+			return fmt.Errorf("m1.Recv(): %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMConnectionChannelOverflow(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		c1, c2 := NewTestConn()
