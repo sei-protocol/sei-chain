@@ -89,7 +89,8 @@ func TestValueChannelAttachedOnlyWhileScheduled(t *testing.T) {
 				entry := outcome.entry
 				raced := entry.status != statusScheduled
 				shard.lock.Unlock()
-				entry.injectValueUnlocked([]byte(key), outcome.valueChan, readResult{value: randomValue()})
+				entry.injectValueUnlocked(
+					[]byte(key), outcome.valueChan, readResult{value: randomValue()})
 				shard.lock.Lock()
 				if raced {
 					racedCompletions++
@@ -139,7 +140,7 @@ func TestMaintenanceEvictsBackToBudget(t *testing.T) {
 	require.Greater(t, overBudget, uint64(maxSize))
 	require.LessOrEqual(t, overBudget, hardCap)
 
-	shard.Commit()
+	commitShard(t, shard)
 
 	bytes, entries := shard.GetSizeInfo()
 	require.LessOrEqual(t, bytes, uint64(maxSize))

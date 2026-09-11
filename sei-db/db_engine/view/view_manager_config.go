@@ -132,7 +132,8 @@ func (c *ViewManagerConfig) Validate() error {
 	if c.EvictionSlackDivisor == 0 {
 		return fmt.Errorf("EvictionSlackDivisor must be greater than 0")
 	}
-	// Zero would leave eviction unable to find a victim, so the cache would grow without bound.
+	// Zero never matches evictWLocked's sample counter, so every eviction would walk the whole entry
+	// map under the write lock rather than a bounded sample.
 	if c.EvictionSampleSize == 0 {
 		return fmt.Errorf("EvictionSampleSize must be greater than 0")
 	}

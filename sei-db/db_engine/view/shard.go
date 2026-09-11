@@ -443,9 +443,10 @@ func (s *shard) Delete(key []byte) error {
 }
 
 // Commit seals the current version; all future updates will be applied to the next version. It also
-// runs the read cache's once-per-block maintenance.
-// The value returned is the new version number (for sanity checking).
-func (s *shard) Commit() uint64 {
+// runs the read cache's once-per-block maintenance, whose failure it returns.
+// The version returned is the new version number (for sanity checking), and is returned even alongside
+// an error so the caller can report both.
+func (s *shard) Commit() (uint64, error) {
 	s.lock.Lock()
 
 	newVersion := s.currentVersion + 1
@@ -455,11 +456,11 @@ func (s *shard) Commit() uint64 {
 
 	// Sealing a version is the once-per-block moment the read cache does its eviction, so that no read
 	// has to pay for it.
-	s.cache.MaintainWLocked()
+	err := s.cache.MaintainWLocked()
 
 	s.lock.Unlock()
 
-	return newVersion
+	return newVersion, err
 }
 
 // Get the diffs for a range of versions [firstVersion, lastVersion). The returned data should not be mutated
@@ -597,12 +598,13 @@ func (s *shard) DropVersions(
 	// Push the combined data down into the read cache, still under the same lock grab, so
 	// readers never observe an intermediate state between the deque cleanup and the cache
 	// insert.
-	s.cache.PutRetiredWLocked(combinedData)
+	retireErr := s.cache.PutRetiredWLocked(combinedData)
 
-	// Update the oldest version.
+	// Advanced even when the insert reported a failure: the keys have already moved into the cache, so
+	// leaving oldestVersion behind would describe a migration that did not happen.
 	s.oldestVersion = lastVersion
 
-	return nil
+	return retireErr
 }
 
 // TakeOutOfService stops this shard from serving reads and accepting writes, reporting err as the

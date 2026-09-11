@@ -401,8 +401,16 @@ func (c *viewManager) Commit() (View, error) {
 
 	c.metrics.setViewPhase("shards_view")
 
-	for _, shard := range c.shards {
-		shardVersion := shard.Commit()
+	for i, shard := range c.shards {
+		shardVersion, err := shard.Commit()
+		if err != nil {
+			// The shard sealed its version but its read cache could not be maintained, which means the
+			// cache can no longer account for its own contents. Bricked for the same reason as below:
+			// the failure must be latched rather than leaving the manager callable.
+			err = fmt.Errorf("failed to maintain the read cache of shard %d: %w", i, err)
+			c.brickLocked(err)
+			return nil, err
+		}
 		if shardVersion != c.currentVersion {
 			// Should be impossible. The manager is now inconsistent (some shards committed, some
 			// not), so brick it: the failure must be latched and every subsequent call must fail,

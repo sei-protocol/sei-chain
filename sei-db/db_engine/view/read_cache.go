@@ -399,6 +399,10 @@ func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result 
 	c := e.cache
 	c.lock.Lock()
 
+	// The failure to report to the manager. The read error wins when both happen, since it is the one
+	// the waiter is about to be handed.
+	failure := result.err
+
 	if e.status == statusScheduled {
 		if result.err != nil {
 			// Terminal state so readers already waiting on this entry are not stranded. The manager
@@ -407,10 +411,10 @@ func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result 
 			e.setTerminalEntryStateWLocked(key, statusFailed, nil)
 		} else if result.value == nil {
 			e.setTerminalEntryStateWLocked(key, statusDeleted, nil)
-			c.evictWLocked(c.hardCap())
+			failure = c.evictWLocked(c.hardCap())
 		} else {
 			e.setTerminalEntryStateWLocked(key, statusAvailable, result.value)
-			c.evictWLocked(c.hardCap())
+			failure = c.evictWLocked(c.hardCap())
 		}
 	}
 
@@ -426,8 +430,8 @@ func (e *cacheEntry) injectValueUnlocked(key []byte, ch chan readResult, result 
 	// nobody may be blocked on us while we wait for it.
 	ch <- result
 
-	if result.err != nil {
-		c.reportReadFailure(result.err)
+	if failure != nil {
+		c.reportReadFailure(failure)
 	}
 }
 
@@ -462,7 +466,9 @@ func (c *readCache) bulkInjectValuesUnlocked(reads []pendingRead) {
 	if failure != nil {
 		c.TakeOutOfServiceWLocked(failure)
 	}
-	c.evictWLocked(c.hardCap())
+	if err := c.evictWLocked(c.hardCap()); err != nil && failure == nil {
+		failure = err
+	}
 	c.lock.Unlock()
 
 	// The waiters for this batch were already released by ResolveBatch, so there is nobody blocked
@@ -494,7 +500,7 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 // PutRetiredWLocked installs data retired out of the shard's MVCC layer. A nil value marks the
 // key as known-deleted (the manager-wide tombstone convention); any other value is cached as
 // available. Inserts everything, then evicts overflow once at the end.
-func (c *readCache) PutRetiredWLocked(data map[string][]byte) {
+func (c *readCache) PutRetiredWLocked(data map[string][]byte) error {
 	for k, v := range data {
 		if v == nil {
 			c.deleteRetiredWLocked([]byte(k))
@@ -506,7 +512,7 @@ func (c *readCache) PutRetiredWLocked(data map[string][]byte) {
 	// These insertions may have caused the cache to exceed its size budget, do necessary
 	// evictions. setRetiredWLocked does not evict on its own, so this is the enforcement point
 	// for the bulk insert above.
-	c.evictWLocked(c.hardCap())
+	return c.evictWLocked(c.hardCap())
 }
 
 // Set a retired value.
@@ -559,9 +565,8 @@ func (c *readCache) untrackWLocked(key string, entry *cacheEntry) {
 }
 
 // evictWLocked evicts entries until the cache is within the given budget, choosing each victim as the
-// oldest of a small sample. Only entries counted toward the budget are eligible; entries that are not
-// still count against the sample. Falls short of the budget when the sample holds no eligible entry.
-func (c *readCache) evictWLocked(budget uint64) {
+// oldest of a small sample of candidates.
+func (c *readCache) evictWLocked(budget uint64) error {
 	for c.trackedBytes > budget {
 		var victimKey string
 		var victim *cacheEntry
@@ -569,28 +574,34 @@ func (c *readCache) evictWLocked(budget uint64) {
 
 		var visited uint64
 		for key, entry := range c.entries {
-			visited++
-			// An entry holding no value has nothing to reclaim and no stamp worth comparing, but it has
-			// still consumed a step of the walk.
-			if entry.size > 0 {
-				if stamp := entry.lastRead.Load(); stamp <= oldest {
-					oldest, victimKey, victim = stamp, key, entry
-				}
+			if entry.status == statusScheduled {
+				// A read still in flight must not be evicted: untracking leaves its status untouched,
+				// so the completing read would re-track an entry no longer in the map.
+				continue
 			}
+
+			stamp := entry.lastRead.Load()
+			if stamp <= oldest {
+				oldest, victimKey, victim = stamp, key, entry
+			}
+
+			visited++
 			if visited == c.config.EvictionSampleSize {
 				break
 			}
 		}
 
 		if victim == nil {
-			// The walk found nothing to evict, either because the sample happened to hold no values or
-			// because the accounting disagrees with the map. Stopping is the safe response either way:
-			// running over budget costs memory, whereas looping here would spin while holding the shard
-			// lock. The next maintenance pass samples a different part of the map and makes progress.
-			return
+			// Unreachable while the accounting agrees with the map.
+			err := fmt.Errorf("read cache accounting is corrupt: %d tracked bytes exceed budget %d, "+
+				"but none of the %d entries is an eviction candidate",
+				c.trackedBytes, budget, len(c.entries))
+			c.TakeOutOfServiceWLocked(err)
+			return err
 		}
 		c.untrackWLocked(victimKey, victim)
 	}
+	return nil
 }
 
 // SizeInfoRLocked returns the current size (bytes) and entry count.
@@ -604,9 +615,9 @@ func (c *readCache) hardCap() uint64 {
 }
 
 // MaintainWLocked advances the epoch and brings the cache back within its size budget.
-func (c *readCache) MaintainWLocked() {
+func (c *readCache) MaintainWLocked() error {
 	c.epoch++
-	c.evictWLocked(c.maxSize)
+	return c.evictWLocked(c.maxSize)
 }
 
 // ErrIfOutOfServiceRLocked returns a second-hand error if this cache has been taken out of service, or nil
