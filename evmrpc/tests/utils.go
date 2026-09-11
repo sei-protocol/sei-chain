@@ -40,8 +40,9 @@ type TestServer struct {
 	evmrpc.EVMServer
 	port int
 
-	mockClient *MockClient
-	app        *app.App
+	mockClient  *MockClient
+	app         *app.App
+	ctxProvider func(int64) sdk.Context
 }
 
 func (ts TestServer) Run(r func(port int)) {
@@ -71,7 +72,7 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 		_, _ = ts.app.Commit(context.Background())
 		ts.mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
-	pinStateStoreLatestVersion(ts.app, ts.app.RPCContextProvider)
+	pinStateStoreLatestVersion(ts.app, ts.ctxProvider)
 }
 
 // pinStateStoreLatestVersion advances the state store's latest version to the app's
@@ -192,7 +193,7 @@ func setupTestServer(
 		}
 		_ = store.SetEarliestVersion(1)
 	}
-	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a}
+	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a, ctxProvider: ctxProvider}
 }
 
 func sendRequestWithNamespace(namespace string, port int, method string, params ...interface{}) map[string]interface{} {
