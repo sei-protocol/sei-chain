@@ -19,8 +19,8 @@ func newTimeoutVotes() *timeoutVotes {
 	}
 }
 
-func (tv *timeoutVotes) pushVote(c *types.Committee, vote *types.FullTimeoutVote) {
-	// TODO: verify the vote.
+// pushVerifiedVote inserts a timeout vote the caller has already verified against c.
+func (tv *timeoutVotes) pushVerifiedVote(c *types.Committee, vote *types.FullTimeoutVote) {
 	key := vote.Vote().Key()
 	view := vote.Vote().Msg().View()
 	if old, ok := tv.byKey[key]; ok {

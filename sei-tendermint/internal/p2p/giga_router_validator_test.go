@@ -219,14 +219,13 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	_, validatorKeys := atypes.GenCommittee(rng, 10)
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
-	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	urlByValidator := map[atypes.PublicKey]url.URL{}
 	// NewGigaRouter requires EVMRPC on every committee member in both
 	// validator and fullnode modes.
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
-		require.NoError(t, err)
+		rpcURL := *utils.OrPanic1(url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i)))
 		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
@@ -295,11 +294,10 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 
 	err = scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		for validator := range connectedRemote {
-			key := addrs[validator].Key
 			ready := make(chan struct{})
-			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", key), func() error {
+			s.SpawnBgNamed(fmt.Sprintf("poolOut[%s]", validator), func() error {
 				var client rpc.Client[giga.API]
-				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
+				return utils.IgnoreCancel(router.poolOut.InsertAndRun(ctx, validator, client, func(ctx context.Context) error {
 					close(ready)
 					<-ctx.Done()
 					return ctx.Err()
@@ -339,4 +337,37 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestGigaRouter_RejectsInvalidSelfAddr(t *testing.T) {
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 1)
+	self := &testNodeCfg{
+		validatorKey: validatorKeys[0],
+		nodeKey:      makeKey(rng),
+		addr:         tcp.TestReserveAddr(),
+	}
+	for _, tc := range []struct {
+		name     string
+		hostPort tcp.HostPort
+		want     string
+	}{
+		{"zero port", tcp.HostPort{Hostname: "validator1.example.com"}, "missing port"},
+		{"empty hostname", tcp.HostPort{Port: 26656}, "missing hostname"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := self.GigaNodeAddr()
+			addr.HostPort = tc.hostPort
+			_, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				GigaRouterCommonConfig: GigaRouterCommonConfig{
+					ValidatorAddrs: map[atypes.PublicKey]GigaNodeAddr{
+						self.validatorKey.Public(): addr,
+					},
+				},
+				ValidatorKey: self.validatorKey,
+			}, self.nodeKey, nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.want)
+		})
+	}
 }
