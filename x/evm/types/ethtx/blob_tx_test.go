@@ -137,4 +137,67 @@ func TestValidateBlobTransaction(t *testing.T) {
 	tx.ChainID = nil
 	require.NotNil(t, tx.Validate())
 	tx.ChainID = chainID
+	hashes := tx.BlobHashes
+	tx.BlobHashes = make([][]byte, maxBlobSidecarItems+1)
+	require.NotNil(t, tx.Validate())
+	tx.BlobHashes = hashes
+}
+
+func TestSidecarConversionRejectsInvalidShape(t *testing.T) {
+	ethTx := mockBlobTransaction(uint256.NewInt(20))
+	tx, err := NewBlobTx(ethTx)
+	require.NoError(t, err)
+
+	t.Run("too many empty blobs", func(t *testing.T) {
+		n := 10_000
+		tx.Sidecar = &BlobTxSidecar{
+			Blobs:       make([][]byte, n),
+			Commitments: make([][]byte, n),
+			Proofs:      make([][]byte, n),
+		}
+		require.Error(t, tx.Validate())
+		require.NotPanics(t, func() {
+			data := tx.AsEthereumData().(*ethtypes.BlobTx)
+			require.Nil(t, data.Sidecar)
+		})
+	})
+
+	t.Run("short blob", func(t *testing.T) {
+		tx.Sidecar = &BlobTxSidecar{
+			Blobs:       [][]byte{{0x01}},
+			Commitments: [][]byte{make([]byte, len(kzg4844.Commitment{}))},
+			Proofs:      [][]byte{make([]byte, len(kzg4844.Proof{}))},
+		}
+		require.Error(t, tx.Validate())
+		require.NotPanics(t, func() {
+			data := tx.AsEthereumData().(*ethtypes.BlobTx)
+			require.Nil(t, data.Sidecar)
+		})
+	})
+
+	t.Run("mismatched counts", func(t *testing.T) {
+		tx.Sidecar = &BlobTxSidecar{
+			Blobs:       [][]byte{make([]byte, len(kzg4844.Blob{}))},
+			Commitments: [][]byte{make([]byte, len(kzg4844.Commitment{})), make([]byte, len(kzg4844.Commitment{}))},
+			Proofs:      [][]byte{make([]byte, len(kzg4844.Proof{}))},
+		}
+		require.Error(t, tx.Validate())
+		require.NotPanics(t, func() {
+			data := tx.AsEthereumData().(*ethtypes.BlobTx)
+			require.Nil(t, data.Sidecar)
+		})
+	})
+
+	t.Run("too many commitments only", func(t *testing.T) {
+		tx.Sidecar = &BlobTxSidecar{
+			Blobs:       [][]byte{make([]byte, len(kzg4844.Blob{}))},
+			Commitments: make([][]byte, maxBlobSidecarItems+1),
+			Proofs:      [][]byte{make([]byte, len(kzg4844.Proof{}))},
+		}
+		require.Error(t, tx.Validate())
+		require.NotPanics(t, func() {
+			data := tx.AsEthereumData().(*ethtypes.BlobTx)
+			require.Nil(t, data.Sidecar)
+		})
+	})
 }
