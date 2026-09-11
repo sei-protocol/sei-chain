@@ -63,6 +63,7 @@ func (ak AccountKeeper) SetAccount(ctx sdk.Context, acc types.AccountI) {
 	}
 
 	store.Set(types.AddressStoreKey(addr), bz)
+	ctx.InvalidateCachedEVMBalance(addr)
 }
 
 // RemoveAccount removes an account for the account mapper store.
@@ -71,6 +72,7 @@ func (ak AccountKeeper) RemoveAccount(ctx sdk.Context, acc types.AccountI) {
 	addr := acc.GetAddress()
 	store := ctx.KVStore(ak.key)
 	store.Delete(types.AddressStoreKey(addr))
+	ctx.InvalidateCachedEVMBalance(addr)
 }
 
 // IterateAccounts iterates over all the stored accounts and performs a callback function.
