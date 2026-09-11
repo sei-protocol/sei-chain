@@ -5,11 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/require"
 )
@@ -384,6 +387,7 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 		blockHeight := mockStatesFromTxJson(ctx, txHash, a, mc)
 		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		ctx = withCapturedConsensusParams(ctx, mc, blockHeight)
+		removeFutureGovernanceActivation(ctx, a, version)
 		return ctx.WithBlockHeight(blockHeight)
 	})
 	s.Run(
@@ -424,6 +428,7 @@ func testBlock(
 			)
 			ctx = setLegacySstoreIfNeeded(ctx, a, version)
 			ctx = withCapturedConsensusParams(ctx, mc, blockHeight)
+			removeFutureGovernanceActivation(ctx, a, version)
 			return ctx.WithBlockHeight(blockHeight)
 		},
 	)
@@ -454,6 +459,12 @@ func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Co
 	params.RegisterPointerDisabled = false
 	a.EvmKeeper.SetParams(ctx, params)
 	return ctx
+}
+
+func removeFutureGovernanceActivation(ctx sdk.Context, a *app.App, version string) {
+	if semver.Compare(version, "v6.8") < 0 {
+		ctx.KVStore(a.GetKey(govtypes.StoreKey)).Delete(govtypes.IncrementalTallyEnabledKey)
+	}
 }
 
 func isVersionLessOrEqual(version, target string) bool {

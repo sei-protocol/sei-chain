@@ -12,6 +12,14 @@ type msgServer struct {
 	Keeper
 }
 
+func chargeDeferredVoteTallyGas(ctx sdk.Context, newTallyRecord bool) {
+	if !newTallyRecord {
+		return
+	}
+
+	ctx.GasMeter().ConsumeGas(types.DeferredVoteTallyGas, "governance vote deferred tally")
+}
+
 // NewMsgServerImpl returns an implementation of the gov MsgServer interface
 // for the provided Keeper.
 func NewMsgServerImpl(keeper Keeper) types.MsgServer {
@@ -67,10 +75,11 @@ func (k msgServer) Vote(goCtx context.Context, msg *types.MsgVote) (*types.MsgVo
 		return nil, err
 	}
 
-	err = k.AddVote(ctx, msg.ProposalId, accAddr, types.NewNonSplitVoteOption(msg.Option))
+	newTallyRecord, err := k.addVote(ctx, msg.ProposalId, accAddr, types.NewNonSplitVoteOption(msg.Option))
 	if err != nil {
 		return nil, err
 	}
+	chargeDeferredVoteTallyGas(ctx, newTallyRecord)
 
 	defer func() {
 		govMetrics.voteTotal.Add(goCtx, 1)
@@ -93,10 +102,11 @@ func (k msgServer) VoteWeighted(goCtx context.Context, msg *types.MsgVoteWeighte
 	if accErr != nil {
 		return nil, accErr
 	}
-	err := k.AddVote(ctx, msg.ProposalId, accAddr, msg.Options)
+	newTallyRecord, err := k.addVote(ctx, msg.ProposalId, accAddr, msg.Options)
 	if err != nil {
 		return nil, err
 	}
+	chargeDeferredVoteTallyGas(ctx, newTallyRecord)
 
 	defer func() {
 		govMetrics.voteTotal.Add(goCtx, 1)

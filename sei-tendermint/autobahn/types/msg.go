@@ -83,6 +83,11 @@ func (k SecretKey) Public() PublicKey {
 	return PublicKey{key: k.key.Public()}
 }
 
+// SignWithTag signs msg with a domain-separation tag.
+func (k SecretKey) SignWithTag(tag ed25519.Tag, msg []byte) ed25519.Signature {
+	return k.key.SignWithTag(tag, msg)
+}
+
 // PublicKey is the public key of the validator.
 // nolint:recvcheck
 type PublicKey struct {
@@ -98,6 +103,11 @@ func (k PublicKey) Bytes() []byte { return k.key.Bytes() }
 
 // ED25519 returns the underlying Ed25519 public key.
 func (k PublicKey) ED25519() ed25519.PublicKey { return k.key }
+
+// VerifyWithTag verifies a tagged signature.
+func (k PublicKey) VerifyWithTag(tag ed25519.Tag, msg []byte, sig ed25519.Signature) error {
+	return k.key.VerifyWithTag(tag, msg, sig)
+}
 
 // PublicKeyFromBytes constructs a public key from bytes.
 func PublicKeyFromBytes(b []byte) (PublicKey, error) {
