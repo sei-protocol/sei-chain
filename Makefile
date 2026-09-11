@@ -264,8 +264,11 @@ ensure-integration-ci-localnode-image:
 	@docker image inspect sei-chain/localnode >/dev/null 2>&1 || (echo "sei-chain/localnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
 .PHONY: ensure-integration-ci-localnode-image
 
-ensure-integration-ci-images: ensure-integration-ci-localnode-image
+ensure-integration-ci-rpcnode-image:
 	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; pull from GHCR (see prepare-rpcnode job)" && exit 1)
+.PHONY: ensure-integration-ci-rpcnode-image
+
+ensure-integration-ci-images: ensure-integration-ci-localnode-image ensure-integration-ci-rpcnode-image
 .PHONY: ensure-integration-ci-images
 
 # Build seid once inside the localnode image (integration-test prepare job).
@@ -339,7 +342,8 @@ run-rpc-node: build-rpc-node
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
 
-run-rpc-node-skipbuild: build-rpc-node
+# Run the rpc node container against a prebuilt seid (SKIP_BUILD=true) with the sei-chain/rpcnode image.
+define RUN_RPC_NODE_SKIPBUILD
 	docker run --rm \
 	--name sei-rpc-node \
 	--network docker_localnet \
@@ -359,7 +363,18 @@ run-rpc-node-skipbuild: build-rpc-node
 	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
-.PHONY: run-rpc-node
+endef
+
+run-rpc-node-skipbuild: build-rpc-node
+	$(RUN_RPC_NODE_SKIPBUILD)
+.PHONY: run-rpc-node-skipbuild
+
+# Integration-test CI: same as run-rpc-node-skipbuild but with the rpcnode image pulled from GHCR
+# (see prepare-rpcnode job) instead of rebuilt here, so image build time never lands inside a
+# test's readiness budget.
+run-rpc-node-skipbuild-ci: ensure-integration-ci-rpcnode-image
+	$(RUN_RPC_NODE_SKIPBUILD)
+.PHONY: run-rpc-node-skipbuild-ci
 
 # Integration-test CI: RPC node with prebuilt image and seid (see .github/workflows/integration-test.yml).
 # Wait for the localnode cluster to produce block 100 (the first snapshot-interval) before

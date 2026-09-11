@@ -481,6 +481,8 @@ jobs:
           # retagged as sei-chain/*; keeps a single tag per image.
           docker image rm "${GHCR_LOCALNODE}:${{ github.run_id }}" "${GHCR_RPCNODE}:${{ github.run_id }}" || true
       - name: Run autobahn integration tests
+        env:
+          AUTOBAHN_PREBUILT_IMAGES: "true"
         run: make autobahn-integration-test
       - name: Print node logs on failure
         if: ${{ failure() }}

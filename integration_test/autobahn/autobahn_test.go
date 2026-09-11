@@ -65,9 +65,12 @@ const (
 	autobahnSettleDelay = 30 * time.Second
 
 	// Fullnode sidecar lifecycle (TestMain).
-	fullnodeContainer   = "sei-rpc-node"
-	fullnodeBootTimeout = 5 * time.Minute
-	fullnodeBootPoll    = 5 * time.Second
+	fullnodeContainer = "sei-rpc-node"
+	// fullnodeStartTimeout bounds `make` getting the container running (image
+	// build/pull); fullnodeBootTimeout bounds the node's own boot after that.
+	fullnodeStartTimeout = 10 * time.Minute
+	fullnodeBootTimeout  = 5 * time.Minute
+	fullnodeBootPoll     = 5 * time.Second
 	// evmRPCURLOnContainerLocalhost is the EVM RPC address inside the
 	// rpc-node container — used with `docker exec ... curl` for readiness
 	// checks (the rpc-node's 8545 isn't host-published).
@@ -88,6 +91,10 @@ const (
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
 	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
+
+	// prebuiltImagesEnv selects the `*-ci` make targets, which run the already
+	// present sei-chain/* images instead of rebuilding them.
+	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
 
 	evmOnlyEnv         = "AUTOBAHN_EVMONLY"
 	evmOnlyLoadTxs     = 4_000
@@ -222,6 +229,10 @@ func assertAutobahnEnabled(t *testing.T) {
 
 func evmOnlyEnabled() bool {
 	return os.Getenv(evmOnlyEnv) == "true"
+}
+
+func prebuiltImages() bool {
+	return os.Getenv(prebuiltImagesEnv) == "true"
 }
 
 func assertEVMOnlyEnabled(t *testing.T) {
@@ -484,18 +495,39 @@ func setupFullnodeNode() error {
 	if clusterSize == 0 {
 		return fmt.Errorf("no sei-node-* containers found; setupCluster must run first")
 	}
-	cmd := exec.Command("make", "run-rpc-node-skipbuild")
+	target := "run-rpc-node-skipbuild"
+	if prebuiltImages() {
+		target += "-ci"
+	}
+	cmd := exec.Command("make", target)
 	cmd.Env = append(os.Environ(), "AUTOBAHN=true", fmt.Sprintf("CLUSTER_SIZE=%d", clusterSize))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start make run-rpc-node-skipbuild: %w", err)
+		return fmt.Errorf("start make %s: %w", target, err)
 	}
 	// Reap the process when it eventually exits (e.g. on container kill);
 	// not blocking on Wait here since the container runs for the duration
 	// of the test suite.
-	go func() { _ = cmd.Wait() }()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
 
+	// Phase 1: wait for the container to exist and run. Anything `make` does
+	// before `docker run` (image build, pull) lands here, not in the boot budget.
+	startDeadline := time.Now().Add(fullnodeStartTimeout)
+	for !fullnodeRunning() {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("make %s exited before %s was running: %v", target, fullnodeContainer, err)
+		default:
+		}
+		if !time.Now().Before(startDeadline) {
+			return fmt.Errorf("fullnode sidecar container didn't start within %s", fullnodeStartTimeout)
+		}
+		time.Sleep(fullnodeBootPoll)
+	}
+
+	// Phase 2: the node's own boot.
 	deadline := time.Now().Add(fullnodeBootTimeout)
 	for time.Now().Before(deadline) {
 		if fullnodeRunning() && fullnodeEVMReady() {
@@ -504,7 +536,7 @@ func setupFullnodeNode() error {
 		}
 		time.Sleep(fullnodeBootPoll)
 	}
-	return fmt.Errorf("fullnode sidecar didn't come up within %s", fullnodeBootTimeout)
+	return fmt.Errorf("fullnode sidecar didn't come up within %s of the container starting", fullnodeBootTimeout)
 }
 
 func fullnodeRunning() bool {
