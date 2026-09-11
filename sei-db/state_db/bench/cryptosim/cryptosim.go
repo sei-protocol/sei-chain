@@ -10,6 +10,7 @@ import (
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"golang.org/x/time/rate"
 )
 
@@ -130,6 +131,7 @@ func NewCryptoSim(
 
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
+	fmt.Printf("LtHash backend: %s\n", lthash.ActiveBackend())
 
 	var dbConfig any
 	switch config.Backend {
