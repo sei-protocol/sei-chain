@@ -10481,7 +10481,7 @@
               "transformations": []
             }
           },
-          "description": "Every phase the goroutine that builds blocks and writes them to the block store passes through, as a share of its wall clock. Fully accounted, the blocked hand-off to the execution loop included, so these total 100%. A large handoff means execution is the limit, not block production.",
+          "description": "Every phase the goroutine that builds blocks and writes them to the block store passes through, as a share of its wall clock. Fully accounted, the blocked hand-off to the execution loop included, so these total 100%. A large wait_for_execution means execution is the limit, not block production.",
           "id": 114,
           "links": [],
           "title": "Main Block Producing Loop — Time Spent",
@@ -10566,7 +10566,7 @@
               "transformations": []
             }
           },
-          "description": "Every phase the goroutine that builds blocks and writes them to the block store passes through, as a share of its wall clock. Fully accounted, the blocked hand-off to the execution loop included, so these total 100%. A large handoff means execution is the limit, not block production.",
+          "description": "Every phase the goroutine that builds blocks and writes them to the block store passes through, as a share of its wall clock. Fully accounted, the blocked hand-off to the execution loop included, so these total 100%. A large wait_for_execution means execution is the limit, not block production.",
           "id": 115,
           "links": [],
           "title": "Main Block Producing Loop — Time Spent (over time)",
@@ -11912,7 +11912,7 @@
               "transformations": []
             }
           },
-          "description": "Every phase the goroutine that builds blocks and writes them to the block store passes through, as a share of its wall clock. Fully accounted, the blocked hand-off to the execution loop included, so these total 100%. A large handoff means execution is the limit, not block production. Divided by the block rate, so each band is the time one block spends there rather than a share, which is what shows a phase getting slower while its share holds steady.",
+          "description": "Every phase the goroutine that builds blocks and writes them to the block store passes through, as a share of its wall clock. Fully accounted, the blocked hand-off to the execution loop included, so these total 100%. A large wait_for_execution means execution is the limit, not block production. Divided by the block rate, so each band is the time one block spends there rather than a share, which is what shows a phase getting slower while its share holds steady.",
           "id": 129,
           "links": [],
           "title": "Main Block Producing Loop — Time Spent (per block)",

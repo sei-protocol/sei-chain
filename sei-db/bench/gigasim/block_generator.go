@@ -158,10 +158,10 @@ func (g *blockGenerator) mainLoop() {
 			g.abort(err)
 			return
 		}
-		// The block is finished, so what follows is this goroutine idling rather than a stage the block
-		// passes through. It is named rather than dropped: the phases are read as a pie, which
-		// renormalizes to 100%, so time left out inflates every other slice instead of showing as a gap.
-		g.lifecycle.SetPhase("handoff")
+		// The block is finished, so what follows is this goroutine waiting on execution rather than a
+		// stage the block passes through. It is named rather than dropped: the phases are read as a
+		// pie, which renormalizes to 100%, so time left out inflates every other slice.
+		g.lifecycle.SetPhase("wait_for_execution")
 
 		// A block already in the ledger has to reach execution, so this hand-off is not abandoned on
 		// cancellation: the consumer drains the queue before it closes the stores.
@@ -254,7 +254,7 @@ func (g *blockGenerator) flush() error {
 	return nil
 }
 
-// throttle holds generation to the configured block rate.
+// throttle holds generation to the configured block rate. A run without one waits for nothing here.
 func (g *blockGenerator) throttle() {
 	if g.rateLimiter == nil {
 		return
