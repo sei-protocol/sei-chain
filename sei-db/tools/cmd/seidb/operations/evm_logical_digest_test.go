@@ -66,14 +66,14 @@ func TestSemanticMemiavlDigestReportsZeroCensus(t *testing.T) {
 		{Key: keys.BuildEVMKey(keys.EVMKeyNonce, liveNoCodeHashRowAddr), Value: nonceBytes(5)},
 	}
 
-	d := evmDigest{}
+	d := evmDigest{census: &evmZeroCensus{}}
 	accounts := make(map[string]*semanticAccountDigestState)
 	for _, p := range rawPairs {
 		require.NoError(t, d.consumeSemanticMemiavlLeaf(accounts, p.Key, p.Value))
 	}
 	d.finalizeSemanticAccounts(accounts)
 
-	require.Equal(t, evmZeroCensus{
+	require.Equal(t, &evmZeroCensus{
 		ZeroAccounts:                    1,
 		ZeroCodeHashRows:                2,
 		LiveAccountsWithZeroCodeHashRow: 1,
@@ -253,18 +253,18 @@ func TestCompositeAccountMergeCombinesFlatKVAndMemiavlFragments(t *testing.T) {
 	require.Equal(t, expected.account, composite.account)
 }
 
-// captureDigestOutput points the package output sink at buffers for one test and
+// captureDigestOutput points the package output digestOut at buffers for one test and
 // restores it afterwards. A non-nil jsonReport is what puts emit into JSON mode,
 // so passing jsonMode here selects the same branch the --json flag selects.
 func captureDigestOutput(t *testing.T, jsonMode bool) (prose, jsonReport *bytes.Buffer) {
 	t.Helper()
-	saved := sink
-	t.Cleanup(func() { sink = saved })
+	saved := digestOut
+	t.Cleanup(func() { digestOut = saved })
 
 	prose, jsonReport = &bytes.Buffer{}, &bytes.Buffer{}
-	sink = digestSink{prose: prose}
+	digestOut = digestSink{prose: prose}
 	if jsonMode {
-		sink.jsonReport = jsonReport
+		digestOut.jsonReport = jsonReport
 	}
 	return prose, jsonReport
 }
@@ -334,6 +334,95 @@ func TestDigestJSONReportCarriesTheSameNumbersAsTheProse(t *testing.T) {
 
 	// JSON mode keeps stdout to the object alone.
 	require.NotContains(t, jsonBuf.String(), "EVM logical digest report")
+}
+
+// TestStdoutLogWarningStaysOffStdout pins the one place this warning must not go.
+// It warns that a stray line would corrupt the report, so emitting it onto the
+// report would be the fault it exists to report.
+func TestStdoutLogWarningStaysOffStdout(t *testing.T) {
+	t.Setenv("SEI_LOG_OUTPUT", "")
+
+	proseBuf, jsonBuf := captureDigestOutput(t, true)
+	warnIfLogsShareStdout()
+
+	require.Contains(t, proseBuf.String(), "SEI_LOG_OUTPUT")
+	require.Empty(t, jsonBuf.String(), "the warning reached the report it warns about")
+}
+
+// TestStdoutLogWarningIsSilentWhenRedirected pins that the warning names a real
+// condition rather than firing on every run, since one that always fires is one
+// a caller learns to filter out.
+func TestStdoutLogWarningIsSilentWhenRedirected(t *testing.T) {
+	t.Setenv("SEI_LOG_OUTPUT", "stderr")
+
+	proseBuf, _ := captureDigestOutput(t, true)
+	warnIfLogsShareStdout()
+
+	require.Empty(t, proseBuf.String())
+}
+
+// TestCensusFreeDigestReadsAsUnmeasuredInBothForms pins that the two forms agree
+// on a census that was never taken. The prose omits the block, so an object
+// carrying six zeros would say "measured, and all zero" where the text says
+// "not measured" — the drift the single report exists to prevent.
+func TestCensusFreeDigestReadsAsUnmeasuredInBothForms(t *testing.T) {
+	d := digestOverCoreEVMKeys(t)
+	require.Nil(t, d.census, "this helper stands in for the backends that take no census")
+	ctx := testDigestContext()
+
+	proseBuf, _ := captureDigestOutput(t, false)
+	require.NoError(t, d.emit(ctx))
+	require.NotContains(t, proseBuf.String(), "Zero-value memiavl census")
+
+	_, jsonBuf := captureDigestOutput(t, true)
+	require.NoError(t, d.emit(ctx))
+	require.NotContains(t, jsonBuf.String(), "zero_census")
+
+	var got evmDigestJSON
+	require.NoError(t, json.Unmarshal(jsonBuf.Bytes(), &got))
+	require.Nil(t, got.ZeroCensus)
+}
+
+// TestCensusIsAllOrNothingAcrossBothCounterLevels pins the invariant behind the
+// single census field. The row counters are raised during the leaf scan and the
+// account counters at finalize, so while those two read separate arguments a
+// path could count one level and not the other, and a report showing real row
+// counts beside zero_accounts=0 invites that zero to be read as a finding.
+// Sharing one field is what makes the partial state unreachable.
+func TestCensusIsAllOrNothingAcrossBothCounterLevels(t *testing.T) {
+	// Rows that populate a row counter (an all-zero code-hash) and an account
+	// counter (that same address being otherwise empty), so a half-counted census
+	// would be visible here.
+	addr := bytesOfLen(keys.AddressLen, 0x41)
+	rawPairs := []struct{ Key, Value []byte }{
+		{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: nonceBytes(0)},
+		{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: make([]byte, 32)},
+	}
+
+	for _, tc := range []struct {
+		name    string
+		census  *evmZeroCensus
+		wantNil bool
+	}{
+		{"a path that takes no census counts neither level", nil, true},
+		{"a path that takes one counts both", &evmZeroCensus{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := evmDigest{census: tc.census}
+			accounts := make(map[string]*semanticAccountDigestState)
+			for _, p := range rawPairs {
+				require.NoError(t, d.consumeSemanticMemiavlLeaf(accounts, p.Key, p.Value))
+			}
+			d.finalizeSemanticAccounts(accounts)
+
+			if tc.wantNil {
+				require.Nil(t, d.census)
+				return
+			}
+			require.NotZero(t, d.census.ZeroCodeHashRows, "row counter not raised")
+			require.NotZero(t, d.census.ZeroAccounts, "account counter not raised")
+		})
+	}
 }
 
 // TestDigestJSONNamesTheMarkerAdjustmentsBehindTheMiscBucket pins the field that

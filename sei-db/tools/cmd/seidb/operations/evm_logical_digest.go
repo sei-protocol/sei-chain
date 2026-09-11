@@ -199,12 +199,12 @@ type digestSink struct {
 	jsonReport io.Writer
 }
 
-// sink is a package variable because the text-or-JSON choice is made once per
+// digestOut is a package variable because the text-or-JSON choice is made once per
 // process, in runEvmLogicalDigest, while the lines it governs are emitted from a
 // dozen call sites, several of which hold neither the print context nor the
 // accumulator. One switch at the single decision point is checkable; a flag
 // threaded through every scan helper is a parameter each new helper can forget.
-var sink = digestSink{prose: os.Stdout}
+var digestOut = digestSink{prose: os.Stdout}
 
 // sayf writes one narration line.
 //
@@ -261,7 +261,11 @@ type evmDigest struct {
 	code    digestBucket
 	storage digestBucket
 	misc    digestBucket
-	census  evmZeroCensus
+
+	// census is nil on the paths that do not take a zero-value census, and the
+	// row-level and account-level counters both read it, so a path cannot end up
+	// with one half counted and the other half not.
+	census *evmZeroCensus
 
 	// findTarget, when non-nil, is a per-entry hash to hunt for; every
 	// matching entry is printed with its bucket, physical key, and values.
@@ -325,7 +329,7 @@ func (d *evmDigest) consume(physKey, val []byte) error {
 func (d *evmDigest) addLogical(bucket string, physKey, logical, rawVal []byte) {
 	sum := entryHash(physKey, logical)
 	if d.findTarget != nil && bytes.Equal(sum[:], d.findTarget) {
-		sink.sayf("FOUND-HASH bucket=%s keyhex=%X logicalhex=%X rawhex=%X\n", bucket, physKey, logical, rawVal)
+		digestOut.sayf("FOUND-HASH bucket=%s keyhex=%X logicalhex=%X rawhex=%X\n", bucket, physKey, logical, rawVal)
 	}
 	switch bucket {
 	case flatkvBucketAccount:
@@ -435,7 +439,9 @@ type evmDigestJSON struct {
 	// it from the counts.
 	MarkerAdjustments []string `json:"marker_adjustments"`
 
-	ZeroCensus evmZeroCensus `json:"zero_census"`
+	// ZeroCensus is absent on the backends that take no census, so a missing
+	// object here and a missing census block in the prose mean the same thing.
+	ZeroCensus *evmZeroCensus `json:"zero_census,omitempty"`
 
 	Account evmDigestBucketJSON `json:"account"`
 	Code    evmDigestBucketJSON `json:"code"`
@@ -487,10 +493,10 @@ func (d *evmDigest) report(ctx digestPrintContext) evmDigestJSON {
 	}
 }
 
-// emit renders the finished digest in whichever form the sink is configured for.
+// emit renders the finished digest in whichever form digestOut is configured for.
 func (d *evmDigest) emit(ctx digestPrintContext) error {
-	if sink.jsonReport != nil {
-		return encodeDigestJSON(sink.jsonReport, d.report(ctx))
+	if digestOut.jsonReport != nil {
+		return encodeDigestJSON(digestOut.jsonReport, d.report(ctx))
 	}
 	d.print(ctx)
 	return nil
@@ -506,54 +512,54 @@ func encodeDigestJSON(w io.Writer, r evmDigestJSON) error {
 func (d *evmDigest) print(ctx digestPrintContext) {
 	r := d.report(ctx)
 
-	sink.say("EVM logical digest report")
+	digestOut.say("EVM logical digest report")
 	printDigestContext(ctx)
-	sink.say()
+	digestOut.say()
 
 	for _, marker := range r.MarkerAdjustments {
-		sink.sayf("flatkv_marker_adjustment: omitted %s from misc bucket in final result\n", marker)
-		sink.say()
+		digestOut.sayf("flatkv_marker_adjustment: omitted %s from misc bucket in final result\n", marker)
+		digestOut.say()
 	}
 
-	if r.ZeroCensus != (evmZeroCensus{}) {
-		sink.say("Zero-value memiavl census")
-		sink.sayf("zero_accounts=%d zero_codehash_rows=%d empty_code_values=%d zero_storage_slots=%d\n",
+	if r.ZeroCensus != nil {
+		digestOut.say("Zero-value memiavl census")
+		digestOut.sayf("zero_accounts=%d zero_codehash_rows=%d empty_code_values=%d zero_storage_slots=%d\n",
 			r.ZeroCensus.ZeroAccounts,
 			r.ZeroCensus.ZeroCodeHashRows,
 			r.ZeroCensus.EmptyCodeValues,
 			r.ZeroCensus.ZeroStorageSlots)
-		sink.sayf("live_accounts_with_zero_codehash_row=%d live_accounts_without_codehash_row=%d\n",
+		digestOut.sayf("live_accounts_with_zero_codehash_row=%d live_accounts_without_codehash_row=%d\n",
 			r.ZeroCensus.LiveAccountsWithZeroCodeHashRow,
 			r.ZeroCensus.LiveAccountsWithoutCodeHashRow)
-		sink.say()
+		digestOut.say()
 	}
 
-	sink.say("Bucket digests (final digest inputs)")
-	sink.sayf("account  count=%d bucket_digest=%s\n", r.Account.Count, r.Account.Digest)
-	sink.sayf("code     count=%d bucket_digest=%s\n", r.Code.Count, r.Code.Digest)
-	sink.sayf("storage  count=%d bucket_digest=%s\n", r.Storage.Count, r.Storage.Digest)
-	sink.sayf("misc   count=%d bucket_digest=%s\n", r.Misc.Count, r.Misc.Digest)
+	digestOut.say("Bucket digests (final digest inputs)")
+	digestOut.sayf("account  count=%d bucket_digest=%s\n", r.Account.Count, r.Account.Digest)
+	digestOut.sayf("code     count=%d bucket_digest=%s\n", r.Code.Count, r.Code.Digest)
+	digestOut.sayf("storage  count=%d bucket_digest=%s\n", r.Storage.Count, r.Storage.Digest)
+	digestOut.sayf("misc   count=%d bucket_digest=%s\n", r.Misc.Count, r.Misc.Digest)
 
-	sink.say()
-	sink.sayf("FINAL_DIGEST account+code+storage+misc count=%d digest=%s\n", r.Final.Count, r.Final.Digest)
+	digestOut.say()
+	digestOut.sayf("FINAL_DIGEST account+code+storage+misc count=%d digest=%s\n", r.Final.Count, r.Final.Digest)
 }
 
 func printDigestStart(ctx digestPrintContext) {
-	sink.say("EVM logical digest start")
+	digestOut.say("EVM logical digest start")
 	printDigestContext(ctx)
-	sink.say()
+	digestOut.say()
 }
 
 func printDigestContext(ctx digestPrintContext) {
-	sink.sayf("backend: %s\n", ctx.backend)
+	digestOut.sayf("backend: %s\n", ctx.backend)
 	if ctx.mode != "" {
-		sink.sayf("mode: %s\n", ctx.mode)
+		digestOut.sayf("mode: %s\n", ctx.mode)
 	}
-	sink.sayf("db_dir: %s\n", ctx.dbDir)
-	sink.sayf("source: %s\n", ctx.source)
-	sink.sayf("requested_height: %d\n", ctx.requestedHeight)
-	sink.sayf("version: %d\n", ctx.version)
-	sink.sayf("normalization: %s\n", ctx.normalization)
+	digestOut.sayf("db_dir: %s\n", ctx.dbDir)
+	digestOut.sayf("source: %s\n", ctx.source)
+	digestOut.sayf("requested_height: %d\n", ctx.requestedHeight)
+	digestOut.sayf("version: %d\n", ctx.version)
+	digestOut.sayf("normalization: %s\n", ctx.normalization)
 }
 
 // enterJSONMode redirects this command's narration to stderr so stdout carries
@@ -566,9 +572,27 @@ func printDigestContext(ctx digestPrintContext) {
 // error-level line would still reach stdout. SEI_LOG_OUTPUT=stderr, which the
 // flag help names, closes that remainder.
 func enterJSONMode() {
-	sink.prose = os.Stderr
-	sink.jsonReport = os.Stdout
+	digestOut.prose = os.Stderr
+	digestOut.jsonReport = os.Stdout
 	seilog.SetDefaultLevel(slog.LevelError, true)
+	warnIfLogsShareStdout()
+}
+
+// warnIfLogsShareStdout tells the operator that one error-level log line would
+// land in the report, while the destination that prevents it can still be set.
+//
+// It warns rather than refusing because a healthy run does not need the variable
+// — every line such a run emits is informational and the raised level already
+// clears those — so refusing would turn an unset variable into a failed read at
+// the moment someone is reading digests because something is wrong.
+func warnIfLogsShareStdout() {
+	switch os.Getenv("SEI_LOG_OUTPUT") {
+	case "", "stdout":
+		digestOut.say("warning: SEI_LOG_OUTPUT is not set away from stdout, so an error-level " +
+			"log line would be written into the JSON report. Set SEI_LOG_OUTPUT=stderr for " +
+			"an unattended caller. A report that fails to parse is this, not a digest defect.")
+		digestOut.say()
+	}
 }
 
 func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
@@ -674,8 +698,12 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 		return fmt.Errorf("unknown --memiavl-open-mode %q (want snapshot|replay)", memiavlOpenMode)
 	}
 	printDigestStart(ctx)
-	sink.say("Scan progress: composite migrate_evm logical view -> flatkv rows plus memiavl rows to the right of boundary")
+	digestOut.say("Scan progress: composite migrate_evm logical view -> flatkv rows plus memiavl rows to the right of boundary")
 
+	// No zero-value census here: this accounts map is also fed by
+	// mergeCompositeFlatKVAccount, which reconstructs an account from a FlatKV row
+	// and so cannot observe whether memiavl held a code-hash row for it. The
+	// account-level counters would read every such account as missing that row.
 	d := evmDigest{findTarget: findTarget}
 	accounts := make(map[string]*semanticAccountDigestState)
 
@@ -697,7 +725,7 @@ func digestCompositeMigrateEVM(flatKVDir, memIAVLDir string, height int64, findT
 			}
 		}
 	}
-	finalizeSemanticAccounts(accounts, d.addLogical, nil)
+	d.finalizeSemanticAccounts(accounts)
 	return d.emit(ctx)
 }
 
@@ -751,13 +779,13 @@ func consumeCompositeFlatKV(opened *openedFlatKV, d *evmDigest, accounts map[str
 			return err
 		}
 		if seen%20000000 == 0 {
-			sink.sayf("  progress backend=composite source=flatkv input_physical_rows=%d account_buffered=%d code=%d storage=%d misc=%d\n", seen, len(accounts), d.code.count, d.storage.count, d.misc.count)
+			digestOut.sayf("  progress backend=composite source=flatkv input_physical_rows=%d account_buffered=%d code=%d storage=%d misc=%d\n", seen, len(accounts), d.code.count, d.storage.count, d.misc.count)
 		}
 	}
 	if err := iter.Error(); err != nil {
 		return fmt.Errorf("iterate flatkv: %w", err)
 	}
-	sink.sayf("  composite flatkv rows=%d\n", seen)
+	digestOut.sayf("  composite flatkv rows=%d\n", seen)
 	return nil
 }
 
@@ -796,14 +824,14 @@ func consumeCompositeMemiavl(scan evmLeafSource, srcLabel string, boundary migra
 			consumed++
 		}
 		if leaves%20000000 == 0 {
-			sink.sayf("  progress backend=composite source=%s input_leaves=%d consumed_unmigrated=%d account_buffered=%d code=%d storage=%d misc=%d\n",
+			digestOut.sayf("  progress backend=composite source=%s input_leaves=%d consumed_unmigrated=%d account_buffered=%d code=%d storage=%d misc=%d\n",
 				srcLabel, leaves, consumed, len(accounts), d.code.count, d.storage.count, d.misc.count)
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
-	sink.sayf("  composite %s leaves=%d consumed_unmigrated=%d\n", srcLabel, leaves, consumed)
+	digestOut.sayf("  composite %s leaves=%d consumed_unmigrated=%d\n", srcLabel, leaves, consumed)
 	return nil
 }
 
@@ -832,7 +860,7 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 		version:         version,
 	}
 	printDigestStart(ctx)
-	sink.say("Scan progress: flatkv input_physical_rows -> normalized logical bucket counts")
+	digestOut.say("Scan progress: flatkv input_physical_rows -> normalized logical bucket counts")
 	var seen uint64
 	for ; iter.Valid(); iter.Next() {
 		k := iter.Key()
@@ -844,7 +872,7 @@ func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 			return err
 		}
 		if seen%20000000 == 0 {
-			sink.sayf("  progress backend=flatkv input_physical_rows=%d digested account=%d code=%d storage=%d misc=%d\n",
+			digestOut.sayf("  progress backend=flatkv input_physical_rows=%d digested account=%d code=%d storage=%d misc=%d\n",
 				seen, d.account.count, d.code.count, d.storage.count, d.misc.count)
 		}
 	}
@@ -1389,7 +1417,7 @@ func scanMemiavlReplayEVMLeaves(db *memiavl.DB, fn func(rawKey, rawVal []byte) e
 // merging them at finalize. modeLabel/totalLabel select the snapshot vs replay
 // wording so each mode emits the same progress output as before.
 func runMemiavlSemanticDigest(ctx digestPrintContext, modeLabel, totalLabel string, findTarget []byte, scan evmLeafSource) error {
-	d := evmDigest{findTarget: findTarget}
+	d := evmDigest{findTarget: findTarget, census: &evmZeroCensus{}}
 	accounts := make(map[string]*semanticAccountDigestState)
 	var leaves uint64
 	if err := scan(func(k, v []byte) error {
@@ -1398,7 +1426,7 @@ func runMemiavlSemanticDigest(ctx digestPrintContext, modeLabel, totalLabel stri
 			return err
 		}
 		if leaves%20000000 == 0 {
-			sink.sayf("  progress backend=memiavl mode=%s input_leaves=%d digested account=deferred_until_finalize account_buffered=%d code=%d storage=%d misc=%d\n",
+			digestOut.sayf("  progress backend=memiavl mode=%s input_leaves=%d digested account=deferred_until_finalize account_buffered=%d code=%d storage=%d misc=%d\n",
 				modeLabel, leaves, len(accounts), d.code.count, d.storage.count, d.misc.count)
 		}
 		return nil
@@ -1406,9 +1434,9 @@ func runMemiavlSemanticDigest(ctx digestPrintContext, modeLabel, totalLabel stri
 		return err
 	}
 	d.finalizeSemanticAccounts(accounts)
-	sink.sayf("  finalize backend=memiavl mode=%s account=%d code=%d storage=%d misc=%d\n",
+	digestOut.sayf("  finalize backend=memiavl mode=%s account=%d code=%d storage=%d misc=%d\n",
 		modeLabel, d.account.count, d.code.count, d.storage.count, d.misc.count)
-	sink.sayf("  %s=%d\n", totalLabel, leaves)
+	digestOut.sayf("  %s=%d\n", totalLabel, leaves)
 	return d.emit(ctx)
 }
 
@@ -1453,7 +1481,7 @@ func runMemiavlTranslatorDigest(ctx digestPrintContext, modeLabel, totalLabel st
 			if err := flush(); err != nil {
 				return err
 			}
-			sink.sayf("  progress backend=memiavl mode=%s input_leaves=%d digested account=deferred_until_finalize code=%d storage=%d misc=%d\n",
+			digestOut.sayf("  progress backend=memiavl mode=%s input_leaves=%d digested account=deferred_until_finalize code=%d storage=%d misc=%d\n",
 				modeLabel, leaves, d.code.count, d.storage.count, d.misc.count)
 		}
 		return nil
@@ -1468,9 +1496,9 @@ func runMemiavlTranslatorDigest(ctx digestPrintContext, modeLabel, totalLabel st
 			return err
 		}
 	}
-	sink.sayf("  finalize backend=memiavl mode=%s account=%d code=%d storage=%d misc=%d\n",
+	digestOut.sayf("  finalize backend=memiavl mode=%s account=%d code=%d storage=%d misc=%d\n",
 		modeLabel, d.account.count, d.code.count, d.storage.count, d.misc.count)
-	sink.sayf("  %s=%d\n", totalLabel, leaves)
+	digestOut.sayf("  %s=%d\n", totalLabel, leaves)
 	return d.emit(ctx)
 }
 
@@ -1485,8 +1513,8 @@ func digestMemIAVLReplaySemantic(dbDir string, height int64, db *memiavl.DB, fin
 		version:         db.Version(),
 	}
 	printDigestStart(ctx)
-	sink.say("Scan progress: replayed memiavl iterator -> independently decoded EVM logical bucket counts")
-	sink.say("Note: semantic replay mode walks the in-memory/mmap tree, not the snapshot kvs file.")
+	digestOut.say("Scan progress: replayed memiavl iterator -> independently decoded EVM logical bucket counts")
+	digestOut.say("Note: semantic replay mode walks the in-memory/mmap tree, not the snapshot kvs file.")
 	return runMemiavlSemanticDigest(ctx, "semantic-replay", "memiavl-replay total leaves", findTarget,
 		func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlReplayEVMLeaves(db, fn) })
 }
@@ -1502,8 +1530,8 @@ func digestMemIAVLReplayTranslator(dbDir string, height int64, db *memiavl.DB, f
 		version:         db.Version(),
 	}
 	printDigestStart(ctx)
-	sink.say("Scan progress: replayed memiavl iterator -> translated flatkv logical bucket counts")
-	sink.say("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
+	digestOut.say("Scan progress: replayed memiavl iterator -> translated flatkv logical bucket counts")
+	digestOut.say("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
 	return runMemiavlTranslatorDigest(ctx, "translator-replay", "memiavl-replay total leaves", findTarget,
 		func(fn func(rawKey, rawVal []byte) error) error { return scanMemiavlReplayEVMLeaves(db, fn) })
 }
@@ -1527,8 +1555,8 @@ func digestMemIAVLTranslator(dbDir string, height int64, findTarget []byte) erro
 		version:         version,
 	}
 	printDigestStart(ctx)
-	sink.say("Scan progress: memiavl input_leaves -> translated flatkv logical bucket counts")
-	sink.say("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
+	digestOut.say("Scan progress: memiavl input_leaves -> translated flatkv logical bucket counts")
+	digestOut.say("Note: account rows are merged by the translator at finalize, so progress shows account=deferred_until_finalize.")
 	return runMemiavlTranslatorDigest(ctx, memiavlNormTranslator, "memiavl total leaves", findTarget,
 		func(fn func(rawKey, rawVal []byte) error) error {
 			return scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, fn)
@@ -1605,8 +1633,8 @@ func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error 
 		version:         version,
 	}
 	printDigestStart(ctx)
-	sink.say("Scan progress: memiavl input_leaves -> independently decoded EVM logical bucket counts")
-	sink.say("Note: semantic mode does not call flatkv.ImportTranslator; account rows are merged locally at finalize.")
+	digestOut.say("Scan progress: memiavl input_leaves -> independently decoded EVM logical bucket counts")
+	digestOut.say("Note: semantic mode does not call flatkv.ImportTranslator; account rows are merged locally at finalize.")
 	return runMemiavlSemanticDigest(ctx, memiavlNormSemantic, "memiavl total leaves", findTarget,
 		func(fn func(rawKey, rawVal []byte) error) error {
 			return scanMemiavlSnapshotEVMLeaves(evmSnapshotDir, fn)
@@ -1614,11 +1642,11 @@ func digestMemIAVLSemantic(dbDir string, height int64, findTarget []byte) error 
 }
 
 func (d *evmDigest) finalizeSemanticAccounts(accounts map[string]*semanticAccountDigestState) {
-	finalizeSemanticAccounts(accounts, d.addLogical, &d.census)
+	finalizeSemanticAccounts(accounts, d.addLogical, d.census)
 }
 
 func (d *evmDigest) consumeSemanticMemiavlLeaf(accounts map[string]*semanticAccountDigestState, rawKey, rawVal []byte) error {
-	return consumeSemanticMemiavlLeaf(accounts, rawKey, rawVal, d.addLogical, &d.census, "digest")
+	return consumeSemanticMemiavlLeaf(accounts, rawKey, rawVal, d.addLogical, d.census, "digest")
 }
 
 type semanticLogicalConsumer func(bucket string, physKey, logical, rawVal []byte)
