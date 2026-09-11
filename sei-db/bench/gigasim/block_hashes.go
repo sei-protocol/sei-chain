@@ -88,7 +88,6 @@ func (w *blockHashWaiter) awaitBlock() error {
 
 // takeHash waits for the next block's hash, reporting a state DB that has stopped producing them.
 func (w *blockHashWaiter) takeHash() (*lthash.BlockHash, error) {
-	w.metrics.SetMainThreadPhase("awaiting_hash")
 	startedWaiting := time.Now()
 	defer func() {
 		w.metrics.RecordBlockHashWaitDuration(time.Since(startedWaiting))

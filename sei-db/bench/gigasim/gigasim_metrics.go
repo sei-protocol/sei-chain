@@ -46,16 +46,14 @@ type GigasimMetrics struct {
 
 	blockHashWaitSeconds metric.Float64Histogram
 
-	mainThreadPhase   *metrics.PhaseTimer
-	generatorPhase    *metrics.PhaseTimer
 	transactionPhases *metrics.PhaseTimerFactory
 
 	// One timer per goroutine at the top of the hierarchy, and one per phase that is broken down
 	// further. A child's phases subdivide a single phase of its parent, so the two always sum alike.
-	mainLoopPhases     *metrics.PhaseTimerFactory
-	generationPhases   *metrics.PhaseTimerFactory
-	ledgerWritePhases  *metrics.PhaseTimerFactory
-	receiptWritePhases *metrics.PhaseTimerFactory
+	executionLoopPhases   *metrics.PhaseTimerFactory
+	blockProducingPhases  *metrics.PhaseTimerFactory
+	blockStoreWritePhases *metrics.PhaseTimerFactory
+	receiptWritePhases    *metrics.PhaseTimerFactory
 
 	stagedBlockQueue *metrics.QueueMeter
 }
@@ -166,49 +164,50 @@ func NewGigasimMetrics() *GigasimMetrics {
 		erc20Contracts:            erc20Contracts,
 		stagedBlockQueueLen:       stagedBlockQueueLen,
 		blockHashWaitSeconds:      blockHashWaitSeconds,
-		mainThreadPhase:           metrics.NewPhaseTimer(meter, "gigasim_main_thread"),
-		generatorPhase:            metrics.NewPhaseTimer(meter, "gigasim_generator"),
 		transactionPhases:         metrics.NewPhaseTimerFactory(meter, "gigasim_transaction"),
-		mainLoopPhases:            metrics.NewPhaseTimerFactory(meter, "gigasim_main_loop"),
-		generationPhases:          metrics.NewPhaseTimerFactory(meter, "gigasim_generation"),
-		ledgerWritePhases:         metrics.NewPhaseTimerFactory(meter, "gigasim_ledger_write"),
+		executionLoopPhases:       metrics.NewPhaseTimerFactory(meter, "gigasim_execution_loop"),
+		blockProducingPhases:      metrics.NewPhaseTimerFactory(meter, "gigasim_block_producing_loop"),
+		blockStoreWritePhases:     metrics.NewPhaseTimerFactory(meter, "gigasim_blockstore_write"),
 		receiptWritePhases:        metrics.NewPhaseTimerFactory(meter, "gigasim_receipt_write"),
 		stagedBlockQueue:          metrics.NewQueueMeter(meter, "gigasim_staged_block", stagedBlockQueueLen),
 	}
 }
 
-// NewMainLoopTimer returns the timer for the goroutine that executes and commits blocks.
+// NewExecutionLoopTimer returns the timer for the goroutine that executes and commits blocks.
 //
-// Every moment of that goroutine is charged to some phase, including the wait for the generator, so
-// these phases total its whole wall clock. The commit is the exception: the state DB times it, being
-// the layer that can tell the state WAL, SC and SS apart, so the two sets together are the whole.
-func (m *GigasimMetrics) NewMainLoopTimer() *metrics.PhaseTimer {
-	if m == nil || m.mainLoopPhases == nil {
+// Every moment of that goroutine is charged to some phase, the wait on the block producing loop
+// included, so these phases total its whole wall clock. The commit is the exception: the state DB
+// times it, being the layer that tells the state WAL, SC and SS apart, so the two sets together are
+// the whole.
+func (m *GigasimMetrics) NewExecutionLoopTimer() *metrics.PhaseTimer {
+	if m == nil || m.executionLoopPhases == nil {
 		return nil
 	}
-	return m.mainLoopPhases.Build()
+	return m.executionLoopPhases.Build()
 }
 
-// NewGenerationTimer returns the timer for the goroutine that builds blocks and writes them to the
-// ledger. Its phases total that goroutine's whole wall clock, the hand-off to the main loop included.
-func (m *GigasimMetrics) NewGenerationTimer() *metrics.PhaseTimer {
-	if m == nil || m.generationPhases == nil {
+// NewBlockProducingTimer returns the timer for the goroutine that builds blocks and writes them to
+// the block store. Its phases total that goroutine's whole wall clock, the blocked hand-off to the
+// execution loop included.
+func (m *GigasimMetrics) NewBlockProducingTimer() *metrics.PhaseTimer {
+	if m == nil || m.blockProducingPhases == nil {
 		return nil
 	}
-	return m.generationPhases.Build()
+	return m.blockProducingPhases.Build()
 }
 
-// NewLedgerWriteTimer returns the timer breaking the generator's ledger write into the records it
-// writes. It subdivides that goroutine's write_block phase rather than adding to it.
-func (m *GigasimMetrics) NewLedgerWriteTimer() *metrics.PhaseTimer {
-	if m == nil || m.ledgerWritePhases == nil {
+// NewBlockStoreWriteTimer returns the timer breaking a block store write into the records it writes.
+// It subdivides the block producing loop's write_block phase rather than adding to it.
+func (m *GigasimMetrics) NewBlockStoreWriteTimer() *metrics.PhaseTimer {
+	if m == nil || m.blockStoreWritePhases == nil {
 		return nil
 	}
-	return m.ledgerWritePhases.Build()
+	return m.blockStoreWritePhases.Build()
 }
 
-// NewReceiptWriteTimer returns the timer breaking the main loop's receipt write into encoding the
-// receipts and handing them to the store. It subdivides write_receipts rather than adding to it.
+// NewReceiptWriteTimer returns the timer breaking a receipt write into encoding the receipts and
+// handing them to the store. It subdivides the execution loop's write_receipts phase rather than
+// adding to it.
 func (m *GigasimMetrics) NewReceiptWriteTimer() *metrics.PhaseTimer {
 	if m == nil || m.receiptWritePhases == nil {
 		return nil
@@ -223,22 +222,6 @@ func (m *GigasimMetrics) NewTransactionPhaseTimer() *metrics.PhaseTimer {
 		return nil
 	}
 	return m.transactionPhases.Build()
-}
-
-// SetMainThreadPhase records the main thread moving into a new stage of the pipeline.
-func (m *GigasimMetrics) SetMainThreadPhase(phase string) {
-	if m == nil {
-		return
-	}
-	m.mainThreadPhase.SetPhase(phase)
-}
-
-// SetGeneratorPhase records the generator thread moving into a new stage of block production.
-func (m *GigasimMetrics) SetGeneratorPhase(phase string) {
-	if m == nil {
-		return
-	}
-	m.generatorPhase.SetPhase(phase)
 }
 
 // ReportBlockProcessed records one block completing every stage of the pipeline.

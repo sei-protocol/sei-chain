@@ -17,7 +17,7 @@ type receiptWriter struct {
 	store receipt.ReceiptStore
 
 	// Splits this writer's work into encoding the receipts and handing them to the store, subdividing
-	// the main loop's write_receipts phase. Only the main loop writes receipts, so one timer serves it.
+	// the execution loop's write_receipts phase. Only that loop writes receipts, so one timer serves it.
 	phases *metrics.PhaseTimer
 
 	metrics *GigasimMetrics

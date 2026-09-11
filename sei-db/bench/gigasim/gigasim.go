@@ -235,7 +235,7 @@ func assemble(
 ) (*GigaSim, error) {
 	// One timer for the whole consuming goroutine: the run loop and the state it commits through both
 	// run on it, and a timer tracks a single goroutine's current phase.
-	lifecycle := metrics.NewMainLoopTimer()
+	lifecycle := metrics.NewExecutionLoopTimer()
 
 	state, err := newExecutionState(config, storage.StateDB(), metrics, lifecycle)
 	if err != nil {
@@ -244,8 +244,8 @@ func assemble(
 
 	// Shared by the writer, which names each record it writes, and the generator, which closes the
 	// phase once the flush behind those writes is done.
-	ledgerWrite := metrics.NewLedgerWriteTimer()
-	blocks := newBlockStoreWriter(storage.BlockStore(), config, metrics, ledgerWrite)
+	blockStoreWrite := metrics.NewBlockStoreWriteTimer()
+	blocks := newBlockStoreWriter(storage.BlockStore(), config, metrics, blockStoreWrite)
 	nextBlock, err := agreedNextBlockNumber(state, blocks)
 	if err != nil {
 		state.Close()
@@ -277,7 +277,7 @@ func assemble(
 	}
 	g.highestBlock.Store(nextBlock - 1)
 	g.startExecutors(state, accounts.FeeCollectionAddress())
-	g.generator = newBlockGenerator(ctx, cancel, config, accounts, blocks, metrics, ledgerWrite)
+	g.generator = newBlockGenerator(ctx, cancel, config, accounts, blocks, metrics, blockStoreWrite)
 	return g, nil
 }
 
@@ -418,8 +418,7 @@ func (g *GigaSim) run() {
 	}
 
 	for {
-		g.metrics.SetMainThreadPhase("get_block")
-		g.lifecycle.SetPhase("get_block")
+		g.lifecycle.SetPhase("wait_for_block")
 
 		select {
 		case isSuspended := <-g.suspendChan:
@@ -476,7 +475,6 @@ func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 // executeBlock spreads a block's transactions across the executor pool and waits for all of them. The
 // wait is what makes the writes a complete block before any of them is committed.
 func (g *GigaSim) executeBlock(block *simulatedBlock) {
-	g.metrics.SetMainThreadPhase("execute_block")
 	g.lifecycle.SetPhase("execute")
 
 	transactions := block.transactions
@@ -508,7 +506,6 @@ func (g *GigaSim) persistExecutionResults(
 	counters identifierCounters,
 ) error {
 	if g.receipts != nil {
-		g.metrics.SetMainThreadPhase("write_receipts")
 		g.lifecycle.SetPhase("write_receipts")
 		if err := g.receipts.writeBlock(number, receipts); err != nil {
 			return err
@@ -549,7 +546,6 @@ func (g *GigaSim) recordFailure(err error) {
 // generator fills the staging queue and then waits to hand over the block it has ready.
 func (g *GigaSim) suspend() {
 	fmt.Printf("Benchmark suspended.\n")
-	g.metrics.SetMainThreadPhase("suspended")
 
 	for {
 		select {

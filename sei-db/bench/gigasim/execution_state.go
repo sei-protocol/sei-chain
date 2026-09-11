@@ -95,9 +95,7 @@ func (s *executionState) Get(key []byte) ([]byte, bool) {
 //
 // Must not run concurrently with Put or Get.
 func (s *executionState) commitBlock(blockNum int64, counters identifierCounters) error {
-	s.metrics.SetMainThreadPhase("finalizing")
-
-	s.lifecycle.SetPhase("drain_batch")
+	s.lifecycle.SetPhase("collect_changeset")
 	changeSets := s.batch.drainToChangeSet(counters)
 
 	// SC and SS are handed the same changeset, so the volume they take in is the same. SS is reported
@@ -110,7 +108,6 @@ func (s *executionState) commitBlock(blockNum int64, counters identifierCounters
 	}
 
 	// One commit per block: that is the store contract, so the benchmark must not batch.
-	s.metrics.SetMainThreadPhase("committing_state")
 	// The state DB splits the commit across the state WAL, SC and SS and times each itself, being the
 	// layer that can tell them apart. Standing down here keeps one commit out of two breakdowns.
 	s.lifecycle.Reset()
@@ -119,12 +116,11 @@ func (s *executionState) commitBlock(blockNum int64, counters identifierCounters
 	}
 	s.metrics.ReportStateCommit(int64(len(changeSets[0].Changeset.Pairs)))
 
-	s.lifecycle.SetPhase("reopen_view")
-	s.reopenView()
-
 	// Committing a block is not finishing it: the hash of a block committed a bounded number of blocks
-	// ago is taken here, and waited for when hashing has fallen behind execution.
+	// ago is taken here, and waited for when hashing has fallen behind execution. Reopening the view
+	// is charged here too, being a fraction of a percent that no one reads as a stage of its own.
 	s.lifecycle.SetPhase("await_hash")
+	s.reopenView()
 	err := s.hashes.awaitBlock()
 	if err != nil {
 		return fmt.Errorf("failed to obtain a block hash after committing block %d: %w", blockNum, err)

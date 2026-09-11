@@ -40,8 +40,8 @@ type blockStoreWriter struct {
 	// written before it.
 	qcNext autobahn.GlobalBlockNumber
 
-	// Breaks the ledger write into the records it writes. Owned by the generator, which closes it once
-	// the flush behind these writes is done, so that the phases subdivide its whole write_block phase.
+	// Breaks the block store write into the records it writes. Owned by the generator, which closes it
+	// once the flush behind them is done, so the phases subdivide its whole write_block phase.
 	phases *metrics.PhaseTimer
 
 	metrics *GigasimMetrics
@@ -103,7 +103,6 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 		return err
 	}
 
-	w.metrics.SetGeneratorPhase("write_block")
 	w.phases.SetPhase("write_block")
 	if err := w.store.WriteBlock(globalNumber, block); err != nil {
 		return fmt.Errorf("failed to write block %d to the block store: %w", number, err)
@@ -140,7 +139,6 @@ func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.GlobalBlockNumber) 
 	}
 	first := status.NextAppQC
 
-	w.metrics.SetGeneratorPhase("write_app_qc")
 	w.phases.SetPhase("write_app_qc")
 	appProposal := autobahn.GenAppProposalRange(w.rng, first, next)
 	if err := w.store.WriteAppProposal(appProposal); err != nil {
@@ -156,7 +154,6 @@ func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.GlobalBlockNumber) 
 func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber) error {
 	next := first + autobahn.GlobalBlockNumber(w.config.BlocksPerQc)
 
-	w.metrics.SetGeneratorPhase("write_qc")
 	w.phases.SetPhase("write_qc")
 	if err := w.store.WriteQC(autobahn.GenFullCommitQCRange(w.rng, first, next)); err != nil {
 		return fmt.Errorf("failed to write the QC covering [%d, %d): %w", first, next, err)

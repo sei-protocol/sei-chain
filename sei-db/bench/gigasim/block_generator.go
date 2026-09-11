@@ -82,9 +82,9 @@ type blockGenerator struct {
 	// This goroutine's share of a block's critical path: building it and storing it.
 	lifecycle *metrics.PhaseTimer
 
-	// Breaks the ledger write into the records written and the flush behind them, subdividing the
-	// lifecycle's write_block phase. Shared with the writer, which names each record.
-	ledgerWrite *metrics.PhaseTimer
+	// Breaks the block store write into the records written and the flush behind them, subdividing
+	// this loop's write_block phase. Shared with the writer, which names each record.
+	blockStoreWrite *metrics.PhaseTimer
 
 	metrics *GigasimMetrics
 }
@@ -98,7 +98,7 @@ func newBlockGenerator(
 	accounts *accountModel,
 	blocks *blockStoreWriter,
 	gigasimMetrics *GigasimMetrics,
-	ledgerWrite *metrics.PhaseTimer,
+	blockStoreWrite *metrics.PhaseTimer,
 ) *blockGenerator {
 	var rateLimiter *rate.Limiter
 	if config.MaxBlocksPerSecond > 0 {
@@ -106,17 +106,17 @@ func newBlockGenerator(
 	}
 
 	return &blockGenerator{
-		ctx:         ctx,
-		cancel:      cancel,
-		config:      config,
-		accounts:    accounts,
-		blocks:      blocks,
-		rateLimiter: rateLimiter,
-		blocksChan:  make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
-		bloomHasher: sha3.NewLegacyKeccak256(),
-		lifecycle:   gigasimMetrics.NewGenerationTimer(),
-		ledgerWrite: ledgerWrite,
-		metrics:     gigasimMetrics,
+		ctx:             ctx,
+		cancel:          cancel,
+		config:          config,
+		accounts:        accounts,
+		blocks:          blocks,
+		rateLimiter:     rateLimiter,
+		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
+		bloomHasher:     sha3.NewLegacyKeccak256(),
+		lifecycle:       gigasimMetrics.NewBlockProducingTimer(),
+		blockStoreWrite: blockStoreWrite,
+		metrics:         gigasimMetrics,
 	}
 }
 
@@ -180,7 +180,6 @@ func (g *blockGenerator) abort(err error) {
 // buildBlock assembles the next block: its transactions, the payload standing in for their encoded
 // form, and their receipts when receipts are enabled.
 func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
-	g.metrics.SetGeneratorPhase("build_block")
 
 	number := g.next
 	g.next++
@@ -224,7 +223,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 func (g *blockGenerator) storeBlock(block *simulatedBlock) error {
 	// The writer names the record it is on; this closes whichever it ended on, so that these phases
 	// cover the same window as the generator's write_block phase and no more.
-	defer g.ledgerWrite.Reset()
+	defer g.blockStoreWrite.Reset()
 
 	if err := g.blocks.writeBlock(block.number, block.payload); err != nil {
 		return err
@@ -234,7 +233,7 @@ func (g *blockGenerator) storeBlock(block *simulatedBlock) error {
 	if g.config.FlushIntervalBlocks <= 0 || g.written%int64(g.config.FlushIntervalBlocks) != 0 {
 		return nil
 	}
-	g.ledgerWrite.SetPhase("flush")
+	g.blockStoreWrite.SetPhase("flush")
 	return g.flush()
 }
 
@@ -248,7 +247,6 @@ func (g *blockGenerator) finalFlush() {
 
 // flush pushes the block ledger's buffered writes to disk and records that it happened.
 func (g *blockGenerator) flush() error {
-	g.metrics.SetGeneratorPhase("flush")
 	if err := g.blocks.Flush(); err != nil {
 		return err
 	}
@@ -261,6 +259,5 @@ func (g *blockGenerator) throttle() {
 	if g.rateLimiter == nil {
 		return
 	}
-	g.metrics.SetGeneratorPhase("throttling")
 	_ = g.rateLimiter.Wait(g.ctx)
 }
