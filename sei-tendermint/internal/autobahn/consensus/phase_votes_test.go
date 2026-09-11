@@ -42,6 +42,31 @@ func TestPrepareVotes_DoesNotReplaceQCAtSameView(t *testing.T) {
 	require.True(t, before == after)
 }
 
+func TestPrepareVotes_ReplacesQCAtNewerView(t *testing.T) {
+	rng := utils.TestRng()
+	e := newVoteTestEnv(rng)
+	pv := newPrepareVotes()
+	view1 := e.view.Next()
+	c := e.ep.Committee()
+
+	p0 := types.GenProposalForEpoch(rng, e.ep, e.view)
+	for _, k := range e.quorum {
+		pv.pushVerifiedVote(c, types.Sign(k, types.NewPrepareVote(p0)))
+	}
+	got, ok := pv.qc.Load().Get()
+	require.True(t, ok)
+	require.Equal(t, e.view, got.Proposal().View())
+
+	p1 := types.GenProposalForEpoch(rng, e.ep, view1)
+	for _, k := range e.quorum {
+		pv.pushVerifiedVote(c, types.Sign(k, types.NewPrepareVote(p1)))
+	}
+	got, ok = pv.qc.Load().Get()
+	require.True(t, ok)
+	require.Equal(t, view1, got.Proposal().View())
+	require.NoError(t, got.Verify(e.ep))
+}
+
 // Prepare votes are bucketed by vote hash, so votes for conflicting proposals at the
 // same view never combine into a QC.
 func TestPrepareVotes_ConflictingProposalsDoNotFormQC(t *testing.T) {
