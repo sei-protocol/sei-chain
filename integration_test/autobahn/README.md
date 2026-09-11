@@ -13,8 +13,8 @@ passed to `deploy`, pass the same name to `list`, `forward`, and `teardown`.
 Both targets require Go 1.25.6 and `make`. Local deployment also requires a
 running Docker engine with Docker Compose v2. AWS deployment requires the AWS
 CLI, `git`, and `ssh`, plus credentials allowed to manage EC2 instances,
-security groups, and key pairs. The inspection and receipt examples also use
-`jq` and Foundry's `cast`.
+security groups, and key pairs. The inspection, balance, and receipt examples
+also use `jq` and Foundry's `cast`.
 
 Build the manager once:
 
@@ -297,10 +297,26 @@ tail -f build/generated/logs/seid-0.log
 The public EVM JSON-RPC surface intentionally contains only:
 
 - `eth_sendRawTransaction`, used by `sei-load` and `cast publish`;
-- `eth_getTransactionReceipt`, for finalized receipts.
+- `eth_getTransactionReceipt`, for finalized receipts;
+- `eth_getBalance`, for the current committed EVM balance.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
+
+### Fetch balances with `cast`
+
+`eth_getBalance` accepts `latest`, `safe`, `finalized`, and `pending`; all four
+read the current committed state because Sei has instant finality. Explicit
+block numbers and hashes return an error because historical EVM-only state is
+not wired yet.
+
+Every previously unseen address starts with the test-only `2^200` wei balance:
+
+```sh
+cast balance \
+  --rpc-url http://127.0.0.1:8545 \
+  0x000000000000000000000000000000000000dEaD
+```
 
 ### Fetch receipts with `cast`
 
@@ -350,10 +366,10 @@ correct.
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. There is no
 `eth_getTransactionByHash` or block API to discover a `sei-load` transfer hash,
 and `sei-load` does not currently print every submitted hash. There are also no
-chain ID, balance, nonce, fee-estimation, gas-estimation, call, log, or
-WebSocket subscription methods. Commands that depend on those queries cannot
-operate normally; raw transactions must provide chain ID, nonce, gas limit,
-and gas price offline as in the example above.
+chain ID, nonce, fee-estimation, gas-estimation, call, log, or WebSocket
+subscription methods. Commands that depend on those queries cannot operate
+normally; raw transactions must provide chain ID, nonce, gas limit, and gas
+price offline as in the example above.
 
 ## Tear down
 

@@ -677,10 +677,29 @@ func testEVMOnlyLoad(t *testing.T) {
 
 	lastHeight, included := waitForEVMOnlyTxs(t, ctx, listRunningNodes(t), len(block.Txs))
 	assertEVMOnlyReceipts(t, ctx, clients, block.Txs)
+	assertEVMOnlyBalances(t, ctx, clients, block.Txs)
 	elapsed := time.Since(started)
 	t.Logf("Autobahn finalized %d raw EVM transfers through %d validators in %s (%.0f tx/s)",
 		included, clusterSize, elapsed.Round(time.Millisecond), float64(included)/elapsed.Seconds())
 	t.Logf("all validators executed through at least height %d", lastHeight)
+}
+
+func assertEVMOnlyBalances(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
+	t.Helper()
+	want := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 200), big.NewInt(1))
+	for nodeIndex, client := range clients {
+		tx := new(ethtypes.Transaction)
+		if err := tx.UnmarshalBinary(txs[nodeIndex]); err != nil {
+			t.Fatalf("decode EVM-only transaction %d: %v", nodeIndex, err)
+		}
+		var got hexutil.Big
+		if err := client.CallContext(ctx, &got, "eth_getBalance", tx.To(), "latest"); err != nil {
+			t.Fatalf("read EVM-only balance %s from node %d: %v", tx.To(), nodeIndex, err)
+		}
+		if got.ToInt().Cmp(want) != 0 {
+			t.Fatalf("node %d returned balance %s for %s, want %s", nodeIndex, got.ToInt(), tx.To(), want)
+		}
+	}
 }
 
 func assertEVMOnlyReceipts(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
