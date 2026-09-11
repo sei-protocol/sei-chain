@@ -1,6 +1,7 @@
 package core
 
 import (
+	"net/url"
 	"testing"
 	"time"
 
@@ -42,6 +43,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		valKey.Public(): {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+			EVMRPC:   *utils.OrPanic1(url.Parse("http://127.0.0.1:8545")),
 		},
 	}
 	blockStore, err := blockstore.New(memblock.NewBlockDB())
