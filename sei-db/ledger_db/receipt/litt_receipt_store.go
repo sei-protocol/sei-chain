@@ -17,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
@@ -26,6 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"go.opentelemetry.io/otel"
 )
 
 // littReceiptStore stores receipt bodies in LittDB and supports eth_getLogs
@@ -76,6 +78,11 @@ type littReceiptStore struct {
 	stopBackground       chan struct{}
 	backgroundWg         sync.WaitGroup
 	closeOnce            sync.Once
+
+	// Breaks a write into its stages. The receipt bodies go to litt asynchronously while the log index
+	// is committed inline, so which of the two a slow write is in is not otherwise visible. Only the
+	// commit path writes, so one timer serves the store.
+	writePhases *seidbmetrics.PhaseTimer
 }
 
 var _ ReceiptStore = (*littReceiptStore)(nil)
@@ -206,6 +213,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		return nil, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
 	s.index = index
+	s.writePhases = seidbmetrics.NewPhaseTimer(otel.Meter("seidb_receipt"), "receipt_store_write")
 
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
@@ -299,6 +307,9 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 		return s.SetLatestVersion(ctx.BlockHeight())
 	}
 
+	// Closes the stage in flight, so the gap until the next write is charged to neither.
+	defer s.writePhases.Reset()
+
 	// Receipt values go to litt first; the index batch (tag keys + version
 	// meta) commits after, so an indexed block always has its values written.
 	batch := s.index.NewBatch()
@@ -318,6 +329,7 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 			return err
 		}
 	}
+	s.writePhases.SetPhase("commit_index")
 	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
 		return err
 	}
@@ -332,6 +344,7 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
 	sortRecordsByTxIndex(records)
 
+	s.writePhases.SetPhase("probe_part_index")
 	partIndex, err := s.nextPartIndex(blockNumber)
 	if err != nil {
 		return err
@@ -343,6 +356,7 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 	// framing is needed. Each aliased range is a full receiptData record
 	// ([version][blockNumber][offset][length][body], see codec.go), so a read
 	// recovers both the block-store location of the tx and the receipt body.
+	s.writePhases.SetPhase("encode_values")
 	value := make([]byte, 0)
 	secondaryKeys := make([]*litttypes.SecondaryKey, 0, len(records))
 	for _, record := range records {
@@ -370,9 +384,12 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		})
 	}
 
+	s.writePhases.SetPhase("litt_put")
 	if err := s.receipts.Put(littPartKey(blockNumber, partIndex), value, secondaryKeys...); err != nil {
 		return err
 	}
+
+	s.writePhases.SetPhase("stage_tag_keys")
 	return s.stageTagKeys(batch, blockNumber, records)
 }
 
