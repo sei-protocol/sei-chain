@@ -20,7 +20,7 @@ env:
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
 
 jobs:
-  # The race run fans out over RACE_SHARDS runners. The shards and the upgrade
+  # The race run fans out over the shard matrix. The shards and the upgrade
   # tests all roll up into the `Race Detection` job below, which is the single
   # check name branch protection and the merge queue require.
   race-shard:
@@ -31,7 +31,6 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     env:
-      RACE_SHARDS: 4
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
@@ -61,13 +60,13 @@ jobs:
           # Round-robin over the sorted package list: neighbouring packages
           # (sei-db/*, sei-cosmos/x/*) are the slow ones, so contiguous slices
           # would leave one shard with most of the test time.
-          go list -f '{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}' ./... \
-            | grep . \
+          go list ./... \
             | grep -v "^${STATE_DB_PKG_PREFIX}" \
             | sort \
-            | awk -v n="${RACE_SHARDS}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
-          echo "Shard ${{ matrix.shard }}/${RACE_SHARDS}: $(wc -l < packages.txt) packages"
-          xargs go test -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
+            | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
+          [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
+          echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
+          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
 
   upgrade-test:
     name: Upgrade tests
