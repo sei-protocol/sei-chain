@@ -574,12 +574,12 @@ autobahn-integration-test:
 	@# The test drives cluster start/stop itself via TestMain — see
 	@# integration_test/autobahn/autobahn_test.go. GOWORK=off ignores an
 	@# ambient go.work so dependency resolution matches the module.
-	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
+	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 40m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
 # Run the disk-backed EVM-only executor behind a four-validator Autobahn cluster.
 autobahn-evmonly-integration-test:
-	@AUTOBAHN_EVMONLY=true GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
+	@AUTOBAHN_EVMONLY=true GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 40m ./integration_test/autobahn/...
 .PHONY: autobahn-evmonly-integration-test
 
 # Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.

@@ -92,8 +92,8 @@ const (
 	haltStableTimeout = 2 * time.Minute
 	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
 
-	// prebuiltImagesEnv selects the `*-ci` make targets, which run the already
-	// present sei-chain/* images instead of rebuilding them.
+	// prebuiltImagesEnv selects run-rpc-node-skipbuild-ci for the sidecar, which
+	// runs the already present sei-chain/rpcnode image instead of rebuilding it.
 	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
 
 	evmOnlyEnv         = "AUTOBAHN_EVMONLY"
@@ -530,6 +530,11 @@ func setupFullnodeNode() error {
 	// Phase 2: the node's own boot.
 	deadline := time.Now().Add(fullnodeBootTimeout)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("make %s exited while %s was booting: %v", target, fullnodeContainer, err)
+		default:
+		}
 		if fullnodeRunning() && fullnodeEVMReady() {
 			fmt.Println("fullnode sidecar is ready")
 			return nil
