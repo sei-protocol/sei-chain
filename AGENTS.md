@@ -144,7 +144,7 @@ run.
 
 Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
 (golangci-lint v2.13.2; enabled linters include `errcheck`, `gosec`, `govet`,
-`staticcheck`, `ineffassign`, `goconst`, `prealloc`, `unconvert`, `misspell`,
+`staticcheck`, `ineffassign`, `prealloc`, `unconvert`, `misspell`,
 `bodyclose`, and `dogsled`; generated `*.pb.go` files are excluded).
 
 ```bash

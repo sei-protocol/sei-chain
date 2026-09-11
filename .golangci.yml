@@ -11,7 +11,7 @@ linters:
     - bodyclose
     - dogsled
     - errcheck
-    - goconst
+    # goconst is deliberately not enabled: it is more noise than it is worth.
     - gosec
     - govet
     - ineffassign
@@ -19,9 +19,6 @@ linters:
     - prealloc
     - staticcheck
     - unconvert
-  settings:
-    goconst:
-      min-occurrences: 8
   exclusions:
     paths:
       - ".*\\.pb\\.go$"
@@ -37,21 +34,6 @@ linters:
           - staticcheck
         path: "^precompiles/p256/verifier\\.go$"
         text: "SA1019"
-      - linters:
-          - goconst
-        path: "(^|/)testutil(/|$)"
-      - linters:
-          - goconst
-        path: "(^|/)test_(fixtures|helpers)\\.go$"
-      - linters:
-          - goconst
-        path: "(^|/)scripts/"
-      - linters:
-          - goconst
-        path: "(^|/)mocks?(/|$)"
-      - linters:
-          - goconst
-        path: "(^|/)[^/]*mock[^/]*\\.go$"
 
 formatters:
   enable:
