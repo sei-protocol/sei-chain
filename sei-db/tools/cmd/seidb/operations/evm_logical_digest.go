@@ -187,23 +187,20 @@ func EvmLogicalDigestCmd() *cobra.Command {
 	return cmd
 }
 
-// digestSink is where this command's output goes. prose takes the narration —
-// the start banner, scan progress, and the human-readable report. jsonReport is
-// nil in the default text mode and, in JSON mode, takes the encoded report while
-// prose moves to stderr, so stdout carries only the object.
-//
-// Narration moves rather than being discarded, so a scan that runs for minutes
-// still reports progress to whoever is watching.
+// digestSink holds this command's two output destinations. prose takes the
+// narration: the start banner, scan progress, and the text report. jsonReport
+// takes the encoded report, and is nil in text mode.
 type digestSink struct {
 	prose      io.Writer
 	jsonReport io.Writer
 }
 
-// digestOut is a package variable because the text-or-JSON choice is made once per
-// process, in runEvmLogicalDigest, while the lines it governs are emitted from a
-// dozen call sites, several of which hold neither the print context nor the
-// accumulator. One switch at the single decision point is checkable; a flag
-// threaded through every scan helper is a parameter each new helper can forget.
+// digestOut is where this command writes. Text mode is the zero value.
+//
+// It is a package variable because the narration is emitted from a dozen scan
+// helpers, several of which hold neither the print context nor the accumulator,
+// so threading the destination through all of them is a parameter each new
+// helper can forget.
 var digestOut = digestSink{prose: os.Stdout}
 
 // sayf writes one narration line.
@@ -565,6 +562,9 @@ func printDigestContext(ctx digestPrintContext) {
 // enterJSONMode redirects this command's narration to stderr so stdout carries
 // only the encoded report, and raises the storage layer's log level, which
 // writes to stdout and would otherwise put several lines in front of the object.
+//
+// The narration is redirected rather than silenced so a scan that runs for
+// minutes still reports progress to whoever is watching.
 //
 // Raising the level rather than redirecting is what is available: seilog fixes
 // its destination when the process starts and exposes no runtime setter. That

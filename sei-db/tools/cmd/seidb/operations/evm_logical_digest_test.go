@@ -483,6 +483,9 @@ func TestJSONWithInspectBucketIsRefused(t *testing.T) {
 	})
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 
+	// Asserted on --json, not --inspect-bucket: the neighbouring
+	// --memiavl-open-mode refusal also names --inspect-bucket, so this test would
+	// stay green off that one if the default open mode ever changed.
 	err := cmd.Execute()
-	require.ErrorContains(t, err, "--inspect-bucket")
+	require.ErrorContains(t, err, "--json")
 }
