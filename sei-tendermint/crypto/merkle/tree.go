@@ -4,12 +4,45 @@ import (
 	"crypto/sha256"
 	"hash"
 	"math/bits"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 )
 
 // HashFromByteSlices computes a Merkle tree where the leaves are the byte slice,
 // in the provided order. It follows RFC-6962.
 func HashFromByteSlices(items [][]byte) []byte {
+	if lanes := tmhash.BatchLanes(); lanes > 1 && len(items) >= lanes {
+		return hashFromByteSlicesBatched(items)
+	}
 	return hashFromByteSlices(sha256.New(), items)
+}
+
+// hashFromByteSlicesBatched builds the same tree as hashFromByteSlices one
+// level at a time, handing every level's independent hashes to
+// tmhash.SumBatch in one call. Pairing adjacent nodes left to right and
+// carrying an odd trailing node up unchanged yields the RFC-6962 split.
+func hashFromByteSlicesBatched(items [][]byte) []byte {
+	nodes := make([][tmhash.Size]byte, len(items))
+	tmhash.SumBatch(leafPrefix, items, nodes)
+	pairs := make([]byte, len(items)/2*2*tmhash.Size)
+	msgs := make([][]byte, len(items)/2)
+	for len(nodes) > 1 {
+		np := len(nodes) / 2
+		for i := range np {
+			pair := pairs[i*2*tmhash.Size : (i+1)*2*tmhash.Size]
+			copy(pair, nodes[2*i][:])
+			copy(pair[tmhash.Size:], nodes[2*i+1][:])
+			msgs[i] = pair
+		}
+		carry := len(nodes) % 2
+		if carry == 1 {
+			nodes[np] = nodes[len(nodes)-1]
+		}
+		tmhash.SumBatch(innerPrefix, msgs[:np], nodes[:np])
+		nodes = nodes[:np+carry]
+	}
+	root := nodes[0]
+	return root[:]
 }
 
 func hashFromByteSlices(sha hash.Hash, items [][]byte) []byte {

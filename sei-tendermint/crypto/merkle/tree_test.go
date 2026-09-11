@@ -2,6 +2,7 @@ package merkle
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"io"
@@ -152,6 +153,64 @@ func BenchmarkHashAlternatives(b *testing.B) {
 	b.Run("iterative", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_ = HashFromByteSlicesIterative(items)
+		}
+	})
+}
+
+// TestHashFromByteSlicesBatched checks the level-batched tree against the
+// recursive reference around every lane-count boundary.
+func TestHashFromByteSlicesBatched(t *testing.T) {
+	sha := sha256.New()
+	for _, size := range []int{2, 32, 128} {
+		for total := 1; total <= 70; total++ {
+			items := make([][]byte, total)
+			for i := range items {
+				items[i] = tmrand.Bytes(size)
+			}
+			require.Equal(t, hashFromByteSlices(sha, items), hashFromByteSlicesBatched(items), "size=%d total=%d", size, total)
+		}
+	}
+}
+
+// BenchmarkHashFromByteSlices measures the whole tree for tx-hash sized and
+// tx sized leaves. The sub-benchmark is named after the active tmhash
+// backend so runs under different SEI_TMHASH_BACKEND values can be compared
+// with benchstat.
+func BenchmarkHashFromByteSlices(b *testing.B) {
+	for _, tc := range []struct {
+		name  string
+		total int
+		size  int
+	}{
+		{"leaves=1024/leaf=32", 1024, 32},
+		{"leaves=1024/leaf=512", 1024, 512},
+		{"leaves=100/leaf=32", 100, 32},
+	} {
+		items := make([][]byte, tc.total)
+		for i := range items {
+			items[i] = tmrand.Bytes(tc.size)
+		}
+		b.Run(tc.name+"/backend="+tmhash.ActiveBackend(), func(b *testing.B) {
+			b.SetBytes(int64(tc.total * tc.size))
+			for b.Loop() {
+				_ = HashFromByteSlices(items)
+			}
+		})
+	}
+}
+
+// BenchmarkHashFromByteSlicesBatched forces the level-batched tree so that,
+// pinned to the default backend, it isolates the restructuring from the SIMD
+// kernel.
+func BenchmarkHashFromByteSlicesBatched(b *testing.B) {
+	items := make([][]byte, 1024)
+	for i := range items {
+		items[i] = tmrand.Bytes(32)
+	}
+	b.Run("leaves=1024/leaf=32/backend="+tmhash.ActiveBackend(), func(b *testing.B) {
+		b.SetBytes(int64(len(items) * 32))
+		for b.Loop() {
+			_ = hashFromByteSlicesBatched(items)
 		}
 	})
 }
