@@ -221,7 +221,7 @@ func (s *State) PushTimeoutVote(vote *types.FullTimeoutVote) error {
 		return fmt.Errorf("vote.Verify(): %w", err)
 	}
 	for tv := range s.timeoutVotes.Lock() {
-		tv.pushVote(ep.Committee(), vote)
+		tv.pushVerifiedVote(ep.Committee(), vote)
 	}
 	return nil
 }
