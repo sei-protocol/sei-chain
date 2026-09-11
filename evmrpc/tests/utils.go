@@ -71,6 +71,22 @@ func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Cont
 		_, _ = ts.app.Commit(context.Background())
 		ts.mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
+	pinStateStoreLatestVersion(ts.app, ts.app.RPCContextProvider)
+}
+
+// pinStateStoreLatestVersion advances the state store's latest version to the app's
+// committed height so the RPC watermark does not lag behind the asynchronous SS writer.
+func pinStateStoreLatestVersion(a *app.App, ctxProvider func(int64) sdk.Context) {
+	stateStore := a.GetStateStore()
+	if stateStore == nil {
+		return
+	}
+	latest := ctxProvider(evmrpc.LatestCtxHeight).BlockHeight()
+	if stateStore.GetLatestVersion() < latest {
+		if err := stateStore.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+	}
 }
 
 func initializeApp(
@@ -168,14 +184,7 @@ func setupTestServer(
 	if err != nil {
 		panic(err)
 	}
-	if stateStore := a.GetStateStore(); stateStore != nil {
-		latest := ctxProvider(evmrpc.LatestCtxHeight).BlockHeight()
-		if stateStore.GetLatestVersion() < latest {
-			if err := stateStore.SetLatestVersion(latest); err != nil {
-				panic(err)
-			}
-		}
-	}
+	pinStateStoreLatestVersion(a, ctxProvider)
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)
 		if err := store.SetLatestVersion(latest); err != nil {
