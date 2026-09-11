@@ -15,6 +15,10 @@ concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
+permissions:
+  contents: read
+  pull-requests: write
+
 env:
   GO_VERSION: '1.27.1'
   LTHASH_PKG: ./sei-db/state_db/sc/flatkv/lthash
@@ -46,12 +50,7 @@ jobs:
 
       - name: CPU
         run: |
-          {
-            echo '## CPU (${{ matrix.runner }})'
-            echo '```'
-            lscpu | grep -E 'Model name|^Flags' | sed -E 's/^Flags:\s+/Flags: /' | fold -w 120
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          lscpu | grep -E 'Model name|^Flags' | sed -E 's/^Flags:\s+/Flags: /' | fold -w 120
 
       # Both builds must pass: the default build has no SIMD backend compiled
       # in, the experiment build adds it and the differential tests compare
@@ -74,14 +73,19 @@ jobs:
             -count ${{ env.BENCH_COUNT }} \
             ${{ env.LTHASH_PKG }} | tee bench.txt
 
-      - name: Compare backends
+      # benchstat groups the samples by the `backend=` sub-benchmark name, so the
+      # simd column reads as a delta against default. The report is printed to
+      # the log, added to the job summary and upserted as a PR comment.
+      - name: Summarise with benchstat
         run: |
           go install golang.org/x/perf/cmd/benchstat@v0.0.0-20250813145418-2f7363a06fe1
           {
-            echo '## LtHash backends (`benchstat -col /backend`)'
+            echo '### LtHash default vs SIMD (`${{ matrix.runner }}`)'
+            echo
+            echo "CPU: $(lscpu | sed -nE 's/^Model name:\s+//p')"
             echo
             if grep -q 'backend=simd' bench.txt; then
-              echo '`hashChunk` is the end-to-end per-block path.'
+              echo '`HashChunk` is the end-to-end per-block path; `vs base` is simd relative to default.'
             else
               echo '**This runner CPU lacks AVX-512F + VBMI2, so only the default backend ran.**'
             fi
@@ -89,12 +93,35 @@ jobs:
             echo '```'
             benchstat -col /backend bench.txt
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee benchstat.md >> "$GITHUB_STEP_SUMMARY"
           if ! grep -q 'backend=simd' bench.txt; then
             echo '::warning::SIMD backend unavailable on this runner CPU; only the default backend was benchmarked'
           fi
 
+      - name: Post benchstat report on the PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v8
+        env:
+          MARKER: '<!-- lthash-bench:${{ matrix.runner }} -->'
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = process.env.MARKER;
+            const body = `${marker}\n${fs.readFileSync('benchstat.md', 'utf8')}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
       - uses: actions/upload-artifact@v4
         with:
           name: lthash-bench-${{ matrix.runner }}
-          path: bench.txt
+          path: |
+            bench.txt
+            benchstat.md
