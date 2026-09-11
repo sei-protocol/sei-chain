@@ -21,6 +21,29 @@ export async function maxPriorityFeePerGas(provider: ethers.JsonRpcProvider): Pr
     return BigInt(await provider.send('eth_maxPriorityFeePerGas', []));
 }
 
+/**
+ * Run `sample` with the head pinned: the result is only accepted when no block landed
+ * across the call, so every untagged read inside it (eth_gasPrice, eth_maxPriorityFeePerGas,
+ * a `latest` block) provably derives from the same height. Every fee-market assertion that
+ * relates two or more such reads must go through this; on a chain sealing a block every few
+ * hundred milliseconds (Sei) or every second (geth --dev) a bare Promise.all of them
+ * straddles a boundary often enough to flake. Returns the sample and that height.
+ */
+export async function atStableHead<T>(
+    provider: ethers.JsonRpcProvider,
+    sample: () => Promise<T>,
+    label: string,
+    tries = 50,
+): Promise<{ value: T; block: number }> {
+    for (let i = 0; i < tries; i++) {
+        const b1 = await provider.getBlockNumber();
+        const value = await sample();
+        const b2 = await provider.getBlockNumber();
+        if (b1 === b2) return { value, block: b1 };
+    }
+    throw new Error(`${label}: block kept advancing across the sample (${tries} tries)`);
+}
+
 export interface PriorityFeeSample {
     tip: bigint;
     block: number;
@@ -39,25 +62,22 @@ export interface PriorityFeeSample {
 export async function maxPriorityFeePerGasAtStableBlock(
     provider: ethers.JsonRpcProvider,
 ): Promise<PriorityFeeSample> {
-    for (let i = 0; i < 50; i++) {
-        const b1 = await provider.getBlockNumber();
-        const tip = await maxPriorityFeePerGas(provider);
-        const b2 = await provider.getBlockNumber();
-        if (b1 !== b2) continue;
-
-        const info = await blockGasInfo(provider, b1);
-        const evmGasUsed = await evmGasUsedForBlock(provider, b1);
-        return {
-            tip,
-            block: info.number,
-            gasUsed: info.gasUsed,
-            evmGasUsed,
-            gasLimit: info.gasLimit,
-            ratio: Number(info.gasUsed) / Number(info.gasLimit),
-            evmRatio: Number(evmGasUsed) / Number(info.gasLimit),
-        };
-    }
-    throw new Error('maxPriorityFeePerGasAtStableBlock: block kept advancing across the sample');
+    const { value: tip, block } = await atStableHead(
+        provider,
+        () => maxPriorityFeePerGas(provider),
+        'maxPriorityFeePerGasAtStableBlock',
+    );
+    const info = await blockGasInfo(provider, block);
+    const evmGasUsed = await evmGasUsedForBlock(provider, block);
+    return {
+        tip,
+        block: info.number,
+        gasUsed: info.gasUsed,
+        evmGasUsed,
+        gasLimit: info.gasLimit,
+        ratio: Number(info.gasUsed) / Number(info.gasLimit),
+        evmRatio: Number(evmGasUsed) / Number(info.gasLimit),
+    };
 }
 
 export async function evmGasUsedForBlock(
@@ -83,13 +103,13 @@ export function isCongested(sample: { evmGasUsed: bigint; gasLimit: bigint }): b
 export async function gasPriceAtStableBlock(
     provider: ethers.JsonRpcProvider,
 ): Promise<{ gasPrice: bigint; block: number }> {
-    for (let i = 0; i < 20; i++) {
-        const b1 = await provider.getBlockNumber();
-        const price = await gasPrice(provider);
-        const b2 = await provider.getBlockNumber();
-        if (b1 === b2) return { gasPrice: price, block: b1 };
-    }
-    throw new Error('gasPriceAtStableBlock: block kept advancing across the gas price call');
+    const { value, block } = await atStableHead(
+        provider,
+        () => gasPrice(provider),
+        'gasPriceAtStableBlock',
+        20,
+    );
+    return { gasPrice: value, block };
 }
 
 /**
