@@ -42,20 +42,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      # The build cache is keyed per shard because each shard compiles a
-      # different slice of the tree under -race; restore-keys lets a shard warm
-      # up from the previous go.sum generation instead of a cold build.
-      - name: Restore Go build cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-race-shard${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
-          restore-keys: |
-            go-race-shard${{ matrix.shard }}-${{ runner.os }}-${{ hashFiles('go.sum') }}-
-            go-race-shard${{ matrix.shard }}-${{ runner.os }}-
-
       - name: Login to Docker Hub
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
