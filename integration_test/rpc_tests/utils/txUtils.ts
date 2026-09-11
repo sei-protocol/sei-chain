@@ -319,6 +319,8 @@ export async function buildRichSeiBlock(
         'function validators(string status, bytes pagination) returns (bytes,bytes)',
     ]).encodeFunctionData('validators', ['BOND_STATUS_BONDED', '0x']);
 
+    const settleMs = batchSettleMs(await blockIntervalMs(provider));
+
     let lastErr: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
         const p = await pricing(provider, BigInt(3 + attempt * 2), BigInt(1 + attempt));
@@ -485,7 +487,7 @@ export async function buildRichSeiBlock(
                 `next Sei block before rich batch attempt ${attempt + 1}`,
                 1 + attempt,
             );
-            await sleep(batchSettleMs(await blockIntervalMs(provider)));
+            await sleep(settleMs);
             const cosmosPending = preparedCosmos
                 ? preparedCosmos
                       .broadcast()
