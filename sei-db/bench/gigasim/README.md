@@ -33,8 +33,8 @@ Two goroutines split the work the way a node splits consensus from execution.
 **The generator** builds a block's transactions, writes the block to the block ledger, and hands it to
 execution over a channel. **The consumer** takes each block off that channel, runs its transactions
 across the executor pool, and writes what they produced to the receipt store and the state DB. Storing
-a block and executing one therefore overlap, and `StagedBlockQueueSize` bounds how far generation may
-run ahead.
+a block and executing one therefore overlap, and `MaxPendingExecutionQueueSize` bounds how far
+generation may run ahead.
 
 ```
 generator ──build txs──> write to BlockDB ──> [channel] ──> executor pool ──> receipts + state DB

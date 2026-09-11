@@ -126,7 +126,7 @@ func TestDisabledStoresAreNeverWritten(t *testing.T) {
 // the ledger and hands it on, so the ledger leads the state DB by the blocks still in flight.
 func TestGenerationRunsAheadOfExecution(t *testing.T) {
 	config := testConfig(t)
-	config.StagedBlockQueueSize = 8
+	config.MaxPendingExecutionQueueSize = 8
 
 	benchmark, err := NewGigaSim(t.Context(), config, NewGigasimMetrics())
 	require.NoError(t, err)

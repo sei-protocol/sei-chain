@@ -61,11 +61,18 @@ func NewPhaseTimer(meter metric.Meter, timerName string, staticAttrs ...attribut
 
 // Build returns a new PhaseTimer that records to this factory's metrics.
 // Each timer has independent phase state; safe for use by different threads.
-func (f *PhaseTimerFactory) Build() *PhaseTimer {
+//
+// Any attrs given are carried on every measurement in addition to the factory's own, naming the
+// instance this timer belongs to when one factory serves several.
+func (f *PhaseTimerFactory) Build(attrs ...attribute.KeyValue) *PhaseTimer {
+	staticAttrs := f.staticAttrs
+	if len(attrs) > 0 {
+		staticAttrs = append(slices.Clone(f.staticAttrs), attrs...)
+	}
 	return &PhaseTimer{
 		phaseDurationTotal:  f.phaseDurationTotal,
 		phaseLatency:        f.phaseLatency,
-		staticAttrs:         f.staticAttrs,
+		staticAttrs:         staticAttrs,
 		lastPhase:           "",
 		lastPhaseChangeTime: time.Time{},
 	}

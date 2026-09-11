@@ -124,7 +124,9 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 		s.tryTruncateWAL()
 	}
 
-	s.phaseTimer.SetPhase("commit_done")
+	// Ends the commit rather than opening a phase to sit in, so that these phases cover the commits
+	// themselves and not the gaps between them.
+	s.phaseTimer.Reset()
 	otelMetrics.CurrentVersion.Record(s.ctx, version)
 	s.commitLog.observe(version, time.Since(start))
 	return version, nil

@@ -173,10 +173,6 @@ func (c *cachedTable) RunGC() error {
 	return c.base.RunGC()
 }
 
-func (c *cachedTable) WriteQueueDepths() (control int, flush int) {
-	return c.base.WriteQueueDepths()
-}
-
 // Iterator returns a new iterator over the keys in the table. The iterator reads values directly from
 // the base table, bypassing the cache: the iterator's target workload is a large linear scan, for which
 // the cache offers no benefit and would only thrash.

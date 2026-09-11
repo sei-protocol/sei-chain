@@ -236,9 +236,4 @@ type ManagedTable interface {
 	// This method is intended for use in tests, where it can be useful to force a garbage collection run to occur
 	// at a specific time.
 	RunGC() error
-
-	// WriteQueueDepths returns how many messages are waiting in the table's control loop and in its
-	// flush loop. Each is bounded by its configured size, and a depth sitting at that bound means
-	// writes to this table are being held up by the loop behind it.
-	WriteQueueDepths() (control int, flush int)
 }

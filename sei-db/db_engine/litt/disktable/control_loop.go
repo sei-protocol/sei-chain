@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
@@ -35,6 +36,9 @@ type controlLoop struct {
 	// when compression is enabled (so every control message, including flush, passes through the
 	// compression stage in order).
 	inputChannel chan any
+
+	// inputQueue records the time writers spent blocked because inputChannel was full.
+	inputQueue *commonmetrics.QueueMeter
 
 	// compressionAlgorithm is the algorithm new segments are created with. types.CompressionNone means
 	// segments store values verbatim.
@@ -163,7 +167,7 @@ type controlLoop struct {
 // database being in a panicked state. Only types defined in control_loop_messages.go are permitted to be sent
 // to the control loop.
 func (c *controlLoop) enqueue(request controlLoopMessage) error {
-	return util.Send(c.errorMonitor, c.inputChannel, request)
+	return util.SendMetered(c.errorMonitor, c.inputQueue, c.inputChannel, request)
 }
 
 // run runs the control loop for the disk table. It has sole responsibility for scheduling all operations that

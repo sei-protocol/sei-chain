@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -22,6 +23,9 @@ type flushLoop struct {
 	// flushChannel is a channel used to enqueue work on the flush loop.
 	flushChannel chan any
 
+	// flushQueue records the time the control loop spent blocked because flushChannel was full.
+	flushQueue *commonmetrics.QueueMeter
+
 	// metrics encapsulates metrics for the DB.
 	metrics *metrics.LittDBMetrics
 
@@ -38,7 +42,7 @@ type flushLoop struct {
 
 // enqueue sends work to be handled on the flush loop. Will return an error if the DB is panicking.
 func (f *flushLoop) enqueue(request flushLoopMessage) error {
-	return util.Send(f.errorMonitor, f.flushChannel, request)
+	return util.SendMetered(f.errorMonitor, f.flushQueue, f.flushChannel, request)
 }
 
 // run is responsible for handling operations that flush data (i.e. calls to Flush() and when the mutable segment

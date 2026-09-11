@@ -3,6 +3,8 @@ package mvcc
 import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 var (
@@ -24,6 +26,8 @@ var (
 
 		batchSize                metric.Int64Histogram
 		pendingChangesQueueDepth metric.Int64Gauge
+		pendingChangesQueue      *seidbmetrics.QueueMeterFactory
+		applyPhases              *seidbmetrics.PhaseTimerFactory
 		iteratorIterations       metric.Float64Histogram
 	}{
 		getLatency: must(meter.Float64Histogram(
@@ -76,6 +80,8 @@ var (
 			metric.WithDescription("Number of pending changesets in async write queue"),
 			metric.WithUnit("{count}"),
 		)),
+		pendingChangesQueue: seidbmetrics.NewQueueMeterFactory(meter, "pebble_pending_changes"),
+		applyPhases:         seidbmetrics.NewPhaseTimerFactory(meter, "pebble_apply_changeset"),
 		iteratorIterations: must(meter.Float64Histogram(
 			"pebble_iterator_iterations",
 			metric.WithDescription("Number of iterations per iterator"),

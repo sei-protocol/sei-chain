@@ -126,7 +126,6 @@ func (s *executionState) commitBlock(blockNum int64, counters identifierCounters
 	// ago is taken here, and waited for when hashing has fallen behind execution.
 	s.lifecycle.SetPhase("await_hash")
 	err := s.hashes.awaitBlock()
-	s.lifecycle.Reset()
 	if err != nil {
 		return fmt.Errorf("failed to obtain a block hash after committing block %d: %w", blockNum, err)
 	}

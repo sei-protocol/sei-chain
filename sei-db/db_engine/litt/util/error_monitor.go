@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"sync/atomic"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 // ErrorMonitor is a struct that permits the process to "panic" without using the golang panic keyword.
@@ -68,6 +70,23 @@ func Send[T any](handler *ErrorMonitor, channel chan<- any, value T) error {
 	case <-handler.ImmediateShutdownRequired():
 		return fmt.Errorf("context cancelled")
 	}
+}
+
+// SendMetered sends a value on a channel as Send does, reporting the channel through meter: the depth
+// the sender found, and the wait when there was no room. A send that finds room reads no clock.
+func SendMetered[T any](
+	handler *ErrorMonitor,
+	meter *metrics.QueueMeter,
+	channel chan<- any,
+	value T,
+) error {
+	meter.Observe(len(channel))
+	select {
+	case channel <- value:
+		return nil
+	default:
+	}
+	return meter.Blocked(func() error { return Send(handler, channel, value) })
 }
 
 // ImmediateShutdownRequired returns an output channel that is closed when Panic() is called. The channel might also be

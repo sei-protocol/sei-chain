@@ -49,7 +49,15 @@ type GigasimMetrics struct {
 	mainThreadPhase   *metrics.PhaseTimer
 	generatorPhase    *metrics.PhaseTimer
 	transactionPhases *metrics.PhaseTimerFactory
-	lifecyclePhases   *metrics.PhaseTimerFactory
+
+	// One timer per goroutine at the top of the hierarchy, and one per phase that is broken down
+	// further. A child's phases subdivide a single phase of its parent, so the two always sum alike.
+	mainLoopPhases     *metrics.PhaseTimerFactory
+	generationPhases   *metrics.PhaseTimerFactory
+	ledgerWritePhases  *metrics.PhaseTimerFactory
+	receiptWritePhases *metrics.PhaseTimerFactory
+
+	stagedBlockQueue *metrics.QueueMeter
 }
 
 // NewGigasimMetrics creates the benchmark's instruments on the global OTel MeterProvider, which the
@@ -161,25 +169,51 @@ func NewGigasimMetrics() *GigasimMetrics {
 		mainThreadPhase:           metrics.NewPhaseTimer(meter, "gigasim_main_thread"),
 		generatorPhase:            metrics.NewPhaseTimer(meter, "gigasim_generator"),
 		transactionPhases:         metrics.NewPhaseTimerFactory(meter, "gigasim_transaction"),
-		lifecyclePhases:           metrics.NewPhaseTimerFactory(meter, "gigasim_lifecycle"),
+		mainLoopPhases:            metrics.NewPhaseTimerFactory(meter, "gigasim_main_loop"),
+		generationPhases:          metrics.NewPhaseTimerFactory(meter, "gigasim_generation"),
+		ledgerWritePhases:         metrics.NewPhaseTimerFactory(meter, "gigasim_ledger_write"),
+		receiptWritePhases:        metrics.NewPhaseTimerFactory(meter, "gigasim_receipt_write"),
+		stagedBlockQueue:          metrics.NewQueueMeter(meter, "gigasim_staged_block", stagedBlockQueueLen),
 	}
 }
 
-// NewLifecycleTimer returns a timer recording one goroutine's share of a block's critical path.
+// NewMainLoopTimer returns the timer for the goroutine that executes and commits blocks.
 //
-// A block is produced on the generator's goroutine and consumed on the main loop's, so the phases that
-// make up its latency are spread over both and each needs a timer of its own. They publish to one set
-// of instruments, which is what lets a single query stack the whole path.
-//
-// The phases recorded here are only the work a block passes through. Time a goroutine spends waiting
-// for the other one is left out, so that the phases sum to the latency of a block rather than to the
-// wall clock of two goroutines. The commit itself is left to the state DB, which is the layer that can
-// tell the state WAL, SC and SS apart.
-func (m *GigasimMetrics) NewLifecycleTimer() *metrics.PhaseTimer {
-	if m == nil || m.lifecyclePhases == nil {
+// Every moment of that goroutine is charged to some phase, including the wait for the generator, so
+// these phases total its whole wall clock. The commit is the exception: the state DB times it, being
+// the layer that can tell the state WAL, SC and SS apart, so the two sets together are the whole.
+func (m *GigasimMetrics) NewMainLoopTimer() *metrics.PhaseTimer {
+	if m == nil || m.mainLoopPhases == nil {
 		return nil
 	}
-	return m.lifecyclePhases.Build()
+	return m.mainLoopPhases.Build()
+}
+
+// NewGenerationTimer returns the timer for the goroutine that builds blocks and writes them to the
+// ledger. Its phases total that goroutine's whole wall clock, the hand-off to the main loop included.
+func (m *GigasimMetrics) NewGenerationTimer() *metrics.PhaseTimer {
+	if m == nil || m.generationPhases == nil {
+		return nil
+	}
+	return m.generationPhases.Build()
+}
+
+// NewLedgerWriteTimer returns the timer breaking the generator's ledger write into the records it
+// writes. It subdivides that goroutine's write_block phase rather than adding to it.
+func (m *GigasimMetrics) NewLedgerWriteTimer() *metrics.PhaseTimer {
+	if m == nil || m.ledgerWritePhases == nil {
+		return nil
+	}
+	return m.ledgerWritePhases.Build()
+}
+
+// NewReceiptWriteTimer returns the timer breaking the main loop's receipt write into encoding the
+// receipts and handing them to the store. It subdivides write_receipts rather than adding to it.
+func (m *GigasimMetrics) NewReceiptWriteTimer() *metrics.PhaseTimer {
+	if m == nil || m.receiptWritePhases == nil {
+		return nil
+	}
+	return m.receiptWritePhases.Build()
 }
 
 // NewTransactionPhaseTimer returns a phase timer for one executor. Each executor needs its own: a
@@ -309,11 +343,12 @@ func (m *GigasimMetrics) SetErc20ContractCount(count int64) {
 	m.erc20Contracts.Record(context.Background(), count)
 }
 
-// RecordStagedBlockQueueDepth records how many generated blocks are waiting to be processed, which
-// shows whether generation or storage is the limit.
-func (m *GigasimMetrics) RecordStagedBlockQueueDepth(depth int64) {
-	if m == nil || m.stagedBlockQueueLen == nil {
+// StageBlock hands a generated block to the consumer, recording how full the queue was when the
+// generator needed room on it and how long it waited for any.
+func (m *GigasimMetrics) StageBlock(queue chan *simulatedBlock, block *simulatedBlock) {
+	if m == nil {
+		queue <- block
 		return
 	}
-	m.stagedBlockQueueLen.Record(context.Background(), depth)
+	metrics.Send(m.stagedBlockQueue, queue, block)
 }

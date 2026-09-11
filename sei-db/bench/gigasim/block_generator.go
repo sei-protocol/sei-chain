@@ -82,6 +82,10 @@ type blockGenerator struct {
 	// This goroutine's share of a block's critical path: building it and storing it.
 	lifecycle *metrics.PhaseTimer
 
+	// Breaks the ledger write into the records written and the flush behind them, subdividing the
+	// lifecycle's write_block phase. Shared with the writer, which names each record.
+	ledgerWrite *metrics.PhaseTimer
+
 	metrics *GigasimMetrics
 }
 
@@ -93,7 +97,8 @@ func newBlockGenerator(
 	config *GigasimConfig,
 	accounts *accountModel,
 	blocks *blockStoreWriter,
-	metrics *GigasimMetrics,
+	gigasimMetrics *GigasimMetrics,
+	ledgerWrite *metrics.PhaseTimer,
 ) *blockGenerator {
 	var rateLimiter *rate.Limiter
 	if config.MaxBlocksPerSecond > 0 {
@@ -107,10 +112,11 @@ func newBlockGenerator(
 		accounts:    accounts,
 		blocks:      blocks,
 		rateLimiter: rateLimiter,
-		blocksChan:  make(chan *simulatedBlock, config.StagedBlockQueueSize),
+		blocksChan:  make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
 		bloomHasher: sha3.NewLegacyKeccak256(),
-		lifecycle:   metrics.NewLifecycleTimer(),
-		metrics:     metrics,
+		lifecycle:   gigasimMetrics.NewGenerationTimer(),
+		ledgerWrite: ledgerWrite,
+		metrics:     gigasimMetrics,
 	}
 }
 
@@ -130,11 +136,15 @@ func (g *blockGenerator) mainLoop() {
 	// The account model holds the canned random buffer, which is the benchmark's largest allocation.
 	defer g.accounts.Close()
 	defer g.finalFlush()
+	// Registered last so it runs first, closing the phase in flight before teardown begins. Teardown
+	// itself is a one-off that would distort a phase it was charged to.
+	defer g.lifecycle.Reset()
 
 	for {
 		if g.ctx.Err() != nil {
 			return
 		}
+		g.lifecycle.SetPhase("throttle")
 		g.throttle()
 
 		g.lifecycle.SetPhase("generate")
@@ -148,14 +158,14 @@ func (g *blockGenerator) mainLoop() {
 			g.abort(err)
 			return
 		}
-		// The block is finished, so the clock stops before the hand-off below. Waiting for the consumer
-		// is this goroutine idling rather than a stage the block passes through, and charging it to the
-		// block would make the critical path grow as the pipeline drains.
-		g.lifecycle.Reset()
+		// The block is finished, so what follows is this goroutine idling rather than a stage the block
+		// passes through. It is named rather than dropped: the phases are read as a pie, which
+		// renormalizes to 100%, so time left out inflates every other slice instead of showing as a gap.
+		g.lifecycle.SetPhase("handoff")
 
 		// A block already in the ledger has to reach execution, so this hand-off is not abandoned on
 		// cancellation: the consumer drains the queue before it closes the stores.
-		g.blocksChan <- block
+		g.metrics.StageBlock(g.blocksChan, block)
 	}
 }
 
@@ -212,6 +222,10 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 
 // storeBlock appends a block to the ledger and flushes on the configured cadence.
 func (g *blockGenerator) storeBlock(block *simulatedBlock) error {
+	// The writer names the record it is on; this closes whichever it ended on, so that these phases
+	// cover the same window as the generator's write_block phase and no more.
+	defer g.ledgerWrite.Reset()
+
 	if err := g.blocks.writeBlock(block.number, block.payload); err != nil {
 		return err
 	}
@@ -220,6 +234,7 @@ func (g *blockGenerator) storeBlock(block *simulatedBlock) error {
 	if g.config.FlushIntervalBlocks <= 0 || g.written%int64(g.config.FlushIntervalBlocks) != 0 {
 		return nil
 	}
+	g.ledgerWrite.SetPhase("flush")
 	return g.flush()
 }
 

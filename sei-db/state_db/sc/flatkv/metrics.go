@@ -28,6 +28,7 @@ var (
 		CatchupReplayNumBlocks    metric.Int64Counter
 		SnapshotWriteLatency      metric.Float64Histogram
 		SnapshotQueueDepth        metric.Int64Gauge
+		SnapshotQueue             *commonmetrics.QueueMeter
 		SnapshotPruneLatency      metric.Float64Histogram
 		SnapshotPruneAttempts     metric.Int64Counter
 		CurrentSnapshotHeight     metric.Int64Gauge
@@ -152,6 +153,16 @@ var (
 		)),
 	}
 )
+
+// The snapshot queue's meter pairs the depth gauge declared above with a blocked-time counter, which a
+// struct literal cannot do while that gauge is still being built.
+func init() {
+	otelMetrics.SnapshotQueue = commonmetrics.NewQueueMeter(
+		flatkvMeter,
+		"flatkv_snapshot",
+		otelMetrics.SnapshotQueueDepth,
+	)
+}
 
 func must[V any](v V, err error) V {
 	if err != nil {

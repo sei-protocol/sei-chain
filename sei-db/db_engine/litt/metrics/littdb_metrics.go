@@ -48,6 +48,7 @@ type LittDBMetrics struct {
 	// The depth of the control loop and the flush loop queues, which is where a table's writes back up.
 	controlQueueDepth metric.Int64Gauge
 	flushQueueDepth   metric.Int64Gauge
+	queueBlocked      *commonmetrics.QueueMeterFactory
 
 	// The number of bytes read from disk since startup.
 	bytesReadCounter metric.Int64Counter
@@ -287,6 +288,7 @@ func NewLittDBMetrics() *LittDBMetrics {
 		openIteratorCount:        openIteratorCount,
 		controlQueueDepth:        controlQueueDepth,
 		flushQueueDepth:          flushQueueDepth,
+		queueBlocked:             commonmetrics.NewQueueMeterFactory(meter, "litt"),
 		bytesReadCounter:         bytesReadCounter,
 		keysReadCounter:          keysReadCounter,
 		cacheHitCounter:          cacheHitCounter,
@@ -337,10 +339,27 @@ func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTab
 		tableKeyCount := table.KeyCount()
 		m.tableKeyCount.Record(ctx, int64(tableKeyCount), attrs) //nolint:gosec // key count fits int64
 
-		control, flush := table.WriteQueueDepths()
-		m.controlQueueDepth.Record(ctx, int64(control), attrs)
-		m.flushQueueDepth.Record(ctx, int64(flush), attrs)
 	}
+}
+
+// ControlQueueMeter returns the meter reporting a table's control loop queue. It returns nil when
+// metrics are disabled, which the meter's own methods tolerate.
+func (m *LittDBMetrics) ControlQueueMeter(tableName string) *commonmetrics.QueueMeter {
+	if m == nil {
+		return nil
+	}
+	return m.queueBlocked.Build(m.controlQueueDepth,
+		attribute.String("table", tableName), attribute.String("queue", "control"))
+}
+
+// FlushQueueMeter returns the meter reporting a table's flush loop queue. It returns nil when metrics
+// are disabled, which the meter's own methods tolerate.
+func (m *LittDBMetrics) FlushQueueMeter(tableName string) *commonmetrics.QueueMeter {
+	if m == nil {
+		return nil
+	}
+	return m.queueBlocked.Build(m.flushQueueDepth,
+		attribute.String("table", tableName), attribute.String("queue", "flush"))
 }
 
 // ReportOpenIteratorCount reports the current number of open iterators for a table. A persistently

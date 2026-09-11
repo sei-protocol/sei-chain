@@ -32,9 +32,9 @@ type GigasimConfig struct {
 	// blocks, matching how consensus commits a range at a time.
 	BlocksPerQc uint64
 
-	// The capacity of the queue holding generated blocks before the benchmark consumes them. A larger
-	// queue lets the generator run further ahead of the pipeline.
-	StagedBlockQueueSize int
+	// The capacity of the queue holding generated blocks waiting to be executed. A larger queue lets
+	// the generator run further ahead of the pipeline.
+	MaxPendingExecutionQueueSize int
 
 	// How often to flush the block store, in blocks. 0 never flushes explicitly.
 	FlushIntervalBlocks int
@@ -172,7 +172,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		BytesPerTransaction:             1024,
 		MaxBlocksPerSecond:              0,
 		BlocksPerQc:                     1,
-		StagedBlockQueueSize:            8,
+		MaxPendingExecutionQueueSize:    100,
 		FlushIntervalBlocks:             10,
 		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
@@ -297,8 +297,9 @@ func (c *GigasimConfig) validateBlockShape() error {
 	if c.BlocksPerQc < 1 {
 		return fmt.Errorf("BlocksPerQc must be at least 1 (got %d)", c.BlocksPerQc)
 	}
-	if c.StagedBlockQueueSize < 1 {
-		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
+	if c.MaxPendingExecutionQueueSize < 1 {
+		return fmt.Errorf("MaxPendingExecutionQueueSize must be at least 1 (got %d)",
+			c.MaxPendingExecutionQueueSize)
 	}
 	if c.FlushIntervalBlocks < 0 {
 		return fmt.Errorf("FlushIntervalBlocks must be non-negative (got %d)", c.FlushIntervalBlocks)

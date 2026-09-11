@@ -235,14 +235,17 @@ func assemble(
 ) (*GigaSim, error) {
 	// One timer for the whole consuming goroutine: the run loop and the state it commits through both
 	// run on it, and a timer tracks a single goroutine's current phase.
-	lifecycle := metrics.NewLifecycleTimer()
+	lifecycle := metrics.NewMainLoopTimer()
 
 	state, err := newExecutionState(config, storage.StateDB(), metrics, lifecycle)
 	if err != nil {
 		return nil, err
 	}
 
-	blocks := newBlockStoreWriter(storage.BlockStore(), config, metrics)
+	// Shared by the writer, which names each record it writes, and the generator, which closes the
+	// phase once the flush behind those writes is done.
+	ledgerWrite := metrics.NewLedgerWriteTimer()
+	blocks := newBlockStoreWriter(storage.BlockStore(), config, metrics, ledgerWrite)
 	nextBlock, err := agreedNextBlockNumber(state, blocks)
 	if err != nil {
 		state.Close()
@@ -274,7 +277,7 @@ func assemble(
 	}
 	g.highestBlock.Store(nextBlock - 1)
 	g.startExecutors(state, accounts.FeeCollectionAddress())
-	g.generator = newBlockGenerator(ctx, cancel, config, accounts, blocks, metrics)
+	g.generator = newBlockGenerator(ctx, cancel, config, accounts, blocks, metrics, ledgerWrite)
 	return g, nil
 }
 
@@ -416,7 +419,7 @@ func (g *GigaSim) run() {
 
 	for {
 		g.metrics.SetMainThreadPhase("get_block")
-		g.metrics.RecordStagedBlockQueueDepth(int64(len(g.generator.blocksChan)))
+		g.lifecycle.SetPhase("get_block")
 
 		select {
 		case isSuspended := <-g.suspendChan:

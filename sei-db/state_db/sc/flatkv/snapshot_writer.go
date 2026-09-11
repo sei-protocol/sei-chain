@@ -20,10 +20,6 @@ import (
 // normally rather than failing. Detect it with errors.Is.
 var ErrSnapshotWriterClosed = errors.New("snapshot writer closed")
 
-// snapshotQueueScrapeInterval is how often the writer reports its queue depth. Matches the cadence the
-// view managers sample their own gauges at.
-const snapshotQueueScrapeInterval = 10 * time.Second
-
 // SnapshotWriter decides which committed blocks become snapshots and writes them asynchronously, and
 // deletes the snapshots a retention cut line has made unnecessary. Its goroutine is the only one that
 // mutates the snapshot tree on a live store.
@@ -118,7 +114,6 @@ func newSnapshotWriter(
 		scheduler:       scheduler,
 	}
 	go w.run()
-	go w.reportQueueDepth()
 	return w
 }
 
@@ -240,12 +235,22 @@ func (w *SnapshotWriter) enqueue(message any) error {
 		return fmt.Errorf("snapshot writer failed: %w", err)
 	}
 
+	otelMetrics.SnapshotQueue.Observe(len(w.messages))
+
 	select {
 	case w.messages <- message:
 		return nil
-	case <-w.ctx.Done():
-		return fmt.Errorf("enqueue to snapshot writer: %w", w.stoppedError())
+	default:
 	}
+
+	return otelMetrics.SnapshotQueue.Blocked(func() error {
+		select {
+		case w.messages <- message:
+			return nil
+		case <-w.ctx.Done():
+			return fmt.Errorf("enqueue to snapshot writer: %w", w.stoppedError())
+		}
+	})
 }
 
 // onSnapshotInterval reports whether a committed block becomes a snapshot on this writer's own
@@ -258,21 +263,6 @@ func (w *SnapshotWriter) onSnapshotInterval(version int64) bool {
 		return false
 	}
 	return version%int64(w.interval) == 0
-}
-
-// reportQueueDepth samples how many blocks are waiting behind the snapshot being written and updates
-// metrics.
-func (w *SnapshotWriter) reportQueueDepth() {
-	ticker := time.NewTicker(snapshotQueueScrapeInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-w.ctx.Done():
-			return
-		case <-ticker.C:
-			otelMetrics.SnapshotQueueDepth.Record(w.ctx, int64(len(w.messages)))
-		}
-	}
 }
 
 // run acts on the blocks offered to the writer and the cut lines handed to it, until the writer is

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -39,6 +40,10 @@ type blockStoreWriter struct {
 	// written before it.
 	qcNext autobahn.GlobalBlockNumber
 
+	// Breaks the ledger write into the records it writes. Owned by the generator, which closes it once
+	// the flush behind these writes is done, so that the phases subdivide its whole write_block phase.
+	phases *metrics.PhaseTimer
+
 	metrics *GigasimMetrics
 }
 
@@ -46,7 +51,8 @@ type blockStoreWriter struct {
 func newBlockStoreWriter(
 	store *blockstore.Store,
 	config *GigasimConfig,
-	metrics *GigasimMetrics,
+	gigasimMetrics *GigasimMetrics,
+	phases *metrics.PhaseTimer,
 ) *blockStoreWriter {
 	rng := tmutils.TestRngFromSeed(config.Seed)
 	w := &blockStoreWriter{
@@ -54,7 +60,8 @@ func newBlockStoreWriter(
 		config:  config,
 		rng:     rng,
 		lane:    autobahn.GenLaneID(rng),
-		metrics: metrics,
+		phases:  phases,
+		metrics: gigasimMetrics,
 	}
 	if status, ok := store.Status().Get(); ok {
 		w.qcNext = status.NextQC
@@ -90,12 +97,14 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 		}
 	}
 
+	w.phases.SetPhase("encode_block")
 	block, err := w.buildBlock(payload)
 	if err != nil {
 		return err
 	}
 
 	w.metrics.SetGeneratorPhase("write_block")
+	w.phases.SetPhase("write_block")
 	if err := w.store.WriteBlock(globalNumber, block); err != nil {
 		return fmt.Errorf("failed to write block %d to the block store: %w", number, err)
 	}
@@ -132,6 +141,7 @@ func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.GlobalBlockNumber) 
 	first := status.NextAppQC
 
 	w.metrics.SetGeneratorPhase("write_app_qc")
+	w.phases.SetPhase("write_app_qc")
 	appProposal := autobahn.GenAppProposalRange(w.rng, first, next)
 	if err := w.store.WriteAppProposal(appProposal); err != nil {
 		return fmt.Errorf("failed to write the AppProposal covering [%d, %d): %w", first, next, err)
@@ -147,6 +157,7 @@ func (w *blockStoreWriter) writeCoveringQC(first autobahn.GlobalBlockNumber) err
 	next := first + autobahn.GlobalBlockNumber(w.config.BlocksPerQc)
 
 	w.metrics.SetGeneratorPhase("write_qc")
+	w.phases.SetPhase("write_qc")
 	if err := w.store.WriteQC(autobahn.GenFullCommitQCRange(w.rng, first, next)); err != nil {
 		return fmt.Errorf("failed to write the QC covering [%d, %d): %w", first, next, err)
 	}
