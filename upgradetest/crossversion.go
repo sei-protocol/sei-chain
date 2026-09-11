@@ -78,7 +78,7 @@ func RunCrossVersion(
 	if node == "" {
 		t.Fatalf("%s is required", crossVersionNodeEnv)
 	}
-	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o750); err != nil { //nolint:gosec // The upgrade harness supplies the artifact path.
 		t.Fatalf("create cross-version artifact directory: %v", err)
 	}
 

@@ -11,7 +11,6 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -136,7 +135,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 
 	for itr.First(); itr.Valid(); {
 		scanReads++
-		currKeyEncoded := slices.Clone(itr.Key())
+		currKeyEncoded := bytes.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
 		if isMetadataKey(currKeyEncoded) {
@@ -216,7 +215,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 		prevKey = currKey
 		prevVersionDecoded = currVersionDecoded
 		prevKeyEncoded = currKeyEncoded
-		prevValEncoded = slices.Clone(itr.Value())
+		prevValEncoded = bytes.Clone(itr.Value())
 
 		itr.Next()
 	}
@@ -357,5 +356,5 @@ func getMVCCSliceAscending(db *pebble.DB, storeKey string, key []byte, version i
 		return nil, fmt.Errorf("key version too large: %d", keyVersion)
 	}
 
-	return slices.Clone(itr.Value()), nil
+	return bytes.Clone(itr.Value()), nil
 }

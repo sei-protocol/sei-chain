@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gogo/protobuf/jsonpb"
@@ -122,7 +121,7 @@ func TypedEventToEvent(tev proto.Message) (Event, error) {
 
 	// sort the keys to ensure the order is always the same
 	keys := maps.Keys(attrMap)
-	slices.Sort(keys)
+	sort.Strings(keys)
 
 	attrs := make([]abci.EventAttribute, 0, len(attrMap))
 	for _, k := range keys {
@@ -147,7 +146,7 @@ func ParseTypedEvent(event abci.Event) (proto.Message, error) {
 	}
 
 	var value reflect.Value
-	if concreteGoType.Kind() == reflect.Ptr {
+	if concreteGoType.Kind() == reflect.Pointer {
 		value = reflect.New(concreteGoType.Elem())
 	} else {
 		value = reflect.Zero(concreteGoType)
@@ -274,10 +273,10 @@ func (se StringEvents) String() string {
 	var sb strings.Builder
 
 	for _, e := range se {
-		sb.WriteString(fmt.Sprintf("\t\t- %s\n", e.Type))
+		fmt.Fprintf(&sb, "\t\t- %s\n", e.Type)
 
 		for _, attr := range e.Attributes {
-			sb.WriteString(fmt.Sprintf("\t\t\t- %s\n", attr.String()))
+			fmt.Fprintf(&sb, "\t\t\t- %s\n", attr.String())
 		}
 	}
 

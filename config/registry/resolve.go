@@ -289,7 +289,7 @@ func sectionValues(section string, cfg any) (map[string]any, error) {
 		return nil, fmt.Errorf("no value")
 	}
 	v := reflect.ValueOf(cfg)
-	for v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil, fmt.Errorf("nil %s", v.Type())
 		}
@@ -330,7 +330,7 @@ func walkValues(v reflect.Value, prefix string, out map[string]any) error {
 		}
 
 		fv := v.Field(i)
-		for fv.Kind() == reflect.Ptr {
+		for fv.Kind() == reflect.Pointer {
 			if fv.IsNil() {
 				// A nil pointer contributes nothing rather than a zero value, so a section with an
 				// unset optional subtree does not claim defaults it does not have.
