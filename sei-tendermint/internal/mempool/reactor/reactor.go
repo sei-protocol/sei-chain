@@ -105,9 +105,9 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 func (r *Reactor) OnStop() {}
 
 // handleMempoolMessage handles envelopes sent from peers on the MempoolChannel.
-// For every tx in the message, we execute CheckTx. It returns an error on protocol
-// violations — an empty tx set or an unexpected message type. Individual txs above
-// the protocol gossip size are counted against the sender and skipped.
+// For every tx in the message, we execute CheckTx. It returns an error if an
+// empty set of txs are sent in an envelope or if we receive an unexpected
+// message type.
 func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Message]) error {
 	switch msg := m.Message.Sum.(type) {
 	case *pb.Message_Txs:
@@ -116,11 +116,6 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		}
 		protoTxs := msg.Txs.GetTxs()
 		for _, tx := range protoTxs {
-			if len(tx) > types.MaxGossipTxBytes {
-				// Reject tx propagation over the protocol max size.
-				r.accountFailedCheckTx(m.From, mempool.ErrTxTooLarge)
-				continue
-			}
 			if _, err := r.mempool.CheckTx(ctx, tx); err != nil {
 				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, mempool.ErrTxInCache) {
