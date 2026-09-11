@@ -12,6 +12,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -23,6 +24,15 @@ import (
 
 // Message is a simple message containing a string-typed Value field.
 type TestMessage = gogotypes.StringValue
+
+// ChannelOutMsgs returns the process-wide count of messages sent on chID.
+func ChannelOutMsgs(chID ChannelID) int64 {
+	var m dto.Metric
+	if err := Global.channelMsgsAt(fmt.Sprint(chID), "out").Write(&m); err != nil {
+		panic(err)
+	}
+	return int64(m.GetCounter().GetValue())
+}
 
 func NodeInSlice(id types.NodeID, ids []types.NodeID) bool {
 	for _, n := range ids {
