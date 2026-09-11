@@ -80,6 +80,11 @@ func (w *blockStoreWriter) writeBlock(number int64, payload [][]byte) error {
 	globalNumber := autobahn.GlobalBlockNumber(number)
 
 	if globalNumber >= w.qcNext {
+		// Every block the open QC range covers is written by now, which is what the app-level records
+		// require, so they are written before the next range opens.
+		if err := w.finalizeBlocksBelow(globalNumber); err != nil {
+			return err
+		}
 		if err := w.writeCoveringQC(globalNumber); err != nil {
 			return err
 		}
@@ -107,6 +112,34 @@ func payloadBytes(payload [][]byte) int64 {
 		total += int64(len(tx))
 	}
 	return total
+}
+
+// finalizeBlocksBelow writes the AppProposal and the AppQC over it covering every block below next
+// that no AppQC covers yet, which is the app-level finalization a real node's ledger carries.
+//
+// They are what bounds the block store's recovery scan: the scan walks back only as far as the newest
+// AppQC, so a ledger holding none is read in full on every open. Both are synthetic, as the QCs are,
+// since the store verifies no signatures on the write path.
+//
+// The frontier is read from the store rather than tracked here, so it cannot drift from the one the
+// store enforces contiguity against.
+func (w *blockStoreWriter) finalizeBlocksBelow(next autobahn.GlobalBlockNumber) error {
+	status, ok := w.store.Status().Get()
+	if !ok || next <= status.NextAppQC {
+		// Nothing is finalizable before the first QC, and a frontier already at next covers everything.
+		return nil
+	}
+	first := status.NextAppQC
+
+	w.metrics.SetGeneratorPhase("write_app_qc")
+	appProposal := autobahn.GenAppProposalRange(w.rng, first, next)
+	if err := w.store.WriteAppProposal(appProposal); err != nil {
+		return fmt.Errorf("failed to write the AppProposal covering [%d, %d): %w", first, next, err)
+	}
+	if err := w.store.WriteAppQC(autobahn.GenAppQCFor(w.rng, appProposal)); err != nil {
+		return fmt.Errorf("failed to write the AppQC covering [%d, %d): %w", first, next, err)
+	}
+	return nil
 }
 
 // writeCoveringQC writes the QC finalizing the range that starts at first.
