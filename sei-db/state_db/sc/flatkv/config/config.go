@@ -9,8 +9,24 @@ import (
 )
 
 const (
-	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 1
+	DefaultSnapshotInterval uint32 = 10000
+
+	// DefaultSnapshotKeepRecent keeps 72 old checkpoints besides the latest one,
+	// which at DefaultSnapshotInterval is a guaranteed reach of 720,000 blocks —
+	// about 89 hours at mainnet's block rate, so it spans the EVM migration
+	// window at the rate that window is planned for.
+	//
+	// It is this deep because a FlatKV checkpoint is nearly free. Checkpoints
+	// hardlink their SSTs, so one only costs the bytes compaction has since made
+	// obsolete: measured at mainnet state size, 261 MiB of pinned SSTs plus about
+	// 25 MiB of retained state WAL. 72 of them is roughly 20 GiB. The cost is
+	// linear in depth, because each older checkpoint pins exactly the files
+	// obsoleted during its own interval and those sets are disjoint.
+	//
+	// Reach matters because it bounds what can be answered about a past height at
+	// all. Below it, migrate-evm-status, dump-flatkv and a cross-backend digest
+	// cannot open a version, and a rollback has no base snapshot to rewind to.
+	DefaultSnapshotKeepRecent uint32 = 72
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -40,7 +56,12 @@ type Config struct {
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
 	// Ignored entirely when ExternalPruning is set.
-	// Default: 1
+	//
+	// It is not mirrored from memIAVL's sc-keep-recent, and the production store
+	// reads no app.toml key for it, so a node runs the in-code default. See
+	// composite.alignFlatKVSnapshotIntervalWithMemIAVL for why the two backends
+	// share an interval but not a retention count.
+	// Default: 72
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its

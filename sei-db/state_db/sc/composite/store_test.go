@@ -16,6 +16,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -1037,12 +1038,13 @@ func evmMigratedConfig() config.StateCommitConfig {
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	// With SnapshotInterval=1 every commit produces a snapshot, and FlatKV
-	// mirrors this cadence via alignFlatKVSnapshotWithMemIAVL. The default
-	// keep-recent of 1 would prune all but the two newest snapshots, so a
+	// With SnapshotInterval=1 every commit produces a snapshot, and memIAVL's
+	// default keep-recent of 1 would prune all but the two newest, so a
 	// rollback/reconcile to an older version (e.g. v3 after committing v5)
 	// could no longer find a base snapshot at-or-below the target. Retain all
 	// snapshots for the short duration of a test so those paths stay valid.
+	// FlatKV needs no equivalent here: it mirrors the interval but keeps its
+	// own retention count, which is deep enough already.
 	cfg.MemIAVLConfig.SnapshotKeepRecent = 100
 	return cfg
 }
@@ -2571,31 +2573,16 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 	require.Equal(t, []byte(evmVal), got)
 }
 
-func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
-	t.Run("FlatKV derives interval and keep-recent from a non-zero memIAVL", func(t *testing.T) {
+func TestAlignFlatKVSnapshotIntervalWithMemIAVL(t *testing.T) {
+	t.Run("FlatKV derives its interval from a non-zero memIAVL", func(t *testing.T) {
 		cfg := config.DefaultStateCommitConfig()
 		cfg.MemIAVLConfig.SnapshotInterval = 5000
-		cfg.MemIAVLConfig.SnapshotKeepRecent = 3
-		// Start FlatKV from divergent values to prove they get overwritten.
+		// Start FlatKV from a divergent value to prove it gets overwritten.
 		cfg.FlatKVConfig.SnapshotInterval = 111
-		cfg.FlatKVConfig.SnapshotKeepRecent = 222
 
-		alignFlatKVSnapshotWithMemIAVL(&cfg)
+		alignFlatKVSnapshotIntervalWithMemIAVL(&cfg)
 
 		require.Equal(t, uint32(5000), cfg.FlatKVConfig.SnapshotInterval)
-		require.Equal(t, uint32(3), cfg.FlatKVConfig.SnapshotKeepRecent)
-	})
-
-	t.Run("a zero memIAVL keep-recent resolves to the healed default", func(t *testing.T) {
-		cfg := config.DefaultStateCommitConfig()
-		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
-		// FlatKV must not mirror the raw 0 (which would prune everything but the
-		// latest). Instead it mirrors the value FillDefaults will heal memIAVL to,
-		// keeping the two in lockstep. memIAVL's own 0 is left for FillDefaults.
-		alignFlatKVSnapshotWithMemIAVL(&cfg)
-
-		require.Equal(t, uint32(0), cfg.MemIAVLConfig.SnapshotKeepRecent)
-		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
 	})
 
 	t.Run("a zero memIAVL interval resolves to the healed default", func(t *testing.T) {
@@ -2603,28 +2590,51 @@ func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
 		cfg.MemIAVLConfig.SnapshotInterval = 0
 		// A raw 0 would disable FlatKV auto-snapshots; instead FlatKV mirrors the
 		// value FillDefaults will heal memIAVL's interval to.
-		alignFlatKVSnapshotWithMemIAVL(&cfg)
+		alignFlatKVSnapshotIntervalWithMemIAVL(&cfg)
 
 		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
 		require.NotZero(t, cfg.FlatKVConfig.SnapshotInterval)
 	})
 
-	t.Run("an explicit FlatKV override loses to memIAVL's healed default", func(t *testing.T) {
-		// Upgrade scenario: an old app.toml still pins an explicit FlatKV
-		// keep-recent/interval (the previous template rendered flatkv.* keys)
-		// while sc-* is 0. FlatKV must follow memIAVL's effective (healed) cadence
-		// rather than staying pinned to the stale explicit value, otherwise the
-		// two backends diverge (memIAVL heals 0 -> default, FlatKV keeps the old
-		// explicit value).
+	t.Run("retention count is not mirrored", func(t *testing.T) {
+		// The two backends share a cadence and not a disk budget. A retained
+		// memIAVL snapshot is an independent full copy where a FlatKV checkpoint
+		// hardlinks its SSTs, so one shared count cannot serve both.
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 3
+		cfg.FlatKVConfig.SnapshotKeepRecent = 222
+
+		alignFlatKVSnapshotIntervalWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(222), cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.Equal(t, uint32(3), cfg.MemIAVLConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL keep-recent does not reach FlatKV", func(t *testing.T) {
+		// A zero memIAVL keep-recent is healed to memiavl.DefaultSnapshotKeepRecent
+		// for memIAVL's own use. That healed value must not reach FlatKV, whose
+		// own default stands.
 		cfg := config.DefaultStateCommitConfig()
 		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
-		cfg.MemIAVLConfig.SnapshotInterval = 0
-		cfg.FlatKVConfig.SnapshotKeepRecent = 2
-		cfg.FlatKVConfig.SnapshotInterval = 7777
 
-		alignFlatKVSnapshotWithMemIAVL(&cfg)
+		alignFlatKVSnapshotIntervalWithMemIAVL(&cfg)
 
-		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
-		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
+		require.Equal(t, uint32(0), cfg.MemIAVLConfig.SnapshotKeepRecent)
+		require.Equal(t, flatkvconfig.DefaultSnapshotKeepRecent, cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.NotEqual(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent,
+			"FlatKV must not inherit memIAVL's retention count")
 	})
+}
+
+// The default exists to bound what can be asked about a past height, so a reach
+// shorter than the migration window it was sized for is the regression to catch.
+// 72 checkpoints at a 10000-block interval is 720,000 blocks, about 89 hours at
+// mainnet's measured 2.247 blocks/s, against an 85-hour drain at K=1024.
+func TestFlatKVDefaultRetentionSpansTheMigrationWindow(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	alignFlatKVSnapshotIntervalWithMemIAVL(&cfg)
+
+	reach := uint64(cfg.FlatKVConfig.SnapshotKeepRecent) * uint64(cfg.FlatKVConfig.SnapshotInterval)
+	require.GreaterOrEqual(t, reach, uint64(690_000),
+		"default FlatKV retention must reach back across an 85-hour drain at 2.247 blocks/s")
 }
