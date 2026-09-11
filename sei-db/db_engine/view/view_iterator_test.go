@@ -174,7 +174,7 @@ func TestIteratorClosedRefusesUnderflow(t *testing.T) {
 	shard := manager.(*viewManager).shards[0]
 
 	require.Equal(t, uint64(0), openIteratorCount(manager))
-	require.Error(t, shard.iteratorClosed(), "closing past zero must be refused")
+	require.Error(t, shard.IteratorClosed(), "closing past zero must be refused")
 	require.Equal(t, uint64(0), openIteratorCount(manager), "a refused close must not wrap the count")
 }
 

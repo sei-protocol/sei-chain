@@ -24,6 +24,15 @@ die() {
   exit 1
 }
 
+go_toolchain_for() {
+  local worktree="$1"
+  local version
+  version="$(awk '$1 == "go" { print $2; exit }' "$worktree/go.mod")"
+  [[ -n "$version" ]] || die "go.mod in $worktree does not declare a Go version"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] && version="$version.0"
+  printf 'go%s\n' "$version"
+}
+
 offline_phase_test_path() {
   case "$1" in
     source)
@@ -121,6 +130,7 @@ run_phase() {
   local test_suffix
   local upgrade_list
   local file_phase
+  local go_toolchain
   case "$phase" in
     source)
       test_suffix=Source
@@ -140,14 +150,15 @@ run_phase() {
     *) die "unknown offline upgrade phase $phase" ;;
   esac
   install_phase_tests "$worktree" "$file_phase"
+  go_toolchain="$(go_toolchain_for "$worktree")"
 
-  log "Running $UPGRADE_TAG offline $phase phase against $(git -C "$worktree" rev-parse --short HEAD)"
+  log "Running $UPGRADE_TAG offline $phase phase with $go_toolchain against $(git -C "$worktree" rev-parse --short HEAD)"
   (
     cd "$worktree"
     local tests
     local listing_stdout="$ARTIFACT_ROOT/$phase-list.stdout"
     local listing_stderr="$ARTIFACT_ROOT/$phase-list.stderr"
-    if ! go test \
+    if ! GOTOOLCHAIN="$go_toolchain" go test \
       -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$file_phase" \
       -list "^Test.*OfflineUpgrade${test_suffix}$" \
       ./app >"$listing_stdout" 2>"$listing_stderr"; then
@@ -164,6 +175,7 @@ run_phase() {
     UPGRADE_TEST_PHASE="$phase" \
       UPGRADE_TEST_ARTIFACT="$STATE_ARTIFACT" \
       UPGRADE_VERSION_LIST="$upgrade_list" \
+      GOTOOLCHAIN="$go_toolchain" \
       go test \
         -tags="$UPGRADE_TAG,offline_upgrade,upgrade_$file_phase" \
         -run "^Test.*OfflineUpgrade${test_suffix}$" \

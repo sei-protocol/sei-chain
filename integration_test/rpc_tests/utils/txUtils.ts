@@ -4,7 +4,7 @@ import { EvmAccount, abiOf, bytecodeOf, selfAuthorize } from './evmUtils';
 import { RuntimeState, claimPool } from './testUtils';
 import { generateSeiAddress } from './cosmosUtils';
 import { prepareCw20Transfer } from './wasmUtils';
-import { waitUntil } from './chainUtils';
+import { sleep, waitUntil } from './chainUtils';
 import { HASH32, BLOOM256, NONCE8, HEX_QUANTITY, HEX_DATA, ADDRESS } from './format';
 import { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH } from './constants';
 export { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH };
@@ -245,6 +245,42 @@ async function waitForNextBlock(
     );
 }
 
+/** Average wall-clock spacing of the last `window` blocks, from the Sei `milliTimestamp` header field. */
+async function blockIntervalMs(provider: ethers.JsonRpcProvider, window = 10): Promise<number> {
+    const head = await provider.getBlockNumber();
+    const span = Math.min(window, head);
+    if (span < 1) return 0;
+    const [newest, oldest] = await Promise.all(
+        [head, head - span].map(n =>
+            provider.send('eth_getBlockByNumber', [ethers.toQuantity(n), false]),
+        ),
+    );
+    if (!newest?.milliTimestamp || !oldest?.milliTimestamp) return 0;
+    return Number(BigInt(newest.milliTimestamp) - BigInt(oldest.milliTimestamp)) / span;
+}
+
+/**
+ * How long after observing a new block head to wait before broadcasting a batch that has
+ * to land together. The proposer reaps the mempool for the next height a few tens of
+ * milliseconds after commit, so a batch fired the instant a block is seen straddles that
+ * reap: the cheap txs are sealed at once while the ones whose CheckTx simulation takes
+ * longer roll over to the following height. Waiting a fraction of the block interval
+ * lets the reap pass, and leaves the rest of the interval for every tx to be admitted
+ * before the next one.
+ */
+function batchSettleMs(intervalMs: number): number {
+    return Math.min(250, Math.max(100, Math.round(intervalMs * 0.4)));
+}
+
+/** Wall-clock budget for packing the rich block; well under the 300s `before` hooks that build it. */
+const RICH_BLOCK_BUDGET_MS = 120_000;
+/** Attempt index past which fee/tip escalation and the per-attempt block back-off stop growing. */
+const RICH_BLOCK_MAX_ESCALATION = 5;
+/** Attempt ceiling so a deterministic (fast-throwing) breakage fails fast instead of spinning out the budget. */
+const RICH_BLOCK_MAX_ATTEMPTS = 30;
+/** Number of most recent attempt placements kept in the terminal error. */
+const RICH_BLOCK_HISTORY_TAIL = 10;
+
 const TRANSFER_VALUE = ethers.parseEther('0.001');
 const rand = (): string => ethers.Wallet.createRandom().address;
 
@@ -255,11 +291,21 @@ const ERC20_POINTER_IFACE = new ethers.Interface([
 
 /**
  * Broadcast one transaction of every kind, each from its own signer, and wait for
- * them to land in a single block. Retries the whole batch if the chain happens to
- * split them across blocks — each retry re-prices with a higher fee multiplier and
- * tip so the batch outbids its way into one block on a congested chain, and backs
- * off by one more block per attempt so a transient stall on the cluster (a slow
- * proposer, a backlog left by a preceding load test) has time to clear. `signers`
+ * them to land in a single block.
+ *
+ * Whether one broadcast burst lands in one block is a race the client cannot win
+ * deterministically: the cluster seals a block every ~200ms while the RPC node
+ * simulates, CheckTx-es and gossips each of the ~11 txs, so a proposer regularly
+ * cuts a block in the middle of the burst. The fixture therefore keeps retrying the
+ * whole batch until it packs, bounded by a wall-clock budget rather than a fixed
+ * attempt count — a run only fails when the chain cannot pack one block within
+ * `budgetMs`, which is a real cluster problem, not an unlucky sequence of coin
+ * flips. Early retries re-price with a higher fee multiplier and tip so the batch
+ * outbids its way into one block on a congested chain, and back off by one more
+ * block per attempt (both capped) so a transient stall on the cluster (a slow
+ * proposer, a backlog left by a preceding load test) has time to clear. Each attempt
+ * broadcasts a settle delay after a fresh block head (see `batchSettleMs`) so the
+ * whole batch is admitted to the mempool inside one proposal window. `signers`
  * must hold at least 9 funded accounts.
  *
  * When the chain has wasm enabled (runtime.wasm is populated by the bootstrap), the
@@ -273,7 +319,7 @@ export async function buildRichSeiBlock(
     provider: ethers.JsonRpcProvider,
     runtime: RuntimeState,
     signers: EvmAccount[],
-    attempts = 6,
+    budgetMs = RICH_BLOCK_BUDGET_MS,
 ): Promise<RichBlock> {
     if (signers.length < 9) {
         throw new Error(`buildRichSeiBlock needs >= 9 signers, got ${signers.length}`);
@@ -290,9 +336,17 @@ export async function buildRichSeiBlock(
         'function validators(string status, bytes pagination) returns (bytes,bytes)',
     ]).encodeFunctionData('validators', ['BOND_STATUS_BONDED', '0x']);
 
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-        const p = await pricing(provider, BigInt(3 + attempt * 2), BigInt(1 + attempt));
+    const settleMs = batchSettleMs(await blockIntervalMs(provider));
+
+    const deadline = Date.now() + budgetMs;
+    const history: string[] = [];
+    for (
+        let attempt = 0;
+        attempt === 0 || (attempt < RICH_BLOCK_MAX_ATTEMPTS && Date.now() < deadline);
+        attempt++
+    ) {
+        const escalation = Math.min(attempt, RICH_BLOCK_MAX_ESCALATION);
+        const p = await pricing(provider, BigInt(3 + escalation * 2), BigInt(1 + escalation));
         const [sLegacy, sAccess, s1559, sSetCode, sDeploy, sErc20, sPrecompile, sOutOfGas, sRevert] =
             signers;
         const [nLegacy, nAccess, n1559, nSetCode, nDeploy, nErc20, nPrecompile, nOutOfGas, nRevert] =
@@ -448,15 +502,15 @@ export async function buildRichSeiBlock(
                 populated.map((tx, i) => specs[i].signer.wallet.signTransaction(tx)),
             );
 
-            // Stage both sides before a fresh block boundary, then broadcast the pure Cosmos
-            // CW20 transfer and the EVM batch together. Broadcasting the EVM txs first lets a
-            // fast proposer seal them one height before the Cosmos tx, which made the rich-block
-            // fixture flaky.
+            // Stage both sides before a fresh block boundary, let the proposer's reap for the
+            // very next height pass, then broadcast the pure Cosmos CW20 transfer and the EVM
+            // batch together so every tx is admitted within the same mempool window.
             await waitForNextBlock(
                 provider,
                 `next Sei block before rich batch attempt ${attempt + 1}`,
-                1 + attempt,
+                1 + escalation,
             );
+            await sleep(settleMs);
             const cosmosPending = preparedCosmos
                 ? preparedCosmos
                       .broadcast()
@@ -516,7 +570,7 @@ export async function buildRichSeiBlock(
             const placement = specs
                 .map((s, i) => `${s.kind}@${receipts[i]?.blockNumber ?? 'none'}:${receipts[i]?.status ?? '?'}`)
                 .join(' ');
-            lastErr = new Error(
+            history.push(
                 `attempt ${attempt + 1}: EVM blocks ${[...uniqueBlocks].join(',')} [${placement}]` +
                     (wasm
                         ? `, cosmos cw20 ${cosmos ? `code ${cosmos.code} @ block ${cosmos.height}` : 'failed'} ` +
@@ -524,10 +578,14 @@ export async function buildRichSeiBlock(
                         : ''),
             );
         } catch (e) {
-            lastErr = e;
+            history.push(`attempt ${attempt + 1}: ${e instanceof Error ? e.message : String(e)}`);
         }
     }
-    throw new Error(`buildRichSeiBlock: could not pack one block after ${attempts} attempts: ${lastErr}`);
+    throw new Error(
+        `buildRichSeiBlock: could not pack one block within ${budgetMs}ms (${history.length} attempts, ` +
+            `showing last ${Math.min(history.length, RICH_BLOCK_HISTORY_TAIL)}):\n  ` +
+            history.slice(-RICH_BLOCK_HISTORY_TAIL).join('\n  '),
+    );
 }
 
 // The serial runner (.mocharc.run.json) loads every spec into a single process, so this
@@ -543,16 +601,15 @@ export async function sharedRichBlock(
     runtime: RuntimeState,
 ): Promise<RichBlock> {
     if (cachedRichBlock) return cachedRichBlock;
-    // Guard against two specs' `before` hooks racing the first build in the same process.
+    // Guard against two specs' `before` hooks racing the first build in the same process. The
+    // promise is kept on rejection too: the build already retried for its whole budget, so a
+    // failure is a cluster problem every dependent spec should fail on once, not re-spend on.
     if (!cachedRichBlockPromise) {
         cachedRichBlockPromise = (async () => {
             const signers = claimPool(runtime, provider, 9, 'shared-rich-block');
             cachedRichBlock = await buildRichSeiBlock(provider, runtime, signers);
             return cachedRichBlock;
-        })().catch(e => {
-            cachedRichBlockPromise = undefined;
-            throw e;
-        });
+        })();
     }
     return cachedRichBlockPromise;
 }

@@ -13,6 +13,7 @@ import {
     CONGESTION_THRESHOLD,
     isCongested,
     maxPriorityFeePerGasAtStableBlock,
+    atStableHead,
 } from '../utils/gasPriceUtils';
 
 describe('eth_maxPriorityFeePerGas', function () {
@@ -40,7 +41,13 @@ describe('eth_maxPriorityFeePerGas', function () {
         });
 
         it('stays within a sane bound (never more than the total gas price)', async () => {
-            const [tip, price] = await Promise.all([maxPriorityFeePerGas(sei), gasPrice(sei)]);
+            const {
+                value: [tip, price],
+            } = await atStableHead(
+                sei,
+                () => Promise.all([maxPriorityFeePerGas(sei), gasPrice(sei)]),
+                'tip <= gasPrice',
+            );
             expect(tip <= price, `tip ${tip} must be <= gasPrice ${price}`).to.equal(true);
         });
 
@@ -82,11 +89,15 @@ describe('eth_maxPriorityFeePerGas', function () {
             let sample: { tip: bigint; ratio: number; block: number } | null = null;
             const deadline = Date.now() + 90_000;
             while (Date.now() < deadline && !sample) {
-                const b1 = await sei.getBlockNumber();
-                const tip = await maxPriorityFeePerGas(sei);
-                const info = await blockGasInfo(sei, 'latest');
-                const b2 = await sei.getBlockNumber();
-                if (b1 === b2 && info.number === b1) {
+                // A single pinned try per poll: a head that moved is just skipped, not an error.
+                const pinned = await atStableHead(
+                    sei,
+                    () => Promise.all([maxPriorityFeePerGas(sei), blockGasInfo(sei, 'latest')]),
+                    'congested priority-fee head',
+                    1,
+                ).catch(() => null);
+                if (pinned && pinned.value[1].number === pinned.block) {
+                    const [tip, info] = pinned.value;
                     const ratio = Number(info.gasUsed) / Number(info.gasLimit);
                     if (ratio > 0.8) sample = { tip, ratio, block: info.number };
                 }

@@ -177,9 +177,9 @@ type View interface {
 	Get(
 		// The entry to fetch.
 		key []byte,
-		// If true, the LRU queue will be updated. If false, the LRU queue will not be updated.
-		// Useful for when an operation is performed multiple times in close succession on the same key,
-		// since it requires non-zero overhead to do so with little benefit.
+		// If true, the entry's recency is recorded, making it a later candidate for cache eviction.
+		// Useful to set false when an operation is performed multiple times in close succession on the
+		// same key, since it requires non-zero overhead to do so with little benefit.
 		updateLru bool,
 	) ([]byte, bool, error)
 

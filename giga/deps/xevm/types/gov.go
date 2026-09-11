@@ -48,13 +48,13 @@ func (p *AddERCNativePointerProposal) ValidateBasic() error {
 
 func (p AddERCNativePointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC native pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC native pointer Proposal:
   Title:       %s
   Description: %s
   Token:       %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Token, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Token, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -86,13 +86,13 @@ func (p *AddERCCW20PointerProposal) ValidateBasic() error {
 
 func (p AddERCCW20PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC CW20 pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC CW20 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -124,13 +124,13 @@ func (p *AddERCCW721PointerProposal) ValidateBasic() error {
 
 func (p AddERCCW721PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC CW721 pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC CW721 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -162,13 +162,13 @@ func (p *AddERCCW1155PointerProposal) ValidateBasic() error {
 
 func (p AddERCCW1155PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC CW1155 pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC CW1155 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -201,13 +201,13 @@ func (p *AddCWERC20PointerProposal) ValidateBasic() error {
 
 func (p AddCWERC20PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add CW ERC20 pointer Proposal:
+	fmt.Fprintf(&b, `Add CW ERC20 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -240,13 +240,13 @@ func (p *AddCWERC721PointerProposal) ValidateBasic() error {
 
 func (p AddCWERC721PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add CW ERC721 pointer Proposal:
+	fmt.Fprintf(&b, `Add CW ERC721 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -279,13 +279,13 @@ func (p *AddCWERC1155PointerProposal) ValidateBasic() error {
 
 func (p AddCWERC1155PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add CW ERC1155 pointer Proposal:
+	fmt.Fprintf(&b, `Add CW ERC1155 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -309,13 +309,13 @@ func (p *AddERCNativePointerProposalV2) ValidateBasic() error {
 
 func (p AddERCNativePointerProposalV2) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC native pointer Proposal V2:
+	fmt.Fprintf(&b, `Add ERC native pointer Proposal V2:
   Title:       %s
   Description: %s
   Token:       %s
   Name:        %s
   Symbol:      %s
   Decimals:    %d
-`, p.Title, p.Description, p.Token, p.Name, p.Symbol, p.Decimals))
+`, p.Title, p.Description, p.Token, p.Name, p.Symbol, p.Decimals)
 	return b.String()
 }

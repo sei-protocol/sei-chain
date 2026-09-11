@@ -12,6 +12,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -142,7 +143,7 @@ func TestListSnapshots(t *testing.T) {
 	app := setupBaseAppWithSnapshots(t, 2, 5)
 
 	expected := abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{
-		{Height: 2, Format: 1, Chunks: 2},
+		{Height: 2, Format: snapshottypes.CurrentFormat, Chunks: 2},
 	}}
 
 	resp, _ := app.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})

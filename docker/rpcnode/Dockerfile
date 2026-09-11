@@ -1,4 +1,4 @@
-FROM golang:1.25.6-bookworm AS go-dist
+FROM golang:1.27.1-bookworm AS go-dist
 
 FROM ubuntu:latest
 ENV HOME="/root" PATH="/root/go/bin:$PATH"
