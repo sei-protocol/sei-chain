@@ -172,8 +172,13 @@ func (g *blockGenerator) mainLoop() {
 // abort records the error that stopped generation and ends the run. The consumer reports it once the
 // queue has drained, so that a run which died producing blocks is visible in the exit code rather than
 // only on the console.
+//
+// The first error is the one kept. Teardown writes of its own follow a failure and usually fail the
+// same way, so a later one would bury the cause under its consequence.
 func (g *blockGenerator) abort(err error) {
-	g.failure = err
+	if g.failure == nil {
+		g.failure = err
+	}
 	g.cancel()
 }
 
@@ -239,9 +244,14 @@ func (g *blockGenerator) storeBlock(block *simulatedBlock) error {
 
 // finalFlush pushes the last blocks to disk as generation ends, so that the consumer can close the
 // stores without reaching for a writer it does not own.
+//
+// A failure here aborts the run rather than only printing. These are the last blocks the generator
+// writes, so losing them is what leaves the ledger short of the state DB, and an exit code of 0 would
+// report that as a clean run. It is safe to record: this runs before blocksChan is closed, which is
+// the edge ordering the consumer's read of the failure.
 func (g *blockGenerator) finalFlush() {
 	if err := g.flush(); err != nil {
-		fmt.Printf("%v\n", err)
+		g.abort(err)
 	}
 }
 

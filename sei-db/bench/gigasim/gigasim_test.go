@@ -216,6 +216,36 @@ func TestColdAccountsExistWhenEveryNewAccountIsDormant(t *testing.T) {
 	require.Positive(t, runBlocks(t, config))
 }
 
+// TestGenerationKeepsTheFirstFailure pins that the error reaching the exit code is the one that
+// stopped generation, not the teardown write that followed it.
+//
+// finalFlush aborts on failure so a lost final flush cannot exit 0, and it runs after whatever
+// stopped the generator. Overwriting there would report the flush as the cause and bury the write
+// error that actually ended the run.
+func TestGenerationKeepsTheFirstFailure(t *testing.T) {
+	t.Parallel()
+
+	generator := &blockGenerator{cancel: func() {}}
+	cause := errors.New("the write that stopped generation")
+
+	generator.abort(cause)
+	generator.abort(errors.New("the final flush failing in its wake"))
+
+	require.Equal(t, cause, generator.failure)
+}
+
+// TestGenerationRecordsAFailureAtAll pins the other half: an abort has to leave something behind for
+// the consumer to find, or the run exits 0 having lost blocks.
+func TestGenerationRecordsAFailureAtAll(t *testing.T) {
+	t.Parallel()
+
+	generator := &blockGenerator{cancel: func() {}}
+	require.NoError(t, generator.failure)
+
+	generator.abort(errors.New("the final flush failed"))
+	require.Error(t, generator.failure)
+}
+
 // TestCloseReportsTheFirstFailure pins how a died run is reported: Close returns the error, which is
 // what gives the command a non-zero exit code. Later errors are dropped because they are usually
 // consequences of the first.
