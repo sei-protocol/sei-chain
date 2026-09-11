@@ -1,0 +1,88 @@
+name: LtHash backends
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'sei-db/state_db/sc/flatkv/lthash/**'
+      - '.github/workflows/lthash-bench.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'sei-db/state_db/sc/flatkv/lthash/**'
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+env:
+  GO_VERSION: '1.27.1'
+  LTHASH_PKG: ./sei-db/state_db/sc/flatkv/lthash
+  BENCH_COUNT: 8
+
+jobs:
+  bench:
+    name: Default vs SIMD
+    runs-on: uci-default
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Download modules
+        run: go mod download
+
+      - name: CPU
+        run: |
+          {
+            echo '## CPU'
+            echo '```'
+            lscpu | grep -E 'Model name|^Flags' | sed -E 's/^Flags:\s+/Flags: /' | fold -w 120
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Both builds must pass: the default build has no SIMD backend compiled
+      # in, the experiment build adds it and the differential tests compare
+      # every available backend against the Blake3 reference.
+      - name: Test without GOEXPERIMENT=simd
+        run: go test -count=1 -race ${{ env.LTHASH_PKG }}
+
+      - name: Test with GOEXPERIMENT=simd
+        env:
+          GOEXPERIMENT: simd
+        run: go test -count=1 -race ${{ env.LTHASH_PKG }}
+
+      - name: Benchmark every available backend
+        env:
+          GOEXPERIMENT: simd
+        run: |
+          go test \
+            -run '^$' \
+            -bench . \
+            -count ${{ env.BENCH_COUNT }} \
+            ${{ env.LTHASH_PKG }} | tee bench.txt
+
+      - name: Compare backends
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20250813145418-2f7363a06fe1
+          {
+            echo '## LtHash backends (`benchstat -col /backend`)'
+            echo
+            echo 'Only backends the runner CPU can execute appear as columns; the SIMD'
+            echo 'backend needs AVX-512F + VBMI2. `hashChunk` is the end-to-end per-block path.'
+            echo
+            echo '```'
+            benchstat -col /backend bench.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lthash-bench
+          path: bench.txt
