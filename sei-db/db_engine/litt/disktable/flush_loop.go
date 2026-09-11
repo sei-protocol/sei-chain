@@ -23,8 +23,8 @@ type flushLoop struct {
 	// flushChannel is a channel used to enqueue work on the flush loop.
 	flushChannel chan any
 
-	// flushQueue records the time the control loop spent blocked because flushChannel was full.
-	flushQueue *commonmetrics.QueueMeter
+	// flushChannelMeter records the time the control loop spent blocked because flushChannel was full.
+	flushChannelMeter *commonmetrics.QueueMeter
 
 	// metrics encapsulates metrics for the DB.
 	metrics *metrics.LittDBMetrics
@@ -42,7 +42,7 @@ type flushLoop struct {
 
 // enqueue sends work to be handled on the flush loop. Will return an error if the DB is panicking.
 func (f *flushLoop) enqueue(request flushLoopMessage) error {
-	return util.SendMetered(f.errorMonitor, f.flushQueue, f.flushChannel, request)
+	return util.SendMetered(f.errorMonitor, f.flushChannelMeter, f.flushChannel, request)
 }
 
 // run is responsible for handling operations that flush data (i.e. calls to Flush() and when the mutable segment

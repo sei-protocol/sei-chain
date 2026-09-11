@@ -33,11 +33,12 @@ func newReceiptWriter(store receipt.ReceiptStore, gigasimMetrics *GigasimMetrics
 }
 
 // writeBlock stores every receipt a block produced, in one call, as a node does at commit.
+//
+// A block that produced none is still written. The store stamps its height for an empty batch, and
+// skipping the call would leave the receipt head behind the ledger and the state for every setup
+// block — heights recovery takes the minimum of, so a run interrupted during setup over an existing
+// directory would roll state back to a height the ledger has passed and then refuse to reopen.
 func (w *receiptWriter) writeBlock(number int64, receipts []*evmtypes.Receipt) error {
-	if len(receipts) == 0 {
-		return nil
-	}
-
 	// Closes the phase in flight, so the gap until the next block's receipts is charged to neither.
 	defer w.phases.Reset()
 

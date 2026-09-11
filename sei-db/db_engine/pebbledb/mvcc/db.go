@@ -232,10 +232,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		pendingChanges:   make(chan VersionedChangesets, config.AsyncWriteBuffer),
 		dbName:           dbName,
 		operationMetrics: pebbledbmetrics.NewOperationMetrics(config.EnableReadWriteMetrics, dbName),
-		pendingChangesQueue: otelMetrics.pendingChangesQueue.Build(
-			otelMetrics.pendingChangesQueueDepth,
-			attribute.String("db", dbName),
-		),
+		pendingChangesQueue: seidbmetrics.NewQueueMeter(
+			meter, "pebble_pending_changes", attribute.String("db", dbName)),
 		applyPhases: otelMetrics.applyPhases.Build(attribute.String("db", dbName)),
 	}
 	database.latestVersion.Store(latestVersion)
@@ -266,10 +264,22 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	go database.writeAsyncInBackground()
 
 	// Refresh Pebble-internal stats (compaction, flush, sstable, memtable, WAL, cache).
-	database.metricsCancel = pebbledbmetrics.NewPebbleMetrics(db, dbName, 10*time.Second)
+	stopPebbleStats := pebbledbmetrics.NewPebbleMetrics(db, dbName, metricsRefreshInterval)
+
+	samplingCtx, stopSampling := context.WithCancel(context.Background())
+	database.pendingChangesQueue.SampleDepth(samplingCtx, int(metricsRefreshInterval.Seconds()),
+		func() int { return len(database.pendingChanges) })
+	database.metricsCancel = func() {
+		stopPebbleStats()
+		stopSampling()
+	}
 
 	return database, nil
 }
+
+// metricsRefreshInterval is how often the background collectors resample, covering both Pebble's own
+// stats and the write queue's depth.
+const metricsRefreshInterval = 10 * time.Second
 
 func changelogKeepRecent(cfg config.StateStoreConfig) uint64 {
 	keepRecent := uint64(math.Max(MinWALEntriesToKeep, float64(cfg.AsyncWriteBuffer+1)))

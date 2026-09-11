@@ -36,13 +36,12 @@ type GigasimMetrics struct {
 	receiptsWrittenTotal      metric.Int64Counter
 	flushCallsTotal           metric.Int64Counter
 
-	highestBlockHeight  metric.Int64Gauge
-	totalAccounts       metric.Int64Gauge
-	hotAccounts         metric.Int64Gauge
-	coldAccounts        metric.Int64Gauge
-	dormantAccounts     metric.Int64Gauge
-	erc20Contracts      metric.Int64Gauge
-	stagedBlockQueueLen metric.Int64Gauge
+	highestBlockHeight metric.Int64Gauge
+	totalAccounts      metric.Int64Gauge
+	hotAccounts        metric.Int64Gauge
+	coldAccounts       metric.Int64Gauge
+	dormantAccounts    metric.Int64Gauge
+	erc20Contracts     metric.Int64Gauge
 
 	blockHashWaitSeconds metric.Float64Histogram
 
@@ -55,7 +54,7 @@ type GigasimMetrics struct {
 	blockStoreWritePhases *metrics.PhaseTimerFactory
 	receiptWritePhases    *metrics.PhaseTimerFactory
 
-	stagedBlockQueue *metrics.QueueMeter
+	pendingExecutionQueue *metrics.QueueMeter
 }
 
 // NewGigasimMetrics creates the benchmark's instruments on the global OTel MeterProvider, which the
@@ -134,12 +133,6 @@ func NewGigasimMetrics() *GigasimMetrics {
 		metric.WithDescription("Number of simulated ERC20 contracts in existence"),
 		metric.WithUnit("{count}"),
 	)
-	stagedBlockQueueLen, _ := meter.Int64Gauge(
-		"gigasim_staged_block_queue_depth",
-		metric.WithDescription("Number of generated blocks waiting to enter the pipeline"),
-		metric.WithUnit("{count}"),
-	)
-
 	blockHashWaitSeconds, _ := meter.Float64Histogram(
 		"gigasim_block_hash_wait_seconds",
 		metric.WithDescription("Time the main thread spent waiting for a block hash"),
@@ -162,14 +155,13 @@ func NewGigasimMetrics() *GigasimMetrics {
 		coldAccounts:              coldAccounts,
 		dormantAccounts:           dormantAccounts,
 		erc20Contracts:            erc20Contracts,
-		stagedBlockQueueLen:       stagedBlockQueueLen,
 		blockHashWaitSeconds:      blockHashWaitSeconds,
 		transactionPhases:         metrics.NewPhaseTimerFactory(meter, "gigasim_transaction"),
 		executionLoopPhases:       metrics.NewPhaseTimerFactory(meter, "gigasim_execution_loop"),
 		blockProducingPhases:      metrics.NewPhaseTimerFactory(meter, "gigasim_block_producing_loop"),
 		blockStoreWritePhases:     metrics.NewPhaseTimerFactory(meter, "gigasim_blockstore_write"),
 		receiptWritePhases:        metrics.NewPhaseTimerFactory(meter, "gigasim_receipt_write"),
-		stagedBlockQueue:          metrics.NewQueueMeter(meter, "gigasim_staged_block", stagedBlockQueueLen),
+		pendingExecutionQueue:     metrics.NewQueueMeter(meter, "gigasim_pending_execution"),
 	}
 }
 
@@ -326,12 +318,20 @@ func (m *GigasimMetrics) SetErc20ContractCount(count int64) {
 	m.erc20Contracts.Record(context.Background(), count)
 }
 
-// StageBlock hands a generated block to the consumer, recording how full the queue was when the
-// generator needed room on it and how long it waited for any.
-func (m *GigasimMetrics) StageBlock(queue chan *simulatedBlock, block *simulatedBlock) {
+// QueueForExecution hands a generated block to the consumer, charging the generator the wait when
+// the queue is full. How full the queue sits otherwise is sampled by PendingExecutionQueue.
+func (m *GigasimMetrics) QueueForExecution(queue chan *simulatedBlock, block *simulatedBlock) {
 	if m == nil {
 		queue <- block
 		return
 	}
-	metrics.Send(m.stagedBlockQueue, queue, block)
+	metrics.Send(m.pendingExecutionQueue, queue, block)
+}
+
+// PendingExecutionQueue returns the meter reporting the queue generated blocks wait on for execution.
+func (m *GigasimMetrics) PendingExecutionQueue() *metrics.QueueMeter {
+	if m == nil {
+		return nil
+	}
+	return m.pendingExecutionQueue
 }

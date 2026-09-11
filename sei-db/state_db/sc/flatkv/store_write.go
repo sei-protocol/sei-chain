@@ -128,46 +128,7 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	// themselves and not the gaps between them.
 	s.phaseTimer.Reset()
 	otelMetrics.CurrentVersion.Record(s.ctx, version)
-	s.commitLog.observe(version, time.Since(start))
 	return version, nil
-}
-
-// commitLogInterval is how much committing one line of the log covers.
-const commitLogInterval = 10 * time.Second
-
-// commitSampler folds a run of commits into a single log line. A node commits every block, so a line
-// each costs more than the commits it reports; every commit is still measured, by the OTel instruments
-// the commit path records.
-type commitSampler struct {
-	windowStart time.Time
-	blocks      int64
-	spent       time.Duration
-}
-
-// observe records a commit of version taking elapsed, logging the window it closes when it closes one.
-func (c *commitSampler) observe(version int64, elapsed time.Duration) {
-	c.blocks++
-	c.spent += elapsed
-
-	now := time.Now()
-	if c.windowStart.IsZero() {
-		c.windowStart = now
-		return
-	}
-	window := now.Sub(c.windowStart)
-	if window < commitLogInterval {
-		return
-	}
-
-	logger.Info("FlatKV committing",
-		"version", version,
-		"blocks", c.blocks,
-		"blocks_per_second", int64(float64(c.blocks)/window.Seconds()),
-		"average_commit", (c.spent / time.Duration(c.blocks)).Truncate(time.Microsecond))
-
-	c.windowStart = now
-	c.blocks = 0
-	c.spent = 0
 }
 
 // FlushSnapshots blocks until no snapshot is being written. It is a synchronization point for callers

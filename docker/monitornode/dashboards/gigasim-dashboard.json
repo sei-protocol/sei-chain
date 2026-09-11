@@ -201,7 +201,7 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "gigasim_staged_block_queue_depth",
+                        "expr": "gigasim_pending_execution_queue_depth",
                         "legendFormat": "staged blocks",
                         "range": true
                       },
@@ -8878,7 +8878,7 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "rate(gigasim_staged_block_queue_blocked_seconds_total[$__rate_interval])",
+                        "expr": "rate(gigasim_pending_execution_queue_blocked_seconds_total[$__rate_interval])",
                         "legendFormat": "execution",
                         "range": true
                       },

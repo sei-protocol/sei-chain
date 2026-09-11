@@ -165,7 +165,7 @@ func (g *blockGenerator) mainLoop() {
 
 		// A block already in the ledger has to reach execution, so this hand-off is not abandoned on
 		// cancellation: the consumer drains the queue before it closes the stores.
-		g.metrics.StageBlock(g.blocksChan, block)
+		g.metrics.QueueForExecution(g.blocksChan, block)
 	}
 }
 

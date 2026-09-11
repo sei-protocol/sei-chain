@@ -178,12 +178,12 @@ func DefaultGigasimConfig() *GigasimConfig {
 		BlocksPerQc:                     1,
 		MaxPendingExecutionQueueSize:    100,
 		FlushIntervalBlocks:             10,
-		NumberOfHotAccounts:             100_000,
+		NumberOfHotAccounts:             10_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
 		MinimumNumberOfDormantAccounts:  10_000_000,
 		HotAccountProbability:           0.1,
 		NewAccountProbability:           0.001,
-		NewAccountHotProbability:        0.01,
+		NewAccountHotProbability:        0.0,
 		NewAccountDormantProbability:    0.9,
 		MinimumNumberOfErc20Contracts:   1_000,
 		HotErc20ContractSetSize:         10,
@@ -397,13 +397,21 @@ func (c *GigasimConfig) validateRuntime() error {
 		return fmt.Errorf("ConstantThreadCount must be non-negative (got %d)", c.ConstantThreadCount)
 	}
 	// Every simulated value is sliced out of the canned buffer, which panics on a draw it cannot
-	// serve. The largest single draw is a whole block payload during a run, or one contract during
-	// setup, and either can be the bigger of the two.
-	if minBuffer := max(c.blockPayloadBytes(), c.Erc20ContractSize); c.CannedRandomSize < minBuffer {
+	// serve, so the buffer has to cover the largest one. The two configurable draws are a whole block
+	// payload during a run and one contract during setup; the fixed-size ones are smaller but still
+	// clear the floor a pathologically small buffer would fall under.
+	if minBuffer := max(
+		c.blockPayloadBytes(),
+		c.Erc20ContractSize,
+		storageKeyLen,
+		accountRecordLen,
+		storageSlotValueLen,
+	); c.CannedRandomSize < minBuffer {
 		return fmt.Errorf(
 			"CannedRandomSize must be at least %d, the largest single draw (one block payload is %d, "+
-				"one ERC20 contract is %d) (got %d)",
-			minBuffer, c.blockPayloadBytes(), c.Erc20ContractSize, c.CannedRandomSize)
+				"one ERC20 contract is %d, and the fixed records are %d, %d and %d) (got %d)",
+			minBuffer, c.blockPayloadBytes(), c.Erc20ContractSize,
+			storageKeyLen, accountRecordLen, storageSlotValueLen, c.CannedRandomSize)
 	}
 	if c.DataDir == "" {
 		return fmt.Errorf("DataDir is required")

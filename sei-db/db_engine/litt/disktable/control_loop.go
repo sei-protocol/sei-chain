@@ -37,8 +37,8 @@ type controlLoop struct {
 	// compression stage in order).
 	inputChannel chan any
 
-	// inputQueue records the time writers spent blocked because inputChannel was full.
-	inputQueue *commonmetrics.QueueMeter
+	// inputChannelMeter records the time writers spent blocked because inputChannel was full.
+	inputChannelMeter *commonmetrics.QueueMeter
 
 	// compressionAlgorithm is the algorithm new segments are created with. types.CompressionNone means
 	// segments store values verbatim.
@@ -167,7 +167,7 @@ type controlLoop struct {
 // database being in a panicked state. Only types defined in control_loop_messages.go are permitted to be sent
 // to the control loop.
 func (c *controlLoop) enqueue(request controlLoopMessage) error {
-	return util.SendMetered(c.errorMonitor, c.inputQueue, c.inputChannel, request)
+	return util.SendMetered(c.errorMonitor, c.inputChannelMeter, c.inputChannel, request)
 }
 
 // run runs the control loop for the disk table. It has sole responsibility for scheduling all operations that

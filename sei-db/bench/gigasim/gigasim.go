@@ -278,6 +278,9 @@ func assemble(
 	g.highestBlock.Store(nextBlock - 1)
 	g.startExecutors(state, accounts.FeeCollectionAddress())
 	g.generator = newBlockGenerator(ctx, cancel, config, accounts, blocks, metrics, blockStoreWrite)
+
+	metrics.PendingExecutionQueue().SampleDepth(ctx, config.BackgroundMetricsScrapeInterval,
+		func() int { return len(g.generator.blocksChan) })
 	return g, nil
 }
 

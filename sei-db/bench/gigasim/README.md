@@ -123,8 +123,8 @@ the one on disk.
 # Metrics
 
 Metrics are served for Prometheus at `MetricsAddr` (`:9090` by default; empty disables the server). The
-benchmark's own instruments are prefixed `gigasim_` and cover per-store write volume, the staged block
-queue depth, the account population, on-disk size per store, block hash wait time, and a phase
+benchmark's own instruments are prefixed `gigasim_` and cover per-store write volume, the pending
+execution queue, the account population, on-disk size per store, block hash wait time, and a phase
 breakdown for the generator thread, the consumer thread and the executors. The stores served on the
 same endpoint publish their own: `flatkv_`, `seiwal_`, `litt_`, `pebble_` and `giga_state_commit_`.
 
@@ -133,15 +133,28 @@ the receipt store. It is on by default and is the only source of their size and 
 
 ## Reading a run
 
-`gigasim_lifecycle_phase_duration_seconds_total` and `giga_state_commit_phase_duration_seconds_total`
-together break one block's latency into the stages it blocks in — generating it, writing it to the
-ledger, executing it, writing its receipts, and the three stores the commit fans out to. Only blocking
-work is counted, so waiting for another goroutine is excluded and an asynchronous store contributes the
-wait to hand the block over rather than the write itself. Stacked, they sum to the critical path of one
-block, which is what makes the tallest band the thing to fix.
+Two goroutines each account for all of their own time.
+`gigasim_execution_loop_phase_duration_seconds_total`, together with
+`giga_state_commit_phase_duration_seconds_total` for the commit window it hands to the state DB,
+covers the goroutine that executes and commits blocks;
+`gigasim_block_producing_loop_phase_duration_seconds_total` covers the one that builds blocks and
+writes them to the block store. Each set sums to 100% of its own goroutine, so the two are shares of
+different denominators and do not add up to anything between them.
 
-The queue depths say which stage is applying the backpressure: one that stays full is the limit, and
-one that stays empty means the stage feeding it is.
+Four more break a single phase down further, each summing to the phase it subdivides:
+`gigasim_transaction_` for execution, `gigasim_receipt_write_` for the receipt write,
+`gigasim_blockstore_write_` for the ledger write, and `ss_evm_commit_` for the EVM state store's share
+of the commit.
+
+Read the waiting phase first. `wait_for_execution` on the producing loop and `wait_for_block` on the
+execution loop are each goroutine's idle time, so the one with almost none is the bottleneck and the
+one with plenty has headroom. The per-block totals are not a second opinion on this: both equal
+`1 / throughput` by construction, whatever the split between work and waiting.
+
+`{prefix}_queue_blocked_seconds_total` says which queue is applying the backpressure — it accumulates
+the time producers spent waiting for room, so a queue nobody waits on reports nothing. The depth
+gauges beside it are sampled on a timer and show how full a queue sits in the ordinary case, which a
+queue that fills only in bursts will understate.
 
 For local Prometheus and Grafana containers, see the corresponding section of the
 [cryptosim README](../cryptosim/README.md#setting-up-prometheus--grafana); the setup is the same.

@@ -16,6 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 )
 
+// snapshotQueueScrapeIntervalSeconds is how often the writer reports its queue depth. Matches the
+// cadence the view managers sample their own gauges at.
+const snapshotQueueScrapeIntervalSeconds = 10
+
 // ErrSnapshotWriterClosed is reported (wrapped) by calls that observe the writer shutting down
 // normally rather than failing. Detect it with errors.Is.
 var ErrSnapshotWriterClosed = errors.New("snapshot writer closed")
@@ -114,6 +118,8 @@ func newSnapshotWriter(
 		scheduler:       scheduler,
 	}
 	go w.run()
+	otelMetrics.SnapshotQueue.SampleDepth(ctx, snapshotQueueScrapeIntervalSeconds,
+		func() int { return len(w.messages) })
 	return w
 }
 
@@ -234,23 +240,31 @@ func (w *SnapshotWriter) enqueue(message any) error {
 	if err := w.errorIfBricked(); err != nil {
 		return fmt.Errorf("snapshot writer failed: %w", err)
 	}
-
-	otelMetrics.SnapshotQueue.Observe(len(w.messages))
-
-	select {
-	case w.messages <- message:
-		return nil
-	default:
+	// A stopped writer accepts nothing. The non-blocking send below carries no cancellation arm, so
+	// without this it would hand a message to a queue nobody drains any more and report success —
+	// and Offer, which releases its view reservation only on the error path, would leak it.
+	if w.ctx.Err() != nil {
+		return fmt.Errorf("enqueue to snapshot writer: %w", w.stoppedError())
 	}
 
-	return otelMetrics.SnapshotQueue.Blocked(func() error {
-		select {
-		case w.messages <- message:
-			return nil
-		case <-w.ctx.Done():
-			return fmt.Errorf("enqueue to snapshot writer: %w", w.stoppedError())
-		}
-	})
+	return otelMetrics.SnapshotQueue.SendVia(
+		func() bool {
+			select {
+			case w.messages <- message:
+				return true
+			default:
+				return false
+			}
+		},
+		func() error {
+			select {
+			case w.messages <- message:
+				return nil
+			case <-w.ctx.Done():
+				return fmt.Errorf("enqueue to snapshot writer: %w", w.stoppedError())
+			}
+		},
+	)
 }
 
 // onSnapshotInterval reports whether a committed block becomes a snapshot on this writer's own
