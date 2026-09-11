@@ -2,6 +2,7 @@ package view
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func TestNewViewManagerValid(t *testing.T) {
@@ -61,13 +61,13 @@ func TestNewViewManagerRejectsInvalidConfig(t *testing.T) {
 func TestManagerSetGetDelete(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 4, 1<<20)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	val, found, err := manager.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, []byte("v"), val)
 
-	require.NoError(t, manager.Delete([]byte("k")))
+	require.NoError(t, deleteKey(manager, []byte("k")))
 	_, found, err = manager.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.False(t, found)
@@ -75,7 +75,7 @@ func TestManagerSetGetDelete(t *testing.T) {
 
 func TestManagerSetNilIsDelete(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"k": []byte("v")}, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), nil))
+	require.NoError(t, setKey(manager, []byte("k"), nil))
 	_, found, err := manager.Get([]byte("k"), true)
 	require.NoError(t, err)
 	require.False(t, found)
@@ -107,10 +107,10 @@ func TestManagerGetPropagatesDBError(t *testing.T) {
 
 func TestManagerBatchSetThenBatchGet(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 4, 1<<20)
-	require.NoError(t, manager.BatchSet([]*proto.KVPair{
-		{Key: []byte("a"), Value: []byte("1")},
-		{Key: []byte("b"), Value: []byte("2")},
-		{Key: []byte("c"), Delete: true}, // delete of a non-existent key
+	require.NoError(t, manager.BatchSet([]BatchKVPair{
+		{Key: "a", Value: []byte("1")},
+		{Key: "b", Value: []byte("2")},
+		{Key: "c", Delete: true}, // delete of a non-existent key
 	}))
 
 	got, err := manager.BatchGet([][]byte{[]byte("a"), []byte("b"), []byte("c"), []byte("missing")})
@@ -136,7 +136,7 @@ func TestFlushSyncTrueStillRoundTrips(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithConfig(t, cfg, db)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, view.Finalize(hashWrites(testHash)))
@@ -157,7 +157,7 @@ func TestMetricsEnabledDoesNotBreakManager(t *testing.T) {
 	manager := newTestManagerWithConfig(t, cfg, newTestDB(nil))
 
 	for i := 0; i < 20; i++ {
-		require.NoError(t, manager.Set([]byte{byte(i)}, []byte("v")))
+		require.NoError(t, setKey(manager, []byte{byte(i)}, []byte("v")))
 	}
 	commitFinalizeRelease(t, manager)
 	time.Sleep(10 * time.Millisecond) // let the metrics scrape loop fire at least once
@@ -176,10 +176,32 @@ func TestManagerConcurrentSetGet(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			k := []byte{byte(i)}
-			require.NoError(t, manager.Set(k, k))
+			require.NoError(t, setKey(manager, k, k))
 			_, _, err := manager.Get(k, true)
 			require.NoError(t, err)
 		}(i)
 	}
 	wg.Wait()
+}
+
+// BatchSet carries its keys as strings while every read path takes them as bytes, so a value written
+// through it must come back through the ordinary byte-keyed read.
+func TestBatchSetIsReadableByByteKey(t *testing.T) {
+	manager, _ := newTestManager(t, nil, 8, 1<<20)
+
+	pairs := make([]BatchKVPair, 0, 256)
+	for i := 0; i < 256; i++ {
+		pairs = append(pairs, BatchKVPair{
+			Key:   fmt.Sprintf("evm/key-%d", i),
+			Value: []byte(fmt.Sprintf("value-%d", i)),
+		})
+	}
+	require.NoError(t, manager.BatchSet(pairs))
+
+	for i := 0; i < 256; i++ {
+		value, found, err := manager.Get([]byte(fmt.Sprintf("evm/key-%d", i)), true)
+		require.NoError(t, err)
+		require.True(t, found, "key written through BatchSet must be found by byte key")
+		require.Equal(t, []byte(fmt.Sprintf("value-%d", i)), value)
+	}
 }

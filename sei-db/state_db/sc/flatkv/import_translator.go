@@ -43,7 +43,7 @@ type PhysicalKVPair struct {
 // ImportTranslator is not safe for concurrent use.
 type ImportTranslator struct {
 	blockHeight  int64
-	pendingAccts map[string]*vtype.PendingAccountWrite
+	pendingAccts map[string]vtype.PendingAccountWrite
 }
 
 // NewImportTranslator creates a translator that stamps blockHeight onto every
@@ -52,7 +52,7 @@ type ImportTranslator struct {
 func NewImportTranslator(blockHeight int64) *ImportTranslator {
 	return &ImportTranslator{
 		blockHeight:  blockHeight,
-		pendingAccts: make(map[string]*vtype.PendingAccountWrite),
+		pendingAccts: make(map[string]vtype.PendingAccountWrite),
 	}
 }
 
@@ -113,10 +113,9 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	out = appendNonDeletes(out, miscChanges)
 
 	// Accumulate nonce + codeHash + balance entries from this batch into the
-	// translator-level pending account map. Multiple Translate calls
-	// naturally fold updates for the same address together: the SetXxx
-	// methods on PendingAccountWrite mutate the pointer in place when the
-	// receiver is non-nil.
+	// translator-level pending account map, so that several Translate calls
+	// fold updates for the same address together. Pending writes are held by
+	// value, so each one is read out, updated, and stored back.
 	batchAccts, err := mergeAccountUpdates(
 		changesByType[keys.EVMKeyNonce],
 		changesByType[keys.EVMKeyCodeHash],
@@ -127,7 +126,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	}
 	for addr, batchUpdate := range batchAccts {
 		existing, ok := t.pendingAccts[addr]
-		if !ok || existing == nil {
+		if !ok {
 			t.pendingAccts[addr] = batchUpdate
 			continue
 		}
@@ -140,6 +139,7 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 		if batchUpdate.IsBalanceSet() {
 			existing.SetBalance(batchUpdate.GetBalance())
 		}
+		t.pendingAccts[addr] = existing
 	}
 
 	return out, nil

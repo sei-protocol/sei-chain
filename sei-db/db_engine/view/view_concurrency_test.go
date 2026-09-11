@@ -21,7 +21,7 @@ func TestViewIsolationUnderConcurrentMutation(t *testing.T) {
 	const nKeys = 16
 	keyAt := func(i int) []byte { return []byte{byte(i)} }
 	for i := 0; i < nKeys; i++ {
-		if err := manager.Set(keyAt(i), []byte("base")); err != nil {
+		if err := setKey(manager, keyAt(i), []byte("base")); err != nil {
 			t.Fatalf("seed set: %v", err)
 		}
 	}
@@ -64,7 +64,7 @@ func TestViewIsolationUnderConcurrentMutation(t *testing.T) {
 			defer wg.Done()
 			for iter := 0; iter < 200; iter++ {
 				for i := 0; i < nKeys; i++ {
-					if err := manager.Set(keyAt(i), []byte("mutated")); err != nil {
+					if err := setKey(manager, keyAt(i), []byte("mutated")); err != nil {
 						t.Errorf("concurrent set: %v", err)
 						return
 					}
@@ -150,13 +150,13 @@ func TestConcurrentDifferential(t *testing.T) {
 		switch pickOp(rng) {
 		case opSet:
 			k, v := pick(rng, keys), randVal(rng)
-			if err := manager.Set(k, v); err != nil {
+			if err := setKey(manager, k, v); err != nil {
 				t.Fatalf("set: %v", err)
 			}
 			model.Set(k, v)
 		case opDelete:
 			k := pick(rng, keys)
-			if err := manager.Delete(k); err != nil {
+			if err := deleteKey(manager, k); err != nil {
 				t.Fatalf("delete: %v", err)
 			}
 			model.Delete(k)

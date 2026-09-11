@@ -3,8 +3,6 @@ package view
 import (
 	"bytes"
 	"sort"
-
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // modelManager is a deliberately naive, obviously-correct reference implementation of the
@@ -60,12 +58,12 @@ func (m *modelManager) Delete(key []byte) {
 	m.pending[k] = nil
 }
 
-func (m *modelManager) BatchSet(muts []*proto.KVPair) {
+func (m *modelManager) BatchSet(muts []BatchKVPair) {
 	for i := range muts {
 		if muts[i].Delete {
-			m.Delete(muts[i].Key)
+			m.Delete([]byte(muts[i].Key))
 		} else {
-			m.Set(muts[i].Key, muts[i].Value)
+			m.Set([]byte(muts[i].Key), muts[i].Value)
 		}
 	}
 }

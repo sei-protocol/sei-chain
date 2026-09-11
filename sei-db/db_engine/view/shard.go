@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/structures"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // A single shard of a ViewManager. The shard owns the MVCC layer: versioned in-memory data
@@ -225,43 +225,50 @@ func (s *shard) lookupVersionedRLocked(key string, version uint64) ([]byte, bool
 	return nil, false
 }
 
-// BatchGet reads the given keys at the given version, returning a map (keyed by string(key)) of the
-// keys that were found to their values. Not-found and deleted keys are absent from the map. Any read
-// error fails the whole call and returns a nil map.
-func (s *shard) BatchGet(keys [][]byte, version uint64) (map[string][]byte, error) {
-	results := make(map[string][]byte, len(keys))
-
-	unresolved, hits, err := s.attemptFastBatchGetUnlocked(keys, results, version)
+// batchGet reads the keys named by indices at the given version, writing each key's value into
+// values at that key's own index. A key this shard has no value for is left alone, so the caller's
+// nil stands for not-found; a found value is never nil, which is what makes the two distinguishable.
+//
+// keys and values are the caller's full-batch slices, indexed alike, and only the elements named by
+// indices are read or written. Concurrent calls for different shards are therefore safe: a key's
+// shard is a function of the key, so no two shards share an index.
+//
+// Any read error fails the call, and the elements it did not reach keep whatever they held.
+//
+// A batch is classified in two passes so that a large one does not hold the shard exclusively for its
+// whole length. That matters more here than for a single read: Go's RWMutex queues arriving readers
+// behind a waiting writer, so one long exclusive hold stalls every read on this shard and convoys
+// those that follow it. The first pass takes the shared lock and resolves everything already present;
+// only keys it could not resolve reach the second, which needs the exclusive lock to create entries
+// and schedule DB reads.
+func (s *shard) batchGet(keys []string, indices []int, values [][]byte, version uint64) error {
+	unresolved, hits, err := s.attemptFastBatchGetUnlocked(keys, indices, values, version)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var pending []pendingRead
 	if len(unresolved) > 0 {
-		var remainingHits int64
-		pending, remainingHits, err = s.batchGetRemainingUnlocked(keys, unresolved, results, version)
+		pending, err = s.batchGetRemainingUnlocked(keys, unresolved, values, version, &hits)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		hits += remainingHits
 	}
 
 	if hits > 0 {
 		s.metrics.reportCacheHits(hits)
 	}
 
-	if err := s.cache.ResolveBatchUnlocked(pending, results); err != nil {
-		// DB errors are fatal; fail the whole batch.
-		return nil, err
-	}
-	return results, nil
+	// DB errors are fatal; they fail the whole batch.
+	return s.cache.ResolveBatchUnlocked(pending, values)
 }
 
-// attemptFastBatchGetUnlocked resolves the keys it can while holding the read lock, writing found
-// values into results and returning the positions in keys of those it could not resolve.
+// attemptFastBatchGetUnlocked resolves the keys it can under the read lock, returning the positions of those
+// it could not.
 func (s *shard) attemptFastBatchGetUnlocked(
-	keys [][]byte,
-	results map[string][]byte,
+	keys []string,
+	indices []int,
+	values [][]byte,
 	version uint64,
 ) (unresolved []int, hits int64, err error) {
 	s.lock.RLock()
@@ -277,82 +284,76 @@ func (s *shard) attemptFastBatchGetUnlocked(
 		return nil, 0, err
 	}
 
-	for i, key := range keys {
-		keyStr := string(key)
-		if value, found := s.lookupVersionedRLocked(keyStr, version); found {
-			// found includes tombstones (nil value); only non-nil values are real hits to return.
-			if value != nil {
-				results[keyStr] = value
-			}
+	for _, index := range indices {
+		key := keys[index]
+		if value, found := s.lookupVersionedRLocked(key, version); found {
+			// found includes tombstones, whose nil value lands as the not-found the caller reads it as.
+			values[index] = value
 			hits++
 			continue
 		}
 
 		// The batch path never records recency on hits, hence updateLru=false.
-		value, found, ok := s.cache.AttemptFastLookupRLocked(key, false)
+		value, _, ok := s.cache.AttemptFastLookupStringRLocked(key, false)
 		if ok {
-			// Resolved from cache. A not-found (deleted) key counts as a hit but is not a result.
-			if found {
-				results[keyStr] = value
-			}
+			// Resolved from cache. A deleted key carries a nil value, as above.
+			values[index] = value
 			hits++
 			continue
 		}
-		unresolved = append(unresolved, i)
+		unresolved = append(unresolved, index)
 	}
 	return unresolved, hits, nil
 }
 
-// batchGetRemainingUnlocked classifies the keys at the given positions in keys, which are those the
-// fast pass could not resolve, creating entries and scheduling DB reads as needed.
+// batchGetRemainingUnlocked classifies the keys the fast pass could not, creating entries and
+// scheduling DB reads as needed.
+//
+// The whole classification is redone for these keys rather than carried over, because the lock was
+// released in between and another reader may have scheduled or completed any of them.
 func (s *shard) batchGetRemainingUnlocked(
-	keys [][]byte,
+	keys []string,
 	indices []int,
-	results map[string][]byte,
+	values [][]byte,
 	version uint64,
-) (pending []pendingRead, hits int64, err error) {
-	pending = make([]pendingRead, 0, len(indices))
+	hits *int64,
+) ([]pendingRead, error) {
+	pending := make([]pendingRead, 0, len(indices))
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	if err := s.validateVersionRLocked(version); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	// Redone from scratch rather than carried over from the fast pass, because the lock was released
-	// in between and another reader may have scheduled or completed any of these keys.
-	for _, i := range indices {
-		key := keys[i]
-		keyStr := string(key)
-		if value, found := s.lookupVersionedRLocked(keyStr, version); found {
-			if value != nil {
-				results[keyStr] = value
-			}
-			hits++
+	for _, index := range indices {
+		key := keys[index]
+		if value, found := s.lookupVersionedRLocked(key, version); found {
+			values[index] = value
+			*hits++
 			continue
 		}
 
-		outcome := s.cache.LookupWLocked(key, false)
+		outcome := s.cache.LookupStringWLocked(key, false)
 		if outcome.immediate {
-			if outcome.found {
-				results[keyStr] = outcome.value
-			}
-			hits++
+			values[index] = outcome.value
+			*hits++
 			continue
 		}
 		pending = append(pending, pendingRead{
-			key:           keyStr,
+			key:           key,
+			index:         index,
 			entry:         outcome.entry,
 			valueChan:     outcome.valueChan,
 			needsSchedule: outcome.needsSchedule,
 		})
 	}
-	return pending, hits, nil
+	return pending, nil
 }
 
 // GetSizeInfo returns the current cache size (bytes) and entry count under the read lock.
@@ -383,30 +384,21 @@ func (s *shard) IteratorClosed() error {
 	return nil
 }
 
-// Set sets the value for the given key at the current version.
-//
-// A write to a shard that is out of service is refused: it would land in versioned data that no
-// lifecycle runner remains to flush, and so be discarded silently.
-func (s *shard) Set(key []byte, value []byte) error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
-		return err
-	}
-	s.setWLocked(key, value)
-	return nil
-}
-
 // setWLocked writes a value to the versioned data structures at the current version.
-func (s *shard) setWLocked(key []byte, value []byte) {
-	keyStr := string(key)
-	s.versionDiffs[s.currentVersion][keyStr] = value
+func (s *shard) setWLocked(key string, value []byte) {
+	// versionDiffs holds the key only until this version retires, when the whole map is dropped, so
+	// the caller's string can be stored as it stands.
+	s.versionDiffs[s.currentVersion][key] = value
 
-	deque, ok := s.versionedData[keyStr]
+	deque, ok := s.versionedData[key]
 	if !ok {
 		deque = structures.NewDeque[versionedValue]()
-		s.versionedData[keyStr] = deque
+		// Cloned, unlike above, because this entry outlives the version that created it: a key that
+		// keeps being written is never dropped, and Go leaves a map's original key in place on
+		// reassignment, so this exact string is what the entry holds from here on. Callers may hand
+		// in a string carved from a shared buffer, in which case keeping it would pin that whole
+		// buffer for the life of the entry. The copy is per key new to this shard, not per write.
+		s.versionedData[strings.Clone(key)] = deque
 	}
 	if deque.IsEmpty() || deque.PeekBack().version < s.currentVersion {
 		deque.PushBack(versionedValue{version: s.currentVersion, value: value})
@@ -416,9 +408,11 @@ func (s *shard) setWLocked(key []byte, value []byte) {
 	}
 }
 
-// BatchSet sets the values for a batch of keys at the current version. Refused on a shard that is
-// out of service, for the reason given on Set.
-func (s *shard) BatchSet(entries []*proto.KVPair) error {
+// BatchSet sets the values for a batch of keys at the current version.
+//
+// A write to a shard that is out of service is refused: it would land in versioned data that no
+// lifecycle runner remains to flush, and so be discarded silently.
+func (s *shard) BatchSet(entries []BatchKVPair) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -437,9 +431,65 @@ func (s *shard) BatchSet(entries []*proto.KVPair) error {
 	return nil
 }
 
-// Delete deletes the value for the given key.
-func (s *shard) Delete(key []byte) error {
-	return s.Set(key, nil)
+// batchUpdate writes a new value for each key named by indices, obtained by handing that key's
+// prior value to updater. Refused on a shard that is out of service, for the reason given on
+// BatchSet.
+//
+// The prior value is resolved with the same two-pass classification batchGet uses, and for the
+// same reason: a batch that took the exclusive lock for its whole length would stall every read on
+// this shard. So the exclusive holds here cover only the classification of what the fast pass
+// could not resolve, and the writes themselves. The DB reads and every call into updater happen
+// outside both.
+func (s *shard) batchUpdate(
+	keys []string,
+	indices []int,
+	updater BatchUpdater,
+	version uint64,
+	priorValues [][]byte,
+	newValues [][]byte,
+) error {
+	unresolved, hits, err := s.attemptFastBatchGetUnlocked(keys, indices, priorValues, version)
+	if err != nil {
+		return err
+	}
+
+	var pending []pendingRead
+	if len(unresolved) > 0 {
+		pending, err = s.batchGetRemainingUnlocked(keys, unresolved, priorValues, version, &hits)
+		if err != nil {
+			return err
+		}
+	}
+
+	if hits > 0 {
+		s.metrics.reportCacheHits(hits)
+	}
+
+	if err := s.cache.ResolveBatchUnlocked(pending, priorValues); err != nil {
+		return err
+	}
+
+	// Outside every lock: updater is caller code of unknown cost, and holding the shard exclusively
+	// across it is what the two-pass split above exists to avoid.
+	for _, index := range indices {
+		newValues[index], err = updater.NewValueFor(keys[index], priorValues[index])
+		if err != nil {
+			return fmt.Errorf("new value for key: %w", err)
+		}
+	}
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	// Checked once for the whole batch rather than per key: it cannot change while we hold the lock.
+	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
+		return err
+	}
+	for _, index := range indices {
+		// A nil new value is stored as a nil-valued (tombstone) entry at the current version.
+		s.setWLocked(keys[index], newValues[index])
+	}
+	return nil
 }
 
 // Commit seals the current version; all future updates will be applied to the next version. It also

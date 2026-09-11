@@ -19,7 +19,7 @@ func TestFlushFailureBricksManagerCleanly(t *testing.T) {
 	manager := newTestManagerWithDB(t, db, 1, 4096)
 	e := manager.(*viewManager)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestCloseAfterBrickReportsFatalError(t *testing.T) {
 	manager := newTestManagerWithDB(t, db, 1, 4096)
 	e := manager.(*viewManager)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	commitFinalizeRelease(t, manager)
 
 	select {

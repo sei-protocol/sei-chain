@@ -12,8 +12,8 @@ import (
 func TestFlushPersistsSetsDeletesAndFinalizationToDB(t *testing.T) {
 	manager, db := newTestManager(t, map[string][]byte{"del": []byte("x")}, 1, 1<<20)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
-	require.NoError(t, manager.Delete([]byte("del")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
+	require.NoError(t, deleteKey(manager, []byte("del")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, view.Finalize(hashWrites([]byte("the-hash"))))
@@ -42,13 +42,13 @@ func TestFlushPersistsEveryFinalizationPairPerVersion(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v1")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v1")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, view1.Finalize(writes("1")))
 	require.NoError(t, view1.Release())
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v2")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v2")))
 	view2, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, view2.Finalize(writes("2")))
@@ -72,12 +72,12 @@ func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 
 	// Finalize, wait, then release. AwaitFlush requires the reservation to be held across the call:
 	// a released view can be retired out from under it, and the wait is then undefined.
-	require.NoError(t, manager.Set([]byte("k"), []byte("v1")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v1")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
 	finalizeAwaitFlushAndRelease(t, view1)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v2")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v2")))
 	view2, err := manager.Commit()
 	require.NoError(t, err)
 	finalizeAwaitFlushAndRelease(t, view2)
@@ -89,7 +89,7 @@ func TestFlushLatestValueWinsAcrossVersions(t *testing.T) {
 
 func TestFlushRacesAheadOfRelease(t *testing.T) {
 	manager, db := newTestManager(t, nil, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 
@@ -104,11 +104,11 @@ func TestFlushRacesAheadOfRelease(t *testing.T) {
 func TestFlushBlockedByUnfinalizedEarlierView(t *testing.T) {
 	manager, db := newTestManager(t, nil, 1, 1<<20)
 
-	require.NoError(t, manager.Set([]byte("a"), []byte("1")))
+	require.NoError(t, setKey(manager, []byte("a"), []byte("1")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
 
-	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
+	require.NoError(t, setKey(manager, []byte("b"), []byte("2")))
 	view2, err := manager.Commit()
 	require.NoError(t, err)
 
@@ -125,10 +125,10 @@ func TestFlushBlockedByUnfinalizedEarlierView(t *testing.T) {
 func TestOutOfOrderReleaseDoesNotRetireNewer(t *testing.T) {
 	manager, _ := newTestManager(t, nil, 1, 1<<20)
 
-	require.NoError(t, manager.Set([]byte("a"), []byte("1")))
+	require.NoError(t, setKey(manager, []byte("a"), []byte("1")))
 	view1, err := manager.Commit() // version 1
 	require.NoError(t, err)
-	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
+	require.NoError(t, setKey(manager, []byte("b"), []byte("2")))
 	view2, err := manager.Commit() // version 2
 	require.NoError(t, err)
 
@@ -155,8 +155,8 @@ func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 	const versions = 5
 	views := make([]View, versions)
 	for i := 0; i < versions; i++ {
-		require.NoError(t, manager.Set([]byte{byte('a' + i), '1'}, []byte("v")))
-		require.NoError(t, manager.Set([]byte{byte('a' + i), '2'}, []byte("v")))
+		require.NoError(t, setKey(manager, []byte{byte('a' + i), '1'}, []byte("v")))
+		require.NoError(t, setKey(manager, []byte{byte('a' + i), '2'}, []byte("v")))
 		s, err := manager.Commit()
 		require.NoError(t, err)
 		views[i] = s
@@ -188,7 +188,7 @@ func TestFlushClosesEveryBatch(t *testing.T) {
 
 	const versions = 5
 	for i := 0; i < versions; i++ {
-		require.NoError(t, manager.Set([]byte{byte('a' + i)}, []byte("v")))
+		require.NoError(t, setKey(manager, []byte{byte('a' + i)}, []byte("v")))
 		commitFinalizeRelease(t, manager)
 	}
 	awaitRetired(t, manager, versions) // last version retired => everything flushed
@@ -200,7 +200,7 @@ func TestFlushClosesEveryBatch(t *testing.T) {
 
 func TestReserveAfterRetirementFails(t *testing.T) {
 	manager, _ := newTestManager(t, nil, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version
@@ -212,7 +212,7 @@ func TestReserveAfterRetirementFails(t *testing.T) {
 
 func TestFinalizeAfterRetirementFails(t *testing.T) {
 	manager, _ := newTestManager(t, nil, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version
@@ -224,7 +224,7 @@ func TestFinalizeAfterRetirementFails(t *testing.T) {
 
 func TestAwaitFlushAfterRetirementFails(t *testing.T) {
 	manager, _ := newTestManager(t, nil, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version

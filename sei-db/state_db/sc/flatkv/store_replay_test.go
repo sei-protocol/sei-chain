@@ -411,7 +411,7 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 
 // TestReplayConvergesOnPartialAccountFieldWrites pins the one case where replaying
 // a block into a DB that already holds it is not obviously a no-op. An account row
-// is a merge, not an overwrite: deriveNewAccountValues folds a nonce-only or
+// is a merge, not an overwrite: accountUpdater folds a nonce-only or
 // codehash-only update onto whatever is currently on disk. Replaying a range where
 // different blocks touch different fields therefore rebuilds the row field by field
 // through intermediate values that were never on-chain. It converges because the

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -125,7 +126,11 @@ type cacheEntry struct {
 
 // Tracks a key whose value is not yet available and must be waited on.
 type pendingRead struct {
-	key           string
+	key string
+
+	// The key's position in the batch, which is where its value is written once the read completes.
+	index int
+
 	entry         *cacheEntry
 	valueChan     chan readResult
 	needsSchedule bool
@@ -259,6 +264,37 @@ func (c *readCache) AttemptFastLookupRLocked(
 	}
 }
 
+// AttemptFastLookupStringRLocked is AttemptFastLookupRLocked for a caller that already holds the key
+// as a string.
+func (c *readCache) AttemptFastLookupStringRLocked(
+	// The key to look up.
+	key string,
+	// If true, a cache hit marks the entry recently used. False is useful when an operation is
+	// performed multiple times in close succession on the same key, since the stamp has non-zero
+	// overhead and little benefit in that case.
+	updateLru bool,
+) (value []byte, found bool, ok bool) {
+	entry := c.entryStringRLocked(key)
+	if entry == nil {
+		return nil, false, false
+	}
+
+	switch entry.status {
+	case statusAvailable:
+		if updateLru {
+			entry.markRecentlyUsed(c.epoch)
+		}
+		return entry.value, true, true
+	case statusDeleted:
+		if updateLru {
+			entry.markRecentlyUsed(c.epoch)
+		}
+		return nil, false, true
+	default:
+		return nil, false, false
+	}
+}
+
 // LookupWLocked classifies a read of the given key and returns how to complete it: either an
 // immediate terminal result, or a wait plan for Resolve. Pure state transition: it never blocks,
 // and it performs the unknown -> scheduled transition under the lock, so a given read is
@@ -272,6 +308,44 @@ func (c *readCache) LookupWLocked(
 	updateLru bool,
 ) lookupOutcome {
 	entry := c.entryOrCreateWLocked(key)
+
+	switch entry.status {
+	case statusAvailable:
+		if updateLru {
+			entry.markRecentlyUsed(c.epoch)
+		}
+		return lookupOutcome{immediate: true, value: entry.value, found: true}
+	case statusDeleted:
+		if updateLru {
+			entry.markRecentlyUsed(c.epoch)
+		}
+		return lookupOutcome{immediate: true}
+	case statusScheduled:
+		return lookupOutcome{valueChan: entry.valueChan, entry: entry}
+	case statusUnknown:
+		entry.status = statusScheduled
+		entry.valueChan = make(chan readResult, 1)
+		return lookupOutcome{valueChan: entry.valueChan, entry: entry, needsSchedule: true}
+	default:
+		// statusFailed lands here, and that is intended: an entry becomes statusFailed only in the
+		// same critical section that takes the cache out of service, and the shard checks that under
+		// the same lock before classifying, so reaching this is an invariant violation rather than a
+		// state to serve.
+		panic(fmt.Sprintf("unexpected status: %#v", entry.status))
+	}
+}
+
+// LookupStringWLocked is LookupWLocked for a caller that already holds the key as a string, which
+// the cache retains rather than copying when the key turns out to be new.
+func (c *readCache) LookupStringWLocked(
+	// The key to classify.
+	key string,
+	// If true, a cache hit marks the entry recently used. False is useful when an operation is
+	// performed multiple times in close succession on the same key, since the stamp has non-zero
+	// overhead and little benefit in that case.
+	updateLru bool,
+) lookupOutcome {
+	entry := c.entryOrCreateStringWLocked(key)
 
 	switch entry.status {
 	case statusAvailable:
@@ -334,12 +408,16 @@ func (c *readCache) ResolveUnlocked(key []byte, outcome lookupOutcome) ([]byte, 
 }
 
 // ResolveBatchUnlocked completes the pending reads of a batch classified via LookupWLocked, writing
-// found values into results. It schedules the not-yet-scheduled reads and blocks until every pending
-// read completes, then applies the terminal cache states asynchronously (bulkInjectValuesUnlocked).
+// each read's value into values at that read's own index. It schedules the not-yet-scheduled reads
+// and blocks until every pending read completes, then applies the terminal cache states
+// asynchronously (bulkInjectValuesUnlocked).
+//
+// A key with no value is left as nil, which is what makes not-found distinguishable from a found
+// empty value.
 //
 // A non-nil return means the whole batch failed. The first read error is returned after the full
 // drain, unless the manager shuts down first.
-func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[string][]byte) error {
+func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, values [][]byte) error {
 	if len(pending) == 0 {
 		return nil
 	}
@@ -381,9 +459,7 @@ func (c *readCache) ResolveBatchUnlocked(pending []pendingRead, results map[stri
 			}
 			continue
 		}
-		if result.value != nil {
-			results[pending[i].key] = result.value
-		}
+		values[pending[i].index] = result.value
 	}
 
 	c.metrics.reportCacheMissLatency(time.Since(startTime))
@@ -480,7 +556,13 @@ func (c *readCache) bulkInjectValuesUnlocked(reads []pendingRead) {
 
 // entryRLocked returns the cache entry for a given key, or nil if the cache holds none.
 func (c *readCache) entryRLocked(key []byte) *cacheEntry {
+	// Indexing the map with string(key) does not copy the key; only an insert has to.
 	return c.entries[string(key)]
+}
+
+// entryStringRLocked is entryRLocked for a caller that already holds the key as a string.
+func (c *readCache) entryStringRLocked(key string) *cacheEntry {
+	return c.entries[key]
 }
 
 // entryOrCreateWLocked returns the cache entry for a given key, creating one whose value is not yet
@@ -489,12 +571,32 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 	if entry, ok := c.entries[string(key)]; ok {
 		return entry
 	}
-	entry := &cacheEntry{
+	entry := newCacheEntry(c)
+	c.entries[string(key)] = entry
+	return entry
+}
+
+// entryOrCreateStringWLocked is entryOrCreateWLocked for a caller that already holds the key as a
+// string.
+func (c *readCache) entryOrCreateStringWLocked(key string) *cacheEntry {
+	if entry, ok := c.entries[key]; ok {
+		// The existing key stays, so the caller's string is not retained.
+		return entry
+	}
+	entry := newCacheEntry(c)
+	// Cloned, because an entry here lives until it is evicted, which for a key the workload keeps
+	// reading is indefinitely. Callers may hand in a string carved from a shared buffer, which
+	// keeping would pin for the entry's whole life. The copy is per key new to the cache.
+	c.entries[strings.Clone(key)] = entry
+	return entry
+}
+
+// newCacheEntry returns an entry for a key whose state is not yet known.
+func newCacheEntry(c *readCache) *cacheEntry {
+	return &cacheEntry{
 		cache:  c,
 		status: statusUnknown,
 	}
-	c.entries[string(key)] = entry
-	return entry
 }
 
 // PutRetiredWLocked installs data retired out of the shard's MVCC layer. A nil value marks the

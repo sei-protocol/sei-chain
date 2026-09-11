@@ -26,9 +26,9 @@ func iterateUserData(t *testing.T, manager ViewManager) []kvPair {
 
 func TestIteratorInMemoryAscending(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 4, 1<<20)
-	require.NoError(t, manager.Set([]byte("c"), []byte("3")))
-	require.NoError(t, manager.Set([]byte("a"), []byte("1")))
-	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
+	require.NoError(t, setKey(manager, []byte("c"), []byte("3")))
+	require.NoError(t, setKey(manager, []byte("a"), []byte("1")))
+	require.NoError(t, setKey(manager, []byte("b"), []byte("2")))
 
 	got := iterateUserData(t, manager)
 	require.Equal(t, []kvPair{
@@ -40,7 +40,7 @@ func TestIteratorInMemoryAscending(t *testing.T) {
 
 func TestIteratorOverrideShadowsDB(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"k": []byte("old")}, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("new")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("new")))
 
 	got := iterateUserData(t, manager)
 	require.Equal(t, []kvPair{{key: []byte("k"), value: []byte("new")}}, got)
@@ -48,7 +48,7 @@ func TestIteratorOverrideShadowsDB(t *testing.T) {
 
 func TestIteratorTombstoneSuppressesDBKey(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"gone": []byte("v"), "keep": []byte("v")}, 1, 1<<20)
-	require.NoError(t, manager.Delete([]byte("gone")))
+	require.NoError(t, deleteKey(manager, []byte("gone")))
 
 	got := iterateUserData(t, manager)
 	require.Equal(t, []kvPair{{key: []byte("keep"), value: []byte("v")}}, got)
@@ -56,8 +56,8 @@ func TestIteratorTombstoneSuppressesDBKey(t *testing.T) {
 
 func TestIteratorMergesMemoryAndDB(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1"), "c": []byte("3")}, 4, 1<<20)
-	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
-	require.NoError(t, manager.Set([]byte("d"), []byte("4")))
+	require.NoError(t, setKey(manager, []byte("b"), []byte("2")))
+	require.NoError(t, setKey(manager, []byte("d"), []byte("4")))
 
 	got := iterateUserData(t, manager)
 	require.Equal(t, []kvPair{
@@ -74,7 +74,7 @@ func TestIteratorMergesAcrossShards(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		k := []byte(fmt.Sprintf("key-%02d", i))
 		v := []byte(fmt.Sprintf("val-%02d", i))
-		require.NoError(t, manager.Set(k, v))
+		require.NoError(t, setKey(manager, k, v))
 		want = append(want, kvPair{key: k, value: v})
 	}
 	sort.Slice(want, func(i, j int) bool { return string(want[i].key) < string(want[j].key) })
@@ -97,7 +97,7 @@ func TestIteratorExcludesReservedPrefix(t *testing.T) {
 	for _, key := range metaKeys {
 		writes = append(writes, &proto.KVPair{Key: []byte(key), Value: []byte("meta")})
 	}
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, view1.Finalize(writes))
@@ -135,7 +135,7 @@ func TestIteratorNormalizesNilDBValueToEmpty(t *testing.T) {
 
 func TestIteratorCloseIsIdempotent(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestIteratorCloseIsIdempotent(t *testing.T) {
 // reports this count, so an off-by-one would mis-report a leak or hide one.
 func TestOpenIteratorCountIsTracked(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 2, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 
 	first, err := manager.Iterator(nil)
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestIteratorClosedRefusesUnderflow(t *testing.T) {
 // claim false the moment two goroutines reach it — pebble's Close is not idempotent.
 func TestIteratorCloseIsIdempotentUnderConcurrency(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
@@ -257,9 +257,9 @@ func boundedManager(t *testing.T) ViewManager {
 	manager, _ := newTestManager(t, map[string][]byte{
 		"a": []byte("1"), "c": []byte("3"), "e": []byte("5"),
 	}, 4, 1<<20)
-	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
-	require.NoError(t, manager.Set([]byte("d"), []byte("4")))
-	require.NoError(t, manager.Set([]byte("f"), []byte("6")))
+	require.NoError(t, setKey(manager, []byte("b"), []byte("2")))
+	require.NoError(t, setKey(manager, []byte("d"), []byte("4")))
+	require.NoError(t, setKey(manager, []byte("f"), []byte("6")))
 	return manager
 }
 
@@ -286,7 +286,7 @@ func TestIteratorBothBounds(t *testing.T) {
 func TestIteratorBoundsFilterInMemoryOverrides(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 4, 1<<20)
 	for _, key := range []string{"a", "b", "c", "d"} {
-		require.NoError(t, manager.Set([]byte(key), []byte("v")))
+		require.NoError(t, setKey(manager, []byte(key), []byte("v")))
 	}
 	got := iterateWith(t, manager, &types.IterOptions{LowerBound: []byte("b"), UpperBound: []byte("d")})
 	require.Equal(t, []string{"b", "c"}, keysOf(got))
@@ -315,7 +315,7 @@ func TestIteratorDescendingWithBounds(t *testing.T) {
 // On a key present in both memory and the DB the override wins, in either direction.
 func TestIteratorDescendingOverrideShadowsDB(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"j": []byte("old"), "k": []byte("old")}, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("new")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("new")))
 
 	got := iterateWith(t, manager, &types.IterOptions{Reverse: true})
 	require.Equal(t, []kvPair{
@@ -326,7 +326,7 @@ func TestIteratorDescendingOverrideShadowsDB(t *testing.T) {
 
 func TestIteratorDescendingTombstoneSuppressesDBKey(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"gone": []byte("v"), "keep": []byte("v")}, 1, 1<<20)
-	require.NoError(t, manager.Delete([]byte("gone")))
+	require.NoError(t, deleteKey(manager, []byte("gone")))
 
 	got := iterateWith(t, manager, &types.IterOptions{Reverse: true})
 	require.Equal(t, []kvPair{{key: []byte("keep"), value: []byte("v")}}, got)
@@ -343,8 +343,8 @@ func TestIteratorDescendingDrainsBothSidesAfterOneExhausts(t *testing.T) {
 		manager, _ := newTestManager(t, map[string][]byte{
 			"a": []byte("1"), "b": []byte("2"), "c": []byte("3"),
 		}, 2, 1<<20)
-		require.NoError(t, manager.Set([]byte("y"), []byte("y")))
-		require.NoError(t, manager.Set([]byte("z"), []byte("z")))
+		require.NoError(t, setKey(manager, []byte("y"), []byte("y")))
+		require.NoError(t, setKey(manager, []byte("z"), []byte("z")))
 
 		got := iterateWith(t, manager, &types.IterOptions{Reverse: true})
 		require.Equal(t, []string{"z", "y", "c", "b", "a"}, keysOf(got))
@@ -354,7 +354,7 @@ func TestIteratorDescendingDrainsBothSidesAfterOneExhausts(t *testing.T) {
 		// Descending, the DB keys ("y","z") come first and run out while memory still holds a..c.
 		manager, _ := newTestManager(t, map[string][]byte{"y": []byte("y"), "z": []byte("z")}, 2, 1<<20)
 		for _, key := range []string{"a", "b", "c"} {
-			require.NoError(t, manager.Set([]byte(key), []byte("v")))
+			require.NoError(t, setKey(manager, []byte(key), []byte("v")))
 		}
 
 		got := iterateWith(t, manager, &types.IterOptions{Reverse: true})
@@ -366,7 +366,7 @@ func TestIteratorDescendingDrainsBothSidesAfterOneExhausts(t *testing.T) {
 func TestIteratorAscendingDrainsBothSidesAfterOneExhausts(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1"), "b": []byte("2")}, 2, 1<<20)
 	for _, key := range []string{"x", "y", "z"} {
-		require.NoError(t, manager.Set([]byte(key), []byte("v")))
+		require.NoError(t, setKey(manager, []byte(key), []byte("v")))
 	}
 
 	got := iterateWith(t, manager, nil)

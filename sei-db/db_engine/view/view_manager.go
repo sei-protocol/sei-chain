@@ -14,6 +14,28 @@ import (
 // closed normally rather than failed. Detect it with errors.Is.
 var ErrViewManagerClosed = errors.New("view manager closed")
 
+// BatchUpdater produces the value to write for each of a batch's keys, from the value that key
+// currently holds. One BatchUpdater serves every key in a BatchUpdate call.
+type BatchUpdater interface {
+	// NewValueFor returns the value to write for key, or nil to delete it. priorValue is the value
+	// key currently holds, or nil if it holds none. Called concurrently, and must neither retain
+	// nor mutate priorValue.
+	NewValueFor(key string, priorValue []byte) ([]byte, error)
+}
+
+// BatchKVPair is one update in a BatchSet, carrying its key as a string.
+type BatchKVPair struct {
+	// The key to write.
+	Key string
+
+	// The value to write. Ignored when Delete is set. An empty, non-nil value is a zero-length
+	// value, which is distinct from a delete.
+	Value []byte
+
+	// Whether this update removes the key rather than writing Value.
+	Delete bool
+}
+
 // ViewManager provides a read-through cache and efficient point-in-time views on top of a basic
 // key-value database. It also coordinates writes to the database, since efficient views require
 // careful staging of inserts.
@@ -57,26 +79,25 @@ type ViewManager interface {
 	// recoverable. It is not safe to mutate the returned key or value slices.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// Set writes the value for the given key into the current (mutable) version. Not visible to
-	// iterators created earlier (see Iterator).
-	Set(key []byte, value []byte) error
+	// BatchSet applies the given updates to the current (mutable) version. An update with Delete
+	// set removes the key; otherwise its Value is written (an empty, non-nil Value is a zero-length
+	// value, distinct from a delete). Not visible to iterators created earlier (see Iterator).
+	BatchSet(updates []BatchKVPair) error
 
-	// Delete removes the given key from the current (mutable) version. Not visible to iterators
-	// created earlier (see Iterator).
-	Delete(key []byte) error
-
-	// BatchSet applies the given changeset pairs to the current (mutable) version. A pair with
-	// Delete set removes the key; otherwise its Value is written (an empty, non-nil Value is a
-	// zero-length value, distinct from a delete). Not visible to iterators created earlier (see
-	// Iterator).
-	BatchSet(updates []*proto.KVPair) error
+	// BatchUpdate writes a value for every key in keys, each produced by handing that key's prior
+	// value to updater. Where BatchSet takes the values, this takes a function of the values
+	// already stored. Not visible to iterators created earlier (see Iterator).
+	//
+	// keys must not repeat: two updates to one key would each be handed the same prior value, and
+	// the one written last would win.
+	BatchUpdate(keys []string, updater BatchUpdater) error
 
 	// Commit seals the current version as an immutable, point-in-time View and advances the
 	// manager to a fresh mutable version. The returned View is safe to read for as long as the
 	// caller holds a reservation on it; see View for the full lifecycle contract.
 	//
 	// Commit must not be called concurrently with operations on the current (mutable)
-	// version — Get, BatchGet, Set, Delete, BatchSet, or the construction of an Iterator. Reads of
+	// version — Get, BatchGet, BatchSet, BatchUpdate, or the construction of an Iterator. Reads of
 	// sealed views may proceed concurrently with it, and so may reads through an already-constructed
 	// Iterator: an iterator is fixed at its creation instant, so a seal cannot disturb it.
 	//
@@ -98,11 +119,11 @@ type ViewManager interface {
 	// Equally, it will never show them — a caller that wants later writes needs a new iterator.
 	// Holding one is therefore safe from another thread, and does not block writes.
 	//
-	// Constructing an iterator must NOT race a BatchSet. Each shard's overrides are copied under that
-	// shard's own lock, so a batch spanning two shards during construction can leave the iterator
-	// holding part of it — a state belonging to no single instant, reported without an error. Serialize
-	// construction against BatchSet. Set and Delete each touch a single shard and so are seen either
-	// wholly or not at all; Commit stages no values and cannot be seen at all.
+	// Constructing an iterator must NOT race a BatchSet or a BatchUpdate. Each shard's overrides are
+	// copied under that shard's own lock, so a batch spanning two shards during construction can
+	// leave the iterator holding part of it — a state belonging to no single instant, reported
+	// without an error. Serialize construction against both. A batch whose keys all land in one
+	// shard is seen either wholly or not at all; Commit stages no values and cannot be seen at all.
 	//
 	// An iterator must be closed. It holds resources in the backing database — pinned files that
 	// cannot be compacted away — and reading one after the manager has closed is undefined behaviour;

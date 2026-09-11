@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // Shutdown contract under test: when Close returns, no manager-owned goroutine will touch the
@@ -24,7 +23,7 @@ func TestCloseWaitsForLifecycleMidCommit(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithDB(t, db, 1, 4096)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 
@@ -197,9 +196,9 @@ func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
 
 	// Writes must be refused rather than accepted into data that no lifecycle runner remains to
 	// flush, and reads must not keep serving from a closed manager.
-	require.ErrorIs(t, manager.Set([]byte("k"), []byte("v")), ErrViewManagerClosed)
-	require.ErrorIs(t, manager.Delete([]byte("k")), ErrViewManagerClosed)
-	require.ErrorIs(t, manager.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}), ErrViewManagerClosed)
+	require.ErrorIs(t, setKey(manager, []byte("k"), []byte("v")), ErrViewManagerClosed)
+	require.ErrorIs(t, deleteKey(manager, []byte("k")), ErrViewManagerClosed)
+	require.ErrorIs(t, manager.BatchSet([]BatchKVPair{{Key: "k", Value: []byte("v")}}), ErrViewManagerClosed)
 
 	_, _, err = manager.Get([]byte("k"), true)
 	require.ErrorIs(t, err, ErrViewManagerClosed)
@@ -220,7 +219,7 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		manager, err := NewViewManager(cfg, db, pool, pool)
 		require.NoError(t, err)
 
-		require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+		require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 		_, _, err = manager.Get([]byte("seeded"), true) // read-through miss
 		require.NoError(t, err)
 		_, err = manager.BatchGet([][]byte{[]byte("seeded"), []byte("k")})

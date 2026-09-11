@@ -429,3 +429,14 @@ func collectIterator(t *testing.T, it dbm.Iterator) []kvPair {
 	require.NoError(t, it.Close())
 	return out
 }
+
+// setKey writes one key through BatchSet. The manager has no single-key write, so a test that wants
+// one goes through the batch method.
+func setKey(manager ViewManager, key []byte, value []byte) error {
+	return manager.BatchSet([]BatchKVPair{{Key: string(key), Value: value}})
+}
+
+// deleteKey removes one key through BatchSet, for the reason given on setKey.
+func deleteKey(manager ViewManager, key []byte) error {
+	return manager.BatchSet([]BatchKVPair{{Key: string(key), Delete: true}})
+}

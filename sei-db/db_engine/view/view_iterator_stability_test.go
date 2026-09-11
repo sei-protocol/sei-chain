@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // This file pins one property: an iterator serves the manager's state as of the instant it was
@@ -67,17 +66,17 @@ func sealFlushRetire(t *testing.T, manager ViewManager) {
 // through it.
 func TestWritesProceedWhileIteratorIsOpen(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1"), "b": []byte("2")}, 4, 1<<20)
-	require.NoError(t, manager.Set([]byte("c"), []byte("3")))
+	require.NoError(t, setKey(manager, []byte("c"), []byte("3")))
 
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	require.NoError(t, manager.Set([]byte("d"), []byte("4")), "adding a key")
-	require.NoError(t, manager.Set([]byte("a"), []byte("clobbered")), "overwriting a key")
-	require.NoError(t, manager.Delete([]byte("b")), "deleting a key")
-	require.NoError(t, manager.BatchSet([]*proto.KVPair{
-		{Key: []byte("e"), Value: []byte("5")},
-		{Key: []byte("c"), Delete: true},
+	require.NoError(t, setKey(manager, []byte("d"), []byte("4")), "adding a key")
+	require.NoError(t, setKey(manager, []byte("a"), []byte("clobbered")), "overwriting a key")
+	require.NoError(t, deleteKey(manager, []byte("b")), "deleting a key")
+	require.NoError(t, manager.BatchSet([]BatchKVPair{
+		{Key: "e", Value: []byte("5")},
+		{Key: "c", Delete: true},
 	}), "a batch mixing a write and a delete")
 
 	require.Equal(t, sortedPairs(map[string]string{"a": "1", "b": "2", "c": "3"}), collectIterator(t, it),
@@ -87,7 +86,7 @@ func TestWritesProceedWhileIteratorIsOpen(t *testing.T) {
 // Sealing the version an iterator copied from must be accepted and must not disturb it.
 func TestIteratorSurvivesCommit(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1")}, 4, 1<<20)
-	require.NoError(t, manager.Set([]byte("b"), []byte("2")))
+	require.NoError(t, setKey(manager, []byte("b"), []byte("2")))
 
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
@@ -96,7 +95,7 @@ func TestIteratorSurvivesCommit(t *testing.T) {
 	require.NoError(t, err, "Commit must be accepted while an iterator is open")
 	finalizeAndRelease(t, view)
 
-	require.NoError(t, manager.Set([]byte("c"), []byte("3")))
+	require.NoError(t, setKey(manager, []byte("c"), []byte("3")))
 
 	require.Equal(t, sortedPairs(map[string]string{"a": "1", "b": "2"}), collectIterator(t, it))
 }
@@ -112,7 +111,7 @@ func TestIteratorSurvivesFlushAndRetirement(t *testing.T) {
 	want := map[string]string{"disk": "d"}
 	for i := 0; i < 20; i++ {
 		key, value := fmt.Sprintf("mem-%02d", i), fmt.Sprintf("v%02d", i)
-		require.NoError(t, manager.Set([]byte(key), []byte(value)))
+		require.NoError(t, setKey(manager, []byte(key), []byte(value)))
 		want[key] = value
 	}
 
@@ -122,9 +121,9 @@ func TestIteratorSurvivesFlushAndRetirement(t *testing.T) {
 	sealFlushRetire(t, manager)
 
 	// Leave the shards holding entirely different data than when the iterator was made.
-	require.NoError(t, manager.Set([]byte("mem-00"), []byte("clobbered")))
-	require.NoError(t, manager.Delete([]byte("mem-01")))
-	require.NoError(t, manager.Set([]byte("mem-99"), []byte("new")))
+	require.NoError(t, setKey(manager, []byte("mem-00"), []byte("clobbered")))
+	require.NoError(t, deleteKey(manager, []byte("mem-01")))
+	require.NoError(t, setKey(manager, []byte("mem-99"), []byte("new")))
 
 	require.Equal(t, sortedPairs(want), collectIterator(t, it))
 }
@@ -153,15 +152,15 @@ func TestBoundedAndReverseIteratorsSurviveWrites(t *testing.T) {
 			// Half on disk, half staged, so both sides of the merge are exercised under bounds.
 			manager, _ := newTestManager(t, map[string][]byte{"a": []byte("1"), "c": []byte("3")}, 4, 1<<20)
 			for _, k := range []string{"b", "d", "e"} {
-				require.NoError(t, manager.Set([]byte(k), []byte(all[k])))
+				require.NoError(t, setKey(manager, []byte(k), []byte(all[k])))
 			}
 
 			it, err := manager.Iterator(tc.opts)
 			require.NoError(t, err)
 
 			sealFlushRetire(t, manager)
-			require.NoError(t, manager.Set([]byte("c"), []byte("clobbered")))
-			require.NoError(t, manager.Delete([]byte("d")))
+			require.NoError(t, setKey(manager, []byte("c"), []byte("clobbered")))
+			require.NoError(t, deleteKey(manager, []byte("d")))
 
 			require.Equal(t, tc.want, collectIterator(t, it))
 		})
@@ -175,12 +174,12 @@ func TestIteratorTombstonesAreFixedAtCreation(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{
 		"deleted-before": []byte("v"), "deleted-after": []byte("v"), "kept": []byte("v"),
 	}, 4, 1<<20)
-	require.NoError(t, manager.Delete([]byte("deleted-before")))
+	require.NoError(t, deleteKey(manager, []byte("deleted-before")))
 
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
-	require.NoError(t, manager.Delete([]byte("deleted-after")))
+	require.NoError(t, deleteKey(manager, []byte("deleted-after")))
 	sealFlushRetire(t, manager)
 
 	require.Equal(t, sortedPairs(map[string]string{"deleted-after": "v", "kept": "v"}),
@@ -192,17 +191,17 @@ func TestIteratorTombstonesAreFixedAtCreation(t *testing.T) {
 func TestIteratorsHoldIndependentInstants(t *testing.T) {
 	manager, _ := newTestManager(t, map[string][]byte{"base": []byte("0")}, 4, 1<<20)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("first")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("first")))
 	first, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
 	commitFinalizeRelease(t, manager)
-	require.NoError(t, manager.Set([]byte("k"), []byte("second")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("second")))
 	second, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
 	commitFinalizeRelease(t, manager)
-	require.NoError(t, manager.Set([]byte("k"), []byte("third")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("third")))
 
 	require.Equal(t, sortedPairs(map[string]string{"base": "0", "k": "first"}), collectIterator(t, first))
 	require.Equal(t, sortedPairs(map[string]string{"base": "0", "k": "second"}), collectIterator(t, second))
@@ -213,14 +212,14 @@ func TestIteratorsHoldIndependentInstants(t *testing.T) {
 func TestIteratorKeepsOverrideWinnerAcrossFlush(t *testing.T) {
 	db := newTestDB(map[string][]byte{"shared": []byte("disk"), "disk-only": []byte("d")})
 	manager := newTestManagerWithDB(t, db, 4, 1<<20)
-	require.NoError(t, manager.Set([]byte("shared"), []byte("staged")))
-	require.NoError(t, manager.Set([]byte("mem-only"), []byte("m")))
+	require.NoError(t, setKey(manager, []byte("shared"), []byte("staged")))
+	require.NoError(t, setKey(manager, []byte("mem-only"), []byte("m")))
 
 	it, err := manager.Iterator(nil)
 	require.NoError(t, err)
 
 	sealFlushRetire(t, manager)
-	require.NoError(t, manager.Set([]byte("shared"), []byte("clobbered")))
+	require.NoError(t, setKey(manager, []byte("shared"), []byte("clobbered")))
 
 	require.Equal(t, sortedPairs(map[string]string{
 		"shared": "staged", "disk-only": "d", "mem-only": "m",
@@ -234,7 +233,7 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 	want := map[string]string{"a": "1"}
 	for i := 0; i < 200; i++ {
 		key, value := fmt.Sprintf("k-%03d", i), fmt.Sprintf("v-%03d", i)
-		require.NoError(t, manager.Set([]byte(key), []byte(value)))
+		require.NoError(t, setKey(manager, []byte(key), []byte(value)))
 		want[key] = value
 	}
 
@@ -263,11 +262,11 @@ func TestIteratorIsStableUnderConcurrentCommits(t *testing.T) {
 			default:
 			}
 			// Clobber keys the iterator is holding, and add new ones, then seal it all.
-			if err := manager.Set([]byte(fmt.Sprintf("k-%03d", round%200)), []byte("clobbered")); err != nil {
+			if err := setKey(manager, []byte(fmt.Sprintf("k-%03d", round%200)), []byte("clobbered")); err != nil {
 				writerErr = err
 				return
 			}
-			if err := manager.Set([]byte(fmt.Sprintf("new-%03d", round)), []byte("v")); err != nil {
+			if err := setKey(manager, []byte(fmt.Sprintf("new-%03d", round)), []byte("v")); err != nil {
 				writerErr = err
 				return
 			}
@@ -320,13 +319,13 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 
 	// Keys chosen to span shards; the batch is atomic from the writer's point of view, so a reader
 	// must see all of it or none of it.
-	batch := make([]*proto.KVPair, 0, 32)
+	batch := make([]BatchKVPair, 0, 32)
 	before := make(map[string]string, 32)
 	after := make(map[string]string, 32)
 	for i := 0; i < 32; i++ {
 		key := fmt.Sprintf("spread-%02d", i)
-		require.NoError(t, manager.Set([]byte(key), []byte("before")))
-		batch = append(batch, &proto.KVPair{Key: []byte(key), Value: []byte("after")})
+		require.NoError(t, setKey(manager, []byte(key), []byte("before")))
+		batch = append(batch, BatchKVPair{Key: key, Value: []byte("after")})
 		before[key] = "before"
 		after[key] = "after"
 	}
@@ -367,10 +366,10 @@ func TestSerializedCreationYieldsOneCoherentInstant(t *testing.T) {
 }
 
 // revert turns a write batch into one that restores the "before" value for the same keys.
-func revert(batch []*proto.KVPair) []*proto.KVPair {
-	out := make([]*proto.KVPair, 0, len(batch))
+func revert(batch []BatchKVPair) []BatchKVPair {
+	out := make([]BatchKVPair, 0, len(batch))
 	for _, pair := range batch {
-		out = append(out, &proto.KVPair{Key: pair.Key, Value: []byte("before")})
+		out = append(out, BatchKVPair{Key: pair.Key, Value: []byte("before")})
 	}
 	return out
 }

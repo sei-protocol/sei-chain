@@ -20,7 +20,7 @@ func TestViewFinalizeThenReleaseHappyPath(t *testing.T) {
 // finalization, not the metadata, that makes a view flushable.
 func TestViewFinalizeWithNoWritesIsLegal(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestViewDoubleReleaseFails(t *testing.T) {
 
 func TestViewReserveExtendsLifetime(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 
@@ -82,7 +82,7 @@ func TestViewFinalizeGatesFlush(t *testing.T) {
 	manager := newTestManagerWithDB(t, newTestDB(nil), 1, 4096)
 	db := manager.(*viewManager).db.(*testDB)
 
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 
@@ -105,7 +105,7 @@ func TestViewAwaitFlushContextCancelled(t *testing.T) {
 	defer close(db.commitBlock)
 
 	manager := newTestManagerWithDB(t, db, 1, 4096)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, view.Finalize(hashWrites(testHash)))
@@ -119,7 +119,7 @@ func TestViewAwaitFlushContextCancelled(t *testing.T) {
 
 func TestAwaitFlushRetiredVersionWithCancelledCtx(t *testing.T) {
 	manager, _ := newTestManager(t, nil, 1, 1<<20)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	view, err := manager.Commit()
 	require.NoError(t, err)
 	ver := view.(*viewImpl).version
@@ -181,7 +181,7 @@ func TestHeldReservationDoesNotTriggerCommitBackpressure(t *testing.T) {
 
 	// v1 is finalized and flushed but never released: it cannot retire, so no later version can
 	// flush until it is released.
-	require.NoError(t, manager.Set([]byte("k1"), []byte("v1")))
+	require.NoError(t, setKey(manager, []byte("k1"), []byte("v1")))
 	view1, err := manager.Commit()
 	require.NoError(t, err)
 	require.NoError(t, view1.Finalize(hashWrites(testHash)))
@@ -225,11 +225,11 @@ func TestCloseDoesNotFlush(t *testing.T) {
 
 	// v1 is never finalized, which deterministically keeps the background flusher away from v2:
 	// the flush frontier stops at the first unfinalized version.
-	require.NoError(t, manager.Set([]byte("k1"), []byte("v1")))
+	require.NoError(t, setKey(manager, []byte("k1"), []byte("v1")))
 	_, err := manager.Commit()
 	require.NoError(t, err)
 
-	require.NoError(t, manager.Set([]byte("k2"), []byte("v2")))
+	require.NoError(t, setKey(manager, []byte("k2"), []byte("v2")))
 	view2, err := manager.Commit()
 	require.NoError(t, err)
 	finalizeAndRelease(t, view2)
@@ -250,7 +250,7 @@ func TestCloseIsIdempotent(t *testing.T) {
 func TestCloseSkipsUnfinalizedView(t *testing.T) {
 	db := newTestDB(nil)
 	manager := newTestManagerWithDB(t, db, 1, 4096)
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
+	require.NoError(t, setKey(manager, []byte("k"), []byte("v")))
 	_, err := manager.Commit()
 	require.NoError(t, err)
 	// Never finalized.

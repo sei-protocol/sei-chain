@@ -1,7 +1,9 @@
 package flatkv
 
 import (
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -72,8 +74,9 @@ func (s *CommitStore) applyChangeSets(
 	if err != nil {
 		return fmt.Errorf("classify changesets: %w", err)
 	}
-	// Parse, gather, and sort. Nothing is written until all of it has validated, so a parse failure
-	// part way through cannot leave some of the block's values in a store.
+	// Every value the changeset carries is parsed here, before anything is written, so a malformed
+	// block fails with no part of it in a store. What is left for the write is folding the account
+	// changes onto the rows those accounts already hold; see accountUpdater.
 	prepared, err := s.prepareWrites(changesByType, version)
 	if err != nil {
 		return fmt.Errorf("prepare writes: %w", err)
@@ -87,105 +90,167 @@ func (s *CommitStore) applyChangeSets(
 	logger.Debug("FlatKV ApplyChangeSets complete",
 		"version", version,
 		"changesets", len(changeSets),
-		"writes", len(prepared.accounts)+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
+		"writes", prepared.accountCount()+len(prepared.storage)+len(prepared.code)+len(prepared.misc),
 		"elapsed", obs.elapsed())
 	return nil
 }
 
-// preparedWrites holds the fully-validated per-database values and LtHash pairs for one
-// ApplyChangeSets call. Nothing here reaches a store until every kind has validated — see
-// writeToStores.
+// preparedWrites holds one ApplyChangeSets call's values, per database. Storage, code and misc
+// arrive as the values to write; accounts arrive as the changes to fold onto the rows they modify,
+// which the account store resolves as it writes.
 type preparedWrites struct {
-	accounts map[string]*vtype.AccountData
+	accounts *accountUpdater
 	storage  map[string]*vtype.StorageData
 	code     map[string]*vtype.CodeData
 	misc     map[string]*vtype.MiscData
 }
 
-// prepareWrites applies EVM value semantics and returns the values to write, per database.
+// accountCount reports how many accounts the block writes, treating a block that touches none as zero
+// rather than requiring the caller to nil-check.
+func (p preparedWrites) accountCount() int {
+	if p.accounts == nil {
+		return 0
+	}
+	return len(p.accounts.keys)
+}
+
+// prepareWrites applies EVM value semantics to one block's changes, parsing every value the
+// changeset carries.
 func (s *CommitStore) prepareWrites(
+	changesByType map[keys.EVMKeyKind]map[string][]byte,
+	blockHeight int64,
+) (preparedWrites, error) {
+	// Accounts are the one kind that has to be read back out of its store before it can be written,
+	// and the other three databases' values do not depend on that read, so they are gathered while
+	// it is in flight.
+	var out preparedWrites
+	var gatherErr error
+	var gathered sync.WaitGroup
+	gathered.Add(1)
+	s.miscPool.Submit(func() {
+		defer gathered.Done()
+		out, gatherErr = gatherNonAccountValues(changesByType, blockHeight)
+	})
+
+	// Every account field value is parsed here, before anything is written, which is what keeps a
+	// malformed changeset from leaving the account store half-updated: the rows themselves are folded
+	// later, inside the write, where a failure would come after some of them had landed.
+	s.phaseTimer.SetPhase("apply_change_sets_merge_accounts")
+	updater, mergeErr := newAccountUpdater(
+		changesByType[keys.EVMKeyNonce],
+		changesByType[keys.EVMKeyCodeHash],
+		changesByType[keys.EVMKeyBalance],
+		blockHeight,
+	)
+
+	gathered.Wait()
+	if mergeErr != nil {
+		return preparedWrites{}, mergeErr
+	}
+	if gatherErr != nil {
+		return preparedWrites{}, gatherErr
+	}
+	out.accounts = updater
+	return out, nil
+}
+
+// gatherNonAccountValues turns one block's storage, code and misc changes into the values to write,
+// per database. The accounts field of the result is left empty; see newAccountUpdater.
+func gatherNonAccountValues(
 	changesByType map[keys.EVMKeyKind]map[string][]byte,
 	blockHeight int64,
 ) (preparedWrites, error) {
 	var out preparedWrites
 
-	// A nonce, codehash or balance change carries only its own field, so it has to be merged onto the
-	// account as it stands right now — a live read, since anything an earlier call at this height wrote
-	// counts.
-	s.phaseTimer.SetPhase("apply_change_sets_read_accounts")
-	readStart := time.Now()
-	accountOld, err := s.readAccountsForMerge(changesByType)
-	otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(readStart),
-		metric.WithAttributes(successAttr(err)))
-	if err != nil {
-		return out, err
-	}
-
-	s.phaseTimer.SetPhase("apply_change_sets_gather_values")
-
-	accountUpdates, err := mergeAccountUpdates(
-		changesByType[keys.EVMKeyNonce],
-		changesByType[keys.EVMKeyCodeHash],
-		changesByType[keys.EVMKeyBalance],
-	)
-	if err != nil {
-		return out, fmt.Errorf("failed to gather account updates: %w", err)
-	}
-	newAccounts := deriveNewAccountValues(accountUpdates, accountOld, blockHeight)
-
 	storageWrites, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
-		return out, fmt.Errorf("failed to parse storage changes: %w", err)
+		return preparedWrites{}, fmt.Errorf("failed to parse storage changes: %w", err)
 	}
 
 	codeWrites, err := toCodeValues(changesByType[keys.EVMKeyCode], blockHeight)
 	if err != nil {
-		return out, fmt.Errorf("failed to parse code changes: %w", err)
+		return preparedWrites{}, fmt.Errorf("failed to parse code changes: %w", err)
 	}
 
 	miscWrites, err := toMiscValues(changesByType[keys.EVMKeyMisc], blockHeight)
 	if err != nil {
-		return out, fmt.Errorf("failed to parse misc changes: %w", err)
+		return preparedWrites{}, fmt.Errorf("failed to parse misc changes: %w", err)
 	}
 
-	out.accounts = newAccounts
 	out.storage = storageWrites
 	out.code = codeWrites
 	out.misc = miscWrites
 	return out, nil
 }
 
-// readAccountsForMerge reads the accounts that this batch's nonce, codehash and balance changes touch,
-// so those partial updates can be merged onto whole accounts. Keys come from all three kinds, since any
-// one of them can name an account the others do not.
-func (s *CommitStore) readAccountsForMerge(
-	changesByType map[keys.EVMKeyKind]map[string][]byte,
-) (map[string]*vtype.AccountData, error) {
-	accountKinds := []keys.EVMKeyKind{keys.EVMKeyNonce, keys.EVMKeyCodeHash, keys.EVMKeyBalance}
+var _ view.BatchUpdater = (*accountUpdater)(nil)
 
-	size := 0
-	for _, kind := range accountKinds {
-		size += len(changesByType[kind])
+// accountUpdater folds one block's per-field account changes onto the rows those accounts already
+// hold.
+//
+// An account is stored as one row but written a field at a time, so a change carrying only a nonce or
+// only a code hash has to be applied on top of the row as it stands. The row is read by the account
+// store while it writes, rather than by this store beforehand, because the write already looks the
+// key up: see view.ViewManager.BatchUpdate.
+type accountUpdater struct {
+	// pending is the fields this block set, keyed by physical key. Values are parsed when this is
+	// built, so folding a row cannot fail on a malformed change.
+	pending map[string]vtype.PendingAccountWrite
+
+	// keys names every account the block touched. Held alongside pending because BatchUpdate needs
+	// the keys as a slice, and building it here means walking the map once rather than once per
+	// write.
+	keys []string
+
+	// blockHeight is stamped on every row written, whether or not any field value actually changed,
+	// because GetBlockHeightModified reports it.
+	blockHeight int64
+}
+
+// newAccountUpdater parses one batch's per-field account changes into the fields to set on each
+// account. Reports nil when the batch touches no account.
+func newAccountUpdater(
+	nonceChanges map[string][]byte,
+	codeHashChanges map[string][]byte,
+	balanceChanges map[string][]byte,
+	blockHeight int64,
+) (*accountUpdater, error) {
+	pending, err := mergeAccountUpdates(nonceChanges, codeHashChanges, balanceChanges)
+	if err != nil {
+		return nil, fmt.Errorf("failed to gather account updates: %w", err)
 	}
-	touched := make(map[string]struct{}, size)
-	for _, kind := range accountKinds {
-		for key := range changesByType[kind] {
-			touched[key] = struct{}{}
-		}
-	}
-	if len(touched) == 0 {
+	if len(pending) == 0 {
 		return nil, nil
 	}
 
-	physKeys := make([][]byte, 0, len(touched))
-	for key := range touched {
-		physKeys = append(physKeys, []byte(key))
+	physKeys := make([]string, 0, len(pending))
+	for key := range pending {
+		physKeys = append(physKeys, key)
 	}
-	raw, err := s.accountStore.BatchGet(physKeys)
-	if err != nil {
-		return nil, fmt.Errorf("read accounts to merge onto: %w", err)
+	return &accountUpdater{pending: pending, keys: physKeys, blockHeight: blockHeight}, nil
+}
+
+// NewValueFor folds this block's changes to one account onto the row it already holds. An account the
+// store does not hold starts from zero, and a row left with no balance, nonce or code hash is deleted.
+func (u *accountUpdater) NewValueFor(key string, priorValue []byte) ([]byte, error) {
+	var stored *vtype.AccountData
+	if priorValue != nil {
+		parsed, err := vtype.DeserializeAccountData(priorValue)
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize accountDB old value: %w", err)
+		}
+		stored = parsed
 	}
-	return deserializeOldAccounts(raw)
+
+	// Copied out of the map so the pointer-receiver methods have something addressable to work on.
+	pending := u.pending[key]
+	// Merge copies rather than writing through, so the value handed back does not alias the row the
+	// store still holds for earlier versions.
+	merged := pending.Merge(stored, u.blockHeight)
+	if merged.IsDelete() {
+		return nil, nil
+	}
+	return merged.Serialize(), nil
 }
 
 // writeToStores writes one successful ApplyChangeSets batch into the four data stores and records the
@@ -194,9 +259,6 @@ func (s *CommitStore) readAccountsForMerge(
 // A store that already has this block is skipped. That happens only when a startup replay is catching
 // the stores up to each other, where its hash already includes the block and writing it again would
 // count it twice.
-//
-// The writes must come after the account reads in prepareWrites, because writing here is what makes
-// this block's values visible to a read through the same store.
 func (s *CommitStore) writeToStores(
 	prepared preparedWrites,
 	changeSets []*proto.NamedChangeSet,
@@ -205,36 +267,83 @@ func (s *CommitStore) writeToStores(
 ) error {
 	s.phaseTimer.SetPhase("apply_change_write_to_stores")
 
-	// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL replay is external,
-	// we may be able to simplify this code since we will be able to assume that all stores start at the same block.
-	if alreadyHave[accountDBDir] < version {
-		if err := serializeAndPut(s.accountStore, prepared.accounts); err != nil {
-			return fmt.Errorf("write %s values: %w", accountDBDir, err)
-		}
-		addKVPairs(s.ctx, accountDBDir, len(prepared.accounts))
+	// The four databases are independent view managers with independent locks, so their writes run
+	// concurrently rather than one store's fan-out waiting on the last. Account and storage carry
+	// most of a block between them, so overlapping the two is most of the win.
+	writes := []func() error{
+		// TODO: currently, WAL replay may replay blocks already in some stores. In the future when WAL replay
+		// is external, we may be able to simplify this code since we will be able to assume that all stores
+		// start at the same block.
+		// Accounts alone are written by folding onto what the store already holds, so they take a
+		// different path: see accountUpdater.
+		writeAccountStore(s, prepared.accounts, version, alreadyHave),
+		writeStore(s, s.storageStore, storageDBDir, prepared.storage, version, alreadyHave),
+		writeStore(s, s.codeStore, codeDBDir, prepared.code, version, alreadyHave),
+		writeStore(s, s.miscStore, miscDBDir, prepared.misc, version, alreadyHave),
 	}
-	if alreadyHave[storageDBDir] < version {
-		if err := serializeAndPut(s.storageStore, prepared.storage); err != nil {
-			return fmt.Errorf("write %s values: %w", storageDBDir, err)
-		}
-		addKVPairs(s.ctx, storageDBDir, len(prepared.storage))
+	errs := make([]error, len(writes))
+	var wg sync.WaitGroup
+	for i, write := range writes {
+		wg.Add(1)
+		s.miscPool.Submit(func() {
+			defer wg.Done()
+			errs[i] = write()
+		})
 	}
-	if alreadyHave[codeDBDir] < version {
-		if err := serializeAndPut(s.codeStore, prepared.code); err != nil {
-			return fmt.Errorf("write %s values: %w", codeDBDir, err)
-		}
-		addKVPairs(s.ctx, codeDBDir, len(prepared.code))
-	}
-	if alreadyHave[miscDBDir] < version {
-		if err := serializeAndPut(s.miscStore, prepared.misc); err != nil {
-			return fmt.Errorf("write %s values: %w", miscDBDir, err)
-		}
-		addKVPairs(s.ctx, miscDBDir, len(prepared.misc))
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return err
 	}
 
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 	s.pendingBlockHeight = version
 	return nil
+}
+
+// writeAccountStore returns the write of the block's accounts, each folded onto the row its key
+// already holds, or a no-op for a store that already holds this block.
+func writeAccountStore(
+	s *CommitStore,
+	updater *accountUpdater,
+	version int64,
+	alreadyHave map[string]int64,
+) func() error {
+	return func() error {
+		if alreadyHave[accountDBDir] >= version || updater == nil {
+			return nil
+		}
+		start := time.Now()
+		err := s.accountStore.BatchUpdate(updater.keys, updater)
+		otelMetrics.AccountUpdateLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		if err != nil {
+			return fmt.Errorf("write %s values: %w", accountDBDir, err)
+		}
+		addKVPairs(s.ctx, accountDBDir, len(updater.keys))
+		return nil
+	}
+}
+
+// writeStore returns the write of one database's values, or a no-op for a store that already holds
+// this block.
+func writeStore[T vtype.VType](
+	s *CommitStore,
+	store view.ViewManager,
+	dbDir string,
+	values map[string]T,
+	version int64,
+	alreadyHave map[string]int64,
+) func() error {
+	return func() error {
+		if alreadyHave[dbDir] >= version {
+			return nil
+		}
+		if err := serializeAndPut(store, values); err != nil {
+			return fmt.Errorf("write %s values: %w", dbDir, err)
+		}
+		addKVPairs(s.ctx, dbDir, len(values))
+		return nil
+	}
 }
 
 // serializeAndPut writes values into the store's current version, to be sealed by the next Commit. A
@@ -245,39 +354,21 @@ func serializeAndPut[T vtype.VType](store view.ViewManager, values map[string]T)
 	if len(values) == 0 {
 		return nil
 	}
-	pairs := make([]*proto.KVPair, 0, len(values))
+	// One slice of values rather than a slice of pointers, and the physical keys handed over as the
+	// strings they already are: the store keys its own structures by string, so converting them to
+	// []byte here only to have them converted back is the whole cost of this loop.
+	pairs := make([]view.BatchKVPair, 0, len(values))
 	for key, value := range values {
 		if value.IsDelete() {
-			pairs = append(pairs, &proto.KVPair{Key: []byte(key), Delete: true})
+			pairs = append(pairs, view.BatchKVPair{Key: key, Delete: true})
 			continue
 		}
-		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value.Serialize()})
+		pairs = append(pairs, view.BatchKVPair{Key: key, Value: value.Serialize()})
 	}
 	if err := store.BatchSet(pairs); err != nil {
 		return fmt.Errorf("batch write: %w", err)
 	}
 	return nil
-}
-
-// deserializeOldAccounts parses the account database's old values into AccountData. A partial update —
-// a nonce without a codehash, say — has to be merged onto the account that is already there, which
-// needs the old value in structured form rather than as bytes.
-//
-// raw is keyed by physical key, and a key that had no prior value maps to nil; those are dropped
-// rather than deserialized, so the result holds only accounts that already existed.
-func deserializeOldAccounts(raw map[string][]byte) (map[string]*vtype.AccountData, error) {
-	old := make(map[string]*vtype.AccountData, len(raw))
-	for key, b := range raw {
-		if b == nil {
-			continue
-		}
-		v, err := vtype.DeserializeAccountData(b)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize accountDB old value: %w", err)
-		}
-		old[key] = v
-	}
-	return old, nil
 }
 
 // moduleOfKey extracts the owning module from a physical key. Injected into the
@@ -439,75 +530,59 @@ func toMiscValues(
 	return result, nil
 }
 
-// Merge account updates down into a single update per account.
+// mergeAccountUpdates folds a block's per-field account changes into one pending write per account,
+// parsing every value as it goes so a malformed change fails here rather than mid-write.
+//
+// The map holds pending writes by value: a block touches thousands of accounts, and a pointer per
+// account was measured as most of this function's cost.
 func mergeAccountUpdates(
 	nonceChanges map[string][]byte,
 	codeHashChanges map[string][]byte,
 	balanceChanges map[string][]byte,
-) (map[string]*vtype.PendingAccountWrite, error) {
+) (map[string]vtype.PendingAccountWrite, error) {
 
-	updates := make(map[string]*vtype.PendingAccountWrite,
+	updates := make(map[string]vtype.PendingAccountWrite,
 		len(nonceChanges)+len(codeHashChanges)+len(balanceChanges))
 
 	for key, nonceChange := range nonceChanges {
-		if nonceChange == nil {
-			// Deletion is equivalent to setting the nonce to 0
-			updates[key] = updates[key].SetNonce(0)
-		} else {
-			nonce, err := vtype.ParseNonce(nonceChange)
+		// Deletion is equivalent to setting the nonce to 0.
+		var nonce uint64
+		if nonceChange != nil {
+			parsed, err := vtype.ParseNonce(nonceChange)
 			if err != nil {
 				return nil, fmt.Errorf("invalid nonce value: %w", err)
 			}
-			updates[key] = updates[key].SetNonce(nonce)
+			nonce = parsed
 		}
+		pending := updates[key]
+		pending.SetNonce(nonce)
+		updates[key] = pending
 	}
 
 	for key, codeHashChange := range codeHashChanges {
+		// Deletion is equivalent to setting the code hash to a zero hash.
+		pending := updates[key]
 		if codeHashChange == nil {
-			// Deletion is equivalent to setting the code hash to a zero hash
-			var zero vtype.CodeHash
-			updates[key] = updates[key].SetCodeHash(&zero)
-		} else {
-			codeHash, err := vtype.ParseCodeHash(codeHashChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid codehash value: %w", err)
-			}
-			updates[key] = updates[key].SetCodeHash(codeHash)
+			pending.SetCodeHash(nil)
+		} else if _, err := pending.SetCodeHashBytes(codeHashChange); err != nil {
+			return nil, fmt.Errorf("invalid codehash value: %w", err)
 		}
+		updates[key] = pending
 	}
 
 	for key, balanceChange := range balanceChanges {
+		// Deletion is equivalent to setting the balance to a zero balance.
+		pending := updates[key]
 		if balanceChange == nil {
-			// Deletion is equivalent to setting the balance to a zero balance
-			var zero vtype.Balance
-			updates[key] = updates[key].SetBalance(&zero)
+			pending.SetBalance(nil)
 		} else {
 			balance, err := vtype.ParseBalance(balanceChange)
 			if err != nil {
 				return nil, fmt.Errorf("invalid balance value: %w", err)
 			}
-			updates[key] = updates[key].SetBalance(balance)
+			pending.SetBalance(balance)
 		}
+		updates[key] = pending
 	}
 	return updates, nil
-}
-
-// Combine the pending account writes with prior values to determine the new account values.
-//
-// We need to take this step because accounts are split into multiple fields, and it's possible to overwrite just a
-// single field (thus requiring us to copy the unmodified fields from the prior value).
-func deriveNewAccountValues(
-	pendingWrites map[string]*vtype.PendingAccountWrite,
-	oldValues map[string]*vtype.AccountData,
-	blockHeight int64,
-) map[string]*vtype.AccountData {
-	result := make(map[string]*vtype.AccountData, len(pendingWrites))
-
-	for addrStr, pendingWrite := range pendingWrites {
-		oldValue := oldValues[addrStr]
-
-		newValue := pendingWrite.Merge(oldValue, blockHeight)
-		result[addrStr] = newValue
-	}
-	return result
 }

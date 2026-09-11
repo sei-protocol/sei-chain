@@ -236,29 +236,33 @@ func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	return bytes, entries
 }
 
-func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
-	// Sort entries by shard index so each shard is locked only once.
-	shardMap := make(map[uint64][]*proto.KVPair)
+func (c *viewManager) BatchSet(updates []BatchKVPair) error {
+	// Bucketed by shard so each shard is locked once. Buckets start out sized for an even spread,
+	// which is what the seeded hash produces; one that lands above its share still grows on demand.
+	buckets := make([][]BatchKVPair, len(c.shards))
+	bucketHint := 2*len(updates)/len(c.shards) + 1
 	for i := range updates {
-		idx := c.shardManager.Shard(updates[i].Key)
-		shardMap[idx] = append(shardMap[idx], updates[i])
+		idx := c.shardManager.ShardString(updates[i].Key)
+		if buckets[idx] == nil {
+			buckets[idx] = make([]BatchKVPair, 0, bucketHint)
+		}
+		buckets[idx] = append(buckets[idx], updates[i])
 	}
 
-	// Fan out to shards. A shard refusing the write — it is out of service, so the manager is closed or
-	// bricked — fails the whole call; the shards that accepted it have already applied their entries, so
-	// the batch is not atomic across shards in that case. That is acceptable because the manager contract
-	// makes any error fatal.
+	// Fan out to shards. A shard refusing the write — it is out of service, so the manager is closed
+	// or bricked — fails the whole call; the shards that accepted it have already applied their
+	// entries, so the batch is not atomic across shards in that case. That is acceptable because the
+	// manager contract makes any error fatal.
 	var wg sync.WaitGroup
-	shardIndices := make([]uint64, 0, len(shardMap))
-	for shardIndex := range shardMap {
-		shardIndices = append(shardIndices, shardIndex)
-	}
-	errs := make([]error, len(shardIndices))
-	for i, shardIndex := range shardIndices {
+	errs := make([]error, len(buckets))
+	for shardIndex := range buckets {
+		if len(buckets[shardIndex]) == 0 {
+			continue
+		}
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			errs[i] = c.shards[shardIndex].BatchSet(shardMap[shardIndex])
+			errs[shardIndex] = c.shards[shardIndex].BatchSet(buckets[shardIndex])
 		})
 	}
 	wg.Wait()
@@ -271,57 +275,122 @@ func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
 	return nil
 }
 
+func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
+	// Fanned out the same way as readFromShards, and for the same reason: a key belongs to one
+	// shard, so the shards touch disjoint elements of both slices and need no lock between them. The
+	// two slices are scratch shared with the shards, not results — priorValues carries what was read
+	// into the update, newValues carries what the updater returned into the write.
+	work := c.partitionIndicesByShard(keys)
+	priorValues := make([][]byte, len(keys))
+	newValues := make([][]byte, len(keys))
+	errs := make([]error, len(c.shards))
+
+	var wg sync.WaitGroup
+	for shardIndex := range work {
+		if len(work[shardIndex]) == 0 {
+			continue
+		}
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			errs[shardIndex] = c.shards[shardIndex].batchUpdate(
+				keys, work[shardIndex], updater, c.currentVersion, priorValues, newValues)
+		})
+	}
+	wg.Wait()
+
+	// Any shard error fails the whole call.
+	for _, err := range errs {
+		if err != nil {
+			return fmt.Errorf("failed to batch update in shard: %w", err)
+		}
+	}
+	return nil
+}
+
 func (c *viewManager) BatchGet(keys [][]byte) (map[string][]byte, error) {
 	return c.BatchGetAtVersion(keys, c.currentVersion)
 }
 
 // Similar semantics to BatchGet, but reads from the given version of the manager.
 func (c *viewManager) BatchGetAtVersion(keys [][]byte, version uint64) (map[string][]byte, error) {
-	// Partition the keys by shard so each shard is queried once.
-	work := make(map[uint64][][]byte)
-	for _, key := range keys {
-		shardIndex := c.shardManager.Shard(key)
-		work[shardIndex] = append(work[shardIndex], key)
+	// The manager keys everything it holds by string, so the conversion happens once here rather
+	// than per lookup inside the shards.
+	stringKeys := make([]string, len(keys))
+	for i, key := range keys {
+		stringKeys[i] = string(key)
 	}
+	values, err := c.readFromShards(stringKeys, version)
+	if err != nil {
+		return nil, err
+	}
+	return foundValuesByKey(stringKeys, values), nil
+}
 
-	// Fan out to shards, collecting each shard's found results (or its error).
-	shardIndices := make([]uint64, 0, len(work))
-	for shardIndex := range work {
-		shardIndices = append(shardIndices, shardIndex)
-	}
-	results := make([]map[string][]byte, len(shardIndices))
-	errs := make([]error, len(shardIndices))
+// readFromShards asks each shard for the keys that belong to it, returning every key's value at the
+// same index it was given at. A key the manager holds no value for is nil, which is what
+// distinguishes not-found from a found empty value.
+//
+// Any read failing fails the whole call; reads are not partially recoverable.
+func (c *viewManager) readFromShards(keys []string, version uint64) ([][]byte, error) {
+	// One result slice shared by every shard. Each writes only the elements whose keys hashed to it,
+	// and no key hashes to two shards, so the shards write disjoint elements and need no lock
+	// between them.
+	values := make([][]byte, len(keys))
+	work := c.partitionIndicesByShard(keys)
+	errs := make([]error, len(c.shards))
 
 	var wg sync.WaitGroup
-	for i, shardIndex := range shardIndices {
+	for shardIndex := range work {
+		if len(work[shardIndex]) == 0 {
+			continue
+		}
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			results[i], errs[i] = c.shards[shardIndex].BatchGet(work[shardIndex], version)
+			errs[shardIndex] = c.shards[shardIndex].batchGet(keys, work[shardIndex], values, version)
 		})
 	}
 	wg.Wait()
 
-	// Merge into a single result map. Any shard error fails the whole call.
-	merged := make(map[string][]byte, len(keys))
-	for i := range results {
-		if errs[i] != nil {
-			return nil, fmt.Errorf("failed to batch get from shard: %w", errs[i])
-		}
-		for key, value := range results[i] {
-			merged[key] = value
+	// Any shard error fails the whole call.
+	for _, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("failed to batch get from shard: %w", err)
 		}
 	}
-	return merged, nil
+	return values, nil
 }
 
-func (c *viewManager) Delete(key []byte) error {
-	shardIndex := c.shardManager.Shard(key)
-	shard := c.shards[shardIndex]
-	if err := shard.Delete(key); err != nil {
-		return fmt.Errorf("failed to delete key in shard: %w", err)
+// partitionIndicesByShard groups the positions of keys by the shard each key belongs to, so each
+// shard is visited once. The returned slice is indexed by shard, and a shard no key landed in holds
+// an empty bucket.
+//
+// Buckets start out sized for an even spread, which is what the seeded hash produces; a bucket that
+// lands above its share still grows on demand.
+func (c *viewManager) partitionIndicesByShard(keys []string) [][]int {
+	work := make([][]int, len(c.shards))
+	perShard := len(keys)/len(c.shards) + 1
+	for index, key := range keys {
+		shardIndex := c.shardManager.ShardString(key)
+		if work[shardIndex] == nil {
+			work[shardIndex] = make([]int, 0, perShard)
+		}
+		work[shardIndex] = append(work[shardIndex], index)
 	}
-	return nil
+	return work
+}
+
+// foundValuesByKey pairs each key with the value read for it, leaving out the keys that had none.
+func foundValuesByKey(keys []string, values [][]byte) map[string][]byte {
+	found := make(map[string][]byte, len(keys))
+	for i, value := range values {
+		if value == nil {
+			continue
+		}
+		found[keys[i]] = value
+	}
+	return found
 }
 
 func (c *viewManager) Get(key []byte, updateLru bool) ([]byte, bool, error) {
@@ -340,15 +409,6 @@ func (c *viewManager) GetAtVersion(key []byte, version uint64, updateLru bool) (
 		return nil, false, nil
 	}
 	return value, ok, nil
-}
-
-func (c *viewManager) Set(key []byte, value []byte) error {
-	shardIndex := c.shardManager.Shard(key)
-	shard := c.shards[shardIndex]
-	if err := shard.Set(key, value); err != nil {
-		return fmt.Errorf("failed to set key in shard: %w", err)
-	}
-	return nil
 }
 
 func (c *viewManager) Commit() (View, error) {

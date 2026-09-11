@@ -51,7 +51,7 @@ type ViewManagerConfig struct {
 	//
 	// This namespace is owned by the manager; it is never observable through any manager read path
 	// (iterators filter it out — see ViewManager.Iterator). For performance reasons the write
-	// path does not check for it, so writing a key under this prefix through Set/Delete/BatchSet,
+	// path does not check for it, so writing a key under this prefix through BatchSet/BatchUpdate,
 	// or reading one through Get/BatchGet, is undefined behavior: flushes overwrite user writes to
 	// these keys, and a cached read of one can go permanently stale.
 	ReservedPrefix string

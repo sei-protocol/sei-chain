@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -8,9 +9,9 @@ import (
 
 func TestShardVersionedReads(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
+	require.NoError(t, setShardKey(s, []byte("k"), []byte("v1")))
 	require.Equal(t, uint64(2), commitShard(t, s)) // seals v1, live -> v2
-	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
+	require.NoError(t, setShardKey(s, []byte("k"), []byte("v2")))
 
 	for _, tc := range []struct {
 		version uint64
@@ -25,10 +26,10 @@ func TestShardVersionedReads(t *testing.T) {
 
 func TestShardGetMostRecentValueAtOrBelowVersion(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
+	require.NoError(t, setShardKey(s, []byte("k"), []byte("v1")))
 	commitShard(t, s) // v2
 	commitShard(t, s) // v3; no write at v2
-	require.NoError(t, s.Set([]byte("k"), []byte("v3")))
+	require.NoError(t, setShardKey(s, []byte("k"), []byte("v3")))
 
 	// Reading at v2 (no write there) returns v1 (highest version <= 2).
 	val, found, err := s.Get([]byte("k"), 2, false)
@@ -51,9 +52,9 @@ func TestShardValidateVersionOverflow(t *testing.T) {
 
 func TestShardGetDiffsForVersions(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	require.NoError(t, s.Set([]byte("a"), []byte("1")))
+	require.NoError(t, setShardKey(s, []byte("a"), []byte("1")))
 	commitShard(t, s) // seals v1, live -> v2
-	require.NoError(t, s.Set([]byte("b"), []byte("2")))
+	require.NoError(t, setShardKey(s, []byte("b"), []byte("2")))
 	commitShard(t, s) // seals v2, live -> v3 (GetDiffs only covers sealed versions)
 
 	diffs, err := s.GetDiffsForVersions(1, 3) // [1, 3) => versions 1 and 2
@@ -76,8 +77,8 @@ func TestShardGetDiffsForVersionsRejectsBadRange(t *testing.T) {
 
 func TestShardDeleteWritesTombstone(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	require.NoError(t, s.Set([]byte("k"), []byte("v")))
-	require.NoError(t, s.Delete([]byte("k")))
+	require.NoError(t, setShardKey(s, []byte("k"), []byte("v")))
+	require.NoError(t, deleteShardKey(s, []byte("k")))
 
 	// Delete in the same version overwrites the value with a tombstone (nil).
 	val, found, err := s.Get([]byte("k"), s.currentVersion, false)
@@ -88,9 +89,9 @@ func TestShardDeleteWritesTombstone(t *testing.T) {
 
 func TestShardDropVersionsPushesLatestToDB(t *testing.T) {
 	s := newTestShard(t, 4096, newTestDB(nil))
-	require.NoError(t, s.Set([]byte("k"), []byte("v1")))
+	require.NoError(t, setShardKey(s, []byte("k"), []byte("v1")))
 	commitShard(t, s) // v2
-	require.NoError(t, s.Set([]byte("k"), []byte("v2")))
+	require.NoError(t, setShardKey(s, []byte("k"), []byte("v2")))
 	commitShard(t, s) // v3
 
 	// Drop versions [1, 3): their data collapses into the dbCache, latest value winning.
@@ -141,4 +142,34 @@ func TestShardConcurrentReadsCollapseToOneDBRead(t *testing.T) {
 		require.Equal(t, "v", string(r.val))
 	}
 	require.Equal(t, int64(1), db.getCalls.Load(), "concurrent Gets must collapse to one DB read")
+}
+
+// setShardKey writes one key through the shard's batch write, which is its only write path.
+func setShardKey(s *shard, key []byte, value []byte) error {
+	return s.BatchSet([]BatchKVPair{{Key: string(key), Value: value}})
+}
+
+// deleteShardKey removes one key through the shard's batch write.
+func deleteShardKey(s *shard, key []byte) error {
+	return s.BatchSet([]BatchKVPair{{Key: string(key), Delete: true}})
+}
+
+// Writes pick a shard with ShardString and reads pick one with Shard. If those ever disagreed, a key
+// written through the batch API would be looked for in a different shard than it landed in, and
+// would read as absent.
+func TestShardStringPicksSameShardAsShardBytes(t *testing.T) {
+	manager, err := newShardManager(8)
+	require.NoError(t, err)
+
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("evm/%d/some-reasonably-long-physical-key", i)
+		require.Equal(t, manager.Shard([]byte(key)), manager.ShardString(key),
+			"key %q must hash to the same shard whichever form it arrives in", key)
+	}
+
+	// The forms a manager actually sees: an empty key, a single byte, and the two EVM key lengths.
+	for _, key := range []string{"", "k", "evm/\x0a01234567890123456789", "evm/\x03" + string(make([]byte, 52))} {
+		require.Equal(t, manager.Shard([]byte(key)), manager.ShardString(key),
+			"key %q must hash to the same shard whichever form it arrives in", key)
+	}
 }
