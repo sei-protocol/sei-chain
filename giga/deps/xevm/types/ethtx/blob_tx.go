@@ -14,6 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
+// maxBlobSidecarItems is EIP-4844's initial maximum number of blobs,
+// commitments, or proofs a sidecar may carry.
+const maxBlobSidecarItems = 6
+
 func NewBlobTx(tx *ethtypes.Transaction) (*BlobTx, error) {
 	if err := ValidateEthTx(tx); err != nil {
 		return nil, err
@@ -311,11 +315,6 @@ func sidecarToEthSidecar(sidecar *BlobTxSidecar) *ethtypes.BlobTxSidecar {
 		Proofs:      utils.Map(sidecar.Proofs, func(p []byte) kzg4844.Proof { return kzg4844.Proof(p) }),
 	}
 }
-
-// maxBlobSidecarItems is the largest number of blobs, commitments, or proofs a
-// sidecar may carry. Each blob is 131072 bytes, so conversion must not allocate
-// from an attacker-controlled count.
-const maxBlobSidecarItems = 6
 
 // validateBlobTxSidecar returns an error if sidecar cannot be converted into
 // fixed-size KZG blobs, commitments, and proofs.
