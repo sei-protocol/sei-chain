@@ -90,8 +90,8 @@ type versionedValue struct {
 	// as block height, this is just a version number that monotonically increases over the lifetime
 	// of a view manager instance.
 	version uint64
-	// pending is non-nil while this value's bytes are still being folded. Resolution fills value and
-	// clears this, under the shard lock. Every path that reads value must check it first.
+	// pending is non-nil while this value's bytes are still being folded. Every path that reads value
+	// must check it first.
 	pending *pendingValue
 }
 
@@ -231,8 +231,8 @@ func (s *shard) Get(
 // succeeded. A non-nil err always comes with done. A read it could not resolve without mutating is
 // left to the caller to redo under the write lock.
 //
-// A key holding an unresolved fold is reported as pending, which the caller awaits once it has
-// released the lock; the fold cannot complete while this lock is held.
+// A key holding an unresolved fold is reported as pending, for the caller to await once it has
+// released the lock.
 func (s *shard) attemptFastGetUnlocked(
 	key []byte,
 	version uint64,
@@ -545,15 +545,9 @@ func (s *shard) BatchSet(entries []*proto.KVPair) error {
 	return nil
 }
 
-// StageUpdates reserves a slot at the current version for each key named by indices, holding an
-// unresolved fold, and reports where each of those folds gets the value it folds onto.
-//
-// This is the whole of an update that runs on the caller's thread. It takes the write lock once,
-// reads no database, and folds nothing — FoldStagedValues does all of that later, off that thread.
-//
-// Every prior source is captured here, under the lock, rather than looked up during the fold. That is
-// what makes the fold immune to whatever is written next: a second fold staged for the same key sees
-// this one as its prior and waits for it, so folds on one key apply in the order they were staged.
+// StageUpdates reserves a slot at the current version for each key named by indices, each holding an
+// unresolved fold, and reports where each of those folds gets the value it folds onto. Folds staged
+// for one key apply in the order they were staged.
 func (s *shard) StageUpdates(
 	keys []string,
 	indices []int,
@@ -601,11 +595,8 @@ func (s *shard) capturePriorValueWLocked(key string) priorValueSource {
 	return priorValueSource{location: priorValueInVersionedData, value: newest.value}
 }
 
-// stagePendingValueWLocked puts an unresolved fold into the versioned data at the given version, replacing
-// any entry this version already had for the key.
-//
-// The key reaches versionDiffs only once the fold resolves. Until then the version's latch is what
-// stops anything from reading that diff as complete.
+// stagePendingValueWLocked puts an unresolved fold into the versioned data at the given version,
+// replacing any entry this version already had for the key.
 func (s *shard) stagePendingValueWLocked(key string, version uint64, pending *pendingValue) {
 	entry := versionedValue{version: version, pending: pending}
 
@@ -638,8 +629,7 @@ func (s *shard) markFoldStagedWLocked(version uint64) {
 }
 
 // markFoldResolvedWLocked records one of a version's folds as no longer outstanding, opening the
-// version's latch when it was the last. A version left incomplete by a failure keeps its latch so
-// that the failure keeps being reported; see versionLatch.
+// version's latch when it was the last. A version left incomplete by a failure keeps its latch.
 func (s *shard) markFoldResolvedWLocked(version uint64) {
 	latch, ok := s.versionLatches[version]
 	if !ok {
@@ -680,12 +670,8 @@ func (s *shard) awaitVersionFoldsUnlocked(version uint64) error {
 	return nil
 }
 
-// FoldStagedValues folds every value a batch staged and records what each produced. This is the work
-// StageUpdates deferred, and it runs off the thread that staged it.
-//
-// Either every fold in the batch is recorded or none is: a failure part way through would leave the
-// version's diff holding some of the batch's keys and not others, which is a diff nothing can
-// legitimately hash.
+// FoldStagedValues folds every value a batch staged and records what each produced. Either every fold
+// in the batch is recorded or none is.
 func (s *shard) FoldStagedValues(folds []stagedFold, updater BatchUpdater, version uint64) {
 	priorValues, err := s.resolvePriorValuesUnlocked(folds)
 	if err != nil {
@@ -707,11 +693,6 @@ func (s *shard) FoldStagedValues(folds []stagedFold, updater BatchUpdater, versi
 }
 
 // resolvePriorValuesUnlocked produces the value each staged fold applies on top of.
-//
-// A key the shard held nothing for at staging time has its prior read from the cache or the database.
-// That read deliberately does not go through the versioned lookup: versioned data now holds this
-// batch's own unresolved entry for the key, so a versioned lookup would find the fold waiting on
-// itself.
 func (s *shard) resolvePriorValuesUnlocked(folds []stagedFold) ([][]byte, error) {
 	values := make([][]byte, len(folds))
 	var needRead []int
@@ -739,6 +720,9 @@ func (s *shard) resolvePriorValuesUnlocked(folds []stagedFold) ([][]byte, error)
 		return values, nil
 	}
 
+	// Read through the cache rather than the versioned lookup: versioned data already holds this
+	// batch's own unresolved entry for these keys, so a versioned lookup would find each fold waiting
+	// on itself.
 	results := make(map[string][]byte, len(needRead))
 	unresolved, err := s.priorValuesFromCacheUnlocked(folds, needRead, results)
 	if err != nil {
@@ -760,9 +744,8 @@ func (s *shard) resolvePriorValuesUnlocked(folds []stagedFold) ([][]byte, error)
 	return values, nil
 }
 
-// priorValuesFromCacheUnlocked resolves the prior values the cache already holds, returning the positions it
-// could not. Split from schedulePriorValueReadsUnlocked for the reason given on batchGet: a long exclusive hold
-// stalls every read on this shard.
+// priorValuesFromCacheUnlocked resolves the prior values the cache already holds, returning the
+// positions it could not.
 func (s *shard) priorValuesFromCacheUnlocked(
 	folds []stagedFold,
 	positions []int,
@@ -844,14 +827,9 @@ func (s *shard) recordFoldsUnlocked(folds []stagedFold, newValues [][]byte, vers
 	}
 }
 
-// fillStagedValueWLocked replaces a staged entry with the value its fold produced, reporting whether that
-// value is still the one the key holds at this version.
-//
-// It may not be. A fold can be superseded before it resolves — a later fold, or a plain write, at the
-// same version takes the entry's place and last write wins. The superseded value is then dead, and
-// the caller must keep it out of the version's diff: writing it there would undo the write that
-// replaced it. Versioned data holds at most one entry per version, so a fold that still finds its own
-// entry is by that fact still the current one.
+// fillStagedValueWLocked replaces a staged entry with the value its fold produced, reporting whether
+// that value is still the one the key holds at this version. A value that is not must be kept out of
+// the version's diff.
 func (s *shard) fillStagedValueWLocked(
 	key string,
 	version uint64,
@@ -876,12 +854,13 @@ func (s *shard) fillStagedValueWLocked(
 			break
 		}
 	}
+	// The entry is gone, so a later fold or plain write at this version took its place and won. At most
+	// one entry per version exists, so finding none means this fold's value has been superseded.
 	return false
 }
 
-// FailStagedFolds records a failed fold on every value a batch staged and takes the shard out of service.
-// The version keeps its latch so that anything hashing or flushing that version fails too — its diff
-// is missing whatever these folds would have written.
+// FailStagedFolds records a failed fold on every value a batch staged and takes the shard out of
+// service. The version keeps its latch, carrying the failure.
 func (s *shard) FailStagedFolds(folds []stagedFold, version uint64, err error) {
 	s.lock.Lock()
 	if latch, ok := s.versionLatches[version]; ok && latch.err == nil {
