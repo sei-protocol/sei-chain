@@ -9,12 +9,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/linxGnu/grocksdb"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 

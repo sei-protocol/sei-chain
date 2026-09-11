@@ -1,7 +1,7 @@
 ARG SEICTL_VERSION=v0.0.5@sha256:268fc871e8358e706f505f0ce9ef318761e0d00d317716e9d87218734ae1a81c
 
 FROM ghcr.io/sei-protocol/seictl:${SEICTL_VERSION} AS seictl
-FROM docker.io/golang:1.25.6-bookworm@sha256:2f768d462dbffbb0f0b3a5171009f162945b086f326e0b2a8fd5d29c3219ff14 AS builder
+FROM docker.io/golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS builder
 WORKDIR /go/src/sei-chain
 
 COPY sei-wasmd/x/wasm/artifacts/v152/api/*.so /tmp/wasmd-libs/

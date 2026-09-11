@@ -25,7 +25,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const EthNamespace = "eth"
+const (
+	EthNamespace = "eth"
+	SeiNamespace = "sei"
+)
 
 // maxBlockReceiptsConcurrency is a hard cap on the number of goroutines
 // eth_getBlockReceipts will fan out to when fetching per-tx receipts.

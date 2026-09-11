@@ -147,7 +147,7 @@ func NewWAL[T any](
 		writeBatchSize = defaultWriteBatchSize
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx) //nolint:gosec // cancel is retained by WAL and invoked by Close.
 
 	w := &WAL[T]{
 		ctx:            ctx,

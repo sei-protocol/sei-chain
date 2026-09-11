@@ -134,8 +134,7 @@ func (q Keeper) Votes(c context.Context, req *types.QueryVotesRequest) (*types.Q
 	var votes types.Votes
 	ctx := sdk.UnwrapSDKContext(c)
 
-	store := ctx.KVStore(q.storeKey)
-	votesStore := prefix.NewStore(store, types.VotesKey(req.ProposalId))
+	votesStore := q.visibleVotesStore(ctx, req.ProposalId)
 
 	pageRes, err := query.Paginate(ctx, votesStore, req.Pagination, func(key []byte, value []byte) error {
 		var vote types.Vote

@@ -388,7 +388,7 @@ case "$(uname -m)" in
   x86_64|amd64) go_arch=amd64 ;;
   *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
-curl -fsSL "https://go.dev/dl/go1.25.6.linux-${go_arch}.tar.gz" -o /tmp/go.tgz
+curl -fsSL "https://go.dev/dl/go1.27.1.linux-${go_arch}.tar.gz" -o /tmp/go.tgz
 rm -rf /usr/local/go
 tar -C /usr/local -xzf /tmp/go.tgz
 ln -sf /usr/local/go/bin/go /usr/local/bin/go

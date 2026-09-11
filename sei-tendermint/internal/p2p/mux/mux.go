@@ -28,6 +28,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/mux/metrics"
@@ -237,7 +238,11 @@ func (r *runner) runSend(ctx context.Context, conn conn.Conn) error {
 			if err != nil {
 				panic(err)
 			}
-			if err := conn.Write(ctx, []byte{byte(len(headerRaw))}); err != nil {
+			if len(headerRaw) > math.MaxUint8 {
+				return fmt.Errorf("frame header exceeds maximum size: %d", len(headerRaw))
+			}
+			headerLength := byte(len(headerRaw)) //nolint:gosec // headerRaw was checked against math.MaxUint8 immediately above.
+			if err := conn.Write(ctx, []byte{headerLength}); err != nil {
 				return err
 			}
 			if err := conn.Write(ctx, headerRaw); err != nil {
