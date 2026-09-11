@@ -102,8 +102,10 @@ func NewWS(remoteAddr, endpoint string) (*WSClient, error) {
 	}
 
 	c := &WSClient{
-		Address:              parsedURL.GetTrimmedHostWithPath(),
-		Dialer:               dialFn,
+		Address: parsedURL.GetTrimmedHostWithPath(),
+		Dialer: func(network, address string) (net.Conn, error) {
+			return dialFn(context.Background(), network, address)
+		},
 		Endpoint:             endpoint,
 		maxReconnectAttempts: opts.MaxReconnectAttempts,
 		readWait:             opts.ReadWait,

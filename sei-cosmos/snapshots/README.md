@@ -84,7 +84,7 @@ message Metadata {
 }
 ```
 
-The `format` is currently `1`, defined in `snapshots.types.CurrentFormat`. This
+The `format` is currently `2`, defined in `snapshots.types.CurrentFormat`. This
 must be increased whenever the binary snapshot format changes, and it may be
 useful to support past formats in newer versions.
 

@@ -31,6 +31,15 @@ die() {
   exit 1
 }
 
+go_toolchain_for() {
+  local worktree="$1"
+  local version
+  version="$(awk '$1 == "go" { print $2; exit }' "$worktree/go.mod")"
+  [[ -n "$version" ]] || die "go.mod in $worktree does not declare a Go version"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] && version="$version.0"
+  printf 'go%s\n' "$version"
+}
+
 validate_inputs() {
   [[ "$UPGRADE_LEAD_SECONDS" =~ ^[0-9]+$ ]] ||
     die "upgrade_lead_seconds must be an integer"
@@ -188,10 +197,12 @@ build_binary() {
   local label="$3"
   local source_commit
   local source_version
+  local source_go_toolchain
   local go_mod_cache
   local go_build_cache
   source_commit="$(git -C "$source_dir" rev-parse HEAD)"
   source_version="$(git -C "$source_dir" describe --tags --always)"
+  source_go_toolchain="$(go_toolchain_for "$source_dir")"
   go_mod_cache="$(go env GOMODCACHE)"
   go_build_cache="$(go env GOCACHE)"
   mkdir -p "$go_mod_cache" "$go_build_cache"
@@ -206,6 +217,7 @@ build_binary() {
     -w /sei-protocol/sei-chain \
     -e LEDGER_ENABLED=false \
     -e GOFLAGS=-buildvcs=false \
+    -e "GOTOOLCHAIN=$source_go_toolchain" \
     -e "BUILD_COMMIT=$source_commit" \
     -e "BUILD_VERSION=$source_version" \
     sei-chain/localnode \

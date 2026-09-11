@@ -429,7 +429,7 @@ func RequireUpdates(t *testing.T, recv *PeerUpdatesRecv, expect []PeerUpdate) {
 		if err != nil {
 			require.FailNow(t, "utils.Recv(): %v", err)
 		}
-		expect = append(expect, update)
+		actual = append(actual, update)
 	}
 	for idx := range expect {
 		require.Equal(t, expect[idx].NodeID, actual[idx].NodeID)

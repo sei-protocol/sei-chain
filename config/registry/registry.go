@@ -372,7 +372,7 @@ func deriveKeys(name, prefix string, prototype any) ([]string, error) {
 		return nil, fmt.Errorf("no struct")
 	}
 	t := reflect.TypeOf(prototype)
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
@@ -438,7 +438,7 @@ func walk(t reflect.Type, label, prefix string, keys *[]string, open map[reflect
 		}
 
 		ft := f.Type
-		for ft.Kind() == reflect.Ptr {
+		for ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 
