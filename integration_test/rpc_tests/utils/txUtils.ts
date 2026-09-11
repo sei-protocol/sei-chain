@@ -4,7 +4,7 @@ import { EvmAccount, abiOf, bytecodeOf, selfAuthorize } from './evmUtils';
 import { RuntimeState, claimPool } from './testUtils';
 import { generateSeiAddress } from './cosmosUtils';
 import { prepareCw20Transfer } from './wasmUtils';
-import { waitUntil } from './chainUtils';
+import { sleep, waitUntil } from './chainUtils';
 import { HASH32, BLOOM256, NONCE8, HEX_QUANTITY, HEX_DATA, ADDRESS } from './format';
 import { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH } from './constants';
 export { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH };
@@ -245,6 +245,33 @@ async function waitForNextBlock(
     );
 }
 
+/** Average wall-clock spacing of the last `window` blocks, from the Sei `milliTimestamp` header field. */
+async function blockIntervalMs(provider: ethers.JsonRpcProvider, window = 10): Promise<number> {
+    const head = await provider.getBlockNumber();
+    const span = Math.min(window, head);
+    if (span < 1) return 0;
+    const [newest, oldest] = await Promise.all(
+        [head, head - span].map(n =>
+            provider.send('eth_getBlockByNumber', [ethers.toQuantity(n), false]),
+        ),
+    );
+    if (!newest?.milliTimestamp || !oldest?.milliTimestamp) return 0;
+    return Number(BigInt(newest.milliTimestamp) - BigInt(oldest.milliTimestamp)) / span;
+}
+
+/**
+ * How long after observing a new block head to wait before broadcasting a batch that has
+ * to land together. The proposer reaps the mempool for the next height a few tens of
+ * milliseconds after commit, so a batch fired the instant a block is seen straddles that
+ * reap: the cheap txs are sealed at once while the ones whose CheckTx simulation takes
+ * longer roll over to the following height. Waiting a fraction of the block interval
+ * lets the reap pass, and leaves the rest of the interval for every tx to be admitted
+ * before the next one.
+ */
+function batchSettleMs(intervalMs: number): number {
+    return Math.min(250, Math.max(100, Math.round(intervalMs * 0.4)));
+}
+
 /** Wall-clock budget for packing the rich block; well under the 300s `before` hooks that build it. */
 const RICH_BLOCK_BUDGET_MS = 120_000;
 /** Attempt index past which fee/tip escalation and the per-attempt block back-off stop growing. */
@@ -276,7 +303,9 @@ const ERC20_POINTER_IFACE = new ethers.Interface([
  * flips. Early retries re-price with a higher fee multiplier and tip so the batch
  * outbids its way into one block on a congested chain, and back off by one more
  * block per attempt (both capped) so a transient stall on the cluster (a slow
- * proposer, a backlog left by a preceding load test) has time to clear. `signers`
+ * proposer, a backlog left by a preceding load test) has time to clear. Each attempt
+ * broadcasts a settle delay after a fresh block head (see `batchSettleMs`) so the
+ * whole batch is admitted to the mempool inside one proposal window. `signers`
  * must hold at least 9 funded accounts.
  *
  * When the chain has wasm enabled (runtime.wasm is populated by the bootstrap), the
@@ -306,6 +335,8 @@ export async function buildRichSeiBlock(
     const validatorsData = new ethers.Interface([
         'function validators(string status, bytes pagination) returns (bytes,bytes)',
     ]).encodeFunctionData('validators', ['BOND_STATUS_BONDED', '0x']);
+
+    const settleMs = batchSettleMs(await blockIntervalMs(provider));
 
     const deadline = Date.now() + budgetMs;
     const history: string[] = [];
@@ -471,15 +502,15 @@ export async function buildRichSeiBlock(
                 populated.map((tx, i) => specs[i].signer.wallet.signTransaction(tx)),
             );
 
-            // Stage both sides before a fresh block boundary, then broadcast the pure Cosmos
-            // CW20 transfer and the EVM batch together. Broadcasting the EVM txs first lets a
-            // fast proposer seal them one height before the Cosmos tx, which made the rich-block
-            // fixture flaky.
+            // Stage both sides before a fresh block boundary, let the proposer's reap for the
+            // very next height pass, then broadcast the pure Cosmos CW20 transfer and the EVM
+            // batch together so every tx is admitted within the same mempool window.
             await waitForNextBlock(
                 provider,
                 `next Sei block before rich batch attempt ${attempt + 1}`,
                 1 + escalation,
             );
+            await sleep(settleMs);
             const cosmosPending = preparedCosmos
                 ? preparedCosmos
                       .broadcast()
