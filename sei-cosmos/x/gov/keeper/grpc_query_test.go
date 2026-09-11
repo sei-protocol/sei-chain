@@ -434,6 +434,72 @@ func (suite *KeeperTestSuite) TestGRPCQueryVotes() {
 	}
 }
 
+func (suite *KeeperTestSuite) TestGRPCQueryVotesDuringIncrementalTally() {
+	app, ctx, queryClient, addrs := suite.app, suite.ctx, suite.queryClient, suite.addrs
+
+	proposal, err := app.GovKeeper.SubmitProposal(ctx, TestProposal)
+	suite.Require().NoError(err)
+	proposal.Status = types.StatusVotingPeriod
+	app.GovKeeper.SetProposal(ctx, proposal)
+
+	for i, addr := range addrs {
+		option := types.OptionYes
+		if i == 1 {
+			option = types.OptionNo
+		}
+		suite.Require().NoError(app.GovKeeper.AddVote(
+			ctx,
+			proposal.ProposalId,
+			addr,
+			types.NewNonSplitVoteOption(option),
+		))
+	}
+
+	complete, processed, _, _, _ := app.GovKeeper.TallyIncremental(ctx, proposal, 1)
+	suite.Require().False(complete)
+	suite.Require().Equal(1, processed)
+	archivedVotes := app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false)
+	suite.Require().Len(archivedVotes, 1)
+
+	voteResponse, err := queryClient.Vote(gocontext.Background(), &types.QueryVoteRequest{
+		ProposalId: proposal.ProposalId,
+		Voter:      archivedVotes[0].Voter,
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal(archivedVotes[0], voteResponse.Vote)
+
+	firstPage, err := queryClient.Votes(gocontext.Background(), &types.QueryVotesRequest{
+		ProposalId: proposal.ProposalId,
+		Pagination: &query.PageRequest{Limit: 1, CountTotal: true},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(firstPage.Votes, 1)
+	suite.Require().Equal(uint64(2), firstPage.Pagination.Total)
+	suite.Require().NotEmpty(firstPage.Pagination.NextKey)
+
+	secondPage, err := queryClient.Votes(gocontext.Background(), &types.QueryVotesRequest{
+		ProposalId: proposal.ProposalId,
+		Pagination: &query.PageRequest{Key: firstPage.Pagination.NextKey, Limit: 1},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(secondPage.Votes, 1)
+	suite.Require().ElementsMatch(app.GovKeeper.GetVotes(ctx, proposal.ProposalId), append(firstPage.Votes, secondPage.Votes...))
+	suite.Require().Len(app.GovKeeper.GetAllVotes(ctx), 2)
+
+	reversePage, err := queryClient.Votes(gocontext.Background(), &types.QueryVotesRequest{
+		ProposalId: proposal.ProposalId,
+		Pagination: &query.PageRequest{Limit: 2, Reverse: true},
+	})
+	suite.Require().NoError(err)
+	suite.Require().ElementsMatch(app.GovKeeper.GetVotes(ctx, proposal.ProposalId), reversePage.Votes)
+
+	_, err = queryClient.TallyResult(gocontext.Background(), &types.QueryTallyResultRequest{ProposalId: proposal.ProposalId})
+	suite.Require().NoError(err)
+	suite.Require().True(app.GovKeeper.IsTallying(ctx, proposal.ProposalId))
+	suite.Require().Len(app.GovKeeper.GetArchivedTallyVotes(ctx, proposal.ProposalId, false), 1)
+	suite.Require().Len(app.GovKeeper.GetVotes(ctx, proposal.ProposalId), 2)
+}
+
 func (suite *KeeperTestSuite) TestGRPCQueryParams() {
 	queryClient := suite.queryClient
 
