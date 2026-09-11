@@ -304,7 +304,7 @@ func TestSignerSignProposalErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 			// Replace service with a mock that always fails
-			tc.signerServer.privVal = types.NewErroringMockPV()
+			tc.signerServer.SetPrivValidator(types.NewErroringMockPV())
 			tc.mockPV = types.NewErroringMockPV()
 
 			ts := time.Now()
@@ -357,7 +357,7 @@ func TestSignerSignVoteErrors(t *testing.T) {
 			}
 
 			// Replace signer service privval with one that always fails
-			tc.signerServer.privVal = types.NewErroringMockPV()
+			tc.signerServer.SetPrivValidator(types.NewErroringMockPV())
 			tc.mockPV = types.NewErroringMockPV()
 
 			err := tc.signerClient.SignVote(ctx, tc.chainID, vote.ToProto())
@@ -405,7 +405,7 @@ func TestSignerUnexpectedResponse(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.closer()
 
-			tc.signerServer.privVal = types.NewMockPV()
+			tc.signerServer.SetPrivValidator(types.NewMockPV())
 			tc.mockPV = types.NewMockPV()
 
 			tc.signerServer.SetRequestHandler(brokenHandler)
