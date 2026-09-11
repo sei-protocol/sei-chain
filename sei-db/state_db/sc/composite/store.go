@@ -163,7 +163,7 @@ func NewCompositeCommitStore(
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
-	alignFlatKVSnapshotWithMemIAVL(&cfg)
+	alignFlatKVSnapshotIntervalWithMemIAVL(&cfg)
 
 	var memIAVL *memiavl.CommitStore
 	if cfg.WriteMode != types.FlatKVOnly {
@@ -233,38 +233,38 @@ func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ int64, has
 	return nil
 }
 
-// alignFlatKVSnapshotWithMemIAVL keeps the two backends' snapshot cadence in
-// sync. FlatKV has no independently-exposed snapshot knobs in app.toml, so it
-// derives its snapshot-interval / keep-recent from memIAVL's sc-* keys. This is
-// the single place both backends are constructed from the same config, so it is
-// where the alignment is enforced.
+// alignFlatKVSnapshotIntervalWithMemIAVL makes FlatKV take its snapshot interval
+// from memIAVL's sc-snapshot-interval. This is the single place both backends are
+// constructed from the same config, so it is where the alignment is enforced.
 //
-// This derivation is intentionally unconditional across write modes, including
-// FlatKVOnly — where NewCompositeCommitStore never constructs a memIAVL store.
-// The sc-* keys are the only operator-visible snapshot-cadence knobs now that
-// the flatkv.* keys are hidden from the app.toml template, so they must govern
-// FlatKV's cadence in every mode; otherwise FlatKVOnly would have no
-// template-visible way to tune it. It is harmless when memIAVL is absent: the
-// sc-* defaults match FlatKV's own in-code defaults, and only cfg.FlatKVConfig
-// is read when building the FlatKVOnly store.
+// The interval must match because a composite operation needs a version *both*
+// backends hold a snapshot for: a rollback rewinds memIAVL and then FlatKV, and a
+// cross-backend digest has to open each at the same height. Two backends
+// checkpointing on different heights have no such version in common.
 //
-// FlatKV mirrors memIAVL's *effective* cadence: a zero memIAVL value is first
-// resolved to the same default Options.FillDefaults would apply at OpenDB
-// (interval 0 -> DefaultSnapshotInterval, keep-recent 0 -> DefaultSnapshotKeepRecent),
-// then assigned to FlatKV unconditionally. Resolving-then-assigning (rather than
-// skipping on a zero and letting FlatKV keep its own in-code default) keeps the
-// two backends in true lockstep without relying on FlatKV's default happening to
-// equal memIAVL's healed default. That reliance is fragile — the defaults are
-// only kept equal by hand — and it breaks for an upgrading node whose old
-// app.toml still carries an explicit state-commit.flatkv.snapshot-keep-recent
-// (rendered by the old template) alongside sc-keep-recent = 0: skipping would
-// leave FlatKV pinned to the stale explicit value while memIAVL healed to a
-// different default. Note that mirroring a raw 0 is never correct here (0 means
-// "disable auto-snapshots" for FlatKV), which is why the zero is resolved first.
-func alignFlatKVSnapshotWithMemIAVL(cfg *config.StateCommitConfig) {
-	interval, keepRecent := config.EffectiveMemIAVLSnapshotCadence(cfg.MemIAVLConfig)
+// Retention count is deliberately not mirrored. It is a per-backend disk decision
+// rather than a cadence, and the two backends' costs differ by a factor of
+// roughly 200: measured at mainnet state size, one further retained snapshot
+// costs 56,782 MiB on memIAVL, whose snapshots are independent full copies, and
+// about 286 MiB on FlatKV, whose checkpoints hardlink their SSTs. A single shared
+// count cannot serve both — the depth FlatKV wants for forensic reach into the
+// migration window would ask memIAVL for more than the volume holds. FlatKV
+// therefore keeps config.DefaultSnapshotKeepRecent, which is sized for that reach.
+//
+// The mirror is unconditional across write modes, including FlatKVOnly, where
+// NewCompositeCommitStore never constructs a memIAVL store. sc-snapshot-interval
+// is the only operator-visible cadence knob, since the flatkv.* keys are hidden
+// from the app.toml template and the production reader does not consult them, so
+// it has to govern FlatKV's interval in every mode. It is harmless when memIAVL is
+// absent, because only cfg.FlatKVConfig is read when building that store.
+//
+// A zero is resolved before it is assigned, to the same default
+// Options.FillDefaults would apply at OpenDB. Mirroring a raw 0 is never correct:
+// 0 disables auto-snapshots for FlatKV, which lets the WAL grow without bound and
+// makes every restart replay from snapshot-0.
+func alignFlatKVSnapshotIntervalWithMemIAVL(cfg *config.StateCommitConfig) {
+	interval, _ := config.EffectiveMemIAVLSnapshotCadence(cfg.MemIAVLConfig)
 	cfg.FlatKVConfig.SnapshotInterval = interval
-	cfg.FlatKVConfig.SnapshotKeepRecent = keepRecent
 }
 
 // Initialize records the set of child store names that should exist on

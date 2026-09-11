@@ -557,9 +557,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	// FlatKV knobs are not rendered in the default app.toml template. GetConfig
 	// is a faithful parse of app.toml/flags: it only reads the explicit
 	// state-commit.flatkv.* keys (if an operator adds them by hand) on top of the
-	// in-code defaults. The FlatKV-follows-memIAVL mirror (and snapshot cadence
-	// normalization) is applied later by composite.alignFlatKVSnapshotWithMemIAVL
-	// at store construction, so we deliberately do not mirror the sc-* keys here.
+	// in-code defaults. The FlatKV-follows-memIAVL interval mirror (and its
+	// cadence normalization) is applied later by
+	// composite.alignFlatKVSnapshotIntervalWithMemIAVL at store construction, so
+	// we deliberately do not mirror the sc-* keys here.
 	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
 	if v.IsSet("state-commit.flatkv.fsync") {
 		flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")

@@ -10,6 +10,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
+// DefaultSnapshotKeepRecent is how many old checkpoints (besides the latest) to
+// keep, which at the default snapshot interval of 10000 is a guaranteed reach of
+// 720,000 blocks — about 89 hours at mainnet's block rate, so it spans the EVM
+// migration window at the rate that window is planned for.
+//
+// It is this deep because a FlatKV checkpoint is nearly free. Checkpoints
+// hardlink their SSTs, so one only costs the bytes compaction has since made
+// obsolete: measured at mainnet state size, 261 MiB of pinned SSTs plus about
+// 25 MiB of retained state WAL. 72 of them is roughly 20 GiB. The cost is linear
+// in depth, because each older checkpoint pins exactly the files obsoleted during
+// its own interval and those sets are disjoint.
+//
+// Reach matters because it bounds what can be answered about a past height at
+// all. Below it, migrate-evm-status, dump-flatkv and a cross-backend digest
+// cannot open a version, and a rollback has no base snapshot to rewind to.
+const DefaultSnapshotKeepRecent uint32 = 72
+
 // Config defines configuration for the FlatKV (EVM) commit store.
 type Config struct {
 	// DataDir is the root directory for the FlatKV data files.
@@ -34,6 +51,11 @@ type Config struct {
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
 	// Ignored entirely when ExternalPruning is set.
+	//
+	// It is not mirrored from memIAVL's sc-keep-recent, and the production store
+	// reads no app.toml key for it, so a node runs the DefaultConfig value. See
+	// composite.alignFlatKVSnapshotIntervalWithMemIAVL for why the two backends
+	// share an interval but not a retention count.
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// MaxSnapshotLagBlocks is how many committed blocks may queue up behind a snapshot that is still
@@ -136,7 +158,7 @@ func DefaultConfig() *Config {
 		Fsync:                     false,
 		AsyncWriteBuffer:          0,
 		SnapshotInterval:          10000,
-		SnapshotKeepRecent:        1,
+		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
 		MaxSnapshotLagBlocks:      64,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),

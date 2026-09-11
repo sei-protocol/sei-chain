@@ -66,8 +66,9 @@ func TestAlignSSSnapshotWithSCZeroesCadenceWhenDisabled(t *testing.T) {
 	require.Zero(t, ssConfig.SnapshotMinTimeInterval)
 }
 
-// FlatKV and SS both mirror memIAVL's cadence, and they must resolve it
-// identically or the two backends drift onto different snapshot heights.
+// SS mirrors memIAVL's whole cadence and FlatKV mirrors its interval, and every
+// mirror must resolve that interval identically or the backends drift onto
+// different snapshot heights.
 func TestAlignSSSnapshotMatchesEffectiveMemIAVLCadence(t *testing.T) {
 	for _, tc := range []struct {
 		name                 string

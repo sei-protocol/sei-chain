@@ -566,8 +566,9 @@ func TestGetConfigParsesRawSnapshotKeepRecent(t *testing.T) {
 	require.NoError(t, err)
 	// GetConfig is a faithful parse of app.toml/flags: the raw 0 is preserved for
 	// memIAVL here and only floored later at store construction. FlatKV does not
-	// mirror the sc-* keys in GetConfig (that is composite.alignFlatKVSnapshotWithMemIAVL's
-	// job), so it keeps its in-code default.
+	// mirror the sc-* keys in GetConfig (the interval mirror is
+	// composite.alignFlatKVSnapshotIntervalWithMemIAVL's job, and the retention
+	// count is never mirrored), so it keeps its in-code default.
 	require.Equal(t, uint32(0), cfg.StateCommit.MemIAVLConfig.SnapshotKeepRecent)
 	require.Equal(t, seidbconfig.DefaultStateCommitConfig().FlatKVConfig.SnapshotKeepRecent, cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
 }
@@ -594,9 +595,10 @@ func TestGetConfigHonorsExplicitFlatKVOverrides(t *testing.T) {
 }
 
 // TestGetConfigFlatKVDefaultsWhenSCSnapshotAbsent locks in the regression fix:
-// GetConfig does not mirror the sc-* keys onto FlatKV (that is
-// composite.alignFlatKVSnapshotWithMemIAVL's job at store construction), and an
-// absent sc-snapshot-interval / sc-keep-recent must preserve the in-code FlatKV
+// GetConfig does not mirror the sc-* keys onto FlatKV (the interval mirror is
+// composite.alignFlatKVSnapshotIntervalWithMemIAVL's job at store construction,
+// and the retention count is never mirrored), and an absent
+// sc-snapshot-interval / sc-keep-recent must preserve the in-code FlatKV
 // defaults rather than reading back 0 (which disables FlatKV snapshots and drops
 // all old snapshots).
 func TestGetConfigFlatKVDefaultsWhenSCSnapshotAbsent(t *testing.T) {
