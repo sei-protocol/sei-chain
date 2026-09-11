@@ -354,8 +354,8 @@ func (g *GigaSim) setupErc20Contracts() error {
 	return nil
 }
 
-// setupAccounts creates the configured account population, assigning each account to the cold or the
-// dormant set by its identifier so that a run holds exactly the counts its config asked for.
+// setupAccounts creates the configured account population. An account's class follows from the
+// identifier it takes, so creating them in order gives a run exactly the counts its config asked for.
 func (g *GigaSim) setupAccounts() error {
 	population := plannedAccountPopulation(g.config)
 	if g.accounts.NextAccountID() >= population.total {
@@ -368,7 +368,7 @@ func (g *GigaSim) setupAccounts() error {
 		if err := g.ctx.Err(); err != nil {
 			return fmt.Errorf("interrupted while creating accounts: %w", err)
 		}
-		g.accounts.CreateAccount(g.accounts.NextAccountID() >= population.firstCold)
+		g.accounts.CreateAccount()
 		staged++
 		if staged >= g.config.TransactionsPerBlock {
 			if err := g.finalizeSetupBlock(); err != nil {
@@ -412,10 +412,7 @@ func (g *GigaSim) finalizeSetupBlock() error {
 func (g *GigaSim) run() {
 	defer g.teardown()
 
-	var timeoutChan <-chan time.Time
-	if g.config.MaxRuntimeSeconds > 0 {
-		timeoutChan = time.After(time.Duration(g.config.MaxRuntimeSeconds) * time.Second)
-	}
+	timeoutChan := g.runDeadline()
 
 	for {
 		g.lifecycle.SetPhase("wait_for_block")
@@ -424,6 +421,8 @@ func (g *GigaSim) run() {
 		case isSuspended := <-g.suspendChan:
 			if isSuspended {
 				g.suspend()
+				// Resuming restarts the measurement window, and the deadline measures that same window.
+				timeoutChan = g.runDeadline()
 			}
 		case <-timeoutChan:
 			fmt.Printf("\nBenchmark timed out after %s.\n",
@@ -446,6 +445,16 @@ func (g *GigaSim) run() {
 			g.generateConsoleReport(false)
 		}
 	}
+}
+
+// runDeadline returns the channel firing once a run has used its configured runtime, or nil when no
+// runtime was configured. Time spent suspended is not part of a run, so this is taken again on resume
+// rather than measured from the process starting.
+func (g *GigaSim) runDeadline() <-chan time.Time {
+	if g.config.MaxRuntimeSeconds <= 0 {
+		return nil
+	}
+	return time.After(time.Duration(g.config.MaxRuntimeSeconds) * time.Second)
 }
 
 // halt prints the closing report for a run that has stopped.
@@ -680,6 +689,9 @@ func resolveDirectories(config *GigasimConfig) error {
 	if config.LogDir, err = utils.ResolveAndCreateDir(config.LogDir); err != nil {
 		return fmt.Errorf("failed to resolve the log directory: %w", err)
 	}
+	if err := claimDirectories(config); err != nil {
+		return err
+	}
 
 	if config.CleanDataOnStart {
 		fmt.Printf("CleanDataOnStart is enabled.\n")
@@ -703,7 +715,38 @@ func cleanDirectories(config *GigasimConfig) error {
 	return errors.Join(errs...)
 }
 
-// removeContents deletes all entries inside dir without removing dir itself.
+// dirMarkerName is the file marking a directory as one the benchmark created and may therefore
+// empty. Its presence is the only thing that permits a delete.
+const dirMarkerName = ".gigasim"
+
+// claimDirectories marks an empty data or log directory as the benchmark's own, which is what later
+// permits CleanDataOnStart and CleanDataOnExit to empty it.
+//
+// Only an empty directory is claimed. One that already holds files was not created by this benchmark,
+// so it is left unmarked and a clean will refuse it rather than destroy whatever is there.
+func claimDirectories(config *GigasimConfig) error {
+	for _, dir := range []string{config.DataDir, config.LogDir} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", dir, err)
+		}
+		if len(entries) > 0 {
+			continue
+		}
+		marker := filepath.Join(dir, dirMarkerName)
+		if err := os.WriteFile(marker, nil, 0o600); err != nil {
+			return fmt.Errorf("failed to mark %s as the benchmark's own: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+// removeContents deletes all entries inside dir without removing dir itself, leaving the marker that
+// keeps the directory claimed.
+//
+// A directory holding files but no marker is refused. DataDir and LogDir come from an operator-written
+// config, and a path naming a home, source or root directory would otherwise be emptied on the word of
+// a typo. This is the single place a delete happens, so the refusal cannot be bypassed by a new caller.
 func removeContents(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -712,7 +755,19 @@ func removeContents(dir string) error {
 		}
 		return err
 	}
+	if len(entries) == 0 {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, dirMarkerName)); err != nil {
+		return fmt.Errorf(
+			"refusing to clean %s: it holds files but no %s marker, so the benchmark did not create it"+
+				" (empty it by hand, or point DataDir and LogDir somewhere the benchmark owns)",
+			dir, dirMarkerName)
+	}
 	for _, entry := range entries {
+		if entry.Name() == dirMarkerName {
+			continue
+		}
 		if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
 			return err
 		}

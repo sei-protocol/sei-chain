@@ -39,6 +39,44 @@ func TestShippedConfigsAreValid(t *testing.T) {
 	}
 }
 
+// TestShippedConfigsUseSeparateDirectories pins that no shipped config can destroy another's run. The
+// debug config cleans its directories at both ends, so sharing a path with the standard config would
+// make a smoke test delete a long benchmark's data.
+func TestShippedConfigsUseSeparateDirectories(t *testing.T) {
+	t.Parallel()
+
+	paths, err := filepath.Glob(filepath.Join("config", "*.json"))
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "no shipped configs were found")
+
+	owners := map[string]string{}
+	for _, path := range paths {
+		config := DefaultGigasimConfig()
+		require.NoError(t, utils.LoadConfigFromFile(path, config))
+		for _, dir := range []string{config.DataDir, config.LogDir} {
+			require.NotContains(t, owners, dir,
+				"%s and %s both use %s", filepath.Base(path), owners[dir], dir)
+			owners[dir] = filepath.Base(path)
+		}
+	}
+}
+
+// TestCannedRandomSizeCoversTheLargestDraw pins that validation rejects a buffer too small for a
+// single contract. The buffer panics on a draw it cannot serve, and setup draws a whole contract, so
+// validating against the block payload alone lets a config through that crashes on startup.
+func TestCannedRandomSizeCoversTheLargestDraw(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.TransactionsPerBlock = 10
+	config.BytesPerTransaction = 64
+	config.CannedRandomSize = config.Erc20ContractSize - 1
+	require.Greater(t, config.CannedRandomSize, config.blockPayloadBytes(),
+		"the buffer must clear the block payload, so that only the contract draw can reject it")
+
+	require.ErrorContains(t, config.Validate(), "CannedRandomSize")
+}
+
 func TestLoadingRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 

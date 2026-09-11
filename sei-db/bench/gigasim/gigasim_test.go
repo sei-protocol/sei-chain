@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/stretchr/testify/require"
 )
 
@@ -209,7 +210,8 @@ func TestARunResumesAfterAnInterrupt(t *testing.T) {
 // rather than by its identifier left none of them, and the first cold selection aborted the run.
 func TestColdAccountsExistWhenEveryNewAccountIsDormant(t *testing.T) {
 	config := testConfig(t)
-	config.NewAccountDormancyProbability = 1
+	config.NewAccountHotProbability = 0
+	config.NewAccountDormantProbability = 1
 
 	require.Positive(t, runBlocks(t, config))
 }
@@ -246,12 +248,191 @@ func TestTheColdAccountsTakeTheHighestIdentifiers(t *testing.T) {
 		"the cold accounts should be the last ones created")
 }
 
+// classOf reports which population an identifier belongs to, derived independently of the selection
+// code so that a test disagreeing with it is a real disagreement rather than a shared mistake.
+func classOf(p accountPopulation, accountID int64) string {
+	switch {
+	case accountID == 0:
+		return "fee"
+	case accountID < 1+p.hot:
+		return "hot"
+	case accountID < p.firstCold:
+		return "dormant"
+	case accountID < p.total:
+		return "cold"
+	}
+	switch slot := (accountID - p.total) % mintCycle; {
+	case slot < p.mintedHot:
+		return "hot"
+	case slot < p.mintedHot+p.mintedDormant:
+		return "dormant"
+	default:
+		return "cold"
+	}
+}
+
+// TestDormantAccountsAreNeverSelected pins the promise the dormant population exists to keep. The
+// selection window used to slide over accounts minted during a run, so once minting began roughly the
+// dormant share of what the cold path returned was an account documented as never chosen.
+func TestDormantAccountsAreNeverSelected(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NumberOfHotAccounts = 10
+	config.MinimumNumberOfDormantAccounts = 50
+	config.MinimumNumberOfColdAccounts = 20
+	config.NewAccountHotProbability = 0.2
+	config.NewAccountDormantProbability = 0.5
+
+	population := plannedAccountPopulation(config)
+	accounts := &accountModel{
+		config:     config,
+		rand:       crand.NewCannedRandom(1<<20, 1337),
+		population: population,
+	}
+	// A population well past setup, so selection has to reach minted accounts of every class.
+	accounts.nextAccountID = population.total + 5*mintCycle
+	accounts.highestSafeAccountID = accounts.nextAccountID - 1
+
+	seen := map[string]int{}
+	for range 20_000 {
+		_, accountID, err := accounts.RandomAccount()
+		require.NoError(t, err)
+		class := classOf(population, accountID)
+		require.NotEqual(t, "dormant", class, "account %d is dormant", accountID)
+		require.NotEqual(t, "fee", class, "the fee account is never a counterparty")
+		require.LessOrEqual(t, accountID, accounts.nextAccountID, "account %d does not exist", accountID)
+		seen[class]++
+	}
+	require.Positive(t, seen["hot"], "hot accounts should be selected")
+	require.Positive(t, seen["cold"], "cold accounts should be selected")
+}
+
+// TestMintedAccountsFollowTheConfiguredSplit pins that the shares a config asks for are the shares the
+// identifiers actually carry, which is what lets selection address a class instead of tracking it.
+func TestMintedAccountsFollowTheConfiguredSplit(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NewAccountHotProbability = 0.25
+	config.NewAccountDormantProbability = 0.4
+
+	population := plannedAccountPopulation(config)
+	counts := map[string]int64{}
+	const minted = 10 * mintCycle
+	for offset := range int64(minted) {
+		counts[classOf(population, population.total+offset)]++
+	}
+
+	require.Equal(t, int64(0.25*minted), counts["hot"])
+	require.Equal(t, int64(0.40*minted), counts["dormant"])
+	require.Equal(t, int64(0.35*minted), counts["cold"])
+
+	// The sizes selection addresses must agree with the identifiers themselves.
+	require.Equal(t, counts["hot"], mintedClassSize(minted, 0, population.mintedHot))
+	require.Equal(t, counts["cold"], mintedClassSize(
+		minted, population.mintedHot+population.mintedDormant, population.mintedCold()))
+}
+
+// TestPopulationSizesSurviveARestart pins that a resumed run sees the population the run that wrote
+// the data saw. The sizes were recomputed from the identifier counter on open, counting every minted
+// account as cold, so a restart widened the cold set by everything the previous run had made dormant.
+func TestPopulationSizesSurviveARestart(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	config.NewAccountHotProbability = 0.1
+	config.NewAccountDormantProbability = 0.6
+
+	population := plannedAccountPopulation(config)
+	nextAccountID := population.total + 7*mintCycle + 321
+
+	hot, cold, dormant := population.counts(nextAccountID)
+	reopened := plannedAccountPopulation(config)
+	reopenedHot, reopenedCold, reopenedDormant := reopened.counts(nextAccountID)
+
+	require.Equal(t, hot, reopenedHot)
+	require.Equal(t, cold, reopenedCold)
+	require.Equal(t, dormant, reopenedDormant)
+	require.Equal(t, nextAccountID-1, hot+cold+dormant,
+		"every account but the fee collection one belongs to exactly one class")
+}
+
+// TestAnAccountsSlotsAreItsOwn pins that storage slots follow the account that owns them. Drawn from
+// the whole slot space instead, a hot account's reads would scatter across every account's slots and
+// the hot set would produce no hot storage — the workload cryptosim models would not be reproduced.
+func TestAnAccountsSlotsAreItsOwn(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultGigasimConfig()
+	// Slot selection reads only the config, the random buffer and the population size, so no store has
+	// to be opened. The population is set to a realistic size: a global draw is only distinguishable
+	// from an owned one once there are many accounts to spread it over.
+	accounts := &accountModel{
+		config:        config,
+		rand:          crand.NewCannedRandom(1<<20, 1337),
+		nextAccountID: 100_000,
+	}
+
+	interactions := int64(config.Erc20InteractionsPerAccount)
+	for _, accountID := range []int64{1, 7, 4096} {
+		seen := map[string]struct{}{}
+		for range 200 {
+			seen[string(accounts.RandomAccountSlot(accountID))] = struct{}{}
+		}
+		require.LessOrEqual(t, int64(len(seen)), interactions,
+			"account %d must draw from its own %d slots, not the whole space", accountID, interactions)
+		require.Greater(t, len(seen), 1, "the draw should still vary within the account's slots")
+	}
+
+	// Distinct accounts must not collide, or hot slots would be shared rather than owned.
+	first := string(accounts.RandomAccountSlot(1))
+	for range 200 {
+		require.NotEqual(t, first, string(accounts.RandomAccountSlot(9_999)),
+			"slots must not be shared between accounts")
+	}
+}
+
 func TestARunResumesWhereTheLastOneStopped(t *testing.T) {
 	config := testConfig(t)
 	first := runBlocks(t, config)
 
 	second := runBlocks(t, config)
 	require.Greater(t, second, first, "a second run should append to the first rather than restart it")
+}
+
+// TestCleaningRefusesADirectoryTheBenchmarkDoesNotOwn pins the guard standing between an
+// operator-written DataDir and an unrecoverable delete. A path naming a home or source directory
+// would otherwise be emptied on the word of a typo.
+func TestCleaningRefusesADirectoryTheBenchmarkDoesNotOwn(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	precious := filepath.Join(dir, "precious.txt")
+	require.NoError(t, os.WriteFile(precious, []byte("not the benchmark's"), 0o600))
+
+	require.ErrorContains(t, removeContents(dir), "refusing to clean")
+	require.FileExists(t, precious, "a refused clean must leave every file in place")
+}
+
+// TestCleaningEmptiesADirectoryTheBenchmarkClaimed pins the other half: a directory the benchmark
+// created is cleaned, and stays claimed so the next run can clean it too.
+func TestCleaningEmptiesADirectoryTheBenchmarkClaimed(t *testing.T) {
+	t.Parallel()
+
+	config := &GigasimConfig{
+		DataDir: filepath.Join(t.TempDir(), "data"),
+		LogDir:  filepath.Join(t.TempDir(), "logs"),
+	}
+	require.NoError(t, resolveDirectories(config))
+
+	written := filepath.Join(config.DataDir, "block.db")
+	require.NoError(t, os.WriteFile(written, []byte("run output"), 0o600))
+
+	require.NoError(t, removeContents(config.DataDir))
+	require.NoFileExists(t, written)
+	require.FileExists(t, filepath.Join(config.DataDir, dirMarkerName),
+		"the marker must survive a clean, or the next one is refused")
 }
 
 // dirHasContents reports whether a directory exists and holds at least one entry.

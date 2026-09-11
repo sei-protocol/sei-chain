@@ -39,12 +39,12 @@ type GigasimConfig struct {
 	// How often to flush the block store, in blocks. 0 never flushes explicitly.
 	FlushIntervalBlocks int
 
-	// The number of hot accounts. Hot accounts are chosen far more often than any other account and
-	// their count does not change once the benchmark starts.
+	// The number of hot accounts to create before the benchmark starts. Hot accounts are chosen far
+	// more often than any other, and the population grows as new hot accounts are created.
 	NumberOfHotAccounts int
 
 	// The number of cold accounts to create before the benchmark starts. Cold accounts are chosen
-	// occasionally, and the population grows as new accounts are created.
+	// occasionally, and the population grows as new cold accounts are created.
 	MinimumNumberOfColdAccounts int
 
 	// The number of dormant accounts to create before the benchmark starts. Dormant accounts are never
@@ -58,8 +58,12 @@ type GigasimConfig struct {
 	// reusing a cold one.
 	NewAccountProbability float64
 
-	// The probability in [0,1] that a newly created account is dormant rather than cold.
-	NewAccountDormancyProbability float64
+	// The share in [0,1] of newly created accounts that join the hot population.
+	NewAccountHotProbability float64
+
+	// The share in [0,1] of newly created accounts that are dormant. Whatever the hot and dormant
+	// shares leave over is the share that becomes cold, so the two together must not exceed 1.
+	NewAccountDormantProbability float64
 
 	// The number of ERC20 contracts to create before the benchmark starts.
 	MinimumNumberOfErc20Contracts int
@@ -174,19 +178,20 @@ func DefaultGigasimConfig() *GigasimConfig {
 		BlocksPerQc:                     1,
 		MaxPendingExecutionQueueSize:    100,
 		FlushIntervalBlocks:             10,
-		NumberOfHotAccounts:             10_000,
+		NumberOfHotAccounts:             100_000,
 		MinimumNumberOfColdAccounts:     1_000_000,
 		MinimumNumberOfDormantAccounts:  10_000_000,
-		HotAccountProbability:           0.5,
-		NewAccountProbability:           0.01,
-		NewAccountDormancyProbability:   0.5,
+		HotAccountProbability:           0.1,
+		NewAccountProbability:           0.001,
+		NewAccountHotProbability:        0.01,
+		NewAccountDormantProbability:    0.9,
 		MinimumNumberOfErc20Contracts:   1_000,
 		HotErc20ContractSetSize:         10,
 		HotErc20ContractProbability:     0.5,
 		Erc20ContractSize:               4096,
 		Erc20InteractionsPerAccount:     8,
 		RollbackWindow:                  1_000,
-		LookbackWindow:                  10_000_000,
+		LookbackWindow:                  1_000_000,
 		PruneIntervalSeconds:            300,
 		CheckpointIntervalSeconds:       60,
 		CheckpointBlockInterval:         0,
@@ -329,13 +334,21 @@ func (c *GigasimConfig) validateAccountDistribution() error {
 	}{
 		{"HotAccountProbability", c.HotAccountProbability},
 		{"NewAccountProbability", c.NewAccountProbability},
-		{"NewAccountDormancyProbability", c.NewAccountDormancyProbability},
+		{"NewAccountHotProbability", c.NewAccountHotProbability},
+		{"NewAccountDormantProbability", c.NewAccountDormantProbability},
 		{"HotErc20ContractProbability", c.HotErc20ContractProbability},
 		{"TransactionMetricsSampleRate", c.TransactionMetricsSampleRate},
 	} {
 		if p.value < 0 || p.value > 1 {
 			return fmt.Errorf("%s must be in [0, 1] (got %f)", p.name, p.value)
 		}
+	}
+	// Cold is whatever the other two leave, so a pair summing above one leaves it negative.
+	if hotAndDormant := c.NewAccountHotProbability + c.NewAccountDormantProbability; hotAndDormant > 1 {
+		return fmt.Errorf(
+			"NewAccountHotProbability and NewAccountDormantProbability must sum to at most 1, leaving "+
+				"the rest cold (got %f and %f)",
+			c.NewAccountHotProbability, c.NewAccountDormantProbability)
 	}
 	if c.HotErc20ContractSetSize < 1 {
 		return fmt.Errorf("HotErc20ContractSetSize must be at least 1 (got %d)", c.HotErc20ContractSetSize)
@@ -383,11 +396,14 @@ func (c *GigasimConfig) validateRuntime() error {
 	if c.ConstantThreadCount < 0 {
 		return fmt.Errorf("ConstantThreadCount must be non-negative (got %d)", c.ConstantThreadCount)
 	}
-	// Every simulated value is sliced out of the canned buffer, and the largest single draw is a whole
-	// block payload, which the buffer panics on if it cannot serve.
-	if minBuffer := c.blockPayloadBytes(); c.CannedRandomSize < minBuffer {
-		return fmt.Errorf("CannedRandomSize must be at least %d, the size of one block payload (got %d)",
-			minBuffer, c.CannedRandomSize)
+	// Every simulated value is sliced out of the canned buffer, which panics on a draw it cannot
+	// serve. The largest single draw is a whole block payload during a run, or one contract during
+	// setup, and either can be the bigger of the two.
+	if minBuffer := max(c.blockPayloadBytes(), c.Erc20ContractSize); c.CannedRandomSize < minBuffer {
+		return fmt.Errorf(
+			"CannedRandomSize must be at least %d, the largest single draw (one block payload is %d, "+
+				"one ERC20 contract is %d) (got %d)",
+			minBuffer, c.blockPayloadBytes(), c.Erc20ContractSize, c.CannedRandomSize)
 	}
 	if c.DataDir == "" {
 		return fmt.Errorf("DataDir is required")

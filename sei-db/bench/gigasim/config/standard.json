@@ -1,8 +1,8 @@
 {
   "Comment": "Standard gigasim configuration: a full node's stack, with the historical state store and the receipt store both enabled. Checkpoints are paced by blocks rather than wall-clock time, so a run shorter than a time interval still leaves a snapshot to restart from.",
   "Seed": 1337,
-  "DataDir": "~/gigasim/data",
-  "LogDir": "~/gigasim/logs",
+  "DataDir": "~/gigasim/standard/data",
+  "LogDir": "~/gigasim/standard/logs",
   "EnableSS": true,
   "EnableReceiptStore": true,
   "CheckpointIntervalSeconds": 60,

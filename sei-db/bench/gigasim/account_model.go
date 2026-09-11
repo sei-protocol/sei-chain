@@ -56,31 +56,86 @@ func paddedCounterKey(name string) []byte {
 	return padded
 }
 
-// accountPopulation is the identifier layout setup lays down. The fee collection account takes
-// identifier zero, the hot accounts follow, then the dormant accounts, and the cold accounts take the
-// highest identifiers.
+// mintCycle is the number of consecutive identifiers one turn of the new-account split covers. A
+// class takes a whole number of identifiers out of each cycle, which is what lets any identifier's
+// class be computed from the identifier alone, and fixes the resolution of the configured shares at
+// a tenth of a percent.
+const mintCycle = 1000
+
+// accountPopulation is the identifier layout setup lays down, and the split every identifier above it
+// follows. The fee collection account takes identifier zero, the hot accounts follow, then the dormant
+// accounts, and the cold accounts take the highest identifiers setup creates.
+//
+// Nothing here changes once a run starts. Every question about an account — which class it belongs to,
+// how many of a class exist below some height — is answered from these numbers and the identifier
+// counter, so a resumed run sees exactly the population the run that wrote the data saw.
 type accountPopulation struct {
-	// The number of accounts a fully prepopulated run holds.
+	// The number of accounts a fully prepopulated run holds, and so the first identifier a run mints.
 	total int64
 
-	// The lowest identifier belonging to a cold account.
+	// The number of hot accounts setup creates, holding identifiers [1, 1+hot).
+	hot int64
+
+	// The lowest identifier belonging to a cold account setup created.
 	firstCold int64
+
+	// The number of cold accounts setup creates, holding identifiers [firstCold, total).
+	cold int64
+
+	// How many identifiers of each mintCycle a minted account's class takes. Cold takes the rest.
+	mintedHot     int64
+	mintedDormant int64
 }
 
-// plannedAccountPopulation returns the layout the configured counts describe.
-//
-// Cold accounts are placed last because RandomAccount draws them from the identifiers just below the
-// newest account rather than from a recorded set, so they have to occupy the top of the range.
+// plannedAccountPopulation returns the layout the configured counts and shares describe.
 func plannedAccountPopulation(config *GigasimConfig) accountPopulation {
+	hot := int64(config.NumberOfHotAccounts)
+	cold := int64(config.MinimumNumberOfColdAccounts)
 	// One account above the configured populations, because the fee collection account takes identifier
 	// zero and is never selected as a transfer counterparty.
-	total := 1 + int64(config.NumberOfHotAccounts) +
-		int64(config.MinimumNumberOfDormantAccounts) +
-		int64(config.MinimumNumberOfColdAccounts)
+	total := 1 + hot + int64(config.MinimumNumberOfDormantAccounts) + cold
+
 	return accountPopulation{
-		total:     total,
-		firstCold: total - int64(config.MinimumNumberOfColdAccounts),
+		total:         total,
+		hot:           hot,
+		firstCold:     total - cold,
+		cold:          cold,
+		mintedHot:     int64(config.NewAccountHotProbability * mintCycle),
+		mintedDormant: int64(config.NewAccountDormantProbability * mintCycle),
 	}
+}
+
+// mintedCold is how many identifiers of each cycle a minted account's class leaves to cold.
+func (p accountPopulation) mintedCold() int64 {
+	return mintCycle - p.mintedHot - p.mintedDormant
+}
+
+// mintedClassSize returns how many of the first minted identifiers belong to a class taking perCycle
+// identifiers out of every cycle, where those identifiers start at offset startOfCycle within it.
+func mintedClassSize(minted int64, startOfCycle int64, perCycle int64) int64 {
+	if minted <= 0 || perCycle <= 0 {
+		return 0
+	}
+	whole, remainder := minted/mintCycle, minted%mintCycle
+	return whole*perCycle + min(max(remainder-startOfCycle, 0), perCycle)
+}
+
+// mintedClassMember returns the identifier of the index-th minted account of a class, counting from
+// the first account minted. It is the inverse of mintedClassSize, so drawing an index uniformly draws
+// an account of that class uniformly.
+func (p accountPopulation) mintedClassMember(index int64, startOfCycle int64, perCycle int64) int64 {
+	cycle, withinCycle := index/perCycle, index%perCycle
+	return p.total + cycle*mintCycle + startOfCycle + withinCycle
+}
+
+// counts returns how many accounts of each class exist once nextAccountID accounts have been created.
+// Dormant is the remainder, since every account but the fee collection one belongs to exactly a class.
+func (p accountPopulation) counts(nextAccountID int64) (hot int64, cold int64, dormant int64) {
+	minted := max(0, nextAccountID-p.total)
+	hot = min(p.hot, max(0, nextAccountID-1)) + mintedClassSize(minted, 0, p.mintedHot)
+	cold = min(p.cold, max(0, nextAccountID-p.firstCold)) +
+		mintedClassSize(minted, p.mintedHot+p.mintedDormant, p.mintedCold())
+	return hot, cold, max(0, nextAccountID-1-hot-cold)
 }
 
 // accountModel picks which accounts, contracts and storage slots each transaction touches, and mints
@@ -106,8 +161,9 @@ type accountModel struct {
 	// in it reads; selection stays at or below this to keep every read target real.
 	highestSafeAccountID int64
 
-	// The number of cold accounts, which grows as new non-dormant accounts are created.
-	numberOfColdAccounts int64
+	// The identifier layout, fixed by the config. Population sizes are derived from it rather than
+	// counted as accounts are minted, so there is no tally to drift from what the identifiers say.
+	population accountPopulation
 
 	// The fee collection account, held by every transaction and therefore cached.
 	feeAccount []byte
@@ -133,7 +189,7 @@ func newAccountModel(
 		nextAccountID:        nextAccountID,
 		nextErc20ContractID:  nextErc20ContractID,
 		highestSafeAccountID: nextAccountID - 1,
-		numberOfColdAccounts: max(0, nextAccountID-plannedAccountPopulation(config).firstCold),
+		population:           plannedAccountPopulation(config),
 		feeAccount:           keys.BuildEVMKey(accountKeyPrefix, rand.Address(accountPrefix, 0, keys.AddressLen)),
 		metrics:              metrics,
 	}
@@ -173,9 +229,9 @@ func (a *accountModel) FeeCollectionAddress() []byte {
 	return a.feeAccount
 }
 
-// CreateAccount mints an account and writes it to state, joining either the cold population that
-// transactions select from or the dormant one that is never selected.
-func (a *accountModel) CreateAccount(isCold bool) {
+// CreateAccount mints an account and writes it to state. Which population it joins follows from the
+// identifier it takes, so setup only has to create them in the order the layout describes.
+func (a *accountModel) CreateAccount() {
 	accountID := a.nextAccountID
 	a.nextAccountID++
 
@@ -186,10 +242,6 @@ func (a *accountModel) CreateAccount(isCold bool) {
 	binary.BigEndian.PutUint64(record[:8], uint64(a.rand.Int64()))
 	copy(record[8:], a.rand.Bytes(accountRecordLen-8))
 	a.state.Put(address, record)
-
-	if isCold {
-		a.numberOfColdAccounts++
-	}
 }
 
 // CreateErc20Contract mints an ERC20 contract and writes its code to state.
@@ -202,35 +254,78 @@ func (a *accountModel) CreateErc20Contract() {
 }
 
 // RandomAccount selects the account for one side of a transfer, minting a new one with the configured
-// probability. It reports whether the account is new.
-func (a *accountModel) RandomAccount() (address []byte, isNew bool, err error) {
+// probability. The identifier is returned alongside the address because the storage slots a
+// transaction touches are derived from it.
+//
+// A dormant account is never returned. Dormant identifiers are not excluded by narrowing the range,
+// which is what let them be selected before: those minted during a run are interleaved with the hot
+// and cold ones, so the classes have to be addressed rather than bounded.
+func (a *accountModel) RandomAccount() (address []byte, accountID int64, err error) {
 	if a.rand.Float64() < a.config.HotAccountProbability {
-		accountID := a.rand.Int64Range(1, int64(a.config.NumberOfHotAccounts)+1)
-		return a.accountAddress(accountID), false, nil
+		return a.selectHot()
 	}
 
 	if a.rand.Float64() < a.config.NewAccountProbability {
 		accountID := a.nextAccountID
 		a.nextAccountID++
-		if a.rand.Float64() >= a.config.NewAccountDormancyProbability {
-			a.numberOfColdAccounts++
-		}
-		return a.accountAddress(accountID), true, nil
+		return a.accountAddress(accountID), accountID, nil
 	}
 
-	// The cold population sits immediately below the newest account that existed before this block, so
-	// the window slides forward as accounts are minted.
-	lastColdAccountID := a.highestSafeAccountID + 1
-	firstColdAccountID := lastColdAccountID - a.numberOfColdAccounts
-	if firstColdAccountID >= lastColdAccountID {
-		return nil, false, fmt.Errorf("no cold accounts available to select from")
-	}
-	return a.accountAddress(a.rand.Int64Range(firstColdAccountID, lastColdAccountID)), false, nil
+	return a.selectCold()
 }
 
-// RandomAccountSlot selects one of the ERC20 storage slots an account may touch.
-func (a *accountModel) RandomAccountSlot() []byte {
-	slotID := a.rand.Int64Range(0, int64(a.config.Erc20InteractionsPerAccount)*a.nextAccountID+1)
+// mintedSoFar is how many accounts have been minted at or below the newest identifier selection may
+// reach. Accounts minted for the block being built are excluded: they may not be committed yet.
+func (a *accountModel) mintedSoFar() int64 {
+	return max(0, a.highestSafeAccountID+1-a.population.total)
+}
+
+// selectHot picks uniformly from the hot accounts: those setup created, plus every hot account minted
+// since. The minted ones are addressed by index rather than searched for, so the cost does not grow
+// with the population.
+func (a *accountModel) selectHot() (address []byte, accountID int64, err error) {
+	population := a.population
+	minted := mintedClassSize(a.mintedSoFar(), 0, population.mintedHot)
+	if population.hot+minted == 0 {
+		return nil, 0, fmt.Errorf("no hot accounts available to select from")
+	}
+
+	index := a.rand.Int64Range(0, population.hot+minted)
+	if index < population.hot {
+		accountID = 1 + index
+	} else {
+		accountID = population.mintedClassMember(index-population.hot, 0, population.mintedHot)
+	}
+	return a.accountAddress(accountID), accountID, nil
+}
+
+// selectCold picks uniformly from the cold accounts: those setup created, plus every cold account
+// minted since. Cold identifiers take the end of each mint cycle, after the hot and dormant ones.
+func (a *accountModel) selectCold() (address []byte, accountID int64, err error) {
+	population := a.population
+	startOfCycle := population.mintedHot + population.mintedDormant
+	minted := mintedClassSize(a.mintedSoFar(), startOfCycle, population.mintedCold())
+	if population.cold+minted == 0 {
+		return nil, 0, fmt.Errorf("no cold accounts available to select from")
+	}
+
+	index := a.rand.Int64Range(0, population.cold+minted)
+	if index < population.cold {
+		accountID = population.firstCold + index
+	} else {
+		accountID = population.mintedClassMember(index-population.cold, startOfCycle, population.mintedCold())
+	}
+	return a.accountAddress(accountID), accountID, nil
+}
+
+// RandomAccountSlot selects one of the ERC20 storage slots the given account owns.
+//
+// Each account owns a contiguous block of Erc20InteractionsPerAccount slots, so the slots a hot
+// account touches are as hot as the account is. Drawing from the whole slot space instead would
+// spread every read over all accounts' slots and erase the locality the hot set exists to create.
+func (a *accountModel) RandomAccountSlot(accountID int64) []byte {
+	interactions := int64(a.config.Erc20InteractionsPerAccount)
+	slotID := accountID*interactions + a.rand.Int64Range(0, interactions)
 	return keys.BuildEVMKey(keys.EVMKeyStorage, a.rand.Address(ethStoragePrefix, slotID, storageKeyLen))
 }
 
@@ -256,11 +351,8 @@ func (a *accountModel) RandomErc20Contract() ([]byte, error) {
 // block that created it has been committed.
 func (a *accountModel) ReportEndOfBlock() {
 	a.highestSafeAccountID = a.nextAccountID - 1
-	hot := int64(a.config.NumberOfHotAccounts)
-	// Every account belongs to exactly one set, less the fee collection account at identifier zero, so
-	// what is neither hot nor cold is dormant.
-	dormant := max(0, a.nextAccountID-1-hot-a.numberOfColdAccounts)
-	a.metrics.SetAccountCounts(a.nextAccountID, hot, a.numberOfColdAccounts, dormant)
+	hot, cold, dormant := a.population.counts(a.nextAccountID)
+	a.metrics.SetAccountCounts(a.nextAccountID, hot, cold, dormant)
 	a.metrics.SetErc20ContractCount(a.nextErc20ContractID)
 }
 

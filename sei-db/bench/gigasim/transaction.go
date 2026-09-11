@@ -42,11 +42,11 @@ type transaction struct {
 //
 // Not thread safe: it draws from the account model, which belongs to a single goroutine.
 func buildTransaction(txn *transaction, accounts *accountModel) error {
-	srcAccount, _, err := accounts.RandomAccount()
+	srcAccount, srcAccountID, err := accounts.RandomAccount()
 	if err != nil {
 		return fmt.Errorf("failed to select the source account: %w", err)
 	}
-	dstAccount, _, err := accounts.RandomAccount()
+	dstAccount, dstAccountID, err := accounts.RandomAccount()
 	if err != nil {
 		return fmt.Errorf("failed to select the destination account: %w", err)
 	}
@@ -60,8 +60,8 @@ func buildTransaction(txn *transaction, accounts *accountModel) error {
 		erc20Contract:     erc20Contract,
 		srcAccount:        srcAccount,
 		dstAccount:        dstAccount,
-		srcAccountSlot:    accounts.RandomAccountSlot(),
-		dstAccountSlot:    accounts.RandomAccountSlot(),
+		srcAccountSlot:    accounts.RandomAccountSlot(srcAccountID),
+		dstAccountSlot:    accounts.RandomAccountSlot(dstAccountID),
 		newSrcBalance:     rand.Bytes(accountRecordLen),
 		newDstBalance:     rand.Bytes(accountRecordLen),
 		newFeeBalance:     rand.Bytes(accountRecordLen),

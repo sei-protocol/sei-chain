@@ -52,9 +52,10 @@ Each transaction reads the contract code, both accounts, both storage slots and 
 writes both accounts, both slots and the fee account. This is the same model `cryptosim` uses, so the
 two are comparable on the state DB.
 
-Accounts are drawn from a hot set chosen most of the time, a cold set chosen occasionally and growing
-as the run mints accounts, and a dormant set that is never chosen and exists only to give the state DB
-a realistic resident size.
+Accounts are drawn from a hot set chosen most of the time, a cold set chosen occasionally, and a
+dormant set that is never chosen and exists only to give the state DB a realistic resident size. All
+three grow as the run mints accounts, in the proportions `NewAccountHotProbability` and
+`NewAccountDormantProbability` describe, with the remainder becoming cold.
 
 ## Setup
 
@@ -63,10 +64,15 @@ Those setup blocks go through the same stores at the same heights as measured bl
 excluded from the reported rates. Setup is skipped when the data directory already holds the
 population, which is what makes a large data set worth keeping between runs.
 
-Setup creates exactly the cold and dormant counts the config asks for, assigning each account to a set
-by its identifier: the hot accounts take the lowest identifiers, the dormant accounts follow, and the
-cold accounts take the highest, which is the range cold selection draws from.
-`NewAccountDormancyProbability` governs only the accounts minted during the run itself.
+Setup creates exactly the counts the config asks for, and an account's set follows from the identifier
+it takes: the hot accounts take the lowest identifiers, the dormant accounts follow, and the cold
+accounts take the highest. Accounts minted during the run take the identifiers above those, where the
+same rule continues — each block of a thousand identifiers is split between the three sets in the
+configured proportions.
+
+Deriving the set from the identifier is what keeps selection honest. Nothing about the population is
+counted as the run goes, so there is no tally to drift from what the identifiers say, and a resumed
+run reconstructs the same population from its config and the persisted identifier counter alone.
 
 # Configuring Gigasim
 

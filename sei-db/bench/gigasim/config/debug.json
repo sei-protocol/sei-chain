@@ -1,8 +1,8 @@
 {
   "Comment": "Configuration for local smoke testing and debugging: a small account population, a short run, and a block rate held well below what the machine can do.",
   "Seed": 1337,
-  "DataDir": "~/gigasim/data",
-  "LogDir": "~/gigasim/logs",
+  "DataDir": "~/gigasim/debug/data",
+  "LogDir": "~/gigasim/debug/logs",
   "TransactionsPerBlock": 100,
   "MaxBlocksPerSecond": 10,
   "MinimumNumberOfColdAccounts": 2000,
