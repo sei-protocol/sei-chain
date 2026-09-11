@@ -269,23 +269,28 @@ func (s *StateDB) truncateWAL(target int64) error {
 
 // Close closes SC, SS and the state WAL, reporting every failure rather than stopping at the first.
 // The WAL closes last, since SC replays through it.
+//
+// How long each of the three took is logged, since each drains its own write queue and waits on the
+// compactions behind it, and those dominate the time a shutdown takes.
 func (s *StateDB) Close() error {
 	var errs error
+	var timer utils.CloseTimer
 	if s.ss != nil {
-		if err := s.ss.Close(); err != nil {
+		if err := timer.Close("ss", s.ss.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close EVM state store: %w", err))
 		}
 	}
 	if s.sc != nil {
-		if err := s.sc.Close(); err != nil {
+		if err := timer.Close("sc", s.sc.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close state commit store: %w", err))
 		}
 	}
 	if s.wal != nil {
-		if err := s.wal.Close(); err != nil {
+		if err := timer.Close("wal", s.wal.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close state WAL: %w", err))
 		}
 	}
+	logger.Info("Closed the state DB", timer.Fields()...)
 	return errs
 }
 

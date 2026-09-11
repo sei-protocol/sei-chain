@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -127,26 +128,33 @@ func (m *GigaStorageManager) SS() *evm.EVMStateStore {
 // Close shuts down the collector and then every store, reporting every failure rather than
 // stopping at the first. It tolerates a manager whose open did not finish, and may be called on
 // one that was never opened.
+//
+// How long each store took is logged. Closing drains the write queues the stores buffer behind and
+// waits for the compactions those writes scheduled, so a shutdown that takes minutes is one store's
+// backlog rather than the shutdown itself, and the breakdown is what names it.
 func (m *GigaStorageManager) Close() error {
 	var errs error
+	var timer utils.CloseTimer
 	if m.gc != nil {
-		if err := m.gc.Close(); err != nil {
+		if err := timer.Close("gc", m.gc.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close storage garbage collector: %w", err))
 		}
 	}
 	if m.blockStore != nil {
 		// blockStore.Close closes the block database it was built over, so closing that here as well
 		// would be a double close.
-		if err := m.blockStore.Close(); err != nil {
+		if err := timer.Close("block_store", m.blockStore.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close block store: %w", err))
 		}
 	}
 	if m.receiptDB != nil {
-		if err := m.receiptDB.Close(); err != nil {
+		if err := timer.Close("receipt_store", m.receiptDB.Close); err != nil {
 			errs = errors.Join(errs, fmt.Errorf("close receipt store: %w", err))
 		}
 	}
-	return errors.Join(errs, m.closeState())
+	errs = errors.Join(errs, timer.Close("state_db", m.closeState))
+	logger.Info("Closed storage", timer.Fields()...)
+	return errs
 }
 
 // closeState closes the stores the StateDB owns. The StateDB is nil when the open failed before
