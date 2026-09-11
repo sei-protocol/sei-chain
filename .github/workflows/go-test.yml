@@ -62,7 +62,7 @@ jobs:
           # would leave one shard with most of the test time.
           go list ./... \
             | grep -v "^${STATE_DB_PKG_PREFIX}" \
-            | sort \
+            | LC_ALL=C sort \
             | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
           [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
           echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
