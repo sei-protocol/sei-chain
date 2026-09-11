@@ -20,18 +20,21 @@ env:
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
 
 jobs:
-  test:
-    name: Race Detection
+  # The race run fans out over the shard matrix. The shards and the upgrade
+  # tests all roll up into the `Race Detection` job below, which is the single
+  # check name branch protection and the merge queue require.
+  race-shard:
+    name: Race Detection (shard ${{ matrix.shard }})
     runs-on: uci-default
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          # upgrade-test-vet resolves historical offline phases from release
-          # branches, so checkout must include their remote refs.
-          fetch-depth: 0
 
       - uses: actions/setup-go@v7
         with:
@@ -54,12 +57,40 @@ jobs:
       - name: Go test
         run: |
           set -euo pipefail
-          PKGS=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
-          echo "$PKGS" | xargs go test \
-            -timeout=${{ env.GO_TEST_TIMEOUT }}
+          # Round-robin over the sorted package list: neighbouring packages
+          # (sei-db/*, sei-cosmos/x/*) are the slow ones, so contiguous slices
+          # would leave one shard with most of the test time.
+          go list ./... \
+            | grep -v "^${STATE_DB_PKG_PREFIX}" \
+            | LC_ALL=C sort \
+            | awk -v n="${{ strategy.job-total }}" -v s="${{ matrix.shard }}" '(NR - 1) % n == s' > packages.txt
+          [[ -s packages.txt ]] || { echo "shard ${{ matrix.shard }} received no packages"; exit 1; }
+          echo "Shard ${{ matrix.shard }}/${{ strategy.job-total }}: $(wc -l < packages.txt) packages"
+          xargs -r go test -timeout=${{ env.GO_TEST_TIMEOUT }} < packages.txt
+
+  upgrade-test:
+    name: Upgrade tests
+    runs-on: uci-default
+    env:
+      GOFLAGS: -race -tags=ledger,test_ledger_mock
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          # upgrade-test-vet resolves historical offline phases from release
+          # branches, so checkout must include their remote refs.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Download modules
+        run: go mod download
 
       # The file describing the upgrade being shipped sits behind a build tag,
-      # so the run above compiles none of it. The target derives the tag from
+      # so the shards above compile none of it. The target derives the tag from
       # app/tags rather than taking one from here, which is what stops this step
       # from going on running an upgrade that already shipped.
       - name: Minor upgrade test
@@ -69,6 +100,24 @@ jobs:
       # to keep compiling. The run above and golangci-lint both skip them.
       - name: Minor upgrade tests compile
         run: make upgrade-test-vet
+
+  test:
+    name: Race Detection
+    runs-on: ubuntu-latest
+    needs: [ race-shard, upgrade-test ]
+    if: always()
+    steps:
+      - name: Verify race shards and upgrade tests succeeded
+        run: |
+          if [[ "${{ needs.race-shard.result }}" != "success" ]]; then
+            echo "race shards did not succeed (${{ needs.race-shard.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.upgrade-test.result }}" != "success" ]]; then
+            echo "upgrade tests did not succeed (${{ needs.upgrade-test.result }})"
+            exit 1
+          fi
+          echo "All race shards and upgrade tests passed."
 
   coverage:
     name: Coverage
