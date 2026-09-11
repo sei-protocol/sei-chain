@@ -250,7 +250,7 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			tx := next.Value()
 			if len(tx) > types.MaxGossipTxBytes {
 				logger.Debug("skipping gossip of tx above protocol size",
-					"tx", types.Tx(tx).Hash(),
+					"tx", tx.Hash(),
 					"size", len(tx),
 					"peer", peerID)
 			} else {
