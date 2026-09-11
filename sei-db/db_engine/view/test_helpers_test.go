@@ -313,9 +313,10 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	config := DefaultTestViewManagerConfig()
 	config.EstimatedOverheadPerEntry = 0
 	// A standalone shard has no manager to brick, and it takes itself out of service on a failed read
-	// without help, so reporting is a no-op here.
+	// or fold without help, so both reports are no-ops here.
 	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
 		func() error { return ErrViewManagerClosed },
+		func(error) {},
 		func(error) {})
 	require.NoError(t, err)
 	return s
