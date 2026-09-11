@@ -472,6 +472,37 @@ func TestReactorMismatchedMaxTxBytesKeepsConnection(t *testing.T) {
 	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(rts.reactors[receiver], sender))
 }
 
+func TestBroadcastSkipsProtocolOversizedTx(t *testing.T) {
+	ctx := t.Context()
+
+	// Setup: two connected reactors. CheckTx will not admit a protocol-oversized
+	// tx, so the oversized bytes are placed on the gossip list directly.
+	rts := setupReactors(ctx, t, 2)
+	t.Cleanup(leaktest.Check(t))
+
+	sender := rts.nodes[0]
+	receiver := rts.nodes[1]
+	rts.start(t)
+	rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
+
+	oversized := types.Tx(make([]byte, types.MaxGossipTxBytes+1))
+	require.NoError(t, rts.mempools[sender].InsertReadyTxForTest(oversized))
+
+	okTx := types.Tx("gossip-ok=1")
+	_, err := rts.mempools[sender].CheckTx(ctx, okTx)
+	require.NoError(t, err)
+
+	// Test: broadcast walks an oversized tx then a gossip-legal tx.
+	// Verify: the receiver gets only the legal tx.
+	require.Eventually(t, func() bool {
+		found, missing := rts.mempools[receiver].SafeGetTxsForHashes([]types.TxHash{okTx.Hash()})
+		return len(missing) == 0 && len(found) == 1
+	}, time.Minute, 50*time.Millisecond)
+	require.Equal(t, 1, rts.mempools[receiver].Size())
+	_, missing := rts.mempools[receiver].SafeGetTxsForHashes([]types.TxHash{oversized.Hash()})
+	require.Equal(t, []types.TxHash{oversized.Hash()}, missing)
+}
+
 func TestReactorProtocolOversizedTxIsCounted(t *testing.T) {
 	// Setup: peer is already tracked so protocol oversize can increment the blacklist.
 	reactor, _ := setupReactorForTest(t, mempool.NopTxConstraintsFetcher)
