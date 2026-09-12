@@ -9,8 +9,16 @@ import (
 )
 
 const (
-	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 1
+	DefaultSnapshotInterval uint32 = 10000
+	// DefaultSnapshotKeepRecent is sized to span a memIAVL snapshot publication gap, not to
+	// bound FlatKV's own disk use. A composite read needs a version both backends still hold,
+	// and at mainnet state size a memIAVL rewrite takes ~6 hours against this 10000-block
+	// interval, so memIAVL publishes roughly every 50000 blocks. Retaining two checkpoints
+	// reaches back 10000-20000 blocks, so FlatKV prunes each version before memIAVL publishes
+	// it and no common version ever exists. Ten reaches back ~90000 blocks, which covers that
+	// gap with margin; it does not reach memIAVL's *oldest* retained snapshot, measured at
+	// ~155000 blocks behind head, so the deepest rollback still needs a deliberate override.
+	DefaultSnapshotKeepRecent uint32 = 10
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -40,7 +48,7 @@ type Config struct {
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
 	// Ignored entirely when ExternalPruning is set.
-	// Default: 1
+	// Default: 10
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its

@@ -312,6 +312,9 @@ func startInProcess(
 	if err := config.ValidateFreeze(); err != nil {
 		return err
 	}
+	if err := assertReserveNodeAllowed(cfg.Mode, config.StateCommit.WriteMode); err != nil {
+		return err
+	}
 	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
 	if gRPCOnly && config.FreezeHeight > 0 {
 		return errors.New("freeze-height cannot be used with grpc-only mode")
