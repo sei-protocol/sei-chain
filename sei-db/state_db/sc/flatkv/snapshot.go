@@ -224,8 +224,12 @@ func resolveSnapshotToClone(root string, targetVersion int64) (string, error) {
 func createWorkingDir(snapDir, workDir string) error {
 	snapBase := filepath.Base(snapDir)
 	if reuseWorkingDir(workDir, snapBase) {
+		logger.Info("Reusing the working copy already cloned from this snapshot", "snapshot", snapBase)
 		return nil
 	}
+
+	logger.Info("Cloning the snapshot into a new working copy", "snapshot", snapBase)
+	started := time.Now()
 
 	_ = os.RemoveAll(workDir)
 
@@ -249,7 +253,12 @@ func createWorkingDir(snapDir, workDir string) error {
 		}
 	}
 
-	return writeSnapshotBase(workDir, snapBase)
+	if err := writeSnapshotBase(workDir, snapBase); err != nil {
+		return err
+	}
+	logger.Info("Cloned the snapshot into a new working copy",
+		"snapshot", snapBase, "elapsed", time.Since(started).Truncate(time.Millisecond))
+	return nil
 }
 
 // reuseWorkingDir returns true if workDir exists and was cloned from the

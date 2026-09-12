@@ -27,7 +27,7 @@ var (
 		CatchupLatency            metric.Float64Histogram
 		CatchupReplayNumBlocks    metric.Int64Counter
 		SnapshotWriteLatency      metric.Float64Histogram
-		SnapshotQueueDepth        metric.Int64Gauge
+		SnapshotQueue             *commonmetrics.QueueMeter
 		SnapshotPruneLatency      metric.Float64Histogram
 		SnapshotPruneAttempts     metric.Int64Counter
 		CurrentSnapshotHeight     metric.Int64Gauge
@@ -99,12 +99,6 @@ var (
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
 		)),
-		SnapshotQueueDepth: must(flatkvMeter.Int64Gauge(
-			"flatkv_snapshot_queue_depth",
-			metric.WithDescription(
-				"Committed blocks queued behind a FlatKV snapshot that is still being written"),
-			metric.WithUnit("{count}"),
-		)),
 		SnapshotPruneLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_snapshot_prune_latency",
 			metric.WithDescription("Time taken to prune FlatKV snapshots"),
@@ -152,6 +146,12 @@ var (
 		)),
 	}
 )
+
+// The snapshot queue's meter pairs the depth gauge declared above with a blocked-time counter, which a
+// struct literal cannot do while that gauge is still being built.
+func init() {
+	otelMetrics.SnapshotQueue = commonmetrics.NewQueueMeter(flatkvMeter, "flatkv_snapshot")
+}
 
 func must[V any](v V, err error) V {
 	if err != nil {

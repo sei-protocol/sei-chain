@@ -22,6 +22,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -101,6 +102,13 @@ type Database struct {
 
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
+
+	// Reports pendingChanges from the writer's side: how full it was when a write needed room, and how
+	// long writes waited when it had none.
+	pendingChangesQueue *seidbmetrics.QueueMeter
+
+	// Splits an async apply into the synchronous changelog write and the queueing behind it.
+	applyPhases *seidbmetrics.PhaseTimer
 
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
@@ -224,6 +232,9 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		pendingChanges:   make(chan VersionedChangesets, config.AsyncWriteBuffer),
 		dbName:           dbName,
 		operationMetrics: pebbledbmetrics.NewOperationMetrics(config.EnableReadWriteMetrics, dbName),
+		pendingChangesQueue: seidbmetrics.NewQueueMeter(
+			meter, "pebble_pending_changes", attribute.String("db", dbName)),
+		applyPhases: otelMetrics.applyPhases.Build(attribute.String("db", dbName)),
 	}
 	database.latestVersion.Store(latestVersion)
 	database.earliestVersion.Store(earliestVersion)
@@ -253,10 +264,22 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 	go database.writeAsyncInBackground()
 
 	// Refresh Pebble-internal stats (compaction, flush, sstable, memtable, WAL, cache).
-	database.metricsCancel = pebbledbmetrics.NewPebbleMetrics(db, dbName, 10*time.Second)
+	stopPebbleStats := pebbledbmetrics.NewPebbleMetrics(db, dbName, metricsRefreshInterval)
+
+	samplingCtx, stopSampling := context.WithCancel(context.Background())
+	database.pendingChangesQueue.SampleDepth(samplingCtx, int(metricsRefreshInterval.Seconds()),
+		func() int { return len(database.pendingChanges) })
+	database.metricsCancel = func() {
+		stopPebbleStats()
+		stopSampling()
+	}
 
 	return database, nil
 }
+
+// metricsRefreshInterval is how often the background collectors resample, covering both Pebble's own
+// stats and the write queue's depth.
+const metricsRefreshInterval = 10 * time.Second
 
 func changelogKeepRecent(cfg config.StateStoreConfig) uint64 {
 	keepRecent := uint64(math.Max(MinWALEntriesToKeep, float64(cfg.AsyncWriteBuffer+1)))
@@ -709,15 +732,14 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 				attribute.String("db", db.dbName),
 			),
 		)
-		// Record pending queue depth
-		otelMetrics.pendingChangesQueueDepth.Record(
-			context.Background(),
-			int64(len(db.pendingChanges)),
-			metric.WithAttributes(attribute.String("db", db.dbName)),
-		)
 	}()
-	// Write to WAL
+	// Closes the stage in flight, so the gap until the next write is charged to neither.
+	defer db.applyPhases.Reset()
+
+	// Write to WAL. This is synchronous, unlike the queueing below, so an "async" apply that is slow is
+	// usually slow here rather than behind a full queue.
 	if db.streamHandler != nil {
+		db.applyPhases.SetPhase("changelog_write")
 		entry := proto.ChangelogEntry{
 			Version: version,
 		}
@@ -728,11 +750,12 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			return err
 		}
 	}
-	// Add to pending changes first
-	db.pendingChanges <- VersionedChangesets{
+
+	db.applyPhases.SetPhase("enqueue")
+	seidbmetrics.Send(db.pendingChangesQueue, db.pendingChanges, VersionedChangesets{
 		Version:    version,
 		Changesets: changesets,
-	}
+	})
 	return nil
 }
 
