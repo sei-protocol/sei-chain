@@ -18,6 +18,7 @@ import { fromBech32, toBech32 } from '@cosmjs/encoding';
 import { seiRpc, waitUntil } from '../utils/chainUtils';
 import { EvmAccount, associateViaTx } from '../utils/evmUtils';
 import { bondedValidators, cosmosQuery, bankBalance } from '../utils/cosmosUtils';
+import { stakingHistoricalInfo } from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -427,6 +428,352 @@ describe('staking precompile (0x1005)', function () {
                     gasLimit: 1_000_000,
                 }),
                 'cannot delegatecall staking',
+            );
+        });
+
+        it('grantStakingAuthorization is rejected under STATICCALL', async () => {
+            const expiration = BigInt(Math.floor(Date.now() / 1000) + 86400);
+            const data = stakingIface.encodeFunctionData('grantStakingAuthorization', [
+                delegator.address,
+                [validators[0], validators[1]],
+                DELEGATE_USEI,
+                expiration,
+            ]);
+            await expectVmError(
+                caller.getFunction('staticcallTarget').send(PRECOMPILE_ADDRESSES.staking, data, {
+                    gasLimit: 1_000_000,
+                }),
+                'cannot call staking precompile from staticcall',
+            );
+        });
+
+        it('validators is callable via STATICCALL', async () => {
+            const data = stakingIface.encodeFunctionData('validators', [
+                'BOND_STATUS_BONDED',
+                new Uint8Array(),
+            ]);
+            const ret: string = await caller.staticcallTarget.staticCall(
+                PRECOMPILE_ADDRESSES.staking,
+                data,
+            );
+            const [decoded] = stakingIface.decodeFunctionResult('validators', ret);
+            const ops = [...decoded.validators].map((v: { operatorAddress: string }) => v.operatorAddress);
+            expect(ops, 'STATICCALL validators includes the first bonded validator').to.include(
+                validators[0],
+            );
+        });
+    });
+
+    describe('authz (grant / execute / revoke)', () => {
+        it('grantStakingAuthorization lets the grantee delegateWithAuthorization; revoke then reverts', async () => {
+            const [granter, grantee] = claimPool(runtime, provider, 2, 'staking:authz');
+            await associateViaTx(granter);
+            await associateViaTx(grantee);
+
+            const expiration = BigInt(Math.floor(Date.now() / 1000) + 86400);
+            const maxTokens = DELEGATE_USEI * 10n;
+            const grantTx = await (
+                staking.connect(granter.wallet) as ethers.Contract
+            ).grantStakingAuthorization(
+                grantee.address,
+                [validators[0], validators[1]],
+                maxTokens,
+                expiration,
+                { gasLimit: 1_000_000 },
+            );
+            expect((await grantTx.wait())!.status, 'grantStakingAuthorization tx must succeed').to.equal(
+                1,
+            );
+
+            // Staking.sol: the CALLER (grantee) supplies msg.value; the delegation
+            // is recorded on the granter.
+            const delegateTx = await (
+                staking.connect(grantee.wallet) as ethers.Contract
+            ).delegateWithAuthorization(granter.address, validators[0], {
+                value: DELEGATE_WEI,
+                gasLimit: 1_000_000,
+            });
+            expect(
+                (await delegateTx.wait())!.status,
+                'delegateWithAuthorization tx must succeed',
+            ).to.equal(1);
+
+            const qc = await cosmosQuery();
+            const cosmosDelegation = await waitUntil(
+                async () => {
+                    const d = await qc.staking.delegation(granter.seiAddress(), validators[0]);
+                    return d.delegationResponse?.balance ?? null;
+                },
+                { timeoutMs: 30_000, label: 'cosmos delegation after delegateWithAuthorization' },
+            );
+            expect(cosmosDelegation.amount).to.equal(DELEGATE_USEI.toString());
+            expect(cosmosDelegation.denom).to.equal('usei');
+
+            const revokeTx = await (
+                staking.connect(granter.wallet) as ethers.Contract
+            ).revokeStakingAuthorization(grantee.address, { gasLimit: 1_000_000 });
+            expect((await revokeTx.wait())!.status, 'revokeStakingAuthorization tx must succeed').to.equal(
+                1,
+            );
+
+            await expectVmError(
+                (staking.connect(grantee.wallet) as ethers.Contract).delegateWithAuthorization(
+                    granter.address,
+                    validators[0],
+                    { value: DELEGATE_WEI, gasLimit: 1_000_000 },
+                ),
+                'authorization not found',
+            );
+        });
+
+        it('redelegateWithAuthorization and undelegateWithAuthorization consume the grant', async () => {
+            const [granter, grantee] = claimPool(runtime, provider, 2, 'staking:authz-redelegate');
+            await associateViaTx(granter);
+            await associateViaTx(grantee);
+
+            const expiration = BigInt(Math.floor(Date.now() / 1000) + 86400);
+            const grantTx = await (
+                staking.connect(granter.wallet) as ethers.Contract
+            ).grantStakingAuthorization(
+                grantee.address,
+                [validators[0], validators[1]],
+                DELEGATE_USEI * 10n,
+                expiration,
+                { gasLimit: 1_000_000 },
+            );
+            expect((await grantTx.wait())!.status).to.equal(1);
+
+            const delegateTx = await (
+                staking.connect(grantee.wallet) as ethers.Contract
+            ).delegateWithAuthorization(granter.address, validators[0], {
+                value: DELEGATE_WEI,
+                gasLimit: 1_000_000,
+            });
+            expect((await delegateTx.wait())!.status).to.equal(1);
+
+            const qc = await cosmosQuery();
+            await waitUntil(
+                async () => {
+                    const d = await qc.staking.delegation(granter.seiAddress(), validators[0]);
+                    return d.delegationResponse?.balance ?? null;
+                },
+                { timeoutMs: 30_000, label: 'authz granter delegation before redelegate' },
+            );
+
+            const moved = DELEGATE_USEI / 4n;
+            const redelegateTx = await (
+                staking.connect(grantee.wallet) as ethers.Contract
+            ).redelegateWithAuthorization(
+                granter.address,
+                validators[0],
+                validators[1],
+                moved,
+                { gasLimit: 2_000_000 },
+            );
+            expect((await redelegateTx.wait())!.status, 'redelegateWithAuthorization').to.equal(1);
+
+            const dst = await waitUntil(
+                async () => {
+                    const d = await qc.staking.delegation(granter.seiAddress(), validators[1]);
+                    return d.delegationResponse?.balance ?? null;
+                },
+                { timeoutMs: 30_000, label: 'authz destination delegation after redelegate' },
+            );
+            expect(BigInt(dst.amount)).to.equal(moved);
+
+            const undelegateTx = await (
+                staking.connect(grantee.wallet) as ethers.Contract
+            ).undelegateWithAuthorization(granter.address, validators[0], moved, {
+                gasLimit: 2_000_000,
+            });
+            expect((await undelegateTx.wait())!.status, 'undelegateWithAuthorization').to.equal(1);
+        });
+    });
+
+    describe('query methods (remaining surface)', () => {
+        const emptyPageKey = new Uint8Array();
+
+        it('validators(BOND_STATUS_BONDED, empty) includes validators[0]', async () => {
+            const resp = await staking.validators('BOND_STATUS_BONDED', emptyPageKey);
+            const list = resp.validators as ethers.Result;
+            expect(list.length, 'bonded validator set is non-empty').to.be.greaterThan(0);
+            const ops = [...list].map((v: { operatorAddress: string }) => v.operatorAddress);
+            expect(ops).to.include(validators[0]);
+        });
+
+        it('delegatorDelegations / delegatorValidators / delegatorValidator see a fresh delegation', async () => {
+            const [account] = claimPool(runtime, provider, 1, 'staking:query-delegator');
+            await associateViaTx(account);
+            const tx = await (staking.connect(account.wallet) as ethers.Contract).delegate(
+                validators[0],
+                { value: DELEGATE_WEI, gasLimit: 1_000_000 },
+            );
+            expect((await tx.wait())!.status).to.equal(1);
+
+            const dels = await waitUntil(
+                async () => {
+                    const resp = await staking.delegatorDelegations(account.address, emptyPageKey);
+                    const list = resp.delegations as ethers.Result;
+                    return [...list].some(
+                        (d: any) => d.delegation.validator_address === validators[0],
+                    )
+                        ? list
+                        : null;
+                },
+                { timeoutMs: 30_000, label: 'delegatorDelegations after fresh delegate' },
+            );
+            expect(
+                [...dels].some((d: any) => d.delegation.delegator_address === account.seiAddress()),
+            ).to.equal(true);
+
+            const dvals = await staking.delegatorValidators(account.address, emptyPageKey);
+            const ops = [...(dvals.validators as ethers.Result)].map(
+                (v: { operatorAddress: string }) => v.operatorAddress,
+            );
+            expect(ops).to.include(validators[0]);
+
+            const dv = await staking.delegatorValidator(account.address, validators[0]);
+            expect(dv.operatorAddress).to.equal(validators[0]);
+
+            const valDels = await staking.validatorDelegations(validators[0], emptyPageKey);
+            expect(
+                (valDels.delegations as ethers.Result).length,
+                'validatorDelegations is non-empty',
+            ).to.be.greaterThan(0);
+            expect(
+                [...(valDels.delegations as ethers.Result)].every(
+                    (d: any) => d.delegation.validator_address === validators[0],
+                ),
+            ).to.equal(true);
+        });
+
+        it('unbondingDelegation / delegatorUnbondingDelegations / validatorUnbondingDelegations after undelegate', async () => {
+            const [account] = claimPool(runtime, provider, 1, 'staking:query-unbond');
+            await associateViaTx(account);
+            const delegateTx = await (staking.connect(account.wallet) as ethers.Contract).delegate(
+                validators[0],
+                { value: DELEGATE_WEI, gasLimit: 1_000_000 },
+            );
+            expect((await delegateTx.wait())!.status).to.equal(1);
+
+            const amount = DELEGATE_USEI / 2n;
+            const undelegateTx = await (staking.connect(account.wallet) as ethers.Contract).undelegate(
+                validators[0],
+                amount,
+                { gasLimit: 2_000_000 },
+            );
+            expect((await undelegateTx.wait())!.status).to.equal(1);
+
+            const ubd = await waitUntil(
+                async () => {
+                    const u = await staking.unbondingDelegation(account.address, validators[0]);
+                    const entries = u.getValue('entries') as ethers.Result;
+                    return entries.length > 0 ? u : null;
+                },
+                { timeoutMs: 8_000, intervalMs: 200, label: 'unbondingDelegation after undelegate' },
+            );
+            expect(ubd.delegatorAddress).to.equal(account.seiAddress());
+            expect(ubd.validatorAddress).to.equal(validators[0]);
+            expect(BigInt((ubd.getValue('entries') as ethers.Result)[0].balance)).to.equal(amount);
+
+            const byDelegator = await staking.delegatorUnbondingDelegations(
+                account.address,
+                emptyPageKey,
+            );
+            const duList = byDelegator.unbondingDelegations as ethers.Result;
+            expect(
+                [...duList].some((u: any) => u.validatorAddress === validators[0]),
+                'delegatorUnbondingDelegations includes this validator',
+            ).to.equal(true);
+
+            const byValidator = await waitUntil(
+                async () => {
+                    const resp = await staking.validatorUnbondingDelegations(
+                        validators[0],
+                        emptyPageKey,
+                    );
+                    const list = resp.unbondingDelegations as ethers.Result;
+                    return [...list].some((u: any) => u.delegatorAddress === account.seiAddress())
+                        ? list
+                        : null;
+                },
+                { timeoutMs: 8_000, intervalMs: 200, label: 'validatorUnbondingDelegations' },
+            );
+            expect(byValidator.length).to.be.greaterThan(0);
+        });
+
+        it('redelegations sees a fresh redelegate', async () => {
+            const [account] = claimPool(runtime, provider, 1, 'staking:query-redelegate');
+            await associateViaTx(account);
+            const delegateTx = await (staking.connect(account.wallet) as ethers.Contract).delegate(
+                validators[0],
+                { value: DELEGATE_WEI, gasLimit: 1_000_000 },
+            );
+            expect((await delegateTx.wait())!.status).to.equal(1);
+
+            const moved = DELEGATE_USEI / 2n;
+            const redelegateTx = await (staking.connect(account.wallet) as ethers.Contract).redelegate(
+                validators[0],
+                validators[1],
+                moved,
+                { gasLimit: 2_000_000 },
+            );
+            expect((await redelegateTx.wait())!.status).to.equal(1);
+
+            const resp = await waitUntil(
+                async () => {
+                    const r = await staking.redelegations(
+                        account.seiAddress(),
+                        validators[0],
+                        validators[1],
+                        emptyPageKey,
+                    );
+                    const list = r.redelegations as ethers.Result;
+                    return list.length > 0 ? r : null;
+                },
+                { timeoutMs: 30_000, label: 'redelegations after redelegate' },
+            );
+            const redels = resp.redelegations as ethers.Result;
+            expect(redels[0].delegatorAddress).to.equal(account.seiAddress());
+            expect(redels[0].validatorSrcAddress).to.equal(validators[0]);
+            expect(redels[0].validatorDstAddress).to.equal(validators[1]);
+        });
+
+        // The staking module only keeps historical info for the last
+        // `historical_entries` heights, so whether a given height answers is a
+        // property of the chain, not of the precompile. The module is therefore
+        // the oracle: the precompile must agree with it about the SAME height,
+        // both on the answer and on the absence of one.
+        it('historicalInfo agrees with the staking module about a recent height', async () => {
+            const height = Math.max((await provider.getBlockNumber()) - 2, 1);
+            const hist = await stakingHistoricalInfo(height);
+
+            if (hist == null) {
+                // Not retained (historical_entries=0, or the height aged out):
+                // the precompile must refuse it rather than invent an answer. The
+                // reason surfaced is the staking querier's, not the executor's own
+                // "historical info not found" fallback, which a NotFound status
+                // error means is unreachable.
+                await expectVmError(
+                    admin.wallet.sendTransaction({
+                        to: PRECOMPILE_ADDRESSES.staking,
+                        data: stakingIface.encodeFunctionData('historicalInfo', [height]),
+                        gasLimit: 1_000_000,
+                    }),
+                    `historical info for height ${height} not found`,
+                );
+                return;
+            }
+
+            const info = await staking.historicalInfo(height);
+            expect(info.height, 'historicalInfo echoes the requested height').to.equal(
+                BigInt(height),
+            );
+            const ops = [...(info.validators as ethers.Result)].map(
+                (v: { operatorAddress: string }) => v.operatorAddress,
+            );
+            expect(ops.slice().sort(), 'historical valset matches the staking module').to.deep.equal(
+                hist.valset.map(v => v.operator_address).sort(),
             );
         });
     });
