@@ -1,7 +1,14 @@
 package config
 
-// StateCommitConfigTemplate defines the configuration template for state-commit
-const StateCommitConfigTemplate = `
+// StateCommitConfigTemplate defines the configuration template for state-commit.
+// The reserve fragment sits between the two halves so that the keys it adds land
+// inside [state-commit] rather than in the [state-commit.flatkv] subsection the
+// section ends with.
+const StateCommitConfigTemplate = stateCommitConfigTemplateHead +
+	reserveStateCommitConfigTemplate +
+	stateCommitConfigTemplateTail
+
+const stateCommitConfigTemplateHead = `
 ###############################################################################
 ###                       State Commit Configuration                        ###
 ###############################################################################
@@ -68,7 +75,9 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 # Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
 # all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto.
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
+`
 
+const stateCommitConfigTemplateTail = `
 # HashLogger records a per-block CSV of named hashes (memIAVL module/root hashes, flatKV DB/root
 # hashes, the app hash, the block hash, and the changeset hash) so block-hash computation can be
 # studied and compared across nodes. It is a debugging/forensics tool; enabled by default.

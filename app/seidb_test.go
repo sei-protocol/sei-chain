@@ -76,10 +76,10 @@ func TestNewDefaultConfig(t *testing.T) {
 	ssConfig := parseSSConfigs(appOpts)
 	receiptConfig, err := config.ReadReceiptConfig(appOpts)
 	assert.NoError(t, err)
-	// WriteModeEnableAuto defaults to true, so parseSCConfigs resolves the effective
-	// WriteMode to auto, overriding the fixed-fallback default (memiavl_only).
+	// parseSCConfigs resolves the effective WriteMode through WriteModeEnableAuto,
+	// so it is the one field that need not equal the fixed-fallback default.
 	expectedSC := config.DefaultStateCommitConfig()
-	expectedSC.WriteMode = sctypes.Auto
+	expectedSC.WriteMode = wantAbsentAutoWriteMode
 	// parseSCConfigs is a raw parse and does not align FlatKV with memIAVL (that
 	// happens in composite.NewCompositeCommitStore), so the parsed config matches
 	// the in-code defaults verbatim apart from the resolved write mode.
@@ -169,7 +169,7 @@ func TestParseSCConfigs_LegacyCosmosOnlyWriteMode(t *testing.T) {
 		FlagSCEnable:    true,
 		FlagSCWriteMode: "cosmos_only",
 	})
-	assert.Equal(t, sctypes.Auto, scConfig.WriteMode)
+	assert.Equal(t, wantAbsentAutoWriteMode, scConfig.WriteMode)
 
 	scConfig = parseSCConfigs(mapAppOpts{
 		FlagSCEnable:              true,
