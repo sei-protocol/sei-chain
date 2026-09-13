@@ -7,7 +7,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 // simulatedBlock is one block's worth of work: the transactions the execution phase runs, the payload
@@ -20,8 +20,13 @@ type simulatedBlock struct {
 	// executor pool, so a block's transaction count is also its degree of parallelism.
 	transactions []*transaction
 
-	// The receipts written to the receipt store, empty when receipts are disabled.
-	receipts []*evmtypes.Receipt
+	// The receipts written to the receipt store, in the form it takes them, empty when receipts are
+	// disabled. They are marshaled here rather than on the execution loop: nothing execution does
+	// changes them, and the loop that hands them to the store is what paces the run.
+	receiptRecords []receipt.ReceiptRecord
+
+	// What those records marshaled to, which the run reports as bytes written.
+	receiptBytes int64
 
 	// The transaction bytes the block store persists. These stand in for encoded transactions, which
 	// the block store holds as opaque bytes.
@@ -200,7 +205,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	var receipts *receiptBuffer
 	if g.config.EnableReceiptStore {
 		receipts = newReceiptBuffer(count, g.receiptCache)
-		block.receipts = receipts.receipts
+		block.receiptRecords = receipts.records
 	}
 
 	for i := range count {
@@ -212,8 +217,13 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 		block.payload[i] = g.accounts.Rand().Bytes(g.config.BytesPerTransaction)
 
 		if receipts != nil {
-			receipts.build(i, g.accounts.Rand(), txn, number)
+			if err := receipts.build(i, g.accounts.Rand(), txn, number); err != nil {
+				return nil, err
+			}
 		}
+	}
+	if receipts != nil {
+		block.receiptBytes = receipts.encodedBytes
 	}
 
 	// Accounts minted for this block become legal read targets once it is complete.

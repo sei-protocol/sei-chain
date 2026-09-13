@@ -3,10 +3,13 @@ package gigasim
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -140,7 +143,11 @@ func setBits(bloom *ethtypes.Bloom, bits bloomBits) {
 // receiptBuffer holds one block's receipts in a fixed number of allocations: every array a receipt
 // points into is carved out of a slice the buffer owns.
 type receiptBuffer struct {
-	receipts []*evmtypes.Receipt
+	// The records the store is handed, marshaled as each receipt is built.
+	records []receipt.ReceiptRecord
+
+	// The total size of what those records marshaled to.
+	encodedBytes int64
 
 	storage []evmtypes.Receipt
 	logs    []evmtypes.Log
@@ -157,21 +164,21 @@ type receiptBuffer struct {
 // newReceiptBuffer allocates the backing storage for one block of receipts.
 func newReceiptBuffer(count int, cache *receiptCache) *receiptBuffer {
 	return &receiptBuffer{
-		receipts: make([]*evmtypes.Receipt, count),
-		storage:  make([]evmtypes.Receipt, count),
-		logs:     make([]evmtypes.Log, count),
-		logRefs:  make([]*evmtypes.Log, count),
-		topics:   make([]string, count*topicsPerTransferLog),
-		blooms:   make([]ethtypes.Bloom, count),
-		data:     make([]byte, count*hashLen),
-		cache:    cache,
+		records: make([]receipt.ReceiptRecord, count),
+		storage: make([]evmtypes.Receipt, count),
+		logs:    make([]evmtypes.Log, count),
+		logRefs: make([]*evmtypes.Log, count),
+		topics:  make([]string, count*topicsPerTransferLog),
+		blooms:  make([]ethtypes.Bloom, count),
+		data:    make([]byte, count*hashLen),
+		cache:   cache,
 	}
 }
 
 // build fills in the receipt an ERC20 transfer would leave behind: one Transfer log with two indexed
 // address topics, and a bloom covering them. The values are synthetic, since the receipt store is
 // measured on the volume and shape of what it stores rather than on the arithmetic behind it.
-func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) {
+func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) error {
 	contract := b.cache.contract(addressFromKey(txn.erc20Contract))
 	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccount))
 	receiverTopic := indexedAddressTopic(addressFromKey(txn.dstAccount))
@@ -210,10 +217,9 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	var txHash [hashLen]byte
 	writeSyntheticTxHash(txHash[:], rand, blockNumber, index)
 
-	receipt := &b.storage[index]
-	b.receipts[index] = receipt
+	built := &b.storage[index]
 	//nolint:gosec // G115 - benchmark values are bounded well below the conversion limits
-	*receipt = evmtypes.Receipt{
+	*built = evmtypes.Receipt{
 		TxType:            txType,
 		CumulativeGasUsed: uint64(gasUsed + int64(index)*previousGas),
 		ContractAddress:   contract.hex,
@@ -228,6 +234,22 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 		Logs:              b.logRefs[index : index+1],
 		LogsBloom:         bloom[:],
 	}
+
+	// Marshaled here rather than where the store is called: the receipt is final once built, and the
+	// loop that calls the store is the one pacing the run. The hash goes over as bytes for the same
+	// reason, the store's caller having had to parse the hex form back otherwise.
+	encoded, err := built.Marshal()
+	if err != nil {
+		return fmt.Errorf("failed to marshal the receipt for transaction %d of block %d: %w",
+			index, blockNumber, err)
+	}
+	b.encodedBytes += int64(len(encoded))
+	b.records[index] = receipt.ReceiptRecord{
+		TxHash:       common.BytesToHash(txHash[:]),
+		Receipt:      built,
+		ReceiptBytes: encoded,
+	}
+	return nil
 }
 
 // addTransferLogToBloom sets the bits a Transfer log contributes: the emitting contract, the event
