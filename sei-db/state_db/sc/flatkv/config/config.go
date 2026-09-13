@@ -9,8 +9,25 @@ import (
 )
 
 const (
-	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 1
+	DefaultSnapshotInterval uint32 = 10000
+	// DefaultSnapshotKeepRecent is how many old checkpoints (besides the latest) to keep,
+	// which at the default interval is a guaranteed reach of 100,000 blocks — about 12 hours
+	// at mainnet's block rate.
+	//
+	// It is sized against memIAVL's publication rate rather than against FlatKV's own disk
+	// use. A composite read needs a version both backends still hold, and at mainnet state
+	// size a memIAVL rewrite takes about six hours against this 10000-block interval, so
+	// memIAVL skips generations and publishes roughly every 50,000 blocks. Keeping a single
+	// old checkpoint reaches back 10,000 to 20,000 blocks, so FlatKV prunes each version
+	// before memIAVL publishes it and no common version ever exists — which is what blocks a
+	// cross-backend digest and leaves a composite rollback with no shared base.
+	//
+	// Depth is affordable here because a checkpoint hardlinks its SSTs, so one costs only the
+	// bytes compaction has since made obsolete: measured at mainnet state size, 261 MiB of
+	// pinned SSTs plus about 25 MiB of retained state WAL, or roughly 2.8 GiB for ten. The
+	// cost is linear in depth, because each older checkpoint pins exactly the files obsoleted
+	// during its own interval and those sets are disjoint.
+	DefaultSnapshotKeepRecent uint32 = 10
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -40,7 +57,10 @@ type Config struct {
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
 	// Ignored entirely when ExternalPruning is set.
-	// Default: 1
+	//
+	// It is not mirrored from memIAVL's sc-keep-recent, and no app.toml key is rendered for
+	// it, so a production node runs the DefaultConfig value.
+	// Default: 10
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
