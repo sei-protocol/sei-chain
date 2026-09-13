@@ -32,13 +32,9 @@ func TestApplyWriteModeAuto(t *testing.T) {
 	}
 }
 
-func TestDefaultStateCommitConfigWriteMode(t *testing.T) {
-	cfg := DefaultStateCommitConfig()
-	// The raw default is the fixed fallback; auto comes from WriteModeEnableAuto
-	// via ApplyWriteModeAuto at the config-parse boundary.
-	require.Equal(t, types.MemiavlOnly, cfg.WriteMode)
-	require.True(t, cfg.WriteModeEnableAuto)
-}
+// The WriteMode default records live in reserve_defaults_default_test.go and its
+// mock_chain_validation counterpart, which default WriteModeEnableAuto the two
+// opposite ways.
 
 func TestParseSCWriteMode(t *testing.T) {
 	parsed, err := ParseSCWriteMode("cosmos_only")

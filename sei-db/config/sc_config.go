@@ -109,7 +109,7 @@ type StateCommitConfig struct {
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
 func DefaultStateCommitConfig() StateCommitConfig {
-	return StateCommitConfig{
+	return applyReserveDefaults(StateCommitConfig{
 		Enable:                     true,
 		WriteMode:                  types.MemiavlOnly,
 		WriteModeEnableAuto:        true,
@@ -119,7 +119,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
 		HashLogger:                 DefaultHashLoggerConfig(),
-	}
+	})
 }
 
 // ApplyWriteModeAuto resolves the effective write mode from the

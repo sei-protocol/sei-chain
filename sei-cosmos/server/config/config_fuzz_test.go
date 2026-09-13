@@ -224,8 +224,8 @@ func FuzzGetConfigGRPCDurationClamps(f *testing.F) {
 // FuzzGetConfigWriteMode pins GetConfig's own copy of the write-mode resolution.
 //
 // The rules match app/seidb.go — always parse, then let sc-write-mode-enable-auto
-// (default true, flipped only by an explicit key) decide whether the parsed mode is
-// honored — but the mechanism differs: GetConfig returns an error where seidb.go
+// (the in-code default, flipped only by an explicit key) decide whether the parsed
+// mode is honored — but the mechanism differs: GetConfig returns an error where seidb.go
 // panics. Both parsers must agree on the resolved mode for a node's store choice
 // and its reported config to describe the same thing, so the agreement is asserted
 // against the shared helpers rather than restated.
@@ -261,7 +261,7 @@ func FuzzGetConfigWriteMode(f *testing.F) {
 			t.Fatalf("sc-write-mode = %q must parse, got %v", mode, err)
 		}
 
-		effectiveAuto := true
+		effectiveAuto := config.DefaultStateCommitConfig().WriteModeEnableAuto
 		if setAuto {
 			effectiveAuto = auto
 		}
@@ -743,7 +743,7 @@ func TestDefaultsMatchTheRecordedValues(t *testing.T) {
 	// the other leaves that other one red.
 	configtest.CheckDefaults(t, "state-sync", DefaultConfig().StateSync)
 
-	configtest.CheckDefaults(t, "server_config", DefaultConfig(),
+	configtest.CheckDefaults(t, serverConfigRecord, DefaultConfig(),
 		configtest.DerivedDefault{
 			Path: "ConcurrencyWorkers", Want: max(10, min(runtime.NumCPU()*2, 128)),
 			Why: "max(10, min(runtime.NumCPU()*2, 128))",
