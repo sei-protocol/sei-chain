@@ -109,14 +109,8 @@ func TestSetReceiptsAndGet(t *testing.T) {
 	require.GreaterOrEqual(t, store.LatestVersion(), int64(1))
 
 	// The version markers ride SetReceipts, so they are off the store's interface.
-	pinner, ok := store.(interface {
-		SetLatestVersion(version int64) error
-		SetEarliestVersion(version int64) error
-	})
-	require.True(t, ok)
-	require.NoError(t, pinner.SetLatestVersion(10))
+	require.NoError(t, receipt.PinVersions(store, 1, 10))
 	require.Equal(t, int64(10), store.LatestVersion())
-	require.NoError(t, pinner.SetEarliestVersion(1))
 	require.Equal(t, int64(1), store.EarliestVersion())
 }
 

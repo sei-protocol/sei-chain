@@ -63,24 +63,10 @@ const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
 
-// receiptVersionPinner is implemented by receipt stores whose version markers can be written
-// directly. SetReceipts carries those markers, so the store's interface does not expose them.
-type receiptVersionPinner interface {
-	SetLatestVersion(version int64) error
-	SetEarliestVersion(version int64) error
-}
-
 // pinReceiptVersions widens a store's queryable window to [1, latest]. These tests seed receipts
 // by other means, so nothing has advanced the markers a read is gated on.
 func pinReceiptVersions(store receipt.ReceiptStore, latest int64) error {
-	pinner, ok := store.(receiptVersionPinner)
-	if !ok {
-		return fmt.Errorf("receipt store %T cannot pin versions", store)
-	}
-	if err := pinner.SetLatestVersion(latest); err != nil {
-		return err
-	}
-	return pinner.SetEarliestVersion(1)
+	return receipt.PinVersions(store, 1, latest)
 }
 
 // LatestCtxUpgradeName makes the test ctx look like a real chain that has

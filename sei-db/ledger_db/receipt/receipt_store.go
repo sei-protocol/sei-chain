@@ -71,6 +71,27 @@ type ReceiptStore interface {
 	Close() error
 }
 
+// VersionPinner is implemented by receipt stores whose version markers can be written directly.
+// SetReceipts carries those markers, so they are not on ReceiptStore; this is for a caller that has
+// put receipts in place by other means and has to state the window they cover.
+type VersionPinner interface {
+	SetLatestVersion(version int64) error
+	SetEarliestVersion(version int64) error
+}
+
+// PinVersions widens store's queryable window to [earliest, latest]. It reports a store that does
+// not support being pinned rather than leaving the window silently unset.
+func PinVersions(store ReceiptStore, earliest, latest int64) error {
+	pinner, ok := store.(VersionPinner)
+	if !ok {
+		return fmt.Errorf("receipt store %T cannot pin versions", store)
+	}
+	if err := pinner.SetLatestVersion(latest); err != nil {
+		return err
+	}
+	return pinner.SetEarliestVersion(earliest)
+}
+
 type ReceiptRecord struct {
 	TxHash       common.Hash
 	Receipt      *types.Receipt

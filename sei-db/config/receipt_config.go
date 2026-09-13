@@ -28,6 +28,12 @@ const (
 // littidx eth_getLogs (see ReceiptStoreConfig.LogFilterParallelism).
 const DefaultReceiptLogFilterParallelism = 16
 
+// DefaultReceiptAsyncWriteBuffer is the default queue depth for receipt writes
+// (see ReceiptStoreConfig.AsyncWriteBuffer). It is small because the queue's
+// depth is how far an unclean exit sets recovery back, not only how much burst
+// the writer can absorb.
+const DefaultReceiptAsyncWriteBuffer = 10
+
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
 	// Enable reports whether the receipt store is opened. A node with it off keeps no receipt
@@ -49,8 +55,19 @@ type ReceiptStoreConfig struct {
 	// AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
 	// It bounds how many blocks the store may fall behind the chain before a write blocks, and so
 	// how far LatestVersion may trail the height just written.
+	//
+	// Raising it costs more than the memory it holds. The queue is not on disk, so an unclean exit
+	// loses it, and recovery converges every store on the lowest head: a receipt store that comes
+	// back this many blocks behind rolls the state DB and block store back with it, and that
+	// rollback refuses outright if the state snapshots and WAL cannot span the distance. Size it
+	// for the burst the writer must absorb, not larger.
+	//
+	// It also bounds how stale the EVM RPC head can be. The watermark those queries are served
+	// against takes the lowest height every store can answer for, this one included, so a receipt
+	// store behind by a queue's depth holds eth_blockNumber and "latest" that far back.
+	//
 	// Set <= 0 for synchronous writes.
-	// defaults to 100
+	// defaults to 10
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
 	// KeepRecent defines the number of versions to keep in receipt store.
@@ -99,7 +116,7 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	return ReceiptStoreConfig{
 		Enable:               true,
 		Backend:              "pebbledb",
-		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
+		AsyncWriteBuffer:     DefaultReceiptAsyncWriteBuffer,
 		KeepRecent:           0,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		LogFilterParallelism: DefaultReceiptLogFilterParallelism,

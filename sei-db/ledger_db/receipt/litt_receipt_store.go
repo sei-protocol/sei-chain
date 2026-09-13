@@ -64,7 +64,8 @@ import (
 //     implementation in litt_receipt_gc.go, and startPruning stands down.
 //
 // Writes are applied in the background: SetReceipts queues a block and returns, so a receipt is not
-// necessarily readable the moment it returns. Sync waits for the queue to empty.
+// necessarily readable the moment it returns. LatestVersion is the watermark that says how far the
+// applied writes have reached, and Close is what waits for the queue to empty.
 type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
@@ -335,17 +336,55 @@ func (s *littReceiptStore) belowRetentionFloor(blockNumber uint64) bool {
 }
 
 // SetReceipts hands the block's receipts to the writer and returns without waiting for them to be
-// applied, blocking only once the queue is full. It reports the failure of an earlier write, there
-// being no other caller to report it to. With AsyncWriteBuffer off, the write is applied here.
+// applied, blocking only once the queue is full. With AsyncWriteBuffer off, the write is applied
+// here instead.
+//
+// It refuses once a queued write has failed, reporting that failure rather than taking the block:
+// the store applies nothing after a failure, so accepting one would drop it silently.
 func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
 	if s.writes == nil {
 		return s.applyReceipts(ctx.BlockHeight(), receipts)
 	}
-	if err := s.takeWriteErr(); err != nil {
+	if err := s.writeFailure(); err != nil {
 		return err
 	}
-	seidbmetrics.Send(s.writeQueue, s.writes, receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
-	return nil
+	return s.queueWrite(receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
+}
+
+// ErrStoreClosed is returned by a write the store can no longer apply, the writer having stopped.
+var ErrStoreClosed = errors.New("receipt store is closed")
+
+// queueWrite hands a write to the writer, waiting for room when the queue is full.
+//
+// A closed store is refused rather than accepted. The writer drains and exits during Close, so a
+// send after that point would sit in a channel nobody reads, and a send once the queue is full
+// would never return — inside a commit, which hangs the node instead of failing it.
+func (s *littReceiptStore) queueWrite(write receiptWrite) error {
+	// Checked before the send rather than only alongside it: select picks uniformly among ready
+	// cases, so a send with room available would win half the races against an already-closed store.
+	select {
+	case <-s.stopBackground:
+		return ErrStoreClosed
+	default:
+	}
+	return s.writeQueue.SendVia(
+		func() bool {
+			select {
+			case s.writes <- write:
+				return true
+			default:
+				return false
+			}
+		},
+		func() error {
+			select {
+			case s.writes <- write:
+				return nil
+			case <-s.stopBackground:
+				return ErrStoreClosed
+			}
+		},
+	)
 }
 
 // applyReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
@@ -471,9 +510,11 @@ func (s *littReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64
 // startWriter applies queued receipt writes, in the order they were enqueued, until the store
 // closes.
 //
-// It drains what is queued before returning, so a clean shutdown persists every write that was
-// accepted. An unclean exit does not: up to writeQueueSize blocks of receipts are lost, the same
-// direction litt's own write already takes, being flushed on a timer rather than at the call.
+// It drains what is queued before returning, so a clean shutdown applies the writes it holds. An
+// unclean exit does not: everything queued is lost, up to the AsyncWriteBuffer blocks the queue
+// holds, and that includes each block's log index and version marker rather than only its bodies.
+// The store therefore comes back that far behind, which recovery resolves by rolling every other
+// store down to it, so the buffer's size is a recovery cost and not only a memory one.
 func (s *littReceiptStore) startWriter() {
 	s.backgroundWg.Add(1)
 	go func() {
@@ -496,17 +537,27 @@ func (s *littReceiptStore) startWriter() {
 	}()
 }
 
-// applyWrite performs one queued write, keeping the first failure for the next caller to collect.
+// applyWrite performs one queued write, keeping the first failure for its callers to collect.
+//
+// Nothing is applied after a failure. A later block would carry its own version marker, publishing a
+// head above one whose receipts were never written: reads of the missing block would report no logs
+// and no such transaction, and recovery converges on the published head, so the gap never refills.
+// The queue is drained rather than left to fill, so a writer blocked on it is released to see the
+// error instead of waiting on a consumer that will never take its block.
 func (s *littReceiptStore) applyWrite(write receiptWrite) {
+	if s.writeFailure() != nil {
+		return
+	}
 	if err := s.applyReceipts(write.height, write.receipts); err != nil {
 		logger.Error("failed to write receipts", "height", write.height, "err", err)
 		s.writeErr.CompareAndSwap(nil, &err)
 	}
 }
 
-// takeWriteErr returns the first failure a queued write hit, clearing it so it is reported once.
-func (s *littReceiptStore) takeWriteErr() error {
-	if err := s.writeErr.Swap(nil); err != nil {
+// writeFailure returns the first failure a queued write hit. It latches rather than clearing, so
+// every later SetReceipts and Close reports it and no single caller can consume it from the rest.
+func (s *littReceiptStore) writeFailure() error {
+	if err := s.writeErr.Load(); err != nil {
 		return *err
 	}
 	return nil
@@ -542,7 +593,7 @@ func (s *littReceiptStore) Close() error {
 		close(s.stopBackground)
 		// The writer drains what it holds before returning, so this is where queued writes land.
 		s.backgroundWg.Wait()
-		err = s.takeWriteErr()
+		err = s.writeFailure()
 		// litt's Close flushes, so the last sub-interval of writes is durable.
 		if valuesErr := s.values.Close(); err == nil {
 			err = valuesErr
