@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -96,9 +97,12 @@ func TestValidationRejectsUnusableValues(t *testing.T) {
 		{"a block with no transactions", func(c *GigasimConfig) { c.TransactionsPerBlock = 0 }},
 		{"a block larger than consensus allows", func(c *GigasimConfig) { c.TransactionsPerBlock = 5000 }},
 		{"a payload larger than consensus allows", func(c *GigasimConfig) { c.BytesPerTransaction = 1 << 20 }},
-		// The default block already fills the payload budget exactly, so a transaction one byte wider
-		// than the default overflows it unless the block also gets shorter.
-		{"a default block with wider transactions", func(c *GigasimConfig) { c.BytesPerTransaction++ }},
+		// The limit is on the product, so neither field alone says whether a config fits. The width is
+		// derived from the budget rather than written down, because a default that moves must not
+		// quietly turn this case into one that passes for the wrong reason.
+		{"a block whose transactions overflow the payload budget", func(c *GigasimConfig) {
+			c.BytesPerTransaction = int(autobahn.MaxTxsBytesPerBlock)/c.TransactionsPerBlock + 1
+		}},
 		{"a probability above one", func(c *GigasimConfig) { c.HotAccountProbability = 1.5 }},
 		{"a negative block rate", func(c *GigasimConfig) { c.MaxBlocksPerSecond = -1 }},
 		{"a lookback window below the infinite sentinel", func(c *GigasimConfig) { c.LookbackWindow = -2 }},

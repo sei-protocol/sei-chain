@@ -85,10 +85,12 @@ read as worked examples.
 Two relationships between the options are worth knowing before changing any of them, because neither is
 visible from a single field.
 
-The default block is the largest consensus accepts: `TransactionsPerBlock` sits at autobahn's
-`MaxTxsPerBlock`, and `TransactionsPerBlock * BytesPerTransaction` is exactly `MaxTxsBytesPerBlock`.
-Raising either one therefore means lowering the other, and configuration validation rejects the
-combination rather than generating a block the ledger would refuse.
+The default block carries as many transactions as consensus accepts, at roughly the size a real one
+is: `TransactionsPerBlock` sits at autobahn's `MaxTxsPerBlock`, while `BytesPerTransaction` is sized
+for an ERC20 transfer, which is about 180 bytes of RLP before Sei's envelope. The two multiply to a
+quarter of `MaxTxsBytesPerBlock`, so there is room to raise either — but only until the product
+reaches that budget, which configuration validation rejects rather than generating a block the ledger
+would refuse.
 
 Generation is unthrottled by default, so a measured run reports what the stack sustains rather than a
 rate chosen in advance. `MaxBlocksPerSecond` exists for the runs that are not measurements — the debug
