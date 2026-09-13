@@ -46,8 +46,9 @@ type ReceiptStoreConfig struct {
 	// defaults to pebbledb
 	Backend string `mapstructure:"rs-backend"`
 
-	// AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store
-	// Applies only to the pebbledb backend.
+	// AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
+	// It bounds how many blocks the store may fall behind the chain before a write blocks, and so
+	// how far LatestVersion may trail the height just written.
 	// Set <= 0 for synchronous writes.
 	// defaults to 100
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`

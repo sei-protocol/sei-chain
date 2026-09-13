@@ -31,6 +31,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -61,6 +62,26 @@ const MockHeight2 = 2
 const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
+
+// receiptVersionPinner is implemented by receipt stores whose version markers can be written
+// directly. SetReceipts carries those markers, so the store's interface does not expose them.
+type receiptVersionPinner interface {
+	SetLatestVersion(version int64) error
+	SetEarliestVersion(version int64) error
+}
+
+// pinReceiptVersions widens a store's queryable window to [1, latest]. These tests seed receipts
+// by other means, so nothing has advanced the markers a read is gated on.
+func pinReceiptVersions(store receipt.ReceiptStore, latest int64) error {
+	pinner, ok := store.(receiptVersionPinner)
+	if !ok {
+		return fmt.Errorf("receipt store %T cannot pin versions", store)
+	}
+	if err := pinner.SetLatestVersion(latest); err != nil {
+		return err
+	}
+	return pinner.SetEarliestVersion(1)
+}
 
 // LatestCtxUpgradeName makes the test ctx look like a real chain that has
 // applied a post-v5.8.0 upgrade. The default Ctx has empty
@@ -660,11 +681,9 @@ func init() {
 	}
 	testApp.Commit(context.Background())
 	if store := EVMKeeper.ReceiptStore(); store != nil {
-		latest := int64(math.MaxInt64)
-		if err := store.SetLatestVersion(latest); err != nil {
+		if err := pinReceiptVersions(store, math.MaxInt64); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1)
 	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
@@ -1263,10 +1282,9 @@ func setupLogs() {
 	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
 
 	if store := EVMKeeper.ReceiptStore(); store != nil {
-		if err := store.SetLatestVersion(MockHeight103); err != nil {
+		if err := pinReceiptVersions(store, MockHeight103); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1)
 	}
 
 }

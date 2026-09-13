@@ -313,8 +313,8 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "litt_control_queue_depth{table=\"receipts\"}",
-                        "legendFormat": "control loop",
+                        "expr": "receipt_write_queue_depth",
+                        "legendFormat": "receipt write (whole write)",
                         "range": true
                       },
                       "version": "v0"
@@ -334,13 +334,34 @@
                       "kind": "DataQuery",
                       "spec": {
                         "editorMode": "code",
-                        "expr": "litt_flush_queue_depth{table=\"receipts\"}",
-                        "legendFormat": "flush loop",
+                        "expr": "litt_control_queue_depth{table=\"receipts\"}",
+                        "legendFormat": "litt control loop",
                         "range": true
                       },
                       "version": "v0"
                     },
                     "refId": "B"
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "PBFA97CFB590B2093"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "litt_flush_queue_depth{table=\"receipts\"}",
+                        "legendFormat": "litt flush loop",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "C"
                   }
                 }
               ],
@@ -348,10 +369,10 @@
               "transformations": []
             }
           },
-          "description": "LittDB's write path for receipt bodies. Receipt writes block on the control loop when it fills.",
+          "description": "Blocks waiting for the receipt writer. SetReceipts queues the whole write — bodies, log index and version marker — and returns, so this depth is the depth of the receipt write itself. The litt series are the table queues downstream of it.",
           "id": 23,
           "links": [],
-          "title": "ReceiptDB Queue Depth",
+          "title": "Receipt Write Queue Depth",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",

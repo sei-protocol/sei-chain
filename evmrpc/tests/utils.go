@@ -187,11 +187,21 @@ func setupTestServer(
 	}
 	pinStateStoreLatestVersion(a, ctxProvider)
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
-		latest := int64(math.MaxInt64)
-		if err := store.SetLatestVersion(latest); err != nil {
+		// SetReceipts carries the version markers, so they are off the store's interface. These
+		// tests seed receipts by other means and would otherwise read against an unset window.
+		pinner, ok := store.(interface {
+			SetLatestVersion(version int64) error
+			SetEarliestVersion(version int64) error
+		})
+		if !ok {
+			panic(fmt.Sprintf("receipt store %T cannot pin versions", store))
+		}
+		if err := pinner.SetLatestVersion(math.MaxInt64); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1)
+		if err := pinner.SetEarliestVersion(1); err != nil {
+			panic(err)
+		}
 	}
 	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a, ctxProvider: ctxProvider}
 }

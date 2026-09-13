@@ -51,12 +51,15 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 type ReceiptStore interface {
 	controller.PrunableStore
 
+	// LatestVersion is the highest block whose receipts are queryable. A write may be applied
+	// after SetReceipts returns, so this is the watermark a reader follows rather than the
+	// height it last wrote.
 	LatestVersion() int64
 	EarliestVersion() int64
-	SetLatestVersion(version int64) error
-	SetEarliestVersion(version int64) error
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
 	GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
+	// SetReceipts writes the block's receipts, carrying the version markers with them. An
+	// implementation may apply the write in the background; LatestVersion reports when it lands.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.

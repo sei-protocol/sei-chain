@@ -62,6 +62,9 @@ import (
 //   - unset: the background pruner below keeps the last KeepRecent blocks.
 //   - set: the StorageGarbageCollector prunes through the gc.PrunableStore
 //     implementation in litt_receipt_gc.go, and startPruning stands down.
+//
+// Writes are applied in the background: SetReceipts queues a block and returns, so a receipt is not
+// necessarily readable the moment it returns. Sync waits for the queue to empty.
 type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
@@ -79,11 +82,29 @@ type littReceiptStore struct {
 	backgroundWg         sync.WaitGroup
 	closeOnce            sync.Once
 
-	// Breaks a write into its stages. The receipt bodies go to litt asynchronously while the log index
-	// is committed inline, so which of the two a slow write is in is not otherwise visible. Only the
-	// commit path writes, so one timer serves the store.
+	// Breaks a write into its stages, so which of them a slow write is in is visible. Only the writer
+	// goroutine records, so one timer serves the store.
 	writePhases *seidbmetrics.PhaseTimer
+
+	// Receipt writes waiting to be applied, and the meter reporting what waiting for room on this
+	// queue costs the caller. A whole write is queued — bodies, log index and version marker — so
+	// the queue's depth is the depth of the receipt write itself. Its capacity bounds how far the
+	// store may fall behind the chain; a nil channel means writes are applied on the caller.
+	writes       chan receiptWrite
+	writeQueue   *seidbmetrics.QueueMeter
+	writeErr     atomic.Pointer[error]
+	stopSampling context.CancelFunc
 }
+
+// receiptWrite is one block's receipts, waiting to be applied.
+type receiptWrite struct {
+	height   int64
+	receipts []ReceiptRecord
+}
+
+// writeQueueSampleIntervalSeconds is how often the write queue's depth is read. Sampling on a timer
+// rather than at each send keeps the reading unbiased by the send rate.
+const writeQueueSampleIntervalSeconds = 1
 
 var _ ReceiptStore = (*littReceiptStore)(nil)
 
@@ -213,7 +234,19 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		return nil, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
 	s.index = index
-	s.writePhases = seidbmetrics.NewPhaseTimer(otel.Meter("seidb_receipt"), "receipt_store_write")
+
+	receiptMeter := otel.Meter("seidb_receipt")
+	s.writePhases = seidbmetrics.NewPhaseTimer(receiptMeter, "receipt_store_write")
+	if cfg.AsyncWriteBuffer > 0 {
+		s.writes = make(chan receiptWrite, cfg.AsyncWriteBuffer)
+		s.writeQueue = seidbmetrics.NewQueueMeter(receiptMeter, "receipt_write")
+		s.startWriter()
+
+		samplingCtx, stopSampling := context.WithCancel(context.Background())
+		s.stopSampling = stopSampling
+		s.writeQueue.SampleDepth(samplingCtx, writeQueueSampleIntervalSeconds,
+			func() int { return len(s.writes) })
+	}
 
 	s.latestVersion.Store(s.readMeta(receiptLatestVersionKey))
 	s.earliestVersion.Store(s.readMeta(receiptEarliestVersionKey))
@@ -301,17 +334,31 @@ func (s *littReceiptStore) belowRetentionFloor(blockNumber uint64) bool {
 	return earliest > 0 && blockNumber < uint64(earliest) //nolint:gosec // earliest is non-negative
 }
 
+// SetReceipts hands the block's receipts to the writer and returns without waiting for them to be
+// applied, blocking only once the queue is full. It reports the failure of an earlier write, there
+// being no other caller to report it to. With AsyncWriteBuffer off, the write is applied here.
 func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
+	if s.writes == nil {
+		return s.applyReceipts(ctx.BlockHeight(), receipts)
+	}
+	if err := s.takeWriteErr(); err != nil {
+		return err
+	}
+	seidbmetrics.Send(s.writeQueue, s.writes, receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
+	return nil
+}
+
+// applyReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
+// litt first, so an indexed block always has its values written.
+func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord) error {
 	blockNumbers, receiptsByBlock := groupReceiptRecordsByBlock(receipts)
 	if len(blockNumbers) == 0 {
-		return s.SetLatestVersion(ctx.BlockHeight())
+		return s.SetLatestVersion(height)
 	}
 
 	// Closes the stage in flight, so the gap until the next write is charged to neither.
 	defer s.writePhases.Reset()
 
-	// Receipt values go to litt first; the index batch (tag keys + version
-	// meta) commits after, so an indexed block always has its values written.
 	batch := s.index.NewBatch()
 	defer func() { _ = batch.Close() }()
 
@@ -421,6 +468,50 @@ func (s *littReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64
 	return s.filterLogsByTags(reqCtx, fromBlock, toBlock, crit, budget)
 }
 
+// startWriter applies queued receipt writes, in the order they were enqueued, until the store
+// closes.
+//
+// It drains what is queued before returning, so a clean shutdown persists every write that was
+// accepted. An unclean exit does not: up to writeQueueSize blocks of receipts are lost, the same
+// direction litt's own write already takes, being flushed on a timer rather than at the call.
+func (s *littReceiptStore) startWriter() {
+	s.backgroundWg.Add(1)
+	go func() {
+		defer s.backgroundWg.Done()
+		for {
+			select {
+			case write := <-s.writes:
+				s.applyWrite(write)
+			case <-s.stopBackground:
+				for {
+					select {
+					case write := <-s.writes:
+						s.applyWrite(write)
+					default:
+						return
+					}
+				}
+			}
+		}
+	}()
+}
+
+// applyWrite performs one queued write, keeping the first failure for the next caller to collect.
+func (s *littReceiptStore) applyWrite(write receiptWrite) {
+	if err := s.applyReceipts(write.height, write.receipts); err != nil {
+		logger.Error("failed to write receipts", "height", write.height, "err", err)
+		s.writeErr.CompareAndSwap(nil, &err)
+	}
+}
+
+// takeWriteErr returns the first failure a queued write hit, clearing it so it is reported once.
+func (s *littReceiptStore) takeWriteErr() error {
+	if err := s.writeErr.Swap(nil); err != nil {
+		return *err
+	}
+	return nil
+}
+
 // startFlusher bounds litt durability lag to littFlushInterval from a
 // background goroutine so block commit never waits on an fsync.
 func (s *littReceiptStore) startFlusher() {
@@ -445,10 +536,17 @@ func (s *littReceiptStore) startFlusher() {
 func (s *littReceiptStore) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		if s.stopSampling != nil {
+			s.stopSampling()
+		}
 		close(s.stopBackground)
+		// The writer drains what it holds before returning, so this is where queued writes land.
 		s.backgroundWg.Wait()
+		err = s.takeWriteErr()
 		// litt's Close flushes, so the last sub-interval of writes is durable.
-		err = s.values.Close()
+		if valuesErr := s.values.Close(); err == nil {
+			err = valuesErr
+		}
 		if indexErr := s.index.Close(); err == nil {
 			err = indexErr
 		}

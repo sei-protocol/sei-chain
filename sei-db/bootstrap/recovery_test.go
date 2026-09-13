@@ -235,7 +235,13 @@ func TestRecoverStoresAtAZeroTargetLeavesReceiptsAlone(t *testing.T) {
 func TestFindTargetRecoveryHeightIsZeroWithoutABlockLedger(t *testing.T) {
 	manager, _ := openManager(t, nil)
 	commitBlocks(t, manager, 3)
-	require.NoError(t, manager.ReceiptDB().SetLatestVersion(3))
+	// The version marker rides SetReceipts, so it is off the store's interface; this test stamps a
+	// head without bodies on purpose.
+	pinner, ok := manager.ReceiptDB().(interface {
+		SetLatestVersion(version int64) error
+	})
+	require.True(t, ok)
+	require.NoError(t, pinner.SetLatestVersion(3))
 	// findTargetRecoveryHeight reads the state and receipt directories offline, so both stores have
 	// to be closed for it.
 	closeStateDB(t, manager)
