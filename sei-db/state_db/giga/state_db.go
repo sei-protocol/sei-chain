@@ -192,12 +192,18 @@ func (s *StateDB) openSS() error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
+	// The state WAL this StateDB writes before every commit is what catchUpTo replays into SS, and
+	// rollback rewinds SS from its snapshots against that same WAL. A changelog inside SS would be
+	// a second log of every block that nothing here reads, paid for on the commit path.
+	ssCfg := s.ssCfg
+	ssCfg.DisableInternalWAL = true
+
+	ss, err := evm.NewEVMStateStore(ssCfg.EVMDBDirectory, ssCfg)
 	if err != nil {
 		return fmt.Errorf("open EVM state store: %w", err)
 	}
 	s.ss = ss
-	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), s.ssCfg, nil); err != nil {
+	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), ssCfg, nil); err != nil {
 		return fmt.Errorf("start EVM state store snapshot manager: %w", err)
 	}
 	return nil

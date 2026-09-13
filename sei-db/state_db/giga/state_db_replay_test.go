@@ -13,6 +13,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// SS keeps no changelog of its own under giga: the state WAL written before every commit is what
+// catchUpTo replays into it, so a second log would be written on the commit path and never read.
+// Recovery rests on that, which is why the absence is pinned rather than left to the config.
+func TestOpenSSKeepsNoChangelogOfItsOwn(t *testing.T) {
+	s := &StateDB{
+		flatkvCfg: flatkvconfig.DefaultTestConfig(t),
+		ssCfg:     config.DefaultStateStoreConfig(),
+	}
+	s.ssCfg.Enable = true
+	s.ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
+
+	require.NoError(t, s.openSS())
+	t.Cleanup(func() { _ = s.ss.Close() })
+
+	changelog := utils.GetChangelogPath(s.ssCfg.EVMDBDirectory)
+	_, err := os.Stat(changelog)
+	require.True(t, os.IsNotExist(err),
+		"SS must keep no changelog under giga; found one at %s", changelog)
+}
+
 // A node that keeps no EVM state store never reaches it, so nothing probes a store it does not have.
 // The directory is one an earlier run with SS on could have left, and the WAL reaches block 1, so a
 // rollback that read it would come back with a rewind to run.
