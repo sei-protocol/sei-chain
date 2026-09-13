@@ -3,9 +3,7 @@ package gigasim
 import (
 	"context"
 	"fmt"
-	"hash"
 
-	"golang.org/x/crypto/sha3"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
@@ -77,7 +75,7 @@ type blockGenerator struct {
 
 	// The keccak hasher every receipt's bloom is built with, held here because only this goroutine
 	// builds receipts.
-	bloomHasher hash.Hash
+	receiptCache *receiptCache
 
 	// This goroutine's share of a block's critical path: building it and storing it.
 	lifecycle *metrics.PhaseTimer
@@ -113,7 +111,7 @@ func newBlockGenerator(
 		blocks:          blocks,
 		rateLimiter:     rateLimiter,
 		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
-		bloomHasher:     sha3.NewLegacyKeccak256(),
+		receiptCache:    newReceiptCache(),
 		lifecycle:       gigasimMetrics.NewBlockProducingTimer(),
 		blockStoreWrite: blockStoreWrite,
 		metrics:         gigasimMetrics,
@@ -201,7 +199,7 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	}
 	var receipts *receiptBuffer
 	if g.config.EnableReceiptStore {
-		receipts = newReceiptBuffer(count, g.bloomHasher)
+		receipts = newReceiptBuffer(count, g.receiptCache)
 		block.receipts = receipts.receipts
 	}
 
