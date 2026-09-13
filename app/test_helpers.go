@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
@@ -166,13 +165,6 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 
 	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaBankKeeper.UseRegularStore = true
-
-	// Initialize evmone VM if not already initialized (best effort)
-	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
-		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
-			wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
-		}
-	}
 
 	return wrapper
 }

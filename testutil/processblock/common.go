@@ -70,6 +70,13 @@ func (a *App) Ctx() sdk.Context {
 // Assumes all validators voted with equal weight, and there are no byzantine validators.
 // Proposer is rotated among all validators round-robin.
 func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
+	return utils.Map(a.RunBlockDetailed(txs), func(r *types.ExecTxResult) uint32 { return r.Code })
+}
+
+// RunBlockDetailed processes and commits a block of transactions the same way
+// RunBlock does, returning the full per-transaction results. Callers that need
+// the error codespace, log, or gas of a rejected transaction use this.
+func (a *App) RunBlockDetailed(txs []signing.Tx) []*types.ExecTxResult {
 	defer func() {
 		a.lastCtx = a.GetContextForDeliverTx([]byte{}) // Commit will set deliver tx ctx to nil so we need to cache it here for testing queries before the next block is FinalizeBlock'ed (which will set deliver tx ctx)
 		_, err := a.Commit(context.Background())
@@ -105,7 +112,7 @@ func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
 	if err != nil {
 		panic(err)
 	}
-	return utils.Map(res.TxResults, func(r *types.ExecTxResult) uint32 { return r.Code })
+	return res.TxResults
 }
 
 func (a *App) GetVotes() []types.VoteInfo {

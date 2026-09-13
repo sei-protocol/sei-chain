@@ -7,11 +7,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/stretchr/testify/require"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/stretchr/testify/require"
 )
 
 func TestBlockHeaderNotifier_DeliversEvent(t *testing.T) {
@@ -62,12 +63,68 @@ func TestBlockHeaderNotifier_OverwritesWhenFull(t *testing.T) {
 }
 
 func TestBlockHeaderNotifier_NilReceiverIsNoOp(t *testing.T) {
+	// Setup: nil notifier, matching Autobahn-disabled App calls.
 	var n *BlockHeaderNotifier
-	// Must not panic.
+
+	// Test: every entry point, including subscribe.
 	n.OnBlockCommitted(nil, &tmproto.Header{}, &abci.ResponseFinalizeBlock{})
 	n.Stash(&abci.RequestFinalizeBlock{Header: &tmproto.Header{}}, &abci.ResponseFinalizeBlock{})
 	n.ClearStash()
+	n.subscribe(func(blockHeaderEvent) {})
+
+	// Verify: no panic, and PublishStashed reports nothing to publish.
 	require.False(t, n.PublishStashed())
+}
+
+func TestBlockHeaderNotifier_SubscribeGetsEveryEvent(t *testing.T) {
+	// Setup: capacity-1 notifier so newHeads would overwrite.
+	n := NewBlockHeaderNotifier(1)
+	// Setup: subscribe listener records every height.
+	var heights []int64
+	n.subscribe(func(evt blockHeaderEvent) {
+		heights = append(heights, evt.header.Height)
+	})
+
+	// Test: publish two blocks without draining recv().
+	n.OnBlockCommitted([]byte{1}, &tmproto.Header{Height: 1}, &abci.ResponseFinalizeBlock{})
+	n.OnBlockCommitted([]byte{2}, &tmproto.Header{Height: 2}, &abci.ResponseFinalizeBlock{})
+
+	// Verify: subscribe saw both heights.
+	require.Equal(t, []int64{1, 2}, heights, "subscribe must not drop hashes the way newHeads overwrite does")
+	// Verify: recv() kept only the newest.
+	evt := <-n.recv()
+	require.EqualValues(t, 2, evt.header.Height, "newHeads channel still overwrite-on-full")
+}
+
+func TestBlockHeaderNotifier_SubscribeDoesNotStealFromRecv(t *testing.T) {
+	// Setup: notifier with a no-op subscribe listener alongside recv().
+	n := NewBlockHeaderNotifier(4)
+	n.subscribe(func(blockHeaderEvent) {})
+
+	// Test: publish one event.
+	n.OnBlockCommitted([]byte{9}, &tmproto.Header{Height: 9}, &abci.ResponseFinalizeBlock{})
+
+	// Verify: recv() still gets the event; subscribe did not consume the channel.
+	select {
+	case evt := <-n.recv():
+		require.EqualValues(t, 9, evt.header.Height)
+	case <-time.After(time.Second):
+		t.Fatal("subscribe listener must not consume the newHeads channel")
+	}
+}
+
+func TestBlockHeaderNotifier_SubscribePanicDoesNotSkipLaterListeners(t *testing.T) {
+	// Setup: first listener panics; second records that it ran.
+	n := NewBlockHeaderNotifier(4)
+	n.subscribe(func(blockHeaderEvent) { panic("listener boom") })
+	var second bool
+	n.subscribe(func(blockHeaderEvent) { second = true })
+
+	// Test: one publish must fan out to every listener.
+	n.OnBlockCommitted([]byte{1}, &tmproto.Header{Height: 1}, &abci.ResponseFinalizeBlock{})
+
+	// Verify: the second listener still ran.
+	require.True(t, second)
 }
 
 // TestBlockHeaderNotifier_StashThenPublish covers the happy path used
@@ -144,7 +201,10 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	hash := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111").Bytes()
 	proposer := common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()
 	appHash := common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333").Bytes()
-	ts := time.Unix(1_700_000_000, 0).UTC()
+	// Fractional second on purpose: it is the part "timestamp" drops and
+	// "milliTimestamp" keeps, so a whole-second fixture would pass even if
+	// milliTimestamp were derived as timestamp*1000.
+	ts := time.Unix(1_700_000_000, 750_000_000).UTC()
 	evt := blockHeaderEvent{
 		hash: hash,
 		header: &tmproto.Header{
@@ -168,6 +228,7 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	require.Equal(t, common.BytesToAddress(proposer), out["miner"])
 	require.Equal(t, common.BytesToHash(appHash), out["stateRoot"])
 	require.Equal(t, hexutil.Uint64(ts.Unix()), out["timestamp"])
+	require.Equal(t, hexutil.Uint64(ts.UnixMilli()), out["milliTimestamp"])
 	require.Equal(t, hexutil.Uint64(121000), out["gasUsed"])
 	require.Equal(t, hexutil.Uint64(10_000_000), out["gasLimit"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(42)), out["baseFeePerGas"])

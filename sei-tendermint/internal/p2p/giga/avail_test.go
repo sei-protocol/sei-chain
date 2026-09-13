@@ -112,7 +112,7 @@ func TestAvailClientServer(t *testing.T) {
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
-				if err := node.data.PushAppHash(ctx, n, h); err != nil {
+				if err := node.data.PushAppHash(ctx, n, h, nil); err != nil {
 					return fmt.Errorf("node.data.PushAppHash(): %w", err)
 				}
 			}

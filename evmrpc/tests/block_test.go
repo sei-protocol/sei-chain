@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/bitutil"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -48,6 +49,33 @@ func TestGetBlockByNumber(t *testing.T) {
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
+		},
+	)
+}
+
+// Covers the BEP-520-compatible milliTimestamp over the real JSON-RPC transport, including the
+// synthetic genesis block, which is encoded by a different function than the rest.
+//
+// This pins encoding and presence at second granularity only: mockBlockHeader builds
+// its time with time.Unix(_, 0), so UnixMilli() here is just Unix()*1000, and its
+// nanoseconds cannot be changed without moving the block hashes the rest of this
+// package asserts against. The millisecond value is proven where a fractional-second
+// header is available: TestEncodeTmBlockMilliTimestamp for the encoder, and
+// TestSubscribeNewHeadsAutobahn over the WS transport.
+func TestGetBlockMilliTimestamp(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
+			block := res["result"].(map[string]interface{})
+			blockTime := mockBlockHeader(2).Time
+			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.Unix())), block["timestamp"])
+			require.Equal(t, hexutil.EncodeUint64(uint64(blockTime.UnixMilli())), block["milliTimestamp"])
+
+			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", false)
+			genesis := res["result"].(map[string]interface{})
+			require.Equal(t, "0x0", genesis["timestamp"])
+			require.Equal(t, "0x0", genesis["milliTimestamp"])
 		},
 	)
 }

@@ -178,3 +178,30 @@ func join(path, name string) string {
 	}
 	return path + "." + name
 }
+
+// LeafAt pulls the lines describing one field out of a rendered view, so a test
+// can assert on a single resolved value instead of a whole document. It returns
+// false when the path names nothing in the view. A composite field renders as
+// several indexed lines, which are rejoined.
+func LeafAt(dump, path string) (string, bool) {
+	var matched []string
+	for _, line := range strings.Split(dump, "\n") {
+		if isLeafLine(line, path) {
+			matched = append(matched, line)
+		}
+	}
+	if len(matched) == 0 {
+		return "", false
+	}
+	return strings.Join(matched, "\n"), true
+}
+
+// isLeafLine reports whether a rendered line describes path.
+//
+// Three shapes count as the field: its own "path = value" line, the indexed lines a slice
+// or map renders as, and the dotted lines a struct-valued field renders as. The prefix is
+// path+"." rather than path, so a sibling named FooBar is not swallowed by a path of Foo.
+func isLeafLine(line, path string) bool {
+	return line == path+" = <nil>" || strings.HasPrefix(line, path+" = ") ||
+		strings.HasPrefix(line, path+"[") || strings.HasPrefix(line, path+".")
+}

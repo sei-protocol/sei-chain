@@ -27,8 +27,8 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 type WatermarkManager struct {
 	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
-	stateStore   types.StateStore // nil if SS is disabled.
-	receiptStore receipt.ReceiptStore
+	stateStore   types.StateStore     // nil if SS is disabled.
+	receiptStore receipt.ReceiptStore // nil if the receipt store is disabled.
 }
 
 func NewWatermarkManager(
@@ -68,8 +68,13 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 	latest := min(
 		tmLatest,
 		m.ctxProvider(LatestCtxHeight).BlockHeight(),
-		m.receiptStore.LatestVersion(),
 	)
+
+	// A node keeping no receipts has no receipt height to cap the safe latest with; its receipt
+	// queries fail on their own rather than by shrinking the window every other query serves.
+	if m.receiptStore != nil {
+		latest = min(latest, m.receiptStore.LatestVersion())
+	}
 
 	// State store heights (historical state DB) may lag behind block pruning.
 	stateEarliest := latest // no historical storage => just the current state.
@@ -177,6 +182,9 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 // EnsureBlockHeightAvailable because the receipt store can be configured with a
 // smaller KeepRecent than the block or state stores.
 func (m *WatermarkManager) EnsureReceiptHeightAvailable(height int64) error {
+	if m.receiptStore == nil {
+		return receipt.ErrNotConfigured
+	}
 	earliest := m.receiptStore.EarliestVersion()
 	if height < earliest {
 		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)

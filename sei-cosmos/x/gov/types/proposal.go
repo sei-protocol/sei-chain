@@ -158,7 +158,7 @@ func ValidProposalStatus(status ProposalStatus) bool {
 
 // Marshal needed for protobuf compatibility
 func (status ProposalStatus) Marshal() ([]byte, error) {
-	return []byte{byte(status)}, nil
+	return []byte{byte(status)}, nil //nolint:gosec // ProposalStatus is a protobuf enum whose defined values fit in one byte.
 }
 
 // Unmarshal needed for protobuf compatibility
@@ -175,7 +175,7 @@ func (status ProposalStatus) Format(s fmt.State, verb rune) {
 		_, _ = s.Write([]byte(status.String()))
 	default:
 		// TODO: Do this conversion more directly
-		_, _ = fmt.Fprintf(s, "%v", byte(status))
+		_, _ = fmt.Fprintf(s, "%v", byte(status)) //nolint:gosec // ProposalStatus is a protobuf enum whose defined values fit in one byte.
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	seiconfig "github.com/sei-protocol/sei-config"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
@@ -263,14 +264,14 @@ func TestCapDiagnostics(t *testing.T) {
 	}{
 		{"none", 0, 0, 0},
 		{"one", 1, 1, 0},
-		{"exactly at the cap", maxLoggedDiagnostics, maxLoggedDiagnostics, 0},
-		{"one over the cap", maxLoggedDiagnostics + 1, maxLoggedDiagnostics, 1},
-		{"far over the cap", maxLoggedDiagnostics + 15, maxLoggedDiagnostics, 15},
+		{"exactly at the cap", maxLoggedItems, maxLoggedItems, 0},
+		{"one over the cap", maxLoggedItems + 1, maxLoggedItems, 1},
+		{"far over the cap", maxLoggedItems + 15, maxLoggedItems, 15},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			in := diags(tc.in)
-			shown, omitted := capDiagnostics(in)
+			shown, omitted := capLoggedItems(in)
 
 			require.Len(t, shown, tc.wantShown)
 			require.Equal(t, tc.wantOmitted, omitted)
@@ -299,7 +300,7 @@ func TestLogAdvisoryHandlesEveryOutcome(t *testing.T) {
 	lg := SeiConfigManager{}.log()
 	require.NotNil(t, lg, "the zero-value manager must resolve to a usable logger")
 
-	many := make([]string, maxLoggedDiagnostics+3)
+	many := make([]string, maxLoggedItems+3)
 	for i := range many {
 		many[i] = fmt.Sprintf("[ERROR] field%d: broken", i)
 	}
@@ -487,4 +488,64 @@ func renderRecord(r slog.Record) string {
 		return true
 	})
 	return b.String()
+}
+
+// TestTheReportingFloorSurvivesALevelSetAcrossEveryLogger is what keeps this manager audible.
+//
+// The handler this manager re-enters sets one level across every logger in the process, from a key an
+// operator writes. A fleet that runs its nodes quiet sets it above the level these reports use, and every
+// outcome here is a report: what was applied, what was held back, what was refused and what had no effect.
+// Silenced, the manager changes what a node runs and says nothing about it.
+//
+// The level is asserted rather than a message, because a message can be absent for reasons that have
+// nothing to do with whether it would have been printed.
+func TestTheReportingFloorSurvivesALevelSetAcrossEveryLogger(t *testing.T) {
+	// What a node whose file says log_level = "error" produces.
+	seilog.SetDefaultLevel(slog.LevelError, true)
+	t.Cleanup(func() { seilog.SetDefaultLevel(slog.LevelInfo, true) })
+
+	if OwnReportingEnabledForTest() {
+		t.Fatal("this package's reporting is still on after a level was set across every logger, so " +
+			"this test cannot show the floor being restored")
+	}
+
+	keepOwnReportingVisible()
+
+	if !OwnReportingEnabledForTest() {
+		t.Error("this package's reporting is off after the floor was applied. Every outcome here is a " +
+			"report, so the manager would change what a node runs and say nothing about it")
+	}
+}
+
+// TestTheFloorDoesNotLowerALevelAnOperatorRaised is the other direction of the same property.
+//
+// It is a floor, not a level. On a node run at debug, the lines this manager emits below the floor are
+// exactly the ones somebody turned the level up to see: that there is no file, and what an ordinary
+// invocation held back or installed. Assigning the floor would drop all of them.
+func TestTheFloorDoesNotLowerALevelAnOperatorRaised(t *testing.T) {
+	// What a node whose file says log_level = "debug" produces.
+	seilog.SetDefaultLevel(slog.LevelDebug, true)
+	t.Cleanup(func() { seilog.SetDefaultLevel(slog.LevelInfo, true) })
+
+	if !logger.Enabled(context.Background(), slog.LevelDebug) {
+		t.Fatal("this package is not emitting at debug after a level was set across every logger, so " +
+			"this test cannot show the floor leaving it alone")
+	}
+
+	keepOwnReportingVisible()
+
+	if !logger.Enabled(context.Background(), slog.LevelDebug) {
+		t.Error("this package stopped emitting at debug after the floor was applied, so an operator who " +
+			"raised the level to work out why their file does nothing lost the lines that would say")
+	}
+}
+
+// TestTheFloorAddressesALoggerThatExists holds the derived name to matching what was registered.
+//
+// The floor is applied by name. A name that matches no registered logger applies nothing and returns zero,
+// and the only symptom is this package going quiet exactly when an operator raised the level to see it.
+func TestTheFloorAddressesALoggerThatExists(t *testing.T) {
+	if got := seilog.SetLevel(loggerName, ownReportingFloor); got == 0 {
+		t.Errorf("%q matches no registered logger, so the floor is applied to nothing", loggerName)
+	}
 }

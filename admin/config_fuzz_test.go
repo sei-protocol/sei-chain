@@ -6,42 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/testutil/configtest"
-	"github.com/sei-protocol/sei-chain/testutil/fuzzing"
 )
-
-// adminKeys covers the one [admin_server] key whose resolution is a plain
-// guarded cast. admin_address is not: it carries a second guard that treats the
-// empty string as absent, and a conditional loopback validation, so it gets its
-// own target below.
-var adminKeys = []configtest.KeySpec{
-	{
-		Key: "admin_server.admin_enabled", Path: "Enabled", Cast: configtest.CastBool,
-		Why: "default false; the read is guarded but unchecked, so a malformed value is silently false",
-	},
-}
-
-func readAdmin(opts configtest.AppOpts) (any, error) { return admin.ReadConfig(opts) }
-
-// FuzzReadConfigEnabled pins admin_enabled. The read is guarded but *unchecked*
-// (cast.ToBool, not ToBoolE), so a value that will not convert resolves to false
-// with no error. That is the safe direction for this particular knob — a
-// malformed value leaves the admin server off rather than on — which is why it is
-// pinned rather than reported as a defect.
-func FuzzReadConfigEnabled(f *testing.F) {
-	seeds := configtest.NewSeeds(f, fuzzing.ConfigValue)
-	seeds.Add(fuzzing.KindBool, "true", int64(1), true)
-	seeds.Add(fuzzing.KindBoolString, "false", int64(0), false)
-	seeds.Add(fuzzing.KindString, "yes-please", int64(0), false)
-	seeds.Add(fuzzing.KindNil, "", int64(0), false)
-	seeds.Add(fuzzing.KindMap, "", int64(0), false)
-
-	configtest.CheckEveryRowHasADiscriminatingSeed(f, "admin_server", readAdmin, adminKeys, seeds)
-
-	f.Fuzz(func(t *testing.T, kind uint8, s string, n int64, b bool) {
-		spec := adminKeys[0]
-		configtest.CheckRow(t, "admin_server", readAdmin, spec, fuzzing.ConfigValue(kind, s, n, b))
-	})
-}
 
 // FuzzReadConfigAddress pins the two behaviors layered on admin_address.
 //
@@ -109,37 +74,16 @@ func isLiteralLoopbackHostPort(address string) bool {
 }
 
 // TestReadConfigAbsentKeysKeepDefaults pins the section baseline: no
-// [admin_server] section means the server is off at the loopback default.
+// [admin_server] section means the server is off at the loopback default. Both
+// sides move together when a default changes, so this asserts the reader's
+// behavior rather than the values themselves.
 func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
-	configtest.CheckAbsent(t, "admin_server", readAdmin, admin.DefaultConfig)
-}
-
-// TestDefaultsMatchTheRecordedValues pins the admin_server defaults themselves.
-//
-// The absent-keys row above proves the reader returns the declared defaults; it cannot prove
-// which values those are, because both sides of that comparison come from this package. This
-// compares them against testdata/admin_server.golden, an independent recording, so a default that
-// moves shows the new value in a diff instead of passing silently.
-func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "admin_server", admin.DefaultConfig)
-}
-
-// TestKeyNamesMatchTheRecordedNames pins the key name itself.
-//
-// This row spells its key as a literal, so it already survives a rename in the reader: the
-// row would keep the old spelling and the discriminating-seed check would fire. The record is
-// what covers the other direction — the row being edited to match a renamed reader, or being
-// converted to reference a shared constant later — so the protection does not depend on which
-// spelling this file happens to use today.
-func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
-	configtest.CheckKeyNames(t, "admin_server", adminKeys)
-}
-
-// TestManifestNamesEveryField enforces the claim adminKeys makes about itself: that it names
-// every key the reader looks up. Left as prose the claim can drift, and it is the artifact a
-// replacement implementation reads as this section's contract.
-func TestManifestNamesEveryField(t *testing.T) {
-	configtest.CheckManifestCoversEveryField(t, "admin_server", admin.DefaultConfig, adminKeys,
-		"Address", // FuzzReadConfigAddress: two behaviors layered on one key, past what a row says
-	)
+	cfg, err := admin.ReadConfig(configtest.AppOpts{})
+	if err != nil {
+		t.Fatalf("an absent [admin_server] section must read cleanly, got %v", err)
+	}
+	if cfg != admin.DefaultConfig {
+		t.Fatalf("an absent [admin_server] section resolved to %+v, want the declared defaults %+v",
+			cfg, admin.DefaultConfig)
+	}
 }

@@ -125,6 +125,12 @@ type Config struct {
 	// timeout for filters
 	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
 
+	// maximum number of active eth_newFilter and eth_newBlockFilter filters
+	MaxFilters uint64 `mapstructure:"max_filters"`
+
+	// maximum number of unpolled hashes retained by an eth_newBlockFilter filter
+	MaxBlockFilterHashes uint64 `mapstructure:"max_block_filter_hashes"`
+
 	// checkTx timeout for sig verify
 	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
 
@@ -329,6 +335,8 @@ var DefaultConfig = Config{
 	CORSOrigins:                  "*",
 	WSOrigins:                    "*",
 	FilterTimeout:                120 * time.Second,
+	MaxFilters:                   1000,
+	MaxBlockFilterHashes:         1000,
 	CheckTxTimeout:               5 * time.Second,
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
@@ -393,6 +401,8 @@ const (
 	flagCORSOrigins                  = "evm.cors_origins"
 	flagWSOrigins                    = "evm.ws_origins"
 	flagFilterTimeout                = "evm.filter_timeout"
+	flagMaxFilters                   = "evm.max_filters"
+	flagMaxBlockFilterHashes         = "evm.max_block_filter_hashes"
 	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
@@ -505,6 +515,22 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	if v := opts.Get(flagFilterTimeout); v != nil {
 		if cfg.FilterTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxFilters); v != nil {
+		if cfg.MaxFilters, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxFilters == 0 {
+			return cfg, fmt.Errorf("%s must be greater than zero", flagMaxFilters)
+		}
+	}
+	if v := opts.Get(flagMaxBlockFilterHashes); v != nil {
+		if cfg.MaxBlockFilterHashes, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+		if cfg.MaxBlockFilterHashes == 0 {
+			return cfg, fmt.Errorf("%s must be greater than zero", flagMaxBlockFilterHashes)
 		}
 	}
 	if v := opts.Get(flagCheckTxTimeout); v != nil {
@@ -839,6 +865,14 @@ ws_origins = "{{ .EVM.WSOrigins }}"
 
 # timeout for filters
 filter_timeout = "{{ .EVM.FilterTimeout }}"
+
+# maximum number of active eth_newFilter and eth_newBlockFilter filters
+# filters cannot be added if there are too many active eth_newFilter and eth_newBlockFilter
+max_filters = {{ .EVM.MaxFilters }}
+
+# maximum number of unpolled hashes retained by an eth_newBlockFilter filter;
+# if a filter has more than this many unpolled hashes the filter will be invalidated and removed.
+max_block_filter_hashes = {{ .EVM.MaxBlockFilterHashes }}
 
 # checkTx timeout for sig verify
 checktx_timeout = "{{ .EVM.CheckTxTimeout }}"

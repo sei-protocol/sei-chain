@@ -64,7 +64,7 @@ func traceDBKey(height int64, tracer string, txHash common.Hash) []byte {
 	var hb [8]byte
 	binary.BigEndian.PutUint64(hb[:], uint64(height)) //nolint:gosec
 	out = append(out, hb[:]...)
-	out = append(out, byte(len(tracer)))
+	out = append(out, byte(len(tracer))) //nolint:gosec // tracer is truncated to 255 bytes immediately above.
 	out = append(out, tracer...)
 	out = append(out, txHash[:]...)
 	return out
@@ -79,7 +79,7 @@ func traceDBBlockKey(height int64, tracer string) []byte {
 	var hb [8]byte
 	binary.BigEndian.PutUint64(hb[:], uint64(height)) //nolint:gosec
 	out = append(out, hb[:]...)
-	out = append(out, byte(len(tracer)))
+	out = append(out, byte(len(tracer))) //nolint:gosec // tracer is truncated to 255 bytes immediately above.
 	out = append(out, tracer...)
 	return out
 }

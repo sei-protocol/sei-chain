@@ -689,11 +689,11 @@ func TestTransactionExtremeGasValue(t *testing.T) {
 	attackTxBytes, err := sei.GetTxConfig().TxEncoder()(attackTx)
 	require.NoError(t, err)
 
-	// Gas metrics have overflow protection in IncrGasCounter.
+	// app_tx_gas is an int64 counter, so an extreme gas limit records without overflow.
 	require.NotPanics(t, func() {
 		result := sei.DeliverTxWithResult(ctx, attackTxBytes, attackTx)
 		require.NotNil(t, result)
-	}, "Extreme gas values should never cause panic due to overflow protection")
+	}, "Extreme gas values should never cause panic")
 }
 
 // TestProcessProposalHandlerPanicRecovery tests the panic recovery mechanism in ProcessProposalHandler.

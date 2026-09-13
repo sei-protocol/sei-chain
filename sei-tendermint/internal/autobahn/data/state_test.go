@@ -11,8 +11,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -107,7 +107,7 @@ func pushAppHashesRunning(ctx context.Context, state *State, rng utils.Rng, firs
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		for n := first; n < next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return err
 			}
 		}
@@ -138,10 +138,30 @@ func commitQCAtRoad(
 	return types.NewFullCommitQC(types.NewCommitQC(votes), []*types.BlockHeader{block.Header()}), []*types.Block{block}
 }
 
+func commitQCAtRoadBlocks(
+	ep *types.Epoch,
+	keys []types.SecretKey,
+	road types.RoadIndex,
+	globalFirst types.GlobalBlockNumber,
+	n int,
+) (*types.FullCommitQC, []*types.Block) {
+	proposal, blocks := types.ProposalAtBlocks(ep, types.View{Index: road, Number: 0}, globalFirst, n)
+	votes := make([]*types.Signed[*types.CommitVote], 0, len(keys))
+	for _, k := range keys {
+		votes = append(votes, types.Sign(k, types.NewCommitVote(proposal)))
+	}
+	headers := make([]*types.BlockHeader, len(blocks))
+	for i, b := range blocks {
+		headers[i] = b.Header()
+	}
+	return types.NewFullCommitQC(types.NewCommitQC(votes), headers), blocks
+}
+
 func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 3)
+	registry, keys := epoch.GenRegistryThrough(rng, 3, 2)
+	ep2 := registry.MustEpoch(2)
 	ep1 := registry.MustEpoch(1)
 	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
 
@@ -150,19 +170,55 @@ func TestNextCommitEpoch_AdvancesAtIdleEpochBoundary(t *testing.T) {
 	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch next road is still in epoch 1")
 	grMid := qcMid.QC().GlobalRange()
 	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grMid.First, grMid.Next))
-	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "mid-epoch AppHash must not seed epoch 2")
+	require.Equal(t, ep1, state.NextCommitEpoch().Load())
 
 	qcLast, blocksLast := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), grMid.Next)
 	require.NoError(t, state.PushQC(ctx, qcLast, blocksLast))
-	_, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.Error(t, err, "epoch 2 must stay unregistered until the boundary AppProposal lands")
-	require.Equal(t, ep1, state.NextCommitEpoch().Load(), "unregistered next epoch: previous publish stands")
+	require.Equal(t, ep2, state.NextCommitEpoch().Load(), "next road is in epoch 2, already filled from end(0)")
+}
 
-	grLast := qcLast.QC().GlobalRange()
-	require.NoError(t, pushAppHashesRunning(ctx, state, rng, grLast.First, grLast.Next))
-	ep2, err := registry.EpochAt(epoch.FirstRoad(2))
-	require.NoError(t, err)
-	require.Equal(t, ep2, state.NextCommitEpoch().Load())
+func TestNextCommitEpoch_RefreshesAfterAppQCActivation(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+			return err
+		}
+		n0 := qc0.QC().GlobalRange().Next - 1
+		if err := state.PushAppHash(ctx, n0, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+			return err
+		}
+		if got := state.NextCommitEpoch().Load(); got != ep1 {
+			return fmt.Errorf("after LastRoad(0) QC: NextCommitEpoch = %v, want epoch 1", got.EpochIndex())
+		}
+
+		qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.LastRoad(1), qc0.QC().GlobalRange().Next)
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		if got := state.NextCommitEpoch().Load(); got != ep1 {
+			return fmt.Errorf("LastRoad(1) QC before epoch 2 is live: NextCommitEpoch = %v, want epoch 1", got.EpochIndex())
+		}
+
+		if err := pushAppQCForBlock(ctx, state, keys, n0); err != nil {
+			return err
+		}
+		ep2, err := registry.EpochByIndex(2)
+		if err != nil {
+			return fmt.Errorf("epoch 2 after AppQC: %w", err)
+		}
+		if got := state.NextCommitEpoch().Load(); got != ep2 {
+			return fmt.Errorf("after AppQC: NextCommitEpoch = %v, want epoch 2", got.EpochIndex())
+		}
+		return nil
+	}))
 }
 
 func TestState(t *testing.T) {
@@ -408,13 +464,13 @@ func TestExecution(t *testing.T) {
 			// PushAppHash for a block beyond nextBlock should not succeed:
 			// it waits for persistence which never happens for unfinalised blocks.
 			shortCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
-			if err := state.PushAppHash(shortCtx, gr.Next, types.GenAppHash(rng)); err == nil {
+			if err := state.PushAppHash(shortCtx, gr.Next, types.GenAppHash(rng), nil); err == nil {
 				cancel()
 				return errors.New("PushAppHash expected to fail on non-finalized blocks")
 			}
 			cancel()
 			for n := gr.First; n < gr.Next; n += 1 {
-				if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+				if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 					return fmt.Errorf("state.PushAppHash(): %w", err)
 				}
 			}
@@ -446,34 +502,193 @@ func TestPushAppHashRejectsJumpOverCommitQCRange(t *testing.T) {
 			}
 			qcs = append(qcs, qc.QC())
 		}
-		if err := state.PushAppHash(ctx, qcs[0].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+		if err := state.PushAppHash(ctx, qcs[0].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
 			return fmt.Errorf("PushAppHash(qc1): %w", err)
 		}
 		if qcs[2].GlobalRange().Len() < 2 {
 			panic("qcs[2].Len() is too small for this test")
 		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng)); !errors.Is(err, ErrOutOfOrder) {
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng), nil); !errors.Is(err, ErrOutOfOrder) {
 			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
 		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng)); !errors.Is(err, ErrOutOfOrder) {
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng), nil); !errors.Is(err, ErrOutOfOrder) {
 			return fmt.Errorf("PushAppHash(qc3 before qc2) error = %w, want %w", err, ErrOutOfOrder)
 		}
 
-		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
 			return fmt.Errorf("PushAppHash(qc3): %w", err)
 		}
 		// Inserting old stuff should be a noop.
-		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng)); err != nil {
+		if err := state.PushAppHash(ctx, qcs[1].GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
-		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng)); err != nil {
+		if err := state.PushAppHash(ctx, qcs[2].GlobalRange().Next-2, types.GenAppHash(rng), nil); err != nil {
 			return fmt.Errorf("PushAppHash(qc2): %w", err)
 		}
 		return nil
 	}))
+}
+
+func TestPushAppHash_MidEpochDoesNotRegister(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc, blocks := TestCommitQC(rng, registry.MustEpoch(0), keys, utils.None[*types.CommitQC]())
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		if err := state.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, types.GenAppHash(rng), nil); err != nil {
+			return err
+		}
+		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+			return fmt.Errorf("epoch 2 must stay absent for road %d", qc.QC().Proposal().Index())
+		}
+		if got, ok := registry.Pending().Get(); ok {
+			return fmt.Errorf("Pending() = %v, want nothing staged mid-epoch", got)
+		}
+		return nil
+	}))
+}
+
+func TestCommitteeFill_GatedOnAppQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	ep := registry.MustEpoch(0)
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		n := qc.QC().GlobalRange().Next - 1
+		if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+			return err
+		}
+		if _, err := registry.EpochAt(epoch.FirstRoad(2)); err == nil {
+			return errors.New("epoch 2 must stay staged until an AppQC finalizes end(0)")
+		}
+		if want := utils.Some(types.EpochIndex(2)); registry.Pending() != want {
+			return fmt.Errorf("Pending() = %v, want %v", registry.Pending(), want)
+		}
+
+		if err := pushAppQCForBlock(ctx, state, keys, n); err != nil {
+			return err
+		}
+		filled, err := registry.EpochAt(epoch.FirstRoad(2))
+		if err != nil {
+			return fmt.Errorf("epoch 2 after AppQC: %w", err)
+		}
+		if filled.EpochIndex() != 2 {
+			return fmt.Errorf("EpochIndex = %d, want 2", filled.EpochIndex())
+		}
+		if got := filled.Committee().Weight(keeper); got != 9 {
+			return fmt.Errorf("Weight = %d, want 9", got)
+		}
+		if filled.Committee().Lanes().Len() != 1 {
+			return fmt.Errorf("lanes = %d, want 1", filled.Committee().Lanes().Len())
+		}
+		return nil
+	}))
+}
+
+func TestCommitteeFill_AppQCDivergenceLeavesStaged(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	ep := registry.MustEpoch(0)
+	qc, blocks := commitQCAtRoad(ep, keys, epoch.LastRoad(0), ep.FirstBlock())
+	n := qc.QC().GlobalRange().Next - 1
+
+	// Stop Run before the divergent AppQC: persisting one kills the node.
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		return state.PushAppHash(ctx, n, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9})
+	}))
+
+	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
+	_, err := registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err, "epoch 2 must stay staged after divergence")
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+}
+
+func TestCommitteeFill_LaterMatchingAppQCDoesNotSkipDivergentLastRoad(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	keeper := keys[0].Public()
+	state := newTestState(t, &Config{Registry: registry}, newTestBlockStore(t, t.TempDir()))
+	ep0 := registry.MustEpoch(0)
+	ep1 := registry.MustEpoch(1)
+	qc0, blocks0 := commitQCAtRoad(ep0, keys, epoch.LastRoad(0), ep0.FirstBlock())
+	gr0 := qc0.QC().GlobalRange()
+	qc1, blocks1 := commitQCAtRoad(ep1, keys, epoch.FirstRoad(1), gr0.Next)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc0, blocks0); err != nil {
+			return err
+		}
+		if err := state.PushAppHash(ctx, gr0.Next-1, types.GenAppHash(rng), map[types.PublicKey]uint64{keeper: 9}); err != nil {
+			return err
+		}
+		if err := state.PushQC(ctx, qc1, blocks1); err != nil {
+			return err
+		}
+		return state.PushAppHash(ctx, qc1.QC().GlobalRange().Next-1, types.GenAppHash(rng), nil)
+	}))
+
+	divergent := types.NewAppProposal(qc0.QC().Proposal(), types.GenAppHash(rng))
+	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
+	vote1, err := state.AppVote(ctx, qc1.QC().GlobalRange().First)
+	require.NoError(t, err)
+	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, vote1.Proposal())))
+
+	_, err = registry.EpochAt(epoch.FirstRoad(2))
+	require.Error(t, err, "epoch 2 must stay staged when LastRoad(0) diverged")
+	require.Equal(t, utils.Some(types.EpochIndex(2)), registry.Pending())
+}
+
+func TestRunPersist_HaltsBeforePersistingDivergentAppQC(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	store := newTestBlockStore(t, t.TempDir())
+	state := newTestState(t, &Config{Registry: registry}, store)
+	ep := registry.MustEpoch(0)
+	qc, blocks := commitQCAtRoad(ep, keys, epoch.FirstRoad(0), ep.FirstBlock())
+	n := qc.QC().GlobalRange().Next - 1
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("state.Run()", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return err
+		}
+		return state.PushAppHash(ctx, n, types.GenAppHash(rng), nil)
+	}))
+	before := store.Status().OrPanic("status after AppHash")
+
+	divergent := types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng))
+	require.NoError(t, state.PushAppQC(ctx, TestAppQC(keys, divergent)))
+
+	require.ErrorIs(t, state.runPersist(ctx), ErrAppHashDivergence)
+	after := store.Status().OrPanic("status after divergence")
+	require.Equal(t, before.NextAppQC, after.NextAppQC, "divergent AppQC must not be persisted")
+	require.Equal(t, before.First, after.First, "eviction floor must not advance past it")
 }
 
 func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
@@ -556,7 +771,7 @@ func TestPushQCBeforeRunPersistsToBlockStore(t *testing.T) {
 		s.SpawnBgNamed("state.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
 		// PushAppHash waits on persisted.NextBlock, so success implies Flush.
 		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
@@ -599,7 +814,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 			return fmt.Errorf("PushQC(qc1): %w", err)
 		}
 		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
@@ -633,7 +848,7 @@ func TestEvictionWaitsForAppQC(t *testing.T) {
 			return fmt.Errorf("PushQC(qc2): %w", err)
 		}
 		for n := gr2.First; n < gr2.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
@@ -714,7 +929,7 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 			if err := state.PushQC(ctx, qc, blocks); err != nil {
 				return fmt.Errorf("PushQC: %w", err)
 			}
-			if err := state.PushAppHash(ctx, gr.Next-1, types.GenAppHash(rng)); err != nil {
+			if err := state.PushAppHash(ctx, gr.Next-1, types.GenAppHash(rng), nil); err != nil {
 				return fmt.Errorf("PushAppHash(tip): %w", err)
 			}
 			if err := pushAppQCForBlock(ctx, state, keys, gr.First); err != nil {
@@ -731,7 +946,7 @@ func TestPushAppHashBelowAnchorSucceeds(t *testing.T) {
 			return fmt.Errorf("state.Anchor.Wait(): %w", err)
 		}
 		// Pushing apphash for height below the anchor should NOT expolode.
-		if err := state.PushAppHash(ctx, registry.FirstBlock(), types.GenAppHash(rng)); err != nil {
+		if err := state.PushAppHash(ctx, registry.FirstBlock(), types.GenAppHash(rng), nil); err != nil {
 			return fmt.Errorf("PushAppHash below anchor: %w", err)
 		}
 		return nil
@@ -759,7 +974,7 @@ func TestNextToExecuteAfterAppEviction(t *testing.T) {
 			return fmt.Errorf("PushQC(qc1): %w", err)
 		}
 		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			if err := state.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}
@@ -843,7 +1058,7 @@ func TestPushAppQCPersistsAndRecovers(t *testing.T) {
 			return fmt.Errorf("PushQC(qc1): %w", err)
 		}
 		for n := gr1.First; n < gr1.Next; n++ {
-			if err := state1.PushAppHash(ctx, n, types.GenAppHash(rng)); err != nil {
+			if err := state1.PushAppHash(ctx, n, types.GenAppHash(rng), nil); err != nil {
 				return fmt.Errorf("PushAppHash(%d): %w", n, err)
 			}
 		}

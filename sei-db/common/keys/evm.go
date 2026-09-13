@@ -25,6 +25,7 @@ var (
 	codeKeyPrefix     = []byte{0x07}
 	codeHashKeyPrefix = []byte{0x08}
 	nonceKeyPrefix    = []byte{0x0a}
+	balanceKeyPrefix  = []byte{0x21}
 )
 
 // StateKeyPrefix returns the storage state key prefix (0x03).
@@ -34,10 +35,13 @@ func StateKeyPrefix() []byte { return stateKeyPrefix }
 // EVMKeyKind identifies an EVM key family.
 type EVMKeyKind uint8
 
+// These values are in-memory routing tags, renumbered whenever a kind is added. Writing one into a
+// key, a value, or any other stored or wire format is forbidden.
 const (
 	EVMKeyEmpty    EVMKeyKind = iota // Returned only for zero-length keys
 	EVMKeyNonce                      // Stripped key: 20-byte address
 	EVMKeyCodeHash                   // Stripped key: 20-byte address
+	EVMKeyBalance                    // Stripped key: 20-byte address
 	EVMKeyCode                       // Stripped key: 20-byte address
 	EVMKeyStorage                    // Stripped key: addr||slot (20+32 bytes)
 	EVMKeyMisc                       // Full original key preserved (address mappings, codesize, etc.)
@@ -45,7 +49,7 @@ const (
 
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
-// For optimized keys (nonce, code, codehash, storage), keyBytes is the stripped key.
+// For optimized keys (nonce, code, codehash, storage, balance), keyBytes is the stripped key.
 // For misc keys (all other EVM data including codesize), keyBytes is the full original key.
 // Only returns EVMKeyEmpty for zero-length keys.
 func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
@@ -77,6 +81,12 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 			return EVMKeyMisc, key
 		}
 		return EVMKeyStorage, key[len(stateKeyPrefix):]
+
+	case bytes.HasPrefix(key, balanceKeyPrefix):
+		if len(key) != len(balanceKeyPrefix)+AddressLen {
+			return EVMKeyMisc, key
+		}
+		return EVMKeyBalance, key[len(balanceKeyPrefix):]
 	}
 
 	// All other EVM keys go to the misc store (address mappings, codesize, etc.)
@@ -95,6 +105,8 @@ func EVMKeyPrefixByte(kind EVMKeyKind) (byte, bool) {
 		return codeHashKeyPrefix[0], true
 	case EVMKeyCode:
 		return codeKeyPrefix[0], true
+	case EVMKeyBalance:
+		return balanceKeyPrefix[0], true
 	default:
 		return 0, false
 	}
@@ -123,7 +135,7 @@ func InternalKeyLen(kind EVMKeyKind) int {
 	switch kind {
 	case EVMKeyStorage:
 		return AddressLen + slotLen // 52 bytes
-	case EVMKeyNonce, EVMKeyCodeHash, EVMKeyCode:
+	case EVMKeyNonce, EVMKeyCodeHash, EVMKeyCode, EVMKeyBalance:
 		return AddressLen // 20 bytes
 	default:
 		return 0

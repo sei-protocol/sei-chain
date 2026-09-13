@@ -64,6 +64,12 @@ func TestParseEVMKey(t *testing.T) {
 			wantKind:  EVMKeyStorage,
 			wantBytes: concat(addr, slot),
 		},
+		{
+			name:      "Balance",
+			key:       concat(balanceKeyPrefix, addr),
+			wantKind:  EVMKeyBalance,
+			wantBytes: addr,
+		},
 		// Legacy keys - keep full key (address mappings, unknown prefix, malformed, etc.)
 		{
 			name:      "EVMAddressToSeiAddress goes to Legacy",
@@ -118,6 +124,18 @@ func TestParseEVMKey(t *testing.T) {
 			key:       concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
 			wantKind:  EVMKeyMisc,
 			wantBytes: concat(concat(concat(stateKeyPrefix, addr), slot), []byte{0x00}),
+		},
+		{
+			name:      "BalanceTooShort goes to Legacy",
+			key:       balanceKeyPrefix,
+			wantKind:  EVMKeyMisc,
+			wantBytes: balanceKeyPrefix,
+		},
+		{
+			name:      "BalanceWrongLenLong goes to Legacy",
+			key:       concat(balanceKeyPrefix, concat(addr, []byte{0x00})),
+			wantKind:  EVMKeyMisc,
+			wantBytes: concat(balanceKeyPrefix, concat(addr, []byte{0x00})),
 		},
 	}
 
@@ -177,6 +195,12 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 			keyBytes: concat(addr, slot),
 			want:     concat(stateKeyPrefix, concat(addr, slot)),
 		},
+		{
+			name:     "Balance",
+			kind:     EVMKeyBalance,
+			keyBytes: addr,
+			want:     concat(balanceKeyPrefix, addr),
+		},
 	}
 
 	for _, tc := range tests {
@@ -192,4 +216,18 @@ func TestInternalKeyLen(t *testing.T) {
 	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyNonce))
 	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCodeHash))
 	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCode))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyBalance))
+}
+
+// The prefix bytes this package mirrors from x/evm/types must stay distinct: ParseEVMKey classifies on
+// the first byte alone, so two families sharing one would silently reparse each other's rows.
+func TestEVMKeyPrefixesAreDistinct(t *testing.T) {
+	seen := map[byte]EVMKeyKind{}
+	for _, kind := range []EVMKeyKind{EVMKeyNonce, EVMKeyCodeHash, EVMKeyCode, EVMKeyStorage, EVMKeyBalance} {
+		prefix, ok := EVMKeyPrefixByte(kind)
+		require.True(t, ok, "kind %v has no prefix byte", kind)
+		previous, duplicate := seen[prefix]
+		require.False(t, duplicate, "kinds %v and %v both use prefix 0x%02x", previous, kind, prefix)
+		seen[prefix] = kind
+	}
 }

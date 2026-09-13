@@ -34,6 +34,7 @@ func init() {
 		Global.StepDuration,
 		Global.BlockGossipReceiveLatency,
 		Global.BlockGossipPartsReceived,
+		Global.NonCanonicalProposalParts,
 		Global.ProposalBlockCreatedOnPropose,
 		Global.ProposalTxs,
 		Global.ProposalMissingTxs,
@@ -179,8 +180,8 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "block_parts",
-			Help:      "Number of block parts transmitted by each peer.",
-		}, []string{"peer_id"}),
+			Help:      "Number of block parts received from peers.",
+		}, nil),
 		StepDuration: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -201,6 +202,12 @@ func NewMetrics() *Metrics {
 			Name:      "block_gossip_parts_received",
 			Help:      "Number of block parts received by the node, separated by whether the part was relevant to the block the node is trying to gather or not.",
 		}, []string{"matches_current"}),
+		NonCanonicalProposalParts: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "non_canonical_proposal_parts",
+			Help:      "Number of non-canonical complete proposal part sets rejected, labeled by consensus step.",
+		}, []string{"step"}),
 		ProposalBlockCreatedOnPropose: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -266,7 +273,7 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "late_votes",
-			Help:      "Number of votes received by the node since process start that correspond to earlier heights and rounds than this node is currently in.",
+			Help:      "Number of late votes received by the node, labeled by validator address for the current validator set or other.",
 		}, []string{"validator_address"}),
 		FinalRound: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
@@ -401,8 +408,8 @@ func (m *Metrics) StateSyncingAt() *tmprometheus.GaugeInt {
 	return m.StateSyncing.WithLabelValues()
 }
 
-func (m *Metrics) BlockPartsAt(peer_id string) *tmprometheus.CounterInt {
-	return m.BlockParts.WithLabelValues(peer_id)
+func (m *Metrics) BlockPartsAt() *tmprometheus.CounterInt {
+	return m.BlockParts.WithLabelValues()
 }
 
 func (m *Metrics) StepDurationAt(step string) *tmprometheus.Histogram {
@@ -415,6 +422,10 @@ func (m *Metrics) BlockGossipReceiveLatencyAt() *tmprometheus.Histogram {
 
 func (m *Metrics) BlockGossipPartsReceivedAt(matches_current string) *tmprometheus.CounterInt {
 	return m.BlockGossipPartsReceived.WithLabelValues(matches_current)
+}
+
+func (m *Metrics) NonCanonicalProposalPartsAt(step string) *tmprometheus.CounterInt {
+	return m.NonCanonicalProposalParts.WithLabelValues(step)
 }
 
 func (m *Metrics) ProposalBlockCreatedOnProposeAt(success string) *tmprometheus.CounterInt {

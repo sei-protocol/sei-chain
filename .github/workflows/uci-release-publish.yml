@@ -40,7 +40,7 @@ jobs:
     uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@v0.0.11
     with:
       ref: ${{ github.ref_type == 'tag' && github.ref_name || needs.publish.outputs.version }}
-      go-version: '1.25.6'
+      go-version: '1.27.1'
       # Repo submodules are Solidity test libs (forge-std/openzeppelin/solmate); the
       # seid binary build doesn't use them, so skip the fetch.
       submodules: 'false'

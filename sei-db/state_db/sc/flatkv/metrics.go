@@ -27,6 +27,7 @@ var (
 		CatchupLatency            metric.Float64Histogram
 		CatchupReplayNumBlocks    metric.Int64Counter
 		SnapshotWriteLatency      metric.Float64Histogram
+		SnapshotQueueDepth        metric.Int64Gauge
 		SnapshotPruneLatency      metric.Float64Histogram
 		SnapshotPruneAttempts     metric.Int64Counter
 		CurrentSnapshotHeight     metric.Int64Gauge
@@ -97,6 +98,12 @@ var (
 			metric.WithDescription("Time taken to write a FlatKV snapshot"),
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(commonmetrics.LongLatencyBuckets...),
+		)),
+		SnapshotQueueDepth: must(flatkvMeter.Int64Gauge(
+			"flatkv_snapshot_queue_depth",
+			metric.WithDescription(
+				"Committed blocks queued behind a FlatKV snapshot that is still being written"),
+			metric.WithUnit("{count}"),
 		)),
 		SnapshotPruneLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_snapshot_prune_latency",

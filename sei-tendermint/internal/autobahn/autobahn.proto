@@ -316,3 +316,27 @@ message ConsensusReq {
     TimeoutQC timeout_qc = 5;
   }
 }
+
+message Committee {
+  option (wireguard.sized) = true;
+  repeated EpochMember members = 1 [(wireguard.max_count) = 100];
+}
+
+// Committee for an execution-derived epoch.
+message EpochRecord {
+  option (wireguard.sized) = true;
+  optional uint64 index = 1; // required
+  optional Committee committee = 2; // required
+}
+
+// Persisted execution-derived epoch registry state.
+message PersistedEpochRegistry {
+  repeated EpochRecord live = 1;
+  optional EpochRecord pending = 2; // optional
+}
+
+message EpochMember {
+  option (wireguard.sized) = true;
+  optional LaneID lane_id = 1; // required
+  optional uint64 weight = 2; // required, can't be zero
+}

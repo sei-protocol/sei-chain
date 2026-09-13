@@ -10,6 +10,7 @@ import {
     sendRevertingTx,
     signBelowIntrinsicTx,
     assertCanonicalHeader,
+    assertSeiMilliTimestamp,
     assertCanonicalTx,
     assertTxTypeSchema,
     assertGasAccounting,
@@ -81,6 +82,19 @@ describe('eth_getBlockByNumber', function () {
             ]);
             expect(block.parentHash).to.equal(parent.hash);
             expect(BigInt(block.timestamp) >= BigInt(parent.timestamp)).to.equal(true);
+        });
+
+        it('carries the BEP-520-compatible millisecond timestamp', async () => {
+            const [block, parent] = await Promise.all([
+                getBlock(sei, richSei.number, false),
+                getBlock(sei, richSei.number - 1, false),
+            ]);
+            assertSeiMilliTimestamp(block);
+            assertSeiMilliTimestamp(parent);
+            expect(
+                BigInt(block.milliTimestamp!) >= BigInt(parent.milliTimestamp!),
+                'milliTimestamp is non-decreasing along the chain',
+            ).to.equal(true);
         });
     });
 

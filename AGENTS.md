@@ -1,7 +1,7 @@
 # Sei Chain
 
 `github.com/sei-protocol/sei-chain` is a Cosmos SDK / Tendermint blockchain with
-a native EVM. It targets **Go 1.25.6**.
+a native EVM. It targets **Go 1.27.1**.
 
 ## Nested guides
 
@@ -15,6 +15,7 @@ progressively the deeper you go. Existing package guides include:
 - `x/evm/AGENTS.md` — EVM module: address association, StateDB bridge, precompiles, pointers
 - `sei-tendermint/AGENTS.md` — sei-tendermint module conventions
 - `testutil/configtest/AGENTS.md` — configuration characterization: how to pin a new key, section, or default
+- `upgradetest/AGENTS.md` — upgrade boundary tests: how a release's upgrade coverage is scoped and selected
 
 ## Configuration reads
 
@@ -27,6 +28,23 @@ is the review prompt: record the new behavior so the old and new value land in a
 rather than skipping the row or widening the assertion until it passes. Read
 [`testutil/configtest/AGENTS.md`](testutil/configtest/AGENTS.md) before changing a
 configuration read, and before adding one.
+
+## Upgrade names
+
+Appending a name to `app/tags` moves the upgrade boundary this build ships, and
+`upgradetest` derives from that list which test set CI runs. The move fails
+`TestCurrentBoundaryHasATestFile` until a file for the new boundary exists, and
+that failure is the review prompt: state what the upgrade changes and what it may
+not, rather than carrying the previous release's cases forward or deleting them.
+Read [`upgradetest/AGENTS.md`](upgradetest/AGENTS.md) before adding an upgrade
+name, and before changing an upgrade handler.
+
+Create the v6.7 definition with
+`make new-upgrade-test FROM=v6.6 TO=v6.7`; do not hand-name its build tag.
+Exercise its persisted Go boundary with
+`make upgrade-test-offline FROM_REF=release/v6.6 TO_REF=release/v6.7`, and its
+real node boundary with
+`make upgrade-test-cross-version FROM_REF=release/v6.6 TO_REF=release/v6.7`.
 
 ## Code style
 
@@ -125,8 +143,8 @@ run.
 ## Lint, build & test
 
 Linting and formatting are driven by the root `Makefile` and `.golangci.yml`
-(golangci-lint v2.8.0; enabled linters include `errcheck`, `gosec`, `govet`,
-`staticcheck`, `ineffassign`, `goconst`, `prealloc`, `unconvert`, `misspell`,
+(golangci-lint v2.13.2; enabled linters include `errcheck`, `gosec`, `govet`,
+`staticcheck`, `ineffassign`, `prealloc`, `unconvert`, `misspell`,
 `bodyclose`, and `dogsled`; generated `*.pb.go` files are excluded).
 
 ```bash
@@ -141,20 +159,21 @@ Tests run with the race detector and coverage. CI shards them into groups; while
 iterating, run a single package directly:
 
 ```bash
-make test-group-0       # one CI test shard (race + coverage)
-go test ./<pkg>/...     # run a single package
+make test-group-0               # one CI test shard (race + coverage)
+scripts/ramtest.sh ./<pkg>/...  # any package that opens stores — see below
+go test ./<pkg>/...             # only for packages that touch no on-disk resources
 ```
 
 CI mirrors these checks: `.github/workflows/golangci.yml` runs golangci-lint
-v2.8.0 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
-runs `go test -race` on Go 1.25.6.
+v2.13.2 followed by `golangci-lint fmt --diff`, and `.github/workflows/go-test.yml`
+runs `go test -race` on Go 1.27.1.
 
 ### Running tests on a RAM disk
 
-If you are running tests that use on-disk resources, consider using a RAM disk to
-speed it up. Tests under sei-db/* are very likely to benefit from this. Other tests
-may or may not benefit depending on disk utilization. Tests that do not use on-disk
-resources are unlikely to experience significant benefit from using a RAM disk.
+Always run tests that use on-disk resources on a RAM disk rather than reaching for a
+bare `go test`. That covers everything under `sei-db/`, plus any package that opens a
+store. Other tests may or may not benefit depending on disk utilization, and tests
+that use no on-disk resources will not.
 
 `scripts/ramtest.sh` runs `go test` with `GOTMPDIR` and `TMPDIR` on a RAM-backed
 filesystem. Arguments that are not its own flags pass through to `go test`, so

@@ -139,6 +139,35 @@ func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
 	}
 }
 
+func TestAppProposalConvDecode_RequiredFields(t *testing.T) {
+	rng := utils.TestRng()
+	base := AppProposalConv.Encode(GenAppProposal(rng))
+	if _, err := AppProposalConv.Decode(base); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		mut  func(*pb.AppProposal)
+	}{
+		{"road_index", func(p *pb.AppProposal) { p.RoadIndex = nil }},
+		{"epoch_index", func(p *pb.AppProposal) { p.EpochIndex = nil }},
+		{"global_first", func(p *pb.AppProposal) { p.GlobalFirst = nil }},
+		{"global_next", func(p *pb.AppProposal) { p.GlobalNext = nil }},
+		{"app_hash nil", func(p *pb.AppProposal) { p.AppHash = nil }},
+		{"app_hash empty", func(p *pb.AppProposal) { p.AppHash = []byte{} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := AppProposalConv.Encode(GenAppProposal(rng))
+			tc.mut(p)
+			if _, err := AppProposalConv.Decode(p); err == nil {
+				t.Fatal("Decode() succeeded, want error")
+			}
+		})
+	}
+}
+
 // TestNewTimeoutQC_MixedPrepareQCs verifies quorum-intersection behavior:
 // even if only one vote carries a PrepareQC, NewTimeoutQC picks it up
 // and Verify accepts the result.

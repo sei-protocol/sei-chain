@@ -1,6 +1,7 @@
 package statewal
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
@@ -16,6 +17,7 @@ import (
 // returned by the iterator are owned by the WAL and must be treated as read-only. Callers that need to
 // mutate such data must copy it first.
 type StateWAL interface {
+	controller.PrunableStore
 
 	// Write a set of changes to the WAL.
 	//

@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // GetLatestVersion answers, without opening the store, the version a store opened on that directory
@@ -61,7 +63,7 @@ func TestGetLatestVersionFreshStore(t *testing.T) {
 func TestGetLatestVersionAfterCommits(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 3; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 	require.Equal(t, int64(3), requireProbeMatchesOpen(t, s, cfg))
 }
@@ -74,7 +76,7 @@ func TestGetLatestVersionAfterCommits(t *testing.T) {
 func TestGetLatestVersionWatermarksBehindWAL(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 3; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 	rewindVersionRecords(t, s, 2)
 
@@ -112,11 +114,11 @@ func TestGetLatestVersionTornSeed(t *testing.T) {
 func TestGetLatestVersionSnapshotBehindWAL(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 2; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	for i := int64(3); i <= 5; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
 
 	snapVersion, err := currentSnapshotVersion(cfg.DataDir)
@@ -130,9 +132,9 @@ func TestGetLatestVersionSnapshotBehindWAL(t *testing.T) {
 func TestGetLatestVersionWALWipedAfterSnapshot(t *testing.T) {
 	s, cfg := newProbeStore(t)
 	for i := int64(1); i <= 2; i++ {
-		require.NoError(t, s.CommitBlock(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	resetWALForTest(t, s)
 
 	require.Equal(t, int64(2), requireProbeMatchesOpen(t, s, cfg))
@@ -145,8 +147,72 @@ func TestCommitStoreGetLatestVersionUsesMemoryWhileOpen(t *testing.T) {
 	s, _ := newProbeStore(t)
 	defer func() { require.NoError(t, s.Close()) }()
 
-	require.NoError(t, s.CommitBlock(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
+	require.NoError(t, s.CommitStateChanges(1, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte("v"))}))
 	got, err := s.GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), got)
+}
+
+func TestStoredVersionsNeverOpenedDirIsZero(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), flatkvRootDir)
+	opensAt, highest, err := StoredVersions(dir)
+	require.NoError(t, err)
+	require.Zero(t, opensAt)
+	require.Zero(t, highest)
+}
+
+// A working copy cloned from a snapshot holding no data DBs of its own has the directories without the
+// databases in them, since only the store's own open creates those. The probe opens read-only, which
+// does not create, so it has to read that as version 0 the way it reads a directory that is not there
+// at all: failing instead refuses the open, and the state survives a restart, so the node would never
+// start again.
+func TestStoredVersionsPartiallyCreatedWorkingCopyIsZero(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), flatkvRootDir)
+	snapDir := filepath.Join(dir, snapshotPrefix+"0")
+	require.NoError(t, os.MkdirAll(snapDir, 0o750))
+	require.NoError(t, createWorkingDir(snapDir, filepath.Join(dir, workingDirName)))
+
+	opensAt, highest, err := StoredVersions(dir)
+
+	require.NoError(t, err)
+	require.Zero(t, opensAt)
+	require.Zero(t, highest)
+}
+
+// A working copy above the WAL tail is still the version LoadWorkingCopy opens at. GetLatestVersion
+// follows the WAL, which is the wrong signal for whether a rewind of that working copy needs a snapshot.
+func TestStoredVersionsIgnoreTheWALTail(t *testing.T) {
+	s, cfg := newProbeStore(t)
+	for i := int64(1); i <= 3; i++ {
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
+	require.NoError(t, s.Close())
+	require.NoError(t, statewal.PruneAfter(StateWALConfig(cfg.DataDir), 1))
+
+	opensAt, highest, err := StoredVersions(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), opensAt, "the working copy still holds block 3")
+	require.Equal(t, int64(3), highest)
+
+	latest, err := GetLatestVersion(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), latest, "LoadLatest would land on the WAL tail")
+}
+
+// A commit interrupted partway through its four data DBs is where the two versions have to differ: the
+// store opens at the height every DB agrees on, while the blocks the DBs that did commit wrote are
+// still in the working copy. Rolling back to that agreed height reads as nothing to do by the opening
+// height and has to discard those rows, so the rewind measures itself against the highest instead.
+func TestStoredVersionsSeeAnInterruptedCommit(t *testing.T) {
+	s, cfg := newProbeStore(t)
+	for i := int64(1); i <= 3; i++ {
+		require.NoError(t, s.CommitStateChanges(i, []*proto.NamedChangeSet{bankPair([]byte("k"), []byte{byte(i)})}))
+	}
+	rewindVersionRecords(t, s, 2, accountDBDir)
+	require.NoError(t, s.Close())
+
+	opensAt, highest, err := StoredVersions(cfg.DataDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), opensAt, "the height every data DB agrees on")
+	require.Equal(t, int64(3), highest, "the other data DBs still record block 3")
 }

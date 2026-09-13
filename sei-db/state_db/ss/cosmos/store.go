@@ -7,7 +7,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
@@ -103,15 +102,15 @@ func (s *CosmosStateStore) Close() error {
 }
 
 func (s *CosmosStateStore) SupportsCheckpoint() bool {
-	return controller.SupportsCheckpoint(s.db)
+	return sssnapshot.SupportsCheckpoint(s.db)
 }
 
 func (s *CosmosStateStore) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
-	controller.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
+	sssnapshot.ScheduleCheckpoint(s.db, destDir, shouldRun, done)
 }
 
 func (s *CosmosStateStore) SetCheckpointVersion(destDir string, version int64) error {
-	return controller.SetCheckpointVersion(s.db, destDir, version)
+	return sssnapshot.SetCheckpointVersion(s.db, destDir, version)
 }
 
 func (s *CosmosStateStore) StartSnapshots(
@@ -127,7 +126,7 @@ func (s *CosmosStateStore) StartSnapshots(
 		Backend:         ssConfig.Backend,
 		KeepRecent:      ssConfig.SnapshotKeepRecent,
 		ExternalPruning: ssConfig.ExternalPruning,
-		Scheduler:       s,
+		Checkpointer:    s,
 		Floor:           floor,
 	})
 	if err != nil {

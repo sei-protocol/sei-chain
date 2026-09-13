@@ -59,7 +59,7 @@ func TestConsensusClientServer(t *testing.T) {
 					wantAppProposal = utils.Some(types.NewAppProposal(qc.QC().Proposal(), types.GenAppHash(rng)))
 				}
 				p := wantAppProposal.OrPanic("missing app proposal")
-				if err := n.data.PushAppHash(ctx, idx, p.AppHash()); err != nil {
+				if err := n.data.PushAppHash(ctx, idx, p.AppHash(), nil); err != nil {
 					return fmt.Errorf("ds.PushAppProposal(): %w", err)
 				}
 			}

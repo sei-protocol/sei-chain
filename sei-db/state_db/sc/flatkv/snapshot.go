@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,9 +10,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -196,6 +200,23 @@ func removeTmpDirs(dir string) error {
 	return nil
 }
 
+// resolveSnapshotToClone returns the directory of the snapshot a read-only view of targetVersion
+// opens against: the newest snapshot at or below it, or the active snapshot when targetVersion is 0.
+func resolveSnapshotToClone(root string, targetVersion int64) (string, error) {
+	if targetVersion <= 0 {
+		snapDir, _, err := currentSnapshotDir(root)
+		if err != nil {
+			return "", fmt.Errorf("resolve current snapshot for readonly: %w", err)
+		}
+		return snapDir, nil
+	}
+	baseVersion, err := seekSnapshot(root, targetVersion)
+	if err != nil {
+		return "", fmt.Errorf("seek snapshot for readonly: %w", err)
+	}
+	return filepath.Join(root, snapshotName(baseVersion)), nil
+}
+
 // createWorkingDir ensures a mutable working directory exists, cloned from
 // snapDir. If the working dir already exists and was cloned from the same
 // snapshot (recorded in SNAPSHOT_BASE), the expensive re-clone is skipped
@@ -355,103 +376,174 @@ func (s *CommitStore) resolveSnapshotDir(flatkvDir string) (string, error) {
 	return initDir, nil
 }
 
-// WriteSnapshot creates a PebbleDB checkpoint of the committed state.
-// The snapshot is written into a versioned subdirectory under the flatkv root
-// (e.g. flatkv/snapshot-00000000000000000100) and the current symlink is updated.
-// The dir parameter is ignored; snapshots are always stored alongside the live data.
+// outOfBandSnapshot writes a snapshot of the committed state and does not return until it is on disk,
+// whatever snapshot interval is configured. Snapshots are always stored under the flatkv root
+// (e.g. flatkv/snapshot-00000000000000000100).
 //
-// Concurrency: this MUST NOT acquire s.mu. Commit calls it while already holding
-// the write lock (s.mu is not reentrant), and as a lifecycle operation it is
-// otherwise expected to be serialized by the caller. It only reads committed
-// state and checkpoints the DBs; it does not touch the pending-writes maps.
-func (s *CommitStore) WriteSnapshot(_ string) (err error) {
-	var pruned int
-	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency,
-		"version", s.committedVersion)
-	defer obs.done(&err, func() {
-		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, s.committedVersion)
-	})
-
+// NOT SAFE on a live store. It reads lastSealed and checkpoints the databases without taking s.mu, and
+// it publishes into the same snapshot tree the background writer owns, so a concurrent Commit,
+// ApplyChangeSets or read races it. The caller must have quiesced the store. It exists for the two
+// bootstrap paths that need a snapshot at a height the cadence would decline — the end of an import,
+// and a seeded initial version — and it must not grow a third caller that is merely "convenient".
+func (s *CommitStore) outOfBandSnapshot() (err error) {
 	if s.readOnly {
 		return errReadOnly
 	}
-	version := s.committedVersion
-	if version <= 0 {
-		return fmt.Errorf("cannot snapshot uncommitted store (version %d)", version)
+
+	// A block's hash metadata is written when the finalizer records it, in the same atomic batch as the
+	// rows it describes. Checkpointing before that lands would capture the rows and not the metadata,
+	// and the snapshot would reopen with its databases disagreeing with their own bookkeeping.
+	if err := s.FlushHashes(); err != nil {
+		return fmt.Errorf("await pending hashes: %w", err)
 	}
 
-	// Wait until the block we want to checkpoint has actually been flushed down to the pebble instances.
-	// Since we continue to hold the reservation on that block, later blocks are prevented from being
-	// flushed down to pebble, thus making the checkpoint operation thread safe.
-	if err := s.flushLatestVersion(); err != nil {
-		return fmt.Errorf("await flush before snapshot at version %d: %w", version, err)
+	// Let the cadence-driven writer finish whatever it has in flight. It writes into the same snapshot
+	// tree this is about to publish into, and only one writer of that tree may run at a time.
+	//
+	// The flush does not cover a retention cut line the collector may hand the writer, which arrives on
+	// its own channel. That one is safe to overlap: it deletes strictly below the active snapshot while
+	// this publishes above it, so a publication racing it can only make it delete less.
+	if s.snapshotWriter != nil {
+		if err := s.snapshotWriter.Flush(); err != nil {
+			return fmt.Errorf("await pending snapshot: %w", err)
+		}
 	}
 
-	dir := s.flatkvDir()
-	snapDir := snapshotName(version)
-	finalPath := filepath.Join(dir, snapDir)
-	tmpPath := finalPath + tmpSuffix
+	blockView, err := s.lastSealed.Get()
+	if err != nil {
+		return fmt.Errorf("read latest sealed view: %w", err)
+	}
+	version := blockView.BlockHeight()
 
+	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency, "version", version)
+	defer obs.done(&err, func() {
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, version)
+	})
+
+	tmpPath, err := checkpointDatabases(
+		s.ctx, s.flatkvDir(), blockView, s.checkpointables(), s.phaseTimer)
+	if err != nil {
+		// Error is fatal; leaking reservations doesn't make it worse.
+		return fmt.Errorf("checkpoint databases at version %d: %w", version, err)
+	}
+	if err := blockView.Release(); err != nil {
+		return fmt.Errorf("release latest sealed view: %w", err)
+	}
+	pruned, err := publishSnapshot(
+		s.ctx, s.flatkvDir(), s.config.SnapshotKeepRecent, s.config.ExternalPruning, version, tmpPath)
+	if err != nil {
+		return fmt.Errorf("publish snapshot at version %d: %w", version, err)
+	}
+
+	logger.Info("FlatKV snapshot created",
+		"version", version, "pruned", pruned, "elapsed", obs.elapsed())
+	return nil
+}
+
+// checkpointDatabases() copies every database at blockView's height into a fresh temporary directory and
+// returns its path. The directory is removed again if any part of the copy fails.
+//
+// The caller must hold a reservation on blockView, and must keep holding it until this returns. That is
+// what stops a later block reaching Pebble mid-copy, and so what makes the result a view of exactly
+// this version rather than of no single moment.
+//
+// phaseTimer reports the two halves of the call separately — waiting for the databases to reach this
+// version, then copying them — because the reservation is held across both and they are the same
+// duration to a caller measuring only the total. It may be nil.
+func checkpointDatabases(
+	ctx context.Context,
+	dir string,
+	blockView *sview.StoreView,
+	dbs map[string]types.Checkpointable,
+	phaseTimer *metrics.PhaseTimer,
+) (_ string, err error) {
+	version := blockView.BlockHeight()
+
+	// The databases are already flushing this block in the background; this waits for them to finish.
+	// On return Pebble holds exactly this block, and stays there while the reservations are held.
+	phaseTimer.SetPhase("snapshot_await_flush")
+	if flushErr := blockView.AwaitFlush(ctx); flushErr != nil {
+		return "", fmt.Errorf("await flush at version %d: %w", version, flushErr)
+	}
+	phaseTimer.SetPhase("snapshot_copy_databases")
+
+	tmpPath := filepath.Join(dir, snapshotName(version)) + tmpSuffix
 	_ = os.RemoveAll(tmpPath)
-
-	if err := os.MkdirAll(tmpPath, 0750); err != nil {
-		return fmt.Errorf("create snapshot tmp dir: %w", err)
+	if mkErr := os.MkdirAll(tmpPath, 0750); mkErr != nil {
+		return "", fmt.Errorf("create snapshot tmp dir: %w", mkErr)
 	}
-
-	success := false
 	defer func() {
-		if !success {
+		if err != nil {
 			_ = os.RemoveAll(tmpPath)
 		}
 	}()
 
-	// A checkpoint addresses a database as a file rather than as a key-value store, which is the one thing a
-	// view manager cannot express — so this is the single place FlatKV reaches past one, and the manager's
-	// escape hatch names checkpointing as its only sanctioned use. What makes it safe is the flush awaited
-	// above plus the reservation still held on that block: together they pin the pebble instances at exactly
-	// the committed version for the duration.
-	//
-	// dataDBDirs has a fixed iteration order, so the checkpoint is reproducible.
-	for _, dir := range dataDBDirs {
-		manager := s.viewManagerFor(dir)
-		if manager == nil {
-			return fmt.Errorf("no view manager for %s", dir)
-		}
-		cp, ok := manager.EscapeHatchUnderlyingDB().(types.Checkpointable)
-		if !ok {
-			return fmt.Errorf("db %s does not support Checkpoint", dir)
-		}
-		if err := cp.Checkpoint(filepath.Join(tmpPath, dir)); err != nil {
-			return fmt.Errorf("checkpoint %s: %w", dir, err)
-		}
+	// Copied concurrently: the pin holds every database at this version for the whole call, so the
+	// copies describe one moment no matter what order they run in. Serially, the pin — and with it the
+	// stall on every later block's flush — would last the sum of the four rather than the longest.
+	errs := make([]error, len(dataDBDirs))
+	var wg sync.WaitGroup
+	for i, name := range dataDBDirs {
+		idx, dbName := i, name
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			db, ok := dbs[dbName]
+			if !ok {
+				errs[idx] = fmt.Errorf("no checkpointable handle for db %s", dbName)
+				return
+			}
+			if cpErr := db.Checkpoint(filepath.Join(tmpPath, dbName)); cpErr != nil {
+				errs[idx] = fmt.Errorf("checkpoint %s: %w", dbName, cpErr)
+			}
+		}()
 	}
+	wg.Wait()
+	if err = errors.Join(errs...); err != nil {
+		return "", fmt.Errorf("checkpoint databases at version %d: %w", version, err)
+	}
+	return tmpPath, nil
+}
+
+// publishSnapshot makes a completed checkpoint directory the active snapshot: it takes the versioned
+// name, the current symlink comes to point at it, and snapshots beyond the retention count are
+// removed. Reports how many were removed.
+//
+// It touches no database, so a caller holding reservations may hand them back before calling this.
+func publishSnapshot(
+	ctx context.Context,
+	dir string,
+	keepRecent uint32,
+	externalPruning bool,
+	version int64,
+	tmpPath string,
+) (pruned int, err error) {
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(tmpPath)
+		}
+	}()
+
+	snapDir := snapshotName(version)
+	finalPath := filepath.Join(dir, snapDir)
 
 	_ = atomicRemoveDir(finalPath) // idempotent: stale final may exist
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		return fmt.Errorf("rename snapshot dir: %w", err)
+	if err = os.Rename(tmpPath, finalPath); err != nil {
+		return 0, fmt.Errorf("rename snapshot dir: %w", err)
 	}
 
-	if err := updateCurrentSymlink(dir, snapDir); err != nil {
-		return fmt.Errorf("update current symlink: %w", err)
+	if err = updateCurrentSymlink(dir, snapDir); err != nil {
+		return 0, fmt.Errorf("update current symlink: %w", err)
 	}
 
 	// Keep SNAPSHOT_BASE in sync so the next restart reuses the working dir
 	// instead of re-cloning from the snapshot and replaying the full WAL gap.
 	workDir := filepath.Join(dir, workingDirName)
-	if err := writeSnapshotBase(workDir, snapDir); err != nil {
-		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
+	if baseErr := writeSnapshotBase(workDir, snapDir); baseErr != nil {
+		logger.Error("failed to update SNAPSHOT_BASE", "err", baseErr)
 	}
 
-	pruned = s.pruneSnapshotsByCount(dir, version)
-
-	success = true
-	s.lastSnapshotTime = time.Now()
-	logger.Info("FlatKV snapshot created",
-		"version", version,
-		"dir", finalPath,
-		"pruned", pruned,
-		"elapsed", obs.elapsed())
-	return nil
+	return pruneSnapshotsByCount(ctx, dir, keepRecent, externalPruning, version), nil
 }
 
 // pruneSnapshotsByCount removes old snapshots beyond SnapshotKeepRecent, keeping
@@ -463,19 +555,25 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 // counting one as "old" would spend a keep slot on it and evict a genuinely older snapshot that rollback
 // still needs as a base. memiavl's pruneSnapshots applies the same guard.
 //
-// Does nothing when config.ExternalPruning is set, which hands retention to the
+// Does nothing when externalPruning is set, which hands retention to the
 // StorageGarbageCollector and its by-block-height PruneSnapshots.
-func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) int {
-	if s.config.ExternalPruning {
+func pruneSnapshotsByCount(
+	ctx context.Context,
+	dir string,
+	keepRecent uint32,
+	externalPruning bool,
+	currentVersion int64,
+) int {
+	if externalPruning {
 		return 0
 	}
 
 	start := time.Now()
 	defer func() {
-		otelMetrics.SnapshotPruneLatency.Record(s.ctx, secondsSince(start))
+		otelMetrics.SnapshotPruneLatency.Record(ctx, secondsSince(start))
 	}()
 
-	keep := int(s.config.SnapshotKeepRecent)
+	keep := int(keepRecent)
 	pruned := 0
 
 	var older []int64
@@ -496,7 +594,7 @@ func (s *CommitStore) pruneSnapshotsByCount(dir string, currentVersion int64) in
 	for _, v := range older[keep:] {
 		snapPath := filepath.Join(dir, snapshotName(v))
 		err := atomicRemoveDir(snapPath)
-		otelMetrics.SnapshotPruneAttempts.Add(s.ctx, 1,
+		otelMetrics.SnapshotPruneAttempts.Add(ctx, 1,
 			metric.WithAttributes(successAttr(err)))
 		if err != nil {
 			logger.Error("prune snapshot failed", "version", v, "err", err)
@@ -554,30 +652,13 @@ func (s *CommitStore) rollbackBaseVersion(dir string, targetVersion int64) (int6
 	return baseVersion, nil
 }
 
-// Rollback restores state to targetVersion by rewinding to the highest
-// snapshot <= targetVersion, replaying WAL to reach the target, and
-// truncating all WAL entries and snapshots beyond that point.
+// Rollback rewinds the store to targetVersion, discarding the committed state, the WAL blocks and the
+// snapshots above it, and keeps committing from targetVersion+1. A target the snapshots and the WAL
+// cannot reach is refused before anything is modified.
 //
-// An unreachable target is rejected before anything is modified.
-//
-// Not safe to call concurrently with commits, reads or exports: it closes,
-// prunes and reopens the store's WAL, reassigning s.wal, so the caller must
-// have quiesced the store. This is how it is used today — recovery at
-// LoadVersion time — and long term rollback becomes a construction-time
-// concern rather than an action on a live store.
-//
-// Crash safety: the WAL is truncated BEFORE catchup writes any data to
-// PebbleDB. If the process crashes after truncation but before catchup
-// completes, the next restart will simply re-run catchup against the
-// already-truncated WAL, converging to targetVersion.
-//
-// A failure while resetting the WAL leaves the store mid-rollback: "current" and the working directory are
-// already at the rollback snapshot while the WAL still holds the blocks past targetVersion, and s.wal is
-// closed. Retrying in-process does not work, because establishing reachability reads the WAL's stored range
-// and that now fails as closed. No block is lost: the un-pruned WAL still holds them, so a restart replays
-// back to the old tail and the rollback can be retried. The errors from that window say so. Snapshots above
-// the target are already gone by then, which costs a cached checkpoint the next WriteSnapshot rebuilds, not
-// history.
+// The store must be quiesced: no commit, read or export may be in flight, and it closes and reopens its
+// own WAL. A failure partway has to be retried after a restart rather than in process, though no block
+// is lost.
 func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	obs := s.observeOp("Rollback", otelMetrics.RollbackLatency,
 		"targetVersion", targetVersion)
@@ -599,18 +680,8 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 		return err
 	}
 
-	if err := s.closeDBsOnly(); err != nil {
-		return fmt.Errorf("close before rollback: %w", err)
-	}
-
-	if err := updateCurrentSymlink(dir, snapshotName(baseVersion)); err != nil {
-		return fmt.Errorf("update current symlink for rollback: %w", err)
-	}
-
-	// Force a fresh working dir clone from the rollback snapshot: the
-	// current working dir may contain data beyond targetVersion.
-	if err := os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove SNAPSHOT_BASE for rollback: %w", err)
+	if err := s.repointAtSnapshot(dir, baseVersion); err != nil {
+		return err
 	}
 
 	if err := removeSnapshotsAbove(dir, targetVersion); err != nil {
@@ -629,13 +700,13 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 	// established is reachable, including the case where the target predates every retained block and the
 	// prune empties the WAL. Skipped when the WAL is nil — the outer context owns it.
 	if s.wal != nil {
-		cfg := stateWALConfig(s.config.DataDir)
+		cfg := StateWALConfig(s.config.DataDir)
 		if err := s.wal.Close(); err != nil {
 			return fmt.Errorf("rollback to version %d (from snapshot %d): close WAL at %s: %w; "+
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
 		}
-		if err := statewal.PruneAfter(cfg, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0
+		if err := statewal.PruneAfter(cfg, uint64(targetVersion)); err != nil { //nolint:gosec // targetVersion >= 0}
 			return fmt.Errorf("rollback to version %d (from snapshot %d): prune WAL at %s: %w; "+
 				"store is mid-rollback, restart to recover then retry",
 				targetVersion, baseVersion, cfg.Path, err)
@@ -662,6 +733,142 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 		"version", s.committedVersion,
 		"elapsed", obs.elapsed())
 	return nil
+}
+
+// repointAtSnapshot closes the databases and repoints the store at the snapshot named by version,
+// discarding the working copy so the next open clones it fresh. It leaves the databases closed: the
+// caller reopens once it has finished mutating the snapshot tree.
+func (s *CommitStore) repointAtSnapshot(dir string, version int64) error {
+	if err := s.closeDBsOnly(); err != nil {
+		return fmt.Errorf("close before rewinding to snapshot %d: %w", version, err)
+	}
+	return repointAtSnapshot(dir, version)
+}
+
+// repointAtSnapshot points the current link at the snapshot named by version and discards the working
+// copy, so the next open clones the working copy from that snapshot. The databases under dir must be
+// closed.
+func repointAtSnapshot(dir string, version int64) error {
+	if err := updateCurrentSymlink(dir, snapshotName(version)); err != nil {
+		return fmt.Errorf("update current symlink to snapshot %d: %w", version, err)
+	}
+	// The working dir may hold data beyond the snapshot being rewound to, so its clone marker goes and
+	// the next open rebuilds it from that snapshot.
+	if err := os.Remove(filepath.Join(dir, workingDirName, snapshotBaseFile)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove SNAPSHOT_BASE for rewind to snapshot %d: %w", version, err)
+	}
+	return nil
+}
+
+// DiscardStateAbove puts the closed store under dir on its newest snapshot at or below target when it
+// holds any state above target, and reports the version its files hold once it returns. A store holding
+// nothing above target is left alone, reported at the version it opens on, for a replay to carry it
+// forward.
+//
+// earliestReplayableBlock is the first block the caller can replay, or 0 when it can replay none. A
+// store that would land too low for that replay to carry it back to target is refused, as is one above
+// target with no snapshot at or below it. Neither refusal moves anything, so a caller that gets an
+// error still has every snapshot it started with. The databases under dir must be closed.
+func DiscardStateAbove(dir string, target, earliestReplayableBlock int64) (landsOn int64, err error) {
+	opensAt, highest, err := StoredVersions(dir)
+	if err != nil {
+		return 0, fmt.Errorf("read the versions it holds: %w", err)
+	}
+	// The highest version any one database records, not the version the store opens on: that one is the
+	// lowest of them, so an interrupted commit or restore reads as merely behind while the rows above
+	// target survive a replay that only writes forward.
+	rewinds := highest > target
+	landsOn = opensAt
+	if rewinds {
+		// Sought before the rewind rather than by it, so a store with nowhere to land is refused with its
+		// files still where they are.
+		if landsOn, err = seekSnapshot(dir, target); err != nil {
+			return 0, fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
+		}
+	}
+	if err := requireReplayable(landsOn, target, earliestReplayableBlock); err != nil {
+		return 0, err
+	}
+	if !rewinds {
+		return landsOn, nil
+	}
+	return RewindClosedStoreTo(dir, target)
+}
+
+// requireReplayable returns an error when a store landing on landsOn cannot be carried back up to
+// target, because the caller's earliest replayable block is above the first one such a replay needs.
+// earliestReplayableBlock is 0 when the caller can replay nothing.
+func requireReplayable(landsOn, target, earliestReplayableBlock int64) error {
+	if landsOn >= target {
+		return nil
+	}
+	start := landsOn + 1
+	if earliestReplayableBlock == 0 {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but no blocks "+
+			"are available to replay", landsOn, start)
+	}
+	if earliestReplayableBlock > start {
+		return fmt.Errorf("it would land on version %d, so replay must start at block %d, but the "+
+			"earliest block available is %d", landsOn, start, earliestReplayableBlock)
+	}
+	return nil
+}
+
+// RewindClosedStoreTo puts the files of the closed store under dir on the highest snapshot at or below
+// target and reports that version, discarding the working copy and every snapshot above it. The next
+// open of that store lands on the reported version, with the blocks from there to target left for the
+// caller to replay.
+//
+// It is Rollback for a store whose WAL an outer context owns and cuts, split so that no WAL crosses this
+// API and so that the store opens once, already on the version it will replay from. The databases under
+// dir must be closed, which is what makes it safe to run before the store is constructed.
+func RewindClosedStoreTo(dir string, target int64) (landed int64, err error) {
+	if target < 1 {
+		// Left to run, this would land on the initial snapshot and then delete every snapshot above it,
+		// which is the whole set.
+		return 0, fmt.Errorf("rewind target %d is invalid: version 0 means no state, so there is nothing "+
+			"to rewind to", target)
+	}
+
+	baseVersion, err := seekSnapshot(dir, target)
+	if err != nil {
+		return 0, fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
+	}
+	if err := repointAtSnapshot(dir, baseVersion); err != nil {
+		return 0, err
+	}
+	if err := removeSnapshotsAbove(dir, baseVersion); err != nil {
+		return 0, err
+	}
+
+	logger.Info("FlatKV rewound a closed store to a snapshot", "version", baseVersion, "target", target)
+	return baseVersion, nil
+}
+
+// DropSnapshotsAbove deletes every snapshot of the closed store under dir above target, repointing the
+// current link first when it names one of them. It leaves the current link alone when it already names
+// a snapshot at or below target.
+//
+// The databases under dir must be closed, which is what makes it safe to run before the store is
+// constructed.
+func DropSnapshotsAbove(dir string, target int64) error {
+	current, err := currentSnapshotVersion(dir)
+	if err != nil {
+		return err
+	}
+	if current > target {
+		// The link cannot be left naming a snapshot the removal below deletes, and a working copy built
+		// on one of them is above target too, so it goes with them.
+		base, err := seekSnapshot(dir, target)
+		if err != nil {
+			return fmt.Errorf("seek snapshot at or below version %d: %w", target, err)
+		}
+		if err := repointAtSnapshot(dir, base); err != nil {
+			return err
+		}
+		logger.Info("FlatKV repointed a closed store below a rollback target", "version", base, "target", target)
+	}
+	return removeSnapshotsAbove(dir, target)
 }
 
 // removeSnapshotsAbove deletes every snapshot directory above targetVersion.

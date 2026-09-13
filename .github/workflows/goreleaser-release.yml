@@ -20,5 +20,5 @@ jobs:
     uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@v0.0.11
     with:
       ref: ${{ inputs.tag }}
-      go-version: '1.25.6'
+      go-version: '1.27.1'
       submodules: 'false'

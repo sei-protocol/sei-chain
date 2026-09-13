@@ -20,8 +20,13 @@ type PrunableStore interface {
 	// Only called when ExternalPruning reports true.
 	PruneHistory(blockNumber uint64) error
 
-	// PruneSnapshots may drop every snapshot strictly below blockNumber. A store that keeps no
-	// snapshots returns nil.
+	// PruneSnapshots may drop every snapshot strictly below blockNumber, and may do so
+	// asynchronously. A store that keeps no snapshots returns nil.
+	//
+	// A store that defers the work may let a later call supersede a pending one, so a given
+	// blockNumber is not guaranteed to be acted on at all — only that retention converges on the
+	// most recent one. A nil return therefore means the request was accepted, not that the
+	// snapshots are gone.
 	//
 	// blockNumber is never 0, and never above the block this store last returned from
 	// GetRollbackFloor.

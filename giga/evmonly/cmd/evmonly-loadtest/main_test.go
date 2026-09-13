@@ -23,7 +23,32 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
+
+func withGeneratedState(state evmonly.StateReader) evmonly.Option {
+	store := evmonly.NewMemoryStore(state)
+	return func(executor *evmonly.Executor) {
+		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
+	}
+}
+
+type readOnlyGeneratedStore struct {
+	*evmonly.MemoryStore
+}
+
+func (*readOnlyGeneratedStore) CommitStateChanges(int64, []*proto.NamedChangeSet) error {
+	return nil
+}
+
+func withReadOnlyGeneratedState(state evmonly.StateReader) evmonly.Option {
+	store := &readOnlyGeneratedStore{MemoryStore: evmonly.NewMemoryStore(state)}
+	return func(executor *evmonly.Executor) {
+		evmonly.WithStore(store, store.EncodeChangeSet)(executor)
+		evmonly.WithReceiptStore(evmonly.NewMemoryReceiptStore())(executor)
+	}
+}
 
 func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	cfg, err := parseConfig([]string{
@@ -41,7 +66,7 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
@@ -54,7 +79,7 @@ func TestTransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	}
 
 	var released atomic.Bool
-	require.NoError(t, discardResultSink{writer: &discardStateWriter{}}.StoreBlockResult(t.Context(), request.Context.Number, result, func() {
+	require.NoError(t, discardResultSink{}.StoreBlockResult(t.Context(), request.Context.Number, result, func() {
 		released.Store(true)
 	}))
 	require.True(t, released.Load())
@@ -127,7 +152,7 @@ func TestTransferWorkloadOCCScenarios(t *testing.T) {
 			executor := evmonly.NewExecutor(evmonly.Config{
 				MinGasPrice: cfg.minGasPrice,
 				OCCWorkers:  4,
-			}, evmonly.WithState(state))
+			}, withGeneratedState(state))
 			result, err := executor.ExecuteBlock(t.Context(), request)
 			require.NoError(t, err)
 			require.True(t, result.OCCStats.Attempted)
@@ -179,7 +204,7 @@ func TestERC20TransferWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  cfg.executorWorkers,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
@@ -231,7 +256,7 @@ func TestSnapshotRevertWorkloadExecutesAgainstEVMOnlyExecutor(t *testing.T) {
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  4,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 
@@ -283,7 +308,7 @@ func TestTransferWorkloadRecipientConflictRate(t *testing.T) {
 	executor := evmonly.NewExecutor(evmonly.Config{
 		MinGasPrice: cfg.minGasPrice,
 		OCCWorkers:  4,
-	}, evmonly.WithState(state))
+	}, withGeneratedState(state))
 	result, err := executor.ExecuteBlock(t.Context(), request)
 	require.NoError(t, err)
 	require.True(t, result.OCCStats.Attempted)
@@ -424,6 +449,14 @@ func TestParseWorkersConfig(t *testing.T) {
 		"--parse-workers=-1",
 	})
 	require.ErrorContains(t, err, "parse-workers must be non-negative")
+}
+
+func TestBlockExecutorWorkersMustRemainOrdered(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--blocks=1",
+		"--workers=2",
+	})
+	require.ErrorContains(t, err, "workers must be 1 for ordered giga store commits")
 }
 
 func TestRunPrebuiltBlocks(t *testing.T) {
@@ -736,7 +769,7 @@ func TestExecutorResultPoolReusesSlotsWithFileSink(t *testing.T) {
 	defer func() {
 		require.NoError(t, sinks.Close())
 	}()
-	executor := evmonly.NewExecutor(executorConfig(cfg), evmonly.WithState(state), evmonly.WithResultSink(sinks))
+	executor := evmonly.NewExecutor(executorConfig(cfg), withGeneratedState(state), evmonly.WithResultSink(sinks))
 	defer executor.Close()
 
 	for blockNumber := uint64(1); blockNumber <= 20; blockNumber++ {
@@ -864,7 +897,7 @@ func BenchmarkExecuteTransferBlock(b *testing.B) {
 			executor := evmonly.NewExecutor(evmonly.Config{
 				MinGasPrice: cfg.minGasPrice,
 				OCCWorkers:  cfg.executorWorkers,
-			}, evmonly.WithState(state))
+			}, withReadOnlyGeneratedState(state))
 
 			b.ReportAllocs()
 			b.SetBytes(int64(cfg.txsPerBlock))

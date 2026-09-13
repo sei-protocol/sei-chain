@@ -19,7 +19,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/utils"
-	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -67,7 +66,6 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	senderEvmAddr, found := k.GetEVMAddress(ctx, senderAddr)
 	if !found {
 		err := types.NewAssociationMissingErr(req.Sender)
-		utilmetrics.IncrementAssociationError("evm_handle_internal_evm_delegate_call", err) // TODO(PLT-330): remove once evm_association_error_total verified
 		evmKeeperMetrics.associationError.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("scenario", "evm_handle_internal_evm_delegate_call"), attribute.String("type", err.AddressType())))
 		return nil, err
 	}

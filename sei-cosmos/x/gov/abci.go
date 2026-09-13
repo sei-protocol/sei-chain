@@ -13,7 +13,18 @@ import (
 
 var logger = seilog.NewLogger("cosmos", "x", "gov")
 
-// EndBlocker called every block, process inflation, update validator set.
+// MaxVotesProcessedPerBlock is the governance record-work budget shared by delegation updates, backfill, tallying, and cleanup.
+const MaxVotesProcessedPerBlock = 1000
+
+// minTallyCleanupVotesPerBlock reserves part of the budget for completed tally archives.
+const minTallyCleanupVotesPerBlock = 100
+
+// BeginBlocker freezes electorates for proposal deadlines strictly between consecutive block times.
+func BeginBlocker(ctx sdk.Context, keeper keeper.Keeper) {
+	keeper.CaptureGapTallyBoundary(ctx)
+}
+
+// EndBlocker expires governance proposals and advances their tally work.
 func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	endBlockerStart := time.Now()
 	defer func() {
@@ -21,6 +32,11 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 		// TODO(PLT-414): remove once gov_end_blocker_duration verified
 		telemetry.ModuleMeasureSince(types.ModuleName, endBlockerStart, telemetry.MetricKeyEndBlocker)
 	}()
+	if !keeper.IncrementalTallyEnabled(ctx) {
+		legacyEndBlocker(ctx, keeper)
+		return
+	}
+	keeper.CaptureExactTallyBoundary(ctx)
 
 	// delete inactive proposal from store and its deposits
 	keeper.IterateInactiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
@@ -50,11 +66,22 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 		return false
 	})
 
+	remainingRecords := MaxVotesProcessedPerBlock
+	remainingRecords -= keeper.CleanupTallyVotes(ctx, minTallyCleanupVotesPerBlock)
+	if remainingRecords == 0 {
+		return
+	}
+
 	// fetch active proposals whose voting periods have ended (are passed the block time)
 	keeper.IterateActiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
 		var tagValue, logMsg string
 
-		passes, burnDeposits, tallyResults := keeper.Tally(ctx, proposal)
+		complete, processed, passes, burnDeposits, tallyResults := keeper.TallyIncremental(ctx, proposal, remainingRecords)
+		remainingRecords -= processed
+		if !complete {
+			// Preserve queue order without initializing validator snapshots for unbounded later proposals.
+			return true
+		}
 
 		// If an expedited proposal fails, we do not want to update
 		// the deposit at this point since the proposal is converted to regular.
@@ -100,14 +127,13 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 			// The proposal didn't pass after voting period ends
 			if proposal.IsExpedited {
 				// When expedited proposal fails, it is converted to a regular proposal.
-				// As a result, the voting period is extended.
-				// Once the regular voting period expires again, the tally is repeated
-				// according to the regular proposal rules.
+				// Resume the regular round after its expedited tally completes so that
+				// bounded tally work does not consume the regular voting window.
 				proposal.IsExpedited = false
 				votingParams := keeper.GetVotingParams(ctx)
-				proposal.VotingEndTime = proposal.VotingStartTime.Add(votingParams.VotingPeriod)
+				proposal.VotingEndTime = ctx.BlockTime().Add(votingParams.VotingPeriod - votingParams.ExpeditedVotingPeriod)
 
-				keeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+				keeper.InsertActiveProposalQueueForModernTallyRound(ctx, proposal.ProposalId, proposal.VotingEndTime)
 				tagValue = types.AttributeValueExpeditedConverted
 				logMsg = "expedited proposal converted to regular"
 			} else {
@@ -125,6 +151,97 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 		keeper.SetProposal(ctx, proposal)
 
 		// when proposal become active
+		keeper.AfterProposalVotingPeriodEnded(ctx, proposal.ProposalId)
+
+		logger.Info(
+			"proposal tallied",
+			"proposal", proposal.ProposalId,
+			"title", proposal.GetTitle(),
+			"result", logMsg,
+		)
+
+		ctx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				types.EventTypeActiveProposal,
+				sdk.NewAttribute(types.AttributeKeyProposalID, fmt.Sprintf("%d", proposal.ProposalId)),
+				sdk.NewAttribute(types.AttributeKeyProposalResult, tagValue),
+			),
+		)
+		return remainingRecords == 0
+	})
+
+	keeper.CleanupTallyVotes(ctx, remainingRecords)
+}
+
+func legacyEndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
+	keeper.IterateInactiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
+		keeper.DeleteProposal(ctx, proposal.ProposalId)
+		keeper.DeleteDeposits(ctx, proposal.ProposalId)
+		keeper.AfterProposalFailedMinDeposit(ctx, proposal.ProposalId)
+
+		ctx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				types.EventTypeInactiveProposal,
+				sdk.NewAttribute(types.AttributeKeyProposalID, fmt.Sprintf("%d", proposal.ProposalId)),
+				sdk.NewAttribute(types.AttributeKeyProposalResult, types.AttributeValueProposalDropped),
+			),
+		)
+
+		logger.Info(
+			"proposal did not meet minimum deposit; deleted",
+			"proposal", proposal.ProposalId,
+			"title", proposal.GetTitle(),
+			"min_deposit", keeper.GetDepositParams(ctx).MinDeposit.String(),
+			"min_expedited_deposit", keeper.GetDepositParams(ctx).MinExpeditedDeposit.String(),
+			"total_deposit", proposal.TotalDeposit.String(),
+		)
+
+		return false
+	})
+
+	keeper.IterateActiveProposalsQueue(ctx, ctx.BlockHeader().Time, func(proposal types.Proposal) bool {
+		var tagValue, logMsg string
+		passes, burnDeposits, tallyResults := keeper.TallyLegacy(ctx, proposal)
+
+		if !proposal.IsExpedited || passes {
+			if burnDeposits {
+				keeper.DeleteDeposits(ctx, proposal.ProposalId)
+			} else {
+				keeper.RefundDeposits(ctx, proposal.ProposalId)
+			}
+		}
+
+		keeper.RemoveFromActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+
+		if passes {
+			handler := keeper.Router().GetRoute(proposal.ProposalRoute())
+			cacheCtx, writeCache := ctx.CacheContext()
+			err := handler(cacheCtx, proposal.GetContent())
+			if err == nil {
+				proposal.Status = types.StatusPassed
+				tagValue = types.AttributeValueProposalPassed
+				logMsg = "passed"
+				ctx.EventManager().EmitEvents(cacheCtx.EventManager().Events())
+				writeCache()
+			} else {
+				proposal.Status = types.StatusFailed
+				tagValue = types.AttributeValueProposalFailed
+				logMsg = fmt.Sprintf("passed, but failed on execution: %s", err)
+			}
+		} else if proposal.IsExpedited {
+			proposal.IsExpedited = false
+			proposal.VotingEndTime = proposal.VotingStartTime.Add(keeper.GetVotingParams(ctx).VotingPeriod)
+			keeper.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+			tagValue = types.AttributeValueExpeditedConverted
+			logMsg = "expedited proposal converted to regular"
+		} else {
+			proposal.Status = types.StatusRejected
+			tagValue = types.AttributeValueProposalRejected
+			logMsg = "rejected"
+		}
+
+		proposal.FinalTallyResult = tallyResults
+		keeper.SetProposal(ctx, proposal)
 		keeper.AfterProposalVotingPeriodEnded(ctx, proposal.ProposalId)
 
 		logger.Info(

@@ -61,9 +61,8 @@ func TestReceiptGCExternalPruningDefaultsOff(t *testing.T) {
 	require.True(t, managed.ExternalPruning())
 }
 
-// The pebble backend is not a gc.PrunableStore, so the collector would never prune it and honoring
-// ExternalPruning would leave it with no pruner at all. Refused at startup rather than discovered
-// later from a full disk.
+// The pebble backend prunes itself and refuses ExternalPruning, so the collector never takes it
+// over. Refused at startup rather than discovered later from a full disk.
 func TestReceiptExternalPruningRejectedOnPebbleBackend(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.DBDirectory = t.TempDir()

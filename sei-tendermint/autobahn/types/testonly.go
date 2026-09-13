@@ -331,10 +331,25 @@ func GenProposalAt(rng utils.Rng, view View) *Proposal {
 // Proposal.Verify accepts it (empty tipcuts are forbidden). For tests that care
 // about signature weight or epoch binding rather than real lane/app data.
 func ProposalAt(ep *Epoch, view View, globalFirst GlobalBlockNumber) *Proposal {
+	p, _ := ProposalAtBlocks(ep, view, globalFirst, 1)
+	return p
+}
+
+// ProposalAtBlocks is ProposalAt with a lane range of n blocks, n >= 1.
+func ProposalAtBlocks(ep *Epoch, view View, globalFirst GlobalBlockNumber, n int) (*Proposal, []*Block) {
 	view.EpochIndex = ep.EpochIndex()
 	lane := ep.Committee().Lanes().At(0)
-	header := NewBlock(lane, 0, BlockHeaderHash{}, &Payload{}).Header()
-	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, globalFirst)
+	blocks := make([]*Block, n)
+	var parent BlockHeaderHash
+	num := BlockNumber(0)
+	for i := 0; i < n; i++ {
+		b := NewBlock(lane, num, parent, &Payload{})
+		blocks[i] = b
+		parent = b.Header().Hash()
+		num = b.Header().Next()
+	}
+	header := blocks[n-1].Header()
+	return newProposal(view, time.Time{}, []*LaneRange{NewLaneRange(lane, 0, utils.Some(header))}, globalFirst), blocks
 }
 
 // GenProposalForEpoch generates a Proposal at a specific view whose epochIndex,

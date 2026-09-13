@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/armon/go-metrics"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
@@ -50,8 +48,7 @@ type BoundedCache struct {
 	CacheBackend
 	limit int
 
-	mu         *sync.Mutex
-	metricName []string
+	mu *sync.Mutex
 }
 
 func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
@@ -62,19 +59,11 @@ func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
 		CacheBackend: backend,
 		limit:        limit,
 		mu:           &sync.Mutex{},
-		// cosmos_bounded_cache
-		metricName: []string{"cosmos", "bounded", "cache"},
 	}
 }
 
 func (c *BoundedCache) emitKeysEvictedMetrics(keysToEvict int) {
 	storeMetrics.boundedCache.Record(context.Background(), int64(keysToEvict), otelmetric.WithAttributes(attribute.String("type", "keys_evicted")))
-	// TODO(PLT-353): remove once store_bounded_cache verified
-	telemetry.SetGaugeWithLabels(
-		c.metricName,
-		float32(keysToEvict),
-		[]metrics.Label{telemetry.NewLabel("type", "keys_evicted")},
-	)
 }
 
 func (c *BoundedCache) Set(key string, val *CValue) {

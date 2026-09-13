@@ -3,21 +3,19 @@ package flatkv
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/sview"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -410,7 +408,9 @@ func TestStoreWriteMiscKeys(t *testing.T) {
 
 	commitAndCheck(t, s)
 
-	// Verify miscDB LocalMeta is updated
+	// Verify miscDB LocalMeta is updated. Read it back: the finalizer writes it, so the store's
+	// in-memory copy is only what load saw.
+	require.NoError(t, s.reloadLocalMeta())
 	require.Equal(t, int64(1), s.localMeta[miscDBDir].CommittedVersion)
 
 	// Verify data persisted (via Store.Get which deserializes)
@@ -582,10 +582,11 @@ func TestStoreFsyncConfig(t *testing.T) {
 // Auto-snapshot triggered by SnapshotInterval
 // =============================================================================
 
-// A failed periodic snapshot must fail the commit rather than being logged and discarded. The flush
-// wait at the front of WriteSnapshot is where a dead store surfaces, so swallowing an error there would
-// report a block as committed whose data will never reach disk — and the caller, which is required to
-// halt on the first error, would never learn it had one.
+// A failed periodic snapshot must fail a commit rather than being logged and discarded. The writer
+// latches its first failure and reports it from every later call, so a checkpoint that failed with no
+// caller to return to still stops the node. Swallowing it would report blocks as committed whose data
+// will never reach disk, and the caller, which is required to halt on the first error, would never
+// learn it had one.
 //
 // The failure is forced with directory permissions: the snapshot cannot create its temporary directory
 // under the flatkv root. The WAL and the databases live in subdirectories that already exist, so they
@@ -616,104 +617,42 @@ func TestCommitFailsWhenPeriodicSnapshotFails(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: make([]byte, 32)}}},
 	}}))
 
+	// The commit that trips the interval only hands the block to the writer, so it succeeds.
 	_, err = s.Commit(s.Version() + 1)
-	require.Error(t, err, "a failed periodic snapshot must fail the commit")
+	require.NoError(t, err)
+
+	// Waiting for the writer surfaces the failure it latched.
+	err = s.FlushSnapshots()
+	require.Error(t, err, "a failed snapshot must be reported, not swallowed")
+	require.ErrorContains(t, err, "create snapshot tmp dir",
+		"the error must name what actually failed")
+
+	// And the node halts: every later commit reports the same failure.
+	key = keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(ktype.Address{0x03}, ktype.Slot{0x03}))
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{{
+		Name:      "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: key, Value: make([]byte, 32)}}},
+	}}))
+	_, err = s.Commit(s.Version() + 1)
+	require.Error(t, err, "a bricked snapshot writer must fail every later commit")
 	require.ErrorContains(t, err, "auto snapshot",
 		"the error must name the snapshot as the cause rather than being swallowed")
 }
 
-var _ view.View = (*stubView)(nil)
-
-// stubView is a view whose Release outcome the test chooses. Only Name and Release are
-// implemented; every other method panics, so a use this stub was not written for is loud rather than
-// silently wrong.
-type stubView struct {
-	// Reported by Name.
-	name string
-
-	// Returned by every Release call.
-	releaseErr error
-
-	// Counts Release calls.
-	releaseCalls int
-}
-
-func (s *stubView) Name() string {
-	return s.name
-}
-
-func (s *stubView) Release() error {
-	s.releaseCalls++
-	return s.releaseErr
-}
-
-func (s *stubView) Get(key []byte, updateLru bool) ([]byte, bool, error) {
-	panic("stubView: unexpected Get")
-}
-
-func (s *stubView) BatchGet(keys [][]byte) (map[string][]byte, error) {
-	panic("stubView: unexpected BatchGet")
-}
-
-func (s *stubView) GetDiff() (map[string][]byte, error) {
-	panic("stubView: unexpected GetDiff")
-}
-
-func (s *stubView) Reserve() error {
-	panic("stubView: unexpected Reserve")
-}
-
-func (s *stubView) Finalize(writes []*proto.KVPair) error {
-	panic("stubView: unexpected Finalize")
-}
-
-func (s *stubView) AwaitFlush(ctx context.Context) error {
-	panic("stubView: unexpected AwaitFlush")
-}
-
-// A reservation left held stalls its store's flushes forever, so a failing hand-back must not stop the
-// others, and the failure must be reported rather than logged and dropped.
-//
-// Every stub fails, so "all of them were attempted" holds whatever order the map is walked in — with a
-// single failing entry among healthy ones the check would only catch a short-circuit half the time.
-func TestReleaseLastSealedReportsFailureAndReleasesAll(t *testing.T) {
-	names := []string{accountDBDir, codeDBDir, storageDBDir, miscDBDir}
-
-	stubs := make(map[string]*stubView, len(names))
-	sealed := make(map[string]view.View, len(names))
-	for _, name := range names {
-		stub := &stubView{name: name, releaseErr: errors.New("view manager is bricked")}
-		stubs[name] = stub
-		sealed[name] = stub
-	}
-	s := &CommitStore{lastSealed: sealed}
-
-	err := s.releaseLastSealed()
-	require.Error(t, err, "a failed hand-back must be returned, not swallowed")
-	require.ErrorContains(t, err, "view manager is bricked")
-
-	for _, name := range names {
-		require.Equal(t, 1, stubs[name].releaseCalls,
-			"every reservation must be handed back; stopping at the first failure strands the rest")
-		require.ErrorContains(t, err, "release sealed view for "+name,
-			"the joined error must name every store that failed")
-	}
-	require.Nil(t, s.lastSealed, "the handles must be forgotten even when a hand-back failed")
-}
-
-// The store's contract makes every error fatal, so a hand-back failure during teardown has to reach the
+// The store's contract makes every error fatal, so a release failure during teardown has to reach the
 // caller of Close rather than only the log.
 func TestCloseReportsReleaseFailure(t *testing.T) {
 	s := setupTestStore(t)
 
-	// Give back the genuine reservations first, then swap in a failing stub, so the real stores are not
+	// Retire the genuine holder first, then install one over failing stubs, so the real stores are not
 	// left holding anything when they are torn down below.
-	require.NoError(t, s.releaseLastSealed())
-	s.lastSealed = map[string]view.View{
-		accountDBDir: &stubView{name: accountDBDir, releaseErr: errors.New("view manager is bricked")},
-	}
+	require.NoError(t, s.lastSealed.Close())
+	sealed, _ := bricksOnRelease(t, s.Version())
+	installed, err := sview.NewAtomicStoreView(sealed)
+	require.NoError(t, err)
+	s.lastSealed = installed
 
-	err := s.Close()
+	err = s.Close()
 	require.Error(t, err)
 	require.ErrorContains(t, err, "release sealed views")
 }
@@ -857,6 +796,108 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	chVal, ok := s.Get(keys.EVMStoreKey, codeHashKey)
 	require.True(t, ok)
 	require.Equal(t, codeHash[:], chVal)
+}
+
+// A balance write carries only the balance, so it has to be merged onto the account as it already
+// stands. This is the case that breaks first if the balance kind is left out of the set of kinds whose
+// accounts are read back before the merge: the write lands on an empty account and takes the nonce and
+// the code hash with it.
+func TestBalanceWritePreservesOtherAccountFields(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0xBB}
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	codeHash := codeHashN(0x7C)
+	balance := balanceN(42)
+
+	cs1 := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: nonceKey, Value: nonceBytes(9)},
+				{Key: codeHashKey, Value: codeHash[:]},
+			},
+		},
+	}
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1,
+		[]*proto.NamedChangeSet{makeChangeSet(balanceKey, balance[:], false)}))
+	commitAndCheck(t, s)
+
+	nonceVal, ok := s.Get(keys.EVMStoreKey, nonceKey)
+	require.True(t, ok)
+	require.Equal(t, nonceBytes(9), nonceVal, "nonce should be preserved after balance update")
+
+	chVal, ok := s.Get(keys.EVMStoreKey, codeHashKey)
+	require.True(t, ok)
+	require.Equal(t, codeHash[:], chVal, "code hash should be preserved after balance update")
+
+	balVal, ok := s.Get(keys.EVMStoreKey, balanceKey)
+	require.True(t, ok)
+	require.Equal(t, balance[:], balVal)
+}
+
+// All three account fields written in one block land in one physical row.
+func TestAccountFieldsMergeIntoOneRow(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0xCD}
+	codeHash := codeHashN(0x11)
+	balance := balanceN(7)
+
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: nonceBytes(3)},
+				{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Value: codeHash[:]},
+				{Key: keys.BuildEVMKey(keys.EVMKeyBalance, addr[:]), Value: balance[:]},
+			},
+		},
+	}
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
+
+	accountWrite := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
+	require.NotNil(t, accountWrite)
+	require.Equal(t, uint64(3), accountWrite.GetNonce())
+	require.Equal(t, &codeHash, accountWrite.GetCodeHash())
+	require.Equal(t, &balance, accountWrite.GetBalance())
+}
+
+// A balance is the only field an account needs to exist, and zeroing it is how one is deleted, so the
+// row goes away with it.
+func TestBalanceOnlyAccountDeletedWhenZeroed(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0xCE}
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	balance := balanceN(5)
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1,
+		[]*proto.NamedChangeSet{makeChangeSet(balanceKey, balance[:], false)}))
+	commitAndCheck(t, s)
+
+	count, err := CountKeys(s)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1,
+		[]*proto.NamedChangeSet{makeChangeSet(balanceKey, nil, true)}))
+	commitAndCheck(t, s)
+
+	_, ok := s.Get(keys.EVMStoreKey, balanceKey)
+	require.False(t, ok)
+
+	count, err = CountKeys(s)
+	require.NoError(t, err)
+	require.Zero(t, count, "zeroing the last field must remove the account row")
 }
 
 // =============================================================================
@@ -1005,27 +1046,6 @@ func TestStoreFsyncEnabled(t *testing.T) {
 	v, ok := s.Get(keys.EVMStoreKey, evmStorageKey(ktype.Address{0x01}, ktype.Slot{0x01}))
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
-}
-
-// =============================================================================
-// lastSnapshotTime is set after WriteSnapshot
-// =============================================================================
-
-func TestLastSnapshotTimeUpdated(t *testing.T) {
-	cfg := config.DefaultTestConfig(t)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
-	require.NoError(t, err)
-	err = s.LoadLatest()
-	require.NoError(t, err)
-	defer s.Close()
-
-	require.True(t, s.lastSnapshotTime.IsZero())
-
-	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
-	require.NoError(t, s.WriteSnapshot(""))
-
-	require.False(t, s.lastSnapshotTime.IsZero())
-	require.True(t, time.Since(s.lastSnapshotTime) < time.Second)
 }
 
 // =============================================================================
@@ -1636,6 +1656,9 @@ func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 
 func requireAllLocalMetaAt(t *testing.T, s *CommitStore, ver int64) {
 	t.Helper()
+	// A block's metadata is written by the finalizer, so the store's in-memory copy is only what load
+	// saw. Read back what was actually recorded.
+	require.NoError(t, s.reloadLocalMeta())
 	require.Equal(t, ver, s.localMeta[storageDBDir].CommittedVersion)
 	require.Equal(t, ver, s.localMeta[accountDBDir].CommittedVersion)
 	require.Equal(t, ver, s.localMeta[codeDBDir].CommittedVersion)
@@ -1886,18 +1909,30 @@ func TestApplyChangeSetsKeepsPendingCleanOnLaterParseError(t *testing.T) {
 	// (the AppHash input) stayed put.
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
-	require.True(t, s.committedLtHash.Equal(before.global))
+	require.True(t, s.maintainedHashes().Global.Equal(before.global))
 	_, ok := s.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
 	require.False(t, ok, "nonce row from the failed apply must not be persisted")
 	_, ok = s.Get(keys.EVMStoreKey, storageKey)
 	require.False(t, ok, "storage row from the failed apply must not be persisted")
 }
 
-// TestCommitFailsCleanlyOnHashError pins that a hash failure does not leave the store believing it
-// committed.
-func TestCommitFailsCleanlyOnHashError(t *testing.T) {
+// A hash failure is no longer a commit failure: hashing happens after the block is committed, so the
+// commit succeeds and the failure surfaces where the hash does.
+//
+// What must not happen is the failure being lost. It has to reach a caller waiting for hashes to catch
+// up and the block after it, and no hash may be dispatched once a block has failed — the running
+// accumulator then describes nothing a later block could be derived from.
+func TestHashFailureSurfacesToACallerAndStopsDispatch(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
+
+	// Registered before the first block, since a listener only ever sees the blocks after it.
+	dispatched := make(chan int64, 8)
+	_, err := s.RegisterHashListener(func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+		dispatched <- blockNumber
+		return nil
+	})
+	require.NoError(t, err)
 
 	seedAddr := addrN(0xAC)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
@@ -1905,28 +1940,63 @@ func TestCommitFailsCleanlyOnHashError(t *testing.T) {
 		{Name: "gov", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("params"), Value: []byte{0x03}}}}},
 	}))
 	commitAndCheck(t, s)
-	committed := s.Version()
-	before := captureWorkingHashes(s)
 
-	s.ltCalc = lthash.NewHashCalculator(s.ltHashPool, dataDBDirs, func([]byte) (string, error) {
+	require.NoError(t, s.FlushHashes())
+	require.Equal(t, int64(1), <-dispatched, "the good block hashes normally")
+
+	s.moduleOf = func([]byte) (string, error) {
 		return "", fmt.Errorf("injected moduleOf failure")
-	})
+	}
 
-	addr := addrN(0xDD)
-	slot := slotN(0x03)
-	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0xDD), slotN(0x03)))
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
 		makeChangeSet(storageKey, padLeft32(0xEE), false),
 	}))
 
-	_, err := s.Commit(s.Version() + 1)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "injected moduleOf failure")
+	committed, err := s.Commit(s.Version() + 1)
+	require.NoError(t, err, "hashing runs after the commit, so the commit itself still succeeds")
+	require.Equal(t, int64(2), committed)
 
-	// The store must not look like the block landed.
-	require.Equal(t, committed, s.Version(), "a failed commit must not advance the version")
-	requireWorkingHashesUnchanged(t, s, before)
+	require.ErrorContains(t, s.FlushHashes(), "injected moduleOf failure",
+		"a caller waiting for hashes must be told they failed, not that they are done")
+	require.Empty(t, dispatched, "a block that failed to hash has no hash to dispatch")
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(storageKey, padLeft32(0xEF), false),
+	}))
+	_, err = s.Commit(s.Version() + 1)
+	require.ErrorContains(t, err, "injected moduleOf failure",
+		"the block after a failed one must be refused rather than committed on hashes nobody has")
+}
+
+// A read-only store does hash blocks — it replays them to reach its target height — but it does so
+// inside the call that builds it, so a listener on one is never called. What such a caller is after is
+// the height, and registration reports it.
+func TestAReadOnlyStoreReportsItsHeight(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+
+	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{
+		makeChangeSet(evmStorageKey(ktype.Address{0x11}, ktype.Slot{0x22}), padLeft32(0x33), false),
+	}))
+	commitAndCheck(t, s)
+
+	ro, err := s.LoadVersionReadOnly(0)
+	require.NoError(t, err)
+	defer func() { _ = ro.Close() }()
+
+	delivered := make(chan int64, 4)
+	mostRecent, err := ro.RegisterHashListener(
+		func(_ context.Context, blockNumber int64, _ *lthash.BlockHash) error {
+			delivered <- blockNumber
+			return nil
+		})
+	require.NoError(t, err)
+	require.Equal(t, ro.Version(), mostRecent.BlockNumber,
+		"registration must report the height the read-only store was opened at")
+
+	require.NoError(t, ro.FlushHashes())
+	require.Empty(t, delivered, "a read-only store commits nothing, so it delivers nothing")
 }
 
 func TestApplyChangeSetsEVMKeyEmptySkipped(t *testing.T) {
@@ -2110,7 +2180,7 @@ func TestApplyChangeSetsAllowsSameHeightRepeatsOnly(t *testing.T) {
 	}
 }
 
-func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
+func TestCommitStateChangesStampsRowBlockHeight(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
@@ -2120,7 +2190,7 @@ func TestCommitBlockStampsRowBlockHeight(t *testing.T) {
 
 	// Start at block 10 the legal way: seed the store so its history begins there.
 	require.NoError(t, s.SetInitialVersion(10))
-	require.NoError(t, s.CommitBlock(10, []*proto.NamedChangeSet{cs}))
+	require.NoError(t, s.CommitStateChanges(10, []*proto.NamedChangeSet{cs}))
 	require.Equal(t, int64(10), s.Version())
 
 	height, found, err := s.GetBlockHeightModified(keys.EVMStoreKey, key)

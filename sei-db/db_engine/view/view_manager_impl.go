@@ -229,7 +229,7 @@ func NewViewManager(
 
 func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	for _, s := range c.shards {
-		b, e := s.getSizeInfo()
+		b, e := s.GetSizeInfo()
 		bytes += b
 		entries += e
 	}
@@ -369,9 +369,9 @@ func (c *viewManager) Commit() (View, error) {
 	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
 	// would discard it silently.
 	for i, s := range c.shards {
-		s.lock.Lock()
-		err := s.cache.outOfServiceLocked()
-		s.lock.Unlock()
+		s.lock.RLock()
+		err := s.cache.ErrIfOutOfServiceRLocked()
+		s.lock.RUnlock()
 		if err != nil {
 			return nil, fmt.Errorf("cannot create view, shard %d: %w", i, err)
 		}
@@ -401,8 +401,16 @@ func (c *viewManager) Commit() (View, error) {
 
 	c.metrics.setViewPhase("shards_view")
 
-	for _, shard := range c.shards {
-		shardVersion := shard.Commit()
+	for i, shard := range c.shards {
+		shardVersion, err := shard.Commit()
+		if err != nil {
+			// The shard sealed its version but its read cache could not be maintained, which means the
+			// cache can no longer account for its own contents. Bricked for the same reason as below:
+			// the failure must be latched rather than leaving the manager callable.
+			err = fmt.Errorf("failed to maintain the read cache of shard %d: %w", i, err)
+			c.brickLocked(err)
+			return nil, err
+		}
 		if shardVersion != c.currentVersion {
 			// Should be impossible. The manager is now inconsistent (some shards committed, some
 			// not), so brick it: the failure must be latched and every subsequent call must fail,
@@ -658,7 +666,7 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// that moved data out of versionedData and into the DB between the two steps would drop those
 	// keys entirely if the DB view were taken first. In this order the same race can only yield a
 	// key twice, which the merge resolves in favor of the override.
-	overrides, err := c.materializeCurrentOverrides(opts)
+	overrides, err := c.MaterializeCurrentOverrides(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to materialize current overrides: %w", err)
 	}
@@ -682,7 +690,7 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// Register the iterator only now that construction has fully succeeded, so a failed construction
 	// cannot leave a phantom entry behind.
 	for _, s := range c.shards {
-		s.iteratorOpened()
+		s.IteratorOpened()
 	}
 	return &trackedIterator{Iterator: iter, manager: c}, nil
 }
@@ -700,7 +708,7 @@ func (w *trackedIterator) Close() error {
 	w.closeOnce.Do(func() {
 		errs := make([]error, 0, len(w.manager.shards)+1)
 		for _, s := range w.manager.shards {
-			errs = append(errs, s.iteratorClosed())
+			errs = append(errs, s.IteratorClosed())
 		}
 		errs = append(errs, w.Iterator.Close())
 		err = errors.Join(errs...)
@@ -708,12 +716,12 @@ func (w *trackedIterator) Close() error {
 	return err
 }
 
-// materializeCurrentOverrides gathers the in-memory overrides at the current version from every
+// MaterializeCurrentOverrides gathers the in-memory overrides at the current version from every
 // shard and returns them sorted ascending by key. Each shard is responsible for its own locking;
 // here we just stitch the results together, and the sort runs without any shard lock held.
 // The overrides are sorted into iteration order — ascending, or descending when reverse is set — so
 // the merge in viewIterator can walk them and the DB iterator in lockstep.
-func (c *viewManager) materializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
+func (c *viewManager) MaterializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
 	var lowerBound, upperBound []byte
 	reverse := false
 	if opts != nil {
@@ -722,7 +730,7 @@ func (c *viewManager) materializeCurrentOverrides(opts *types.IterOptions) ([]kv
 
 	var all []kvPair
 	for i, s := range c.shards {
-		shardOverrides, err := s.materializeCurrentOverrides(lowerBound, upperBound)
+		shardOverrides, err := s.MaterializeCurrentOverrides(lowerBound, upperBound)
 		if err != nil {
 			return nil, fmt.Errorf("shard %d: %w", i, err)
 		}
@@ -807,7 +815,7 @@ func (c *viewManager) brickLocked(err error) {
 	// established order (see Commit), and nothing acquires versionLock while holding a shard lock
 	// (see the cache field on shard).
 	for _, s := range c.shards {
-		s.takeOutOfService(err)
+		s.TakeOutOfService(err)
 	}
 }
 
@@ -1142,7 +1150,7 @@ func (c *viewManager) closeInternal() error {
 	// write accepted from here on could never be flushed. First failure wins inside the shard, so a
 	// brick that already ran keeps reporting its own cause rather than ErrViewManagerClosed.
 	for _, s := range c.shards {
-		s.takeOutOfService(ErrViewManagerClosed)
+		s.TakeOutOfService(ErrViewManagerClosed)
 	}
 	c.versionLock.Unlock()
 	c.lifecycleBackpressureCond.Broadcast()
@@ -1177,9 +1185,9 @@ func (c *viewManager) closeInternal() error {
 // is read under its own lock. The manager always has at least one shard (the config requires it).
 func (c *viewManager) assertNoLeakedIterators() error {
 	s := c.shards[0]
-	s.lock.Lock()
+	s.lock.RLock()
 	open := s.openIterators
-	s.lock.Unlock()
+	s.lock.RUnlock()
 
 	if open == 0 {
 		return nil

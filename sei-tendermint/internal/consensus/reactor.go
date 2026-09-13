@@ -761,7 +761,7 @@ func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg[*tmcons.M
 		return nil
 	case *BlockPartMessage:
 		ps.SetHasProposalBlockPart(msg.Height, msg.Round, int(msg.Part.Index))
-		Global.BlockPartsAt(string(m.From)).Add(1)
+		Global.BlockPartsAt().Add(1)
 		return utils.Send(ctx, r.state.peerMsgQueue, msgInfo{msg, m.From, tmtime.Now()})
 	default:
 		return fmt.Errorf("received unknown message on DataChannel: %T", msg)

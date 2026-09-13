@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/seilog"
 )
 
@@ -42,7 +41,7 @@ type Config struct {
 	Backend         string
 	KeepRecent      int
 	ExternalPruning bool
-	Scheduler       controller.CheckpointScheduler
+	Checkpointer    Checkpointer
 	// Floor names a height this member's retention must keep. Leave it nil when the member is the only
 	// one that has to hold the height a restore starts from.
 	Floor *Floor
@@ -115,7 +114,7 @@ type Manager struct {
 	backend         string
 	keepRecent      int
 	externalPruning bool
-	scheduler       controller.CheckpointScheduler
+	checkpointer    Checkpointer
 	floor           *Floor
 	snapshotSizes   map[int64]int64
 
@@ -187,10 +186,10 @@ func ListSnapshotVersions(root string) ([]int64, error) {
 
 // Open prepares a snapshot root and returns a Manager for one SS member.
 func Open(cfg Config) (*Manager, error) {
-	if cfg.Scheduler == nil {
-		return nil, fmt.Errorf("%s snapshot scheduler is nil", cfg.Name)
+	if cfg.Checkpointer == nil {
+		return nil, fmt.Errorf("%s snapshot checkpointer is nil", cfg.Name)
 	}
-	if !cfg.Scheduler.SupportsCheckpoint() {
+	if !cfg.Checkpointer.SupportsCheckpoint() {
 		return nil, fmt.Errorf("%s backend %q does not support checkpoints", cfg.Name, cfg.Backend)
 	}
 	if err := verifyHardlinks(cfg.Root, cfg.SourceDirs); err != nil {
@@ -202,7 +201,7 @@ func Open(cfg Config) (*Manager, error) {
 		backend:         cfg.Backend,
 		keepRecent:      cfg.KeepRecent,
 		externalPruning: cfg.ExternalPruning,
-		scheduler:       cfg.Scheduler,
+		checkpointer:    cfg.Checkpointer,
 		floor:           cfg.Floor,
 		snapshotSizes:   map[int64]int64{},
 	}
@@ -276,7 +275,7 @@ func (m *Manager) Schedule(staged *Staged, shouldRun func() bool, done func(erro
 		done(fmt.Errorf("%s staged snapshot belongs to a different manager", m.name))
 		return
 	}
-	m.scheduler.ScheduleCheckpoint(staged.tmpDir, shouldRun, done)
+	m.checkpointer.ScheduleCheckpoint(staged.tmpDir, shouldRun, done)
 }
 
 func (m *Manager) Commit(staged *Staged) error {
@@ -297,7 +296,7 @@ func (m *Manager) Commit(staged *Staged) error {
 	defer m.publishMu.Unlock()
 	defer m.prune()
 
-	if err := m.scheduler.SetCheckpointVersion(staged.tmpDir, staged.version); err != nil {
+	if err := m.checkpointer.SetCheckpointVersion(staged.tmpDir, staged.version); err != nil {
 		_ = os.RemoveAll(staged.tmpDir)
 		return fmt.Errorf("set %s snapshot version: %w", m.name, err)
 	}
@@ -367,6 +366,62 @@ func (m *Manager) ModTime(version int64) time.Time {
 	return info.ModTime()
 }
 
+// RollbackFloor returns the oldest snapshot this member must keep to serve a rollback of
+// rollbackWindow blocks behind head, bounded by the snapshot a restore currently resolves through:
+//
+//	a snapshot at or below head - rollbackWindow → the newest such snapshot
+//	every snapshot above that height             → the oldest snapshot, the deepest this member can
+//	                                               restore to
+//	no snapshot, or a window deeper than head    → 0, nothing here is eligible for pruning
+//
+// It also returns 0 when the snapshot root cannot be read. Answering high is the damaging direction:
+// nothing above clamps this, and a caller derives its cut line from it.
+func (m *Manager) RollbackFloor(head uint64, rollbackWindow uint64) uint64 {
+	if m == nil || head <= rollbackWindow {
+		return 0
+	}
+	versions, err := m.Versions()
+	if err != nil {
+		logger.Error("failed to list state store snapshots for the rollback floor; holding it at 0",
+			"store", m.name, "rollbackWindow", rollbackWindow, "error", err)
+		return 0
+	}
+
+	target := head - rollbackWindow
+	var oldest, newestPastWindow uint64
+	for _, version := range versions {
+		if version <= 0 {
+			continue // version 0 restores to no committed height
+		}
+		block := uint64(version)
+		if oldest == 0 || block < oldest {
+			oldest = block
+		}
+		if block <= target && block > newestPastWindow {
+			newestPastWindow = block
+		}
+	}
+	if oldest == 0 {
+		return 0
+	}
+
+	floor := newestPastWindow
+	if floor == 0 {
+		floor = oldest
+	}
+
+	current, exists, err := m.currentSnapshotVersion()
+	if err != nil {
+		logger.Error("failed to resolve the current state store snapshot for the rollback floor; holding it at 0",
+			"store", m.name, "rollbackWindow", rollbackWindow, "error", err)
+		return 0
+	}
+	if !exists || current <= 0 {
+		return 0
+	}
+	return min(floor, uint64(current))
+}
+
 // PruneSnapshots deletes every snapshot below cutLine, never the current one. It acts whether or not
 // retention is external: an external collector prunes this store through here, and it is the internal
 // count-based retention that stands down instead.
@@ -395,6 +450,59 @@ func (m *Manager) PruneSnapshots(cutLine int64) error {
 	}
 	m.pruneWALToOldestSnapshot()
 	return nil
+}
+
+// RewindTo puts the snapshots under root on version and reports the version the current link ends up
+// naming: the newest snapshot at or below version, or 0 when root holds none, which is a store with
+// nothing to restore from. Every snapshot above version is deleted.
+//
+// It works on the directory alone, for the rollback that runs before the store and its Manager open. A
+// rollback discards the history the deleted snapshots were taken from, so leaving them would let a
+// later restore resolve through state that was already rejected.
+func RewindTo(root string, version int64) (landed int64, err error) {
+	versions, err := ListSnapshotVersions(root)
+	if err != nil {
+		return 0, fmt.Errorf("list the snapshots under %q: %w", root, err)
+	}
+	var base int64
+	for _, v := range versions {
+		if v <= version {
+			base = v
+		}
+	}
+
+	// current moves off the branch before the branch goes: an open resolves a dangling link as an
+	// absent snapshot rather than as a failure, so the window in the other order is a silent one.
+	if err := repointCurrent(root, base); err != nil {
+		return 0, err
+	}
+	var errs []error
+	for _, v := range versions {
+		if v <= version {
+			continue
+		}
+		dir := filepath.Join(root, SnapshotDirName(v))
+		if err := os.RemoveAll(dir); err != nil {
+			errs = append(errs, fmt.Errorf("remove snapshot %q above the rollback target %d: %w",
+				dir, version, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return 0, err
+	}
+	return base, nil
+}
+
+// repointCurrent points the current link under root at base, and removes the link when base is 0,
+// which is the store that has no snapshot left to resolve to.
+func repointCurrent(root string, base int64) error {
+	if base == 0 {
+		if err := os.Remove(filepath.Join(root, snapshotCurrentLink)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove the current snapshot link under %q: %w", root, err)
+		}
+		return nil
+	}
+	return updateCurrentLink(root, SnapshotDirName(base))
 }
 
 // removeSnapshots deletes each candidate except the current snapshot and the shared floor. Every
@@ -450,15 +558,19 @@ func (m *Manager) removeStaleTmpDirs() {
 }
 
 func (m *Manager) updateCurrentLink(name string) error {
-	tmpLink := filepath.Join(m.root, snapshotCurrentTmpLink)
+	return updateCurrentLink(m.root, name)
+}
+
+func updateCurrentLink(root, name string) error {
+	tmpLink := filepath.Join(root, snapshotCurrentTmpLink)
 	_ = os.Remove(tmpLink)
 	if err := os.Symlink(name, tmpLink); err != nil {
 		return fmt.Errorf("create snapshot current symlink: %w", err)
 	}
-	if err := os.Rename(tmpLink, filepath.Join(m.root, snapshotCurrentLink)); err != nil {
+	if err := os.Rename(tmpLink, filepath.Join(root, snapshotCurrentLink)); err != nil {
 		return fmt.Errorf("swap snapshot current symlink: %w", err)
 	}
-	return syncDir(m.root)
+	return syncDir(root)
 }
 
 func (m *Manager) prune() {
@@ -484,7 +596,7 @@ func (m *Manager) prune() {
 }
 
 func (m *Manager) pruneWALToOldestSnapshot() {
-	pruner, ok := m.scheduler.(snapshotWALPruner)
+	pruner, ok := m.checkpointer.(snapshotWALPruner)
 	if !ok {
 		return
 	}

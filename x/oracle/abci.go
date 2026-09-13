@@ -7,12 +7,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
@@ -20,8 +18,6 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 	start := time.Now()
 	defer func() {
 		oracleMetrics.midBlockerDuration.Record(ctx.Context(), time.Since(start).Seconds())
-		// TODO(PLT-336): remove once oracle_mid_blocker_duration_seconds verified
-		telemetry.ModuleMeasureSince(types.ModuleName, start, telemetry.MetricKeyMidBlocker)
 	}()
 
 	params := k.GetParams(ctx)
@@ -100,8 +96,6 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 
 				// Set the exchange rate, emit ABCI event
 				oracleMetrics.priceUpdateTotal.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("denom", denom)))
-				// TODO(PLT-336): remove once oracle_price_update_total verified
-				metrics.IncrPriceUpdateDenom(denom)
 				k.SetBaseExchangeRateWithEvent(ctx, denom, exchangeRate)
 			}
 		}
@@ -153,8 +147,6 @@ func EndBlocker(ctx sdk.Context, k keeper.Keeper) {
 	start := time.Now()
 	defer func() {
 		oracleMetrics.endBlockerDuration.Record(ctx.Context(), time.Since(start).Seconds())
-		// TODO(PLT-336): remove once oracle_end_blocker_duration_seconds verified
-		telemetry.ModuleMeasureSince(types.ModuleName, start, telemetry.MetricKeyEndBlocker)
 	}()
 
 	params := k.GetParams(ctx)

@@ -20,15 +20,15 @@ import (
 // Interface Compliance Tests
 // =============================================================================
 
-// TestCommitStoreImplementsStore verifies that CommitStore implements flatkv.Store
+// TestCommitStoreImplementsStore verifies that CommitStore implements gigatypes.LiveStateStore
 func TestCommitStoreImplementsStore(t *testing.T) {
-	// Compile-time check is in store.go: var _ Store = (*CommitStore)(nil)
+	// Compile-time check is in store.go: var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
 	// This test verifies runtime behavior of interface methods
 
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Verify Store interface methods
+	// Verify gigatypes.LiveStateStore interface methods
 	require.Equal(t, int64(0), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)
@@ -377,7 +377,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1, version1 := s.RootHash()
+	hash1, version1 := rootHashAndVersion(s)
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 	require.Equal(t, int64(0), version1)
@@ -393,7 +393,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	committed := commitAndCheck(t, s)
 
 	// Committing a block that changes state changes the hash, and the height moves with it.
-	hash2, version2 := s.RootHash()
+	hash2, version2 := rootHashAndVersion(s)
 	require.NotEqual(t, hash1, hash2)
 	require.Equal(t, committed, version2)
 }
@@ -403,7 +403,7 @@ func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1, version1 := s.RootHash()
+	hash1, version1 := rootHashAndVersion(s)
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 
@@ -416,7 +416,7 @@ func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// A block that has not been sealed has no hash, so the store still describes the previous height.
-	hash2, version2 := s.RootHash()
+	hash2, version2 := rootHashAndVersion(s)
 	require.Equal(t, hash1, hash2, "staging a block must not move the hash")
 	require.Equal(t, version1, version2)
 }
@@ -433,31 +433,21 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	committed := commitAndCheck(t, s)
-	committedHash, committedVersion := s.RootHash()
+	committedHash, committedVersion := rootHashAndVersion(s)
 	require.Equal(t, committed, committedVersion)
 
 	// Staging the next block must leave the committed hash exactly where it is.
 	next := makeChangeSet(key, padLeft32(0x78), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{next}))
 
-	stagedHash, stagedVersion := s.RootHash()
+	stagedHash, stagedVersion := rootHashAndVersion(s)
 	require.Equal(t, committedHash, stagedHash)
 	require.Equal(t, committedVersion, stagedVersion)
 }
 
 // =============================================================================
-// Lifecycle (WriteSnapshot, Rollback)
+// Lifecycle (outOfBandSnapshot, Rollback)
 // =============================================================================
-
-func TestStoreWriteSnapshotRequiresCommit(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	// Cannot snapshot at version 0 (nothing committed)
-	err := s.WriteSnapshot("")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "uncommitted")
-}
 
 func TestStoreRollbackNoSnapshot(t *testing.T) {
 	s := setupTestStore(t)
@@ -534,7 +524,7 @@ func TestReadOnlyAtBeyondWALFails(t *testing.T) {
 
 	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
 	commitStorageEntry(t, s1, ktype.Address{0x01}, ktype.Slot{0x02}, []byte{0x02})
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -563,7 +553,7 @@ func TestReopenReusesWorkingDir(t *testing.T) {
 	require.NoError(t, err)
 
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	require.NoError(t, s.Close())
 
 	workDir := filepath.Join(dir, flatkvRootDir, workingDirName)
@@ -600,7 +590,7 @@ func TestCatchupFromSpecificVersion(t *testing.T) {
 	}
 	hashAtV10 := rootHash(s1)
 
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 	require.NoError(t, s1.Close())
 
 	cfg = config.DefaultTestConfig(t)
@@ -826,7 +816,7 @@ func TestReadOnlyWriteGuards(t *testing.T) {
 	require.ErrorIs(t, ro.ApplyChangeSets(ro.Version()+1, nil), errReadOnly)
 	_, err = ro.Commit(ro.Version() + 1)
 	require.ErrorIs(t, err, errReadOnly)
-	require.ErrorIs(t, ro.WriteSnapshot(""), errReadOnly)
+	require.ErrorIs(t, ro.(*CommitStore).outOfBandSnapshot(), errReadOnly)
 	require.ErrorIs(t, ro.Rollback(1), errReadOnly)
 	_, err = ro.(*CommitStore).Importer(1)
 	require.ErrorIs(t, err, errReadOnly)
@@ -1292,13 +1282,16 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	require.Equal(t, int64(6), s.Version())
 
 	// Save the correct per-DB LtHash for accountDB before skewing version.
-	savedAccountLtHash := s.perDBWorkingLtHash[accountDBDir].Clone()
+	savedAccountLtHash := s.maintainedHashes().PerDB[accountDBDir].Clone()
 
 	// Skew accountDB's local meta version to 4 while keeping the correct
 	// LtHash. This simulates a crash where the version watermark wasn't
 	// persisted but the actual data and hash are intact.
 	batch := s.rawDBFor(accountDBDir).NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash, s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir]))
+	maintained := s.maintainedHashes()
+	require.NoError(t, writeLocalMetaToBatch(
+		batch, 4, savedAccountLtHash,
+		maintained.PerModule[accountDBDir], maintained.PerModuleStats[accountDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1348,11 +1341,14 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	}
 
 	// Save the correct storageDB per-DB LtHash before skewing.
-	savedStorageLtHash := s.perDBWorkingLtHash[storageDBDir].Clone()
+	savedStorageLtHash := s.maintainedHashes().PerDB[storageDBDir].Clone()
 
 	// Simulate crash: storageDB only flushed v3 (version watermark behind).
 	batch := s.rawDBFor(storageDBDir).NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash, s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir]))
+	maintained := s.maintainedHashes()
+	require.NoError(t, writeLocalMetaToBatch(
+		batch, 3, savedStorageLtHash,
+		maintained.PerModule[storageDBDir], maintained.PerModuleStats[storageDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1395,6 +1391,9 @@ func TestCrashRecoveryWALReplayLargeGap(t *testing.T) {
 		require.NoError(t, err)
 	}
 	expectedHash := rootHash(s)
+	// Close discards whatever the snapshot writer still has queued, so wait for it here: the gap this
+	// test is about only exists once the snapshots are on disk.
+	require.NoError(t, s.FlushSnapshots())
 	require.NoError(t, s.Close())
 
 	// Reopen normally -- large WAL gap between snapshot and HEAD.
@@ -1434,7 +1433,7 @@ func TestCrashRecoveryEmptyWALAfterSnapshot(t *testing.T) {
 	_, err = s.Commit(s.Version() + 1)
 	require.NoError(t, err)
 
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	expectedHash := rootHash(s)
 	expectedVersion := s.Version()
 

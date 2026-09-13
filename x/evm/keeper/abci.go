@@ -9,12 +9,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/utils"
-	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -22,7 +20,6 @@ import (
 func (k *Keeper) BeginBlock(ctx sdk.Context) {
 	beginBlockerStart := time.Now()
 	defer func() {
-		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker) // TODO(PLT-330): remove once evm_abci_begin_blocker_duration_seconds verified
 		evmKeeperMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
 	}()
 	// clear tx/tx responses from last block
@@ -66,7 +63,6 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	endBlockerStart := time.Now()
 	defer func() {
-		telemetry.ModuleMeasureSince(types.ModuleName, endBlockerStart, telemetry.MetricKeyEndBlocker) // TODO(PLT-330): remove once evm_abci_end_blocker_duration_seconds verified
 		evmKeeperMetrics.endBlockerDuration.Record(ctx.Context(), time.Since(endBlockerStart).Seconds())
 	}()
 	// Bake height-1: at EndBlock(N) the indexer's safe latest is N-1. When
@@ -84,15 +80,6 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	// TODO: remove after all TxHashes have been removed
 	k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)
 
-	// Migrate legacy EVM receipts to receipt.db in small batches every N blocks
-	if ctx.BlockHeight()%LegacyReceiptMigrationInterval == 0 {
-		if migrated, err := k.MigrateLegacyReceiptsBatch(ctx, LegacyReceiptMigrationBatchSize); err != nil {
-			logger.Error("failed migrating legacy receipts", "err", err)
-		} else if migrated > 0 {
-			logger.Info("migrated legacy EVM receipts to receipt.db", "count", migrated)
-		}
-	}
-
 	if scanned, deleted := k.PruneZeroStorageSlots(ctx, ZeroStorageCleanupBatchSize); deleted > 0 {
 		logger.Info("pruned zero-value contract storage slots while scanning keys", "pruned-count", deleted, "key-count", scanned)
 	}
@@ -100,7 +87,6 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	newBaseFee := k.AdjustDynamicBaseFeePerGas(ctx, uint64(blockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
 		baseFeeBI := newBaseFee.TruncateInt().BigInt()
-		utilmetrics.GaugeEvmBlockBaseFee(baseFeeBI, height) // TODO(PLT-330): remove once evm_block_base_fee verified
 		evmKeeperMetrics.blockBaseFee.Record(ctx.Context(), bigIntToFloat64(baseFeeBI))
 	}
 	var coinbase sdk.AccAddress

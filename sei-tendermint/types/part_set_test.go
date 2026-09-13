@@ -114,6 +114,43 @@ func TestAddPartWithSwappedProof(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not match proof index")
 }
 
+func TestAddPartRejectsMismatchedProofTotal(t *testing.T) {
+	// Setup: 3-part set so the last leaf is the right child of the root.
+	data := tmrand.Bytes(testPartSize * 3)
+	source := NewPartSetFromData(data, testPartSize)
+	require.EqualValues(t, 3, source.Total())
+	last := source.GetPart(2)
+	genuine := source.GetPart(1)
+
+	// Relabel the last part into slot 1 as a 2-leaf tree; keep the same aunts.
+	proof := last.Proof
+	proof.Index = 1
+	proof.Total = 2
+	malicious := &Part{
+		Index: 1,
+		Bytes: last.Bytes,
+		Proof: proof,
+	}
+
+	// Test: CON-20 and Merkle verification both accept the relabelled part.
+	require.NoError(t, malicious.ValidateBasic())
+	require.NoError(t, malicious.Proof.Verify(source.Hash(), malicious.Bytes))
+
+	collector := NewPartSetFromHeader(source.Header())
+	added, err := collector.AddPart(malicious)
+
+	// Verify: AddPart rejects the forged total and still accepts the genuine slot.
+	assert.False(t, added)
+	assert.ErrorIs(t, err, ErrPartSetInvalidProof)
+	assert.Nil(t, collector.GetPart(1))
+	assert.EqualValues(t, 0, collector.Count())
+
+	added, err = collector.AddPart(genuine)
+	require.True(t, added)
+	require.NoError(t, err)
+	assert.Equal(t, genuine.Bytes, collector.GetPart(1).Bytes)
+}
+
 func TestPartSetHeaderValidateBasic(t *testing.T) {
 	testCases := []struct {
 		testName              string

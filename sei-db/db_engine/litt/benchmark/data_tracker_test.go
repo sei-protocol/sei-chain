@@ -171,8 +171,9 @@ func TestTrackReads(t *testing.T) {
 
 		keyToIndexMap[string(writeInfo.Key)] = writeInfo.KeyIndex
 
-		if rand.Float64() < 0.1 && i > 2*config.CohortSize {
-			// Advance the highest written index.
+		// Advance the highest written index at random, and always on the last iteration so that
+		// at least one full cohort is reported written before the loop ends.
+		if (rand.Float64() < 0.1 || i == keyCount-1) && i > 2*config.CohortSize {
 			possibleIndex := rand.Uint64Range(i-config.CohortSize*2, i)
 			if int(possibleIndex) > highestWrittenIndex {
 				highestWrittenIndex = int(possibleIndex)
@@ -190,11 +191,12 @@ func TestTrackReads(t *testing.T) {
 
 		// Read a random value.
 		var readInfo *ReadInfo
-		if readCount == 0 {
-			// We are reading the first value, so one might not be available yet. Don't block forever.
+		if highestWrittenIndex < int(config.CohortSize) {
+			// No cohort has been fully reported written yet, so a value might not be available. Don't block forever.
 			readInfo = dataTracker.GetReadInfoWithTimeout(time.Millisecond)
 		} else {
-			// After we read the first value, we should never block.
+			// The genesis cohort (key indices 0..CohortSize) has been fully reported written, so a read
+			// must eventually become available.
 			readInfo = dataTracker.GetReadInfo()
 		}
 		if readInfo != nil {

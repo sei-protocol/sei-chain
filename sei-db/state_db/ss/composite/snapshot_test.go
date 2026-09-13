@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
 	sssnapshot "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/snapshot"
@@ -31,7 +30,7 @@ func (s *controlledSnapshotScheduler) ScheduleCheckpoint(
 ) {
 	s.pending <- func() {
 		if !shouldRun() {
-			done(controller.ErrCheckpointCanceled)
+			done(sssnapshot.ErrCheckpointCanceled)
 			return
 		}
 		if s.fail {
@@ -104,8 +103,7 @@ func settle(t *testing.T, store *CompositeStateStore) {
 
 func commitBlock(t *testing.T, store *CompositeStateStore, version int64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
-	require.NoError(t, store.ApplyChangesetAsync(version, changesets))
-	store.ScheduleSnapshot(version)
+	require.NoError(t, store.CommitBlock(version, changesets))
 }
 
 func writeBlock(t *testing.T, store *CompositeStateStore, version int64) {
@@ -328,13 +326,13 @@ func openTestManagerWithRetention(
 	t.Helper()
 	source := t.TempDir()
 	manager, err := sssnapshot.Open(sssnapshot.Config{
-		Name:       name,
-		Root:       root,
-		SourceDirs: []string{source},
-		Backend:    config.PebbleDBBackend,
-		KeepRecent: keepRecent,
-		Scheduler:  scheduler,
-		Floor:      floor,
+		Name:         name,
+		Root:         root,
+		SourceDirs:   []string{source},
+		Backend:      config.PebbleDBBackend,
+		KeepRecent:   keepRecent,
+		Checkpointer: scheduler,
+		Floor:        floor,
 	})
 	require.NoError(t, err)
 	return manager

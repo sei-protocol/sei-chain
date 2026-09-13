@@ -14,6 +14,10 @@ const (
 	DefaultSCHistoricalProofRateLimit   = 1.0 // req/s, <=0 disables rate limit
 	DefaultSCHistoricalProofBurst       = 1
 
+	DefaultSCSubspaceQueryMaxInFlight = 2
+	DefaultSCSubspaceMaxPairs         = 1_000
+	DefaultSCSubspaceMaxBytes         = 4 * 1024 * 1024 // 4 MiB
+
 	legacySCWriteModeCosmosOnly = "cosmos_only"
 )
 
@@ -102,6 +106,15 @@ type StateCommitConfig struct {
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
 
+	// Max concurrent unproven /subspace queries on the SS fast path.
+	SubspaceQueryMaxInFlight int `mapstructure:"subspace-query-max-inflight"`
+
+	// Max key/value pairs a /subspace scan may return.
+	SubspaceMaxPairs int `mapstructure:"subspace-max-pairs"`
+
+	// Max key+value bytes a /subspace scan may accumulate.
+	SubspaceMaxBytes int `mapstructure:"subspace-max-bytes"`
+
 	// HashLogger configures the per-block hash logger (a debugging/forensics tool). Enabled by default.
 	// Loaded via explicit sc-hash-logger-* flag reads in app.parseSCConfigs, not mapstructure.
 	HashLogger HashLoggerConfig
@@ -118,6 +131,9 @@ func DefaultStateCommitConfig() StateCommitConfig {
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
+		SubspaceQueryMaxInFlight:   DefaultSCSubspaceQueryMaxInFlight,
+		SubspaceMaxPairs:           DefaultSCSubspaceMaxPairs,
+		SubspaceMaxBytes:           DefaultSCSubspaceMaxBytes,
 		HashLogger:                 DefaultHashLoggerConfig(),
 	}
 }

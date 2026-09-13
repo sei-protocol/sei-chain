@@ -33,6 +33,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -312,6 +313,11 @@ func (b *Backend) isV67ActiveAtHeight(height int64) bool {
 	return b.keeper.UpgradeKeeper().IsUpgradeActiveAtHeight(ctx, "v6.7", height)
 }
 
+func (b *Backend) isV68ActiveAtHeight(height int64) bool {
+	ctx := b.ctxProvider(LatestCtxHeight).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	return b.keeper.UpgradeKeeper().IsUpgradeActiveAtHeight(ctx, "v6.8", height)
+}
+
 func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
 	if provider != nil {
 		b.traceCtxProvider = provider
@@ -437,7 +443,10 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	traceTxConfigProvider := traceCompatTxConfigProvider(b.txConfigProvider, b.isV65ActiveAtHeight, b.isV67ActiveAtHeight)
-	msgs := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
+	msgs, err := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, b.cacheCreationMutex, b.globalBlockCache)
+	if err != nil {
+		return nil, nil, err
+	}
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
@@ -731,6 +740,10 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 		// iteration can pass it into the SS MVCC skip loops.
 		sdkCtx = sdkCtx.WithContext(ctx)
 	}
+	if err := b.activateIncrementalTallyForTrace(sdkCtx, blockNumber); err != nil {
+		release()
+		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("activate incremental governance tally: %w", err)
+	}
 	runTraceBeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
 	var nextCtx sdk.Context
 	nextCtx, nextRelease = ctxProvider(sdkCtx.BlockHeight())
@@ -739,6 +752,19 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 		[]string{"oracle", "oracle_mem"},
 	)
 	return sdkCtx, tmBlock, release, nil
+}
+
+func (b *Backend) activateIncrementalTallyForTrace(ctx sdk.Context, height int64) error {
+	if b.keeper == nil || b.beginBlockKeepers.GovKeeper == nil {
+		return nil
+	}
+	govKeeper := *b.beginBlockKeepers.GovKeeper
+	if govKeeper.IncrementalTallyEnabled(ctx) ||
+		!b.isV68ActiveAtHeight(height) ||
+		b.isV68ActiveAtHeight(height-1) {
+		return nil
+	}
+	return govkeeper.NewMigrator(govKeeper).Migrate3to4(ctx)
 }
 
 // runTraceBeginBlock is the BeginBlock used when reconstructing historical

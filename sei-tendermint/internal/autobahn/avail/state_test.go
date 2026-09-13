@@ -107,7 +107,7 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 			return err
 		}
 		appHash0 := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc0.QC().GlobalRange().Next-1, appHash0); err != nil {
+		if err := ds.PushAppHash(ctx, qc0.QC().GlobalRange().Next-1, appHash0, nil); err != nil {
 			return err
 		}
 		if err := ds.PushAppQC(ctx, data.TestAppQC(keys, types.NewAppProposal(qc0.QC().Proposal(), appHash0))); err != nil {
@@ -129,17 +129,10 @@ func TestPrune_AnchorEpochDropsClosedLane(t *testing.T) {
 		lane0 := state.LocalLane().OrPanic("genesis")
 		sub := state.SubscribeLaneProposals(lane0, 0)
 
-		epLeave, err := registry.ActivateEpoch(
-			0,
-			map[types.PublicKey]uint64{b.Public(): 1},
-			time.Time{}, registry.FirstBlock(),
-		)
-		if err != nil {
+		if err := registry.StageAndActivate(0, map[types.PublicKey]uint64{b.Public(): 1}); err != nil {
 			return err
 		}
-		if epLeave.EpochIndex() != 2 {
-			return fmt.Errorf("leave epoch = %d, want 2 (epoch 1 is genesis-seeded)", epLeave.EpochIndex())
-		}
+		epLeave := registry.MustEpoch(2)
 		// Data already holds an AppQC for epoch 0; NewState's prune stamped the
 		// Anchor. Advance the seal cursor without admitting LastRoad tips — runEvict
 		// is not running, and the rest of this test expects empty roads.
@@ -219,7 +212,7 @@ func TestAnchorResetsState(t *testing.T) {
 			return err
 		}
 		appHash := types.GenAppHash(rng)
-		if err := ds.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, appHash); err != nil {
+		if err := ds.PushAppHash(ctx, qc.QC().GlobalRange().Next-1, appHash, nil); err != nil {
 			return err
 		}
 		appQC := data.TestAppQC(keys, types.NewAppProposal(qc.QC().Proposal(), appHash))
@@ -334,7 +327,7 @@ func testState(t *testing.T, rng utils.Rng, stateDir utils.Option[string]) {
 			appHash := types.GenAppHash(rng)
 			appProposal := types.NewAppProposal(qc.Proposal(), appHash)
 			appGR := appProposal.GlobalRange()
-			if err := ds.PushAppHash(ctx, appGR.Next-1, appHash); err != nil {
+			if err := ds.PushAppHash(ctx, appGR.Next-1, appHash, nil); err != nil {
 				return fmt.Errorf("ds.PushAppHash(): %w", err)
 			}
 			for _, vote := range makeAppVotes(keys, appProposal) {
@@ -381,7 +374,6 @@ func TestNextViewEpoch(t *testing.T) {
 	t.Run("LastRoad tip pairs next epoch", func(t *testing.T) {
 		rng := utils.TestRng()
 		registry, keys := epoch.GenRegistry(rng, 4)
-		registry.AdvanceIfNeeded(epoch.LastRoad(0))
 		ep0 := registry.MustEpoch(0)
 		ep1 := registry.MustEpoch(1)
 
@@ -700,7 +692,7 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			stay.Public(): 1, leaver.Public(): 1, a.Public(): 1, b.Public(): 1,
 		})
 		require.NoError(t, err)
-		registry, err := epoch.NewRegistry(genesis, 0, time.Time{})
+		registry, err := epoch.NewRegistry(genesis, 0, time.Time{}, utils.None[string]())
 		require.NoError(t, err)
 		ds := newTestDataState(&data.Config{Registry: registry})
 		state, err := NewState(stay, ds, utils.None[string]())
@@ -716,14 +708,10 @@ func TestHeaders_WaitsForPrevEpochLaneVote(t *testing.T) {
 			header := types.NewBlock(lane, 0, types.BlockHeaderHash{}, &types.Payload{}).Header()
 			leaverVote := types.Sign(leaver, types.NewLaneVote(header))
 
-			epLeave, err := registry.ActivateEpoch(
-				0,
-				map[types.PublicKey]uint64{stay.Public(): 1, a.Public(): 1, b.Public(): 1},
-				time.Time{}, registry.FirstBlock(),
-			)
-			if err != nil {
+			if err := registry.StageAndActivate(0, map[types.PublicKey]uint64{stay.Public(): 1, a.Public(): 1, b.Public(): 1}); err != nil {
 				return err
 			}
+			epLeave := registry.MustEpoch(2)
 			keys := []types.SecretKey{stay, leaver, a, b}
 			if err := TestDriveAdvance(ctx, state, keys, epLeave.EpochIndex()); err != nil {
 				return err
@@ -852,6 +840,15 @@ func newSealFixture(t *testing.T) *sealFixture {
 	return &sealFixture{registry: registry, keys: keys, state: state, ep: ep, m: m}
 }
 
+func addEpoch(t *testing.T, registry *epoch.Registry, end types.EpochIndex, keys []types.SecretKey) {
+	t.Helper()
+	weights := make(map[types.PublicKey]uint64, len(keys))
+	for _, key := range keys {
+		weights[key.Public()] = 1
+	}
+	require.NoError(t, registry.StageAndActivate(end, weights))
+}
+
 func TestRunEpochAdvance_Leashes(t *testing.T) {
 	type missing int
 	const (
@@ -875,7 +872,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 				rng := utils.TestRng()
 				f := newSealFixture(t)
 				if tc.missing != registry {
-					f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
+					addEpoch(t, f.registry, f.m-1, f.keys)
 				}
 
 				prev := tipLink(f.ep, f.keys[0], epoch.LastRoad(f.m)-1)
@@ -905,7 +902,7 @@ func TestRunEpochAdvance_Leashes(t *testing.T) {
 					require.Equal(t, f.m, f.state.Epoch().Load().EpochIndex())
 					switch tc.missing {
 					case registry:
-						f.registry.AdvanceIfNeeded(epoch.LastRoad(f.m))
+						addEpoch(t, f.registry, f.m-1, f.keys)
 					case appQC:
 						setRoadAppQC(f.state, qcLast.Index(), data.TestAppQC(f.keys, types.NewAppProposal(qcLast.Proposal(), types.GenAppHash(rng))))
 					}
@@ -975,14 +972,12 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistry(rng, 2)
+			registry, keys := epoch.GenRegistryThrough(rng, 2, 3)
 			ds := newTestDataState(&data.Config{Registry: registry})
 			state, err := NewState(keys[0], ds, utils.None[string]())
 			require.NoError(t, err)
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
-			registry.AdvanceIfNeeded(epoch.LastRoad(1))
-			registry.AdvanceIfNeeded(epoch.LastRoad(2))
 			qc := pruneToAnchors(state, anchorWalk(t, registry, keys))
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex())
 
@@ -1004,13 +999,11 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistry(rng, 2)
+			registry, keys := epoch.GenRegistryThrough(rng, 2, 3)
 			ds := newTestDataState(&data.Config{Registry: registry})
 			state, err := NewState(keys[0], ds, utils.None[string]())
 			require.NoError(t, err)
 
-			registry.AdvanceIfNeeded(epoch.LastRoad(1))
-			registry.AdvanceIfNeeded(epoch.LastRoad(2))
 			anchors := anchorWalk(t, registry, keys)
 			ep0 := registry.MustEpoch(0)
 			qc0 := types.BuildCommitQC(ep0, keys, utils.None[*types.CommitQC](), nil)
@@ -1045,25 +1038,23 @@ func TestRunEpochAdvance_CatchUpDoesNotKill(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			rng := utils.TestRng()
-			registry, keys := epoch.GenRegistry(rng, 4)
-			registry.AdvanceIfNeeded(epoch.LastRoad(1))
-			registry.AdvanceIfNeeded(epoch.LastRoad(2))
+			registry, keys := epoch.GenRegistryThrough(rng, 4, 4)
 			ds := newTestDataState(&data.Config{Registry: registry})
 			state, err := NewState(keys[0], ds, utils.None[string]())
 			require.NoError(t, err)
 
 			anchors := anchorWalk(t, registry, keys)
-			pruneToAnchors(state, anchors[:1])
-			registry.PruneBefore(2)
+			pruneToAnchors(state, anchors[:2])
+			require.NoError(t, registry.PruneBefore(3))
 
 			var runErr error
 			go func() { runErr = state.runEpochAdvance(ctx) }()
 			synctest.Wait()
 			require.Nil(t, runErr)
 			require.Equal(t, types.EpochIndex(0), state.Epoch().Load().EpochIndex(),
-				"epoch 1 is pruned: park instead of dying")
+				"epoch 2 is pruned: park instead of dying")
 
-			qc := pruneToAnchors(state, anchors[1:])
+			qc := pruneToAnchors(state, anchors[2:])
 			synctest.Wait()
 			require.Nil(t, runErr)
 			require.Equal(t, types.EpochIndex(3), state.Epoch().Load().EpochIndex())
@@ -1123,9 +1114,7 @@ func TestMarkCommitQCsPersisted_RefreshesSpecWhileEpochAdvanceParked(t *testing.
 
 func TestMarkCommitQCsPersisted_DoesNotRewindPruneTip(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 2)
-	registry.AdvanceIfNeeded(epoch.LastRoad(1))
-	registry.AdvanceIfNeeded(epoch.LastRoad(2))
+	registry, keys := epoch.GenRegistryThrough(rng, 2, 3)
 	ds := newTestDataState(&data.Config{Registry: registry})
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)

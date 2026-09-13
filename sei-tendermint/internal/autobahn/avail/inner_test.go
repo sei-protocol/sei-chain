@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/blockstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus/persist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
@@ -235,7 +235,6 @@ func TestAddLane_ReportsNewLaneForEachMembershipPeriod(t *testing.T) {
 func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(0))
 
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
@@ -273,9 +272,7 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 
 func TestPrune_LeavesAppliedToEpochAdvance(t *testing.T) {
 	rng := utils.TestRng()
-	registry, keys := epoch.GenRegistry(rng, 4)
-	registry.AdvanceIfNeeded(epoch.LastRoad(1))
-	registry.AdvanceIfNeeded(epoch.LastRoad(2))
+	registry, keys := epoch.GenRegistryThrough(rng, 4, 2)
 	ep0 := registry.MustEpoch(0)
 	ep1 := registry.MustEpoch(1)
 	ep2 := registry.MustEpoch(2)

@@ -144,7 +144,7 @@ func isNil(i interface{}) bool {
 	if i == nil {
 		return true
 	}
-	if reflect.TypeOf(i).Kind() == reflect.Ptr {
+	if reflect.TypeOf(i).Kind() == reflect.Pointer {
 		// IsNil panics if you try it on a struct (not a pointer)
 		return reflect.ValueOf(i).IsNil()
 	}

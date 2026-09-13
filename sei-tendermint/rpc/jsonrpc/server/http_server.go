@@ -78,7 +78,7 @@ func Serve(ctx context.Context, listener net.Listener, handler http.Handler, con
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			_ = s.Shutdown(sctx)
 		case <-sig:
@@ -113,7 +113,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 	go func() {
 		select {
 		case <-ctx.Done():
-			sctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 			defer cancel()
 			_ = s.Shutdown(sctx)
 		case <-sig:
@@ -134,7 +134,7 @@ func ServeTLS(ctx context.Context, listener net.Listener, handler http.Handler, 
 func writeError(w http.ResponseWriter, statusCode int, err error) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(statusCode)
-	_, _ = fmt.Fprintln(w, err.Error())
+	_, _ = fmt.Fprintln(w, err.Error()) //nolint:gosec // the response is explicitly text/plain, so error text is not interpreted as HTML.
 }
 
 // writeHTTPResponse writes a JSON-RPC response to w. If rsp encodes an error,

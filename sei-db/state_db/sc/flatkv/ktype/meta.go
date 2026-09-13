@@ -1,29 +1,27 @@
 package ktype
 
-import (
-	"bytes"
+import "bytes"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
-)
-
-const metaKeyPrefix = "_meta/"
+// MetaKeyPrefix is the key namespace a database reserves for its own metadata, which hashing must
+// exclude: the metadata records the hash, so combining it in would make the hash depend on itself.
+const MetaKeyPrefix = "_meta/"
 
 const (
-	metaVersion = metaKeyPrefix + "version"
-	metaLtHash  = metaKeyPrefix + "hash"
+	metaVersion = MetaKeyPrefix + "version"
+	metaLtHash  = MetaKeyPrefix + "hash"
 
 	// moduleLtHashPrefix brackets the per-module metadata keys stored in each
 	// data DB, e.g. "_meta/x:evm/hash", "_meta/x:gov/stats". The "x:" segment
 	// namespaces module names so they never collide with the fixed per-DB keys
 	// (version / hash). Each module has a "/hash" key (its per-module
 	// LtHash) and a "/stats" key (its per-module key-count / byte totals).
-	moduleLtHashPrefix = metaKeyPrefix + "x:"
+	moduleLtHashPrefix = MetaKeyPrefix + "x:"
 	moduleLtHashSuffix = "/hash"
 	moduleStatsSuffix  = "/stats"
 )
 
 var (
-	MetaKeyPrefixBytes = []byte(metaKeyPrefix)
+	MetaKeyPrefixBytes = []byte(MetaKeyPrefix)
 	MetaVersionKey     = []byte(metaVersion)
 	MetaLtHashKey      = []byte(metaLtHash)
 	// ModuleLtHashPrefixBytes is the inclusive lower bound for iterating the
@@ -98,33 +96,4 @@ func parseModuleKey(key []byte, suffix string) (string, bool) {
 // in a module keyspace, the way migration progress does.
 func IsMetaKey(key []byte) bool {
 	return bytes.HasPrefix(key, MetaKeyPrefixBytes)
-}
-
-// LocalMeta stores one data DB's own view of its committed state, held at
-// _meta/version, _meta/hash and _meta/x:<module>/hash.
-//
-// The version and the root are written together or not at all, so a DB either
-// reports both or has never had metadata written to it: a brand-new DB reports
-// neither, a seeded DB reports a version with the identity root, and a DB that
-// has committed a block reports its real root.
-type LocalMeta struct {
-	// CommittedVersion is the version this DB last committed. It reads as 0 when
-	// no metadata has been written, which is indistinguishable from a genuine 0.
-	CommittedVersion int64
-
-	// LtHash is this DB's root over its own keys. nil only when no metadata has
-	// been written; writeLocalMetaToBatch refuses to record a version without one.
-	LtHash *lthash.LtHash
-
-	// ModuleLtHashes holds the LtHash of each module's keys within this DB,
-	// keyed by module name (e.g. "evm", "gov"). The per-DB root (LtHash)
-	// equals the homomorphic sum of these module hashes. nil/empty when the
-	// DB has never been written (fresh store).
-	ModuleLtHashes map[string]*lthash.LtHash
-
-	// ModuleStats holds the auxiliary key-count / byte totals of each module's
-	// keys within this DB, keyed by module name and mirroring ModuleLtHashes.
-	// Consensus-irrelevant; per-DB / global totals are derived on demand.
-	// nil/empty when the DB has never been written (fresh store).
-	ModuleStats map[string]lthash.ModuleStats
 }

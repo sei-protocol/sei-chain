@@ -5,6 +5,7 @@
 // Requires a running autobahn Docker cluster. Run via:
 //
 //	make autobahn-integration-test
+//	make autobahn-evmonly-integration-test
 //
 // Or directly (cluster must already be up):
 //
@@ -13,17 +14,29 @@ package autobahn
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
+	tmconfig "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/testutil/evmtest"
@@ -52,9 +65,12 @@ const (
 	autobahnSettleDelay = 30 * time.Second
 
 	// Fullnode sidecar lifecycle (TestMain).
-	fullnodeContainer   = "sei-rpc-node"
-	fullnodeBootTimeout = 5 * time.Minute
-	fullnodeBootPoll    = 5 * time.Second
+	fullnodeContainer = "sei-rpc-node"
+	// fullnodeStartTimeout bounds `make` getting the container running (image
+	// build/pull); fullnodeBootTimeout bounds the node's own boot after that.
+	fullnodeStartTimeout = 10 * time.Minute
+	fullnodeBootTimeout  = 5 * time.Minute
+	fullnodeBootPoll     = 5 * time.Second
 	// evmRPCURLOnContainerLocalhost is the EVM RPC address inside the
 	// rpc-node container — used with `docker exec ... curl` for readiness
 	// checks (the rpc-node's 8545 isn't host-published).
@@ -75,6 +91,17 @@ const (
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
 	testRecipientEVM  = "0x1000000000000000000000000000000000000001"
+
+	// prebuiltImagesEnv selects run-rpc-node-skipbuild-ci for the sidecar, which
+	// runs the already present sei-chain/rpcnode image instead of rebuilding it.
+	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
+
+	evmOnlyEnv         = "AUTOBAHN_EVMONLY"
+	evmOnlyLoadTxs     = 4_000
+	evmOnlyLoadTimeout = 3 * time.Minute
+	evmOnlyMetricsURL  = "http://127.0.0.1:26660/metrics"
+	evmOnlyNextBlock   = "tendermint_internal_autobahn_data_next_block"
+	evmOnlyTxLatency   = "tendermint_internal_autobahn_data_latency_count"
 )
 
 var (
@@ -196,6 +223,25 @@ func assertAutobahnEnabled(t *testing.T) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("autobahn not enabled on %s (no 'GigaRouter initialized' in container log): %v\n%s",
 				name, err, out)
+		}
+	}
+}
+
+func evmOnlyEnabled() bool {
+	return os.Getenv(evmOnlyEnv) == "true"
+}
+
+func prebuiltImages() bool {
+	return os.Getenv(prebuiltImagesEnv) == "true"
+}
+
+func assertEVMOnlyEnabled(t *testing.T) {
+	t.Helper()
+	for _, name := range listRunningNodes(t) {
+		cmd := exec.Command("docker", "exec", name, "sh", "-c",
+			"grep -q 'Autobahn EVM-only execution enabled with disk-backed Giga storage' build/generated/logs/seid-*.log")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("EVM-only execution not enabled on %s: %v\n%s", name, err, out)
 		}
 	}
 }
@@ -337,10 +383,12 @@ func TestMain(m *testing.M) {
 		teardownCluster() // best-effort
 		os.Exit(1)
 	}
-	if err := setupFullnodeNode(); err != nil {
-		fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
-		teardownCluster()
-		os.Exit(1)
+	if !evmOnlyEnabled() {
+		if err := setupFullnodeNode(); err != nil {
+			fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
+			teardownCluster()
+			os.Exit(1)
+		}
 	}
 	code := m.Run()
 	teardownCluster()
@@ -447,27 +495,53 @@ func setupFullnodeNode() error {
 	if clusterSize == 0 {
 		return fmt.Errorf("no sei-node-* containers found; setupCluster must run first")
 	}
-	cmd := exec.Command("make", "run-rpc-node-skipbuild")
+	target := "run-rpc-node-skipbuild"
+	if prebuiltImages() {
+		target += "-ci"
+	}
+	cmd := exec.Command("make", target)
 	cmd.Env = append(os.Environ(), "AUTOBAHN=true", fmt.Sprintf("CLUSTER_SIZE=%d", clusterSize))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start make run-rpc-node-skipbuild: %w", err)
+		return fmt.Errorf("start make %s: %w", target, err)
 	}
 	// Reap the process when it eventually exits (e.g. on container kill);
 	// not blocking on Wait here since the container runs for the duration
 	// of the test suite.
-	go func() { _ = cmd.Wait() }()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
 
+	// Phase 1: wait for the container to exist and run. Anything `make` does
+	// before `docker run` (image build, pull) lands here, not in the boot budget.
+	startDeadline := time.Now().Add(fullnodeStartTimeout)
+	for !fullnodeRunning() {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("make %s exited before %s was running: %v", target, fullnodeContainer, err)
+		default:
+		}
+		if !time.Now().Before(startDeadline) {
+			return fmt.Errorf("fullnode sidecar container didn't start within %s", fullnodeStartTimeout)
+		}
+		time.Sleep(fullnodeBootPoll)
+	}
+
+	// Phase 2: the node's own boot.
 	deadline := time.Now().Add(fullnodeBootTimeout)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("make %s exited while %s was booting: %v", target, fullnodeContainer, err)
+		default:
+		}
 		if fullnodeRunning() && fullnodeEVMReady() {
 			fmt.Println("fullnode sidecar is ready")
 			return nil
 		}
 		time.Sleep(fullnodeBootPoll)
 	}
-	return fmt.Errorf("fullnode sidecar didn't come up within %s", fullnodeBootTimeout)
+	return fmt.Errorf("fullnode sidecar didn't come up within %s of the container starting", fullnodeBootTimeout)
 }
 
 func fullnodeRunning() bool {
@@ -564,12 +638,214 @@ func TestAutobahn(t *testing.T) {
 	// validator sets.
 	maxFaults = (clusterSize - 1) / 3
 	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
+	if evmOnlyEnabled() {
+		t.Run("EVMOnlyLoad", testEVMOnlyLoad)
+		return
+	}
 
 	t.Run("BlockProduction", testBlockProduction)
 	t.Run("EVMTransfer", testEVMTransfer)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
 	t.Run("Recovery", testRecovery)
+}
+
+type evmOnlyLoadState struct{}
+
+func (evmOnlyLoadState) SetBalance(common.Address, *big.Int)               {}
+func (evmOnlyLoadState) SetCode(common.Address, []byte)                    {}
+func (evmOnlyLoadState) SetState(common.Address, common.Hash, common.Hash) {}
+
+func testEVMOnlyLoad(t *testing.T) {
+	assertAutobahnEnabled(t)
+	assertEVMOnlyEnabled(t)
+	assertEVMOnlyTendermintRPCDisabled(t)
+	if clusterSize != 4 {
+		t.Fatalf("EVM-only Docker load test requires four validators, got %d", clusterSize)
+	}
+
+	workload, err := scenarios.NewTransferWorkload(scenarios.Config{
+		TxsPerBlock:   evmOnlyLoadTxs,
+		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID),
+		GasPrice:      big.NewInt(1_000_000_000),
+		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
+		TransferValue: big.NewInt(1),
+		TxGasLimit:    21_000,
+	}, evmOnlyLoadState{})
+	if err != nil {
+		t.Fatalf("create EVM-only transfer workload: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), evmOnlyLoadTimeout)
+	defer cancel()
+	block, err := workload.BuildBlock(ctx, 1)
+	if err != nil {
+		t.Fatalf("build EVM-only transfer workload: %v", err)
+	}
+
+	clients := make([]*ethrpc.Client, clusterSize)
+	for i := range clients {
+		client, err := ethrpc.DialContext(ctx, fmt.Sprintf("http://localhost:%d", 8545+2*i))
+		if err != nil {
+			t.Fatalf("create node %d EVM RPC client: %v", i, err)
+		}
+		clients[i] = client
+		t.Cleanup(client.Close)
+	}
+	started := time.Now()
+	group, groupCtx := errgroup.WithContext(ctx)
+	for nodeIndex, client := range clients {
+		nodeIndex, client := nodeIndex, client
+		group.Go(func() error {
+			for txIndex := nodeIndex; txIndex < len(block.Txs); txIndex += len(clients) {
+				var hash common.Hash
+				if err := client.CallContext(groupCtx, &hash, "eth_sendRawTransaction", hexutil.Bytes(block.Txs[txIndex])); err != nil {
+					return fmt.Errorf("send raw transaction %d through node %d: %w", txIndex, nodeIndex, err)
+				}
+				if want := crypto.Keccak256Hash(block.Txs[txIndex]); hash != want {
+					return fmt.Errorf("send raw transaction %d through node %d: hash %s, want %s", txIndex, nodeIndex, hash, want)
+				}
+			}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	lastHeight, included := waitForEVMOnlyTxs(t, ctx, listRunningNodes(t), len(block.Txs))
+	assertEVMOnlyReceipts(t, ctx, clients, block.Txs)
+	elapsed := time.Since(started)
+	t.Logf("Autobahn finalized %d raw EVM transfers through %d validators in %s (%.0f tx/s)",
+		included, clusterSize, elapsed.Round(time.Millisecond), float64(included)/elapsed.Seconds())
+	t.Logf("all validators executed through at least height %d", lastHeight)
+}
+
+func assertEVMOnlyReceipts(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
+	t.Helper()
+	for nodeIndex, client := range clients {
+		tx := new(ethtypes.Transaction)
+		if err := tx.UnmarshalBinary(txs[nodeIndex]); err != nil {
+			t.Fatalf("decode EVM-only transaction %d: %v", nodeIndex, err)
+		}
+		txHash := tx.Hash()
+		var got *struct {
+			BlockHash        common.Hash     `json:"blockHash"`
+			BlockNumber      hexutil.Uint64  `json:"blockNumber"`
+			GasUsed          hexutil.Uint64  `json:"gasUsed"`
+			Status           hexutil.Uint64  `json:"status"`
+			To               *common.Address `json:"to"`
+			TransactionHash  common.Hash     `json:"transactionHash"`
+			TransactionIndex hexutil.Uint64  `json:"transactionIndex"`
+		}
+		if err := client.CallContext(ctx, &got, "eth_getTransactionReceipt", txHash); err != nil {
+			t.Fatalf("read EVM-only receipt %s from node %d: %v", txHash, nodeIndex, err)
+		}
+		if got == nil {
+			t.Fatalf("node %d returned null for finalized EVM-only receipt %s", nodeIndex, txHash)
+		}
+		if got.BlockHash == (common.Hash{}) {
+			t.Fatalf("node %d returned an empty block hash for receipt %s", nodeIndex, txHash)
+		}
+		if got.BlockNumber == 0 {
+			t.Fatalf("node %d returned block zero for receipt %s", nodeIndex, txHash)
+		}
+		if got.GasUsed != hexutil.Uint64(21_000) {
+			t.Fatalf("node %d returned gasUsed %d for receipt %s", nodeIndex, got.GasUsed, txHash)
+		}
+		if got.Status != hexutil.Uint64(ethtypes.ReceiptStatusSuccessful) {
+			t.Fatalf("node %d returned status %d for receipt %s", nodeIndex, got.Status, txHash)
+		}
+		if got.To == nil || tx.To() == nil || *got.To != *tx.To() {
+			t.Fatalf("node %d returned to %v for receipt %s", nodeIndex, got.To, txHash)
+		}
+		if got.TransactionHash != txHash {
+			t.Fatalf("node %d returned transaction hash %s, want %s", nodeIndex, got.TransactionHash, txHash)
+		}
+	}
+}
+
+func assertEVMOnlyTendermintRPCDisabled(t *testing.T) {
+	t.Helper()
+	client := &http.Client{Timeout: time.Second}
+	for i := range clusterSize {
+		response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/status", 26657+3*i))
+		if err != nil {
+			continue
+		}
+		_ = response.Body.Close()
+		t.Fatalf("node %d unexpectedly serves Tendermint RPC with HTTP status %s", i, response.Status)
+	}
+}
+
+func waitForEVMOnlyTxs(t *testing.T, ctx context.Context, containers []string, target int) (int64, int) {
+	t.Helper()
+	for {
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("waiting for %d EVM-only transactions on every validator: %v", target, err)
+		}
+		minHeight := int64(^uint64(0) >> 1)
+		minExecuted := target
+		allExecuted := true
+		for _, container := range containers {
+			height, executed, err := evmOnlyExecutionProgress(ctx, container)
+			if err != nil || executed < target {
+				allExecuted = false
+				break
+			}
+			minHeight = min(minHeight, height)
+			minExecuted = min(minExecuted, executed)
+		}
+		if allExecuted {
+			return minHeight, minExecuted
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func evmOnlyExecutionProgress(ctx context.Context, container string) (int64, int, error) {
+	out, err := exec.CommandContext(ctx, "docker", "exec", container, "curl", "-fsS", evmOnlyMetricsURL).Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	nextBlock, ok := prometheusSample(out, evmOnlyNextBlock, `stage="execute"`)
+	if !ok || nextBlock < 1 {
+		return 0, 0, fmt.Errorf("missing EVM-only execution height metric")
+	}
+	executed, ok := prometheusSample(out, evmOnlyTxLatency, `resource="txs"`, `stage="execute"`)
+	if !ok {
+		return 0, 0, fmt.Errorf("missing EVM-only executed transaction metric")
+	}
+	return int64(nextBlock) - 1, int(executed), nil
+}
+
+func prometheusSample(metrics []byte, name string, labels ...string) (float64, bool) {
+	scanner := bufio.NewScanner(strings.NewReader(string(metrics)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, name+"{") {
+			continue
+		}
+		matches := true
+		for _, label := range labels {
+			if !strings.Contains(line, label) {
+				matches = false
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0, false
+		}
+		value, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			return 0, false
+		}
+		return value, true
+	}
+	return 0, false
 }
 
 // restartNode re-invokes the container's seid-start script inside sei-node-<i>.
@@ -654,7 +930,7 @@ func testBlockProduction(t *testing.T) {
 // assertTmRPCEndpoints exercises the tmRPC surface that PR #3310 wires up
 // under Autobahn (env.Block, env.BlockResults, env.BlockByHash, env.Validators).
 // One call per endpoint is enough — these handlers are pure RPC translation
-// over the same data.State / GenDoc plumbing, so a single positive case at
+// over data.State / the epoch registry, so a single positive case at
 // a real height catches both wrong-routing (e.g. CometBFT path returning
 // nulls because BlockStore is empty) and shape-drift regressions.
 func assertTmRPCEndpoints(t *testing.T, h int64) {
@@ -698,19 +974,28 @@ func assertTmRPCEndpoints(t *testing.T, h int64) {
 		t.Fatalf("/block_results?height=%d: got height=%d", h, rbr.Height)
 	}
 
-	// /validators at h: committee is fixed at genesis under Autobahn, so
-	// any retained height returns it. block_height in the response must
-	// match the requested height (catches the old "stuck at 1" StateStore
-	// behavior).
+	// /validators at h: committee covering that global block. Omitted
+	// height is Comet's "latest" and must resolve to the app tip
+	// (autobahnCheckAndGetHeight → LastBlockHeight).
 	var rv coretypes.ResultValidators
 	fetchTmRPC(t, fmt.Sprintf("%s/validators?height=%d", tmRPCBase, h), &rv)
 	if rv.BlockHeight != h {
-		t.Fatalf("/validators?height=%d: got block_height=%d (StateStore-stuck-at-1 regression?)",
-			h, rv.BlockHeight)
+		t.Fatalf("/validators?height=%d: got block_height=%d", h, rv.BlockHeight)
 	}
-	if rv.Total < 1 || len(rv.Validators) < 1 {
-		t.Fatalf("/validators?height=%d: empty committee (total=%d, count=%d)",
-			h, rv.Total, len(rv.Validators))
+	if rv.Total != clusterSize || len(rv.Validators) != clusterSize {
+		t.Fatalf("/validators?height=%d: committee size total=%d count=%d, want %d",
+			h, rv.Total, len(rv.Validators), clusterSize)
+	}
+	var latest coretypes.ResultValidators
+	fetchTmRPC(t, tmRPCBase+"/validators", &latest)
+	tip := currentHeight(t)
+	if latest.BlockHeight < h || latest.BlockHeight > tip {
+		t.Fatalf("/validators: got block_height=%d, want in [%d, %d] (requested height, /abci_info last_block_height)",
+			latest.BlockHeight, h, tip)
+	}
+	if latest.Total != clusterSize || len(latest.Validators) != clusterSize {
+		t.Fatalf("/validators: committee size total=%d count=%d, want %d",
+			latest.Total, len(latest.Validators), clusterSize)
 	}
 }
 

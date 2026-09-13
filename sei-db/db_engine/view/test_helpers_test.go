@@ -379,6 +379,15 @@ func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
 	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
 }
 
+// commitShard seals the shard's current version, failing the test if its once-per-block cache
+// maintenance reported a failure. Returns the new version number.
+func commitShard(t *testing.T, s *shard) uint64 {
+	t.Helper()
+	version, err := s.Commit()
+	require.NoError(t, err)
+	return version
+}
+
 // openIteratorCount reports how many iterators are currently open on the manager. Every iterator
 // registers with every shard, so any one shard's count is the manager's count.
 func openIteratorCount(manager ViewManager) uint64 {

@@ -210,6 +210,28 @@ func TestSnapshotWriterErrorHandling(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestSnapshotWriterRejectsInvalidHashLengths(t *testing.T) {
+	t.Run("leaf", func(t *testing.T) {
+		var leaves bytes.Buffer
+		writer := &snapshotWriter{leavesWriter: &leaves}
+
+		err := writer.writeLeafDirect(1, 1, 0, nil)
+
+		require.ErrorContains(t, err, "invalid leaf hash size 0, expected 32")
+		require.Empty(t, leaves.Bytes())
+	})
+
+	t.Run("branch", func(t *testing.T) {
+		var nodes bytes.Buffer
+		writer := &snapshotWriter{nodesWriter: &nodes}
+
+		err := writer.writeBranchDirect(1, 2, 1, 0, 1, make([]byte, SizeHash-1))
+
+		require.ErrorContains(t, err, "invalid branch hash size 31, expected 32")
+		require.Empty(t, nodes.Bytes())
+	})
+}
+
 // TestEmptySnapshotWrite tests writing an empty snapshot
 func TestEmptySnapshotWrite(t *testing.T) {
 	tree := New(0)

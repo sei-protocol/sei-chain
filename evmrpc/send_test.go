@@ -15,6 +15,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/stretchr/testify/require"
+
 	legacyabci "github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -24,7 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/stretchr/testify/require"
 )
 
 type sendProxyClient struct {
@@ -34,7 +35,9 @@ type sendProxyClient struct {
 
 type sendCaptureClient struct {
 	*MockClient
-	tx tmtypes.Tx
+	tx          tmtypes.Tx
+	syncCount   int
+	commitCount int
 }
 
 func (c *sendProxyClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
@@ -45,8 +48,35 @@ func (c *sendProxyClient) EvmProxy(common.Address) utils.Option[*rpc.Client] {
 }
 
 func (c *sendCaptureClient) BroadcastTx(_ context.Context, tx tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
+	c.syncCount++
 	c.tx = tx
 	return &coretypes.ResultBroadcastTx{Code: 0}, nil
+}
+
+func (c *sendCaptureClient) BroadcastTxCommit(_ context.Context, tx tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
+	c.commitCount++
+	c.tx = tx
+	return &coretypes.ResultBroadcastTxCommit{}, nil
+}
+
+func newTestSendAPI(tmClient client.LocalClient, sendConfig *evmrpc.SendConfig) *evmrpc.SendAPI {
+	return evmrpc.NewSendAPI(
+		tmClient,
+		func(int64) client.TxConfig { return TxConfig },
+		sendConfig,
+		EVMKeeper,
+		legacyabci.BeginBlockKeepers{},
+		func(int64) sdk.Context { return Ctx },
+		"",
+		nil,
+		nil,
+		nil,
+		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
+		evmrpc.NewBlockCache(1),
+		nil,
+		nil,
+	)
 }
 
 func TestMnemonicToPrivateKey(t *testing.T) {
@@ -181,30 +211,57 @@ func TestSendRawTransactionUsesGasLimitWhenSimulationDisabled(t *testing.T) {
 	require.NoError(t, err)
 
 	tmClient := &sendCaptureClient{MockClient: &MockClient{}}
-	sendAPI := evmrpc.NewSendAPI(
-		tmClient,
-		func(int64) client.TxConfig { return TxConfig },
-		evmrpc.NewSendConfig(false, false),
-		EVMKeeper,
-		legacyabci.BeginBlockKeepers{},
-		func(int64) sdk.Context { return Ctx },
-		"",
-		nil,
-		nil,
-		nil,
-		evmrpc.ConnectionTypeHTTP,
-		utils.None[time.Duration](),
-		evmrpc.NewBlockCache(1),
-		nil,
-		nil,
-	)
+	sendAPI := newTestSendAPI(tmClient, evmrpc.NewSendConfig(false, false, false))
 
 	hash, err := sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash(), hash)
 	require.NotNil(t, tmClient.tx)
+	require.Equal(t, 1, tmClient.syncCount)
+	require.Equal(t, 0, tmClient.commitCount)
 
 	decodedTx, err := TxConfig.TxDecoder()(tmClient.tx)
 	require.NoError(t, err)
 	require.Equal(t, gasLimit, decodedTx.GetGasEstimate())
+}
+
+func TestSendRawTransactionSlowOnAutobahnUsesBroadcastTx(t *testing.T) {
+	ethTxBytes, tx := mustSignTestTx(t)
+	tmClient := &sendCaptureClient{MockClient: &MockClient{}}
+	sendAPI := newTestSendAPI(tmClient, evmrpc.NewSendConfig(true, false, true))
+
+	hash, err := sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash(), hash)
+	require.Equal(t, 1, tmClient.syncCount)
+	require.Equal(t, 0, tmClient.commitCount)
+}
+
+func TestSendRawTransactionSlowOnCometUsesBroadcastTxCommit(t *testing.T) {
+	ethTxBytes, tx := mustSignTestTx(t)
+	tmClient := &sendCaptureClient{MockClient: &MockClient{}}
+	sendAPI := newTestSendAPI(tmClient, evmrpc.NewSendConfig(true, false, false))
+
+	hash, err := sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash(), hash)
+	require.Equal(t, 0, tmClient.syncCount)
+	require.Equal(t, 1, tmClient.commitCount)
+}
+
+func mustSignTestTx(t *testing.T) ([]byte, *ethtypes.Transaction) {
+	t.Helper()
+	to := common.HexToAddress("010203")
+	_, tx := buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     1,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   EVMKeeper.ChainID(Ctx),
+	})
+	ethTxBytes, err := tx.MarshalBinary()
+	require.NoError(t, err)
+	return ethTxBytes, tx
 }

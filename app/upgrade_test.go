@@ -1,16 +1,20 @@
 package app_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	storekeys "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/upgradetest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,6 +23,76 @@ func TestUpgradesListIsSorted(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	testWrapper.App.RegisterUpgradeHandlers()
+}
+
+func TestUpgradePlanNamesMatchRegisteredHandlers(t *testing.T) {
+	shipped := app.ReleaseUpgrades()
+	require.NotEmpty(t, shipped)
+	t.Setenv("UPGRADE_VERSION_LIST", strings.Join(shipped, "\n"))
+
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	testWrapper.App.RegisterUpgradeHandlers()
+
+	for _, name := range shipped {
+		require.True(t, testWrapper.App.UpgradeKeeper.HasHandler(name),
+			"no handler registered for shipped upgrade %q", name)
+	}
+
+	boundary, err := upgradetest.Current()
+	require.NoError(t, err)
+	require.Contains(t, shipped, boundary.To,
+		"go run ./upgradetest/cmd/boundary to prints %q, which is not a shipped upgrade", boundary.To)
+
+	names := []string{app.LatestUpgrade}
+	if boundary.To != app.LatestUpgrade {
+		names = append(names, boundary.To)
+	}
+	for _, name := range names {
+		for _, miss := range upgradeNameNearMisses(name) {
+			require.NotEqual(t, name, miss)
+			require.False(t, testWrapper.App.UpgradeKeeper.HasHandler(miss),
+				"handler registered for near-miss name %q of %q", miss, name)
+
+			require.NoError(t, testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{
+				Name:   miss,
+				Height: testWrapper.Ctx.BlockHeight(),
+			}))
+			var panicked any
+			func() {
+				defer func() { panicked = recover() }()
+				upgrade.BeginBlocker(testWrapper.App.UpgradeKeeper, testWrapper.Ctx)
+			}()
+			requireUpgradeNeededPanic(t, panicked, miss, testWrapper.Ctx.BlockHeight())
+			require.Zero(t, testWrapper.App.UpgradeKeeper.GetDoneHeight(testWrapper.Ctx, name),
+				"near-miss plan %q applied the handler for %q", miss, name)
+			require.Zero(t, testWrapper.App.UpgradeKeeper.GetDoneHeight(testWrapper.Ctx, miss),
+				"near-miss plan %q was applied", miss)
+			plan, found := testWrapper.App.UpgradeKeeper.GetUpgradePlan(testWrapper.Ctx)
+			require.True(t, found, "near-miss plan %q was cleared instead of halting", miss)
+			require.Equal(t, miss, plan.Name)
+		}
+	}
+}
+
+// upgradeNameNearMisses returns plausible misspellings of an upgrade plan name.
+func upgradeNameNearMisses(name string) []string {
+	return []string{
+		name + ".0",
+		strings.ToUpper(name),
+		" " + name + " ",
+	}
+}
+
+func requireUpgradeNeededPanic(t *testing.T, panicked any, name string, height int64) {
+	t.Helper()
+	require.NotNil(t, panicked, "plan %q was produced without a handler", name)
+	msg := fmt.Sprint(panicked)
+	require.Contains(t, msg, fmt.Sprintf(`UPGRADE "%s" NEEDED`, name),
+		"halt panic is missing the upgrade name: %v", panicked)
+	require.Contains(t, msg, fmt.Sprintf("height: %d", height),
+		"halt panic is missing plan height %d: %v", height, panicked)
 }
 
 // Test community tax param is set to 0 as part of upgrade 1.2.3beta

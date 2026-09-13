@@ -9,14 +9,14 @@ const ReceiptStoreSectionName = "receipt-store"
 
 // Registration puts this section in the configuration registry.
 //
-// Two of the struct's fields carry the tag that excludes a field from configuration, so they declare no
-// key. KeepRecent is assigned from the global min-retain-blocks flag at the app layer, after this reader
-// has returned, and ExternalPruning by whatever constructs the garbage collector. A key for either would
-// be one an operator can write that the assignment then discards, which is a key reaching no field.
+// Three of the struct's fields carry the tag that excludes a field from configuration, so they declare
+// no key. KeepRecent is assigned from the global min-retain-blocks flag at the app layer, after this
+// reader has returned, and ExternalPruning by whatever constructs the garbage collector. A key for
+// either would be one an operator can write that the assignment then discards.
 //
-// The reader resolves one further key that this section does not declare: the retired spelling of the
-// backend, which it answers by refusing to start. Declaring it would offer an operator a key whose only
-// outcome is a stopped node.
+// EnableReadWriteMetrics is still read by ReadReceiptConfig so it can be set without appearing in
+// app.toml. The reader also resolves the retired spelling of the backend, which it answers by
+// refusing to start; declaring that one would offer a key whose only outcome is a stopped node.
 func init() {
 	registry.RegisterSection(ReceiptStoreSectionName, &ReceiptStoreConfig{}, receiptStoreDefaults)
 }

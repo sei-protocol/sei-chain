@@ -89,6 +89,12 @@ const (
 	receiptBackendLittIdx = "littidx"
 
 	littReceiptTableName = "receipts"
+	// littValuesDirName is the store-directory subdirectory holding the littdb
+	// receipt bodies.
+	littValuesDirName = "littdb"
+	// littIndexDirName is the store-directory subdirectory holding the pebble tag
+	// index and the store's version metadata.
+	littIndexDirName = "log-index"
 	// littFlushInterval is roughly one flush per block at Giga throughput (a
 	// block is ~7ms), bounding crash loss to about a single block. Flushing this
 	// often is only cheap because litt flushes its keymap asynchronously, off the
@@ -138,7 +144,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create receipt store directory: %w", err)
 	}
-	littConfig, err := litt.DefaultConfig(filepath.Join(cfg.DBDirectory, "littdb"))
+	littConfig, err := litt.DefaultConfig(filepath.Join(cfg.DBDirectory, littValuesDirName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build littdb config: %w", err)
 	}
@@ -189,7 +195,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	}
 
 	indexCfg := pebbledb.DefaultConfig()
-	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, "log-index")
+	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, littIndexDirName)
 	index, err := pebbledb.Open(context.Background(), &indexCfg)
 	if err != nil {
 		_ = values.Close()

@@ -264,7 +264,10 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	if block == nil {
 		return nil, nil
 	}
-	filteredMsgs := t.getFilteredMsgs(block)
+	filteredMsgs, err := t.getFilteredMsgs(block)
+	if err != nil {
+		return nil, err
+	}
 	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper, t.cacheCreationMutex, t.globalBlockCache)
 	if !found {
 		return nil, nil
@@ -331,7 +334,10 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
-	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
+	msgs, err := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 	if txIndex >= uint32(len(msgs)) { //nolint:gosec
 		// Ethereum JSON-RPC: eth_getTransactionByBlock*AndIndex returns null when the index has no transaction.
 		return nil, nil
@@ -394,7 +400,7 @@ func (t *TransactionAPI) Sign(ctx context.Context, addr common.Address, data hex
 	return nil, errors.New("address does not have hosted key")
 }
 
-func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) []indexedMsg {
+func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) ([]indexedMsg, error) {
 	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, false, t.cacheCreationMutex, t.globalBlockCache)
 }
 
@@ -460,7 +466,10 @@ func encodeReceipt(
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, cacheCreationMutex, globalBlockCache)
+	msgs, err := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k, cacheCreationMutex, globalBlockCache)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {

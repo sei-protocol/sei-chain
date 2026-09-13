@@ -14,6 +14,7 @@ type AppOptions interface {
 }
 
 const (
+	flagRSEnable               = "receipt-store.rs-enable"
 	flagRSDBDirectory          = "receipt-store.db-directory"
 	flagRSBackend              = "receipt-store.rs-backend"
 	flagRSMisnamedBackend      = "receipt-store.backend"
@@ -29,6 +30,12 @@ const DefaultReceiptLogFilterParallelism = 16
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
+	// Enable reports whether the receipt store is opened. A node with it off keeps no receipt
+	// history, and its EVM RPC listeners refuse to start, since most eth_* methods read a
+	// block's transactions or receipts.
+	// defaults to true
+	Enable bool `mapstructure:"rs-enable"`
+
 	// DBDirectory defines the directory to store the receipt store db files
 	// If not explicitly set, default to application home directory
 	// default to empty
@@ -65,9 +72,9 @@ type ReceiptStoreConfig struct {
 	// Only the littidx backend supports it; newReceiptBackend rejects it on pebbledb.
 	ExternalPruning bool `mapstructure:"-"`
 
-	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
-	// defaults to false
-	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+	// EnableReadWriteMetrics emits estimated read/write counters for Pebble-backed receipt storage.
+	// Not written to app.toml; ReadReceiptConfig still honors receipt-store.enable-read-write-metrics.
+	EnableReadWriteMetrics bool `mapstructure:"-"`
 
 	// LogFilterParallelism bounds how many blocks a single eth_getLogs query
 	// scans concurrently in the littidx backend; per-block tag scans and litt
@@ -82,6 +89,7 @@ type ReceiptStoreConfig struct {
 // for setting KeepRecent from the global min-retain-blocks flag.
 func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	return ReceiptStoreConfig{
+		Enable:               true,
 		Backend:              "pebbledb",
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           0,
@@ -95,6 +103,13 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 	cfg := DefaultReceiptStoreConfig()
 	if v := opts.Get(flagRSMisnamedBackend); v != nil {
 		return cfg, fmt.Errorf("unsupported receipt-store config key %q; use %q instead", flagRSMisnamedBackend, flagRSBackend)
+	}
+	if v := opts.Get(flagRSEnable); v != nil {
+		enable, err := cast.ToBoolE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Enable = enable
 	}
 	if v := opts.Get(flagRSDBDirectory); v != nil {
 		dbDirectory, err := cast.ToStringE(v)

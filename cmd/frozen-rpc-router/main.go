@@ -32,7 +32,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	router, err := newRouter(cfg.liveNode, frozenNodes, nil, cfg.maxRequestBodySize)
+	router, err := newRouter(cfg.liveNode, frozenNodes, nil, cfg.maxRequestBodySize, cfg.maxBlockReferenceDepth, cfg.batchRequestLimit)
 	if err != nil {
 		return err
 	}
@@ -41,6 +41,7 @@ func run() error {
 		Addr:              cfg.listenAddress,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      cfg.writeTimeout,
 		IdleTimeout:       2 * time.Minute,
 	}
 
@@ -48,7 +49,7 @@ func run() error {
 	defer stop()
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("frozen RPC router listening on %s", cfg.listenAddress)
+		log.Printf("frozen RPC router listening on %s", cfg.listenAddress) //nolint:gosec // listenAddress is trusted local process configuration.
 		serveErr <- server.ListenAndServe()
 	}()
 

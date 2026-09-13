@@ -11,6 +11,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -129,6 +131,53 @@ func (c *Committee) LaneQuorum() uint64 {
 // NewCommittee is genesis: Joined = 0 for every member.
 func NewCommittee(weights map[PublicKey]uint64) (*Committee, error) {
 	return newCommittee(nil, weights, 0)
+}
+
+// Equal reports whether c and other have the same validators, join epochs, and weights.
+func (c *Committee) Equal(other *Committee) bool {
+	return maps.Equal(c.weights, other.weights) && maps.Equal(c.lanes, other.lanes)
+}
+
+var CommitteeConv = protoutils.Conv[*Committee, *pb.Committee]{
+	Encode: func(c *Committee) *pb.Committee {
+		record := &pb.Committee{Members: make([]*pb.EpochMember, 0, c.Lanes().Len())}
+		for lane := range c.Lanes().All() {
+			record.Members = append(record.Members, &pb.EpochMember{
+				LaneId: LaneIDConv.Encode(lane),
+				Weight: utils.Alloc(c.Weight(lane.Validator)),
+			})
+		}
+		return record
+	},
+	Decode: func(record *pb.Committee) (*Committee, error) {
+		if record == nil {
+			return nil, errors.New("missing")
+		}
+		weights := make(map[PublicKey]uint64, len(record.Members))
+		lanes := make(map[PublicKey]LaneID, len(record.Members))
+		for i, member := range record.Members {
+			if member == nil {
+				return nil, fmt.Errorf("member %d: missing", i)
+			}
+			if member.Weight == nil {
+				return nil, fmt.Errorf("member %d weight: missing", i)
+			}
+			if *member.Weight == 0 {
+				return nil, fmt.Errorf("member %d weight is 0", i)
+			}
+			lane, err := LaneIDConv.DecodeReq(member.LaneId)
+			if err != nil {
+				return nil, fmt.Errorf("member %d lane: %w", i, err)
+			}
+			validator := lane.Validator
+			if _, ok := weights[validator]; ok {
+				return nil, fmt.Errorf("duplicate public key %s", validator)
+			}
+			weights[validator] = *member.Weight
+			lanes[validator] = lane
+		}
+		return newCommittee(lanes, weights, 0)
+	},
 }
 
 // DeriveNext builds the committee for epoch e>0 from this committee:

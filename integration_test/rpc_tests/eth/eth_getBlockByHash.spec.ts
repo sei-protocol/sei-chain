@@ -10,6 +10,7 @@ import {
     sendRevertingTx,
     signBelowIntrinsicTx,
     assertCanonicalHeader,
+    assertSeiMilliTimestamp,
     assertCanonicalTx,
     assertGasAccounting,
     assertActualBytesAndSize,
@@ -72,6 +73,7 @@ describe('eth_getBlockByHash', function () {
         it('returns every canonical header field and echoes the requested hash', async () => {
             const block = await byHash(sei, richSei.hash, false);
             assertCanonicalHeader(block, { hasTxs: true });
+            assertSeiMilliTimestamp(block);
             expect(block.hash).to.equal(richSei.hash);
             expect(BigInt(block.number)).to.equal(BigInt(richSei.number));
         });

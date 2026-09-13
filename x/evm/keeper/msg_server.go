@@ -10,7 +10,6 @@ import (
 	"runtime/debug"
 	"strings"
 
-	armonmetrics "github.com/armon/go-metrics"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -25,7 +24,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
-	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
@@ -85,7 +83,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
 				debug.PrintStack()
 				logger.Error("EVM PANIC", "err", pe)
-				seimetrics.SafeTelemetryIncrCounter(1, types.ModuleName, "panics") // TODO(PLT-330): remove once evm_panics_total verified
 				evmKeeperMetrics.panics.Add(goCtx, 1)
 			}
 			panic(pe)
@@ -93,7 +90,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		if err != nil {
 			logger.Error("Got EVM state transition error (not VM error)", "err", err)
 
-			seimetrics.SafeTelemetryIncrCounterWithLabels([]string{types.ModuleName, "errors", "state_transition"}, 1, []armonmetrics.Label{{Name: "type", Value: err.Error()}}) // TODO(PLT-330): remove once evm_errors_total verified
 			evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "state_transition")))
 			return
 		}
@@ -103,7 +99,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			err = ferr
 			logger.Error("failed to finalize EVM stateDB", "err", err)
 
-			seimetrics.SafeTelemetryIncrCounterWithLabels([]string{types.ModuleName, "errors", "stateDB_finalize"}, 1, []armonmetrics.Label{{Name: "type", Value: err.Error()}}) // TODO(PLT-330): remove once evm_errors_total verified
 			evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "stateDB_finalize")))
 			return
 		}
@@ -132,17 +127,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			err = rerr
 			logger.Error("failed to write EVM receipt", "err", err)
 
-			seimetrics.SafeTelemetryIncrCounterWithLabels([]string{types.ModuleName, "errors", "write_receipt"}, 1, []armonmetrics.Label{{Name: "type", Value: err.Error()}}) // TODO(PLT-330): remove once evm_errors_total verified
 			evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "write_receipt")))
 			return
 		}
 
 		// Add metrics for receipt status
 		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
-			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "failed") // TODO(PLT-330): remove once evm_receipt_status_total verified
 			evmKeeperMetrics.receiptStatus.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("status", "failed")))
 		} else {
-			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "success") // TODO(PLT-330): remove once evm_receipt_status_total verified
 			evmKeeperMetrics.receiptStatus.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("status", "success")))
 		}
 
@@ -173,7 +165,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		serverRes.GasUsed = tx.Gas()
 		preExecutionFailure = true
 
-		seimetrics.SafeTelemetryIncrCounterWithLabels([]string{types.ModuleName, "errors", "apply_message"}, 1, []armonmetrics.Label{{Name: "type", Value: applyErr.Error()}}) // TODO(PLT-330): remove once evm_errors_total verified
 		evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "apply_message")))
 
 		return
@@ -183,7 +174,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	if res.Err != nil {
 		serverRes.VmError = res.Err.Error()
 
-		seimetrics.SafeTelemetryIncrCounterWithLabels([]string{types.ModuleName, "errors", "vm_execution"}, 1, []armonmetrics.Label{{Name: "type", Value: serverRes.VmError}}) // TODO(PLT-330): remove once evm_errors_total verified
 		evmKeeperMetrics.errors.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("type", "vm_execution")))
 	}
 

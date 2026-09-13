@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
@@ -34,6 +35,33 @@ func TestNewCommittee_FiltersOutZeroWeightValidators(t *testing.T) {
 	if got := committee.Weight(nonZeroWeightKey); got != 7 {
 		t.Fatalf("Weight() = %v, want 7", got)
 	}
+}
+
+func TestCommitteeEqual_IgnoresMapOrder(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenPublicKey(rng)
+	b := GenPublicKey(rng)
+	c1 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 1}))
+	c2 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{b: 1, a: 3}))
+	require.True(t, c1.Equal(c2))
+}
+
+func TestCommitteeEqual_IgnoresZeroWeights(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenPublicKey(rng)
+	b := GenPublicKey(rng)
+	c1 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3}))
+	c2 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 0}))
+	require.True(t, c1.Equal(c2))
+}
+
+func TestCommitteeEqual_RejectsDifferentWeights(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenPublicKey(rng)
+	b := GenPublicKey(rng)
+	c1 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 1}))
+	c2 := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 3, b: 2}))
+	require.False(t, c1.Equal(c2))
 }
 
 func TestNewCommittee_RejectsZeroTotalWeight(t *testing.T) {
@@ -290,4 +318,45 @@ func TestDeriveNext_StayLeaveRejoin(t *testing.T) {
 	require.Equal(t, uint64(1), c3.Weight(d))
 	require.False(t, c3.HasLane(LaneID{Validator: d, Joined: 0}))
 	requireLanesSorted(t, c3)
+}
+
+func TestCommitteeConv_RejectsZeroWeight(t *testing.T) {
+	rng := utils.TestRng()
+	lane := GenLaneID(rng)
+	_, err := CommitteeConv.Decode(&pb.Committee{Members: []*pb.EpochMember{{
+		LaneId: LaneIDConv.Encode(lane),
+		Weight: utils.Alloc[uint64](0),
+	}}})
+	require.Error(t, err)
+}
+
+func TestCommitteeConv_RejectsDuplicatePublicKey(t *testing.T) {
+	rng := utils.TestRng()
+	lane := GenLaneID(rng)
+	member := &pb.EpochMember{
+		LaneId: LaneIDConv.Encode(lane),
+		Weight: utils.Alloc[uint64](1),
+	}
+	_, err := CommitteeConv.Decode(&pb.Committee{Members: []*pb.EpochMember{member, member}})
+	require.Error(t, err)
+}
+
+func TestCommitteeConv_PreservesJoined(t *testing.T) {
+	rng := utils.TestRng()
+	a := GenPublicKey(rng)
+	b := GenPublicKey(rng)
+	c := GenPublicKey(rng)
+	d := GenPublicKey(rng)
+	genesis := utils.OrPanic1(NewCommittee(map[PublicKey]uint64{a: 1, c: 3}))
+	src := utils.OrPanic1(genesis.DeriveNext(map[PublicKey]uint64{a: 2, b: 4, c: 3}, 4))
+	got, err := CommitteeConv.Decode(CommitteeConv.Encode(src))
+	require.NoError(t, err)
+	require.Equal(t, src.Lane(a).OrPanic("a"), got.Lane(a).OrPanic("a"))
+	require.Equal(t, src.Lane(b).OrPanic("b"), got.Lane(b).OrPanic("b"))
+	require.Equal(t, src.Lane(c).OrPanic("c"), got.Lane(c).OrPanic("c"))
+	require.Equal(t, uint64(2), got.Weight(a))
+	require.Equal(t, uint64(4), got.Weight(b))
+	require.Equal(t, uint64(3), got.Weight(c))
+	require.Equal(t, EpochIndex(4), got.Lane(b).OrPanic("b").Joined)
+	require.False(t, got.HasReplica(d))
 }

@@ -43,8 +43,10 @@ const (
 	MaxDBReadConcurrency = 16
 
 	// Default request limits (used as fallback values)
-	DefaultMaxBlockRange = 2000
-	DefaultMaxLogLimit   = 10000
+	DefaultMaxBlockRange        = 2000
+	DefaultMaxLogLimit          = 10000
+	DefaultMaxFilters           = 1000
+	DefaultMaxBlockFilterHashes = 1000
 
 	// global request rate limit, only applies to queries > RPSLimitThreshold
 	GlobalRPSLimit    = 30
@@ -201,6 +203,7 @@ type filter struct {
 
 	// BlocksSubscription
 	blockCursor string
+	blockHashes []common.Hash
 
 	// LogsSubscription
 	lastToHeight int64
@@ -262,24 +265,27 @@ func (h *logMergeHeap) Pop() interface{} {
 }
 
 type FilterAPI struct {
-	tmClient         client.LocalClient
-	filtersMu        sync.RWMutex
-	filters          map[ethrpc.ID]filter
-	toDelete         chan ethrpc.ID
-	filterConfig     *FilterConfig
-	logFetcher       *LogFetcher
-	connectionType   ConnectionType
-	namespace        string
-	shutdownCtx      context.Context
-	shutdownCancel   context.CancelFunc
-	globalRPSLimiter *rate.Limiter
+	tmClient            client.LocalClient
+	filtersMu           sync.RWMutex
+	filters             map[ethrpc.ID]filter
+	toDelete            chan ethrpc.ID
+	filterConfig        *FilterConfig
+	logFetcher          *LogFetcher
+	connectionType      ConnectionType
+	namespace           string
+	shutdownCtx         context.Context
+	shutdownCancel      context.CancelFunc
+	globalRPSLimiter    *rate.Limiter
+	blockHeaderNotifier *BlockHeaderNotifier
 }
 
 type FilterConfig struct {
-	timeout     time.Duration
-	maxLog      int64
-	maxLogBytes int64
-	maxBlock    int64
+	timeout              time.Duration
+	maxLog               int64
+	maxLogBytes          int64
+	maxBlock             int64
+	maxFilters           uint64
+	maxBlockFilterHashes uint64
 }
 
 type EventItemDataWrapper struct {
@@ -300,6 +306,7 @@ func NewFilterAPI(
 	cacheCreationMutex *sync.Mutex,
 	globalLogSlicePool *LogSlicePool,
 	watermarks *WatermarkManager,
+	blockHeaderNotifier *BlockHeaderNotifier,
 ) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
 		filterConfig.maxBlock = DefaultMaxBlockRange
@@ -309,6 +316,12 @@ func NewFilterAPI(
 	}
 	if filterConfig.maxLogBytes <= 0 {
 		filterConfig.maxLogBytes = receipt.DefaultMaxLogBytes
+	}
+	if filterConfig.maxFilters == 0 {
+		filterConfig.maxFilters = DefaultMaxFilters
+	}
+	if filterConfig.maxBlockFilterHashes == 0 {
+		filterConfig.maxBlockFilterHashes = DefaultMaxBlockFilterHashes
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
@@ -327,21 +340,78 @@ func NewFilterAPI(
 	}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
-		namespace:        namespace,
-		tmClient:         tmClient,
-		filtersMu:        sync.RWMutex{},
-		filters:          filters,
-		toDelete:         make(chan ethrpc.ID, 1000),
-		filterConfig:     filterConfig,
-		logFetcher:       logFetcher,
-		connectionType:   connectionType,
-		shutdownCtx:      shutdownCtx,
-		shutdownCancel:   shutdownCancel,
-		globalRPSLimiter: rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		namespace:           namespace,
+		tmClient:            tmClient,
+		filtersMu:           sync.RWMutex{},
+		filters:             filters,
+		toDelete:            make(chan ethrpc.ID, 1000),
+		filterConfig:        filterConfig,
+		logFetcher:          logFetcher,
+		connectionType:      connectionType,
+		shutdownCtx:         shutdownCtx,
+		shutdownCancel:      shutdownCancel,
+		globalRPSLimiter:    rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit),
+		blockHeaderNotifier: blockHeaderNotifier,
+	}
+	if blockHeaderNotifier != nil {
+		blockHeaderNotifier.subscribe(api.appendBlockHash)
 	}
 
 	go api.cleanupLoop(filterConfig.timeout)
 	return api
+}
+
+// appendBlockHash records the committed Autobahn block hash on each live
+// BlocksSubscription and invalidates filters whose backlog is full.
+func (a *FilterAPI) appendBlockHash(evt blockHeaderEvent) {
+	hash := common.BytesToHash(evt.hash)
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+	for id, f := range a.filters {
+		if f.typ != BlocksSubscription {
+			continue
+		}
+		if uint64(len(f.blockHashes)) >= a.filterConfig.maxBlockFilterHashes {
+			delete(a.filters, id)
+			if f.cancelFunc != nil {
+				f.cancelFunc()
+			}
+			continue
+		}
+		f.blockHashes = append(f.blockHashes, hash)
+		a.filters[id] = f
+	}
+}
+
+// addFilter installs a polling filter when capacity is available.
+func (a *FilterAPI) addFilter(f filter) (ethrpc.ID, error) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+
+	if uint64(len(a.filters)) >= a.filterConfig.maxFilters {
+		return "", fmt.Errorf("too many filters: maximum allowed is %d", a.filterConfig.maxFilters)
+	}
+	id := ethrpc.NewID()
+	a.filters[id] = f
+	return id, nil
+}
+
+// takeBlockHashes returns and clears hashes accumulated for a
+// BlocksSubscription since the last poll.
+func (a *FilterAPI) takeBlockHashes(filterID ethrpc.ID) ([]common.Hash, error) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+	f, exists := a.filters[filterID]
+	if !exists {
+		return nil, errors.New("filter does not exist")
+	}
+	hashes := f.blockHashes
+	f.blockHashes = nil
+	a.filters[filterID] = f
+	if hashes == nil {
+		hashes = []common.Hash{}
+	}
+	return hashes, nil
 }
 
 // Unified cleanup loop that handles both timeout and manual deletion
@@ -429,16 +499,16 @@ func (a *FilterAPI) NewFilter(
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
-	a.filtersMu.Lock()
-	defer a.filtersMu.Unlock()
-
-	curFilterID := ethrpc.NewID()
-	a.filters[curFilterID] = filter{
+	curFilterID, err := a.addFilter(filter{
 		typ:          LogsSubscription,
 		fc:           crit,
 		cancelFunc:   cancel,
 		lastAccess:   time.Now(),
 		lastToHeight: 0,
+	})
+	if err != nil {
+		cancel()
+		return "", err
 	}
 	return curFilterID, nil
 }
@@ -453,15 +523,15 @@ func (a *FilterAPI) NewBlockFilter(
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
-	a.filtersMu.Lock()
-	defer a.filtersMu.Unlock()
-
-	curFilterID := ethrpc.NewID()
-	a.filters[curFilterID] = filter{
+	curFilterID, err := a.addFilter(filter{
 		typ:         BlocksSubscription,
 		cancelFunc:  cancel,
 		lastAccess:  time.Now(),
 		blockCursor: "",
+	})
+	if err != nil {
+		cancel()
+		return "", err
 	}
 	return curFilterID, nil
 }
@@ -503,6 +573,9 @@ func (a *FilterAPI) GetFilterChanges(
 	result := []*ethtypes.Log{}
 	switch filter.typ {
 	case BlocksSubscription:
+		if a.blockHeaderNotifier != nil {
+			return a.takeBlockHashes(filterID)
+		}
 		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
 		if err != nil {
 			return nil, err
@@ -823,6 +896,9 @@ func (f *LogFetcher) storeCandidateBudget() *receipt.LogBudget {
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+	if err := requireReceiptStore(f.k); err != nil {
+		return nil, 0, err
+	}
 	latest, err := f.latestHeight(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -1087,7 +1163,7 @@ func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
 func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, limit int64) ([]*ethtypes.Log, error) {
 	store := f.k.ReceiptStore()
 	if store == nil {
-		return nil, receipt.ErrRangeQueryNotSupported
+		return nil, receipt.ErrNotConfigured
 	}
 
 	budget := f.newLogBudget(limit)
@@ -1186,7 +1262,10 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 		}
 
 		// filterTransactions caches receipts in globalBlockCache
-		txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+		txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+		if err != nil {
+			return nil, err
+		}
 		if len(txHashes) == 0 {
 			continue
 		}
@@ -1261,7 +1340,10 @@ func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit fi
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, collector logCollector) error {
 	ctx := f.ctxProvider(block.Block.Height)
 
-	txHashes := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+	txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+	if err != nil {
+		return err
+	}
 	if len(txHashes) == 0 {
 		return nil
 	}
@@ -1281,6 +1363,9 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	for txIdx, txHashEntry := range txHashes {
 		rcpt, err := getOrSetCachedReceiptErr(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, txHashEntry.hash)
 		if err != nil {
+			if errors.Is(err, receipt.ErrNotConfigured) {
+				return err
+			}
 			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
 			continue
 		}

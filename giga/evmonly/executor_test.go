@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 const (
@@ -34,6 +36,18 @@ type recordingResultSink struct {
 	releases []func()
 }
 
+type failingReceiptStore struct {
+	*MemoryReceiptStore
+	err error
+}
+
+func (s *failingReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+	if s.err != nil {
+		return s.err
+	}
+	return s.MemoryReceiptStore.SetReceipts(ctx, records)
+}
+
 func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64, result *BlockResult, release func()) error {
 	s.heights = append(s.heights, height)
 	s.results = append(s.results, result)
@@ -42,7 +56,7 @@ func (s *recordingResultSink) StoreBlockResult(_ context.Context, height uint64,
 }
 
 func TestExecutorEmptyBlock(t *testing.T) {
-	executor := NewExecutor(Config{})
+	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(big.NewInt(testChainID)),
@@ -63,7 +77,7 @@ func TestExecutorTransferTx(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
-	executor := NewExecutor(Config{}, WithState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -94,7 +108,7 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 	sink := &recordingResultSink{}
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
-	executor := NewExecutor(Config{}, WithState(state), WithResultSink(sink))
+	executor := NewExecutor(Config{}, withTestState(state), WithResultSink(sink))
 	ctx := blockContext(chainID)
 	ctx.Number = 77
 
@@ -111,6 +125,69 @@ func TestExecutorInvokesResultSink(t *testing.T) {
 	sink.releases[0]()
 }
 
+func TestExecutorStoresReceipts(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a9")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+	receiptStore := NewMemoryReceiptStore()
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	stateStore := NewMemoryStore(state)
+	executor := NewExecutor(Config{}, withTestStores(stateStore, receiptStore, stateStore.EncodeChangeSet))
+	ctx := blockContext(chainID)
+	ctx.Number = 77
+
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: ctx,
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 1)
+	stored, err := receiptStore.GetReceipt(newReceiptContext(t.Context(), int64(ctx.Number)), result.Receipts[0].TxHash)
+	require.NoError(t, err)
+	require.Equal(t, result.Receipts[0].TxHash.Hex(), stored.TxHashHex)
+	require.Equal(t, ctx.Number, stored.BlockNumber)
+	require.Equal(t, sender.Hex(), stored.From)
+	require.Equal(t, recipient.Hex(), stored.To)
+	require.Equal(t, uint64(ethtypes.ReceiptStatusSuccessful), uint64(stored.Status))
+}
+
+func TestExecutorReturnsReceiptStoreError(t *testing.T) {
+	storeErr := errors.New("receipt write failed")
+	receiptStore := &failingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), err: storeErr}
+	stateStore := NewMemoryStore(NewMemoryState())
+	sink := &recordingResultSink{}
+	executor := NewExecutor(
+		Config{BlockResultPoolSize: 1},
+		withTestStores(stateStore, receiptStore, EncodeMemoryStoreChangeSet),
+		WithResultSink(sink),
+	)
+	request := BlockRequest{Context: blockContext(big.NewInt(testChainID))}
+
+	result, err := executor.ExecuteBlock(t.Context(), request)
+
+	require.ErrorIs(t, err, storeErr)
+	require.Nil(t, result)
+	require.Empty(t, sink.results)
+	require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+	view := stateStore.OpenView()
+	require.Zero(t, view.GetBlockHeight())
+	view.Close()
+
+	receiptStore.err = nil
+	result, err = executor.ExecuteBlock(t.Context(), request)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, sink.results, 1)
+	result.Release()
+	sink.releases[0]()
+}
+
 func TestExecutorPooledResultRelease(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
@@ -121,7 +198,7 @@ func TestExecutorPooledResultRelease(t *testing.T) {
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 	sink := &recordingResultSink{}
-	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state), WithResultSink(sink))
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestState(state), WithResultSink(sink))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
 
@@ -148,7 +225,7 @@ func TestExecutorPooledResultReleaseIsConcurrentIdempotent(t *testing.T) {
 
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
-	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state))
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestState(state))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
 
@@ -180,7 +257,7 @@ func TestExecutorPooledResultExhaustionAllocatesWithoutBlocking(t *testing.T) {
 
 	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
-	executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithState(state))
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestState(state))
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{rawTx}}
 
@@ -217,7 +294,7 @@ func TestExecutorCloseDisablesOCC(t *testing.T) {
 		state.SetBalance(sender, big.NewInt(1_000_000_000))
 		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)))
 	}
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(state))
 	executor.Close()
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
@@ -247,10 +324,10 @@ func TestExecutorOCCFallsBackWhenSharedWorkerPoolClosesAfterOCCSelection(t *test
 	}
 
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState))
 	require.NotNil(t, executor.occPool)
 	executor.occPool.Close()
 	occResult, err := executor.ExecuteBlock(t.Context(), req)
@@ -427,7 +504,7 @@ func TestExecutorDynamicFeeTx(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
 
 	rawTx := signDynamicFeeTx(t, key, chainID, 0, &recipient, big.NewInt(11), nil)
-	executor := NewExecutor(Config{}, WithState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -471,7 +548,7 @@ func TestExecutorRejectsBlobTxUntilBlockAccountingIsWired(t *testing.T) {
 	ctx.BaseFee = big.NewInt(2)
 	ctx.BlobBaseFee = blobBaseFee
 
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(state))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(state))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
@@ -509,7 +586,7 @@ func TestExecutorRequiresBaseFeeAfterLondon(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.BaseFee = nil
 
-	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+	result, err := NewExecutor(Config{}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -545,7 +622,7 @@ func TestExecutorRequiresBlobBaseFeeAfterCancun(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.BlobBaseFee = nil
 
-	result, err := NewExecutor(Config{}, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+	result, err := NewExecutor(Config{}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -577,8 +654,8 @@ func TestExecutorOCCNonConflictingTransfersMatchSequential(t *testing.T) {
 	}
 
 	cfg := Config{MinGasPrice: big.NewInt(0)}
-	seqExecutor := NewExecutor(cfg, WithState(seqState))
-	occExecutor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState))
+	seqExecutor := NewExecutor(cfg, withTestState(seqState))
+	occExecutor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(occState))
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
 
 	seqResult, err := seqExecutor.ExecuteBlock(t.Context(), req)
@@ -625,9 +702,9 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	}
 
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	seqState.ApplyChangeSet(seqResult.ChangeSet)
@@ -674,9 +751,9 @@ func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
 
 	cfg := Config{MinGasPrice: big.NewInt(0)}
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
-	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(cfg, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -715,9 +792,9 @@ func TestExecutorOCCRerunsWhenLaterTxReadsFeeCreditedCoinbase(t *testing.T) {
 	feeTx := signLegacyTxWithGasPrice(t, feePayerKey, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(1))
 	readCoinbaseTx := signLegacyTxWithGasPrice(t, readerKey, chainID, 0, &contract, big.NewInt(0), nil, 100_000, big.NewInt(0))
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{feeTx, readCoinbaseTx}}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -762,9 +839,9 @@ func TestExecutorOCCRerunsWhenLaterTxWritesFeeCreditedCoinbase(t *testing.T) {
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{feeTx, transferToCoinbaseTx}}
 
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -807,9 +884,9 @@ func TestExecutorOCCRerunsCoinbaseSpendFundedByPriorFeeCredit(t *testing.T) {
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{feeTx, spendFeeCreditTx}}
 
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -850,9 +927,9 @@ func TestExecutorOCCRerunsCoinbaseReadAfterNormalAndCommutativeWrite(t *testing.
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTransferTx, readCoinbaseTx}}
 
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -891,9 +968,9 @@ func TestExecutorOCCMergesCoinbaseSenderFeeWithoutDoubleCount(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.Coinbase = coinbase
 	req := BlockRequest{Context: ctx, Txs: [][]byte{coinbaseTx, otherTx}}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -934,9 +1011,9 @@ func TestExecutorOCCSelfDestructedCoinbaseFeeDoesNotResurrectBalance(t *testing.
 	req := BlockRequest{Context: ctx, Txs: [][]byte{selfDestructTx, otherTx}}
 	cfg := Config{MinGasPrice: big.NewInt(0), ChainConfig: legacySelfDestructChainConfig(chainID)}
 
-	seqResult, err := NewExecutor(cfg, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(cfg, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), ChainConfig: cfg.ChainConfig, OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), ChainConfig: cfg.ChainConfig, OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 	require.True(t, occResult.OCCStats.Attempted)
 	require.False(t, occResult.OCCStats.Fallback)
@@ -962,7 +1039,7 @@ func TestExecutorOCCRerunsSameSenderNonceChain(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(1_000_000))
 	firstTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &firstRecipient, big.NewInt(1), nil, 100_000, big.NewInt(0))
 	secondTx := signLegacyTxWithGasPrice(t, key, chainID, 1, &secondRecipient, big.NewInt(1), nil, 100_000, big.NewInt(0))
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -996,7 +1073,7 @@ func TestExecutorOCCRejectsWhenDeclaredGasExceedsBlockLimit(t *testing.T) {
 
 	ctx := blockContext(chainID)
 	ctx.GasLimit = 100_000
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
@@ -1024,7 +1101,7 @@ func TestExecutorOCCAllowsDeclaredGasSumAboveBlockLimitWhenUsedGasFits(t *testin
 
 	ctx := blockContext(chainID)
 	ctx.GasLimit = 100_000
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, WithState(state))
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
@@ -1057,9 +1134,9 @@ func TestExecutorOCCCreateThenCallRerunsDependentTx(t *testing.T) {
 	callContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
 	req := BlockRequest{Context: blockContext(chainID), Txs: [][]byte{createContract, callContract}}
 
-	seqResult, err := NewExecutor(Config{}, WithState(seqState)).ExecuteBlock(t.Context(), req)
+	seqResult, err := NewExecutor(Config{}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{OCCWorkers: 2}, WithState(occState)).ExecuteBlock(t.Context(), req)
+	occResult, err := NewExecutor(Config{OCCWorkers: 2}, withTestState(occState)).ExecuteBlock(t.Context(), req)
 	require.NoError(t, err)
 
 	require.True(t, occResult.OCCStats.Attempted)
@@ -1093,7 +1170,7 @@ func TestExecutorReceiptAndLogMetadata(t *testing.T) {
 	ctx := blockContext(chainID)
 	ctx.Number = 42
 	ctx.BlockHash = testHash(0x42)
-	executor := NewExecutor(Config{}, WithState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
@@ -1143,7 +1220,7 @@ func TestExecutorEVMFailureProducesReceiptAndContinues(t *testing.T) {
 
 	oogCall := signLegacyTxWithGas(t, key, chainID, 0, &oogContract, big.NewInt(0), nil, 22_000)
 	laterTransfer := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(5), nil)
-	executor := NewExecutor(Config{}, WithState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -1176,7 +1253,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
 		rawTx := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(1), nil)
-		executor := NewExecutor(Config{}, WithState(state))
+		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
@@ -1199,7 +1276,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
 		state.SetNonce(sender, 1)
 		rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
-		executor := NewExecutor(Config{}, WithState(state))
+		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
@@ -1221,7 +1298,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(1))
 		rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
-		executor := NewExecutor(Config{}, WithState(state))
+		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
@@ -1245,7 +1322,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(1))
 		executor := NewExecutor(Config{
 			MinGasPrice: big.NewInt(2),
-		}, WithState(state))
+		}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
@@ -1280,7 +1357,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		)
 		executor := NewExecutor(Config{
 			DisableGasPriceCheck: true,
-		}, WithState(state))
+		}, withTestState(state))
 		ctx := blockContext(chainID)
 		ctx.BaseFee = big.NewInt(2 * testGasPriceWei)
 
@@ -1304,7 +1381,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
 		rawTx := signLegacyTxWithGas(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 20_000)
-		executor := NewExecutor(Config{}, WithState(state))
+		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
@@ -1327,7 +1404,7 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
 		firstTransfer := signLegacyTxWithGas(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 21_000)
 		secondTransfer := signLegacyTxWithGas(t, key, chainID, 1, &recipient, big.NewInt(1), nil, 21_000)
-		executor := NewExecutor(Config{}, WithState(state))
+		executor := NewExecutor(Config{}, withTestState(state))
 		ctx := blockContext(chainID)
 		ctx.GasLimit = 30_000
 
@@ -1357,7 +1434,7 @@ func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
 		state := NewMemoryState()
 		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
 		rawTx := signLegacyTx(t, key, wrongChainID, 0, &recipient, big.NewInt(1), nil)
-		executor := NewExecutor(Config{}, WithState(state))
+		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
@@ -1385,7 +1462,7 @@ func TestExecutorRejectsBadSignatureBeforeExecution(t *testing.T) {
 			new(big.Int),
 			new(big.Int),
 		)
-		executor := NewExecutor(Config{}, WithState(state))
+		executor := NewExecutor(Config{}, withTestState(state))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 			Context: blockContext(chainID),
@@ -1414,7 +1491,7 @@ func TestExecutorCreatesContractThenUpdatesStorage(t *testing.T) {
 
 	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	callContract := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
-	executor := NewExecutor(Config{}, WithState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -1451,7 +1528,7 @@ func TestExecutorCreateSelfDestructThenTransferSameAddress(t *testing.T) {
 	transferToDestroyed := signLegacyTx(t, key, chainID, 2, &contractAddr, big.NewInt(9), nil)
 	executor := NewExecutor(Config{
 		ChainConfig: legacySelfDestructChainConfig(chainID),
-	}, WithState(state))
+	}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -1486,7 +1563,7 @@ func TestExecutorEIP6780CreateFlagExpiresAfterTx(t *testing.T) {
 
 	createContract := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(runtime), 300_000)
 	selfDestructAfterCreateTx := signLegacyTx(t, key, chainID, 1, &contractAddr, big.NewInt(0), nil)
-	executor := NewExecutor(Config{}, WithState(state))
+	executor := NewExecutor(Config{}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -1521,7 +1598,7 @@ func TestExecutorFinalisesAfterEachTx(t *testing.T) {
 	secondCall := signLegacyTx(t, key, chainID, 1, &contract, big.NewInt(5), nil)
 	executor := NewExecutor(Config{
 		ChainConfig: legacySelfDestructChainConfig(chainID),
-	}, WithState(state))
+	}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -1758,23 +1835,6 @@ func TestBlockSTMCommutativeBalanceApplyDoesNotMutateSource(t *testing.T) {
 
 	require.Equal(t, big.NewInt(10), sourceBalance)
 	require.Equal(t, big.NewInt(15), state.GetBalance(addr))
-}
-
-func TestExecutorSurfacesStateDBBalanceOverflow(t *testing.T) {
-	chainID := big.NewInt(testChainID)
-	key, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	recipient := testAddress(0xc2)
-	rawTx := signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(0), nil, 100_000, big.NewInt(1))
-	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithState(&overflowingBalanceState{MemoryState: NewMemoryState()}))
-
-	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-		Context: blockContext(chainID),
-		Txs:     [][]byte{rawTx},
-	})
-
-	require.ErrorIs(t, err, errStateBalanceOverflow)
-	require.Nil(t, result)
 }
 
 func TestSnapshotRevertRestoresBaseState(t *testing.T) {
@@ -2322,7 +2382,7 @@ func TestExecutorOCCHotRecipientChainDoesNotExhaustIncarnations(t *testing.T) {
 		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, 0, &recipient, big.NewInt(1), nil, 100_000, big.NewInt(0)))
 	}
 
-	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+	result, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     rawTxs,
 	})
@@ -2363,7 +2423,7 @@ func TestExecutorOCCSameSenderChainDoesNotExhaustIncarnations(t *testing.T) {
 
 	result, err := NewExecutor(
 		Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4},
-		WithState(state),
+		withTestState(state),
 	).ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     rawTxs,
@@ -2416,7 +2476,7 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 	rawTx := signLegacyTx(t, key, chainID, 0, &customAddr, big.NewInt(0), []byte{0x01})
 	executor := NewExecutor(Config{
 		CustomPrecompiles: staticPrecompileRegistry{addr: customAddr},
-	}, WithState(state))
+	}, withTestState(state))
 
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),

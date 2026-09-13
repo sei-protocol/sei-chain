@@ -81,6 +81,8 @@ func TestRollbackToVersionRollsBackStateStore(t *testing.T) {
 	for block := 1; block <= 5; block++ {
 		simulateBlock(t, store, storeKeys, block, evmData)
 	}
+	requireStateStoreCaughtUp(t, store, 5)
+	requireStateStoreSnapshotAtOrBelow(t, dir, 3)
 
 	require.NoError(t, store.RollbackToVersion(3))
 	require.Equal(t, int64(3), store.LastCommitID().Version)
@@ -110,6 +112,7 @@ func TestRollbackToVersionWithoutStateStoreSnapshots(t *testing.T) {
 	for block := 1; block <= 5; block++ {
 		simulateBlock(t, store, storeKeys, block, evmData)
 	}
+	requireStateStoreCaughtUp(t, store, 5)
 
 	require.NoError(t, store.RollbackToVersion(3))
 	require.Equal(t, int64(3), store.LastCommitID().Version)
@@ -140,6 +143,8 @@ func TestRollbackToVersionProceedsWhenStateStoreCannotFollow(t *testing.T) {
 	for block := 1; block <= 5; block++ {
 		simulateBlock(t, store, storeKeys, block, evmData)
 	}
+	requireStateStoreCaughtUp(t, store, 5)
+
 	rollbackable := store.ssStore
 	store.ssStore = nonRollbackableStateStore{rollbackable}
 

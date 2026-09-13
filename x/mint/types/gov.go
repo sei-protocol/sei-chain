@@ -34,11 +34,11 @@ func (p *UpdateMinterProposal) ValidateBasic() error {
 
 func (p UpdateMinterProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Update Minter Proposal:
+	fmt.Fprintf(&b, `Update Minter Proposal:
   Title:       %s
   Description: %s
   Minter:     %s
-`, p.Title, p.Description, p.Minter.String()))
+`, p.Title, p.Description, p.Minter.String())
 	return b.String()
 }
 

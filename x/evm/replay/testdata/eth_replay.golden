@@ -1,4 +1,0 @@
-Enabled = bool(false)
-EthRPC = string("http://44.234.105.54:18545")
-EthDataDir = string("/root/.ethereum/chaindata")
-ContractStateChecks = bool(false)

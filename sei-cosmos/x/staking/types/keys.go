@@ -247,9 +247,9 @@ func GetREDKey(delAddr sdk.AccAddress, valSrcAddr, valDstAddr sdk.ValAddress) []
 	key := make([]byte, 1+3+len(delAddr)+len(valSrcAddr)+len(valDstAddr))
 
 	copy(key[0:2+len(delAddr)], GetREDsKey(delAddr.Bytes()))
-	key[2+len(delAddr)] = byte(len(valSrcAddr))
+	key[2+len(delAddr)] = byte(len(valSrcAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[3+len(delAddr):3+len(delAddr)+len(valSrcAddr)], valSrcAddr.Bytes())
-	key[3+len(delAddr)+len(valSrcAddr)] = byte(len(valDstAddr))
+	key[3+len(delAddr)+len(valSrcAddr)] = byte(len(valDstAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[4+len(delAddr)+len(valSrcAddr):], valDstAddr.Bytes())
 
 	return key
@@ -264,9 +264,9 @@ func GetREDByValSrcIndexKey(delAddr sdk.AccAddress, valSrcAddr, valDstAddr sdk.V
 	// key is of the form REDSFromValsSrcKey || delAddrLen (1 byte) || delAddr || valDstAddrLen (1 byte) || valDstAddr
 	key := make([]byte, offset+2+len(delAddr)+len(valDstAddr))
 	copy(key[0:offset], REDSFromValsSrcKey)
-	key[offset] = byte(len(delAddr))
+	key[offset] = byte(len(delAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+1:offset+1+len(delAddr)], delAddr.Bytes())
-	key[offset+1+len(delAddr)] = byte(len(valDstAddr))
+	key[offset+1+len(delAddr)] = byte(len(valDstAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+2+len(delAddr):], valDstAddr.Bytes())
 
 	return key
@@ -281,9 +281,9 @@ func GetREDByValDstIndexKey(delAddr sdk.AccAddress, valSrcAddr, valDstAddr sdk.V
 	// key is of the form REDSToValsDstKey || delAddrLen (1 byte) || delAddr || valSrcAddrLen (1 byte) || valSrcAddr
 	key := make([]byte, offset+2+len(delAddr)+len(valSrcAddr))
 	copy(key[0:offset], REDSToValsDstKey)
-	key[offset] = byte(len(delAddr))
+	key[offset] = byte(len(delAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+1:offset+1+len(delAddr)], delAddr.Bytes())
-	key[offset+1+len(delAddr)] = byte(len(valSrcAddr))
+	key[offset+1+len(delAddr)] = byte(len(valSrcAddr)) //nolint:gosec // Cosmos addresses are bounded to one-byte length prefixes.
 	copy(key[offset+2+len(delAddr):], valSrcAddr.Bytes())
 
 	return key

@@ -135,11 +135,10 @@ Payable precompiles suppress transfer events to avoid double-counting when value
 
 ### EndBlock
 1. Cleans up old transaction hashes.
-2. Migrates legacy receipts (if any remain).
-3. Prunes zero-value storage slots (resumable, batched).
-4. Adjusts the dynamic base fee for the next block.
-5. Sweeps coinbase surplus to the fee collector.
-6. Aggregates deferred info: surplus, failed receipts, block bloom.
+2. Prunes zero-value storage slots (resumable, batched).
+3. Adjusts the dynamic base fee for the next block.
+4. Sweeps coinbase surplus to the fee collector.
+5. Aggregates deferred info: surplus, failed receipts, block bloom.
 
 ---
 

@@ -25,6 +25,7 @@ type StakingKeeper interface {
 		ctx sdk.Context, delegator sdk.AccAddress,
 		fn func(index int64, delegation stakingtypes.DelegationI) (stop bool),
 	)
+	GetDelegation(ctx sdk.Context, delegator sdk.AccAddress, validator sdk.ValAddress) (stakingtypes.Delegation, bool)
 }
 
 // AccountKeeper defines the expected account keeper (noalias)

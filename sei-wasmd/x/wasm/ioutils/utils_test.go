@@ -46,21 +46,18 @@ func TestIsGzip(t *testing.T) {
 
 func TestGzipIt(t *testing.T) {
 	wasmCode, someRandomStr, _, err := GetTestData()
-	originalGzipData := []byte{
-		31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 202, 72, 205, 201, 201, 87, 40, 207, 47, 202, 73, 1,
-		4, 0, 0, 255, 255, 133, 17, 74, 13, 11, 0, 0, 0,
-	}
-
 	require.NoError(t, err)
 
 	t.Log("gzip wasm with no error")
 	_, err = GzipIt(wasmCode)
 	require.NoError(t, err)
 
-	t.Log("gzip of a string should return exact gzip data")
+	t.Log("gzip of a string should round-trip")
 	strToGzip, err := GzipIt(someRandomStr)
-
-	require.True(t, IsGzip(strToGzip))
 	require.NoError(t, err)
-	require.Equal(t, originalGzipData, strToGzip)
+	require.True(t, IsGzip(strToGzip))
+
+	uncompressed, err := Uncompress(strToGzip, uint64(len(strToGzip)*2))
+	require.NoError(t, err)
+	require.Equal(t, someRandomStr, uncompressed)
 }

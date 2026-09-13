@@ -3,7 +3,7 @@ package migration
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -31,7 +31,7 @@ var migrationTargetVersions = map[types.WriteMode]uint64{
 // at that point the read reflects committed state. Read-only handles
 // report committed state as-of their loaded version and carry no such
 // caveat.
-func IsModeComplete(flatKV flatkv.Store, mode types.WriteMode) (bool, error) {
+func IsModeComplete(flatKV gigatypes.LiveStateStore, mode types.WriteMode) (bool, error) {
 	if !mode.IsMigrationMode() {
 		return true, nil
 	}
@@ -55,7 +55,7 @@ func IsModeComplete(flatKV flatkv.Store, mode types.WriteMode) (bool, error) {
 // other than MigrationNotStarted: a boundary record that has not yet
 // advanced past NotStarted is indistinguishable from an unstarted
 // migration (mirroring the lattice-append gate in the composite store).
-func DeriveWriteMode(flatKV flatkv.Store) (types.WriteMode, error) {
+func DeriveWriteMode(flatKV gigatypes.LiveStateStore) (types.WriteMode, error) {
 	if flatKV == nil {
 		return "", fmt.Errorf("cannot derive write mode: flatkv store is nil")
 	}

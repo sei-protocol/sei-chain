@@ -30,6 +30,26 @@ type gigaValidatorRouter struct {
 // data.State. The caller owns the BlockDB that backs dataState (see BuildDataState);
 // close it if this constructor returns an error.
 func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataState *data.State) (*gigaValidatorRouter, error) {
+	validatorKey := cfg.ValidatorKey.Public()
+	self, ok := cfg.ValidatorAddrs[validatorKey]
+	if !ok {
+		return nil, fmt.Errorf("local validator %v has no configured giga address", validatorKey)
+	}
+	if self.Key != key.Public() {
+		return nil, fmt.Errorf("local validator node key = %v, want %v", self.Key, key.Public())
+	}
+	if err := utils.CheckHTTPURL(self.EVMRPC); err != nil {
+		return nil, fmt.Errorf("local validator %v evmrpc: %w", validatorKey, err)
+	}
+	selfAddr := NodeAddress{
+		NodeID:   key.Public().NodeID(),
+		Hostname: self.HostPort.Hostname,
+		Port:     self.HostPort.Port,
+	}
+	// An invalid local address makes every peer reject our giga claim.
+	if err := selfAddr.Validate(); err != nil {
+		return nil, fmt.Errorf("local validator %v address: %w", validatorKey, err)
+	}
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
@@ -42,20 +62,29 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 	logger.Info("GigaRouter initialized (validator)", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:                &cfg.GigaRouterCommonConfig,
-			key:                key,
-			data:               dataState,
-			nextCommitEpoch:    dataState.NextCommitEpoch(),
-			service:            giga.NewService(consensusState),
-			poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			poolOut:            giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			proxies:            utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
-			app:                cfg.App,
+			cfg:             &cfg.GigaRouterCommonConfig,
+			key:             key,
+			data:            dataState,
+			nextCommitEpoch: dataState.NextCommitEpoch(),
+			anchor:          dataState.Anchor(),
+			service:         giga.NewService(consensusState),
+			poolIn:          giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			poolInCommittee: giga.NewPool[atypes.PublicKey, rpc.Server[giga.API]](),
+			poolOut:         giga.NewPool[atypes.PublicKey, rpc.Client[giga.API]](),
+			proxies:         utils.NewRWMutex(map[atypes.PublicKey]*ethrpc.Client{}),
+			app:             cfg.App,
+			offer: utils.Some(handshakeOffer{
+				ValidatorKey: cfg.ValidatorKey,
+				EVMRPC:       self.EVMRPC,
+			}),
+			selfAddr:           utils.Some(selfAddr),
+			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
+			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,
 		producer:     producerState,
-		validatorKey: cfg.ValidatorKey.Public(),
+		validatorKey: validatorKey,
 	}, nil
 }
 
@@ -65,37 +94,35 @@ func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Validators dial every committee member in parallel — consensus
-		// voting needs fan-out, not stickiness. Same connections also
-		// serve block sync between committee peers. Self disables GetBlock:
-		// a loopback consumer always returns empty for missing catch-up
-		// heights and can starve the contiguous prefix while higher
-		// gap-fills keep retrying. Compare against the p2p node key
-		// (r.key.Public), not validatorKey (consensus signing key used by
-		// EvmProxy): GigaNodeAddr.Key is a NodePublicKey.
-		selfKey := r.key.Public()
-		for validatorKey, addr := range r.cfg.ValidatorAddrs {
-			getBlock := addr.Key != selfKey
-			s.Spawn(func() error {
-				for {
-					err := r.dialAndRunConn(ctx, utils.Some(addr.Key), addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
-						return r.service.RunClient(ctx, client, validatorKey, getBlock)
-					})
-					logger.Info("giga connection failed", "addr", addr, "err", err)
-					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
-						return err
-					}
-				}
-			})
-		}
+		s.SpawnNamed("committeeMembers", func() error {
+			return r.runPerCommitteeMember(ctx, r.runCommitteePeer, r.runEvmProxy)
+		})
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
-		s.SpawnNamed("evmProxies", func() error { return r.runEvmProxies(ctx) })
 		return nil
 	})
+}
+
+// runCommitteePeer maintains an outbound giga connection to a committee member.
+// Self disables GetBlock: a loopback consumer always returns empty for missing
+// catch-up heights and can starve the contiguous prefix while higher gap-fills
+// keep retrying. Compare against the p2p node key (r.key.Public), not
+// validatorKey (consensus signing key used by EvmProxy): GigaNodeAddr.Key is a
+// NodePublicKey.
+func (r *gigaValidatorRouter) runCommitteePeer(ctx context.Context, validatorKey atypes.PublicKey, addr GigaNodeAddr) error {
+	getBlock := addr.Key != r.key.Public()
+	for {
+		err := r.dialAndRunConn(ctx, validatorKey, addr.Key, addr.HostPort, func(ctx context.Context, client rpc.Client[giga.API]) error {
+			return r.service.RunClient(ctx, client, validatorKey, getBlock)
+		})
+		logger.Info("giga connection failed", "addr", addr, "err", err)
+		if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+			return err
+		}
+	}
 }
 
 // EvmProxy on the validator returns None when the sender's shard owner is
@@ -110,8 +137,7 @@ func (r *gigaValidatorRouter) EvmProxy(sender common.Address) utils.Option[*ethr
 	if r.validatorKey == validator {
 		return utils.None[*ethrpc.Client]()
 	}
-	target := r.cfg.ValidatorAddrs[validator]
-	if _, ok := r.poolOut.Get(target.Key); !ok {
+	if _, ok := r.poolOut.Get(validator); !ok {
 		return utils.None[*ethrpc.Client]()
 	}
 	return r.evmProxy(validator)

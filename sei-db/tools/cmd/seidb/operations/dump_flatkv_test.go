@@ -136,12 +136,12 @@ func TestDumpFlatKVFromStoreSingleBucket(t *testing.T) {
 func TestBucketLtHasherMatchesSingleShot(t *testing.T) {
 	// More than one batch so the incremental MixIn path is exercised.
 	n := lthashBatchCap*2 + 17
-	all := make([]lthash.KVPairWithLastValue, 0, n)
+	all := make([]lthash.KeyMutation, 0, n)
 	hashers := map[string]*bucketLtHasher{
 		flatkvBucketAccount: newBucketLtHasher(),
 		flatkvBucketStorage: newBucketLtHasher(),
 	}
-	bucketPairs := map[string][]lthash.KVPairWithLastValue{}
+	bucketPairs := map[string][]lthash.KeyMutation{}
 
 	for i := 0; i < n; i++ {
 		bucket := flatkvBucketAccount
@@ -151,20 +151,20 @@ func TestBucketLtHasherMatchesSingleShot(t *testing.T) {
 		key := []byte{byte(bucket[0]), byte(i), byte(i >> 8), byte(i >> 16)}
 		val := []byte{byte(i), 0xAB, byte(i >> 8)}
 		hashers[bucket].add(key, val)
-		bucketPairs[bucket] = append(bucketPairs[bucket], lthash.KVPairWithLastValue{Key: key, Value: val})
-		all = append(all, lthash.KVPairWithLastValue{Key: key, Value: val})
+		bucketPairs[bucket] = append(bucketPairs[bucket], lthash.KeyMutation{Key: key, Value: val})
+		all = append(all, lthash.KeyMutation{Key: key, Value: val})
 	}
 
 	total := lthash.New()
 	for bucket, h := range hashers {
 		h.flush()
-		single, _ := lthash.ComputeLtHash(nil, bucketPairs[bucket])
+		single := lthash.ComputeLtHash(nil, bucketPairs[bucket])
 		require.Equal(t, single.Checksum(), h.acc.Checksum(),
 			"batched bucket hash for %s must equal single-shot ComputeLtHash", bucket)
 		total.MixIn(h.acc)
 	}
 
-	unionSingle, _ := lthash.ComputeLtHash(nil, all)
+	unionSingle := lthash.ComputeLtHash(nil, all)
 	require.Equal(t, unionSingle.Checksum(), total.Checksum(),
 		"MixIn of per-bucket hashes must equal the LtHash over the union of all pairs")
 }

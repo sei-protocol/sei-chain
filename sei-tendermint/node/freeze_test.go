@@ -2,7 +2,6 @@ package node
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -78,7 +76,10 @@ func TestFreezeModeDisablesMempoolTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Mode = config.ModeFull
-	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
+	// Broadcast checks below call rpcEnv in-process; skip the TCP listener
+	// so Start does not race a freeLoopbackAddr (net.Listen cannot adopt a
+	// TestReserveAddr, and a closed :0 bind is stealable on macOS).
+	cfg.RPC.ListenAddress = ""
 	nodeService, err := newLocalNodeService(t.Context(), cfg, WithFreezeHeight(2))
 	if err != nil {
 		t.Fatal(err)

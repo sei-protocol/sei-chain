@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 func smallTestPebbleConfig() pebbledb.PebbleDBConfig {
@@ -28,8 +29,8 @@ func DefaultTestConfig(t *testing.T) *Config {
 	t.Helper()
 	return &Config{
 		DataDir:                filepath.Join(t.TempDir(), "flatkv"),
-		SnapshotInterval:       DefaultSnapshotInterval,
-		SnapshotKeepRecent:     DefaultSnapshotKeepRecent,
+		SnapshotInterval:       10000,
+		SnapshotKeepRecent:     1,
 		AccountDBConfig:        smallTestPebbleConfig(),
 		AccountStoreConfig:     smallTestViewManagerConfig("account"),
 		CodeDBConfig:           smallTestPebbleConfig(),
@@ -42,5 +43,7 @@ func DefaultTestConfig(t *testing.T) *Config {
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,
 		LtHashThreadsPerCore:   1.0,
+		HashEngineConfig:       *lthash.DefaultConfig(),
+		FinalizationQueueSize:  64,
 	}
 }

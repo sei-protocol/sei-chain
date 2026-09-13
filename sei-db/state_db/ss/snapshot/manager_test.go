@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/controller"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +22,7 @@ func (*controlledScheduler) SupportsCheckpoint() bool {
 func (s *controlledScheduler) ScheduleCheckpoint(destDir string, shouldRun func() bool, done func(error)) {
 	s.pending <- func() {
 		if !shouldRun() {
-			done(controller.ErrCheckpointCanceled)
+			done(ErrCheckpointCanceled)
 			return
 		}
 		if s.fail {
@@ -138,6 +137,53 @@ func TestManagerRetentionKeepsTheSharedFloor(t *testing.T) {
 	require.Equal(t, []int64{30}, versions)
 }
 
+// A rewind drops the branch above the target and leaves current naming the newest snapshot that
+// survives, which is the one the store it belongs to then opens on.
+func TestRewindToDropsTheBranch(t *testing.T) {
+	root := t.TempDir()
+	for _, version := range []int64{10, 20, 30} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
+	}
+	require.NoError(t, updateCurrentLink(root, SnapshotDirName(30)))
+
+	landed, err := RewindTo(root, 20)
+
+	require.NoError(t, err)
+	require.Equal(t, int64(20), landed)
+	versions, err := ListSnapshotVersions(root)
+	require.NoError(t, err)
+	require.Equal(t, []int64{10, 20}, versions)
+	require.Equal(t, SnapshotDirName(20), readCurrentLink(t, root))
+}
+
+// A target below every snapshot leaves nothing to restore from. The whole tree goes and current with
+// it, so the store opens empty for a replay to rebuild, rather than resolving to a snapshot holding
+// state the rollback rejected.
+func TestRewindToBelowEverySnapshotClearsTheTree(t *testing.T) {
+	root := t.TempDir()
+	for _, version := range []int64{10, 20} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, SnapshotDirName(version)), 0o750))
+	}
+	require.NoError(t, updateCurrentLink(root, SnapshotDirName(20)))
+
+	landed, err := RewindTo(root, 5)
+
+	require.NoError(t, err)
+	require.Zero(t, landed)
+	versions, err := ListSnapshotVersions(root)
+	require.NoError(t, err)
+	require.Empty(t, versions)
+	_, err = os.Readlink(filepath.Join(root, snapshotCurrentLink))
+	require.True(t, os.IsNotExist(err), "current must not outlive the tree it named")
+}
+
+func readCurrentLink(t *testing.T, root string) string {
+	t.Helper()
+	target, err := os.Readlink(filepath.Join(root, snapshotCurrentLink))
+	require.NoError(t, err)
+	return filepath.Base(target)
+}
+
 // A hardlink probe left by a crash is reclaimed rather than accumulating, in the source directory and in
 // the snapshot root alike.
 func TestOpenClearsLeftoverHardlinkProbes(t *testing.T) {
@@ -146,11 +192,11 @@ func TestOpenClearsLeftoverHardlinkProbes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, linkProbeName), nil, 0o600))
 
 	_, err := Open(Config{
-		Name:       "test",
-		Root:       root,
-		SourceDirs: []string{source},
-		Backend:    config.PebbleDBBackend,
-		Scheduler:  &controlledScheduler{pending: make(chan func(), 1)},
+		Name:         "test",
+		Root:         root,
+		SourceDirs:   []string{source},
+		Backend:      config.PebbleDBBackend,
+		Checkpointer: &controlledScheduler{pending: make(chan func(), 1)},
 	})
 	require.NoError(t, err)
 
@@ -207,7 +253,7 @@ func openManagerWithFloor(
 		Backend:         config.PebbleDBBackend,
 		KeepRecent:      keepRecent,
 		ExternalPruning: external,
-		Scheduler:       scheduler,
+		Checkpointer:    scheduler,
 		Floor:           floor,
 	})
 	require.NoError(t, err)

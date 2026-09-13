@@ -34,8 +34,8 @@ func NewMetrics() *Metrics {
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "peer_receive_bytes_total",
-			Help:      "Number of bytes per channel received from a given peer.",
-		}, []string{"peer_id", "chID", "message_type"}),
+			Help:      "Number of bytes per channel received.",
+		}, []string{"chID", "message_type"}),
 		newConnections: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
@@ -80,8 +80,8 @@ func (m *Metrics) peersAt() *tmprometheus.GaugeInt {
 	return m.peers.WithLabelValues()
 }
 
-func (m *Metrics) peerReceiveBytesTotalAt(peer_id string, chID string, message_type string) *tmprometheus.CounterInt {
-	return m.peerReceiveBytesTotal.WithLabelValues(peer_id, chID, message_type)
+func (m *Metrics) peerReceiveBytesTotalAt(chID string, message_type string) *tmprometheus.CounterInt {
+	return m.peerReceiveBytesTotal.WithLabelValues(chID, message_type)
 }
 
 func (m *Metrics) newConnectionsAt(direction string, success string) *tmprometheus.CounterInt {

@@ -153,9 +153,12 @@ func TestEvmIteratorSurvivesAutoSnapshot(t *testing.T) {
 		return s.Iterator(keys.EVMStoreKey, nil, nil, true)
 	})
 
-	// Block 2 trips the snapshot interval, which forces a flush of everything committed so far.
+	// Block 2 trips the snapshot interval, which forces a flush of everything committed so far. The
+	// snapshot is written off the execution thread, so wait for it: without that this test drains the
+	// iterator before the checkpoint has touched the databases, and stops testing anything.
 	applyAndCommitBlock(t, s, touchEveryLane(0x01, 99, 0xbb))
 	require.Equal(t, int64(2), s.Version())
+	require.NoError(t, s.FlushSnapshots())
 
 	require.Equal(t, before, collectIterEntries(t, iter))
 	require.NoError(t, iter.Close())

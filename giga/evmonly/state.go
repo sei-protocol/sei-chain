@@ -7,12 +7,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// StateReader supplies EVM-native state to an executor. Every method must be
-// safe for concurrent calls: speculative transactions and overlapping block
-// executions can read from the same backend at the same time. Values returned
-// by GetBalance and GetCode must remain stable while they are being read; the
-// executor treats them as immutable and copies them into transaction-local
-// state.
+// StateReader supplies immutable EVM-native base state to MemoryStore. Every
+// method must be safe for concurrent calls because speculative transactions can
+// read the same snapshot at the same time. Values returned by GetBalance and
+// GetCode must remain stable while they are being read; consumers copy them into
+// transaction-local state.
 type StateReader interface {
 	GetBalance(common.Address) *big.Int
 	GetNonce(common.Address) uint64
@@ -20,18 +19,7 @@ type StateReader interface {
 	GetState(common.Address, common.Hash) common.Hash
 }
 
-// StateWriter persists an executor-produced changeset.
-type StateWriter interface {
-	ApplyChangeSet(StateChangeSet)
-}
-
-// StateBackend is the minimal state boundary needed by the EVM-only executor.
-type StateBackend interface {
-	StateReader
-	StateWriter
-}
-
-// MemoryState is a small EVM-native state backend for tests and early wiring.
+// MemoryState is a small EVM-native state reader for tests and early wiring.
 type MemoryState struct {
 	mu       sync.RWMutex
 	accounts map[common.Address]*StateAccount
@@ -56,6 +44,13 @@ func (s *MemoryState) GetBalance(addr common.Address) *big.Int {
 		return new(big.Int).Set(acct.Balance)
 	}
 	return new(big.Int)
+}
+
+func (s *MemoryState) AccountExists(addr common.Address) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.accounts[addr]
+	return ok
 }
 
 func (s *MemoryState) SetBalance(addr common.Address, balance *big.Int) {

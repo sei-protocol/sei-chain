@@ -453,6 +453,13 @@ func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.Filte
 
 func (f *fakeReceiptStore) Close() error { return nil }
 
+func (f *fakeReceiptStore) Name() string                    { return "fake-receipts" }
+func (f *fakeReceiptStore) PruneHistory(uint64) error       { return nil }
+func (f *fakeReceiptStore) PruneSnapshots(uint64) error     { return nil }
+func (f *fakeReceiptStore) ExternalPruning() bool           { return false }
+func (f *fakeReceiptStore) GetRollbackFloor(uint64) uint64  { return 0 }
+func (f *fakeReceiptStore) GetLatestBlock() (uint64, error) { return 0, nil }
+
 type fakeMultiStore struct {
 	earliest int64
 	latest   int64

@@ -6,11 +6,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
-)
-
-const (
-	DefaultSnapshotInterval   uint32 = 10000
-	DefaultSnapshotKeepRecent uint32 = 1
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 // Config defines configuration for the FlatKV (EVM) commit store.
@@ -22,26 +19,31 @@ type Config struct {
 	// Fsync controls whether every view manager's flush is fsync'd. It overwrites each store
 	// config's FlushSync, so the four databases are always synced alike. The state WAL is
 	// unaffected and always writes NoSync.
-	// Default: false
 	Fsync bool `mapstructure:"fsync"`
 
 	// AsyncWriteBuffer defines the size of the async write buffer for data DBs.
 	// Set <= 0 for synchronous writes.
-	// Default: 0 (synchronous)
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
 	// SnapshotInterval defines how often (in blocks) a PebbleDB checkpoint
 	// snapshot is taken. 0 disables auto-snapshots.
 	// Without periodic snapshots the WAL grows unbounded and every restart
 	// replays the entire history from snapshot-0.
-	// Default: 10000
 	SnapshotInterval uint32 `mapstructure:"snapshot-interval"`
 
 	// SnapshotKeepRecent defines how many old snapshots to keep besides the
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
 	// Ignored entirely when ExternalPruning is set.
-	// Default: 1
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
+
+	// MaxSnapshotLagBlocks is how many committed blocks may queue up behind a snapshot that is still
+	// being written before Commit blocks. A value below 1 is treated as 1.
+	//
+	// A snapshot being written holds every database pinned at its own height, so no later block can
+	// reach disk until it completes, and each one is retained in memory meanwhile. This bounds how far
+	// that can run, trading a pause in block production for the memory the backlog would otherwise
+	// consume. It bounds blocks rather than bytes, so it mitigates exhaustion rather than preventing it.
+	MaxSnapshotLagBlocks uint32 `mapstructure:"max-snapshot-lag-blocks"`
 
 	// ExternalPruning hands retention to the StorageGarbageCollector: the store stops pruning its
 	// own snapshots (SnapshotKeepRecent) and stops truncating the state WAL.
@@ -51,16 +53,12 @@ type Config struct {
 	//
 	// With it on, snapshots are retained by height rather than by count, so the number kept becomes
 	// RollbackWindow / SnapshotInterval instead of SnapshotKeepRecent + 1.
-	//
-	// Default: false
 	ExternalPruning bool `mapstructure:"-"`
 
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
-	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
 
 	// EnableReadWriteMetrics emits simple estimated read/write counters for FlatKV's Pebble DBs.
-	// Default: false
 	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 
 	// AccountDBConfig defines the PebbleDB configuration for the account database.
@@ -110,22 +108,26 @@ type Config struct {
 	// The number of threads in this pool is equal to MiscThreadsPerCore * runtime.NumCPU() + MiscConstantThreadCount.
 	MiscConstantThreadCount int
 
-	// Controls the number of workers in the dedicated lattice-hash pool used to
-	// compute per-module LtHashes during ApplyChangeSets. The worker count is
-	// LtHashThreadsPerCore * runtime.NumCPU() (clamped to at least 1). LtHash
-	// computation is CPU-bound, so ~1 worker per core is a sensible default.
+	// HashEngineConfig configures the pipeline that hashes each committed block.
+	HashEngineConfig lthash.Config
+
+	// FinalizationQueueSize is how many sealed blocks may be waiting to have their hashes recorded
+	// before Commit blocks.
+	//
+	// A block waiting here holds a reservation on its own views, and a held reservation stops its
+	// database's flush frontier, so this bounds how much of the pipeline stays resident.
+	FinalizationQueueSize uint32 `mapstructure:"finalization-queue-size"`
+
+	// Controls the number of workers in the dedicated lattice-hash pool used to compute per-module
+	// LtHashes. The number of workers in this pool is equal to LtHashThreadsPerCore * runtime.NumCPU(),
+	// clamped to at least 1.
 	LtHashThreadsPerCore float64
 }
-
-// MetaKeyPrefix is the key namespace FlatKV reserves for per-database metadata, and which each
-// view manager owns: Finalize writes land under it and iteration filters it out. It matches
-// ktype.MetaKeyPrefixBytes, restated here because ktype imports this package's siblings.
-const MetaKeyPrefix = "_meta/"
 
 // defaultStoreConfig returns the view manager defaults for one database, named for the database's
 // directory so metrics and per-database hash bookkeeping can tell the stores apart.
 func defaultStoreConfig(name string) view.ViewManagerConfig {
-	return *view.DefaultViewManagerConfig(name, MetaKeyPrefix)
+	return *view.DefaultViewManagerConfig(name, ktype.MetaKeyPrefix)
 }
 
 // DefaultConfig returns Config with safe default values.
@@ -133,8 +135,9 @@ func DefaultConfig() *Config {
 	cfg := &Config{
 		Fsync:                     false,
 		AsyncWriteBuffer:          0,
-		SnapshotInterval:          DefaultSnapshotInterval,
-		SnapshotKeepRecent:        DefaultSnapshotKeepRecent,
+		SnapshotInterval:          10000,
+		SnapshotKeepRecent:        1,
+		MaxSnapshotLagBlocks:      64,
 		EnablePebbleMetrics:       true,
 		AccountDBConfig:           pebbledb.DefaultConfig(),
 		AccountStoreConfig:        defaultStoreConfig("account"),
@@ -150,6 +153,8 @@ func DefaultConfig() *Config {
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
 		LtHashThreadsPerCore:      1.0,
+		HashEngineConfig:          *lthash.DefaultConfig(),
+		FinalizationQueueSize:     64,
 	}
 
 	cfg.AccountStoreConfig.MaxSize = unit.GB

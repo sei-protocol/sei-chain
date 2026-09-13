@@ -162,6 +162,9 @@ type stateCommitSchema struct {
 	HistoricalProofMaxInFlight int                     `mapstructure:"sc-historical-proof-max-inflight"`
 	HistoricalProofRateLimit   float64                 `mapstructure:"sc-historical-proof-rate-limit"`
 	HistoricalProofBurst       int                     `mapstructure:"sc-historical-proof-burst"`
+	SubspaceQueryMaxInFlight   int                     `mapstructure:"sc-subspace-query-max-inflight"`
+	SubspaceMaxPairs           int                     `mapstructure:"sc-subspace-max-pairs"`
+	SubspaceMaxBytes           int                     `mapstructure:"sc-subspace-max-bytes"`
 	WriteMode                  string                  `mapstructure:"sc-write-mode"`
 	WriteModeEnableAuto        bool                    `mapstructure:"sc-write-mode-enable-auto"`
 	HashLoggerEnable           bool                    `mapstructure:"sc-hash-logger-enable"`
@@ -195,6 +198,9 @@ func stateCommitDefaults(registry.Mode) any {
 		HistoricalProofMaxInFlight: live.HistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   live.HistoricalProofRateLimit,
 		HistoricalProofBurst:       live.HistoricalProofBurst,
+		SubspaceQueryMaxInFlight:   live.SubspaceQueryMaxInFlight,
+		SubspaceMaxPairs:           live.SubspaceMaxPairs,
+		SubspaceMaxBytes:           live.SubspaceMaxBytes,
 		WriteMode:                  string(live.WriteMode),
 		WriteModeEnableAuto:        live.WriteModeEnableAuto,
 		HashLoggerEnable:           live.HashLogger.Enable,

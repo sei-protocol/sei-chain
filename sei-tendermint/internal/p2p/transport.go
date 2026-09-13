@@ -95,7 +95,6 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 				Global.queueDroppedMsgsAt(fmt.Sprint(chID), "in").Add(1)
 			}
 			Global.peerReceiveBytesTotalAt(
-				string(conn.ID),
 				fmt.Sprint(chID),
 				r.lc.ValueToMetricLabel(msg),
 			).Add(int64(gogoproto.Size(msg)))

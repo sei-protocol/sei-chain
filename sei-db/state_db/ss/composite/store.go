@@ -384,6 +384,21 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 	return nil
 }
 
+// CommitBlock records a committed block and offers its version to the snapshot cadence. It is the
+// commit path's entry point: the apply methods are raw writes and take no snapshot.
+func (s *CompositeStateStore) CommitBlock(version int64, changesets []*proto.NamedChangeSet) error {
+	// A block that changed nothing writes no changelog entry, but its version marker still moves.
+	if len(changesets) == 0 {
+		if err := s.SetLatestVersion(version); err != nil {
+			return err
+		}
+	} else if err := s.ApplyChangesetAsync(version, changesets); err != nil {
+		return err
+	}
+	s.scheduleSnapshot(version)
+	return nil
+}
+
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
 	if s.evmStore == nil {
 		return s.cosmosStore.ApplyChangesetSync(version, changesets)
@@ -422,16 +437,13 @@ func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*p
 	return nil
 }
 
-// ScheduleSnapshot asks the snapshot manager to capture version once the caller
-// has enqueued every state change for that version and nothing above it.
+// scheduleSnapshot offers version to the snapshot cadence, which decides whether that version is a
+// boundary. CommitBlock reaches it once every member holds that version and nothing above it, which
+// is what makes a snapshot's label exact.
 //
-// This is deliberately not called from ApplyChangesetAsync. That method is part
-// of the general StateStore interface and has callers outside the commit path,
-// such as the benchmark wrappers, which would inherit a snapshot trigger they
-// never asked for. The rootmulti commit path is the single choke point that
-// sees both the populated and the empty block, so it owns the trigger. Direct
-// writes such as import, recovery, and prune must not use this hook.
-func (s *CompositeStateStore) ScheduleSnapshot(version int64) {
+// Nothing else offers a version. The apply methods are shared with import, recovery, prune and the
+// benchmark harness, none of which commit blocks.
+func (s *CompositeStateStore) scheduleSnapshot(version int64) {
 	s.snapshotMgr.maybeSnapshot(version)
 }
 

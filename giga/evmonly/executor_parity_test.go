@@ -52,7 +52,7 @@ func TestExecutorNativeTransferFeeAccountingMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -157,7 +157,7 @@ func TestExecutorNativeTransferEdgeCasesMatchGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -198,7 +198,7 @@ func TestExecutorERC20StyleTransferMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -242,7 +242,7 @@ func TestExecutorSelfDestructCreatedInSameTxMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -311,7 +311,7 @@ func TestExecutorPragueSelfDestructEdgeCasesMatchGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -353,7 +353,7 @@ func TestExecutorAccessListGasAccountingMatchesGeth(t *testing.T) {
 
 		gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 		require.NoError(t, err)
-		execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+		execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 			Context: ctx,
 			Txs:     [][]byte{rawTx},
 		})
@@ -438,7 +438,7 @@ func TestExecutorLogOpcodeCorpusMatchesGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -515,7 +515,7 @@ func TestExecutorCallOpcodeCorpusMatchesGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -563,7 +563,7 @@ func TestExecutorEnvironmentOpcodeCorpusMatchesGeth(t *testing.T) {
 
 	gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 	require.NoError(t, err)
-	execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+	execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 		Context: ctx,
 		Txs:     [][]byte{rawTx},
 	})
@@ -641,7 +641,7 @@ func TestExecutorVMFailureReceiptsAndFeesMatchGeth(t *testing.T) {
 
 			gethResult, err := executeGethReferenceBlock(t, state, cfg, ctx, [][]byte{rawTx})
 			require.NoError(t, err)
-			execResult, err := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+			execResult, err := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: ctx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -806,7 +806,7 @@ func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
 			}
 
 			gethResult, gethErr := executeGethReferenceBlock(t, state, cfg, testCtx, [][]byte{rawTx})
-			execResult, execErr := NewExecutor(cfg, WithState(state)).ExecuteBlock(t.Context(), BlockRequest{
+			execResult, execErr := NewExecutor(cfg, withTestState(state)).ExecuteBlock(t.Context(), BlockRequest{
 				Context: testCtx,
 				Txs:     [][]byte{rawTx},
 			})
@@ -882,7 +882,7 @@ func TestExecutorOCCDeterministicAcrossRuns(t *testing.T) {
 	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
 	for iteration := 0; iteration < 8; iteration++ {
 		state := newState()
-		executor := NewExecutor(cfg, WithState(state))
+		executor := NewExecutor(cfg, withTestState(state))
 		result, err := executor.ExecuteBlock(t.Context(), req)
 		executor.Close()
 		require.NoError(t, err)

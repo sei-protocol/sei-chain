@@ -326,3 +326,41 @@ func TestVoteTimeoutPrepareQC_PersistedRestart(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestPushTimeoutVote_FormsQC(t *testing.T) {
+	rng := utils.TestRng()
+	s, keys, _ := newTestState(rng)
+	vs := s.myView.Load()
+	view := vs.View()
+	c := vs.Epoch.Committee()
+
+	require.NoError(t, s.PushTimeoutVote(types.NewFullTimeoutVote(keys[0], view, utils.None[*types.PrepareQC]())))
+	require.False(t, s.timeoutQC().Load().IsPresent())
+
+	for _, k := range types.TestKeysWithWeight(c, keys, c.TimeoutQuorum()) {
+		require.NoError(t, s.PushTimeoutVote(types.NewFullTimeoutVote(k, view, utils.None[*types.PrepareQC]())))
+	}
+	got, ok := s.timeoutQC().Load().Get()
+	require.True(t, ok)
+	require.Equal(t, view, got.View())
+}
+
+func TestPushTimeoutVote_RejectsNonReplica(t *testing.T) {
+	rng := utils.TestRng()
+	s, _, _ := newTestState(rng)
+	vs := s.myView.Load()
+	view := vs.View()
+	outsider := types.GenSecretKey(rng)
+
+	require.Error(t, s.PushTimeoutVote(types.NewFullTimeoutVote(outsider, view, utils.None[*types.PrepareQC]())))
+}
+
+func TestPushTimeoutVote_RejectsWrongEpoch(t *testing.T) {
+	rng := utils.TestRng()
+	s, keys, _ := newTestState(rng)
+	vs := s.myView.Load()
+	view := vs.View()
+	view.EpochIndex++
+
+	require.Error(t, s.PushTimeoutVote(types.NewFullTimeoutVote(keys[0], view, utils.None[*types.PrepareQC]())))
+}

@@ -37,12 +37,11 @@ import (
 // advisory pass actually produced a finding, and that resolveHomeDir agrees with the
 // handler.
 //
-// It runs on the same harness as the characterization suite (testutil/configtest),
-// which is what makes the comparison trustworthy. Isolate pins the process
-// environment, since the legacy reader answers to environment variables whose prefix
-// follows the test binary's own name, and NewHome gives a node directory the test
-// controls byte for byte, since the legacy reader writes into a home while reading it.
-// See testutil/configtest/AGENTS.md.
+// It runs on the testutil/configtest harness, which is what makes the comparison
+// trustworthy. Isolate pins the process environment, since the legacy reader answers
+// to environment variables whose prefix follows the test binary's own name, and
+// NewHome gives a node directory the test controls byte for byte, since the legacy
+// reader writes into a home while reading it.
 //
 // The verdicts stay require.Equal rather than the harness dump helpers. For the
 // *tmcfg.Config struct that is a stronger comparison, because reflect.DeepEqual

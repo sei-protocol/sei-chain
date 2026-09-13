@@ -29,7 +29,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 	// Independent ground truth means reading the databases directly, which only agrees with the
 	// maintained hashes once the committed block has actually been flushed there.
 	requireFlushedToDisk(t, s)
-	var pairs []lthash.KVPairWithLastValue
+	var pairs []lthash.KeyMutation
 
 	scanDB := func(db types.KeyValueDB) {
 		iter, err := db.NewIter(&types.IterOptions{})
@@ -41,7 +41,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 			}
 			key := bytes.Clone(iter.Key())
 			value := bytes.Clone(iter.Value())
-			pairs = append(pairs, lthash.KVPairWithLastValue{
+			pairs = append(pairs, lthash.KeyMutation{
 				Key:   key,
 				Value: value,
 			})
@@ -54,7 +54,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		scanDB(db)
 	}
 
-	result, _ := lthash.ComputeLtHash(nil, pairs)
+	result := lthash.ComputeLtHash(nil, pairs)
 	return result
 }
 
@@ -273,7 +273,7 @@ func verifyLtHashAtHeight(t *testing.T, s *CommitStore, height int64) {
 	t.Helper()
 	require.Equal(t, height, s.Version(), "unexpected version")
 
-	incremental := s.workingLtHash
+	incremental := s.maintainedHashes().Global
 	scan := fullScanLtHash(t, s)
 
 	require.True(t, incremental.Equal(scan),
@@ -592,9 +592,9 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 
 	require.Equal(t, int64(10), s2.Version())
 	scan := fullScanLtHash(t, s2)
-	require.True(t, s2.workingLtHash.Equal(scan),
+	require.True(t, s2.maintainedHashes().Global.Equal(scan),
 		fmt.Sprintf("LtHash mismatch after reopen:\n  persisted checksum: %x\n  fullscan  checksum: %x",
-			s2.workingLtHash.Checksum(), scan.Checksum()))
+			s2.maintainedHashes().Global.Checksum(), scan.Checksum()))
 }
 
 // =============================================================================
@@ -613,7 +613,7 @@ func TestFullScanLtHashIncludesMisc(t *testing.T) {
 	commitAndCheck(t, s)
 
 	groundTruth := fullScanLtHash(t, s)
-	require.Equal(t, s.workingLtHash.Checksum(), groundTruth.Checksum(),
+	require.Equal(t, s.maintainedHashes().Global.Checksum(), groundTruth.Checksum(),
 		"full scan including miscDB should match incremental LtHash")
 }
 
@@ -968,8 +968,7 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
-	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NoError(t, err)
+	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.NotNil(t, paw, "the staged account row must still be present")
 	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
 }
@@ -1023,8 +1022,7 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	// inspectable — BatchSet turns an IsDelete row into a store-level delete, and reading a key
 	// deleted in the current version reports absent rather than handing back the tombstone — so assert
 	// the observable consequence instead.
-	paw, err := getAndParse(s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
-	require.NoError(t, err)
+	paw := stagedRow(t, s.accountStore, accountPhysKey(addr), vtype.DeserializeAccountData)
 	require.Nil(t, paw, "a fully deleted account row must read back as absent")
 }
 
@@ -1098,7 +1096,7 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	empty, emptyVersion := s.RootHash()
+	empty, emptyVersion := rootHashAndVersion(s)
 	require.Equal(t, int64(0), emptyVersion, "a store with no commits describes height 0")
 
 	// Block 1: create state.
@@ -1112,12 +1110,12 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 
 	// A block that has not been sealed has no hash to report, so the store still describes the
 	// previous height.
-	staged, stagedVersion := s.RootHash()
+	staged, stagedVersion := rootHashAndVersion(s)
 	require.Equal(t, empty, staged, "staging a block must not move the hash")
 	require.Equal(t, emptyVersion, stagedVersion)
 
 	commitAndCheck(t, s)
-	hash, hashVersion := s.RootHash()
+	hash, hashVersion := rootHashAndVersion(s)
 	require.NotEqual(t, empty, hash, "committing a block that changes state changes the hash")
 	require.Equal(t, int64(1), hashVersion)
 	require.Empty(t, s.pendingChangeSets, "the commit consumes the pending block")
@@ -1127,7 +1125,7 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	v, err := s.Commit(1)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), v)
-	again, againVersion := s.RootHash()
+	again, againVersion := rootHashAndVersion(s)
 	require.Equal(t, hash, again)
 	require.Equal(t, hashVersion, againVersion)
 
@@ -1144,7 +1142,7 @@ func TestRootHashReportsTheCommittedBlock(t *testing.T) {
 	before := rootHash(s)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{namedCS()}))
 	commitAndCheck(t, s)
-	after, afterVersion := s.RootHash()
+	after, afterVersion := rootHashAndVersion(s)
 	require.Equal(t, before, after, "an empty block must not change the hash")
 	require.Equal(t, int64(3), afterVersion)
 }
@@ -1192,7 +1190,7 @@ func TestLtHashReadOnlyMatchesParent(t *testing.T) {
 	// Full-scan the read-only store's DBs
 	roStore := ro.(*CommitStore)
 	scan := fullScanLtHash(t, roStore)
-	require.True(t, roStore.workingLtHash.Equal(scan),
+	require.True(t, roStore.maintainedHashes().Global.Equal(scan),
 		"read-only LtHash should match full scan of its own DBs")
 
 	require.NoError(t, s.Close())
@@ -1292,7 +1290,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	for i := byte(1); i <= 3; i++ {
 		commitMixedState(t, s1, i)
 	}
-	require.NoError(t, s1.WriteSnapshot(""))
+	require.NoError(t, s1.outOfBandSnapshot())
 
 	// Blocks 4-7: more state (will need WAL catchup on reopen)
 	for i := byte(4); i <= 7; i++ {
@@ -1339,7 +1337,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 	for i := byte(1); i <= 5; i++ {
 		commitMixedState(t, s, i)
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 	hashAtV5 := rootHash(s)
 
 	for i := byte(6); i <= 8; i++ {
@@ -1418,7 +1416,7 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 	for i := byte(1); i <= 5; i++ {
 		commitMixedState(t, s, i)
 	}
-	require.NoError(t, s.WriteSnapshot(""))
+	require.NoError(t, s.outOfBandSnapshot())
 
 	// Original timeline: blocks 6-8 with round byte as-is
 	for i := byte(6); i <= 8; i++ {
@@ -1509,6 +1507,6 @@ func TestLtHashLargeBatch(t *testing.T) {
 func verifyLtHashConsistency(t *testing.T, s *CommitStore) {
 	t.Helper()
 	expected := fullScanLtHash(t, s)
-	require.Equal(t, expected.Checksum(), s.workingLtHash.Checksum(),
+	require.Equal(t, expected.Checksum(), s.maintainedHashes().Global.Checksum(),
 		"workingLtHash should match fullScanLtHash after recovery")
 }

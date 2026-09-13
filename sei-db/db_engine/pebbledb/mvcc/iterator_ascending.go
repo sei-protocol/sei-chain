@@ -10,7 +10,6 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -41,13 +40,24 @@ type ascendingIterator struct {
 	readCount          int64
 	storeKey           string
 	operationMetrics   *pebbledbmetrics.OperationMetrics
+	dbName             string
 	ctx                context.Context
 	err                error
 
 	closeSync sync.Once
 }
 
-func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *ascendingIterator {
+func newAscendingIterator(
+	ctx context.Context,
+	src *pebble.Iterator,
+	prefix, mvccStart, mvccEnd []byte,
+	version int64,
+	earliestVersion int64,
+	reverse bool,
+	storeKey string,
+	operationMetrics *pebbledbmetrics.OperationMetrics,
+	dbName string,
+) *ascendingIterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &ascendingIterator{
@@ -60,6 +70,7 @@ func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvc
 			reverse:          reverse,
 			storeKey:         storeKey,
 			operationMetrics: operationMetrics,
+			dbName:           dbName,
 			ctx:              ctx,
 		}
 	}
@@ -82,6 +93,7 @@ func newAscendingIterator(ctx context.Context, src *pebble.Iterator, prefix, mvc
 		reverse:          reverse,
 		storeKey:         storeKey,
 		operationMetrics: operationMetrics,
+		dbName:           dbName,
 		ctx:              ctx,
 	}
 
@@ -254,7 +266,7 @@ func (itr *ascendingIterator) Key() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	keyCopy := slices.Clone(key)
+	keyCopy := bytes.Clone(key)
 	return keyCopy[len(itr.prefix):]
 }
 
@@ -268,7 +280,7 @@ func (itr *ascendingIterator) Value() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", itr.source.Key()))
 	}
 
-	return slices.Clone(val)
+	return bytes.Clone(val)
 }
 
 func (itr *ascendingIterator) nextForward() {
@@ -380,6 +392,7 @@ func (itr *ascendingIterator) Close() error {
 			metric.WithAttributes(
 				attribute.Bool("reverse", itr.reverse),
 				attribute.String("store", itr.storeKey),
+				attribute.String("db", itr.dbName),
 			),
 		)
 		if itr.operationMetrics != nil {

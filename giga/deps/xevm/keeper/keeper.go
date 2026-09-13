@@ -10,7 +10,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ethereum/evmc/v12/bindings/go/evmc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core"
@@ -80,9 +79,6 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
-
-	// EvmoneVM holds the loaded evmone VM instance for the Giga executor
-	EvmoneVM *evmc.VM
 
 	// UseRegularStore when true causes PrefixStore to use ctx.KVStore instead of ctx.GigaKVStore.
 	// This is for debugging/testing to isolate Giga executor logic from GigaKVStore layer.

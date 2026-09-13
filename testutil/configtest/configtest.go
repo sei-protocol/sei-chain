@@ -1,25 +1,25 @@
-// Package configtest is the hermetic harness the configuration
-// characterization and fuzz suites boot through.
+// Package configtest is the hermetic harness a configuration test boots through.
 //
-// The legacy seid configuration path resolves values from four layers (in-code
+// The seid configuration path resolves values from four layers (in-code
 // defaults, config.toml/app.toml, environment variables, cobra flags) through
 // several viper instances whose env prefixes differ, and it materializes files
-// as a side effect of reading them. Pinning that behavior in a test therefore
-// requires controlling more than the arguments to the function under test: the
-// process environment, $HOME, and the executable basename all feed the result.
+// as a side effect of reading them. Testing that behavior therefore requires
+// controlling more than the arguments to the function under test: the process
+// environment, $HOME, and the executable basename all feed the result.
 //
-// This package supplies the three things every such test needs, and nothing
-// else:
+// This package supplies what such a test needs to control its inputs, and
+// asserts nothing itself:
 //
 //   - Isolate pins the process environment to a known-empty state so a stray
 //     var on the developer's machine cannot change a resolved value. It covers
 //     the environment and $HOME only; see its doc for the two package-global
-//     mutations the legacy read path makes that it deliberately leaves alone.
+//     mutations the read path makes that it deliberately leaves alone.
 //   - Home builds a fixture node directory whose config/ contents the test
 //     controls byte for byte.
+//   - AppOpts stands in for the flat key-value map a section reader consumes.
 //   - Dump renders a resolved view as deterministic, diff-friendly text,
 //     carrying the concrete Go type of every leaf so a string "5" is never
-//     mistaken for an int 5.
+//     mistaken for an int 5, and LeafAt reads one field back out of it.
 //
 // It deliberately imports no sei-chain package. The surfaces under test live in
 // app, cmd/seid/cmd, sei-cosmos and sei-db; keeping this package free of them

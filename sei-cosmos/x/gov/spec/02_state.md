@@ -119,12 +119,14 @@ We also mention a method to update the tally for a given proposal:
 _Stores are KVStores in the multi-store. The key to find the store is the first
 parameter in the list_`
 
-We will use one KVStore `Governance` to store two mappings:
+We will use one KVStore `Governance` to store three mappings:
 
 - A mapping from `proposalID|'proposal'` to `Proposal`.
 - A mapping from `proposalID|'addresses'|address` to `Vote`. This mapping allows
   us to query all addresses that voted on the proposal along with their vote by
   doing a range query on `proposalID:addresses`.
+- A mapping from `proposalID|'delegations'|address` to the voter's per-validator
+  delegation shares, maintained until the proposal's electorate boundary.
 
 For pseudocode purposes, here are the two function we will use to read or write in stores:
 
@@ -137,11 +139,19 @@ For pseudocode purposes, here are the two function we will use to read or write 
 
 - `ProposalProcessingQueue`: A queue `queue[proposalID]` containing all the
   `ProposalIDs` of proposals that reached `MinDeposit`. During each `EndBlock`,
-  all the proposals that have reached the end of their voting period are processed.
-  To process a finished proposal, the application tallies the votes, computes the
-  votes of each validator and checks if every validator in the validator set has
-  voted. If the proposal is accepted, deposits are refunded. Finally, the proposal
-  content `Handler` is executed.
+  proposals that have reached the end of their voting period are advanced within
+  the block's vote-processing budget.
+
+To process a finished proposal, the application tallies the votes, computes the
+votes of each validator and checks if every validator in the validator set has
+voted. If the proposal is accepted, deposits are refunded. Finally, the proposal
+content `Handler` is executed.
+
+Expired proposals remain queue-ordered. If an earlier proposal does not finish
+within the block's vote-processing budget, the queue scan stops and later proposals
+wait for the earlier tally to complete. This also prevents the block from initializing
+validator snapshots for an unbounded number of proposals after the vote budget is
+exhausted.
 
 And the pseudocode for the `ProposalProcessingQueue`:
 
@@ -161,7 +171,7 @@ And the pseudocode for the `ProposalProcessingQueue`:
       // Tally
       voterIterator = rangeQuery(Governance, <proposalID|'addresses'>) //return all the addresses that voted on the proposal
       for each (voterAddress, vote) in voterIterator
-        delegations = stakingKeeper.getDelegations(voterAddress) // get all delegations for current voter
+        delegations = getVoteDelegationSnapshot(voterAddress)
 
         for each delegation in delegations
           // make sure delegation.Shares does NOT include shares being unbonded
@@ -203,3 +213,67 @@ And the pseudocode for the `ProposalProcessingQueue`:
 
       store(Governance, <proposalID|'proposal'>, proposal)
 ```
+
+## Incremental tally state
+
+An expired proposal retains a cursor, a snapshot of the bonded validators and tally
+parameters, and mutable per-validator tally accumulators until all of its vote records
+have been processed. Processed votes move to a round-specific archive so an
+application-state export can reconstruct every vote while a tally is unfinished. New
+votes and deposits are rejected after the voting period ends. A vote's per-validator
+delegation snapshot is created with the vote and refreshed by staking hooks whenever
+that voter delegates, undelegates, or redelegates before the proposal's electorate
+boundary. The boundary
+freezes voter shares, bonded-validator tokens and shares, total bonded tokens, and
+tally parameters together. Deadlines strictly between consecutive block times use the
+state committed before the later block begins; deadlines equal to a block time use the
+state at the start of governance `EndBlock`. Proposals sharing a boundary reuse one
+validator electorate snapshot. A vote's delegation snapshot moves with the vote into
+the tally archive.
+Delegator results are accumulated per validator from those stored shares, so changes
+after the boundary do not alter the result. If the stored delegation shares exceed
+that validator's tally snapshot, every delegator option is scaled by the same factor
+to fit the snapshotted voting-power budget. This makes the result independent of
+vote-record order. Completed tally archives and their delegation snapshots are
+removed incrementally under the same per-block vote-record budget, with part of that
+budget reserved so cleanup cannot be starved by unfinished tallies.
+
+Delegation changes caused by validator slashing are queued as constant-size updates
+instead of rewriting every affected vote snapshot in `BeginBlock`. Before advancing
+a tally, `EndBlock` drains the globally ordered update queue through that proposal's
+frozen boundary sequence under the same record-work budget. Updates at or before the
+boundary can consume that budget even when their voters did not vote on the proposal,
+so a slash-update backlog can postpone its vote processing and later expired proposals
+in the queue. Updates after the boundary neither delay nor alter the frozen proposal.
+Read-only tally and export paths overlay relevant queued updates so they remain
+consistent while that bounded work is unfinished. Once an incremental tally has
+started, tally queries continue from its persisted accumulator and frozen electorate.
+
+The version 4 governance store migration records the first proposal ID that does not
+need delegation-tracking backfill. That cutoff is retained in application-state
+exports. When an older proposal reaches tallying, its
+delegation snapshots and active-vote index entries are created incrementally with a
+per-proposal cursor under the same per-block vote-record budget as tallying and
+cleanup. New votes are rejected once that backfill starts, and tally accumulation
+cannot start until it completes. Because pre-upgrade votes have no historical
+delegation index, these proposals use one tally-start boundary: snapshots already
+backfilled continue following staking hooks, later batches read current shares, and
+the validator electorate is frozen when the final batch completes. Votes and proposals
+created after the upgrade already have the required tracking data, use deadline
+boundaries, and skip backfill. Read-only tally and export operations derive a missing
+snapshot while a proposal still needs backfill; after it completes, tally processing
+treats a missing snapshot as an invariant failure.
+When a legacy expedited proposal converts to a regular round, the new round uses a
+deadline boundary and is recorded separately so application-state export preserves
+that mode.
+
+Application-state export serializes all archived and pending votes together with their
+effective delegation snapshots and frozen electorates. Import canonicalizes unfinished
+deadline-boundary tallies by starting them again from all of their votes and frozen
+state; it does not preserve the old vote cursor or pending-update cursor. This replay
+produces the same final tally even when live staking state or governance parameters
+changed after the electorate boundary. Export also canonicalizes an expired legacy
+proposal whose backfill is unfinished: it materializes each effective delegation
+snapshot, freezes an electorate at export, and import marks that backfill complete.
+Unexpired legacy proposals retain their bounded live-backfill semantics. Expired
+proposals do not reopen for votes before their first `EndBlock`.

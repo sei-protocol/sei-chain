@@ -129,6 +129,11 @@ func initRootCmd(
 	// extend debug command
 	debugCmd := debug.Cmd()
 
+	// One namespace for configuration. The existing command reads and writes client.toml; check reads the
+	// node's sei.toml and writes nothing.
+	configCmd := config.Cmd()
+	configCmd.AddCommand(configmanager.CheckCmd())
+
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
 		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, app.DefaultNodeHome),
@@ -144,7 +149,7 @@ func initRootCmd(
 		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
 		debugCmd,
-		config.Cmd(),
+		configCmd,
 		tools.ToolCmd(),
 		SnapshotCmd(),
 		LogLevelCmd(),
@@ -416,9 +421,9 @@ func initAppConfig() (string, interface{}) {
 	pruningInterval := primes[r.Intn(len(primes))]
 	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
 
-	// Metrics
+	// Metrics. Retention is left at the upstream default, which is zero, so this pipeline agrees with
+	// the one seid init runs and neither starts the Prometheus sink without an operator asking for it.
 	srvCfg.Telemetry.Enabled = true
-	srvCfg.Telemetry.PrometheusRetentionTime = 60
 
 	// Use shared CustomAppConfig from app_config.go
 	customAppConfig := NewCustomAppConfig(srvCfg, evmrpcconfig.DefaultConfig)

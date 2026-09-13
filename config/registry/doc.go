@@ -13,8 +13,7 @@
 //
 // A key that does not register here states all three separately, and nothing ties them together, so
 // they drift independently. A rename can move the reader and leave the flag behind, and the result is
-// a key an operator sets that reaches nothing. The characterization suite in testutil/configtest pins
-// several such mismatches, which is how they were found rather than reported.
+// a key an operator sets that reaches nothing. Several such mismatches already exist in this tree.
 //
 // Registering a section states the key once, so editing the tag moves all three together and there
 // is no second place to forget. The tag is still a string literal, and a rename is still a rename of

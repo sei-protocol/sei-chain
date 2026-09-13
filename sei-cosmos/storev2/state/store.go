@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"cosmossdk.io/errors"
@@ -10,8 +9,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/query"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
@@ -26,13 +25,14 @@ var (
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store    seidbtypes.StateStore
-	storeKey types.StoreKey
-	version  int64
+	store          seidbtypes.StateStore
+	storeKey       types.StoreKey
+	version        int64
+	subspaceLimits query.Limits
 }
 
-func NewStore(store seidbtypes.StateStore, storeKey types.StoreKey, version int64) *Store {
-	return &Store{store, storeKey, version}
+func NewStore(store seidbtypes.StateStore, storeKey types.StoreKey, version int64, subspaceLimits query.Limits) *Store {
+	return &Store{store, storeKey, version, subspaceLimits}
 }
 
 func (st *Store) GetStoreType() types.StoreType {
@@ -99,7 +99,7 @@ func (st *Store) GetWorkingHash() ([]byte, error) {
 	panic("get working hash operation is not supported")
 }
 
-func (st *Store) Query(_ context.Context, req abci.RequestQuery) (res abci.ResponseQuery) {
+func (st *Store) Query(ctx context.Context, req abci.RequestQuery) (res abci.ResponseQuery) {
 	if req.Height > 0 && req.Height > st.version {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, "invalid height"))
 	}
@@ -109,20 +109,10 @@ func (st *Store) Query(_ context.Context, req abci.RequestQuery) (res abci.Respo
 		res.Key = req.Data // data holds the key bytes
 		res.Value = st.Get(res.Key)
 	case "/subspace":
-		pairs := kv.Pairs{
-			Pairs: make([]kv.Pair, 0),
-		}
-		subspace := req.Data
-		res.Key = subspace
-		iterator := types.KVStorePrefixIterator(st, subspace)
-		for ; iterator.Valid(); iterator.Next() {
-			pairs.Pairs = append(pairs.Pairs, kv.Pair{Key: iterator.Key(), Value: iterator.Value()})
-		}
-		_ = iterator.Close()
-
-		bz, err := pairs.Marshal()
+		res.Key = req.Data
+		bz, err := query.ScanSubspace(ctx, st, req.Data, st.subspaceLimits)
 		if err != nil {
-			panic(fmt.Errorf("failed to marshal KV pairs: %w", err))
+			return sdkerrors.QueryResult(err)
 		}
 		res.Value = bz
 	default:
