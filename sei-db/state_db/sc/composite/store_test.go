@@ -1037,12 +1037,12 @@ func evmMigratedConfig() config.StateCommitConfig {
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
-	// With SnapshotInterval=1 every commit produces a snapshot, and FlatKV
-	// mirrors this cadence via alignFlatKVSnapshotWithMemIAVL. The default
-	// keep-recent of 1 would prune all but the two newest snapshots, so a
-	// rollback/reconcile to an older version (e.g. v3 after committing v5)
-	// could no longer find a base snapshot at-or-below the target. Retain all
-	// snapshots for the short duration of a test so those paths stay valid.
+	// With SnapshotInterval=1 every commit produces a snapshot, and FlatKV takes this
+	// interval via alignFlatKVSnapshotWithMemIAVL. memIAVL's default keep-recent of 1 would
+	// prune all but the two newest snapshots, so a rollback/reconcile to an older version
+	// (e.g. v3 after committing v5) could no longer find a base snapshot at-or-below the
+	// target. Retain all snapshots for the short duration of a test so those paths stay
+	// valid; the same alignment raises FlatKV's depth to match.
 	cfg.MemIAVLConfig.SnapshotKeepRecent = 100
 	return cfg
 }
@@ -2572,30 +2572,52 @@ func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
 }
 
 func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
-	t.Run("FlatKV derives interval and keep-recent from a non-zero memIAVL", func(t *testing.T) {
+	t.Run("the interval is mirrored from a non-zero memIAVL", func(t *testing.T) {
 		cfg := config.DefaultStateCommitConfig()
 		cfg.MemIAVLConfig.SnapshotInterval = 5000
-		cfg.MemIAVLConfig.SnapshotKeepRecent = 3
-		// Start FlatKV from divergent values to prove they get overwritten.
+		// Start FlatKV from a divergent interval to prove it gets overwritten: the two
+		// backends must checkpoint on one height grid.
 		cfg.FlatKVConfig.SnapshotInterval = 111
-		cfg.FlatKVConfig.SnapshotKeepRecent = 222
 
 		alignFlatKVSnapshotWithMemIAVL(&cfg)
 
 		require.Equal(t, uint32(5000), cfg.FlatKVConfig.SnapshotInterval)
-		require.Equal(t, uint32(3), cfg.FlatKVConfig.SnapshotKeepRecent)
 	})
 
-	t.Run("a zero memIAVL keep-recent resolves to the healed default", func(t *testing.T) {
+	t.Run("a deeper memIAVL keep-recent raises FlatKV", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 72
+		cfg.FlatKVConfig.SnapshotKeepRecent = 10
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(72), cfg.FlatKVConfig.SnapshotKeepRecent,
+			"FlatKV must not retain less than memIAVL, or it becomes the binding floor")
+	})
+
+	t.Run("a shallower memIAVL keep-recent leaves FlatKV alone", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		cfg.MemIAVLConfig.SnapshotKeepRecent = 1
+		cfg.FlatKVConfig.SnapshotKeepRecent = 10
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, uint32(10), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	t.Run("a zero memIAVL keep-recent resolves to the healed default before comparing", func(t *testing.T) {
 		cfg := config.DefaultStateCommitConfig()
 		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
-		// FlatKV must not mirror the raw 0 (which would prune everything but the
-		// latest). Instead it mirrors the value FillDefaults will heal memIAVL to,
-		// keeping the two in lockstep. memIAVL's own 0 is left for FillDefaults.
+		// A raw 0 is "unset" for memIAVL, not "keep nothing", so it must be healed to the
+		// value FillDefaults will apply before it can raise FlatKV's floor. memIAVL's own 0
+		// is left for FillDefaults.
+		cfg.FlatKVConfig.SnapshotKeepRecent = 10
+
 		alignFlatKVSnapshotWithMemIAVL(&cfg)
 
 		require.Equal(t, uint32(0), cfg.MemIAVLConfig.SnapshotKeepRecent)
-		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.GreaterOrEqual(t, cfg.FlatKVConfig.SnapshotKeepRecent, uint32(memiavl.DefaultSnapshotKeepRecent))
+		require.Equal(t, uint32(10), cfg.FlatKVConfig.SnapshotKeepRecent)
 	})
 
 	t.Run("a zero memIAVL interval resolves to the healed default", func(t *testing.T) {
@@ -2609,13 +2631,11 @@ func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
 		require.NotZero(t, cfg.FlatKVConfig.SnapshotInterval)
 	})
 
-	t.Run("an explicit FlatKV override loses to memIAVL's healed default", func(t *testing.T) {
-		// Upgrade scenario: an old app.toml still pins an explicit FlatKV
-		// keep-recent/interval (the previous template rendered flatkv.* keys)
-		// while sc-* is 0. FlatKV must follow memIAVL's effective (healed) cadence
-		// rather than staying pinned to the stale explicit value, otherwise the
-		// two backends diverge (memIAVL heals 0 -> default, FlatKV keeps the old
-		// explicit value).
+	t.Run("an explicit FlatKV interval loses, an explicit deeper keep-recent survives", func(t *testing.T) {
+		// Upgrade scenario: an old app.toml still pins explicit FlatKV values (the previous
+		// template rendered flatkv.* keys) while sc-* is 0. A stale interval must lose, or
+		// the grids diverge and no height is shared. A stale depth is only a depth choice,
+		// so it survives where it is the deeper of the two.
 		cfg := config.DefaultStateCommitConfig()
 		cfg.MemIAVLConfig.SnapshotKeepRecent = 0
 		cfg.MemIAVLConfig.SnapshotInterval = 0
@@ -2624,7 +2644,21 @@ func TestAlignFlatKVSnapshotWithMemIAVL(t *testing.T) {
 
 		alignFlatKVSnapshotWithMemIAVL(&cfg)
 
-		require.Equal(t, uint32(memiavl.DefaultSnapshotKeepRecent), cfg.FlatKVConfig.SnapshotKeepRecent)
 		require.Equal(t, uint32(memiavl.DefaultSnapshotInterval), cfg.FlatKVConfig.SnapshotInterval)
+		require.Equal(t, uint32(2), cfg.FlatKVConfig.SnapshotKeepRecent)
+	})
+
+	// The regression this whole change exists to prevent: a default-configured node must
+	// actually run FlatKV at the in-code default. Before the depth was decoupled, the
+	// alignment overwrote it with memIAVL's sc-keep-recent of 1 and the default was dead.
+	t.Run("a default config reaches the store at FlatKV's own depth", func(t *testing.T) {
+		cfg := config.DefaultStateCommitConfig()
+		want := cfg.FlatKVConfig.SnapshotKeepRecent
+
+		alignFlatKVSnapshotWithMemIAVL(&cfg)
+
+		require.Equal(t, want, cfg.FlatKVConfig.SnapshotKeepRecent)
+		require.Greater(t, cfg.FlatKVConfig.SnapshotKeepRecent, uint32(memiavl.DefaultSnapshotKeepRecent),
+			"the default only means something while it is deeper than memIAVL's")
 	})
 }

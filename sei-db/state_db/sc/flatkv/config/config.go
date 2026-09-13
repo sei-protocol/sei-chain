@@ -15,18 +15,18 @@ const (
 	// at mainnet's block rate.
 	//
 	// It is sized against memIAVL's publication rate rather than against FlatKV's own disk
-	// use. A composite read needs a version both backends still hold, and at mainnet state
-	// size a memIAVL rewrite takes about six hours against this 10000-block interval, so
-	// memIAVL skips generations and publishes roughly every 50,000 blocks. Keeping a single
-	// old checkpoint reaches back 10,000 to 20,000 blocks, so FlatKV prunes each version
-	// before memIAVL publishes it and no common version ever exists — which is what blocks a
-	// cross-backend digest and leaves a composite rollback with no shared base.
+	// use. A composite read needs a version both backends still hold, and while the EVM tree
+	// is at full size a memIAVL rewrite runs five to six hours against this 10000-block
+	// interval, so memIAVL skips generations and publishes roughly every 50,000 blocks.
+	// Keeping a single old checkpoint reaches back 10,000 to 20,000 blocks, so FlatKV prunes
+	// each version before memIAVL publishes it and no common version ever exists — which is
+	// what blocks a cross-backend digest and leaves a composite rollback with no shared base.
 	//
 	// Depth is affordable here because a checkpoint hardlinks its SSTs, so one costs only the
-	// bytes compaction has since made obsolete: measured at mainnet state size, 261 MiB of
-	// pinned SSTs plus about 25 MiB of retained state WAL, or roughly 2.8 GiB for ten. The
-	// cost is linear in depth, because each older checkpoint pins exactly the files obsoleted
-	// during its own interval and those sets are disjoint.
+	// bytes compaction has since made obsolete. Measured at mainnet state size: 283 MiB per
+	// checkpoint, the mean of five rotations, plus 6.9 MiB per interval of retained state
+	// WAL — about 2.9 GiB for ten. The cost is linear in depth, because each older checkpoint
+	// pins the files obsoleted during its own interval and those sets are disjoint.
 	DefaultSnapshotKeepRecent uint32 = 10
 )
 
@@ -58,8 +58,9 @@ type Config struct {
 	// latest one. 0 means keep only the current snapshot (no old snapshots).
 	// Ignored entirely when ExternalPruning is set.
 	//
-	// It is not mirrored from memIAVL's sc-keep-recent, and no app.toml key is rendered for
-	// it, so a production node runs the DefaultConfig value.
+	// No app.toml key is rendered for it. On a composite store this value is a floor:
+	// alignFlatKVSnapshotWithMemIAVL raises it to memIAVL's sc-keep-recent where that is
+	// deeper, and never lowers it.
 	// Default: 10
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
