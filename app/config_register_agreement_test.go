@@ -22,7 +22,7 @@ var whatANodeRunsToday = map[string]string{
 	FlagSSPruneInterval:     "0",
 	FlagSSImportNumWorkers:  "0",
 	FlagSCEnable:            "false",
-	FlagSCWriteMode:         "auto",
+	FlagSCWriteMode:         scWriteModeANodeRuns,
 }
 
 // whyItMatters says what a node gets today, for the keys where that is worth stating.
@@ -42,15 +42,18 @@ var whyItMatters = map[string]string{
 // Per mode because the section answers per mode for two of these settings and the reader does not answer
 // per mode at all. An archive node declares the retention the reader also produces, so that key agrees for
 // archive and disagrees everywhere else; the store toggle is the reverse.
+//
+// Every entry ends in scWriteModeDivergence, which holds sc-write-mode on builds where the two sides
+// disagree and is empty on the one build where they do not.
 var theDivergences = map[registry.Mode][]string{
-	registry.ModeValidator: {FlagSSBackend, FlagSSAsyncWriterBuffer, FlagSSKeepRecent,
-		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable, FlagSCWriteMode},
-	registry.ModeSeed: {FlagSSBackend, FlagSSAsyncWriterBuffer, FlagSSKeepRecent,
-		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable, FlagSCWriteMode},
-	registry.ModeFull: {FlagSSEnable, FlagSSBackend, FlagSSAsyncWriterBuffer, FlagSSKeepRecent,
-		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable, FlagSCWriteMode},
-	registry.ModeArchive: {FlagSSEnable, FlagSSBackend, FlagSSAsyncWriterBuffer,
-		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable, FlagSCWriteMode},
+	registry.ModeValidator: append([]string{FlagSSBackend, FlagSSAsyncWriterBuffer, FlagSSKeepRecent,
+		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable}, scWriteModeDivergence...),
+	registry.ModeSeed: append([]string{FlagSSBackend, FlagSSAsyncWriterBuffer, FlagSSKeepRecent,
+		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable}, scWriteModeDivergence...),
+	registry.ModeFull: append([]string{FlagSSEnable, FlagSSBackend, FlagSSAsyncWriterBuffer, FlagSSKeepRecent,
+		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable}, scWriteModeDivergence...),
+	registry.ModeArchive: append([]string{FlagSSEnable, FlagSSBackend, FlagSSAsyncWriterBuffer,
+		FlagSSPruneInterval, FlagSSImportNumWorkers, FlagSCEnable}, scWriteModeDivergence...),
 }
 
 // readerValues is what each section's reader produces for a file carrying no keys at all.
