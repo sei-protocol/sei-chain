@@ -347,8 +347,8 @@ func FuzzSCWriteMode(f *testing.F) {
 
 		cfg := parseSCConfigs(opts)
 
-		// enable-auto defaults to true and only an explicit key changes it.
-		effectiveAuto := true
+		// enable-auto takes its in-code default and only an explicit key changes it.
+		effectiveAuto := config.DefaultStateCommitConfig().WriteModeEnableAuto
 		if setAuto {
 			effectiveAuto = auto
 		}
@@ -507,14 +507,14 @@ func FuzzReadGenesisStreamImport(f *testing.F) {
 // TestParseSCConfigsAbsentBaseline records what an app.toml with no
 // [state-commit] section resolves to. It is not the in-code default: the two
 // unguarded reads clobber Enable to false and Directory to "", and the write mode
-// resolves to auto because enable-auto defaults to true. The Enable clobber is the
+// follows whatever enable-auto defaults to on this build. The Enable clobber is the
 // reason a node whose app.toml predates the section refuses to boot — SetupSeiDB
 // panics on !Enable rather than falling back.
 func TestParseSCConfigsAbsentBaseline(t *testing.T) {
 	want := config.DefaultStateCommitConfig()
 	want.Enable = false // unguarded read of an absent key
 	want.Directory = "" // unguarded read of an absent key
-	want.WriteMode = sctypes.Auto
+	want.WriteMode = wantAbsentAutoWriteMode
 	want.HashLogger.Version = version.Version // stamped from the build, not from config
 
 	got := parseSCConfigs(configtest.AppOpts{})
@@ -631,7 +631,7 @@ func TestKeyNamesMatchTheRecordedNames(t *testing.T) {
 // this package and sei-cosmos/server/config, and regenerating only one leaves the other red, so
 // regenerate both and read both diffs.
 func TestDefaultsMatchTheRecordedValues(t *testing.T) {
-	configtest.CheckDefaults(t, "state-commit", config.DefaultStateCommitConfig())
+	configtest.CheckDefaults(t, stateCommitRecord, config.DefaultStateCommitConfig())
 	configtest.CheckDefaults(t, "state-store", config.DefaultStateStoreConfig())
 	configtest.CheckDefaults(t, "light_invariance", DefaultLightInvarianceConfig)
 	configtest.CheckDefaults(t, "genesis", DefaultGenesisConfig)
