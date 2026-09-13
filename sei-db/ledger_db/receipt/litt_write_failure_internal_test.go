@@ -150,6 +150,37 @@ func TestWriteAfterCloseIsRefusedWithAFullQueue(t *testing.T) {
 	}
 }
 
+// TestWriteRacingCloseIsEitherAppliedOrRefused covers the ordering the two tests above cannot reach,
+// where a write is admitted while Close is running rather than after it has returned. Admission and
+// shutdown have to be mutually exclusive: a write that returns success must have reached a writer
+// that was still running, so the height it reports is one the store actually holds.
+func TestWriteRacingCloseIsEitherAppliedOrRefused(t *testing.T) {
+	for attempt := range 50 {
+		s, _ := setupLittCtxStore(t)
+
+		addr := common.HexToAddress("0xfa51")
+		topic := common.HexToHash("0xfa52")
+		txHash, rcpt := littCtxTestReceipt(1, 0, addr, topic, 1)
+
+		started := make(chan struct{})
+		result := make(chan error, 1)
+		go func() {
+			close(started)
+			result <- s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}})
+		}()
+		<-started
+		require.NoError(t, s.Close())
+
+		if err := <-result; err != nil {
+			require.ErrorIs(t, err, ErrStoreClosed, "attempt %d", attempt)
+			continue
+		}
+		// Accepted, so the writer must have applied it before Close let the writer go.
+		require.Equal(t, int64(1), s.LatestVersion(),
+			"attempt %d: a write that reported success must have been applied", attempt)
+	}
+}
+
 func writeOneReceipt(t *testing.T, s *littReceiptStore, block uint64, addr common.Address, topic common.Hash) {
 	t.Helper()
 	txHash, rcpt := littCtxTestReceipt(block, 0, addr, topic, 1)

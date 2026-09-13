@@ -69,6 +69,18 @@ const gigaMeterName = "seidb_giga"
 //
 // The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
 // had already opened.
+// stateStoreConfigFor is the state store config a StateDB opens SS with, settled once here rather
+// than at each open so that every path reaches the same databases. The rollback path opens them too,
+// through DiscardStateAbove, and a config differing there would leave it writing a changelog beside
+// stores the commit path keeps none for.
+//
+// The changelog is off because this StateDB already logs every block: its state WAL is written
+// before SS and is what catchUpTo replays into it, so a second log inside SS is never read.
+func stateStoreConfigFor(cfg config.StateStoreConfig) config.StateStoreConfig {
+	cfg.DisableInternalWAL = true
+	return cfg
+}
+
 func NewStateDB(
 	ctx context.Context,
 	flatkvCfg *flatkvconfig.Config,
@@ -77,7 +89,7 @@ func NewStateDB(
 ) (db *StateDB, retErr error) {
 	s := &StateDB{
 		flatkvCfg: flatkvCfg,
-		ssCfg:     ssCfg,
+		ssCfg:     stateStoreConfigFor(ssCfg),
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
@@ -131,7 +143,7 @@ func NewStateDBWithRollback(
 	}
 
 	// rewindTo only moves files, so it needs no store open, only where they live.
-	offline := &StateDB{flatkvCfg: flatkvCfg, ssCfg: ssCfg}
+	offline := &StateDB{flatkvCfg: flatkvCfg, ssCfg: stateStoreConfigFor(ssCfg)}
 	if err := offline.rewindTo(target); err != nil {
 		return nil, err
 	}
@@ -192,18 +204,12 @@ func (s *StateDB) openSS() error {
 	if !s.ssCfg.Enable {
 		return nil
 	}
-	// The state WAL this StateDB writes before every commit is what catchUpTo replays into SS, and
-	// rollback rewinds SS from its snapshots against that same WAL. A changelog inside SS would be
-	// a second log of every block that nothing here reads, paid for on the commit path.
-	ssCfg := s.ssCfg
-	ssCfg.DisableInternalWAL = true
-
-	ss, err := evm.NewEVMStateStore(ssCfg.EVMDBDirectory, ssCfg)
+	ss, err := evm.NewEVMStateStore(s.ssCfg.EVMDBDirectory, s.ssCfg)
 	if err != nil {
 		return fmt.Errorf("open EVM state store: %w", err)
 	}
 	s.ss = ss
-	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), ssCfg, nil); err != nil {
+	if err := s.ss.StartSnapshots(s.ssSnapshotRoot(), s.ssCfg, nil); err != nil {
 		return fmt.Errorf("start EVM state store snapshot manager: %w", err)
 	}
 	return nil

@@ -91,7 +91,14 @@ type littReceiptStore struct {
 	// queue costs the caller. A whole write is queued — bodies, log index and version marker — so
 	// the queue's depth is the depth of the receipt write itself. Its capacity bounds how far the
 	// store may fall behind the chain; a nil channel means writes are applied on the caller.
-	writes       chan receiptWrite
+	writes chan receiptWrite
+
+	// Orders admitting a write against shutting the writer down. queueWrite holds it shared for the
+	// length of a send; Close takes it exclusively to refuse further writes before stopping the
+	// writer, so no write is ever accepted into a queue that will not be drained.
+	admission sync.RWMutex
+	closing   bool
+
 	writeQueue   *seidbmetrics.QueueMeter
 	writeErr     atomic.Pointer[error]
 	stopSampling context.CancelFunc
@@ -360,31 +367,19 @@ var ErrStoreClosed = errors.New("receipt store is closed")
 // send after that point would sit in a channel nobody reads, and a send once the queue is full
 // would never return — inside a commit, which hangs the node instead of failing it.
 func (s *littReceiptStore) queueWrite(write receiptWrite) error {
-	// Checked before the send rather than only alongside it: select picks uniformly among ready
-	// cases, so a send with room available would win half the races against an already-closed store.
-	select {
-	case <-s.stopBackground:
+	// Held across the send, not merely to read the flag. Close takes the same lock exclusively before
+	// it stops the writer, so a write admitted here reaches a writer that is still running, and one
+	// arriving after Close has begun is refused instead of landing in a queue nobody will drain.
+	//
+	// A send blocked on a full queue holds the lock and delays Close, which is the intended order: the
+	// writer is still draining, so the send completes and Close proceeds behind it.
+	s.admission.RLock()
+	defer s.admission.RUnlock()
+	if s.closing {
 		return ErrStoreClosed
-	default:
 	}
-	return s.writeQueue.SendVia(
-		func() bool {
-			select {
-			case s.writes <- write:
-				return true
-			default:
-				return false
-			}
-		},
-		func() error {
-			select {
-			case s.writes <- write:
-				return nil
-			case <-s.stopBackground:
-				return ErrStoreClosed
-			}
-		},
-	)
+	seidbmetrics.Send(s.writeQueue, s.writes, write)
+	return nil
 }
 
 // applyReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
@@ -587,6 +582,12 @@ func (s *littReceiptStore) startFlusher() {
 func (s *littReceiptStore) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		// Before the writer is stopped, and exclusive, so it takes effect only once the writes already
+		// admitted have been handed over.
+		s.admission.Lock()
+		s.closing = true
+		s.admission.Unlock()
+
 		if s.stopSampling != nil {
 			s.stopSampling()
 		}

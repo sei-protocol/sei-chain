@@ -16,18 +16,50 @@ import (
 // SS keeps no changelog of its own under giga: the state WAL written before every commit is what
 // catchUpTo replays into it, so a second log would be written on the commit path and never read.
 // Recovery rests on that, which is why the absence is pinned rather than left to the config.
-func TestOpenSSKeepsNoChangelogOfItsOwn(t *testing.T) {
-	s := &StateDB{
-		flatkvCfg: flatkvconfig.DefaultTestConfig(t),
-		ssCfg:     config.DefaultStateStoreConfig(),
+func TestGigaOpensSSWithoutAChangelog(t *testing.T) {
+	newStateDB := func(t *testing.T) *StateDB {
+		t.Helper()
+		ssCfg := config.DefaultStateStoreConfig()
+		ssCfg.Enable = true
+		ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
+		return &StateDB{
+			flatkvCfg: flatkvconfig.DefaultTestConfig(t),
+			// As the constructors settle it, which is what makes both paths below agree.
+			ssCfg: stateStoreConfigFor(ssCfg),
+		}
 	}
-	s.ssCfg.Enable = true
-	s.ssCfg.EVMDBDirectory = filepath.Join(t.TempDir(), "ss")
 
-	require.NoError(t, s.openSS())
-	t.Cleanup(func() { _ = s.ss.Close() })
+	t.Run("opened to commit", func(t *testing.T) {
+		s := newStateDB(t)
+		require.NoError(t, s.openSS())
+		t.Cleanup(func() { _ = s.ss.Close() })
+		requireNoSSChangelog(t, s.ssCfg.EVMDBDirectory)
+	})
 
-	changelog := utils.GetChangelogPath(s.ssCfg.EVMDBDirectory)
+	// The rollback path opens the same databases through DiscardStateAbove rather than openSS, so it
+	// is the one a config settled per-open would miss. It reaches them via StoredVersions, which
+	// returns without opening anything when the directory is absent, so the store has to exist first.
+	t.Run("opened to roll back", func(t *testing.T) {
+		s := newStateDB(t)
+		require.NoError(t, s.openSS())
+		require.NoError(t, s.ss.Close())
+
+		require.NoError(t, s.discardStateAbove(storedWALRange{first: 1, last: 9}, 7))
+		requireNoSSChangelog(t, s.ssCfg.EVMDBDirectory)
+	})
+}
+
+// TestStateStoreConfigForDisablesTheInternalWAL pins what the constructors apply, since every path
+// that opens SS reads the config they settled rather than disabling the log for itself.
+func TestStateStoreConfigForDisablesTheInternalWAL(t *testing.T) {
+	handedIn := config.DefaultStateStoreConfig()
+	require.False(t, handedIn.DisableInternalWAL, "a caller is not expected to have set it")
+	require.True(t, stateStoreConfigFor(handedIn).DisableInternalWAL)
+}
+
+func requireNoSSChangelog(t *testing.T, evmDBDirectory string) {
+	t.Helper()
+	changelog := utils.GetChangelogPath(evmDBDirectory)
 	_, err := os.Stat(changelog)
 	require.True(t, os.IsNotExist(err),
 		"SS must keep no changelog under giga; found one at %s", changelog)
