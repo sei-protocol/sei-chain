@@ -69,14 +69,6 @@ const gigaMeterName = "seidb_giga"
 //
 // The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
 // had already opened.
-// stateStoreConfigFor is the config a StateDB opens SS with. It is settled here rather than at each
-// open because the rollback path opens the same databases through DiscardStateAbove. The changelog
-// is off: this StateDB's own state WAL is what catchUpTo replays into SS.
-func stateStoreConfigFor(cfg config.StateStoreConfig) config.StateStoreConfig {
-	cfg.DisableInternalWAL = true
-	return cfg
-}
-
 func NewStateDB(
 	ctx context.Context,
 	flatkvCfg *flatkvconfig.Config,
@@ -114,6 +106,14 @@ func NewStateDB(
 		return nil, err
 	}
 	return s, nil
+}
+
+// stateStoreConfigFor is the config a StateDB opens SS with. It is settled here rather than at each
+// open because the rollback path opens the same databases through DiscardStateAbove. The changelog
+// is off: this StateDB's own state WAL is what catchUpTo replays into SS.
+func stateStoreConfigFor(cfg config.StateStoreConfig) config.StateStoreConfig {
+	cfg.DisableInternalWAL = true
+	return cfg
 }
 
 // NewStateDBWithRollback rolls SC, SS and the state WAL back to target and then opens them, so the

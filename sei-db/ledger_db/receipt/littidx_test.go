@@ -2,10 +2,12 @@ package receipt_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
@@ -124,15 +126,17 @@ func writeLitBlock(t *testing.T, store receipt.ReceiptStore, ctx sdk.Context, bl
 	if len(records) == 0 {
 		return
 	}
-	// Neither signal alone marks the end of a write: the bodies land before the version marker, and
-	// a block written in parts advances the marker on its first part. Wait for both.
+	// A write puts its bodies in litt before it commits its log index, so a readable receipt does not
+	// mean a queryable one. LatestVersion does not close that gap either: a block written in parts
+	// does not advance it past the first part. Waiting for the last record's log covers both stages.
 	last := records[len(records)-1].TxHash
 	require.Eventually(t, func() bool {
-		if store.LatestVersion() < int64(block) { //nolint:gosec // small test heights
+		//nolint:gosec // small test heights
+		logs, err := store.FilterLogs(ctx, block, block, filters.FilterCriteria{}, nil)
+		if err != nil {
 			return false
 		}
-		_, err := store.GetReceiptFromStore(ctx, last)
-		return err == nil
+		return slices.ContainsFunc(logs, func(l *ethtypes.Log) bool { return l.TxHash == last })
 	}, 5*time.Second, time.Millisecond)
 }
 

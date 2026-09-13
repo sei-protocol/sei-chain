@@ -59,7 +59,7 @@ const (
 	// compactor cannot keep up with the tombstone churn that pruning generates,
 	// so deleted data accumulates and slows every subsequent prune scan. Allowing
 	// Pebble to burst up to a few compactions clears that backlog.
-	maxConcurrentCompactions = 16
+	maxConcurrentCompactions = 4
 )
 
 var (
@@ -152,12 +152,12 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               256 << 20, // 256 MiB
-		MemTableSize:                256 << 20,
+		LBaseMaxBytes:               64 << 20, // 64 MiB
+		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		// Let Pebble run several compactions in parallel so it can keep up with
 		// the tombstone churn produced by pruning. See maxConcurrentCompactions.
-		CompactionConcurrencyRange: func() (int, int) { return 2, maxConcurrentCompactions },
+		CompactionConcurrencyRange: func() (int, int) { return 1, maxConcurrentCompactions },
 	}
 
 	// Configure L0 with explicit settings
