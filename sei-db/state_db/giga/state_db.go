@@ -76,9 +76,10 @@ func NewStateDB(
 	checkpointCfg config.CheckpointConfig,
 ) (db *StateDB, retErr error) {
 	s := &StateDB{
-		flatkvCfg:    flatkvCfg,
-		ssCfg:        ssCfg,
-		commitPhases: metrics.NewPhaseTimer(otel.Meter(gigaMeterName), commitPhaseTimerName),
+		flatkvCfg: flatkvCfg,
+		ssCfg:     ssCfg,
+		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
+			RecordLatencies().Build(),
 	}
 	defer s.closeOnFailure(&retErr)
 

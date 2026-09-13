@@ -3,8 +3,6 @@ package mvcc
 import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
-
-	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
 var (
@@ -25,7 +23,6 @@ var (
 		batchWriteLatency          metric.Float64Histogram
 
 		batchSize          metric.Int64Histogram
-		applyPhases        *seidbmetrics.PhaseTimerFactory
 		iteratorIterations metric.Float64Histogram
 	}{
 		getLatency: must(meter.Float64Histogram(
@@ -73,7 +70,6 @@ var (
 			metric.WithDescription("Size of batches written to PebbleDB"),
 			metric.WithUnit("By"),
 		)),
-		applyPhases: seidbmetrics.NewPhaseTimerFactory(meter, "pebble_apply_changeset"),
 		iteratorIterations: must(meter.Float64Histogram(
 			"pebble_iterator_iterations",
 			metric.WithDescription("Number of iterations per iterator"),

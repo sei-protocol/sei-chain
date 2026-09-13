@@ -12,6 +12,7 @@ import (
 // PhaseTimerFactory constructs shared OTel metrics and builds independent
 // PhaseTimer instances. Use Build() to create a timer for each thread.
 type PhaseTimerFactory struct {
+	meter              metric.Meter
 	phaseDurationTotal metric.Float64Counter
 	phaseLatency       metric.Float64Histogram
 	timerName          string
@@ -19,9 +20,9 @@ type PhaseTimerFactory struct {
 }
 
 // NewPhaseTimerFactory creates a factory that records to the given meter with the
-// specified timer name (e.g., "main_thread" or "transaction"). Metric names are
-// {timerName}_phase_duration_seconds_total and {timerName}_phase_latency_seconds
-// to match existing Grafana dashboards.
+// specified timer name (e.g., "main_thread" or "transaction"), publishing
+// {timerName}_phase_duration_seconds_total. Call RecordLatencies for the histogram a
+// percentile panel reads.
 //
 // Every measurement recorded by the built timers carries staticAttrs in addition to the
 // "phase" attribute. Use staticAttrs to distinguish instances (e.g. cache="state") rather
@@ -38,18 +39,31 @@ func NewPhaseTimerFactory(
 		metric.WithDescription("Total seconds spent in each phase"),
 		metric.WithUnit("s"),
 	)
-	phaseLatency, _ := meter.Float64Histogram(
-		timerName+"_phase_latency_seconds",
+	return &PhaseTimerFactory{
+		meter:              meter,
+		phaseDurationTotal: phaseDurationTotal,
+		timerName:          timerName,
+		staticAttrs:        slices.Clone(staticAttrs),
+	}
+}
+
+// RecordLatencies adds {timerName}_phase_latency_seconds to the timers this factory builds, and
+// returns the factory so it can be chained onto the constructor.
+//
+// It is off by default because it is the expensive half: a bucket is a series, so the histogram
+// costs a multiple of what the duration counter does, and most timers are only ever read as the
+// share-of-time counter. Turn it on where a percentile panel reads the phases.
+func (f *PhaseTimerFactory) RecordLatencies() *PhaseTimerFactory {
+	if f == nil || f.phaseLatency != nil {
+		return f
+	}
+	f.phaseLatency, _ = f.meter.Float64Histogram(
+		f.timerName+"_phase_latency_seconds",
 		metric.WithDescription("Latency per phase (seconds); use for p99, p95, etc."),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(LatencyBuckets...),
 	)
-	return &PhaseTimerFactory{
-		phaseDurationTotal: phaseDurationTotal,
-		phaseLatency:       phaseLatency,
-		timerName:          timerName,
-		staticAttrs:        slices.Clone(staticAttrs),
-	}
+	return f
 }
 
 // NewPhaseTimer creates a factory and builds a single PhaseTimer. Convenient when
@@ -91,16 +105,12 @@ type PhaseTimer struct {
 
 // SetPhase records a transition to a new phase.
 func (p *PhaseTimer) SetPhase(phase string) {
-	if p == nil || phase == "" || p.phaseDurationTotal == nil || p.phaseLatency == nil {
+	if p == nil || phase == "" || p.phaseDurationTotal == nil {
 		return
 	}
 	now := time.Now()
-	ctx := context.Background()
 	if p.lastPhase != "" {
-		seconds := now.Sub(p.lastPhaseChangeTime).Seconds()
-		attrs := p.measurement(p.lastPhase)
-		p.phaseDurationTotal.Add(ctx, seconds, attrs)
-		p.phaseLatency.Record(ctx, seconds, attrs)
+		p.record(now.Sub(p.lastPhaseChangeTime).Seconds())
 	}
 	p.lastPhase = phase
 	p.lastPhaseChangeTime = now
@@ -108,17 +118,24 @@ func (p *PhaseTimer) SetPhase(phase string) {
 
 // Reset ends the current phase (capturing its metrics) and clears the phase state.
 func (p *PhaseTimer) Reset() {
-	if p == nil || p.phaseDurationTotal == nil || p.phaseLatency == nil {
+	if p == nil || p.phaseDurationTotal == nil {
 		return
 	}
 	if p.lastPhase != "" {
-		ctx := context.Background()
-		seconds := time.Since(p.lastPhaseChangeTime).Seconds()
-		attrs := p.measurement(p.lastPhase)
-		p.phaseDurationTotal.Add(ctx, seconds, attrs)
-		p.phaseLatency.Record(ctx, seconds, attrs)
+		p.record(time.Since(p.lastPhaseChangeTime).Seconds())
 	}
 	p.lastPhase = ""
+}
+
+// record charges seconds to the phase just ended. The histogram is only written when the factory was
+// asked for one, which is what keeps a timer nobody plots a percentile of to a single series.
+func (p *PhaseTimer) record(seconds float64) {
+	ctx := context.Background()
+	attrs := p.measurement(p.lastPhase)
+	p.phaseDurationTotal.Add(ctx, seconds, attrs)
+	if p.phaseLatency != nil {
+		p.phaseLatency.Record(ctx, seconds, attrs)
+	}
 }
 
 // measurement returns the recording option for the given phase: the timer's static

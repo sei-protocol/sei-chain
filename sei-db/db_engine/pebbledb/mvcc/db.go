@@ -107,9 +107,6 @@ type Database struct {
 	// long writes waited when it had none.
 	pendingChangesQueue *seidbmetrics.QueueMeter
 
-	// Splits an async apply into the synchronous changelog write and the queueing behind it.
-	applyPhases *seidbmetrics.PhaseTimer
-
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
 
@@ -234,7 +231,6 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		operationMetrics: pebbledbmetrics.NewOperationMetrics(config.EnableReadWriteMetrics, dbName),
 		pendingChangesQueue: seidbmetrics.NewQueueMeter(
 			meter, "pebble_pending_changes", attribute.String("db", dbName)),
-		applyPhases: otelMetrics.applyPhases.Build(attribute.String("db", dbName)),
 	}
 	database.latestVersion.Store(latestVersion)
 	database.earliestVersion.Store(earliestVersion)
@@ -733,13 +729,9 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			),
 		)
 	}()
-	// Closes the stage in flight, so the gap until the next write is charged to neither.
-	defer db.applyPhases.Reset()
-
 	// Write to WAL. This is synchronous, unlike the queueing below, so an "async" apply that is slow is
 	// usually slow here rather than behind a full queue.
 	if db.streamHandler != nil {
-		db.applyPhases.SetPhase("changelog_write")
 		entry := proto.ChangelogEntry{
 			Version: version,
 		}
@@ -751,7 +743,6 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		}
 	}
 
-	db.applyPhases.SetPhase("enqueue")
 	seidbmetrics.Send(db.pendingChangesQueue, db.pendingChanges, VersionedChangesets{
 		Version:    version,
 		Changesets: changesets,

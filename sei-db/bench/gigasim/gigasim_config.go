@@ -173,7 +173,7 @@ type GigasimConfig struct {
 func DefaultGigasimConfig() *GigasimConfig {
 	return &GigasimConfig{
 		TransactionsPerBlock:            2000,
-		BytesPerTransaction:             1024,
+		BytesPerTransaction:             256,
 		MaxBlocksPerSecond:              0,
 		BlocksPerQc:                     1,
 		MaxPendingExecutionQueueSize:    100,

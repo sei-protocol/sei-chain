@@ -8859,181 +8859,6 @@
           }
         }
       },
-      "panel-90": {
-        "kind": "Panel",
-        "spec": {
-          "data": {
-            "kind": "QueryGroup",
-            "spec": {
-              "queries": [
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "PBFA97CFB590B2093"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "rate(gigasim_pending_execution_queue_blocked_seconds_total[$__rate_interval])",
-                        "legendFormat": "execution",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "A"
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "PBFA97CFB590B2093"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "rate(pebble_pending_changes_queue_blocked_seconds_total[$__rate_interval])",
-                        "legendFormat": "ss commit",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "B"
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "PBFA97CFB590B2093"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "rate(litt_queue_blocked_seconds_total[$__rate_interval])",
-                        "legendFormat": "{{table}} {{queue}}",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "C"
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "hidden": false,
-                    "query": {
-                      "datasource": {
-                        "name": "PBFA97CFB590B2093"
-                      },
-                      "group": "prometheus",
-                      "kind": "DataQuery",
-                      "spec": {
-                        "editorMode": "code",
-                        "expr": "rate(flatkv_snapshot_queue_blocked_seconds_total[$__rate_interval])",
-                        "legendFormat": "sc snapshot",
-                        "range": true
-                      },
-                      "version": "v0"
-                    },
-                    "refId": "D"
-                  }
-                }
-              ],
-              "queryOptions": {},
-              "transformations": []
-            }
-          },
-          "description": "The share of wall clock producers spent blocked because a queue was full, which is what back-pressure from that queue costs the stage feeding it. Depth cannot show this: it is read at whichever instant the sampler happens to run, and a queue full nearly all the time still reads empty when sampled just after a consumer drained it. A queue that never blocks reports nothing.",
-          "id": 90,
-          "links": [],
-          "title": "Queue Blocked Time",
-          "vizConfig": {
-            "group": "timeseries",
-            "kind": "VizConfig",
-            "spec": {
-              "fieldConfig": {
-                "defaults": {
-                  "color": {
-                    "mode": "palette-classic"
-                  },
-                  "custom": {
-                    "axisBorderShow": false,
-                    "axisCenteredZero": false,
-                    "axisColorMode": "text",
-                    "axisLabel": "",
-                    "axisPlacement": "auto",
-                    "barAlignment": 0,
-                    "barWidthFactor": 0.6,
-                    "drawStyle": "line",
-                    "fillOpacity": 15,
-                    "gradientMode": "none",
-                    "hideFrom": {
-                      "legend": false,
-                      "tooltip": false,
-                      "viz": false
-                    },
-                    "insertNulls": false,
-                    "lineInterpolation": "linear",
-                    "lineWidth": 1,
-                    "pointSize": 5,
-                    "scaleDistribution": {
-                      "type": "linear"
-                    },
-                    "showPoints": "auto",
-                    "showValues": false,
-                    "spanNulls": false,
-                    "stacking": {
-                      "group": "A",
-                      "mode": "none"
-                    },
-                    "thresholdsStyle": {
-                      "mode": "off"
-                    }
-                  },
-                  "min": 0,
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "color": "green",
-                        "value": 0
-                      }
-                    ]
-                  },
-                  "unit": "percentunit"
-                },
-                "overrides": []
-              },
-              "options": {
-                "legend": {
-                  "calcs": [],
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
-                },
-                "tooltip": {
-                  "hideZeros": false,
-                  "mode": "multi",
-                  "sort": "desc"
-                }
-              }
-            },
-            "version": "13.2.1"
-          }
-        }
-      },
       "panel-100": {
         "kind": "Panel",
         "spec": {
@@ -10839,6 +10664,117 @@
             "version": "13.2.1"
           }
         }
+      },
+      "panel-133": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "PBFA97CFB590B2093"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "expr": "flatkv_snapshot_write_latency_seconds_count",
+                        "legendFormat": "{{success}}",
+                        "range": true
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "Snapshots FlatKV has written since start, counted by the write that produced each one. A series under success=false is a checkpoint that failed: the writer reports it and carries on, so nothing else marks it.",
+          "id": 133,
+          "links": [],
+          "title": "Checkpoints Created",
+          "vizConfig": {
+            "group": "timeseries",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "barWidthFactor": 0.6,
+                    "drawStyle": "line",
+                    "fillOpacity": 15,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "showValues": false,
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": 0
+                      }
+                    ]
+                  },
+                  "unit": "short"
+                },
+                "overrides": []
+              },
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "hideZeros": false,
+                  "mode": "multi",
+                  "sort": "desc"
+                }
+              }
+            },
+            "version": "13.2.1"
+          }
+        }
       }
     },
     "layout": {
@@ -11159,25 +11095,12 @@
                       "spec": {
                         "element": {
                           "kind": "ElementReference",
-                          "name": "panel-90"
-                        },
-                        "height": 8,
-                        "width": 24,
-                        "x": 0,
-                        "y": 0
-                      }
-                    },
-                    {
-                      "kind": "GridLayoutItem",
-                      "spec": {
-                        "element": {
-                          "kind": "ElementReference",
                           "name": "panel-21"
                         },
                         "height": 8,
                         "width": 8,
                         "x": 0,
-                        "y": 8
+                        "y": 0
                       }
                     },
                     {
@@ -11190,7 +11113,7 @@
                         "height": 8,
                         "width": 8,
                         "x": 8,
-                        "y": 8
+                        "y": 0
                       }
                     },
                     {
@@ -11203,7 +11126,7 @@
                         "height": 8,
                         "width": 8,
                         "x": 16,
-                        "y": 8
+                        "y": 0
                       }
                     },
                     {
@@ -11216,7 +11139,7 @@
                         "height": 8,
                         "width": 8,
                         "x": 0,
-                        "y": 16
+                        "y": 8
                       }
                     },
                     {
@@ -11229,7 +11152,7 @@
                         "height": 8,
                         "width": 8,
                         "x": 8,
-                        "y": 16
+                        "y": 8
                       }
                     },
                     {
@@ -11242,7 +11165,7 @@
                         "height": 8,
                         "width": 8,
                         "x": 16,
-                        "y": 16
+                        "y": 8
                       }
                     }
                   ]
@@ -11675,6 +11598,19 @@
                         "width": 12,
                         "x": 12,
                         "y": 42
+                      }
+                    },
+                    {
+                      "kind": "GridLayoutItem",
+                      "spec": {
+                        "element": {
+                          "kind": "ElementReference",
+                          "name": "panel-133"
+                        },
+                        "height": 8,
+                        "width": 8,
+                        "x": 0,
+                        "y": 50
                       }
                     }
                   ]
