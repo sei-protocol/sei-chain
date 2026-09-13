@@ -45,7 +45,6 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.EVMDBDirectory = utils.GetEVMStateStorePath(homePath, ssConfig.Backend)
 	ssConfig.ExternalPruning = true
 	ssConfig.DisableInternalWAL = true
-	ssConfig.SeparateEVMSubDBs = true
 
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend
