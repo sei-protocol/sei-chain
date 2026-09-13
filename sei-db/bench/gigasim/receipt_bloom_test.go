@@ -11,8 +11,7 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// keccakBloomBits is how a real log bloom picks its bits. The benchmark's blooms are not built this
-// way, and these tests hold the mixed ones to what the store sees of the difference.
+// keccakBloomBits is how a real log bloom picks its bits, which these tests compare against.
 func keccakBloomBits(value []byte) bloomBits {
 	hasher := sha3.NewLegacyKeccak256()
 	_, _ = hasher.Write(value)
@@ -25,7 +24,7 @@ func keccakBloomBits(value []byte) bloomBits {
 }
 
 // bloomTestValue is a distinct value per seed. The seed is written in rather than folded into every
-// byte, which wraps at 256 and would hand these tests far fewer values than they ask for.
+// byte, which wraps at 256 and would yield far fewer values than asked for.
 func bloomTestValue(seed int) []byte {
 	value := make([]byte, hashLen)
 	binary.BigEndian.PutUint64(value, uint64(seed)) //nolint:gosec // seeds are small and non-negative
@@ -35,9 +34,8 @@ func bloomTestValue(seed int) []byte {
 	return value
 }
 
-// TestBloomBitsForFillsABloomLikeKeccakDoes pins the property the store is measured on. The bits are
-// not the ones a filter would look for, but a receipt's bloom has to occupy its 256 bytes the same
-// way, so the count of bits set across a corpus has to match what keccak would have set.
+// TestBloomBitsForFillsABloomLikeKeccakDoes pins the property the store is measured on: the bits
+// differ from a real bloom's, but a corpus has to set as many of them as keccak would.
 func TestBloomBitsForFillsABloomLikeKeccakDoes(t *testing.T) {
 	const values = 2048
 	var mixedSet, keccakSet int
@@ -57,7 +55,7 @@ func TestBloomBitsForFillsABloomLikeKeccakDoes(t *testing.T) {
 }
 
 // TestBloomBitsForIsDeterministic pins that a rerun of the same seed produces the same corpus, which
-// is what lets two runs of the benchmark be compared.
+// is what lets two runs be compared.
 func TestBloomBitsForIsDeterministic(t *testing.T) {
 	for seed := range 64 {
 		value := bloomTestValue(seed)
@@ -65,8 +63,8 @@ func TestBloomBitsForIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestBloomBitsForSeparatesValues pins that the bloom is not degenerate. Blooms that collapsed onto
-// a few bit patterns would compress far better than real ones and flatter the store.
+// TestBloomBitsForSeparatesValues pins that blooms do not collapse onto a few bit patterns, which
+// would compress better than real ones and flatter the store.
 func TestBloomBitsForSeparatesValues(t *testing.T) {
 	const values = 4096
 	seen := make(map[bloomBits]struct{}, values)
@@ -76,8 +74,7 @@ func TestBloomBitsForSeparatesValues(t *testing.T) {
 	require.Greater(t, len(seen), values*99/100, "distinct values must land on distinct bits")
 }
 
-// TestReceiptCacheReturnsWhatItCached pins that a contract resolved once reads back the same, since
-// a receipt repeats its hex address in two fields.
+// TestReceiptCacheReturnsWhatItCached pins that a contract resolved once reads back the same.
 func TestReceiptCacheReturnsWhatItCached(t *testing.T) {
 	cache := newReceiptCache()
 	address := make([]byte, keys.AddressLen)

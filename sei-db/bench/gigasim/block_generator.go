@@ -21,8 +21,8 @@ type simulatedBlock struct {
 	transactions []*transaction
 
 	// The receipts written to the receipt store, in the form it takes them, empty when receipts are
-	// disabled. They are marshaled here rather than on the execution loop: nothing execution does
-	// changes them, and the loop that hands them to the store is what paces the run.
+	// disabled. They are marshaled here because execution does not change them and its loop paces
+	// the run.
 	receiptRecords []receipt.ReceiptRecord
 
 	// What those records marshaled to, which the run reports as bytes written.

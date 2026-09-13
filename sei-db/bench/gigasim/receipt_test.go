@@ -36,9 +36,8 @@ func TestSyntheticTxHashesAreUniqueAcrossPositions(t *testing.T) {
 	}
 }
 
-// TestBuiltRecordKeysOnItsOwnReceiptHash pins the key a record carries to the hash inside the
-// receipt it carries. The store keys on the record's TxHash and refuses a block repeating one, so a
-// record keyed on anything other than its own receipt would either collide or hide the receipt.
+// TestBuiltRecordKeysOnItsOwnReceiptHash pins a record's key to the hash inside the receipt it
+// carries. The store keys on TxHash, so a record keyed on anything else would hide its receipt.
 func TestBuiltRecordKeysOnItsOwnReceiptHash(t *testing.T) {
 	t.Parallel()
 

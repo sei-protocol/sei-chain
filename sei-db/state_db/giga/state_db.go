@@ -69,13 +69,9 @@ const gigaMeterName = "seidb_giga"
 //
 // The returned StateDB owns all three stores and closes them on Close. A failed call closes whatever it
 // had already opened.
-// stateStoreConfigFor is the state store config a StateDB opens SS with, settled once here rather
-// than at each open so that every path reaches the same databases. The rollback path opens them too,
-// through DiscardStateAbove, and a config differing there would leave it writing a changelog beside
-// stores the commit path keeps none for.
-//
-// The changelog is off because this StateDB already logs every block: its state WAL is written
-// before SS and is what catchUpTo replays into it, so a second log inside SS is never read.
+// stateStoreConfigFor is the config a StateDB opens SS with. It is settled here rather than at each
+// open because the rollback path opens the same databases through DiscardStateAbove. The changelog
+// is off: this StateDB's own state WAL is what catchUpTo replays into SS.
 func stateStoreConfigFor(cfg config.StateStoreConfig) config.StateStoreConfig {
 	cfg.DisableInternalWAL = true
 	return cfg

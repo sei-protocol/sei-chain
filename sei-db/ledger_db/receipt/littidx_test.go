@@ -124,9 +124,8 @@ func writeLitBlock(t *testing.T, store receipt.ReceiptStore, ctx sdk.Context, bl
 	if len(records) == 0 {
 		return
 	}
-	// The write may be applied after SetReceipts returns, and neither signal alone marks the end of
-	// it: the bodies land before the version marker, and a block written in parts advances the
-	// marker on its first part. Wait for both.
+	// Neither signal alone marks the end of a write: the bodies land before the version marker, and
+	// a block written in parts advances the marker on its first part. Wait for both.
 	last := records[len(records)-1].TxHash
 	require.Eventually(t, func() bool {
 		if store.LatestVersion() < int64(block) { //nolint:gosec // small test heights

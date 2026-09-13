@@ -38,15 +38,12 @@ type StateStoreConfig struct {
 	// defaults to 100
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
-	// DisableInternalWAL stops the backend from keeping a changelog WAL of its own, so a commit is not
-	// held up by a log write. It is for an owner that already logs every block and replays that log
-	// into this store: giga's StateDB writes its state WAL before the store and catches the store up
-	// from it on open, which makes a second log here written and never read.
+	// DisableInternalWAL stops the backend from keeping a changelog WAL of its own, so a commit is
+	// not held up by a log write. It is for an owner that already logs every block and replays that
+	// log into this store, as giga's StateDB does with its state WAL.
 	//
-	// Like ExternalPruning this is not read from the state-store config but set by the code wiring
-	// the store into its owner, since it is only correct when that owner supplies the log. Rollback
-	// through ss/composite replays the changelog and has no other source for the versions above a
-	// snapshot, so that path must leave it on.
+	// Like ExternalPruning it is set by the code wiring the store into its owner rather than read
+	// from app.toml. Rollback through ss/composite replays the changelog, so that path must keep it.
 	DisableInternalWAL bool `mapstructure:"-"`
 
 	// KeepRecent defines the number of versions to keep in state store (shared by Cosmos and EVM).

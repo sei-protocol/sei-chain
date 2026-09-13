@@ -28,10 +28,8 @@ const (
 // littidx eth_getLogs (see ReceiptStoreConfig.LogFilterParallelism).
 const DefaultReceiptLogFilterParallelism = 16
 
-// DefaultReceiptAsyncWriteBuffer is the default queue depth for receipt writes
-// (see ReceiptStoreConfig.AsyncWriteBuffer). It is small because the queue's
-// depth is how far an unclean exit sets recovery back, not only how much burst
-// the writer can absorb.
+// DefaultReceiptAsyncWriteBuffer is the default queue depth for receipt writes. It is small because
+// the depth is also how far an unclean exit sets recovery back.
 const DefaultReceiptAsyncWriteBuffer = 10
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
@@ -53,18 +51,11 @@ type ReceiptStoreConfig struct {
 	Backend string `mapstructure:"rs-backend"`
 
 	// AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
-	// It bounds how many blocks the store may fall behind the chain before a write blocks, and so
-	// how far LatestVersion may trail the height just written.
+	// It bounds how many blocks the store may fall behind the chain before a write blocks.
 	//
-	// Raising it costs more than the memory it holds. The queue is not on disk, so an unclean exit
-	// loses it, and recovery converges every store on the lowest head: a receipt store that comes
-	// back this many blocks behind rolls the state DB and block store back with it, and that
-	// rollback refuses outright if the state snapshots and WAL cannot span the distance. Size it
-	// for the burst the writer must absorb, not larger.
-	//
-	// It also bounds how stale the EVM RPC head can be. The watermark those queries are served
-	// against takes the lowest height every store can answer for, this one included, so a receipt
-	// store behind by a queue's depth holds eth_blockNumber and "latest" that far back.
+	// Raising it costs more than memory. The queue is not on disk, so an unclean exit loses it and
+	// the store comes back that far behind, dragging recovery of every other store down with it;
+	// the EVM RPC head also trails by the queue's depth. Size it for the burst the writer absorbs.
 	//
 	// Set <= 0 for synchronous writes.
 	// defaults to 10

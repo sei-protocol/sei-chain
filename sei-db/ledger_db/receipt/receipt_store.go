@@ -51,9 +51,8 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 type ReceiptStore interface {
 	controller.PrunableStore
 
-	// LatestVersion is the highest block whose receipts are queryable. A write may be applied
-	// after SetReceipts returns, so this is the watermark a reader follows rather than the
-	// height it last wrote.
+	// LatestVersion is the highest block whose receipts are queryable. A write may land after
+	// SetReceipts returns, so a reader follows this rather than the height it last wrote.
 	LatestVersion() int64
 	EarliestVersion() int64
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
@@ -71,16 +70,15 @@ type ReceiptStore interface {
 	Close() error
 }
 
-// VersionPinner is implemented by receipt stores whose version markers can be written directly.
-// SetReceipts carries those markers, so they are not on ReceiptStore; this is for a caller that has
-// put receipts in place by other means and has to state the window they cover.
+// VersionPinner is implemented by receipt stores whose version markers can be written directly. It
+// is for a caller that put receipts in place by other means and has to state the window they cover.
 type VersionPinner interface {
 	SetLatestVersion(version int64) error
 	SetEarliestVersion(version int64) error
 }
 
-// PinVersions widens store's queryable window to [earliest, latest]. It reports a store that does
-// not support being pinned rather than leaving the window silently unset.
+// PinVersions widens store's queryable window to [earliest, latest], reporting a store that cannot
+// be pinned rather than leaving the window unset.
 func PinVersions(store ReceiptStore, earliest, latest int64) error {
 	pinner, ok := store.(VersionPinner)
 	if !ok {

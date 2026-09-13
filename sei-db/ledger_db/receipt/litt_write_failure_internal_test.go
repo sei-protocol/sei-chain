@@ -14,9 +14,8 @@ import (
 
 var errIndexCommit = errors.New("injected index commit failure")
 
-// failingIndex is the store's log index with its batch commits made to fail on demand. Committing
-// the index is the one step of a receipt write with no other way to fail in a test, and holding the
-// commit is what lets a test queue a block behind the one that is failing.
+// failingIndex is the store's log index with its batch commits made to fail on demand. Holding a
+// commit open is what lets a test queue a block behind the one that is failing.
 type failingIndex struct {
 	dbtypes.KeyValueDB
 	failing     atomic.Bool
@@ -43,13 +42,9 @@ func (b *failingBatch) Commit(opts dbtypes.WriteOptions) error {
 	return b.Batch.Commit(opts)
 }
 
-// TestWriteFailureHoldsTheHeadAgainstAQueuedBlock covers what a failed background write owes the
-// blocks already queued behind it. Applying one would commit its own version marker and publish a
-// head above the block that never landed: reads of the missing block report no logs and no such
-// transaction, and recovery converges on the published head, so the gap never refills.
-//
-// The block behind the failure is queued while the failing commit is held, which is the ordering
-// that makes this reachable — SetReceipts refuses new blocks once the failure is visible.
+// TestWriteFailureHoldsTheHeadAgainstAQueuedBlock covers what a failed write owes the blocks queued
+// behind it: applying one would publish a head above the block that never landed. The follower is
+// queued while the failing commit is held, since SetReceipts refuses blocks once the failure shows.
 func TestWriteFailureHoldsTheHeadAgainstAQueuedBlock(t *testing.T) {
 	s, closeStore := setupLittCtxStore(t)
 	defer closeStore()
@@ -86,8 +81,8 @@ func TestWriteFailureHoldsTheHeadAgainstAQueuedBlock(t *testing.T) {
 		"the head must not move past a block whose receipts were never written")
 }
 
-// TestWriteFailureLatches covers the failure reaching every later caller rather than the first one
-// to ask, which is what lets both a commit and Close act on it.
+// TestWriteFailureLatches covers the failure reaching every later caller rather than only the first
+// to ask.
 func TestWriteFailureLatches(t *testing.T) {
 	s, closeStore := setupLittCtxStore(t)
 	defer closeStore()
@@ -114,9 +109,8 @@ func TestWriteFailureLatches(t *testing.T) {
 	require.ErrorIs(t, s.Close(), errIndexCommit, "Close must report it too")
 }
 
-// TestWriteAfterCloseIsRefused covers a commit that races shutdown. The writer has drained and gone
-// by then, so a write it accepted would sit in a channel nobody reads, and one arriving on a full
-// queue would never return — inside a commit, which hangs the node rather than failing it.
+// TestWriteAfterCloseIsRefused covers a commit arriving after shutdown, which the writer is no
+// longer there to apply.
 func TestWriteAfterCloseIsRefused(t *testing.T) {
 	s, _ := setupLittCtxStore(t)
 	require.NoError(t, s.Close())
@@ -127,7 +121,7 @@ func TestWriteAfterCloseIsRefused(t *testing.T) {
 }
 
 // TestWriteAfterCloseIsRefusedWithAFullQueue is the same refusal with no room left to send into,
-// which is the case that would otherwise block forever rather than return.
+// which would otherwise block forever.
 func TestWriteAfterCloseIsRefusedWithAFullQueue(t *testing.T) {
 	s, _ := setupLittCtxStore(t)
 	require.NoError(t, s.Close())
@@ -150,10 +144,8 @@ func TestWriteAfterCloseIsRefusedWithAFullQueue(t *testing.T) {
 	}
 }
 
-// TestWriteRacingCloseIsEitherAppliedOrRefused covers the ordering the two tests above cannot reach,
-// where a write is admitted while Close is running rather than after it has returned. Admission and
-// shutdown have to be mutually exclusive: a write that returns success must have reached a writer
-// that was still running, so the height it reports is one the store actually holds.
+// TestWriteRacingCloseIsEitherAppliedOrRefused covers a write admitted while Close is running,
+// which the two tests above cannot reach. A write reporting success must have been applied.
 func TestWriteRacingCloseIsEitherAppliedOrRefused(t *testing.T) {
 	for attempt := range 50 {
 		s, _ := setupLittCtxStore(t)

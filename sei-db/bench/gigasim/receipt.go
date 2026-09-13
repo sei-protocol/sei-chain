@@ -69,15 +69,10 @@ const topicsPerTransferLog = 3
 // bloomBits are the three bit positions a value contributes to a log bloom.
 type bloomBits [3]uint
 
-// bloomBitsFor derives the three bits a value sets in a log bloom.
-//
-// A real bloom takes them from the value's keccak digest. This one mixes the bytes instead, which
-// is not a bloom any filter could match against. Nothing in the benchmark reads a log back, and the
-// store is measured on what a receipt occupies rather than on what its bloom would answer, so the
-// properties kept are the ones that reach the store: the same three bits per value, spread over the
-// same 2048 positions, and the same bits for the same value on a rerun of the same seed.
-//
-// Keccak over four values per transaction was most of the cost of building a block's receipts.
+// bloomBitsFor derives the three bits a value sets in a log bloom by mixing its bytes rather than
+// hashing them, which no filter could match against. Nothing here reads a log back, so what is kept
+// is what reaches the store: the same bits per value, the same spread, and the same bits on a
+// rerun of the seed.
 func bloomBitsFor(value []byte) bloomBits {
 	// FNV-1a, for a spread across the bloom's positions that costs a multiply per byte.
 	const (
@@ -97,11 +92,8 @@ func bloomBitsFor(value []byte) bloomBits {
 	return bits
 }
 
-// receiptCache holds what a receipt repeats rather than derives anew: the constant event
-// signature's bloom bits, and the values that follow from a contract address. The contract pool is
-// fixed, so it is worth keeping across the blocks a run produces.
-//
-// It is not safe for concurrent use; only the generator builds receipts.
+// receiptCache holds what a receipt repeats rather than derives anew: the event signature's bloom
+// bits, and the values that follow from a contract address. It is not safe for concurrent use.
 type receiptCache struct {
 	signature bloomBits
 	contracts map[[keys.AddressLen]byte]contractFields
@@ -156,8 +148,7 @@ type receiptBuffer struct {
 	blooms  []ethtypes.Bloom
 	data    []byte
 
-	// What the generator has already resolved about the contract pool, which is worth keeping
-	// across blocks rather than rebuilding per block.
+	// What the generator has already resolved about the contract pool, kept across blocks.
 	cache *receiptCache
 }
 
@@ -235,9 +226,8 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 		LogsBloom:         bloom[:],
 	}
 
-	// Marshaled here rather than where the store is called: the receipt is final once built, and the
-	// loop that calls the store is the one pacing the run. The hash goes over as bytes for the same
-	// reason, the store's caller having had to parse the hex form back otherwise.
+	// Marshaled here rather than on the execution loop, which is what paces the run. The receipt is
+	// final once built, so nothing downstream changes what this encodes.
 	encoded, err := built.Marshal()
 	if err != nil {
 		return fmt.Errorf("failed to marshal the receipt for transaction %d of block %d: %w",

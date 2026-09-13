@@ -13,9 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SS keeps no changelog of its own under giga: the state WAL written before every commit is what
-// catchUpTo replays into it, so a second log would be written on the commit path and never read.
-// Recovery rests on that, which is why the absence is pinned rather than left to the config.
+// SS keeps no changelog of its own under giga, the state WAL being what catchUpTo replays into it.
+// The absence is pinned here rather than left to the config, since recovery rests on it.
 func TestGigaOpensSSWithoutAChangelog(t *testing.T) {
 	newStateDB := func(t *testing.T) *StateDB {
 		t.Helper()
@@ -36,9 +35,9 @@ func TestGigaOpensSSWithoutAChangelog(t *testing.T) {
 		requireNoSSChangelog(t, s.ssCfg.EVMDBDirectory)
 	})
 
-	// The rollback path opens the same databases through DiscardStateAbove rather than openSS, so it
-	// is the one a config settled per-open would miss. It reaches them via StoredVersions, which
-	// returns without opening anything when the directory is absent, so the store has to exist first.
+	// The rollback path opens the same databases through DiscardStateAbove rather than openSS, so a
+	// config settled per-open would miss it. StoredVersions opens nothing when the directory is
+	// absent, so the store has to exist first.
 	t.Run("opened to roll back", func(t *testing.T) {
 		s := newStateDB(t)
 		require.NoError(t, s.openSS())
@@ -49,8 +48,8 @@ func TestGigaOpensSSWithoutAChangelog(t *testing.T) {
 	})
 }
 
-// TestStateStoreConfigForDisablesTheInternalWAL pins what the constructors apply, since every path
-// that opens SS reads the config they settled rather than disabling the log for itself.
+// TestStateStoreConfigForDisablesTheInternalWAL pins what the constructors apply, every path that
+// opens SS reading the config they settled rather than disabling the log for itself.
 func TestStateStoreConfigForDisablesTheInternalWAL(t *testing.T) {
 	handedIn := config.DefaultStateStoreConfig()
 	require.False(t, handedIn.DisableInternalWAL, "a caller is not expected to have set it")

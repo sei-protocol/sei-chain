@@ -152,7 +152,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               256 << 20, // 64 MB
+		LBaseMaxBytes:               256 << 20, // 256 MiB
 		MemTableSize:                256 << 20,
 		MemTableStopWritesThreshold: 4,
 		// Let Pebble run several compactions in parallel so it can keep up with
@@ -242,8 +242,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	// An owner that logs every block itself replays that log into this store, so the changelog here
-	// would be written and never read; DisableInternalWAL drops it and the commit-path write with it.
+	// An owner that logs every block replays it into this store, leaving the changelog here written
+	// and never read.
 	if !config.DisableInternalWAL {
 		walKeepRecent := changelogKeepRecent(config)
 		// Snapshot rollback replays the changelog forward from the oldest retained
@@ -402,9 +402,8 @@ func (db *Database) Close() error {
 		db.metricsCancel()
 	}
 
-	// Draining is owed whether or not a changelog is kept: the queued blocks are only in memory, and
-	// with no changelog there is nothing to replay them from either. The channel is left in place so
-	// that a send after close still panics rather than blocking forever on a nil one.
+	// Owed whether or not a changelog is kept, the queued blocks being only in memory. The channel
+	// is left in place so a send after close still panics rather than blocking on a nil one.
 	db.drainOnce.Do(func() {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
