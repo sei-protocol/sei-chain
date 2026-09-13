@@ -386,6 +386,25 @@ func GenAppQC(rng utils.Rng) *AppQC {
 	))
 }
 
+// GenAppProposalRange generates an AppProposal whose GlobalRange is [first, next), for a ledger that
+// indexes a record by its own range. littblock verifies no signatures, so it need not be otherwise
+// well-formed.
+func GenAppProposalRange(rng utils.Rng, first GlobalBlockNumber, next GlobalBlockNumber) *AppProposal {
+	appProposal := GenAppProposal(rng)
+	appProposal.globalRange = GlobalRange{First: first, Next: next}
+	return appProposal
+}
+
+// GenAppQCFor generates an AppQC over appProposal, so that the two carry the same GlobalRange.
+func GenAppQCFor(rng utils.Rng, appProposal *AppProposal) *AppQC {
+	vote := NewAppVote(appProposal)
+	return NewAppQC(utils.GenSliceN(
+		rng,
+		1,
+		func(rng utils.Rng) *Signed[*AppVote] { return GenSigned(rng, vote) },
+	))
+}
+
 // GenFullProposal generates a random FullProposal.
 func GenFullProposal(rng utils.Rng) *FullProposal {
 	laneQCs := map[LaneID]*LaneQC{}
