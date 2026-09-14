@@ -3,9 +3,10 @@
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
 the EVM-only executor through the disk-backed Giga state and receipt stores,
 without Cosmos SDK state, mempool, or RPC. It opens the validator-mode Giga
-storage manager with FlatKV state, littidx receipts, and the block store in a
-temporary directory that is removed when the load test exits. GigaSS remains
-disabled because EVM-only execution does not use it.
+storage manager with FlatKV state, littidx receipts, and the block store. The
+default home is a temporary directory removed on exit; `--storage-dir` keeps
+those stores in a directory you name. GigaSS remains disabled because EVM-only
+execution does not use it.
 
 The synthetic workload defaults to local EVM chain ID `1337`; override it with
 `--chain-id` when testing another signing domain.
@@ -27,6 +28,15 @@ Run a bounded prebuilt test:
 
 ```bash
 go run ./giga/evmonly/cmd/evmonly-loadtest --blocks=1000 --txs-per-block=1000
+```
+
+Keep the GigaStorageManager home after the run:
+
+```bash
+go run ./giga/evmonly/cmd/evmonly-loadtest \
+  --blocks=1000 \
+  --txs-per-block=1000 \
+  --storage-dir=/tmp/evmonly-storage
 ```
 
 Example local saturation run:
@@ -125,6 +135,10 @@ update the same coinbase balance, which is a real intra-block conflict.
 
 Useful knobs:
 
+- `--storage-dir`: GigaStorageManager home. Empty uses a temporary directory
+  that is removed on exit. A set path is created if missing and is left in
+  place; a second run against a populated directory will fail at genesis
+  commit.
 - `--blocks`: number of blocks to prebuild and execute. This is required and
   must be greater than `0`.
 - `--workers`: ordered block executor workers. This must be `1` because each

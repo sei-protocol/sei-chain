@@ -362,6 +362,43 @@ func TestDefaultChainIDIsLocal(t *testing.T) {
 	require.Equal(t, "1337", cfg.chainID.String())
 }
 
+func TestStorageDirFlag(t *testing.T) {
+	cfg, err := parseConfig([]string{"--blocks=1"})
+	require.NoError(t, err)
+	require.Empty(t, cfg.storageDir)
+
+	cfg, err = parseConfig([]string{
+		"--blocks=1",
+		"--storage-dir=/tmp/evmonly-storage",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/evmonly-storage", cfg.storageDir)
+
+	cfg, err = parseConfig([]string{
+		"--blocks=1",
+		"--storage-dir=   ",
+	})
+	require.NoError(t, err)
+	require.Empty(t, cfg.storageDir)
+}
+
+func TestOpenStorageDirectoryOverrideIsKept(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "giga")
+	path, cleanup, err := openStorageDirectory(dir)
+	require.NoError(t, err)
+	require.Equal(t, dir, path)
+	require.NoError(t, cleanup())
+	require.DirExists(t, dir)
+}
+
+func TestOpenStorageDirectoryTempIsRemoved(t *testing.T) {
+	path, cleanup, err := openStorageDirectory("")
+	require.NoError(t, err)
+	require.DirExists(t, path)
+	require.NoError(t, cleanup())
+	require.NoDirExists(t, path)
+}
+
 func TestRecipientConflictRateValidation(t *testing.T) {
 	_, err := parseConfig([]string{
 		"--blocks=1",
@@ -468,6 +505,22 @@ func TestRunPrebuiltBlocks(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, run(cfg))
+}
+
+func TestRunPrebuiltBlocksKeepsStorageDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "giga")
+	cfg, err := parseConfig([]string{
+		"--metrics-addr=",
+		"--report-interval=0",
+		"--blocks=2",
+		"--txs-per-block=2",
+		"--storage-dir=" + dir,
+	})
+	require.NoError(t, err)
+	require.NoError(t, run(cfg))
+	require.DirExists(t, filepath.Join(dir, "data", "state_commit", "flatkv"))
+	require.DirExists(t, filepath.Join(dir, "data", "ledger", "block"))
+	require.DirExists(t, filepath.Join(dir, "data", "ledger", "receipt", "littidx"))
 }
 
 func TestPrepareBlocksCancelsWorkersOnOrderingInvariantError(t *testing.T) {
