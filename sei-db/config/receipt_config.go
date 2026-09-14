@@ -76,6 +76,13 @@ type ReceiptStoreConfig struct {
 	// Not written to app.toml; ReadReceiptConfig still honors receipt-store.enable-read-write-metrics.
 	EnableReadWriteMetrics bool `mapstructure:"-"`
 
+	// LittMetricsEnabled has the littidx backend record its litt_* instruments into the process-wide
+	// OTel MeterProvider, which the embedding application is responsible for exporting.
+	//
+	// Like ExternalPruning this is not read from the receipt-store config, since it is only useful to a
+	// process that serves a metrics endpoint. Only the littidx backend reads it.
+	LittMetricsEnabled bool `mapstructure:"-"`
+
 	// LogFilterParallelism bounds how many blocks a single eth_getLogs query
 	// scans concurrently in the littidx backend; per-block tag scans and litt
 	// body reads are independent, so a range fans across this many workers.

@@ -80,7 +80,7 @@ func NewBlocksimMetrics(ctx context.Context, config *BlocksimConfig) *BlocksimMe
 		metric.WithUnit("By"),
 	)
 
-	mainThreadPhase := metrics.NewPhaseTimer(meter, "blocksim_main_thread")
+	mainThreadPhase := metrics.NewPhaseTimerFactory(meter, "blocksim_main_thread").RecordLatencies().Build()
 
 	m := &BlocksimMetrics{
 		ctx:                      ctx,

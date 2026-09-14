@@ -350,6 +350,7 @@ func NewDiskTable(
 		keymapManager:          kManager,
 		errorMonitor:           errorMonitor,
 		flushChannel:           make(chan any, config.FlushChannelSize),
+		flushChannelMeter:      metrics.FlushQueueMeter(name),
 		metrics:                metrics,
 		clock:                  runtimeConfig.Clock,
 		name:                   name,
@@ -362,6 +363,7 @@ func NewDiskTable(
 		diskTable:               table,
 		errorMonitor:            errorMonitor,
 		controllerChannel:       make(chan any, config.ControlChannelSize),
+		inputChannelMeter:       metrics.ControlQueueMeter(name),
 		highestSegmentIndex:     highestSegmentIndex,
 		segments:                segments,
 		size:                    &table.size,
@@ -452,6 +454,11 @@ func NewDiskTable(
 
 func (d *DiskTable) KeyCount() uint64 {
 	return uint64(d.keyCount.Load()) //nolint:gosec // key count non-negative
+}
+
+// WriteQueueDepths returns how many messages are waiting in the control loop and in the flush loop.
+func (d *DiskTable) WriteQueueDepths() (control int, flush int) {
+	return len(d.controlLoop.controllerChannel), len(d.flushLoop.flushChannel)
 }
 
 func (d *DiskTable) Size() uint64 {

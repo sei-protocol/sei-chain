@@ -258,7 +258,7 @@ func NewCommitStore(
 		localMeta:         make(map[string]*LocalMeta),
 		pendingChangeSets: make([]*proto.NamedChangeSet, 0),
 		loadedHashes:      lthash.NewBlockHash(dataDBDirs),
-		phaseTimer:        metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
+		phaseTimer:        metrics.NewPhaseTimerFactory(flatkvMeter, "seidb_main_thread").RecordLatencies().Build(),
 		readPool:          readPool,
 		miscPool:          miscPool,
 		ltHashPool:        ltHashPool,
