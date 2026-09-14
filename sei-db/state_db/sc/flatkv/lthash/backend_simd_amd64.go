@@ -12,6 +12,11 @@ import (
 
 //go:generate go run gen_blake3_xof16.go
 
+// vzeroupper clears the upper halves of the vector registers.
+//
+//go:noescape
+func vzeroupper()
+
 // simdBackendName is the name reported by ActiveBackend for the AVX-512 path.
 const simdBackendName = "simd"
 
@@ -60,6 +65,10 @@ func expandSIMD(data []byte, dst *LtHash) {
 		in[12][lane] = 16
 	}
 	xof16(&in, &out[1])
+	// The compiler emits no VZEROUPPER after AVX-512 code, and legacy-SSE
+	// code in the caller (memmove, encoding) runs several times slower while
+	// the upper halves are dirty.
+	vzeroupper()
 }
 
 // singleChunkRoot compresses all but the last block of a one-chunk message
@@ -154,6 +163,7 @@ func addSIMD(dst, src *LtHash) {
 	for i := range a {
 		archsimd.LoadUint16x32Array(&a[i]).Add(archsimd.LoadUint16x32Array(&b[i])).StoreArray(&a[i])
 	}
+	vzeroupper()
 }
 
 func subSIMD(dst, src *LtHash) {
@@ -161,4 +171,5 @@ func subSIMD(dst, src *LtHash) {
 	for i := range a {
 		archsimd.LoadUint16x32Array(&a[i]).Sub(archsimd.LoadUint16x32Array(&b[i])).StoreArray(&a[i])
 	}
+	vzeroupper()
 }
