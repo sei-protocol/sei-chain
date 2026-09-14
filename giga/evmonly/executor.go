@@ -119,6 +119,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err != nil {
 		return nil, err
 	}
+	recordOCCStats(ctx, result.OCCStats)
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err
