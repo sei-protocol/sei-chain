@@ -220,6 +220,12 @@ clean:
 
 build-loadtest:
 	go build -o build/loadtest ./loadtest/
+.PHONY: build-loadtest
+
+build-evmonly-loadtest:
+	mkdir -p ./build
+	go build -o ./build/evmonly-loadtest ./giga/evmonly/cmd/evmonly-loadtest
+.PHONY: build-evmonly-loadtest
 
 
 ###############################################################################

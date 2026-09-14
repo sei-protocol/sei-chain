@@ -24,16 +24,24 @@ transactions onto shared recipients, or pass `--recipient=0x...` to force all
 transactions to a single recipient. Pass `--same-sender` to use one sender per
 block with sequential transaction nonces.
 
+Build the binary:
+
+```bash
+make build-evmonly-loadtest
+```
+
+This writes `./build/evmonly-loadtest`. `go run ./giga/evmonly/cmd/evmonly-loadtest` is equivalent when you do not want a binary.
+
 Run a bounded prebuilt test:
 
 ```bash
-go run ./giga/evmonly/cmd/evmonly-loadtest --blocks=1000 --txs-per-block=1000
+./build/evmonly-loadtest --blocks=1000 --txs-per-block=1000
 ```
 
 Keep the GigaStorageManager home after the run:
 
 ```bash
-go run ./giga/evmonly/cmd/evmonly-loadtest \
+./build/evmonly-loadtest \
   --blocks=1000 \
   --txs-per-block=1000 \
   --storage-dir=/tmp/evmonly-storage
