@@ -27,11 +27,24 @@ func simdBackend() (backend, bool) {
 	if !archsimd.X86.AVX512() || !archsimd.X86.AVX512VBMI2() {
 		return backend{}, false
 	}
+	// The compiler emits no VZEROUPPER after AVX-512 code, and legacy-SSE code
+	// in the caller (memmove, SHA-NI) runs several times slower while the upper
+	// halves are dirty, so every kernel is wrapped here rather than trusting
+	// each one to clear them.
 	return backend{
-		name:   simdBackendName,
-		expand: expandSIMD,
-		add:    addSIMD,
-		sub:    subSIMD,
+		name: simdBackendName,
+		expand: func(data []byte, dst *LtHash) {
+			expandSIMD(data, dst)
+			vzeroupper()
+		},
+		add: func(dst, src *LtHash) {
+			addSIMD(dst, src)
+			vzeroupper()
+		},
+		sub: func(dst, src *LtHash) {
+			subSIMD(dst, src)
+			vzeroupper()
+		},
 	}, true
 }
 
@@ -65,10 +78,6 @@ func expandSIMD(data []byte, dst *LtHash) {
 		in[12][lane] = 16
 	}
 	xof16(&in, &out[1])
-	// The compiler emits no VZEROUPPER after AVX-512 code, and legacy-SSE
-	// code in the caller (memmove, encoding) runs several times slower while
-	// the upper halves are dirty.
-	vzeroupper()
 }
 
 // singleChunkRoot compresses all but the last block of a one-chunk message
@@ -163,7 +172,6 @@ func addSIMD(dst, src *LtHash) {
 	for i := range a {
 		archsimd.LoadUint16x32Array(&a[i]).Add(archsimd.LoadUint16x32Array(&b[i])).StoreArray(&a[i])
 	}
-	vzeroupper()
 }
 
 func subSIMD(dst, src *LtHash) {
@@ -171,5 +179,4 @@ func subSIMD(dst, src *LtHash) {
 	for i := range a {
 		archsimd.LoadUint16x32Array(&a[i]).Sub(archsimd.LoadUint16x32Array(&b[i])).StoreArray(&a[i])
 	}
-	vzeroupper()
 }
