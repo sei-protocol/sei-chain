@@ -7,7 +7,6 @@ export const Endpoints = {
     sei: {
         evmRpc: env('SEI_EVM_RPC', 'http://localhost:8545'),
         cosmosRpc: env('SEI_COSMOS_RPC', 'http://localhost:26657'),
-        rest: env('SEI_REST', 'http://localhost:1317'),
     },
 } as const;
 

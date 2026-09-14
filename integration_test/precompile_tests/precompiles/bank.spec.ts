@@ -11,7 +11,13 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { seiRpc, rawSei, waitUntil } from '../utils/chainUtils';
 import { EvmAccount, associateViaTx } from '../utils/evmUtils';
-import { bankBalance, bankSupplyOf, generateSeiAddress } from '../utils/cosmosUtils';
+import {
+    bankBalance,
+    bankSupplyOf,
+    generateSeiAddress,
+    createTokenfactoryDenom,
+} from '../utils/cosmosUtils';
+import { bankParams } from '../utils/moduleQueries';
 import {
     PRECOMPILE_ADDRESSES,
     precompileContract,
@@ -33,6 +39,8 @@ describe('bank precompile (0x1001)', function () {
     let admin: EvmAccount;
     let bank: ethers.Contract;
     let caller: ethers.Contract;
+    /** Tokenfactory denom minted by the denomMetadata test, reused by denomsMetadata. */
+    let metadataDenom = '';
 
     before(() => {
         runtime = readRuntimeState();
@@ -142,6 +150,100 @@ describe('bank precompile (0x1001)', function () {
                 senderBefore - sendWei - gasCost,
             );
         });
+
+        it('spendableBalances(admin, empty) includes usei matching balance', async () => {
+            const [result, useiBalance] = await Promise.all([
+                bank.spendableBalances(admin.address, new Uint8Array()) as Promise<
+                    [Array<{ amount: bigint; denom: string }>, Uint8Array]
+                >,
+                bank.balance(admin.address, 'usei') as Promise<bigint>,
+            ]);
+            const [balances] = result;
+            const usei = balances.find(c => c.denom === 'usei');
+            expect(usei, 'spendableBalances must contain a usei entry').to.not.equal(undefined);
+            expect(usei!.amount).to.equal(useiBalance);
+        });
+
+        it('totalSupply pages until it reaches usei, consistent with supply', async () => {
+            // Supply can grow between reads (block rewards / mint); bracket the
+            // paginated totalSupply read with two supply(usei) reads.
+            const before: bigint = await bank.supply('usei');
+
+            // totalSupply sends no page limit, so the bank module's default of
+            // 100 applies. Supply is keyed by denom and every factory/… denom
+            // this suite mints sorts before usei, so on a long-lived devnet usei
+            // is not on page one and only walking the pages finds it.
+            let pageKey: Uint8Array = new Uint8Array();
+            let usei: { amount: bigint; denom: string } | undefined;
+            for (let page = 0; page < 50 && usei === undefined; page++) {
+                const [coins, nextKey] = (await bank.totalSupply(pageKey)) as [
+                    Array<{ amount: bigint; denom: string }>,
+                    string,
+                ];
+                expect(coins, 'totalSupply page').to.be.an('array');
+                usei = coins.find(c => c.denom === 'usei');
+                const next = ethers.getBytes(nextKey);
+                if (next.length === 0) break;
+                pageKey = next;
+            }
+
+            const after: bigint = await bank.supply('usei');
+            expect(usei, 'totalSupply must contain a usei entry').to.not.equal(undefined);
+            expect(usei!.amount >= before, `totalSupply ${usei!.amount} >= supply-before ${before}`).to.equal(
+                true,
+            );
+            expect(usei!.amount <= after, `totalSupply ${usei!.amount} <= supply-after ${after}`).to.equal(
+                true,
+            );
+        });
+
+        it('params().defaultSendEnabled matches the bank module', async () => {
+            const [viaPrecompile, params] = await Promise.all([bank.params(), bankParams()]);
+            expect(
+                viaPrecompile.defaultSendEnabled,
+                'precompile vs the bank module',
+            ).to.equal(params?.default_send_enabled ?? false);
+            // Sends are on for this devnet; the sendNative test above depends on it.
+            expect(viaPrecompile.defaultSendEnabled).to.equal(true);
+        });
+
+        it('denomMetadata returns tokenfactory metadata for a created denom', async () => {
+            // Fresh devnets may not register usei metadata (see name/symbol above);
+            // tokenfactory always writes name/symbol/base/display = the full denom
+            // and a single exponent-0 unit, which is the fixture this query needs.
+            metadataDenom = await createTokenfactoryDenom(
+                runtime.funded.adminMnemonic,
+                `bnk${Date.now().toString(36)}`,
+            );
+            const meta = await bank.denomMetadata(metadataDenom);
+            expect(meta.base).to.equal(metadataDenom);
+            expect(meta.name).to.equal(metadataDenom);
+            expect(meta.symbol).to.equal(metadataDenom);
+            expect(meta.display).to.equal(metadataDenom);
+            expect(meta.denomUnits.length, 'tokenfactory writes one denom unit').to.be.greaterThan(0);
+            expect(meta.denomUnits[0].denom).to.equal(metadataDenom);
+            expect(Number(meta.denomUnits[0].exponent)).to.equal(0);
+        });
+
+        it('denomsMetadata pages until it reaches the denom denomMetadata just returned', async () => {
+            expect(metadataDenom, 'the denomMetadata test must run first').to.not.equal('');
+            // Walking the pages is the point: it pins that nextKey round-trips,
+            // which asserting "returns an array" would pass without doing.
+            let pageKey: Uint8Array = new Uint8Array();
+            let found = false;
+            for (let page = 0; page < 50 && !found; page++) {
+                const [metadatas, nextKey] = (await bank.denomsMetadata(pageKey)) as [
+                    Array<{ base: string }>,
+                    string,
+                ];
+                expect(metadatas, 'denomsMetadata page').to.be.an('array');
+                found = metadatas.some(m => m.base === metadataDenom);
+                const next = ethers.getBytes(nextKey);
+                if (next.length === 0) break;
+                pageKey = next;
+            }
+            expect(found, `denomsMetadata must list ${metadataDenom}`).to.equal(true);
+        });
     });
 
     describe('error handling', () => {
@@ -213,6 +315,20 @@ describe('bank precompile (0x1001)', function () {
             expect(receipt.status, 'tx must fail').to.equal(0);
             await expectTraceRevertedNotPanicked(receipt.hash);
         });
+
+        it('params rejects value (non-payable)', async () => {
+            const envelope = await rawSei('eth_call', [
+                {
+                    from: admin.address,
+                    to: PRECOMPILE_ADDRESSES.bank,
+                    data: bankIface.encodeFunctionData('params', []),
+                    value: '0x1',
+                },
+                'latest',
+            ]);
+            expect(envelope.error, 'params with value must revert').to.not.equal(undefined);
+            expect(envelope.error!.message).to.match(/execution reverted|revert/i);
+        });
     });
 
     describe('dispatch semantics (via PrecompileCaller)', () => {
@@ -257,6 +373,37 @@ describe('bank precompile (0x1001)', function () {
                 caller.delegatecallTarget.staticCall(PRECOMPILE_ADDRESSES.bank, data),
                 'bank.sendNative via DELEGATECALL',
             );
+        });
+
+        it('params and spendableBalances are callable via STATICCALL', async () => {
+            const paramsData = bankIface.encodeFunctionData('params', []);
+            const spendableData = bankIface.encodeFunctionData('spendableBalances', [
+                admin.address,
+                new Uint8Array(),
+            ]);
+            const [paramsRet, spendableRet, directParams, directSpendable] = await Promise.all([
+                caller.staticcallTarget.staticCall(PRECOMPILE_ADDRESSES.bank, paramsData) as Promise<string>,
+                caller.staticcallTarget.staticCall(
+                    PRECOMPILE_ADDRESSES.bank,
+                    spendableData,
+                ) as Promise<string>,
+                bank.params(),
+                bank.spendableBalances(admin.address, new Uint8Array()) as Promise<
+                    [Array<{ amount: bigint; denom: string }>, Uint8Array]
+                >,
+            ]);
+
+            const [decodedParams] = bankIface.decodeFunctionResult('params', paramsRet);
+            expect(decodedParams.defaultSendEnabled).to.equal(directParams.defaultSendEnabled);
+
+            const [decodedBalances] = bankIface.decodeFunctionResult('spendableBalances', spendableRet);
+            const viaStatic = (decodedBalances as Array<{ amount: bigint; denom: string }>).find(
+                c => c.denom === 'usei',
+            );
+            const viaDirect = directSpendable[0].find(c => c.denom === 'usei');
+            expect(viaStatic, 'STATICCALL spendableBalances must contain usei').to.not.equal(undefined);
+            expect(viaDirect, 'direct spendableBalances must contain usei').to.not.equal(undefined);
+            expect(viaStatic!.amount).to.equal(viaDirect!.amount);
         });
     });
 });
