@@ -80,36 +80,37 @@ func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {
 
 // AccountExists reports whether addr has an account in this block.
 func (v *flatKVStateView) AccountExists(addr gigatypes.Address) bool {
-	return v.accountData(addr[:]) != nil
+	_, ok := v.accountRow(addr)
+	return ok
 }
 
 // GetNonce returns addr's account nonce, or 0 when the account does not exist.
 func (v *flatKVStateView) GetNonce(addr gigatypes.Address) uint64 {
-	account := v.accountData(addr[:])
-	if account == nil {
+	account, ok := v.accountRow(addr)
+	if !ok {
 		return 0
 	}
-	return account.GetNonce()
+	return account.Nonce()
 }
 
 // GetBalance returns addr's balance as a 256-bit big-endian value, or the zero value when addr holds
 // no balance.
 func (v *flatKVStateView) GetBalance(addr gigatypes.Address) gigatypes.Hash {
-	account := v.accountData(addr[:])
-	if account == nil {
+	account, ok := v.accountRow(addr)
+	if !ok {
 		return gigatypes.Hash{}
 	}
-	return gigatypes.Hash(*account.GetBalance())
+	return gigatypes.Hash(account.Balance())
 }
 
 // GetCodeHash returns the hash of addr's contract code, gigatypes.EmptyCodeHash when the account exists
 // and holds no code, or the zero hash when it does not exist.
 func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
-	account := v.accountData(addr[:])
-	if account == nil {
+	account, ok := v.accountRow(addr)
+	if !ok {
 		return gigatypes.Hash{}
 	}
-	codeHash := gigatypes.Hash(*account.GetCodeHash())
+	codeHash := gigatypes.Hash(account.CodeHash())
 	if codeHash == (gigatypes.Hash{}) {
 		// A row only exists while some field is non-zero (see AccountData.IsDelete), and the code hash
 		// is not that field here, so this account has a nonce or a balance and no code — the case EVM
@@ -121,14 +122,25 @@ func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 
 // GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
 func (v *flatKVStateView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
-	storage := v.storageData(ktype.StorageKey(ktype.Address(addr), ktype.Slot(key)))
-	if storage == nil {
+	var buf [physKeyBufLen]byte
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], keys.EVMKeyStorage, addr[:])
+	physKey = append(physKey, key[:]...)
+	raw, found := v.readRow(v.blockView.StorageView(), physKey)
+	if !found {
 		return gigatypes.Hash{}
 	}
-	return gigatypes.Hash(*storage.GetValue())
+	storage, err := vtype.ParseStorageRow(raw)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v", physKey, v.blockView.BlockHeight(), err))
+	}
+	if storage.IsDelete() {
+		return gigatypes.Hash{}
+	}
+	return gigatypes.Hash(storage.Value())
 }
 
-// GetCode returns addr's contract code, or nil when it has none.
+// GetCode returns addr's contract code, or nil when it has none. The slice aliases the store's row
+// and is valid until the view is closed.
 func (v *flatKVStateView) GetCode(addr gigatypes.Address) []byte {
 	code := v.codeData(addr[:])
 	if code == nil {
@@ -140,6 +152,28 @@ func (v *flatKVStateView) GetCode(addr gigatypes.Address) []byte {
 // GetCodeSize returns the length of addr's contract code in bytes, or 0 when it has none.
 func (v *flatKVStateView) GetCodeSize(addr gigatypes.Address) int {
 	return len(v.GetCode(addr))
+}
+
+// physKeyBufLen holds the longest EVM physical key: "evm/" + kind byte + address + slot.
+const physKeyBufLen = len(keys.EVMStoreKey) + 2 + ktype.AddressLen + ktype.SlotLen
+
+// accountRow returns addr's account row, or false when no account exists in this block. The row
+// aliases store memory and is valid until the view is closed.
+func (v *flatKVStateView) accountRow(addr gigatypes.Address) (vtype.AccountRow, bool) {
+	var buf [physKeyBufLen]byte
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], ktype.EVMKeyAccount, addr[:])
+	raw, found := v.readRow(v.blockView.AccountView(), physKey)
+	if !found {
+		return vtype.AccountRow{}, false
+	}
+	account, err := vtype.ParseAccountRow(raw)
+	if err != nil {
+		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v", addr, v.blockView.BlockHeight(), err))
+	}
+	if account.IsDelete() {
+		return vtype.AccountRow{}, false
+	}
+	return account, true
 }
 
 // accountData returns the account row for the 20-byte address in keyBytes, or nil when no account
