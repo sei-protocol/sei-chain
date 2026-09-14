@@ -57,11 +57,9 @@ func (app *App) BeginBlock(
 	}
 }
 
-// applyMigrationBatchSize paces the SC store's background data migration at the network-agreed rate.
-// The NumKeysToMigratePerBlock gov param is read from chain state so every node
-// applies the same value each block; a per-node rate would diverge the
-// AppHash. 0 (the default until a gov proposal raises it) leaves the migration
-// paused; it is the sole source of the rate (there is no node-local fallback).
+// applyMigrationBatchSize paces the SC store's background data migration at the
+// rate the NumKeysToMigratePerBlock gov param holds in chain state, so every
+// node applies the same value each block. 0 leaves the migration paused.
 func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 	if app.rootStore == nil {
 		return
@@ -78,6 +76,9 @@ func (app *App) applyMigrationBatchSize(ctx sdk.Context) {
 		}
 		subspace.GetIfExists(ctx, migration.KeyNumKeysToMigratePerBlock, &numKeys)
 	}
+	// A per-node rate diverges the AppHash, so production builds return numKeys
+	// unchanged here; only mock_block_validation builds may substitute one.
+	numKeys = unsafeMigrationBatchSizeOverride(numKeys)
 	// Defense-in-depth: gov validation already rejects values above
 	// MaxNumKeysToMigratePerBlock, but clamp here too so an out-of-range value
 	// reaching state via any path can never overflow the int cast or trigger an
