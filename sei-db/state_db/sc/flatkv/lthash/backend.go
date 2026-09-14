@@ -19,6 +19,19 @@ type backend struct {
 	// add and sub are element-wise mod 2^16 on the limb vectors.
 	add func(dst, src *LtHash)
 	sub func(dst, src *LtHash)
+	// newAccumulator returns an accumulator over this backend's expansion.
+	newAccumulator func() accumulator
+}
+
+// accumulator sums a sequence of expansions into one LtHash. A backend may
+// accumulate in whatever limb order its expansion produces; finish is what puts
+// the sum in limb order.
+type accumulator interface {
+	// fold mixes the expansion of data into the running sum, subtracting it
+	// instead of adding it when subtract is true. data is never empty.
+	fold(data []byte, subtract bool)
+	// finish writes the running sum to dst, replacing its limbs.
+	finish(dst *LtHash)
 }
 
 var active = selectBackend(os.Getenv(BackendEnv))

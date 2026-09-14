@@ -10,10 +10,37 @@ import (
 // defaultBackend is the portable implementation: zeebo/blake3 for the XOF and
 // plain Go loops for the limb arithmetic. It is always compiled in.
 var defaultBackend = backend{
-	name:   "default",
-	expand: expandBlake3,
-	add:    addScalar,
-	sub:    subScalar,
+	name:           "default",
+	expand:         expandBlake3,
+	add:            addScalar,
+	sub:            subScalar,
+	newAccumulator: newScalarAccumulator,
+}
+
+var _ accumulator = (*scalarAccumulator)(nil)
+
+// scalarAccumulator expands each input into a scratch LtHash and folds it into
+// a running sum with the portable limb arithmetic.
+type scalarAccumulator struct {
+	sum   LtHash
+	fresh LtHash
+}
+
+func newScalarAccumulator() accumulator {
+	return &scalarAccumulator{}
+}
+
+func (a *scalarAccumulator) fold(data []byte, subtract bool) {
+	expandBlake3(data, &a.fresh)
+	if subtract {
+		subScalar(&a.sum, &a.fresh)
+		return
+	}
+	addScalar(&a.sum, &a.fresh)
+}
+
+func (a *scalarAccumulator) finish(dst *LtHash) {
+	*dst = a.sum
 }
 
 func expandBlake3(data []byte, dst *LtHash) {

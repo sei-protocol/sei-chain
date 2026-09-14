@@ -71,6 +71,41 @@ func TestBackendsAgreeOnMix(t *testing.T) {
 	}
 }
 
+// accumulatorSizes straddle the one-chunk boundary where the SIMD accumulator
+// stops folding from the XOF vectors and spills to the portable expansion.
+var accumulatorSizes = []int{1, 64, 116, 1024, 1025, 3000}
+
+func TestAccumulatorsMatchExpand(t *testing.T) {
+	rng := rand.New(rand.NewSource(5))
+	for name, b := range availableBackends() {
+		t.Run(name, func(t *testing.T) {
+			want, fresh := New(), New()
+			acc := b.newAccumulator()
+			for i, n := range accumulatorSizes {
+				data := make([]byte, n)
+				rng.Read(data)
+				subtract := i%2 == 1
+				acc.fold(data, subtract)
+				b.expand(data, fresh)
+				if subtract {
+					b.sub(want, fresh)
+				} else {
+					b.add(want, fresh)
+				}
+			}
+			got := New()
+			for i := range got.limbs {
+				// finish replaces dst rather than mixing into it.
+				got.limbs[i] = 0xFFFF
+			}
+			acc.finish(got)
+			if !got.Equal(want) {
+				t.Fatal("accumulator differs from expand + add/sub")
+			}
+		})
+	}
+}
+
 func TestSelectBackend(t *testing.T) {
 	if got := selectBackend("default").name; got != "default" {
 		t.Fatalf("pinning default selected %q", got)

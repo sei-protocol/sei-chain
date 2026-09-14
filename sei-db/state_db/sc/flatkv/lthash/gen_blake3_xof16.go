@@ -45,66 +45,67 @@ func main() {
 	p("func rotr32(x archsimd.Uint32x16, n uint64) archsimd.Uint32x16 {")
 	p("\treturn x.ShiftAllRightConcatMod32(x, n)")
 	p("}")
-	p("")
-	p("// xof16 writes output blocks base..base+15 of the root XOF to out,")
-	p("// out[lane][word].")
-	p("func xof16(in *xof16Inputs, out *[16][16]uint32) {")
-	for i := 0; i < 12; i++ {
-		p("\ts%d := archsimd.LoadUint32x16Array(&in[%d])", i, i)
-	}
-	p("\ts12 := archsimd.LoadUint32x16Array(&xof16Lanes).Add(archsimd.LoadUint32x16Array(&in[12]))")
-	for i := 13; i < 16; i++ {
-		p("\ts%d := archsimd.LoadUint32x16Array(&in[%d])", i, i)
-	}
-	for i := 0; i < 16; i++ {
-		p("\tm%d := archsimd.LoadUint32x16Array(&in[%d])", i, 16+i)
-	}
-	g := func(a, b, c, d, mx, my int) {
-		p("\ts%d = s%d.Add(s%d).Add(m%d)", a, a, b, mx)
-		p("\ts%d = rotr32(s%d.Xor(s%d), 16)", d, d, a)
-		p("\ts%d = s%d.Add(s%d)", c, c, d)
-		p("\ts%d = rotr32(s%d.Xor(s%d), 12)", b, b, c)
-		p("\ts%d = s%d.Add(s%d).Add(m%d)", a, a, b, my)
-		p("\ts%d = rotr32(s%d.Xor(s%d), 8)", d, d, a)
-		p("\ts%d = s%d.Add(s%d)", c, c, d)
-		p("\ts%d = rotr32(s%d.Xor(s%d), 7)", b, b, c)
-	}
-	m := [16]int{}
-	for i := range m {
-		m[i] = i
-	}
-	for r := 0; r < 7; r++ {
-		p("\t// round %d", r)
-		g(0, 4, 8, 12, m[0], m[1])
-		g(1, 5, 9, 13, m[2], m[3])
-		g(2, 6, 10, 14, m[4], m[5])
-		g(3, 7, 11, 15, m[6], m[7])
-		g(0, 5, 10, 15, m[8], m[9])
-		g(1, 6, 11, 12, m[10], m[11])
-		g(2, 7, 8, 13, m[12], m[13])
-		g(3, 4, 9, 14, m[14], m[15])
-		var next [16]int
-		for i := range next {
-			next[i] = m[msgPerm[i]]
+
+	emit := func(name string, op string, verb string) {
+		p("")
+		p("// %s computes output blocks base..base+15 of the root XOF and %ss", name, verb)
+		p("// them into acc, which holds one accumulator row per state word: row j")
+		p("// carries the limb pair that word j of every lane contributes.")
+		p("func %s(in *xof16Inputs, acc *[16][32]uint16) {", name)
+		for i := 0; i < 12; i++ {
+			p("\ts%d := archsimd.LoadUint32x16Array(&in[%d])", i, i)
 		}
-		m = next
+		p("\ts12 := archsimd.LoadUint32x16Array(&xof16Lanes).Add(archsimd.LoadUint32x16Array(&in[12]))")
+		for i := 13; i < 16; i++ {
+			p("\ts%d := archsimd.LoadUint32x16Array(&in[%d])", i, i)
+		}
+		for i := 0; i < 16; i++ {
+			p("\tm%d := archsimd.LoadUint32x16Array(&in[%d])", i, 16+i)
+		}
+		g := func(a, b, c, d, mx, my int) {
+			p("\ts%d = s%d.Add(s%d).Add(m%d)", a, a, b, mx)
+			p("\ts%d = rotr32(s%d.Xor(s%d), 16)", d, d, a)
+			p("\ts%d = s%d.Add(s%d)", c, c, d)
+			p("\ts%d = rotr32(s%d.Xor(s%d), 12)", b, b, c)
+			p("\ts%d = s%d.Add(s%d).Add(m%d)", a, a, b, my)
+			p("\ts%d = rotr32(s%d.Xor(s%d), 8)", d, d, a)
+			p("\ts%d = s%d.Add(s%d)", c, c, d)
+			p("\ts%d = rotr32(s%d.Xor(s%d), 7)", b, b, c)
+		}
+		m := [16]int{}
+		for i := range m {
+			m[i] = i
+		}
+		for r := 0; r < 7; r++ {
+			p("\t// round %d", r)
+			g(0, 4, 8, 12, m[0], m[1])
+			g(1, 5, 9, 13, m[2], m[3])
+			g(2, 6, 10, 14, m[4], m[5])
+			g(3, 7, 11, 15, m[6], m[7])
+			g(0, 5, 10, 15, m[8], m[9])
+			g(1, 6, 11, 12, m[10], m[11])
+			g(2, 7, 8, 13, m[12], m[13])
+			g(3, 4, 9, 14, m[14], m[15])
+			var next [16]int
+			for i := range next {
+				next[i] = m[msgPerm[i]]
+			}
+			m = next
+		}
+		p("\t// finalize: full 16-word output for the root XOF")
+		for i := 0; i < 8; i++ {
+			p("\ts%d = s%d.Xor(s%d)", i, i, i+8)
+			p("\ts%d = s%d.Xor(archsimd.LoadUint32x16Array(&in[%d]))", i+8, i+8, i)
+		}
+		p("\t// Word j of lane b is the little-endian pair of limbs 32b+2j and")
+		p("\t// 32b+2j+1, so a 32-lane uint16 %s is the LtHash %s on both of them.", verb, verb)
+		for j := 0; j < 16; j++ {
+			p("\tarchsimd.LoadUint16x32Array(&acc[%d]).%s(s%d.ReshapeToUint16s()).StoreArray(&acc[%d])", j, op, j, j)
+		}
+		p("}")
 	}
-	p("\t// finalize: full 16-word output for the root XOF")
-	for i := 0; i < 8; i++ {
-		p("\ts%d = s%d.Xor(s%d)", i, i, i+8)
-		p("\ts%d = s%d.Xor(archsimd.LoadUint32x16Array(&in[%d]))", i+8, i+8, i)
-	}
-	p("\t// s_j holds word j of every lane; transpose so out[lane] is one block.")
-	p("\tvar t [16][16]uint32")
-	for j := 0; j < 16; j++ {
-		p("\ts%d.StoreArray(&t[%d])", j, j)
-	}
-	p("\tfor lane := 0; lane < 16; lane++ {")
-	p("\t\tfor word := 0; word < 16; word++ {")
-	p("\t\t\tout[lane][word] = t[word][lane]")
-	p("\t\t}")
-	p("\t}")
-	p("}")
+	emit("xof16Add", "Add", "add")
+	emit("xof16Sub", "Sub", "subtract")
 
 	src, err := format.Source(b.Bytes())
 	if err != nil {

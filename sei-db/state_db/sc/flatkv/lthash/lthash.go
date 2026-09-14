@@ -3,6 +3,7 @@ package lthash
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/zeebo/blake3"
@@ -124,20 +125,30 @@ func hash(data []byte) *LtHash {
 	return lth
 }
 
-// serializeKV encodes a KV pair with length-prefixed fields.
-// Format: keyLen[4] || key || valueLen[4] || value
+// serializeKV encodes a KV pair with length-prefixed fields, or nil when either
+// side is empty. Format: keyLen[4] || key || valueLen[4] || value
 func serializeKV(key, value []byte) []byte {
 	if len(key) == 0 || len(value) == 0 {
 		return nil
 	}
+	return serializeKVInto(nil, key, value)
+}
+
+// serializeKVInto encodes a non-empty KV pair in the serializeKV format into
+// dst, allocating only when dst is too small to hold it.
+func serializeKVInto(dst []byte, key []byte, value []byte) []byte {
 	keyLen := len(key)
 	valueLen := len(value)
 
-	if keyLen > 0xFFFFFFFF || valueLen > 0xFFFFFFFF {
+	if keyLen > math.MaxUint32 || valueLen > math.MaxUint32 {
 		panic("serializeKV: length overflow")
 	}
 
-	buf := make([]byte, 4+keyLen+4+valueLen)
+	size := 4 + keyLen + 4 + valueLen
+	if cap(dst) < size {
+		dst = make([]byte, size)
+	}
+	buf := dst[:size]
 	off := 0
 	binary.LittleEndian.PutUint32(buf[off:], uint32(keyLen))
 	off += 4

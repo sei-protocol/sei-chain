@@ -23,10 +23,11 @@ func simdBackend() (backend, bool) {
 		return backend{}, false
 	}
 	return backend{
-		name:   simdBackendName,
-		expand: expandSIMD,
-		add:    addSIMD,
-		sub:    subSIMD,
+		name:           simdBackendName,
+		expand:         expandSIMD,
+		add:            addSIMD,
+		sub:            subSIMD,
+		newAccumulator: newSIMDAccumulator,
 	}, true
 }
 
@@ -52,14 +53,87 @@ func expandSIMD(data []byte, dst *LtHash) {
 		expandBlake3(data, dst)
 		return
 	}
-	var in xof16Inputs
-	singleChunkRoot(data, &in)
-	out := (*[2][16][16]uint32)(unsafe.Pointer(&dst.limbs)) //nolint:gosec // G103: same size, little-endian limb layout
-	xof16(&in, &out[0])
-	for lane := range in[12] {
-		in[12][lane] = 16
+	var xof xofAccumulator
+	xof.fold(data, false)
+	xof.reshape(dst)
+}
+
+// xofAccumulator sums root-XOF outputs in the order xof16Add produces them:
+// rows[half][word] carries the limb pair that state word contributes in each of
+// that half's sixteen output blocks.
+type xofAccumulator struct {
+	in   xof16Inputs
+	rows [2][16][32]uint16
+}
+
+// fold runs both halves of the root XOF over data and adds them into the rows,
+// subtracting instead when subtract is true. data is at most one Blake3 chunk.
+func (x *xofAccumulator) fold(data []byte, subtract bool) {
+	singleChunkRoot(data, &x.in)
+	if subtract {
+		xof16Sub(&x.in, &x.rows[0])
+		x.in.setCounterBase(16)
+		xof16Sub(&x.in, &x.rows[1])
+		return
 	}
-	xof16(&in, &out[1])
+	xof16Add(&x.in, &x.rows[0])
+	x.in.setCounterBase(16)
+	xof16Add(&x.in, &x.rows[1])
+}
+
+// reshape writes the accumulated rows to dst in limb order, replacing its limbs.
+func (x *xofAccumulator) reshape(dst *LtHash) {
+	for half := range x.rows {
+		for word := range x.rows[half] {
+			row := &x.rows[half][word]
+			for block := 0; block < 16; block++ {
+				limb := 32*(16*half+block) + 2*word
+				dst.limbs[limb] = row[2*block]
+				dst.limbs[limb+1] = row[2*block+1]
+			}
+		}
+	}
+}
+
+// setCounterBase broadcasts the block counter the next compression starts at.
+func (in *xof16Inputs) setCounterBase(base uint32) {
+	in[12][0] = base
+	lane0 := archsimd.LoadUint32x16Array(&xof16WordIndex[0])
+	archsimd.LoadUint32x16Array(&in[12]).Permute(lane0).StoreArray(&in[12])
+}
+
+var _ accumulator = (*simdAccumulator)(nil)
+
+// simdAccumulator folds one-chunk inputs straight from the XOF vectors, so the
+// reshape into limb order is paid once per chunk of pairs rather than per hash.
+type simdAccumulator struct {
+	xof xofAccumulator
+	// spill takes inputs longer than one Blake3 chunk. Those fall back to the
+	// portable expansion, which produces limbs already in order.
+	spill LtHash
+}
+
+func newSIMDAccumulator() accumulator {
+	return &simdAccumulator{}
+}
+
+func (a *simdAccumulator) fold(data []byte, subtract bool) {
+	if len(data) > blake3ChunkLen {
+		var fresh LtHash
+		expandBlake3(data, &fresh)
+		if subtract {
+			subSIMD(&a.spill, &fresh)
+			return
+		}
+		addSIMD(&a.spill, &fresh)
+		return
+	}
+	a.xof.fold(data, subtract)
+}
+
+func (a *simdAccumulator) finish(dst *LtHash) {
+	a.xof.reshape(dst)
+	addSIMD(dst, &a.spill)
 }
 
 // singleChunkRoot compresses all but the last block of a one-chunk message
@@ -77,21 +151,41 @@ func singleChunkRoot(data []byte, in *xof16Inputs) {
 	}
 	var last [blake3BlockLen]byte
 	copy(last[:], data)
-	loadBlock(&block, last[:])
 	flags |= blake3ChunkEnd | blake3Root
 
-	for lane := 0; lane < 16; lane++ {
-		for i := 0; i < 8; i++ {
-			in[i][lane] = cv[i]
-			in[8+i][lane] = blake3IV[i]
+	// The first sixteen rows are one scalar each, in state-word order, so
+	// staging them contiguously lets a single vector load feed every splat.
+	var state [16]uint32
+	copy(state[0:8], cv[:])
+	copy(state[8:12], blake3IV[0:4])
+	state[14] = uint32(len(data)) //nolint:gosec // G115: len(data) <= blake3BlockLen
+	state[15] = flags
+	splat((*[16][16]uint32)(in[0:16]), archsimd.LoadUint32x16Array(&state))
+
+	// x86 is little-endian, so the padded block is already its sixteen
+	// message words.
+	words := (*[16]uint32)(unsafe.Pointer(&last)) //nolint:gosec // G103
+	splat((*[16][16]uint32)(in[16:32]), archsimd.LoadUint32x16Array(words))
+}
+
+// xof16WordIndex[i] is the VPERMD index vector selecting word i into every lane.
+var xof16WordIndex = newWordIndex()
+
+func newWordIndex() [16][16]uint32 {
+	var table [16][16]uint32
+	for word := range table {
+		for lane := range table[word] {
+			table[word][lane] = uint32(word) //nolint:gosec // G115: word < 16
 		}
-		in[12][lane] = 0
-		in[13][lane] = 0
-		in[14][lane] = uint32(len(data)) //nolint:gosec // G115: len(data) <= blake3BlockLen
-		in[15][lane] = flags
-		for i := 0; i < 16; i++ {
-			in[16+i][lane] = block[i]
-		}
+	}
+	return table
+}
+
+// splat writes sixteen compression-input rows, row i holding word i of src in
+// every lane.
+func splat(rows *[16][16]uint32, src archsimd.Uint32x16) {
+	for i := range xof16WordIndex {
+		src.Permute(archsimd.LoadUint32x16Array(&xof16WordIndex[i])).StoreArray(&rows[i])
 	}
 }
 

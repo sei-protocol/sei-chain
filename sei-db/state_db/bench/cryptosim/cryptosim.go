@@ -85,6 +85,19 @@ type CryptoSim struct {
 	rateLimiter *rate.Limiter
 }
 
+// reportLtHashBackend prints the LtHash backend in use, and warns when a host
+// that should have reached the AVX-512 one did not.
+func reportLtHashBackend() {
+	name := lthash.ActiveBackend()
+	fmt.Printf("LtHash backend: %s\n", name)
+	if name == "simd" || runtime.GOARCH != "amd64" {
+		return
+	}
+	fmt.Printf("WARNING: running the portable LtHash backend on amd64. Build through this "+
+		"benchmark's Makefile (GOEXPERIMENT=simd, GOTOOLCHAIN=go1.27.1) and check that the "+
+		"host has AVX-512F and AVX-512VBMI2. %s pins the backend by name.\n", lthash.BackendEnv)
+}
+
 // Creates a new cryptosim benchmark runner.
 func NewCryptoSim(
 	ctx context.Context,
@@ -131,7 +144,7 @@ func NewCryptoSim(
 
 	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
-	fmt.Printf("LtHash backend: %s\n", lthash.ActiveBackend())
+	reportLtHashBackend()
 
 	var dbConfig any
 	switch config.Backend {

@@ -1,6 +1,7 @@
 package lthash
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
@@ -243,6 +244,10 @@ func (c *HashCalculator) buildTasks(pairSets []DBPairs) (tasks []lthashTask, tot
 //   - no-op  (!old, !new): unchanged (delete of an absent key)
 func foldChunk(pairs []KVPairWithLastValue) *ModuleHashInfo {
 	d := &ModuleHashInfo{Hash: New()}
+	acc := active.newAccumulator()
+	// One serialization buffer serves the whole chunk; it grows to the largest
+	// pair in it and is reused for every hash after that.
+	var scratch []byte
 	for _, kv := range pairs {
 		// A member exists iff serializeKV would produce a non-nil buffer, i.e.
 		// key and value are both non-empty. Keeping these predicates identical
@@ -250,15 +255,18 @@ func foldChunk(pairs []KVPairWithLastValue) *ModuleHashInfo {
 		// hash represents.
 		hadOld := len(kv.Key) > 0 && len(kv.LastValue) > 0
 		hasNew := len(kv.Key) > 0 && !kv.Delete && len(kv.Value) > 0
+		if hadOld && hasNew && bytes.Equal(kv.LastValue, kv.Value) {
+			// Rewriting a value with itself mixes out and back in the same
+			// hash, and moves neither the key count nor the byte total.
+			continue
+		}
 		if hadOld {
-			h := hash(serializeKV(kv.Key, kv.LastValue))
-			d.Hash.MixOut(h)
-			putLtHashToPool(h)
+			scratch = serializeKVInto(scratch, kv.Key, kv.LastValue)
+			acc.fold(scratch, true)
 		}
 		if hasNew {
-			h := hash(serializeKV(kv.Key, kv.Value))
-			d.Hash.MixIn(h)
-			putLtHashToPool(h)
+			scratch = serializeKVInto(scratch, kv.Key, kv.Value)
+			acc.fold(scratch, false)
 		}
 		switch {
 		case !hadOld && hasNew:
@@ -271,6 +279,7 @@ func foldChunk(pairs []KVPairWithLastValue) *ModuleHashInfo {
 			d.Bytes -= int64(len(kv.Key)) + int64(len(kv.LastValue))
 		}
 	}
+	acc.finish(d.Hash)
 	return d
 }
 

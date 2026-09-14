@@ -82,6 +82,12 @@ func TestFoldChunkStats(t *testing.T) {
 			wantKeys: 0,
 			wantByte: 0,
 		},
+		{
+			name:     "rewrite of the same value is a no-op",
+			pair:     KVPairWithLastValue{Key: key, Value: []byte("same"), LastValue: []byte("same")},
+			wantKeys: 0,
+			wantByte: 0,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,6 +96,21 @@ func TestFoldChunkStats(t *testing.T) {
 			require.Equal(t, tc.wantByte, d.Bytes)
 		})
 	}
+}
+
+// TestFoldChunkIgnoresUnchangedValues pins the short-circuit that skips a pair
+// whose value is rewritten with itself: its mix-out and mix-in cancel, so the
+// chunk delta must match one computed without that pair present at all.
+func TestFoldChunkIgnoresUnchangedValues(t *testing.T) {
+	moved := KVPairWithLastValue{Key: []byte("a"), Value: []byte("new"), LastValue: []byte("old")}
+	rewritten := KVPairWithLastValue{Key: []byte("b"), Value: []byte("same"), LastValue: []byte("same")}
+
+	want := foldChunk([]KVPairWithLastValue{moved})
+	got := foldChunk([]KVPairWithLastValue{rewritten, moved, rewritten})
+
+	require.True(t, got.Hash.Equal(want.Hash), "an unchanged value must not move the hash")
+	require.Equal(t, want.KeyCount, got.KeyCount)
+	require.Equal(t, want.Bytes, got.Bytes)
 }
 
 // TestComputeModuleHashInfosStatsParallel exercises the pooled path (> chunk size)
