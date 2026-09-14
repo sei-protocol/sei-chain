@@ -161,8 +161,8 @@ func BenchmarkHashAlternatives(b *testing.B) {
 // recursive reference around every lane-count boundary.
 func TestHashFromByteSlicesBatched(t *testing.T) {
 	sha := sha256.New()
-	for _, size := range []int{2, 32, 128} {
-		for total := 1; total <= 70; total++ {
+	for _, size := range []int{0, 2, 32, 128} {
+		for total := 1; total <= 130; total++ {
 			items := make([][]byte, total)
 			for i := range items {
 				items[i] = tmrand.Bytes(size)

@@ -3,7 +3,6 @@
 package tmhash
 
 import (
-	"crypto/sha256"
 	"encoding/binary"
 	"sync"
 
@@ -12,9 +11,7 @@ import (
 
 //go:generate go run gen_sha256x16.go
 
-// vzeroupper clears the upper halves of the vector registers. The compiler
-// does not emit it after AVX-512 code, and legacy-SSE code that follows (the
-// SHA-NI scalar path, memmove) runs several times slower while they are dirty.
+// vzeroupper clears the upper halves of the vector registers.
 //
 //go:noescape
 func vzeroupper()
@@ -68,9 +65,8 @@ func paddedBlocks(n int) int {
 	return (n + 1 + 8 + blockSize - 1) / blockSize
 }
 
-// sumBatchSIMD hashes msgs sixteen at a time. Lanes must share a block count,
-// so messages are bucketed by padded length; buckets with fewer than sixteen
-// messages left over fall back to the scalar backend.
+// sumBatchSIMD hashes sixteen messages of equal padded block count at a time
+// and hands whatever does not fill a group of sixteen to the scalar backend.
 func sumBatchSIMD(prefix []byte, msgs [][]byte, out [][Size]byte) {
 	if len(msgs) < simdLanes || len(prefix) >= blockSize {
 		sumBatchScalar(prefix, msgs, out)
@@ -115,16 +111,11 @@ func sumBatchSIMD(prefix []byte, msgs [][]byte, out [][Size]byte) {
 		rest = append(rest, idx...)
 	}
 	laneScratchPool.Put(sp)
+	// The compiler emits no VZEROUPPER after AVX-512 code, and the legacy-SSE
+	// SHA-NI path below runs several times slower while the upper halves are
+	// dirty.
 	vzeroupper()
-	if len(rest) > 0 {
-		h := sha256.New()
-		for _, i := range rest {
-			h.Reset()
-			h.Write(prefix)
-			h.Write(msgs[i])
-			h.Sum(out[i][:0])
-		}
-	}
+	sumScalarAt(prefix, msgs, out, rest)
 }
 
 // sha256Lanes hashes the sixteen messages selected by lanes, each of nb

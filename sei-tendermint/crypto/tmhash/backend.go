@@ -1,9 +1,6 @@
 package tmhash
 
-import (
-	"os"
-	"slices"
-)
+import "os"
 
 // BackendEnv is the environment variable that pins the batch hashing backend
 // by name. An unknown or empty value leaves the selection automatic.
@@ -47,17 +44,6 @@ func availableBackends() map[string]backend {
 		m[b.name] = b
 	}
 	return m
-}
-
-// availableBackendNames returns the names from availableBackends, sorted.
-func availableBackendNames() []string {
-	m := availableBackends()
-	names := make([]string, 0, len(m))
-	for name := range m {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return names
 }
 
 // selectBackend picks the backend named by pin, or the fastest available one

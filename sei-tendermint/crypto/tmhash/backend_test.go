@@ -3,6 +3,7 @@ package tmhash
 import (
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"testing"
@@ -13,6 +14,10 @@ import (
 // batchSizes covers SHA-256 block boundaries with and without the one-byte
 // prefix, the 65-byte Merkle inner node and a few multi-block messages.
 var batchSizes = []int{0, 1, 31, 32, 54, 55, 56, 63, 64, 65, 100, 118, 119, 120, 127, 128, 129, 200, 1000, 4096, 5000}
+
+func availableBackendNames() []string {
+	return slices.Sorted(maps.Keys(availableBackends()))
+}
 
 func referenceSum(prefix, msg []byte) [Size]byte {
 	return sha256.Sum256(slices.Concat(prefix, msg))
