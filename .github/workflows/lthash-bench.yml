@@ -1,0 +1,127 @@
+name: LtHash backends
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'sei-db/state_db/sc/flatkv/lthash/**'
+      - '.github/workflows/lthash-bench.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'sei-db/state_db/sc/flatkv/lthash/**'
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  GO_VERSION: '1.27.1'
+  LTHASH_PKG: ./sei-db/state_db/sc/flatkv/lthash
+  BENCH_COUNT: 8
+
+jobs:
+  bench:
+    name: Default vs SIMD (${{ matrix.runner }})
+    # Not every runner pool has AVX-512; several are tried so at least one is
+    # likely to execute the SIMD backend.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [uci-default, ubuntu-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Download modules
+        run: go mod download
+
+      - name: CPU
+        run: |
+          lscpu | grep -E 'Model name|^Flags' | sed -E 's/^Flags:\s+/Flags: /' | fold -w 120
+
+      # Both builds must pass: the default build has no SIMD backend compiled
+      # in, the experiment build adds it and the differential tests compare
+      # every available backend against the Blake3 reference.
+      - name: Test without GOEXPERIMENT=simd
+        run: go test -count=1 -race ${{ env.LTHASH_PKG }}
+
+      - name: Test with GOEXPERIMENT=simd
+        env:
+          GOEXPERIMENT: simd
+        run: go test -count=1 -race ${{ env.LTHASH_PKG }}
+
+      - name: Benchmark every available backend
+        env:
+          GOEXPERIMENT: simd
+        run: |
+          go test \
+            -run '^$' \
+            -bench . \
+            -count ${{ env.BENCH_COUNT }} \
+            ${{ env.LTHASH_PKG }} | tee bench.txt
+
+      # benchstat groups the samples by the `backend=` sub-benchmark name, so the
+      # simd column reads as a delta against default. The report is printed to
+      # the log, added to the job summary and upserted as a PR comment.
+      - name: Summarise with benchstat
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20250813145418-2f7363a06fe1
+          {
+            echo '### LtHash default vs SIMD (`${{ matrix.runner }}`)'
+            echo
+            echo "CPU: $(lscpu | sed -nE 's/^Model name:\s+//p')"
+            echo
+            if grep -q 'backend=simd' bench.txt; then
+              echo '`HashChunk` is the end-to-end per-block path; `vs base` is simd relative to default.'
+            else
+              echo '**This runner CPU lacks AVX-512F + VBMI2, so only the default backend ran.**'
+            fi
+            echo
+            echo '```'
+            benchstat -col /backend bench.txt
+            echo '```'
+          } | tee benchstat.md >> "$GITHUB_STEP_SUMMARY"
+          if ! grep -q 'backend=simd' bench.txt; then
+            echo '::warning::SIMD backend unavailable on this runner CPU; only the default backend was benchmarked'
+          fi
+
+      - name: Post benchstat report on the PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v8
+        env:
+          MARKER: '<!-- lthash-bench:${{ matrix.runner }} -->'
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = process.env.MARKER;
+            const body = `${marker}\n${fs.readFileSync('benchstat.md', 'utf8')}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lthash-bench-${{ matrix.runner }}
+          path: |
+            bench.txt
+            benchstat.md
