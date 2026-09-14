@@ -228,7 +228,7 @@ func TestRecordOCCStatsFallbackReasonVocabularyIsClosed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := bindTestOCCMetrics(t)
-			recordOCCStats(t.Context(), OCCStats{Attempted: true, Fallback: true, FallbackReason: tc.reason})
+			recordOCCStats(t.Context(), 2, OCCStats{Attempted: true, Fallback: true, FallbackReason: tc.reason})
 
 			collected := collectOCCMetrics(t, reader)
 			require.Equal(t, int64(1), requireCounter(t, collected, "giga_occ_fallbacks_total",
@@ -243,12 +243,106 @@ func TestRecordOCCStatsFallbackReasonVocabularyIsClosed(t *testing.T) {
 // quantiles describe those blocks and not only the ones that reran.
 func TestRecordOCCStatsRerunDepthRecordsEveryAttemptedBlock(t *testing.T) {
 	reader := bindTestOCCMetrics(t)
-	recordOCCStats(t.Context(), OCCStats{Attempted: true})
-	recordOCCStats(t.Context(), OCCStats{Attempted: true, RerunCount: 4, MaxIncarnation: 3})
+	recordOCCStats(t.Context(), 2, OCCStats{Attempted: true})
+	recordOCCStats(t.Context(), 2, OCCStats{Attempted: true, RerunCount: 4, MaxIncarnation: 3})
 
 	collected := collectOCCMetrics(t, reader)
 	depth := requireHistogram(t, collected, "giga_occ_rerun_depth")
 	require.Equal(t, uint64(2), depth.Count)
 	require.Equal(t, int64(3), depth.Sum)
 	require.Equal(t, int64(4), requireCounter(t, collected, "giga_occ_reruns_total"))
+}
+
+// TestRecordOCCStatsEmptyBlockIsCountedApartFromSequential keeps blocks with no
+// transactions out of the "sequential" bucket. FinalizeBlock runs at every
+// height, so folding them in would make parallel/total track block rate on an
+// idle chain instead of OCC behavior.
+func TestRecordOCCStatsEmptyBlockIsCountedApartFromSequential(t *testing.T) {
+	reader := bindTestOCCMetrics(t)
+	req := BlockRequest{Context: blockContext(big.NewInt(testChainID))}
+
+	executor := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(NewMemoryState()))
+	result, err := executor.ExecuteBlock(t.Context(), req)
+	require.NoError(t, err)
+	require.False(t, result.OCCStats.Attempted)
+
+	collected := collectOCCMetrics(t, reader)
+	require.Equal(t, int64(1), requireCounter(t, collected, "giga_occ_blocks_total", attribute.String("outcome", "empty")))
+
+	blocks, ok := collected["giga_occ_blocks_total"]
+	require.True(t, ok)
+	sum, ok := blocks.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 1, "an empty block must not also land in another outcome")
+}
+
+// TestRecordOCCStatsConflictsAggregateByAccessAndKind pins that the emitter's
+// work per block is bounded by the access-by-kind label space rather than by the
+// number of conflicting state keys: samples spread across addresses and slots
+// collapse onto one series carrying their summed count.
+func TestRecordOCCStatsConflictsAggregateByAccessAndKind(t *testing.T) {
+	reader := bindTestOCCMetrics(t)
+	samples := make([]OCCConflictCount, 0, 16)
+	for i := range 16 {
+		samples = append(samples, OCCConflictCount{
+			Access:  "read",
+			Kind:    "storage",
+			Address: testAddress(byte(i)),
+			Slot:    common.BigToHash(big.NewInt(int64(i))),
+			Count:   2,
+		})
+	}
+	recordOCCStats(t.Context(), len(samples), OCCStats{Attempted: true, ConflictSamples: samples})
+
+	collected := collectOCCMetrics(t, reader)
+	conflicts, ok := collected["giga_occ_conflicts_total"]
+	require.True(t, ok)
+	sum, ok := conflicts.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 1)
+	require.Equal(t, int64(32), requireCounter(t, collected, "giga_occ_conflicts_total",
+		attribute.String("access", "read"),
+		attribute.String("kind", "storage"),
+	))
+}
+
+// TestRecordOCCStatsConflictVocabularyIsClosed pins that the access and kind
+// labels can only take the values this package defines, so a state kind the
+// emitter does not know cannot grow a series the dashboards do not know about.
+func TestRecordOCCStatsConflictVocabularyIsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		access     string
+		kind       string
+		wantAccess string
+		wantKind   string
+	}{
+		{name: "known", access: "write", kind: "nonce", wantAccess: "write", wantKind: "nonce"},
+		{name: "unknown kind", access: "read", kind: "a_kind_nobody_defined", wantAccess: "read", wantKind: "unknown"},
+		{name: "unknown access", access: "iterate", kind: "code", wantAccess: "unknown", wantKind: "code"},
+		{name: "empty", access: "", kind: "", wantAccess: "unknown", wantKind: "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := bindTestOCCMetrics(t)
+			recordOCCStats(t.Context(), 2, OCCStats{
+				Attempted:       true,
+				ConflictSamples: []OCCConflictCount{{Access: tc.access, Kind: tc.kind, Count: 1}},
+			})
+
+			collected := collectOCCMetrics(t, reader)
+			require.Equal(t, int64(1), requireCounter(t, collected, "giga_occ_conflicts_total",
+				attribute.String("access", tc.wantAccess),
+				attribute.String("kind", tc.wantKind),
+			))
+		})
+	}
+}
+
+// TestOCCConflictOptionsCoverEveryStateAccessKind keeps the emitter's kind
+// vocabulary in step with stateAccessKind: a kind added there without a matching
+// option here would silently report as "unknown".
+func TestOCCConflictOptionsCoverEveryStateAccessKind(t *testing.T) {
+	for kind := stateAccessAccount; kind <= stateAccessStorage; kind++ {
+		require.Contains(t, occConflictKinds, kind.String(), "stateAccessKind %d is missing a conflict label", kind)
+	}
 }

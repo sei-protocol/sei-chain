@@ -27,7 +27,7 @@ var (
 	}{
 		blocks: must(occMeter.Int64Counter(
 			"giga_occ_blocks_total",
-			metric.WithDescription("Blocks executed by the Giga EVM-only executor, by execution outcome (parallel, fallback, sequential)"),
+			metric.WithDescription("Blocks executed by the Giga EVM-only executor, by execution outcome (parallel, fallback, sequential, empty)"),
 			metric.WithUnit("{block}"),
 		)),
 		fallbacks: must(occMeter.Int64Counter(
@@ -54,6 +54,10 @@ var (
 	}
 )
 
+// occLabelUnknown is the value every label vocabulary in this file collapses an
+// unrecognized value onto.
+const occLabelUnknown = "unknown"
+
 // The outcome and reason label values are fixed at build time so the two
 // dimensions of giga_occ_blocks_total and giga_occ_fallbacks_total stay the
 // bounded sets the dashboards and the fallback-rate alert are built against.
@@ -61,13 +65,14 @@ var (
 	occOutcomeParallel   = outcomeAttr("parallel")
 	occOutcomeFallback   = outcomeAttr("fallback")
 	occOutcomeSequential = outcomeAttr("sequential")
+	occOutcomeEmpty      = outcomeAttr("empty")
 
 	occReasonConflict         = reasonAttr(occFallbackReasonConflict)
 	occReasonGasLimit         = reasonAttr(occFallbackReasonGasLimit)
 	occReasonGasOverflow      = reasonAttr(occFallbackReasonGasOverflow)
 	occReasonMaxIncarnation   = reasonAttr(occFallbackReasonMaxIncarnation)
 	occReasonWorkerPoolClosed = reasonAttr(occFallbackReasonWorkerPoolClosed)
-	occReasonUnknown          = reasonAttr("unknown")
+	occReasonUnknown          = reasonAttr(occLabelUnknown)
 )
 
 func outcomeAttr(outcome string) metric.MeasurementOption {
@@ -97,6 +102,25 @@ func occRerunDepthBuckets() []float64 {
 	return buckets
 }
 
+// occOutcome maps a block onto the outcome label vocabulary. Blocks that never
+// tried optimistic execution are split by whether they carried transactions at
+// all, so "sequential" counts only blocks that had work an optimistic run could
+// have parallelized: FinalizeBlock runs at every height, and folding empty
+// blocks in would make parallel/total decay with block rate on an idle chain
+// rather than with OCC behavior.
+func occOutcome(txCount int, stats OCCStats) metric.MeasurementOption {
+	switch {
+	case stats.Attempted && stats.Fallback:
+		return occOutcomeFallback
+	case stats.Attempted:
+		return occOutcomeParallel
+	case txCount == 0:
+		return occOutcomeEmpty
+	default:
+		return occOutcomeSequential
+	}
+}
+
 // occReason maps a fallback reason onto the label vocabulary. Mapping here
 // rather than passing the string through is what keeps the vocabulary closed: a
 // reason this function does not know collapses to "unknown" instead of adding a
@@ -118,6 +142,64 @@ func occReason(reason string) metric.MeasurementOption {
 	}
 }
 
+// occConflictLabel names one of the bounded access-by-kind series of
+// giga_occ_conflicts_total.
+type occConflictLabel struct {
+	access string
+	kind   string
+}
+
+// The conflict label values are fixed at build time for the same reason the
+// outcome and reason values are, and one measurement option is pre-built per
+// series so emitting a block's conflicts allocates no attribute sets.
+var (
+	occConflictAccesses = occLabelVocabulary("read", "write")
+	occConflictKinds    = occLabelVocabulary("account", "balance", "nonce", "code", "storage")
+	occConflictOptions  = occConflictOptionTable()
+)
+
+// occLabelVocabulary returns the given label values plus "unknown" as a set.
+func occLabelVocabulary(values ...string) map[string]struct{} {
+	vocabulary := make(map[string]struct{}, len(values)+1)
+	vocabulary[occLabelUnknown] = struct{}{}
+	for _, value := range values {
+		vocabulary[value] = struct{}{}
+	}
+	return vocabulary
+}
+
+func occConflictOptionTable() map[occConflictLabel]metric.MeasurementOption {
+	table := make(map[occConflictLabel]metric.MeasurementOption, len(occConflictAccesses)*len(occConflictKinds))
+	for access := range occConflictAccesses {
+		for kind := range occConflictKinds {
+			table[occConflictLabel{access: access, kind: kind}] = metric.WithAttributes(
+				attribute.String("access", access),
+				attribute.String("kind", kind),
+			)
+		}
+	}
+	return table
+}
+
+// occConflictKey maps a conflict sample onto the label vocabulary. Mapping here
+// rather than passing the sample's strings through is what keeps the series
+// closed, the same way occReason does for the fallback reason: it does not rely
+// on stateAccessKind.String() staying bounded.
+func occConflictKey(access, kind string) occConflictLabel {
+	return occConflictLabel{
+		access: occLabel(occConflictAccesses, access),
+		kind:   occLabel(occConflictKinds, kind),
+	}
+}
+
+// occLabel returns value when the vocabulary holds it, and "unknown" otherwise.
+func occLabel(vocabulary map[string]struct{}, value string) string {
+	if _, ok := vocabulary[value]; ok {
+		return value
+	}
+	return occLabelUnknown
+}
+
 // recordOCCStats emits a block's optimistic concurrency behavior on the global
 // meter. Every block records an outcome, including the ones that never tried
 // optimistic execution, so the fallback rate has a full denominator.
@@ -128,30 +210,40 @@ func occReason(reason string) metric.MeasurementOption {
 //
 // This runs inside block execution, so a telemetry fault must not panic into
 // the caller.
-func recordOCCStats(ctx context.Context, stats OCCStats) {
+func recordOCCStats(ctx context.Context, txCount int, stats OCCStats) {
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
+	occMetrics.blocks.Add(ctx, 1, occOutcome(txCount, stats))
 	if !stats.Attempted {
-		occMetrics.blocks.Add(ctx, 1, occOutcomeSequential)
 		return
 	}
 	if stats.Fallback {
-		occMetrics.blocks.Add(ctx, 1, occOutcomeFallback)
 		occMetrics.fallbacks.Add(ctx, 1, occReason(stats.FallbackReason))
-	} else {
-		occMetrics.blocks.Add(ctx, 1, occOutcomeParallel)
 	}
 	occMetrics.rerunDepth.Record(ctx, utils.Clamp[int64](stats.MaxIncarnation))
 	if stats.RerunCount > 0 {
 		occMetrics.reruns.Add(ctx, utils.Clamp[int64](stats.RerunCount))
 	}
-	for _, conflict := range stats.ConflictSamples {
-		occMetrics.conflicts.Add(ctx, utils.Clamp[int64](conflict.Count), metric.WithAttributes(
-			attribute.String("access", conflict.Access),
-			attribute.String("kind", conflict.Kind),
-		))
+	recordOCCConflicts(ctx, stats.ConflictSamples)
+}
+
+// recordOCCConflicts sums a block's conflict samples onto the access-by-kind
+// series before emitting them. ConflictSamples holds one entry per distinct
+// (access, kind, address, slot) and is uncapped, so emitting per sample would
+// scale this block's telemetry work with the number of conflicting state keys;
+// aggregating first bounds it by the size of the label space instead.
+func recordOCCConflicts(ctx context.Context, samples []OCCConflictCount) {
+	if len(samples) == 0 {
+		return
+	}
+	counts := make(map[occConflictLabel]uint64, min(len(samples), len(occConflictOptions)))
+	for _, sample := range samples {
+		counts[occConflictKey(sample.Access, sample.Kind)] += sample.Count
+	}
+	for label, count := range counts {
+		occMetrics.conflicts.Add(ctx, utils.Clamp[int64](count), occConflictOptions[label])
 	}
 }
