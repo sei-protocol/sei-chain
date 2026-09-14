@@ -3,6 +3,7 @@ package lthash
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 )
@@ -185,7 +186,12 @@ type ModuleHashInfo struct {
 // The caller decides how to apply the deltas: Compute mixes them onto a running
 // per-block hash; the importer folds them into its per-DB accumulators.
 func (c *HashCalculator) ComputeModuleHashInfos(pairSets []DBPairs) (map[ModuleKey]*ModuleHashInfo, error) {
-	tasks, total, err := c.buildTasks(pairSets)
+	// The tasks below slice the scratch's backing arrays, so returning it to the pool is
+	// only safe because both compute paths join every task before they return.
+	scratch := moduleBucketPool.Get().(*moduleBuckets)
+	defer moduleBucketPool.Put(scratch)
+
+	tasks, total, err := c.buildTasks(scratch, pairSets)
 	if err != nil {
 		return nil, err
 	}
@@ -205,33 +211,73 @@ type lthashTask struct {
 	pairs []KVPairWithLastValue
 }
 
-// buildTasks buckets each DB's pairs by module and splits every bucket into
-// fixed-size tasks. It also returns the total pair count so callers can pick the
-// serial vs parallel path.
-func (c *HashCalculator) buildTasks(pairSets []DBPairs) (tasks []lthashTask, total int, err error) {
-	for _, ps := range pairSets {
-		if len(ps.Pairs) == 0 {
+// moduleBuckets is the scratch one ComputeModuleHashInfos call buckets its pairs into.
+// Carrying the backing arrays from block to block is what keeps this off the allocator:
+// a steady workload reaches a size that fits and stops allocating here entirely.
+//
+// The buckets hold the previous block's pairs until the next one overwrites them, so a
+// pooled scratch pins one block's keys and values for as long as it sits idle.
+type moduleBuckets struct {
+	pairs map[ModuleKey][]KVPairWithLastValue
+	tasks []lthashTask
+}
+
+var moduleBucketPool = sync.Pool{
+	New: func() any {
+		return &moduleBuckets{pairs: make(map[ModuleKey][]KVPairWithLastValue)}
+	},
+}
+
+// reset prepares the scratch for another block. A bucket's length on entry is still the
+// previous block's requirement for that module, and that is what sizes it: the buffer is
+// kept when it already fits, and otherwise replaced with room for twice the requirement.
+// Sizing from the requirement rather than from the last capacity is what lets a bucket
+// shrink again after a large block instead of holding its peak forever.
+func (b *moduleBuckets) reset() {
+	for key, pairs := range b.pairs {
+		want := 2 * len(pairs)
+		if want == 0 {
+			delete(b.pairs, key)
 			continue
 		}
-		total += len(ps.Pairs)
-		byModule, err := BucketByModule(ps.Pairs, c.moduleOf)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to bucket %s pairs by module: %w", ps.Dir, err)
+		if cap(pairs) < want || cap(pairs) > 2*want {
+			b.pairs[key] = make([]KVPairWithLastValue, 0, want)
+			continue
 		}
-		for module, mpairs := range byModule {
-			for start := 0; start < len(mpairs); start += computeChunkSize {
-				end := start + computeChunkSize
-				if end > len(mpairs) {
-					end = len(mpairs)
-				}
-				tasks = append(tasks, lthashTask{
-					key:   ModuleKey{Dir: ps.Dir, Module: module},
-					pairs: mpairs[start:end],
-				})
+		b.pairs[key] = pairs[:0]
+	}
+	b.tasks = b.tasks[:0]
+}
+
+// buildTasks buckets every DB's pairs by module and splits each bucket into fixed-size
+// tasks. It also returns the total pair count so callers can pick the serial vs parallel
+// path. The returned tasks alias the scratch and stay valid until it is next reset.
+func (c *HashCalculator) buildTasks(
+	scratch *moduleBuckets,
+	pairSets []DBPairs,
+) (tasks []lthashTask, total int, err error) {
+	scratch.reset()
+	for _, ps := range pairSets {
+		total += len(ps.Pairs)
+		for _, pair := range ps.Pairs {
+			module, err := c.moduleOf(pair.Key)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to bucket %s pairs by module: %w", ps.Dir, err)
 			}
+			key := ModuleKey{Dir: ps.Dir, Module: module}
+			scratch.pairs[key] = append(scratch.pairs[key], pair)
 		}
 	}
-	return tasks, total, nil
+	for key, mpairs := range scratch.pairs {
+		for start := 0; start < len(mpairs); start += computeChunkSize {
+			end := start + computeChunkSize
+			if end > len(mpairs) {
+				end = len(mpairs)
+			}
+			scratch.tasks = append(scratch.tasks, lthashTask{key: key, pairs: mpairs[start:end]})
+		}
+	}
+	return scratch.tasks, total, nil
 }
 
 // foldChunk computes the homomorphic hash delta and the net key-count / byte
@@ -340,24 +386,6 @@ func (c *HashCalculator) computeDeltasParallel(tasks []lthashTask) map[ModuleKey
 		}
 	}
 	return merged
-}
-
-// BucketByModule groups LtHash pairs by their owning module, derived from each
-// physical key via moduleOf. Used to decompose a per-DB root into additive
-// per-module hashes without changing the root.
-func BucketByModule(
-	pairs []KVPairWithLastValue,
-	moduleOf ModuleFunc,
-) (map[string][]KVPairWithLastValue, error) {
-	byModule := make(map[string][]KVPairWithLastValue)
-	for _, pair := range pairs {
-		module, err := moduleOf(pair.Key)
-		if err != nil {
-			return nil, err
-		}
-		byModule[module] = append(byModule[module], pair)
-	}
-	return byModule, nil
 }
 
 // SumModuleHashes returns the homomorphic sum of a DB's per-module hashes, i.e.

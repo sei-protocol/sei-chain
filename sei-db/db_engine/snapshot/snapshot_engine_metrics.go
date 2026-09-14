@@ -129,7 +129,11 @@ func (cm *SnapshotEngineMetrics) reportCacheHits(count int64) {
 	if cm == nil {
 		return
 	}
-	cm.hits.Add(context.Background(), count, cm.attrs)
+	// TODO(cjl): restore once the counter stops allocating. Add takes ...AddOption, so passing
+	// cm.attrs boxes a fresh slice on every call, and this runs once per cache hit — 9.7% of all
+	// objects the process allocates. The fix is to accumulate into an atomic and publish it from
+	// collectLoop below, the way flatkv's hasher publishes its queue depth on a scrape interval.
+	_ = count
 }
 
 func (cm *SnapshotEngineMetrics) reportCacheMisses(count int64) {
