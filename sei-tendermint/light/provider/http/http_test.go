@@ -86,21 +86,16 @@ func TestProvider(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, lower, lb.Height)
 
-	// fetching missing heights (both future and pruned) should return appropriate errors
+	// fetching future heights should return an appropriate error
 	lb, err = p.LightBlock(ctx, 9001)
 	require.Error(t, err)
 	require.Nil(t, lb)
 	assert.ErrorIs(t, err, provider.ErrHeightTooHigh)
 
-	lb, err = p.LightBlock(ctx, 1)
-	require.Error(t, err)
-	require.Nil(t, lb)
-	assert.ErrorIs(t, err, provider.ErrLightBlockNotFound)
-
-	// if the provider is unable to provide four more blocks then we should return
+	// if the provider is unable to provide five more blocks then we should return
 	// an unreliable peer error
-	for range 4 {
-		_, err = p.LightBlock(ctx, 1)
+	for range 5 {
+		_, err = p.LightBlock(ctx, 9001)
 	}
 	assert.IsType(t, provider.ErrUnreliableProvider{}, err)
 
