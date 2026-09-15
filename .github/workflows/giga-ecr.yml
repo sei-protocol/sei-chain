@@ -44,15 +44,6 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
 
-      - name: Compute tags
-        id: tag
-        run: |
-          SHA=$(git rev-parse HEAD)
-          SUFFIX="${{ inputs.tag }}"
-          if [ -z "${SUFFIX}" ]; then SUFFIX="${SHA}"; fi
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "suffix=${SUFFIX}" >> "$GITHUB_OUTPUT"
-
       - name: AWS Login
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -63,6 +54,26 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute tags
+        id: tag
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG_PREFIX: ${{ matrix.variant.tag_prefix }}
+          IS_PUSH: ${{ github.event_name == 'push' }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          SUFFIX="${TAG_INPUT:-$SHA}"
+          IMAGE="${REGISTRY}/sei/sei-chain:${TAG_PREFIX}giga-1"
+          TAGS="${IMAGE}-${SUFFIX}"
+          # Move the floating giga-1 tag only when this commit is still the branch head,
+          # so concurrent builds of successive pushes cannot leave it pointing at stale code.
+          if [ "${IS_PUSH}" = "true" ] && [ "$(git ls-remote origin refs/heads/giga-1 | cut -f1)" = "${SHA}" ]; then
+            TAGS="${TAGS},${IMAGE}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
@@ -76,9 +87,7 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ matrix.variant.tag_prefix }}giga-1-${{ steps.tag.outputs.suffix }}
-            ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ matrix.variant.tag_prefix }}giga-1
+          tags: ${{ steps.tag.outputs.tags }}
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga-1-${{ matrix.variant.name }}
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga-1-${{ matrix.variant.name }},mode=max,compression=zstd,compression-level=3,image-manifest=true,oci-mediatypes=true
           build-args: |
@@ -90,6 +99,5 @@ jobs:
           {
             echo "### Giga ECR publish (${{ matrix.variant.name }})"
             echo ""
-            echo "- \`${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ matrix.variant.tag_prefix }}giga-1-${{ steps.tag.outputs.suffix }}\`"
-            echo "- \`${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ matrix.variant.tag_prefix }}giga-1\`"
+            echo "${{ steps.tag.outputs.tags }}" | tr ',' '\n' | sed 's/^/- `/; s/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
