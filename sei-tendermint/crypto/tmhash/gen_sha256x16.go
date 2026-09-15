@@ -83,12 +83,12 @@ func main() {
 	p("// sha256x16 compresses blocks, one sha256Block16 per message block, and")
 	p("// writes the final state as out[word][lane] (big-endian digest words).")
 	p("func sha256x16(blocks []sha256Block16, out *[8][16]uint32) {")
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		p("\th%d := archsimd.LoadUint32x16Array(&sha256H16[%d])", i, i)
 	}
 	p("\tfor bi := range blocks {")
 	p("\t\tblk := &blocks[bi]")
-	for t := 0; t < 16; t++ {
+	for t := range 16 {
 		p("\t\tw%d := archsimd.LoadUint32x16Array(&blk[%d])", t, t)
 	}
 	names := [8]string{"h0", "h1", "h2", "h3", "h4", "h5", "h6", "h7"}
@@ -98,7 +98,7 @@ func main() {
 		p("\t\t%s := %s", v[i], names[i])
 	}
 	p("\t\tvar t1, t2 archsimd.Uint32x16")
-	for t := 0; t < 64; t++ {
+	for t := range 64 {
 		if t >= 16 {
 			w16, w15, w7, w2 := t%16, (t-15)%16, (t-7)%16, (t-2)%16
 			p("\t\tw%d = w%d.Add(rotr32(w%d, 7).Xor(rotr32(w%d, 18)).Xor(w%d.ShiftAllRight(3))).Add(w%d).Add(rotr32(w%d, 17).Xor(rotr32(w%d, 19)).Xor(w%d.ShiftAllRight(10)))",
@@ -121,7 +121,7 @@ func main() {
 		p("\t\t%s = %s.Add(%s)", names[i], names[i], v[i])
 	}
 	p("\t}")
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		p("\th%d.StoreArray(&out[%d])", i, i)
 	}
 	p("}")

@@ -4,10 +4,10 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"maps"
-	"math/rand/v2"
 	"slices"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
@@ -23,13 +23,10 @@ func referenceSum(prefix, msg []byte) [Size]byte {
 	return sha256.Sum256(slices.Concat(prefix, msg))
 }
 
-func randomMsgs(rng *rand.Rand, n, size int) [][]byte {
+func randomMsgs(rng utils.Rng, n, size int) [][]byte {
 	msgs := make([][]byte, n)
 	for i := range msgs {
-		msgs[i] = make([]byte, size)
-		for j := range msgs[i] {
-			msgs[i][j] = byte(rng.UintN(256))
-		}
+		msgs[i] = utils.GenBytes(rng, size)
 	}
 	return msgs
 }
@@ -42,7 +39,7 @@ func TestBackendsAgreeWithReference(t *testing.T) {
 				// One partial batch, one exact multiple, one with a remainder.
 				for _, n := range []int{1, 15, 16, 32, 37} {
 					t.Run(fmt.Sprintf("%s/prefix=%d/size=%d/n=%d", name, len(prefix), size, n), func(t *testing.T) {
-						rng := rand.New(rand.NewPCG(uint64(size), uint64(n)))
+						rng := utils.TestRng()
 						msgs := randomMsgs(rng, n, size)
 						out := make([][Size]byte, n)
 						b.sumBatch(prefix, msgs, out)
@@ -57,10 +54,10 @@ func TestBackendsAgreeWithReference(t *testing.T) {
 }
 
 func TestBackendsAgreeOnMixedSizes(t *testing.T) {
-	rng := rand.New(rand.NewPCG(1, 2))
+	rng := utils.TestRng()
 	msgs := make([][]byte, 200)
 	for i := range msgs {
-		msgs[i] = randomMsgs(rng, 1, int(rng.UintN(600)))[0]
+		msgs[i] = utils.GenBytes(rng, rng.Intn(600))
 	}
 	for _, name := range availableBackendNames() {
 		out := make([][Size]byte, len(msgs))
@@ -86,8 +83,7 @@ func TestSelectBackend(t *testing.T) {
 }
 
 func benchmarkSumBatch(b *testing.B, size, n int) {
-	rng := rand.New(rand.NewPCG(3, 4))
-	msgs := randomMsgs(rng, n, size)
+	msgs := randomMsgs(utils.TestRng(), n, size)
 	out := make([][Size]byte, n)
 	prefix := []byte{0}
 	for _, name := range availableBackendNames() {
