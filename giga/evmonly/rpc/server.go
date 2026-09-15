@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -29,11 +30,12 @@ const (
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
-// Backend submits transactions, reads finalized blocks, and returns the RPC
-// client for an Autobahn shard owner.
+// Backend submits transactions, reads committed EVM state and finalized
+// blocks, and returns the RPC client for an Autobahn shard owner.
 type Backend interface {
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
+	EvmBalance(common.Address) uint256.Int
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 }
 
@@ -116,6 +118,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	}
 	if err := rpcServer.RegisterName("eth", &receiptAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only receipt RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &balanceAPI{backend: backend}); err != nil {
+		return nil, fmt.Errorf("register EVM-only balance RPC: %w", err)
 	}
 	return rpcServer, nil
 }
