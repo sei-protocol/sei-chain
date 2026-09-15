@@ -543,7 +543,7 @@ ss-enable = true
 ss-db-directory = "
 ```
 
-This is just for validator nodes. See the state store configuration above for rpc nodes.
+This is just for validator nodes. Reference `seidb_migration.md` for more information on enabling state store for rpc nodes.
 
 ## Step 3: Add EVM Section
 
