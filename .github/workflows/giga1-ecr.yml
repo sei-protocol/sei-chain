@@ -1,0 +1,124 @@
+name: Giga-1 ECR
+
+# Publishes one vanilla seid image per push to giga-1, consumed by harbor's
+# giga-testnet chain through Flux image automation
+# (sei-protocol/platform clusters/harbor/giga-testnet/).
+#
+# Tag shape giga1-<YYYYMMDDHHMMSS>-<sha7>. The timestamp, not a date: this
+# builds on push, so several images share a day and the platform ImagePolicy's
+# numerical order cannot break a tie. The giga1- prefix keeps these images out
+# of the nightly policies, whose patterns are anchored on nightly-, mock-nightly-
+# and mock_chain_validation-mock_balances-nightly-. Changing the shape here
+# means changing that ImagePolicy and its bump guard's setter_re together.
+#
+# Distinct from nightly-ecr.yml, which builds main HEAD on a cron and publishes
+# four build-tag variants. Only the vanilla build is published here:
+# giga-testnet submits no transactions, so no sender needs funding, and
+# mock_balances would mask the state-machine regressions this chain exists to
+# catch.
+on:
+  push:
+    branches:
+      - giga-1
+    # A docs-only commit produces an identical binary under a new sha7, and a
+    # new tag rolls all four giga-testnet validators, stopping block production
+    # for the restart window. Not worth it.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+# Newest commit wins: a push during a build cancels it, so the published tag is
+# always the newest commit that finished building, and at most one build runs.
+concurrency:
+  group: giga1-ecr
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish giga-1 container
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # workflow_dispatch takes no branch filter, so a dispatch from another ref
+      # would publish a giga1- tag built from that ref and Flux would deploy it
+      # to giga-testnet. Asserted rather than an `if:`, which would skip green.
+      - name: Refuse a ref that is not giga-1
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/giga-1" ] || {
+            echo "::error::giga1-ecr publishes giga-1 only; got $GITHUB_REF"
+            exit 1
+          }
+
+      - name: Checkout the pushed commit
+        # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Compute tag components
+        id: tag
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          SHA7=$(git rev-parse --short=7 HEAD)
+          TS=$(date -u +%Y%m%d%H%M%S)
+          echo "sha=${SHA}"   >> "$GITHUB_OUTPUT"
+          echo "giga1=giga1-${TS}-${SHA7}" >> "$GITHUB_OUTPUT"
+
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 7200
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+
+      # load, not push: the tag must not exist until the smoke below passes, or
+      # Flux can deploy an image that never ran. One build, so the bytes smoked
+      # are the bytes published.
+      - name: Build giga-1 image
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.giga1 }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+
+      # The cheapest gate that is worth having: it catches a binary that cannot
+      # start at all — a missing libwasmvm, a bad entrypoint — before four
+      # validators try to run it. It does not prove the chain reaches consensus.
+      - name: Smoke the binary before publishing
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.giga1 }}
+        run: docker run --rm "$IMAGE" version
+
+      - name: Push giga-1 image
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.giga1 }}
+        run: docker push "$IMAGE"
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.tag.outputs.giga1 }}
+        run: |
+          {
+            echo "### Giga-1 ECR publish"
+            echo ""
+            echo "| Tag | Variant | Consumer |"
+            echo "|-----|---------|----------|"
+            echo "| \`${TAG}\` | vanilla | harbor giga-testnet (Flux) |"
+          } >> "$GITHUB_STEP_SUMMARY"
