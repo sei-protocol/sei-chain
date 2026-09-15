@@ -313,6 +313,7 @@ func TestAWSTeardownStopsMonitoringStack(t *testing.T) {
 
 	require.NoError(t, app.teardown(context.Background(), teardownOptions{name: state.Name}))
 	require.Contains(t, joinedCommands(runner.commands), "docker-cluster-stop-monitoring")
+	require.Contains(t, joinedCommands(runner.commands), "if [ -d '/home/ubuntu/sei-chain-monitored-aws' ]")
 }
 
 func TestAWSTeardownToleratesAlreadyDeletedManagedResources(t *testing.T) {
