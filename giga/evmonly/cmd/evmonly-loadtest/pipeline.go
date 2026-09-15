@@ -106,13 +106,14 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	prebuildElapsed := time.Since(prebuildStartedAt)
 	printPrebuildReport(prebuildElapsed, prebuilt, cfg.txsPerBlock)
 
-	storageDirectory, err := os.MkdirTemp("", "evmonly-loadtest-storage-")
+	storageDirectory, cleanupStorage, err := openStorageDirectory(cfg.storageDir)
 	if err != nil {
-		return fmt.Errorf("create storage directory: %w", err)
+		return err
 	}
 	defer func() {
-		err = errors.Join(err, os.RemoveAll(storageDirectory))
+		err = errors.Join(err, cleanupStorage())
 	}()
+	fmt.Printf("storage directory: %s\n", storageDirectory)
 	storageConfig, err := evmonly.NewValidatorStorageConfig(storageDirectory)
 	if err != nil {
 		return fmt.Errorf("configure storage manager: %w", err)
@@ -184,6 +185,22 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	prebuilt = nil
 	finishProfiles(profiles, &err)
 	return err
+}
+
+// openStorageDirectory returns the GigaStorageManager home. An empty path uses a
+// temporary directory that cleanup removes.
+func openStorageDirectory(path string) (dir string, cleanup func() error, err error) {
+	if path != "" {
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			return "", nil, fmt.Errorf("create storage directory: %w", err)
+		}
+		return path, func() error { return nil }, nil
+	}
+	dir, err = os.MkdirTemp("", "evmonly-loadtest-storage-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create storage directory: %w", err)
+	}
+	return dir, func() error { return os.RemoveAll(dir) }, nil
 }
 
 func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorkload) ([]blockEnvelope, error) {
