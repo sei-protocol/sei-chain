@@ -252,7 +252,7 @@ func (e *Executor) executeTx(
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
 		// MinGasPrice is block-validity policy; unlike EVM call failures, it
 		// does not produce a receipt for an otherwise invalid block.
-		if effectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
+		if EffectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
 			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: errInsufficientGasPrice},
 				nil,
 				errInsufficientGasPrice
@@ -293,7 +293,7 @@ func (e *Executor) executeTx(
 		Logs:              txLogs,
 		TxHash:            tx.Hash(),
 		GasUsed:           execResult.UsedGas,
-		EffectiveGasPrice: effectiveGasPrice(tx, baseFee),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
 		BlockHash:         block.BlockHash,
 		BlockNumber:       new(big.Int).SetUint64(block.Number),
 		TransactionIndex:  txIndexUint,
@@ -440,7 +440,11 @@ func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) err
 	return nil
 }
 
-func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
+// EffectiveGasPrice is what a transaction actually pays per gas at this base
+// fee. Exported because admission has to price on the same quantity block
+// validity does; comparing tx.GasPrice() instead admits a dynamic-fee tx on its
+// fee cap, and the executor then refuses it fatally.
+func EffectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return tx.GasPrice()
 	}

@@ -113,6 +113,64 @@ func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	require.True(t, response.IsErr())
 }
 
+// A zero priority fee is valid EIP-1559, and admitting on tx.GasPrice() — the
+// fee cap on a dynamic-fee tx — let one through that the executor then refused.
+// An executor refusal is a node panic rather than a failed receipt, so this has
+// to be caught here.
+func TestEVMOnlyApplicationRefusesATxTheExecutorWouldRefuse(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	// Fee cap far above the minimum, tip cap zero. At a zero base fee the
+	// effective gas price is the tip, so block validity refuses it.
+	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     0,
+		GasTipCap: new(big.Int),
+		GasFeeCap: big.NewInt(100 * evmOnlyMinGasPrice),
+		Gas:       21_000,
+		To:        &recipient,
+		Value:     big.NewInt(1),
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+
+	response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+
+	require.True(t, response.IsErr())
+}
+
+// A tip that clears the minimum still has to be admitted, or the fix has
+// rejected every dynamic-fee transaction rather than the inexecutable ones.
+func TestEVMOnlyApplicationAdmitsADynamicFeeTxThatClearsTheMinimum(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     0,
+		GasTipCap: big.NewInt(evmOnlyMinGasPrice),
+		GasFeeCap: big.NewInt(100 * evmOnlyMinGasPrice),
+		Gas:       21_000,
+		To:        &recipient,
+		Value:     big.NewInt(1),
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+
+	response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+
+	require.True(t, response.IsOK())
+}
+
 func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	request := &abci.RequestFinalizeBlock{
