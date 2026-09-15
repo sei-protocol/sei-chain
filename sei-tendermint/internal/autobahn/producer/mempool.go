@@ -230,8 +230,9 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 	return s.insertTx(ctx, tx, false)
 }
 
-// InsertTx inserts tx to the mempool. Blocks if mempool is full, admitting blocked
-// calls in arrival order; returns errMempoolFull once Config.MaxPendingInserts calls are blocked.
+// InsertTx inserts tx to the mempool. Blocks if mempool is full; blocked InsertTx calls are
+// admitted in arrival order relative to each other, but TryInsertTx calls do not queue and may
+// take freed capacity ahead of them. Returns errMempoolFull once Config.MaxPendingInserts calls are blocked.
 // The blocked calls are effectively the "unsequenced" part of the mempool.
 // After InsertTx returns, the sequence is already scheduled to be included in a lane.
 // TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
@@ -340,7 +341,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 					// A TryInsertTx may have filled the mempool since this ticket was signalled.
 					t.admitted.Store(false)
 				} else {
-					if uint64(len(m.waiters)) >= s.cfg.MaxPendingInserts {
+					if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
 						return nil, errMempoolFull
 					}
 					ticket = utils.Some(mp.enqueue(m))

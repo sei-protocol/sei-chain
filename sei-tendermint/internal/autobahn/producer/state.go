@@ -29,16 +29,24 @@ type Config struct {
 	MaxTxsPerSecond utils.Option[uint64]
 	// Max number of InsertTx calls blocked waiting for mempool capacity;
 	// further calls fail immediately with a mempool-full error.
+	// 0 means DefaultMaxPendingInserts.
 	MaxPendingInserts uint64
 }
 
-// DefaultMaxPendingInserts is the recommended Config.MaxPendingInserts.
+// DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
 const DefaultMaxPendingInserts uint64 = 4096
 
 const minTxGas = 21000
 
 func (c *Config) maxTxsPerBlock() uint64 {
 	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)
+}
+
+func (c *Config) maxPendingInserts() uint64 {
+	if c.MaxPendingInserts == 0 {
+		return DefaultMaxPendingInserts
+	}
+	return c.MaxPendingInserts
 }
 
 // State is the block producer state.
