@@ -37,6 +37,7 @@ type deployOptions struct {
 	volumeThroughput int
 	repoURL          string
 	ref              string
+	topology         string
 }
 
 func (a *application) newDeployCommand() *cobra.Command {
@@ -66,6 +67,7 @@ func (a *application) newDeployCommand() *cobra.Command {
 	flags.IntVar(&options.volumeThroughput, "volume-throughput", defaultVolumeThroughputMB, "EC2 root gp3 throughput in MB/s")
 	flags.StringVar(&options.repoURL, "repo-url", "", "Git repository cloned on EC2; defaults to origin")
 	flags.StringVar(&options.ref, "ref", "", "Git ref deployed on EC2; defaults to the current commit")
+	flags.StringVar(&options.topology, "topology", awsTopologyDistributed, "AWS topology: distributed (one validator per EC2 plus a load host) or colocated (four Docker validators on one EC2)")
 	return cmd
 }
 
@@ -75,6 +77,13 @@ func (a *application) deploy(ctx context.Context, options deployOptions) error {
 	}
 	if options.timeout <= 0 {
 		return fmt.Errorf("--timeout must be positive")
+	}
+	if options.target == targetAWS {
+		topology, err := normalizeAWSTopology(options.topology)
+		if err != nil {
+			return err
+		}
+		options.topology = topology
 	}
 	exists, err := a.store().exists(options.name)
 	if err != nil {
@@ -158,6 +167,17 @@ func (a *application) deployLocal(ctx context.Context, options deployOptions) er
 	}
 	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready with %d nodes.\n", state.Name, len(state.Nodes))
 	return nil
+}
+
+func normalizeAWSTopology(topology string) (string, error) {
+	switch topology {
+	case "", awsTopologyDistributed:
+		return awsTopologyDistributed, nil
+	case awsTopologyColocated:
+		return awsTopologyColocated, nil
+	default:
+		return "", fmt.Errorf("unsupported --topology %q; use %s or %s", topology, awsTopologyDistributed, awsTopologyColocated)
+	}
 }
 
 func waitForLaunchFile(ctx context.Context, path string, count int) error {

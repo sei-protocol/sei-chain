@@ -60,23 +60,28 @@ func (a *application) teardownAWS(ctx context.Context, state clusterState) error
 		return err
 	}
 	if state.AWS.RemoteDir != "" {
-		for _, host := range state.AWS.validators() {
-			if host.PublicIP == "" {
-				continue
+		if state.AWS.colocated() {
+			if host, ok := state.AWS.loadHost(); ok && host.PublicIP != "" {
+				command := "if [ -d " + shellQuote(state.AWS.RemoteDir) + " ]; then cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-cluster-stop-monitoring; fi"
+				if err := a.runner.stream(ctx, sshCommandTo(state, host, command)); err != nil {
+					_, _ = fmt.Fprintf(a.stderr, "warning: remote Docker teardown failed: %v\n", err)
+				}
 			}
-			command := "if [ -d " + shellQuote(state.AWS.RemoteDir) + " ]; then cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-aws-validator-stop; fi"
-			if err := a.runner.stream(ctx, sshCommandTo(state, host, command)); err != nil {
-				_, _ = fmt.Fprintf(a.stderr, "warning: remote validator teardown failed: %v\n", err)
+		} else {
+			for _, host := range state.AWS.validators() {
+				if host.PublicIP == "" {
+					continue
+				}
+				command := "if [ -d " + shellQuote(state.AWS.RemoteDir) + " ]; then cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-aws-validator-stop; fi"
+				if err := a.runner.stream(ctx, sshCommandTo(state, host, command)); err != nil {
+					_, _ = fmt.Fprintf(a.stderr, "warning: remote validator teardown failed: %v\n", err)
+				}
 			}
-		}
-		if load, ok := state.AWS.loadHost(); ok && load.PublicIP != "" {
-			stop := "docker-aws-load-stop"
-			if len(state.AWS.Hosts) == 0 {
-				stop = "docker-cluster-stop-monitoring"
-			}
-			command := "if [ -d " + shellQuote(state.AWS.RemoteDir) + " ]; then cd " + shellQuote(state.AWS.RemoteDir) + " && make " + stop + "; fi"
-			if err := a.runner.stream(ctx, sshCommandTo(state, load, command)); err != nil {
-				_, _ = fmt.Fprintf(a.stderr, "warning: remote load-host teardown failed: %v\n", err)
+			if load, ok := state.AWS.loadHost(); ok && load.PublicIP != "" {
+				command := "if [ -d " + shellQuote(state.AWS.RemoteDir) + " ]; then cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-aws-load-stop; fi"
+				if err := a.runner.stream(ctx, sshCommandTo(state, load, command)); err != nil {
+					_, _ = fmt.Fprintf(a.stderr, "warning: remote load-host teardown failed: %v\n", err)
+				}
 			}
 		}
 	}
