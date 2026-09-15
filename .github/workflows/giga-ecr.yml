@@ -1,0 +1,119 @@
+name: Giga ECR
+
+on:
+  push:
+    branches:
+      - giga-1
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '`sei-chain` git ref'
+        required: false
+        type: string
+      tag:
+        description: 'Tag suffix (defaults to the commit SHA)'
+        required: false
+        type: string
+
+concurrency:
+  group: giga-ecr-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publisher:
+    name: Publish Container (${{ matrix.variant.name }})
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: regular
+            tag_prefix: ''
+            build_tags: ''
+          - name: mock_balances
+            tag_prefix: 'mock-'
+            build_tags: 'mock_balances'
+    steps:
+      - name: Checkout
+        # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 2700
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute tags
+        id: tag
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          TAG_PREFIX: ${{ matrix.variant.tag_prefix }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          SUFFIX="${TAG_INPUT:-$SHA}"
+          IMAGE="${REGISTRY}/sei/sei-chain:${TAG_PREFIX}giga-1"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${IMAGE}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+
+      - name: Build and push seid (${{ matrix.variant.name }})
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.tag.outputs.sha_tag }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga-1-${{ matrix.variant.name }}
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga-1-${{ matrix.variant.name }},mode=max,compression=zstd,compression-level=3,image-manifest=true,oci-mediatypes=true
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+            GO_BUILD_TAGS=${{ matrix.variant.build_tags }}
+
+      - name: Move floating tag
+        id: floating
+        if: github.event_name == 'push'
+        env:
+          SHA: ${{ steps.tag.outputs.sha }}
+          IMAGE: ${{ steps.tag.outputs.image }}
+          SHA_TAG: ${{ steps.tag.outputs.sha_tag }}
+        run: |
+          # Re-check the branch head after the build so a newer push that finished while
+          # this one was building keeps the floating tag.
+          if [ "$(git ls-remote origin refs/heads/giga-1 | cut -f1)" != "${SHA}" ]; then
+            echo "giga-1 has moved past ${SHA}; leaving ${IMAGE} untouched"
+            exit 0
+          fi
+          docker buildx imagetools create -t "${IMAGE}" "${SHA_TAG}"
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        env:
+          SHA_TAG: ${{ steps.tag.outputs.sha_tag }}
+          IMAGE: ${{ steps.tag.outputs.image }}
+          MOVED: ${{ steps.floating.outputs.moved }}
+        run: |
+          {
+            echo "### Giga ECR publish (${{ matrix.variant.name }})"
+            echo ""
+            echo "- \`${SHA_TAG}\`"
+            if [ "${MOVED}" = "true" ]; then echo "- \`${IMAGE}\`"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
