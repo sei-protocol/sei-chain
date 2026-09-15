@@ -23,9 +23,14 @@ jobs:
   # The race run fans out over the shard matrix. The shards and the upgrade
   # tests all roll up into the `Race Detection` job below, which is the single
   # check name branch protection and the merge queue require.
+  #
+  # The giga-1 merge queue only runs the fast gates: every PR into giga-1 has
+  # already run the shards and the upgrade tests, so both are skipped there and
+  # the roll-up accepts `skipped` for that queue alone.
   race-shard:
     name: Race Detection (shard ${{ matrix.shard }})
     runs-on: uci-default
+    if: github.event.merge_group.base_ref != 'refs/heads/giga-1'
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +76,7 @@ jobs:
   upgrade-test:
     name: Upgrade tests
     runs-on: uci-default
+    if: github.event.merge_group.base_ref != 'refs/heads/giga-1'
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
@@ -109,6 +115,12 @@ jobs:
     steps:
       - name: Verify race shards and upgrade tests succeeded
         run: |
+          if [[ "${{ github.event.merge_group.base_ref }}" == "refs/heads/giga-1" \
+            && "${{ needs.race-shard.result }}" == "skipped" \
+            && "${{ needs.upgrade-test.result }}" == "skipped" ]]; then
+            echo "Race shards and upgrade tests skipped in the giga-1 merge queue."
+            exit 0
+          fi
           if [[ "${{ needs.race-shard.result }}" != "success" ]]; then
             echo "race shards did not succeed (${{ needs.race-shard.result }})"
             exit 1

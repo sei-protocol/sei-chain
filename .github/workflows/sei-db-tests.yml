@@ -21,6 +21,9 @@ jobs:
   test:
     name: Race Detection
     runs-on: uci-default
+    # The giga-1 merge queue only runs the fast gates; every PR into giga-1 has
+    # already run this suite. A skipped job still satisfies the required check.
+    if: github.event.merge_group.base_ref != 'refs/heads/giga-1'
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
