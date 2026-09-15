@@ -19,6 +19,13 @@ import (
 
 const evmOnlyTestChainID uint64 = 713715
 
+func decodeEVMOnlyTestTx(t *testing.T, raw []byte) *ethtypes.Transaction {
+	t.Helper()
+	tx := new(ethtypes.Transaction)
+	require.NoError(t, tx.UnmarshalBinary(raw))
+	return tx
+}
+
 func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, common.Address) {
 	t.Helper()
 	key, err := crypto.GenerateKey()
@@ -190,6 +197,42 @@ func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, firstResponse.AppHash, secondResponse.AppHash)
+}
+
+func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
+	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	request := &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("checked-block")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	}
+	checked, ok := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	require.True(t, ok)
+	unchecked := newInitializedEVMOnlyTestApp(t)
+
+	check := checked.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+	require.True(t, check.IsOK())
+	require.Equal(t, sender, check.EVMSenderAddress)
+	_, ok = checked.knownSender(common.Hash{})
+	require.False(t, ok)
+	known, ok := checked.knownSender(decodeEVMOnlyTestTx(t, raw).Hash())
+	require.True(t, ok)
+	require.Equal(t, sender, known)
+	checkedResponse, err := checked.FinalizeBlock(t.Context(), request)
+	require.NoError(t, err)
+	_, ok = checked.knownSender(decodeEVMOnlyTestTx(t, raw).Hash())
+	require.False(t, ok)
+	uncheckedResponse, err := unchecked.FinalizeBlock(t.Context(), request)
+	require.NoError(t, err)
+
+	require.Equal(t, uncheckedResponse.AppHash, checkedResponse.AppHash)
+	require.Equal(t, uncheckedResponse.TxResults[0].GasUsed, checkedResponse.TxResults[0].GasUsed)
+	_, err = checked.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), checked.EvmNonce(sender))
 }
 
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
