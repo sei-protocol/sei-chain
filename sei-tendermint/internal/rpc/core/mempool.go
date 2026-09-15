@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -32,6 +33,11 @@ func (env *Environment) EvmProxyEnabled() bool {
 		return r.EvmProxyEnabled()
 	}
 	return false
+}
+
+// EvmBalance returns the address balance from the current committed EVM state.
+func (env *Environment) EvmBalance(address common.Address) uint256.Int {
+	return env.App.EvmBalance(address, nil)
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
@@ -186,10 +192,10 @@ func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *c
 				"duration", time.Since(startAt),
 				"err", ctx.Err())
 			return &coretypes.ResultBroadcastTxCommit{
-				CheckTx: *r,
-				Hash:    req.Tx.Hash().Bytes(),
-			}, fmt.Errorf("timeout waiting for commit of tx %s (%s)",
-				req.Tx.Hash(), time.Since(startAt))
+					CheckTx: *r,
+					Hash:    req.Tx.Hash().Bytes(),
+				}, fmt.Errorf("timeout waiting for commit of tx %s (%s)",
+					req.Tx.Hash(), time.Since(startAt))
 		case <-timer.C:
 			txres, err := env.Tx(ctx, &coretypes.RequestTx{
 				Hash:  req.Tx.Hash().Bytes(),
@@ -301,6 +307,22 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 		Total:      total,
 		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
 	}, nil
+}
+
+// EvmTransactionCount returns the address transaction count (nonce) from the
+// current committed EVM state.
+func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
+	return env.App.EvmNonce(address)
+}
+
+// EvmBlockNumber returns the height of the most recently committed block.
+func (env *Environment) EvmBlockNumber() uint64 {
+	return utils.Clamp[uint64](env.App.LastBlockHeight())
+}
+
+// EvmChainID returns the EVM chain ID this node is configured for.
+func (env *Environment) EvmChainID() uint64 {
+	return env.App.EvmChainID()
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't

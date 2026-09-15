@@ -22,6 +22,59 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+func TestGetTransactionCountCurrentState(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend := &testBackend{transactionCount: func(common.Address) uint64 { return 7 }}
+	api := &txAPI{backend: backend}
+
+	for _, tag := range []ethrpc.BlockNumberOrHash{
+		ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber),
+		ethrpc.BlockNumberOrHashWithNumber(ethrpc.SafeBlockNumber),
+		ethrpc.BlockNumberOrHashWithNumber(ethrpc.FinalizedBlockNumber),
+		ethrpc.BlockNumberOrHashWithNumber(ethrpc.PendingBlockNumber),
+	} {
+		got, err := api.GetTransactionCount(t.Context(), address, tag)
+		require.NoError(t, err)
+		require.Equal(t, hexutil.Uint64(7), *got)
+	}
+}
+
+func TestGetTransactionCountRejectsHistoricalState(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend := &testBackend{transactionCount: func(common.Address) uint64 {
+		t.Fatal("historical lookup reached the backend")
+		return 0
+	}}
+	api := &txAPI{backend: backend}
+
+	for _, tag := range []ethrpc.BlockNumberOrHash{
+		ethrpc.BlockNumberOrHashWithNumber(ethrpc.EarliestBlockNumber),
+		ethrpc.BlockNumberOrHashWithNumber(8),
+		ethrpc.BlockNumberOrHashWithHash(common.Hash{0x01}, false),
+		{},
+	} {
+		_, err := api.GetTransactionCount(t.Context(), address, tag)
+		require.ErrorIs(t, err, errHistoricalStateUnsupported)
+	}
+}
+
+func TestGetTransactionCountEndToEnd(t *testing.T) {
+	address := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend := &testBackend{transactionCount: func(common.Address) uint64 { return 3 }}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var got hexutil.Uint64
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_getTransactionCount", address, "latest"))
+	require.Equal(t, hexutil.Uint64(3), got)
+}
+
 func TestGetTransactionReceipt(t *testing.T) {
 	txHash := common.HexToHash("0x1234")
 	blockHash := common.HexToHash("0xabcd")
@@ -136,7 +189,7 @@ func TestGetTransactionReceiptReturnsNullBeforeBlockCommit(t *testing.T) {
 		},
 	}
 
-	got, err := (&receiptAPI{backend: backend, store: store}).GetTransactionReceipt(t.Context(), txHash)
+	got, err := (&txAPI{backend: backend, store: store}).GetTransactionReceipt(t.Context(), txHash)
 
 	require.NoError(t, err)
 	require.Nil(t, got)
