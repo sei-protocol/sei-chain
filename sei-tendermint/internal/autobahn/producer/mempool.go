@@ -201,6 +201,17 @@ func (s *State) getMempool(ctx context.Context) (*mempool, error) {
 	return mp, nil
 }
 
+// checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
+// for the duration of the call. Waiting for a permit is cancelled with ctx.
+func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
+	release, err := s.checkTxSem.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+}
+
 // Inserts transaction. Blocks until there is capacity in the mempool.
 // NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
 // It has to be added after testnet launch.
@@ -224,7 +235,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		}
 		mp = loaded
 	}
-	resp, err := s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	resp, err := s.checkTx(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
