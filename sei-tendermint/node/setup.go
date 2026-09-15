@@ -270,8 +270,17 @@ func buildValidatorGigaConfig(
 			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
 			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
 			BlockInterval:           time.Duration(fc.BlockInterval),
+			MaxConcurrentCheckTx:    resolveMaxConcurrentCheckTx(fc.MaxConcurrentCheckTx),
 		},
 	}, nil
+}
+
+// resolveMaxConcurrentCheckTx: None ⇒ producer.DefaultMaxConcurrentCheckTx(), Some(n) ⇒ n.
+func resolveMaxConcurrentCheckTx(o utils.Option[uint64]) int {
+	if v, ok := o.Get(); ok {
+		return int(v) //nolint:gosec // bounded by AutobahnFileConfig.Validate
+	}
+	return producer.DefaultMaxConcurrentCheckTx()
 }
 
 // buildGigaRouter picks validator-vs-fullnode by cfg.Mode:
