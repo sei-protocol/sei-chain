@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	lighthttp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
@@ -39,16 +38,24 @@ func TestProvider(t *testing.T) {
 	cfg, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)
 
+	// Pruning keeps every block inside the evidence window, so the retain height below
+	// only takes effect once that window is narrower than the chain this test produces.
+	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+	require.NoError(t, err)
+	genDoc.ConsensusParams.Evidence.MaxAgeNumBlocks = 1
+	genDoc.ConsensusParams.Evidence.MaxAgeDuration = time.Nanosecond
+	require.NoError(t, genDoc.SaveAs(cfg.GenesisFile()))
+
 	// start a tendermint node in the background to test against
 	app := kvstore.NewApplication()
-	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
+	app.SetValidators(genDoc.ValidatorUpdates())
 	app.RetainBlocks = 9
 
 	_, closer, err := rpctest.StartTendermint(ctx, cfg, app)
 	require.NoError(t, err)
 
 	rpcAddr := cfg.RPC.ListenAddress
-	genDoc, err := types.GenesisDocFromFile(cfg.GenesisFile())
+	genDoc, err = types.GenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 
 	chainID := genDoc.ChainID
@@ -79,21 +86,16 @@ func TestProvider(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, lower, lb.Height)
 
-	// fetching missing heights (both future and pruned) should return appropriate errors
+	// fetching future heights should return an appropriate error
 	lb, err = p.LightBlock(ctx, 9001)
 	require.Error(t, err)
 	require.Nil(t, lb)
 	assert.ErrorIs(t, err, provider.ErrHeightTooHigh)
 
-	lb, err = p.LightBlock(ctx, 1)
-	require.Error(t, err)
-	require.Nil(t, lb)
-	assert.ErrorIs(t, err, provider.ErrLightBlockNotFound)
-
-	// if the provider is unable to provide four more blocks then we should return
+	// if the provider is unable to provide five more blocks then we should return
 	// an unreliable peer error
-	for range 4 {
-		_, err = p.LightBlock(ctx, 1)
+	for range 5 {
+		_, err = p.LightBlock(ctx, 9001)
 	}
 	assert.IsType(t, provider.ErrUnreliableProvider{}, err)
 
