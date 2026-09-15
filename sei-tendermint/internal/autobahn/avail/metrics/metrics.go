@@ -24,6 +24,8 @@ type metrics struct {
 	proposalToCommitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.01, 1.2, 35)"`
 	// Latency between consecutive commits being observed.
 	commitToCommitLatency prometheus.HistogramVec `metrics_labels:"timeouts" metrics_buckets:"none"`
+	// Transactions included in locally produced lane blocks.
+	producedTxs prometheus.CounterIntVec
 }
 
 type observed[T any] struct {
@@ -57,4 +59,12 @@ func ObserveCommitQC(qc *types.CommitQC) {
 		Global.commitGlobalBlockNumberAt().Set(int64(qc.GlobalRange().Next)) // nolint: gosec
 		*mLast = utils.Some(observed[*types.CommitQC]{now, qc})
 	}
+}
+
+// ObserveProducedTxs counts txs included in a successfully produced local lane block.
+func ObserveProducedTxs(n int) {
+	if n <= 0 {
+		return
+	}
+	Global.producedTxsAt().Add(int64(n))
 }
