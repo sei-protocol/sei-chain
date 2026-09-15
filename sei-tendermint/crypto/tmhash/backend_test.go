@@ -53,19 +53,52 @@ func TestBackendsAgreeWithReference(t *testing.T) {
 	}
 }
 
+// checkBatch hashes msgs with every available backend and compares each
+// digest with crypto/sha256.
+func checkBatch(t testing.TB, prefix []byte, msgs [][]byte) {
+	for _, name := range availableBackendNames() {
+		out := make([][Size]byte, len(msgs))
+		availableBackends()[name].sumBatch(prefix, msgs, out)
+		for i, msg := range msgs {
+			require.Equal(t, referenceSum(prefix, msg), out[i], "%s msg %d len %d", name, i, len(msg))
+		}
+	}
+}
+
+// TestBackendsAgreeOnMixedSizes mixes, in one call, sizes that fill SIMD
+// lanes, sizes that land in the smaller buckets and a few messages beyond
+// the SIMD kernel's block limit.
 func TestBackendsAgreeOnMixedSizes(t *testing.T) {
 	rng := utils.TestRng()
 	msgs := make([][]byte, 200)
 	for i := range msgs {
-		msgs[i] = utils.GenBytes(rng, rng.Intn(600))
-	}
-	for _, name := range availableBackendNames() {
-		out := make([][Size]byte, len(msgs))
-		availableBackends()[name].sumBatch([]byte{0}, msgs, out)
-		for i, msg := range msgs {
-			require.Equal(t, referenceSum([]byte{0}, msg), out[i])
+		size := rng.Intn(600)
+		if rng.Intn(20) == 0 {
+			size = 4096 + rng.Intn(2000)
 		}
+		msgs[i] = utils.GenBytes(rng, size)
 	}
+	checkBatch(t, []byte{0}, msgs)
+}
+
+// FuzzSumBatch drives every backend with an arbitrary prefix and message
+// length list against crypto/sha256. Each byte of lens is one message whose
+// length is the byte value scaled by 24, so that lengths span from 0 to
+// beyond the SIMD kernel's block limit.
+func FuzzSumBatch(f *testing.F) {
+	f.Add([]byte{0}, []byte{2, 3, 200, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3})
+	f.Add([]byte{}, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255})
+	f.Fuzz(func(t *testing.T, prefix, lens []byte) {
+		if len(prefix) > 63 {
+			prefix = prefix[:63]
+		}
+		rng := utils.TestRng()
+		msgs := make([][]byte, len(lens))
+		for i, l := range lens {
+			msgs[i] = utils.GenBytes(rng, int(l)*24)
+		}
+		checkBatch(t, prefix, msgs)
+	})
 }
 
 func TestSelectBackend(t *testing.T) {
@@ -82,19 +115,19 @@ func TestSelectBackend(t *testing.T) {
 	require.True(t, slices.Contains(availableBackendNames(), ActiveBackend()))
 }
 
+// benchmarkSumBatch measures the active backend only, named after it so runs
+// under different SEI_TMHASH_BACKEND values or builds compare with benchstat
+// without one build's scalar samples polluting the other's column.
 func benchmarkSumBatch(b *testing.B, size, n int) {
 	msgs := randomMsgs(utils.TestRng(), n, size)
 	out := make([][Size]byte, n)
 	prefix := []byte{0}
-	for _, name := range availableBackendNames() {
-		be := availableBackends()[name]
-		b.Run("backend="+name, func(b *testing.B) {
-			b.SetBytes(int64(n * (size + 1)))
-			for b.Loop() {
-				be.sumBatch(prefix, msgs, out)
-			}
-		})
-	}
+	b.Run("backend="+ActiveBackend(), func(b *testing.B) {
+		b.SetBytes(int64(n * (size + 1)))
+		for b.Loop() {
+			SumBatch(prefix, msgs, out)
+		}
+	})
 }
 
 // BenchmarkSumBatchInner is a Merkle inner-node level: 1024 x 64-byte
