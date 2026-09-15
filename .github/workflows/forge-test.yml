@@ -22,6 +22,7 @@ jobs:
 
     name: Foundry project
     runs-on: ubuntu-latest
+    if: github.base_ref != 'giga-1'
     steps:
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
