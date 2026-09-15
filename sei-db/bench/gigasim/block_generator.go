@@ -12,6 +12,11 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+// writesPerTransaction is how many keys one transfer writes: both accounts' records and both of their
+// ERC20 storage slots. The fee account is written once per block rather than once per transaction, so
+// it is not counted here.
+const writesPerTransaction = 4
+
 // simulatedBlock is one block's worth of work: the transactions the execution phase runs, the payload
 // the block store persists, and the receipts that execution is taken to have produced.
 type simulatedBlock struct {
@@ -29,10 +34,15 @@ type simulatedBlock struct {
 	// the block store holds as opaque bytes.
 	payload [][]byte
 
-	// The identifier counters as of this block, committed alongside it so that a resumed run mints
-	// identifiers where this one stopped. They travel with the block because the account model that
-	// produced them keeps moving on the generator's goroutine.
-	counters identifierCounters
+	// The state changes this block makes, in the form the state DB takes, carrying the identifier
+	// counters as of this block so that a resumed run mints identifiers where this one stopped.
+	//
+	// Staged when the block is generated rather than by the executors: a transaction's written values
+	// are drawn up front and depend on nothing it reads, so the whole block's writes are known before
+	// any of it executes. Executing it is then reads alone, and committing it has nothing to convert.
+	// A real system could not do this; simulating an execution layer's consistency is explicitly not
+	// what this benchmark measures.
+	writes blockWrites
 }
 
 // identifierCounters is the account and contract population recorded in state at a given height.
@@ -59,6 +69,10 @@ type blockGenerator struct {
 
 	accounts *accountModel
 	blocks   *blockStoreWriter
+
+	// Stages the writes of the block being built. Reused across blocks: draining it hands the pairs to
+	// the block and leaves the batch empty.
+	batch *stateBatch
 
 	// The height the next block generated commits at.
 	next int64
@@ -111,6 +125,7 @@ func newBlockGenerator(
 		config:          config,
 		accounts:        accounts,
 		blocks:          blocks,
+		batch:           newStateBatch(writesPerTransaction*config.TransactionsPerBlock + 1),
 		rateLimiter:     rateLimiter,
 		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
 		bloomHasher:     sha3.NewLegacyKeccak256(),
@@ -212,16 +227,32 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 		}
 		block.transactions[i] = txn
 		block.payload[i] = g.accounts.Rand().Bytes(g.config.BytesPerTransaction)
+		g.stageTransactionWrites(txn)
 
 		if receipts != nil {
 			receipts.build(i, g.accounts.Rand(), txn, number)
 		}
 	}
 
+	// Staged once, after the transactions, because they all name this one key: every transaction draws
+	// a fee balance, since the draw is part of the sequence the block's randomness is defined by, but
+	// only the last draw survives into the block. Staging it per transaction made the same entry
+	// TransactionsPerBlock times and threw all but one away.
+	g.batch.Put(g.accounts.FeeCollectionAddress(), transactions[count-1].newFeeBalance)
+
 	// Accounts minted for this block become legal read targets once it is complete.
 	g.accounts.ReportEndOfBlock()
-	block.counters = g.accounts.Counters()
+	block.writes = g.batch.drainToChangeSet(g.accounts.Counters())
 	return block, nil
+}
+
+// stageTransactionWrites stages the writes one transfer makes: both accounts' records and both of their
+// ERC20 storage slots. The fee account is staged once per block instead; see buildBlock().
+func (g *blockGenerator) stageTransactionWrites(txn *transaction) {
+	g.batch.Put(txn.srcAccount, txn.newSrcBalance)
+	g.batch.Put(txn.dstAccount, txn.newDstBalance)
+	g.batch.Put(txn.srcAccountSlot, txn.newSrcAccountSlot)
+	g.batch.Put(txn.dstAccountSlot, txn.newDstAccountSlot)
 }
 
 // storeBlock appends a block to the ledger and flushes on the configured cadence.
