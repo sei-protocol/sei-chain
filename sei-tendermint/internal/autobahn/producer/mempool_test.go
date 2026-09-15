@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -838,4 +839,24 @@ func TestInsertTx_PendingInsertsBounded(t *testing.T) {
 		s.Cancel(context.Canceled)
 		return nil
 	})))
+}
+
+func TestInsertResult(t *testing.T) {
+	ok := &abci.ResponseCheckTx{Code: abci.CodeTypeOK}
+	rejected := &abci.ResponseCheckTx{Code: 1}
+	for _, tc := range []struct {
+		resp *abci.ResponseCheckTx
+		err  error
+		want metrics.Result
+	}{
+		{ok, nil, metrics.ResultOK},
+		{rejected, nil, metrics.ResultRejected},
+		{nil, errTooLarge, metrics.ResultTooLarge},
+		{nil, errMempoolFull, metrics.ResultFull},
+		{nil, ErrNotProducing, metrics.ResultNotProducing},
+		{nil, fmt.Errorf("%w: got 1, want 2", errBadNonce), metrics.ResultBadNonce},
+		{nil, context.Canceled, metrics.ResultError},
+	} {
+		require.Equal(t, tc.want, insertResult(tc.resp, tc.err))
+	}
 }

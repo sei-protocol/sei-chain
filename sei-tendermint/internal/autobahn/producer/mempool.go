@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -268,10 +270,59 @@ func (s *State) getMempool(ctx context.Context) (*mempool, error) {
 	return mp, nil
 }
 
+// checkTx runs the app CheckTx for tx.
+func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
+	defer metrics.PhaseCheckTx.Enter()()
+	start := time.Now()
+	defer func() { metrics.ObserveCheckTx(time.Since(start)) }()
+	return s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+}
+
+// evmNonce reads the executed nonce of addr from the app.
+func (s *State) evmNonce(addr common.Address) uint64 {
+	start := time.Now()
+	defer func() { metrics.ObserveNonceLookup(time.Since(start)) }()
+	return s.app.EvmNonce(addr)
+}
+
+// waitForCapacity blocks until the ticket is signalled, returning the time spent waiting.
+func (t *insertTicket) waitForCapacity(ctx context.Context) (time.Duration, error) {
+	defer metrics.PhaseCapacityWait.Enter()()
+	start := time.Now()
+	err := t.wait(ctx)
+	return time.Since(start), err
+}
+
+// insertResult classifies an insert outcome for the inserts metric.
+func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
+	switch {
+	case errors.Is(err, errTooLarge):
+		return metrics.ResultTooLarge
+	case errors.Is(err, errMempoolFull):
+		return metrics.ResultFull
+	case errors.Is(err, ErrNotProducing):
+		return metrics.ResultNotProducing
+	case errors.Is(err, errBadNonce):
+		return metrics.ResultBadNonce
+	case err != nil:
+		return metrics.ResultError
+	case !resp.IsOK():
+		return metrics.ResultRejected
+	default:
+		return metrics.ResultOK
+	}
+}
+
 // Inserts transaction. Blocks until there is capacity in the mempool.
 // NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
 // It has to be added after testnet launch.
 func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
+	insertResult(resp, err).Observe()
+	return resp, err
+}
+
+func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
@@ -291,7 +342,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		}
 		mp = loaded
 	}
-	resp, err := s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	resp, err := s.checkTx(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
@@ -311,15 +362,30 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
+	admitStart := time.Now()
+	var waited time.Duration
+	var wakeups int64
+	defer func() { metrics.ObserveAdmit(time.Since(admitStart) - waited) }()
+	leaveAdmit := metrics.PhaseAdmit.Enter()
+	defer func() { leaveAdmit() }()
 	// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
 	// in favor of waiting for smaller txs. This simple algorithm allows us to cap
 	// pending txs to size of a single block. We can refine this rule later if needed.
 	// Blocked calls queue up in arrival order and only the head is woken when capacity
 	// frees up, so a mempool update costs O(1) regardless of the number of waiters.
 	ticket := utils.None[*insertTicket]()
+	defer func() {
+		if ticket.IsPresent() {
+			metrics.ObserveCapacityWait(waited, wakeups)
+		}
+	}()
 	for {
 		if t, ok := ticket.Get(); ok {
-			if err := t.wait(ctx); err != nil {
+			leaveAdmit()
+			d, err := t.waitForCapacity(ctx)
+			waited += d
+			leaveAdmit = metrics.PhaseAdmit.Enter()
+			if err != nil {
 				for m := range mp.inner.Lock() {
 					mp.dequeue(m, t)
 				}
@@ -339,6 +405,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 			if m.IsFull() || (waitIfFull && !m.isHead(ticket)) {
 				if t, ok := ticket.Get(); ok {
 					// A TryInsertTx may have filled the mempool since this ticket was signalled.
+					wakeups++
 					t.admitted.Store(false)
 				} else {
 					if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
@@ -367,7 +434,7 @@ func (s *State) appendTx(m *mempoolInner, ctrl *utils.WatchCtrl, tx tmtypes.Tx, 
 		addr := resp.EVMSenderAddress
 		nonce, ok := m.evmNonces[addr]
 		if !ok {
-			nonce = s.app.EvmNonce(addr)
+			nonce = s.evmNonce(addr)
 		}
 		if nonce != resp.EVMNonce {
 			return fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)

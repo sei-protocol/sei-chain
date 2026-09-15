@@ -15,6 +15,7 @@ func init() {
 		Global.commitGlobalBlockNumber,
 		Global.proposalToCommitLatency,
 		Global.commitToCommitLatency,
+		Global.producedTxs,
 	)
 }
 
@@ -45,6 +46,12 @@ func newMetrics() *metrics {
 			Name:      "commit_to_commit_latency",
 			Help:      "Latency between consecutive commits being observed.",
 		}, []string{"timeouts"}),
+		producedTxs: tmprometheus.NewCounterIntVec(prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "produced_txs",
+			Help:      "Transactions included in locally produced lane blocks.",
+		}, nil),
 	}
 }
 
@@ -62,4 +69,8 @@ func (m *metrics) proposalToCommitLatencyAt() *tmprometheus.Histogram {
 
 func (m *metrics) commitToCommitLatencyAt(timeouts string) *tmprometheus.Histogram {
 	return m.commitToCommitLatency.WithLabelValues(timeouts)
+}
+
+func (m *metrics) producedTxsAt() *tmprometheus.CounterInt {
+	return m.producedTxs.WithLabelValues()
 }
