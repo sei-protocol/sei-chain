@@ -282,10 +282,10 @@ func NewCryptosimMetrics(
 
 	mainThreadPhase := dbPhaseTimer
 	if mainThreadPhase == nil {
-		mainThreadPhase = metrics.NewPhaseTimer(meter, "seidb_main_thread")
+		mainThreadPhase = metrics.NewPhaseTimerFactory(meter, "seidb_main_thread").RecordLatencies().Build()
 	}
 
-	transactionPhaseTimerFactory := metrics.NewPhaseTimerFactory(meter, "transaction")
+	transactionPhaseTimerFactory := metrics.NewPhaseTimerFactory(meter, "transaction").RecordLatencies()
 
 	m := &CryptosimMetrics{
 		ctx:                            ctx,

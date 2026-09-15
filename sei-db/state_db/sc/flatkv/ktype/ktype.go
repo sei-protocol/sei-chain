@@ -127,3 +127,18 @@ func PrefixEnd(prefix []byte) []byte {
 	}
 	return nil
 }
+
+// AppendEVMPhysicalKey appends the physical key EVMPhysicalKey would build for kind and strippedKey
+// to dst and returns the extended slice.
+func AppendEVMPhysicalKey(dst []byte, kind keys.EVMKeyKind, strippedKey []byte) []byte {
+	if kind == keys.EVMKeyCodeHash || kind == keys.EVMKeyBalance {
+		kind = EVMKeyAccount
+	}
+	prefixByte, ok := keys.EVMKeyPrefixByte(kind)
+	if !ok {
+		return nil
+	}
+	dst = append(dst, keys.EVMStoreKey...)
+	dst = append(dst, '/', prefixByte)
+	return append(dst, strippedKey...)
+}

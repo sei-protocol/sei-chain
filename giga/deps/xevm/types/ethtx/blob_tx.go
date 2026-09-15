@@ -14,6 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
+// maxBlobSidecarItems is EIP-4844's initial maximum number of blobs,
+// commitments, or proofs a sidecar may carry.
+const maxBlobSidecarItems = 6
+
 func NewBlobTx(tx *ethtypes.Transaction) (*BlobTx, error) {
 	if err := ValidateEthTx(tx); err != nil {
 		return nil, err
@@ -250,6 +254,16 @@ func (tx BlobTx) Validate() error {
 		)
 	}
 
+	if len(tx.BlobHashes) > maxBlobSidecarItems {
+		return fmt.Errorf("too many blob hashes: have %d, permitted %d", len(tx.BlobHashes), maxBlobSidecarItems)
+	}
+	if err := validateBlobTxSidecar(tx.Sidecar); err != nil {
+		return err
+	}
+	if tx.Sidecar != nil && len(tx.BlobHashes) != len(tx.Sidecar.Blobs) {
+		return fmt.Errorf("invalid number of %d blobs compared to %d blob hashes", len(tx.Sidecar.Blobs), len(tx.BlobHashes))
+	}
+
 	return nil
 }
 
@@ -292,9 +306,58 @@ func sidecarToEthSidecar(sidecar *BlobTxSidecar) *ethtypes.BlobTxSidecar {
 	if sidecar == nil {
 		return nil
 	}
+	if err := validateBlobTxSidecar(sidecar); err != nil {
+		return nil
+	}
 	return &ethtypes.BlobTxSidecar{
 		Blobs:       utils.Map(sidecar.Blobs, func(b []byte) kzg4844.Blob { return kzg4844.Blob(b) }),
 		Commitments: utils.Map(sidecar.Commitments, func(b []byte) kzg4844.Commitment { return kzg4844.Commitment(b) }),
 		Proofs:      utils.Map(sidecar.Proofs, func(p []byte) kzg4844.Proof { return kzg4844.Proof(p) }),
 	}
+}
+
+// validateBlobTxSidecar returns an error if sidecar cannot be converted into
+// fixed-size KZG blobs, commitments, and proofs.
+func validateBlobTxSidecar(sidecar *BlobTxSidecar) error {
+	if sidecar == nil {
+		return nil
+	}
+	if err := validateSidecarItemCount("blobs", len(sidecar.Blobs)); err != nil {
+		return err
+	}
+	if err := validateSidecarItemCount("commitments", len(sidecar.Commitments)); err != nil {
+		return err
+	}
+	if err := validateSidecarItemCount("proofs", len(sidecar.Proofs)); err != nil {
+		return err
+	}
+	if len(sidecar.Blobs) != len(sidecar.Commitments) || len(sidecar.Blobs) != len(sidecar.Proofs) {
+		return errors.New("sidecar blob, commitment, and proof counts do not match")
+	}
+	blobLen := len(kzg4844.Blob{})
+	commitmentLen := len(kzg4844.Commitment{})
+	proofLen := len(kzg4844.Proof{})
+	for i, b := range sidecar.Blobs {
+		if len(b) != blobLen {
+			return fmt.Errorf("invalid sidecar blob %d length: have %d, want %d", i, len(b), blobLen)
+		}
+	}
+	for i, c := range sidecar.Commitments {
+		if len(c) != commitmentLen {
+			return fmt.Errorf("invalid sidecar commitment %d length: have %d, want %d", i, len(c), commitmentLen)
+		}
+	}
+	for i, p := range sidecar.Proofs {
+		if len(p) != proofLen {
+			return fmt.Errorf("invalid sidecar proof %d length: have %d, want %d", i, len(p), proofLen)
+		}
+	}
+	return nil
+}
+
+func validateSidecarItemCount(name string, n int) error {
+	if n > maxBlobSidecarItems {
+		return fmt.Errorf("too many sidecar %s: have %d, permitted %d", name, n, maxBlobSidecarItems)
+	}
+	return nil
 }

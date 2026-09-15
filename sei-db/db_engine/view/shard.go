@@ -208,7 +208,7 @@ func (s *shard) Get(
 	}
 
 	// First, check to see if we have this value in the versioned data map.
-	if entry, found := s.lookupVersionedRLocked(string(key), version); found {
+	if entry, found := s.lookupVersionedRLocked(key, version); found {
 		s.lock.Unlock()
 		if entry.pending != nil {
 			value, err := entry.pending.await(s.ctx, s.shutdownError)
@@ -248,7 +248,7 @@ func (s *shard) attemptFastGetUnlocked(
 		return nil, false, nil, true, fmt.Errorf("key %x: %w", key, err)
 	}
 
-	if entry, found := s.lookupVersionedRLocked(string(key), version); found {
+	if entry, found := s.lookupVersionedRLocked(key, version); found {
 		if entry.pending != nil {
 			return nil, false, entry.pending, false, nil
 		}
@@ -280,8 +280,10 @@ func (s *shard) validateVersionRLocked(version uint64) error {
 //
 // The entry may be an unresolved fold, so every caller has to check its pending field before reading
 // its value. Resolving one requires releasing this lock first; see pendingValue.await.
-func (s *shard) lookupVersionedRLocked(key string, version uint64) (versionedValue, bool) {
-	deque, ok := s.versionedData[key]
+func (s *shard) lookupVersionedRLocked(key []byte, version uint64) (versionedValue, bool) {
+	// Converted inline rather than by the caller: the compiler elides the conversion only where it
+	// indexes a map directly, and every single-key read pays an allocation for it otherwise.
+	deque, ok := s.versionedData[string(key)]
 	if !ok {
 		return versionedValue{}, false
 	}
@@ -378,7 +380,7 @@ func (s *shard) attemptFastBatchGetUnlocked(
 
 	for i, key := range keys {
 		keyStr := string(key)
-		if entry, found := s.lookupVersionedRLocked(keyStr, version); found {
+		if entry, found := s.lookupVersionedRLocked(key, version); found {
 			if entry.pending != nil {
 				staged = append(staged, entry.pending)
 				continue
@@ -433,7 +435,7 @@ func (s *shard) batchGetRemainingUnlocked(
 	for _, i := range indices {
 		key := keys[i]
 		keyStr := string(key)
-		if entry, found := s.lookupVersionedRLocked(keyStr, version); found {
+		if entry, found := s.lookupVersionedRLocked(key, version); found {
 			if entry.pending != nil {
 				staged = append(staged, entry.pending)
 				continue

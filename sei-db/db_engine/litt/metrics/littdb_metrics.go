@@ -45,6 +45,13 @@ type LittDBMetrics struct {
 	// The number of currently-open iterators for individual tables in the database.
 	openIteratorCount metric.Int64Gauge
 
+	// The depth of the control loop and the flush loop queues, which is where a table's writes back up.
+	controlQueueDepth metric.Int64Gauge
+	flushQueueDepth   metric.Int64Gauge
+	// The meter the per-table queue meters are built from, which cannot be built here because each
+	// names the table it belongs to.
+	meter metric.Meter
+
 	// The number of bytes read from disk since startup.
 	bytesReadCounter metric.Int64Counter
 
@@ -132,6 +139,22 @@ func NewLittDBMetrics() *LittDBMetrics {
 		metric.WithDescription(
 			"The number of currently-open iterators for individual tables in the database. "+
 				"A persistently nonzero value indicates a leaked iterator, which suspends garbage collection."),
+		metric.WithUnit("{count}"),
+	)
+
+	controlQueueDepth, _ := meter.Int64Gauge(
+		"litt_control_queue_depth",
+		metric.WithDescription(
+			"The number of messages waiting in a table's control loop. A depth sitting at the configured "+
+				"control channel size means writes to the table are blocking on it."),
+		metric.WithUnit("{count}"),
+	)
+
+	flushQueueDepth, _ := meter.Int64Gauge(
+		"litt_flush_queue_depth",
+		metric.WithDescription(
+			"The number of flushes waiting in a table's flush loop. A depth sitting at the configured "+
+				"flush channel size means the control loop is blocking behind flushes."),
 		metric.WithUnit("{count}"),
 	)
 
@@ -265,6 +288,9 @@ func NewLittDBMetrics() *LittDBMetrics {
 		tableSizeInBytes:         tableSizeInBytes,
 		tableKeyCount:            tableKeyCount,
 		openIteratorCount:        openIteratorCount,
+		controlQueueDepth:        controlQueueDepth,
+		flushQueueDepth:          flushQueueDepth,
+		meter:                    meter,
 		bytesReadCounter:         bytesReadCounter,
 		keysReadCounter:          keysReadCounter,
 		cacheHitCounter:          cacheHitCounter,
@@ -314,7 +340,31 @@ func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTab
 
 		tableKeyCount := table.KeyCount()
 		m.tableKeyCount.Record(ctx, int64(tableKeyCount), attrs) //nolint:gosec // key count fits int64
+
+		control, flush := table.WriteQueueDepths()
+		m.controlQueueDepth.Record(ctx, int64(control), attrs)
+		m.flushQueueDepth.Record(ctx, int64(flush), attrs)
 	}
+}
+
+// ControlQueueMeter returns the meter charging time blocked on a table's control loop queue. It
+// returns nil when metrics are disabled, which the meter's own methods tolerate.
+func (m *LittDBMetrics) ControlQueueMeter(tableName string) *commonmetrics.QueueMeter {
+	if m == nil {
+		return nil
+	}
+	return commonmetrics.NewQueueMeter(m.meter, "litt",
+		attribute.String("table", tableName), attribute.String("queue", "control"))
+}
+
+// FlushQueueMeter returns the meter charging time blocked on a table's flush loop queue. It returns
+// nil when metrics are disabled, which the meter's own methods tolerate.
+func (m *LittDBMetrics) FlushQueueMeter(tableName string) *commonmetrics.QueueMeter {
+	if m == nil {
+		return nil
+	}
+	return commonmetrics.NewQueueMeter(m.meter, "litt",
+		attribute.String("table", tableName), attribute.String("queue", "flush"))
 }
 
 // ReportOpenIteratorCount reports the current number of open iterators for a table. A persistently

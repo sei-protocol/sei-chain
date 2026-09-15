@@ -57,6 +57,7 @@ type config struct {
 	metricsAddr            string
 	resultSink             string
 	resultPoolSize         int
+	storageDir             string
 	persistDir             string
 	persistSync            bool
 	persistBufferSize      int
@@ -141,6 +142,7 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.metricsAddr, "metrics-addr", defaultMetricsAddr, "Prometheus listen address; empty disables HTTP metrics")
 	fs.StringVar(&cfg.resultSink, "result-sink", resultSinkDiscard, "result sink mode: discard or file")
 	fs.IntVar(&cfg.resultPoolSize, "result-pool-size", 0, "pooled executor BlockResult slots; 0 sizes for in-flight sink results, negative disables pooling")
+	fs.StringVar(&cfg.storageDir, "storage-dir", "", "GigaStorageManager home directory; empty uses a temporary directory removed on exit")
 	fs.StringVar(&cfg.persistDir, "persist-dir", "", "directory for --result-sink=file append-only changeset and receipt files, removed at shutdown")
 	fs.BoolVar(&cfg.persistSync, "persist-sync", false, "fsync persistent result files from the async sink writer")
 	fs.IntVar(&cfg.persistBufferSize, "persist-buffer-size", defaultPersistBuffer, "buffer size in bytes for --result-sink=file")
@@ -265,6 +267,7 @@ func parseConfig(args []string) (config, error) {
 	if cfg.reportInterval < 0 {
 		return config{}, fmt.Errorf("report-interval must be non-negative")
 	}
+	cfg.storageDir = strings.TrimSpace(cfg.storageDir)
 	cfg.resultSink = strings.ToLower(strings.TrimSpace(cfg.resultSink))
 	if cfg.resultSink != resultSinkDiscard && cfg.resultSink != resultSinkFile {
 		return config{}, fmt.Errorf("unsupported result-sink %q", cfg.resultSink)

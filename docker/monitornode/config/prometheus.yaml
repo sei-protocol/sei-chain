@@ -8,8 +8,35 @@ scrape_configs:
       - targets: ['host.docker.internal:9090']
     scrape_interval: 5s
 
-  # Host CPU, memory, disk, filesystem. Start with start-node-exporter.sh (Linux only).
+  # Host CPU, memory, disk, filesystem. Run by start-node-exporter.sh as a container, or by
+  # scripts/install-exporters.sh as a systemd service on an EC2 node. Both listen on 9100, and the
+  # start scripts pass --add-host=host.docker.internal:host-gateway on Linux so this name resolves
+  # to the host from inside the container.
   - job_name: 'node'
     static_configs:
       - targets: ['host.docker.internal:9100']
     scrape_interval: 5s
+
+  # Validator set metrics (cosmos_validators_*) from sei-cosmos-exporter, installed by
+  # scripts/install-exporters.sh. That exporter serves nothing at /metrics: every metric family has
+  # its own path, and this is the only one that takes no address parameter.
+  - job_name: 'sei-validators'
+    metrics_path: /metrics/validators
+    static_configs:
+      - targets: ['host.docker.internal:9300']
+    scrape_interval: 15s
+
+  # Metrics for named validators (cosmos_validator_*) and wallets (cosmos_wallet_*) come from the
+  # same exporter, but each target is an address passed as a query parameter rather than a host to
+  # connect to. Uncomment and name the addresses to monitor.
+  # - job_name: 'sei-validator'
+  #   metrics_path: /metrics/validator
+  #   static_configs:
+  #     - targets: ['seivaloper1...']
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: __param_address
+  #     - source_labels: [__param_address]
+  #       target_label: instance
+  #     - target_label: __address__
+  #       replacement: 'host.docker.internal:9300'

@@ -194,7 +194,7 @@ func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for pv := range s.prepareVotes.Lock() {
-		pv.pushVote(committee, vote)
+		pv.pushVerifiedVote(committee, vote)
 	}
 	return nil
 }
@@ -209,7 +209,7 @@ func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
 	for cv := range s.commitVotes.Lock() {
-		cv.pushVote(committee, vote)
+		cv.pushVerifiedVote(committee, vote)
 	}
 	return nil
 }
