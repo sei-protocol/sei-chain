@@ -5,7 +5,7 @@ on:
     branches:
       - giga-1
     paths-ignore:
-      - '**/*.md'
+      - '**.md'
       - 'docs/**'
   workflow_dispatch:
 
@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
           SHA=$(git rev-parse HEAD)
           SHA7=$(git rev-parse --short=7 HEAD)
-          TS=$(date -u +%Y%m%d%H%M%S)
+          TS=$(TZ=UTC0 git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
           echo "sha=${SHA}"   >> "$GITHUB_OUTPUT"
           echo "giga1=giga1-${TS}-${SHA7}" >> "$GITHUB_OUTPUT"
 
