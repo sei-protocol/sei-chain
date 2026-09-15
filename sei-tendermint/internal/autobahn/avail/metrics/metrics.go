@@ -63,8 +63,5 @@ func ObserveCommitQC(qc *types.CommitQC) {
 
 // ObserveProducedTxs counts txs included in a successfully produced local lane block.
 func ObserveProducedTxs(n int) {
-	if n <= 0 {
-		return
-	}
 	Global.producedTxsAt().Add(int64(n))
 }
