@@ -147,7 +147,7 @@ func (s *shard) Get(
 	}
 
 	// First, check to see if we have this value in the versioned data map.
-	if value, found := s.lookupVersionedRLocked(string(key), version); found {
+	if value, found := s.lookupVersionedRLocked(key, version); found {
 		s.lock.Unlock()
 		s.metrics.reportCacheHits(1)
 		return value, value != nil, nil
@@ -177,7 +177,7 @@ func (s *shard) attemptFastGetUnlocked(
 		return nil, false, true, err
 	}
 
-	if value, found := s.lookupVersionedRLocked(string(key), version); found {
+	if value, found := s.lookupVersionedRLocked(key, version); found {
 		s.metrics.reportCacheHits(1)
 		return value, value != nil, true, nil
 	}
@@ -204,8 +204,8 @@ func (s *shard) validateVersionRLocked(version uint64) error {
 // lookupVersionedRLocked checks versioned data for a key at the given version.
 // Returns (value, true) if found in versioned data, (nil, false) if the read cache should be
 // consulted.
-func (s *shard) lookupVersionedRLocked(key string, version uint64) ([]byte, bool) {
-	deque, ok := s.versionedData[key]
+func (s *shard) lookupVersionedRLocked(key []byte, version uint64) ([]byte, bool) {
+	deque, ok := s.versionedData[string(key)]
 	if !ok {
 		return nil, false
 	}
@@ -279,7 +279,7 @@ func (s *shard) attemptFastBatchGetUnlocked(
 
 	for i, key := range keys {
 		keyStr := string(key)
-		if value, found := s.lookupVersionedRLocked(keyStr, version); found {
+		if value, found := s.lookupVersionedRLocked(key, version); found {
 			// found includes tombstones (nil value); only non-nil values are real hits to return.
 			if value != nil {
 				results[keyStr] = value
@@ -329,7 +329,7 @@ func (s *shard) batchGetRemainingUnlocked(
 	for _, i := range indices {
 		key := keys[i]
 		keyStr := string(key)
-		if value, found := s.lookupVersionedRLocked(keyStr, version); found {
+		if value, found := s.lookupVersionedRLocked(key, version); found {
 			if value != nil {
 				results[keyStr] = value
 			}
