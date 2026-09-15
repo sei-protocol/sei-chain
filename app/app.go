@@ -11,7 +11,6 @@ import (
 	"io"
 	"math"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -98,8 +97,6 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/gorilla/mux"
-	"github.com/rakyll/statik/fs"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
@@ -161,8 +158,6 @@ import (
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
-	// unnamed import of statik for openapi/swagger UI support
-	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
@@ -2485,11 +2480,6 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
 
-	// register swagger API from root so that other applications can override easily
-	if apiConfig.Swagger {
-		RegisterSwaggerAPI(apiSvr.Router)
-	}
-
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
@@ -2614,17 +2604,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	} else {
 		logger.Debug("Admin gRPC server is disabled")
 	}
-}
-
-// RegisterSwaggerAPI registers swagger route with API Server
-func RegisterSwaggerAPI(rtr *mux.Router) {
-	statikFS, err := fs.NewWithNamespace("swagger")
-	if err != nil {
-		panic(err)
-	}
-
-	staticServer := http.FileServer(statikFS)
-	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of

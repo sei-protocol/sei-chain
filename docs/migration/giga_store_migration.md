@@ -67,7 +67,7 @@ evm-ss-separate-dbs = false
 
 If you are switching backend in the same step:
 - PebbleDB → RocksDB: set `ss-backend = "rocksdb"`, build with `-tags rocksdbBackend`,
-  and install RocksDB per the [SeiDB Migration Guide](./seidb_migration.md#step-2-tune-configs-based-on-node-role).
+  and install RocksDB.
 - No data migration tool is needed across backends — the state sync populates the new
   layout.
 
@@ -104,8 +104,7 @@ Snapshot hosts that publish `data/` tarballs may offer both Giga SS and non-Giga
 copies while the fleet migrates. Use a Giga SS snapshot only when you intend to run
 with `evm-ss-split = true`.
 
-Use the state sync flow documented in the
-[SeiDB Migration Guide](./seidb_migration.md#step-3-state-sync). Minimal shape:
+Use the state sync flow below. Minimal shape:
 
 ```bash
 export TRUST_HEIGHT_DELTA=10000
