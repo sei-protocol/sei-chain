@@ -238,6 +238,10 @@ func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint25
 	return *new(uint256.Int).SetBytes(balance[:])
 }
 
+func (a *evmOnlyApplication) EvmChainID() uint64 {
+	return a.chainID.Uint64()
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
