@@ -10,6 +10,32 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// blockQueue is a lane's queue of LaneProposals which additionally remembers
+// the hash of the last block pushed, so that the parent hash of the next
+// block is known even after the queue has been pruned.
+type blockQueue struct {
+	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+	lastHash utils.Option[types.BlockHeaderHash]
+}
+
+func newBlockQueue() *blockQueue {
+	return &blockQueue{queue: *newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()}
+}
+
+func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
+	q.queue.pushBack(p)
+	q.lastHash = utils.Some(p.Msg().Block().Header().Hash())
+}
+
+// parentHash returns the hash the next block of the lane should point to:
+// the zero hash if no block has been pushed to the queue since construction.
+func (q *blockQueue) parentHash() types.BlockHeaderHash {
+	if h, ok := q.lastHash.Get(); ok {
+		return h
+	}
+	return types.BlockHeaderHash{}
+}
+
 // inner holds roads and per-LaneID block/vote maps.
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
@@ -25,7 +51,7 @@ type inner struct {
 	// When it lags applied, epochForVote falls back to this committee for
 	// departing-lane voters.
 	anchorEpoch utils.Option[*types.Epoch]
-	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+	blocks      map[types.LaneID]*blockQueue
 	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
@@ -61,7 +87,7 @@ func newInner(ep *types.Epoch, first types.RoadIndex) *inner {
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep}),
 		roads:              roads,
-		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
+		blocks:             map[types.LaneID]*blockQueue{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
@@ -192,7 +218,7 @@ func (i *inner) addLane(lane types.LaneID) bool {
 	if _, ok := i.blocks[lane]; ok {
 		return false
 	}
-	i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+	i.blocks[lane] = newBlockQueue()
 	i.votes[lane] = newQueue[types.BlockNumber, *blockVotes]()
 	i.nextBlockToPersist[lane] = 0
 	return true
