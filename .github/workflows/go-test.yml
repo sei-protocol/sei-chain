@@ -30,7 +30,7 @@ jobs:
   race-shard:
     name: Race Detection (shard ${{ matrix.shard }})
     runs-on: uci-default
-    if: ${{ !(github.event_name == 'merge_group' && github.event.merge_group.base_ref == 'refs/heads/giga-1') }}
+    if: github.event.merge_group.base_ref != 'refs/heads/giga-1'
     strategy:
       fail-fast: false
       matrix:
@@ -76,7 +76,7 @@ jobs:
   upgrade-test:
     name: Upgrade tests
     runs-on: uci-default
-    if: ${{ !(github.event_name == 'merge_group' && github.event.merge_group.base_ref == 'refs/heads/giga-1') }}
+    if: github.event.merge_group.base_ref != 'refs/heads/giga-1'
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
     steps:
@@ -115,7 +115,7 @@ jobs:
     steps:
       - name: Verify race shards and upgrade tests succeeded
         run: |
-          if [[ "${{ github.event_name == 'merge_group' && github.event.merge_group.base_ref == 'refs/heads/giga-1' }}" == "true" \
+          if [[ "${{ github.event.merge_group.base_ref }}" == "refs/heads/giga-1" \
             && "${{ needs.race-shard.result }}" == "skipped" \
             && "${{ needs.upgrade-test.result }}" == "skipped" ]]; then
             echo "Race shards and upgrade tests skipped in the giga-1 merge queue."

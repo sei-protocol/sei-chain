@@ -20,26 +20,19 @@ env:
 jobs:
   test:
     name: Race Detection
-    runs-on: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_ref == 'refs/heads/giga-1' && 'ubuntu-latest' || 'uci-default' }}
+    runs-on: uci-default
     # The giga-1 merge queue only runs the fast gates; every PR into giga-1 has
-    # already run the race suite. `Race Detection` is a required check, so the
-    # job still has to report: steps are skipped individually, as in `coverage`.
+    # already run this suite. A skipped job still satisfies the required check.
+    if: github.event.merge_group.base_ref != 'refs/heads/giga-1'
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
-      SKIP_SLOW: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_ref == 'refs/heads/giga-1' }}
     steps:
-      - name: Check trigger
-        if: env.SKIP_SLOW == 'true'
-        run: echo 'Race detection skipped in the giga-1 merge queue'
-
       # See: https://github.com/actions/checkout/releases/tag/v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        if: env.SKIP_SLOW != 'true'
         with:
           fetch-depth: 1
 
       - uses: actions/setup-go@v7
-        if: env.SKIP_SLOW != 'true'
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
@@ -47,7 +40,7 @@ jobs:
       - name: Login to Docker Hub
         # See: https://github.com/docker/login-action/releases/tag/v4.2.0
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
-        if: env.SKIP_SLOW != 'true' && env.DOCKERHUB_USERNAME != ''
+        if: env.DOCKERHUB_USERNAME != ''
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
@@ -55,11 +48,9 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Download modules
-        if: env.SKIP_SLOW != 'true'
         run: go mod download
 
       - name: Go test
-        if: env.SKIP_SLOW != 'true'
         run: |
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
@@ -70,7 +61,6 @@ jobs:
       # is enough to catch that; the timings it prints are not measurements.
       # Runs without -race, which the job-level GOFLAGS would otherwise apply.
       - name: Benchmark smoke
-        if: env.SKIP_SLOW != 'true'
         env:
           GOFLAGS: -tags=ledger,test_ledger_mock
         run: |
