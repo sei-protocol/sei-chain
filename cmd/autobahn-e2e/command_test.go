@@ -138,6 +138,7 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 		volumeThroughput: defaultVolumeThroughputMB,
 		repoURL:          "https://github.com/sei-protocol/sei-chain.git",
 		ref:              "deadbeef",
+		topology:         awsTopologyDistributed,
 	}
 
 	require.NoError(t, app.deploy(context.Background(), options))
@@ -177,6 +178,67 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	require.Contains(t, commands, "AUTOBAHN_EVMONLY=true")
 	require.Contains(t, commands, "-o StrictHostKeyChecking=accept-new")
 	require.Contains(t, commands, "curl -fsS -o /dev/null http://127.0.0.1:3000/api/health")
+	require.Equal(t, awsTopologyDistributed, state.AWS.Topology)
+}
+
+func TestAWSDeployColocatedUsesOneInstanceAndSharedCompose(t *testing.T) {
+	stateDir := t.TempDir()
+	runner := &fakeRunner{}
+	runner.outputFn = func(spec commandSpec) (string, error) {
+		joined := strings.Join(spec.args, " ")
+		switch {
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return `{}`, nil
+		case strings.Contains(joined, "describe-vpcs"):
+			return "vpc-123\n", nil
+		case strings.Contains(joined, "create-security-group"):
+			return "sg-123\n", nil
+		case strings.Contains(joined, "create-key-pair"):
+			return "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n", nil
+		case strings.Contains(joined, "run-instances"):
+			return "i-colo\n", nil
+		case strings.Contains(joined, "describe-instances"):
+			return "i-colo\t203.0.113.10\t10.0.0.10\n", nil
+		case spec.name == "ssh":
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+	var stdout bytes.Buffer
+	app := &application{runner: runner, stdout: &stdout, stderr: &bytes.Buffer{}, stateDir: stateDir}
+	require.NoError(t, app.deploy(context.Background(), deployOptions{
+		name:             "colo-test",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://github.com/sei-protocol/sei-chain.git",
+		ref:              "deadbeef",
+		topology:         awsTopologyColocated,
+	}))
+	state, err := app.store().load("colo-test")
+	require.NoError(t, err)
+	require.Equal(t, "ready", state.Status)
+	require.Equal(t, awsTopologyColocated, state.AWS.Topology)
+	require.Equal(t, "i-colo", state.AWS.InstanceID)
+	require.Equal(t, "203.0.113.10", state.AWS.PublicIP)
+	require.Len(t, state.AWS.Hosts, 1)
+	require.Empty(t, state.AWS.validators())
+	require.Contains(t, stdout.String(), "four Docker validators")
+	require.Contains(t, stdout.String(), "Grafana: http://203.0.113.10:3000")
+
+	commands := joinedCommands(runner.commands)
+	require.Contains(t, commands, "docker-cluster-start-monitoring")
+	require.NotContains(t, commands, "docker-aws-validator-init")
+	require.NotContains(t, commands, "UserIdGroupPairs")
+	require.NotContains(t, commands, "--count 4")
 }
 
 func TestAWSDeployRetainsFailedState(t *testing.T) {

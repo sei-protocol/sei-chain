@@ -18,6 +18,9 @@ const (
 	grafanaPublicPort = 3000
 	grafanaPublicCIDR = "0.0.0.0/0"
 
+	awsTopologyDistributed = "distributed"
+	awsTopologyColocated   = "colocated"
+
 	awsValidatorCount             = 4
 	awsEVMPort                    = 8545
 	awsMetricsPort                = 26660

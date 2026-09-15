@@ -71,19 +71,32 @@ replace existing `sei-node-*` containers or existing manager metadata.
 
 ## Start a cluster on AWS
 
-The AWS target creates five Ubuntu EC2 hosts: four validators and one
-load/monitoring instance. Each validator runs a single `seid` container that
-advertises the instance's private IP. The four validators clone, compile,
-and initialize in parallel. The load instance is brought up afterward
-with Prometheus and Grafana; `sei-load` is left for you to start. The
-managed security group admits SSH from the caller, Grafana (`:3000`) from
-the internet, and all TCP between the five instances. EVM JSON-RPC stays
-off the public internet and is accessed through `forward`.
+AWS deploy has two topologies, selected with `--topology`:
+
+- `distributed` (default): five Ubuntu EC2 hosts — four validators and one
+  load/monitoring instance. Each validator runs a single `seid` container
+  that advertises the instance's private IP. The four validators clone,
+  compile, and initialize in parallel. The load instance is brought up
+  afterward with Prometheus and Grafana; `sei-load` is left for you to
+  start. The security group admits SSH from the caller, Grafana (`:3000`)
+  from the internet, and all TCP between the five instances.
+- `colocated`: one Ubuntu EC2 host running the same four-container Docker
+  topology used locally, plus Prometheus and Grafana. Use this when you
+  want the cheaper single-instance setup.
+
+EVM JSON-RPC stays off the public internet and is accessed through
+`forward`.
 
 ```sh
 ./autobahn-e2e deploy --target aws \
   --name my-autobahn \
-  --region us-west-2
+  --region us-west-2 \
+  --topology distributed
+
+./autobahn-e2e deploy --target aws \
+  --name my-autobahn-colo \
+  --region us-west-2 \
+  --topology colocated
 
 ./autobahn-e2e list --name my-autobahn
 ```

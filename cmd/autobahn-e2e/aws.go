@@ -104,6 +104,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		AWS: &awsState{
 			Region:    options.region,
 			Profile:   options.profile,
+			Topology:  options.topology,
 			SSHUser:   options.sshUser,
 			RemoteDir: filepath.Join("/home", options.sshUser, "sei-chain-"+options.name),
 			RepoURL:   repoURL,
@@ -147,8 +148,10 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err := client.authorizeTCP(ctx, state.AWS.SecurityGroupID, strconv.Itoa(grafanaPublicPort), grafanaPublicCIDR); err != nil {
 		return fail(err)
 	}
-	if err := client.authorizeTCPFromGroup(ctx, state.AWS.SecurityGroupID, "1", "65535"); err != nil {
-		return fail(err)
+	if !state.AWS.colocated() {
+		if err := client.authorizeTCPFromGroup(ctx, state.AWS.SecurityGroupID, "1", "65535"); err != nil {
+			return fail(err)
+		}
 	}
 
 	if options.keyName == "" {
@@ -188,65 +191,12 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	}
 	defer func() { _ = os.Remove(userDataPath) }()
 
-	_, _ = fmt.Fprintf(a.stdout, "Launching %d validator instances and 1 load instance in %s.\n", awsValidatorCount, options.region)
-	var (
-		launchMu     sync.Mutex
-		validatorIDs []string
-		loadIDs      []string
-	)
-	launch, launchCtx := errgroup.WithContext(ctx)
-	launch.Go(func() error {
-		ids, err := client.runInstances(launchCtx, options, state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
-		if err != nil {
-			return err
-		}
-		launchMu.Lock()
-		defer launchMu.Unlock()
-		validatorIDs = ids
-		state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleValidator, ids)...)
-		return a.store().save(state)
-	})
-	launch.Go(func() error {
-		ids, err := client.runInstances(launchCtx, options, state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
-		if err != nil {
-			return err
-		}
-		launchMu.Lock()
-		defer launchMu.Unlock()
-		loadIDs = ids
-		state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleLoad, ids)...)
-		return a.store().save(state)
-	})
-	if err := launch.Wait(); err != nil {
-		return fail(err)
-	}
-	allIDs := append(append([]string{}, validatorIDs...), loadIDs...)
-	_, _ = fmt.Fprintf(a.stdout, "Launched %d instances; waiting for them to pass status checks.\n", len(allIDs))
-	if err := client.waitInstances(ctx, allIDs); err != nil {
-		return fail(err)
-	}
-	_, _ = fmt.Fprintln(a.stdout, "All instances passed status checks.")
-	infos, err := client.describeInstanceIPs(ctx, allIDs)
-	if err != nil {
-		return fail(err)
-	}
-	hosts, err := assignAWSHosts(validatorIDs, loadIDs, infos)
-	if err != nil {
-		return fail(err)
-	}
-	state.AWS.Hosts = hosts
-	if load, ok := state.AWS.loadHost(); ok {
-		state.AWS.InstanceID = load.InstanceID
-		state.AWS.PublicIP = load.PublicIP
-	}
-	if err := a.store().save(state); err != nil {
-		return err
-	}
-	for _, host := range state.AWS.validators() {
-		name := fmt.Sprintf("sei-autobahn-e2e-%s-validator-%d", options.name, host.Index)
-		if _, err := client.output(ctx, "ec2", "create-tags", "--resources", host.InstanceID, "--tags", "Key=Name,Value="+name); err != nil {
+	if state.AWS.colocated() {
+		if err := a.launchColocatedInstance(ctx, client, options, &state, amiID, userDataPath); err != nil {
 			return fail(err)
 		}
+	} else if err := a.launchDistributedInstances(ctx, client, options, &state, amiID, userDataPath); err != nil {
+		return fail(err)
 	}
 
 	readyCtx, cancel := context.WithTimeout(ctx, options.timeout)
@@ -268,15 +218,117 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err := a.store().save(state); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready with %d validator instances and 1 load instance.\n", state.Name, len(state.AWS.validators()))
+	if state.AWS.colocated() {
+		_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready on EC2 instance %s (%s) with four Docker validators.\n", state.Name, state.AWS.InstanceID, state.AWS.PublicIP)
+	} else {
+		_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready with %d validator instances and 1 load instance.\n", state.Name, len(state.AWS.validators()))
+	}
 	_, _ = fmt.Fprintf(a.stdout, "Grafana: %s  (admin / admin)\n", grafanaPublicURL(state.AWS.PublicIP))
-	if load, ok := state.AWS.loadHost(); ok {
+	if load, ok := state.AWS.loadHost(); ok && !state.AWS.colocated() {
 		_, _ = fmt.Fprintf(a.stdout, "sei-load is not running. Start it on the load instance when you want traffic:\n")
 		_, _ = fmt.Fprintf(a.stdout, "  ssh -i %s %s@%s\n", expandHome(state.AWS.SSHKeyPath), state.AWS.SSHUser, load.PublicIP)
 		_, _ = fmt.Fprintf(a.stdout, "  cd %s && GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@%s\n", state.AWS.RemoteDir, seiLoadVersion)
 		_, _ = fmt.Fprintf(a.stdout, "  ./build/tools/sei-load --config integration_test/autobahn/sei-load.aws.json --metricsListenAddr 0.0.0.0:19698\n")
 	}
 	return nil
+}
+
+func (a *application) launchDistributedInstances(ctx context.Context, client awsClient, options deployOptions, state *clusterState, amiID, userDataPath string) error {
+	_, _ = fmt.Fprintf(a.stdout, "Launching %d validator instances and 1 load instance in %s.\n", awsValidatorCount, options.region)
+	var (
+		launchMu     sync.Mutex
+		validatorIDs []string
+		loadIDs      []string
+	)
+	launch, launchCtx := errgroup.WithContext(ctx)
+	launch.Go(func() error {
+		ids, err := client.runInstances(launchCtx, options, *state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
+		if err != nil {
+			return err
+		}
+		launchMu.Lock()
+		defer launchMu.Unlock()
+		validatorIDs = ids
+		state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleValidator, ids)...)
+		return a.store().save(*state)
+	})
+	launch.Go(func() error {
+		ids, err := client.runInstances(launchCtx, options, *state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
+		if err != nil {
+			return err
+		}
+		launchMu.Lock()
+		defer launchMu.Unlock()
+		loadIDs = ids
+		state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleLoad, ids)...)
+		return a.store().save(*state)
+	})
+	if err := launch.Wait(); err != nil {
+		return err
+	}
+	allIDs := append(append([]string{}, validatorIDs...), loadIDs...)
+	_, _ = fmt.Fprintf(a.stdout, "Launched %d instances; waiting for them to pass status checks.\n", len(allIDs))
+	if err := client.waitInstances(ctx, allIDs); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(a.stdout, "All instances passed status checks.")
+	infos, err := client.describeInstanceIPs(ctx, allIDs)
+	if err != nil {
+		return err
+	}
+	hosts, err := assignAWSHosts(validatorIDs, loadIDs, infos)
+	if err != nil {
+		return err
+	}
+	state.AWS.Hosts = hosts
+	if load, ok := state.AWS.loadHost(); ok {
+		state.AWS.InstanceID = load.InstanceID
+		state.AWS.PublicIP = load.PublicIP
+	}
+	if err := a.store().save(*state); err != nil {
+		return err
+	}
+	for _, host := range state.AWS.validators() {
+		name := fmt.Sprintf("sei-autobahn-e2e-%s-validator-%d", options.name, host.Index)
+		if _, err := client.output(ctx, "ec2", "create-tags", "--resources", host.InstanceID, "--tags", "Key=Name,Value="+name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *application) launchColocatedInstance(ctx context.Context, client awsClient, options deployOptions, state *clusterState, amiID, userDataPath string) error {
+	_, _ = fmt.Fprintf(a.stdout, "Launching 1 colocated instance in %s.\n", options.region)
+	ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleLoad, 1, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
+	if err != nil {
+		return err
+	}
+	state.AWS.Hosts = hostsFromIDs(awsRoleLoad, ids)
+	if err := a.store().save(*state); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(a.stdout, "Launched %s; waiting for it to pass status checks.\n", ids[0])
+	if err := client.waitInstances(ctx, ids); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(a.stdout, "Instance passed status checks.")
+	infos, err := client.describeInstanceIPs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	hosts, err := assignAWSHosts(nil, ids, infos)
+	if err != nil {
+		return err
+	}
+	state.AWS.Hosts = hosts
+	if load, ok := state.AWS.loadHost(); ok {
+		state.AWS.InstanceID = load.InstanceID
+		state.AWS.PublicIP = load.PublicIP
+	}
+	if _, err := client.output(ctx, "ec2", "create-tags", "--resources", state.AWS.InstanceID, "--tags", "Key=Name,Value=sei-autobahn-e2e-"+options.name); err != nil {
+		return err
+	}
+	return a.store().save(*state)
 }
 
 func (a *application) ensureAWSCredentials(ctx context.Context, client awsClient) error {
@@ -618,8 +670,18 @@ func (a *application) waitForRemoteGrafana(ctx context.Context, state clusterSta
 }
 
 func (a *application) waitForRemoteCluster(ctx context.Context, state clusterState) error {
-	command := "test \"$(wc -l < " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/launch.complete")) + ")\" -ge 1"
-	return a.forEachHost(ctx, state.AWS.validators(), func(ctx context.Context, host awsHost) error {
+	minLines := 1
+	hosts := state.AWS.validators()
+	if state.AWS.colocated() {
+		minLines = dockerClusterSize
+		host, ok := state.AWS.loadHost()
+		if !ok {
+			return fmt.Errorf("wait for remote cluster: colocated instance is missing")
+		}
+		hosts = []awsHost{host}
+	}
+	command := "test \"$(wc -l < " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/launch.complete")) + ")\" -ge " + strconv.Itoa(minLines)
+	return a.forEachHost(ctx, hosts, func(ctx context.Context, host awsHost) error {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		for {

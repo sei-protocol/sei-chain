@@ -48,6 +48,7 @@ type awsHost struct {
 type awsState struct {
 	Region          string    `json:"region"`
 	Profile         string    `json:"profile,omitempty"`
+	Topology        string    `json:"topology,omitempty"`
 	InstanceID      string    `json:"instance_id,omitempty"`
 	PublicIP        string    `json:"public_ip,omitempty"`
 	Hosts           []awsHost `json:"hosts,omitempty"`
@@ -59,6 +60,31 @@ type awsState struct {
 	ManagedKey      bool      `json:"managed_key"`
 	RepoURL         string    `json:"repo_url"`
 	Ref             string    `json:"ref"`
+}
+
+func (s *awsState) topology() string {
+	if s == nil {
+		return awsTopologyDistributed
+	}
+	switch s.Topology {
+	case awsTopologyColocated, awsTopologyDistributed:
+		return s.Topology
+	}
+	if len(s.validators()) >= 2 {
+		return awsTopologyDistributed
+	}
+	return awsTopologyColocated
+}
+
+func (s *awsState) colocated() bool {
+	return s.topology() == awsTopologyColocated
+}
+
+func (s *awsState) evmPort(n node) int {
+	if s.colocated() {
+		return n.EVMHostPort
+	}
+	return awsEVMPort
 }
 
 func (s *awsState) validators() []awsHost {

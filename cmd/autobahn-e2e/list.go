@@ -167,7 +167,7 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 				Node:      node.Name,
 				Status:    state.Status,
 				Height:    "-",
-				EVMTarget: fmt.Sprintf("SSH→127.0.0.1:%d", awsEVMPort),
+				EVMTarget: fmt.Sprintf("SSH→127.0.0.1:%d", state.AWS.evmPort(node)),
 			}
 		}
 		return reports, nil
@@ -222,7 +222,7 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 			Node:       node.Name,
 			Status:     status,
 			Height:     height,
-			EVMTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", awsEVMPort),
+			EVMTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", state.AWS.evmPort(node)),
 			Dashboard:  dashboard,
 			InstanceID: host.InstanceID,
 			PublicIP:   host.PublicIP,

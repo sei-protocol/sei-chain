@@ -13,6 +13,9 @@ import (
 )
 
 func (a *application) startRemoteCluster(ctx context.Context, state clusterState) error {
+	if state.AWS.colocated() {
+		return a.startRemoteColocatedCluster(ctx, state)
+	}
 	validators := state.AWS.validators()
 	if len(validators) != awsValidatorCount {
 		return fmt.Errorf("start remote cluster: expected %d validators, got %d", awsValidatorCount, len(validators))
@@ -59,6 +62,25 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 	}
 	if err := a.startLoadHost(ctx, state, load, validators); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (a *application) startRemoteColocatedCluster(ctx context.Context, state clusterState) error {
+	host, ok := state.AWS.loadHost()
+	if !ok {
+		return fmt.Errorf("start remote cluster: colocated instance is missing")
+	}
+	_, _ = fmt.Fprintln(a.stdout, "Cloning the repository and starting four Docker validators plus monitoring.")
+	if err := a.cloneRemoteRepo(ctx, state, host); err != nil {
+		return err
+	}
+	command := strings.Join([]string{
+		"cd " + shellQuote(state.AWS.RemoteDir),
+		"AUTOBAHN=true AUTOBAHN_EVMONLY=true DOCKER_DETACH=true make docker-cluster-start-monitoring",
+	}, " && ")
+	if err := a.remoteStream(ctx, state, host, command); err != nil {
+		return fmt.Errorf("start colocated cluster: %w", err)
 	}
 	return nil
 }

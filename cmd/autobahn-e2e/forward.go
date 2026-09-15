@@ -67,13 +67,14 @@ func (a *application) forward(ctx context.Context, options forwardOptions) error
 		if host.PublicIP == "" {
 			return fmt.Errorf("validator %s has no public IP", node.Name)
 		}
-		_, _ = fmt.Fprintf(a.stdout, "Forwarding %s to %s:%d through %s. Press Ctrl-C to stop.\n", localAddress, node.Name, awsEVMPort, host.PublicIP)
+		evmPort := state.AWS.evmPort(node)
+		_, _ = fmt.Fprintf(a.stdout, "Forwarding %s to %s:%d through %s. Press Ctrl-C to stop.\n", localAddress, node.Name, evmPort, host.PublicIP)
 		baseArgs := sshBaseArgsTo(state, host)
 		destination := baseArgs[len(baseArgs)-1]
 		args := append(baseArgs[:len(baseArgs)-1],
 			"-o", "ExitOnForwardFailure=yes",
 			"-N",
-			"-L", fmt.Sprintf("%s:127.0.0.1:%d", localAddress, awsEVMPort),
+			"-L", fmt.Sprintf("%s:127.0.0.1:%d", localAddress, evmPort),
 			destination,
 		)
 		return a.runner.stream(ctx, commandSpec{name: "ssh", args: args})
