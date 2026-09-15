@@ -52,7 +52,6 @@ type GigasimMetrics struct {
 	executionLoopPhases   *metrics.PhaseTimerFactory
 	blockProducingPhases  *metrics.PhaseTimerFactory
 	blockStoreWritePhases *metrics.PhaseTimerFactory
-	receiptWritePhases    *metrics.PhaseTimerFactory
 
 	pendingExecutionQueue *metrics.QueueMeter
 }
@@ -160,7 +159,6 @@ func NewGigasimMetrics() *GigasimMetrics {
 		executionLoopPhases:       metrics.NewPhaseTimerFactory(meter, "gigasim_execution_loop").RecordLatencies(),
 		blockProducingPhases:      metrics.NewPhaseTimerFactory(meter, "gigasim_block_producing_loop").RecordLatencies(),
 		blockStoreWritePhases:     metrics.NewPhaseTimerFactory(meter, "gigasim_blockstore_write"),
-		receiptWritePhases:        metrics.NewPhaseTimerFactory(meter, "gigasim_receipt_write"),
 		pendingExecutionQueue:     metrics.NewQueueMeter(meter, "gigasim_pending_execution"),
 	}
 }
@@ -195,16 +193,6 @@ func (m *GigasimMetrics) NewBlockStoreWriteTimer() *metrics.PhaseTimer {
 		return nil
 	}
 	return m.blockStoreWritePhases.Build()
-}
-
-// NewReceiptWriteTimer returns the timer breaking a receipt write into encoding the receipts and
-// handing them to the store. It subdivides the execution loop's write_receipts phase rather than
-// adding to it.
-func (m *GigasimMetrics) NewReceiptWriteTimer() *metrics.PhaseTimer {
-	if m == nil || m.receiptWritePhases == nil {
-		return nil
-	}
-	return m.receiptWritePhases.Build()
 }
 
 // NewTransactionPhaseTimer returns a phase timer for one executor. Each executor needs its own: a

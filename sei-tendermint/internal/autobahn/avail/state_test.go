@@ -25,12 +25,7 @@ func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload
 		if !ok {
 			return nil, ErrLaneClosed
 		}
-		n := q.next
-		var parent types.BlockHeaderHash
-		if q.first < q.next {
-			parent = q.q[q.next-1].Msg().Block().Header().Hash()
-		}
-		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
+		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, q.parentHash(), payload)))
 		q.pushBack(b)
 		ctrl.Updated()
 	}
@@ -558,6 +553,95 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.NoError(t, state.PushBlock(ctx, fakeProp))
 	// Queue did not advance — the bad block was dropped.
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+}
+
+func TestProduceLocalBlock_ParentHashSurvivesPrune(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	ds := newTestDataState(&data.Config{Registry: registry})
+	state := utils.OrPanic1(NewState(keys[0], ds, utils.Some(t.TempDir())))
+
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+	first, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+
+	// Drop the produced block from the lane queue, as eviction does once the
+	// block has been certified.
+	for inner := range state.inner.Lock() {
+		inner.blocks[lane].prune(1)
+	}
+
+	second, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, first.Msg().Block().Header().Hash(), second.Msg().Block().Header().ParentHash())
+}
+
+// TestProduceLocalBlock_ParentHashSurvivesRestart certifies the only block of
+// the local lane, restarts from disk with an Anchor that already covers it, and
+// checks that the next block still points to it.
+func TestProduceLocalBlock_ParentHashSurvivesRestart(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
+	dir := t.TempDir()
+	ds := newTestDataState(&data.Config{Registry: registry})
+
+	var state1 *State
+	var first *types.Signed[*types.LaneProposal]
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		if err != nil {
+			return err
+		}
+		state1 = state
+		s.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+
+		first, err = state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+		if err != nil {
+			return fmt.Errorf("ProduceLocalBlock: %w", err)
+		}
+		for _, vote := range makeLaneVotes(keys, first.Msg().Block().Header()) {
+			if err := state.PushVote(ctx, vote); err != nil {
+				return fmt.Errorf("PushVote: %w", err)
+			}
+		}
+		laneQCs, err := state.WaitForLaneQCs(ctx, ep, utils.None[*types.CommitQC]())
+		if err != nil {
+			return fmt.Errorf("WaitForLaneQCs: %w", err)
+		}
+		qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), laneQCs)
+		if err := state.PushCommitQC(ctx, qc); err != nil {
+			return fmt.Errorf("PushCommitQC: %w", err)
+		}
+		appHash := types.GenAppHash(rng)
+		appProposal := types.NewAppProposal(qc.Proposal(), appHash)
+		if err := ds.PushAppHash(ctx, appProposal.GlobalRange().Next-1, appHash, nil); err != nil {
+			return fmt.Errorf("PushAppHash: %w", err)
+		}
+		for _, vote := range makeAppVotes(keys, appProposal) {
+			if err := state.PushAppVote(ctx, vote); err != nil {
+				return fmt.Errorf("PushAppVote: %w", err)
+			}
+		}
+		// Data's Anchor covering the block is what makes the restart prune the
+		// lane past it.
+		_, err = ds.Anchor().Wait(ctx, func(a utils.Option[data.Anchor]) bool {
+			got, ok := a.Get()
+			return ok && got.CommitQC.Index() == qc.Index()
+		})
+		return err
+	}))
+	require.NoError(t, state1.Close())
+
+	state2, err := NewState(keys[0], ds, utils.Some(dir))
+	require.NoError(t, err)
+	require.Equal(t, first.Msg().Block().Header().Next(), state2.NextBlock(lane))
+	second, err := state2.ProduceLocalBlock(lane, state2.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, first.Msg().Block().Header().Hash(), second.Msg().Block().Header().ParentHash())
 }
 
 func TestPushBlockRejectsWrongSigner(t *testing.T) {

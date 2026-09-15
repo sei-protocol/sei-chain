@@ -662,11 +662,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		if q.next != n {
 			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, q.next)
 		}
-		var parent types.BlockHeaderHash
-		if q.first < q.next {
-			parent = q.q[q.next-1].Msg().Block().Header().Hash()
-		}
-		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
+		result = types.Sign(s.key, types.NewLaneProposal(types.NewBlock(lane, q.next, q.parentHash(), payload)))
 		q.pushBack(result)
 		ctrl.Updated()
 	}

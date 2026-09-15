@@ -218,7 +218,7 @@ func TestAddLane_ReportsNewLaneForEachMembershipPeriod(t *testing.T) {
 	a := types.GenSecretKey(rng)
 
 	i := &inner{
-		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
+		blocks:             map[types.LaneID]*blockQueue{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
@@ -249,7 +249,7 @@ func TestRefreshConsensusSpec_WithholdsTipUntilNextViewEpochApplied(t *testing.T
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep0}),
 		roads:              newQueue[types.RoadIndex, *road](),
-		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
+		blocks:             map[types.LaneID]*blockQueue{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
