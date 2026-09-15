@@ -55,7 +55,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	gigametrics.MainLoop().SetPhase(gigametrics.PhaseExecution)
+	gigametrics.SetPhase(gigametrics.PhaseExecution)
 	snapshot := stateStore.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
@@ -79,7 +79,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	gigametrics.MainLoop().SetPhase(gigametrics.PhaseStorage)
+	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	changesets, err := e.changeSetEncoder(result.ChangeSet)
 	if err != nil {
 		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)

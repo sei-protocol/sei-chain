@@ -29,10 +29,10 @@ var (
 
 	loopOnce sync.Once
 	loop     *seidbmetrics.PhaseTimer
+	loopMu   sync.Mutex
 )
 
-// SetupPrometheus publishes Autobahn and Giga storage OTel instruments on the
-// default Prometheus registerer, which seid serves at prometheus-listen-addr.
+// SetupPrometheus installs a Prometheus MeterProvider on the default registerer.
 func SetupPrometheus() error {
 	setupOnce.Do(func() {
 		exporter, err := otelprometheus.New(
@@ -48,7 +48,7 @@ func SetupPrometheus() error {
 	return setupErr
 }
 
-// MainLoop is the phase timer for Autobahn's single execute goroutine.
+// MainLoop is the phase timer for Autobahn's execute loop.
 func MainLoop() *seidbmetrics.PhaseTimer {
 	loopOnce.Do(func() {
 		loop = seidbmetrics.NewPhaseTimerFactory(otel.Meter(meterName), timerName).
@@ -56,4 +56,11 @@ func MainLoop() *seidbmetrics.PhaseTimer {
 			Build()
 	})
 	return loop
+}
+
+// SetPhase records a transition on Autobahn's execute-loop timer.
+func SetPhase(phase string) {
+	loopMu.Lock()
+	defer loopMu.Unlock()
+	MainLoop().SetPhase(phase)
 }

@@ -93,6 +93,10 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err != nil {
 		return err
 	}
+	grafanaCIDR, err := resolveGrafanaCIDR(options.grafanaCIDR, sshCIDR)
+	if err != nil {
+		return err
+	}
 
 	state := clusterState{
 		Version:   stateVersion,
@@ -145,7 +149,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err := client.authorizeTCP(ctx, state.AWS.SecurityGroupID, "22", sshCIDR); err != nil {
 		return fail(err)
 	}
-	if err := client.authorizeTCP(ctx, state.AWS.SecurityGroupID, strconv.Itoa(grafanaPublicPort), grafanaPublicCIDR); err != nil {
+	if err := client.authorizeTCP(ctx, state.AWS.SecurityGroupID, strconv.Itoa(grafanaPublicPort), grafanaCIDR); err != nil {
 		return fail(err)
 	}
 	if !state.AWS.colocated() {
@@ -240,9 +244,10 @@ func (a *application) launchDistributedInstances(ctx context.Context, client aws
 		validatorIDs []string
 		loadIDs      []string
 	)
-	launch, launchCtx := errgroup.WithContext(ctx)
+	// One launch failure must not cancel a sibling run-instances.
+	var launch errgroup.Group
 	launch.Go(func() error {
-		ids, err := client.runInstances(launchCtx, options, *state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
+		ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
 		if err != nil {
 			return err
 		}
@@ -253,7 +258,7 @@ func (a *application) launchDistributedInstances(ctx context.Context, client aws
 		return a.store().save(*state)
 	})
 	launch.Go(func() error {
-		ids, err := client.runInstances(launchCtx, options, *state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
+		ids, err := client.runInstances(ctx, options, *state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
 		if err != nil {
 			return err
 		}
@@ -408,6 +413,16 @@ func resolveVPC(ctx context.Context, client awsClient, subnetID string) (string,
 		return "", fmt.Errorf("no VPC found; pass --subnet-id")
 	}
 	return vpcID, nil
+}
+
+func resolveGrafanaCIDR(configured, sshCIDR string) (string, error) {
+	if configured == "" {
+		return sshCIDR, nil
+	}
+	if _, _, err := net.ParseCIDR(configured); err != nil {
+		return "", fmt.Errorf("invalid --grafana-cidr: %w", err)
+	}
+	return configured, nil
 }
 
 func resolveSSHCIDR(ctx context.Context, configured string) (string, error) {

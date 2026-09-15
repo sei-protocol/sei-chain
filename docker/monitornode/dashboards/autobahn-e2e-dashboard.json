@@ -250,7 +250,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "avg by (phase) (rate(autobahn_main_loop_phase_duration_seconds_total[$__rate_interval]))",
+          "expr": "avg by (phase) (rate(sei_chain_autobahn_main_loop_phase_duration_seconds_total[$__rate_interval]))",
           "legendFormat": "{{phase}}",
           "range": true,
           "refId": "A"
@@ -309,7 +309,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "editorMode": "code",
-          "expr": "avg by (phase) (rate(autobahn_main_loop_phase_duration_seconds_total[$__rate_interval]))",
+          "expr": "avg by (phase) (rate(sei_chain_autobahn_main_loop_phase_duration_seconds_total[$__rate_interval]))",
           "legendFormat": "{{phase}}",
           "range": true,
           "refId": "A"

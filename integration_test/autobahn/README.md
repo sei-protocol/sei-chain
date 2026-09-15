@@ -148,9 +148,10 @@ manager state directory with mode `0600`. To use an existing key pair instead:
   --ssh-key ~/.ssh/my-key-pair.pem
 ```
 
-The default security-group rule admits SSH from the public IP detected at
-deployment time, and Grafana from `0.0.0.0/0`. Use `--ssh-cidr` when a VPN,
-NAT, or IPv6 setup makes the SSH source incorrect. Use `--subnet-id` if the
+The default security-group rule admits SSH and Grafana from the public IP
+detected at deployment time. Use `--ssh-cidr` when a VPN, NAT, or IPv6 setup
+makes that source incorrect. Use `--grafana-cidr` to widen Grafana
+independently (for example `0.0.0.0/0`). Use `--subnet-id` if the
 region has no default VPC or the instance needs a specific public subnet.
 
 The default validator instance is `r7i.12xlarge` with 1024 GiB of gp3 storage
@@ -327,8 +328,9 @@ those methods are not exposed yet.
 ## Watch the dashboard
 
 An AWS deploy starts Prometheus and Grafana on the load instance and prints
-a public URL. Open that address (admin / admin) and select **Autobahn E2E**.
-Prometheus scrapes each validator at `<private-ip>:26660`.
+a URL reachable from the same CIDR as SSH. Open that address (admin / admin)
+and select **Autobahn E2E**. Prometheus scrapes each validator at
+`<private-ip>:26660`.
 
 For a local cluster, start the monitornode containers after the nodes are
 up. Prometheus scrapes each validator at `:26660` and Grafana provisions
