@@ -11,7 +11,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const ubuntuAMD64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
@@ -186,23 +189,38 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	defer func() { _ = os.Remove(userDataPath) }()
 
 	_, _ = fmt.Fprintf(a.stdout, "Launching %d validator instances and 1 load instance in %s.\n", awsValidatorCount, options.region)
-	validatorIDs, err := client.runInstances(ctx, options, state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
-	if err != nil {
+	var (
+		launchMu     sync.Mutex
+		validatorIDs []string
+		loadIDs      []string
+	)
+	launch, launchCtx := errgroup.WithContext(ctx)
+	launch.Go(func() error {
+		ids, err := client.runInstances(launchCtx, options, state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
+		if err != nil {
+			return err
+		}
+		launchMu.Lock()
+		defer launchMu.Unlock()
+		validatorIDs = ids
+		state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleValidator, ids)...)
+		return a.store().save(state)
+	})
+	launch.Go(func() error {
+		ids, err := client.runInstances(launchCtx, options, state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
+		if err != nil {
+			return err
+		}
+		launchMu.Lock()
+		defer launchMu.Unlock()
+		loadIDs = ids
+		state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleLoad, ids)...)
+		return a.store().save(state)
+	})
+	if err := launch.Wait(); err != nil {
 		return fail(err)
 	}
-	state.AWS.Hosts = hostsFromIDs(awsRoleValidator, validatorIDs)
-	if err := a.store().save(state); err != nil {
-		return err
-	}
-	loadIDs, err := client.runInstances(ctx, options, state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
-	if err != nil {
-		return fail(err)
-	}
-	state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleLoad, loadIDs)...)
 	allIDs := append(append([]string{}, validatorIDs...), loadIDs...)
-	if err := a.store().save(state); err != nil {
-		return err
-	}
 	if err := client.waitInstances(ctx, allIDs); err != nil {
 		return fail(err)
 	}
@@ -249,6 +267,12 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	}
 	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready with %d validator instances and 1 load instance.\n", state.Name, len(state.AWS.validators()))
 	_, _ = fmt.Fprintf(a.stdout, "Grafana: %s  (admin / admin)\n", grafanaPublicURL(state.AWS.PublicIP))
+	if load, ok := state.AWS.loadHost(); ok {
+		_, _ = fmt.Fprintf(a.stdout, "sei-load is not running. Start it on the load instance when you want traffic:\n")
+		_, _ = fmt.Fprintf(a.stdout, "  ssh -i %s %s@%s\n", expandHome(state.AWS.SSHKeyPath), state.AWS.SSHUser, load.PublicIP)
+		_, _ = fmt.Fprintf(a.stdout, "  cd %s && GOBIN=\"$PWD/build/tools\" go install github.com/sei-protocol/sei-load@%s\n", state.AWS.RemoteDir, seiLoadVersion)
+		_, _ = fmt.Fprintf(a.stdout, "  ./build/tools/sei-load --config integration_test/autobahn/sei-load.aws.json --metricsListenAddr 0.0.0.0:19698\n")
+	}
 	return nil
 }
 

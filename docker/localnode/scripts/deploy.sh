@@ -27,12 +27,17 @@ ensure_seid() {
 }
 
 run_build() {
-  if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
+  if [ -n "$SKIP_BUILD" ]
+  then
+    return
+  fi
+  # Local 4-in-1 compose shares build/; only node 0 compiles. AWS init
+  # runs one node per host, so every PHASE=init container compiles itself.
+  if [ "$NODE_ID" = 0 ] || [ "$PHASE" = "init" ]
   then
     /usr/bin/build.sh $MOCK_BALANCES
   fi
-
-  if ! [ "$SKIP_BUILD" ]
+  if [ "$PHASE" = "all" ]
   then
     until [ -f build/generated/build.complete ]
     do
