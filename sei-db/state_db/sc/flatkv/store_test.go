@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1596,15 +1597,31 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	defer s2.Close()
 	require.NoError(t, s2.LoadLatest())
 
-	// Applying a partial nonce update reads the old account back to merge onto it, and must reject the
-	// corrupted row instead of merging onto garbage.
+	// A partial nonce update has to be folded onto the account already stored, which the account store
+	// does off this thread. Applying the block therefore succeeds: the corrupted row has not been read
+	// yet, and nothing waits for it to be.
 	cs2 := &proto.NamedChangeSet{
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 99)}},
 	}
-	err = s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs2})
-	require.Error(t, err, "should fail on corrupted AccountValue")
-	require.Contains(t, err.Error(), "unsupported serialization version")
+	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs2}),
+		"the fold is scheduled, not performed, so applying the block cannot meet the corruption")
+
+	// The read is what meets it. It waits for the fold rather than racing it, so this is not timing
+	// dependent: the account either folds before the read arrives or the read waits for it, and both
+	// end at the same failure. Reads report a corrupted row by panicking (see CommitStore.Get).
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	cause := func() (recovered string) {
+		defer func() {
+			if r := recover(); r != nil {
+				recovered = fmt.Sprint(r)
+			}
+		}()
+		s2.Get("evm", nonceKey)
+		return ""
+	}()
+	require.Contains(t, cause, "unsupported serialization version",
+		"reading the folded account must report the corrupted row it was folded onto")
 }
 
 func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {

@@ -104,10 +104,14 @@ func (r *BlockResult) Release() {
 
 // OCCStats reports optimistic concurrency control behavior for a block.
 type OCCStats struct {
-	Attempted       bool
-	Fallback        bool
-	FallbackReason  string
-	RerunCount      uint64
+	Attempted      bool
+	Fallback       bool
+	FallbackReason string
+	RerunCount     uint64
+	// MaxIncarnation is the deepest incarnation any transaction in the block
+	// reached. 0 means no transaction was rerun; RerunCount counts reruns across
+	// the whole block, where this counts them for the worst single transaction.
+	MaxIncarnation  uint64
 	ConflictCount   uint64
 	ValidationCount uint64
 	ConflictSamples []OCCConflictCount

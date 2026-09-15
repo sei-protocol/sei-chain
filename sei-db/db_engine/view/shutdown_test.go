@@ -245,3 +245,86 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		2*time.Second, 10*time.Millisecond,
 		"manager goroutines leaked across create/use/close cycles")
 }
+
+// Close must not return while a fold staged by BatchUpdate is still reading its prior value: that
+// read goes through the database Close is about to release.
+func TestCloseAwaitsFoldReadingItsPriorValue(t *testing.T) {
+	db := newTestDB(map[string][]byte{"k": []byte("old")})
+	manager := newTestManagerWithDB(t, db, 1, 4096)
+
+	// Baseline past the construction-time initial-hash read, then gate all further DB reads.
+	base := db.getCalls.Load()
+	db.getGate = make(chan struct{})
+
+	// Release the gated read exactly once, and unconditionally on test failure, before the
+	// pool-draining cleanup registered at construction (t.Cleanup runs LIFO).
+	releaseGate := sync.OnceFunc(func() { close(db.getGate) })
+	t.Cleanup(releaseGate)
+
+	require.NoError(t, manager.BatchUpdate([]string{"k"}, markUpdater{mark: '+'}))
+	require.Eventually(t, func() bool { return db.getCalls.Load() > base },
+		2*time.Second, time.Millisecond, "the fold never reached the DB for its prior value")
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- manager.Close() }()
+
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned while a fold was still reading its prior value")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseGate()
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return after the fold's read was released")
+	}
+
+	require.Zero(t, db.getsAfterClose.Load(), "a fold read the database after it was closed")
+}
+
+// The production teardown order — manager, then pools, then DB (see CommitStore.Close) — must hold
+// with a fold in flight. The fold here has yet to schedule the read of one of its keys, so a Close
+// that returned before it resolved would leave it submitting that read to a closed pool.
+func TestCloseAwaitsFoldBeforeItSchedulesItsRead(t *testing.T) {
+	db := newTestDB(map[string][]byte{"a": []byte("old"), "b": []byte("old")})
+	readPool := threading.NewAdHocPool()
+	miscPool := threading.NewAdHocPool()
+	manager, err := NewViewManager(newTestConfig(1, 4096), db, readPool, miscPool)
+	require.NoError(t, err)
+
+	// The first batch parks mid-fold, holding the value the second batch folds onto.
+	parked := newParkedUpdater()
+	require.NoError(t, manager.BatchUpdate([]string{"a"}, parked))
+	<-parked.started
+
+	// The second batch takes "a" from the parked fold and "b" from the database. Prior values are
+	// awaited before any read is scheduled, so this fold parks with "b" unread.
+	require.NoError(t, manager.BatchUpdate([]string{"a", "b"}, markUpdater{mark: '+'}))
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- manager.Close() }()
+
+	select {
+	case <-closeDone:
+		close(parked.release)
+		t.Fatal("Close returned while two folds were still outstanding")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(parked.release)
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return after the parked fold was released")
+	}
+
+	// Closing the pools is what would panic on a fold that outlived Close.
+	readPool.Close()
+	miscPool.Close()
+	require.NoError(t, db.Close())
+	require.Zero(t, db.getsAfterClose.Load(), "a fold read the database after it was closed")
+}
