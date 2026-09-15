@@ -40,3 +40,15 @@ scrape_configs:
   #       target_label: instance
   #     - target_label: __address__
   #       replacement: 'host.docker.internal:9300'
+
+  # Autobahn e2e validators (seid prometheus-listen-addr). start-prometheus.sh attaches this
+  # container to the cluster network so these names resolve.
+  - job_name: 'autobahn-e2e'
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 'sei-node-0:26660'
+          - 'sei-node-1:26660'
+          - 'sei-node-2:26660'
+          - 'sei-node-3:26660'
+    scrape_interval: 5s
