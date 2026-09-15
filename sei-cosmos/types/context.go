@@ -28,6 +28,7 @@ and standard additions here would be better just to add to the Context struct
 type Context struct {
 	ctx                context.Context
 	ms                 MultiStore
+	multiStoreIdentity *multiStoreIdentity
 	nextMs             MultiStore          // ms of the next height; only used in tracing
 	nextStoreKeys      map[string]struct{} // store key names that should use nextMs
 	header             tmproto.Header
@@ -63,6 +64,7 @@ type Context struct {
 	evmVmError                          string      // EVM VM error during execution
 	evmEntryViaWasmdPrecompile          bool        // EVM is entered via wasmd precompile directly
 	evmPrecompileCalledFromDelegateCall bool        // EVM precompile is called from a delegate call
+	evmBalanceCache                     *EVMBalanceCache
 
 	messageIndex int // Used to track current message being processed
 	txIndex      int
@@ -275,15 +277,16 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool) Context {
 	// https://github.com/gogo/protobuf/issues/519
 	header.Time = header.Time.UTC()
 	return Context{
-		ctx:             context.Background(),
-		ms:              ms,
-		header:          header,
-		chainID:         header.ChainID,
-		checkTx:         isCheckTx,
-		gasMeter:        NewInfiniteGasMeter(1, 1),
-		minGasPrice:     DecCoins{},
-		eventManager:    NewEventManager(),
-		evmEventManager: NewEVMEventManager(),
+		ctx:                context.Background(),
+		ms:                 ms,
+		multiStoreIdentity: newMultiStoreIdentity(),
+		header:             header,
+		chainID:            header.ChainID,
+		checkTx:            isCheckTx,
+		gasMeter:           NewInfiniteGasMeter(1, 1),
+		minGasPrice:        DecCoins{},
+		eventManager:       NewEventManager(),
+		evmEventManager:    NewEVMEventManager(),
 	}
 }
 
@@ -296,6 +299,7 @@ func (c Context) WithContext(ctx context.Context) Context {
 // WithMultiStore returns a Context with an updated MultiStore.
 func (c Context) WithMultiStore(ms MultiStore) Context {
 	c.ms = ms
+	c.multiStoreIdentity = newMultiStoreIdentity()
 	return c
 }
 
