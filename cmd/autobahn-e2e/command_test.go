@@ -155,6 +155,7 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	require.Equal(t, os.FileMode(0o600), keyInfo.Mode().Perm())
 	require.Contains(t, stdout.String(), "Cluster aws-test is ready")
 	require.Contains(t, stdout.String(), "Grafana: http://203.0.113.20:3000")
+	require.Contains(t, stdout.String(), "passed status checks")
 
 	commands := joinedCommands(runner.commands)
 	require.Contains(t, commands, "authorize-security-group-ingress")
