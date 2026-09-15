@@ -715,6 +715,7 @@ func testEVMOnlyLoad(t *testing.T) {
 	lastHeight, included := waitForEVMOnlyTxs(t, ctx, listRunningNodes(t), len(block.Txs))
 	assertEVMOnlyReceipts(t, ctx, clients, block.Txs)
 	assertEVMOnlyBalances(t, ctx, clients, block.Txs)
+	assertEVMOnlyTransactionCount(t, ctx, clients, block.Txs)
 	assertEVMOnlyChainID(t, ctx, clients)
 	assertEVMOnlyBlockNumber(t, ctx, clients, lastHeight)
 	elapsed := time.Since(started)
@@ -737,6 +738,31 @@ func assertEVMOnlyBalances(t *testing.T, ctx context.Context, clients []*ethrpc.
 		}
 		if got.ToInt().Cmp(want) != 0 {
 			t.Fatalf("node %d returned balance %s for %s, want %s", nodeIndex, got.ToInt(), tx.To(), want)
+		}
+	}
+}
+
+// assertEVMOnlyTransactionCount checks eth_getTransactionCount against every
+// node: each transfer's sender starts at nonce 0 and sends exactly one
+// transaction, so its committed nonce should now be 1.
+func assertEVMOnlyTransactionCount(t *testing.T, ctx context.Context, clients []*ethrpc.Client, txs [][]byte) {
+	t.Helper()
+	signer := ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID))
+	for nodeIndex, client := range clients {
+		tx := new(ethtypes.Transaction)
+		if err := tx.UnmarshalBinary(txs[nodeIndex]); err != nil {
+			t.Fatalf("decode EVM-only transaction %d: %v", nodeIndex, err)
+		}
+		sender, err := ethtypes.Sender(signer, tx)
+		if err != nil {
+			t.Fatalf("recover EVM-only sender for transaction %d: %v", nodeIndex, err)
+		}
+		var got hexutil.Uint64
+		if err := client.CallContext(ctx, &got, "eth_getTransactionCount", sender, "latest"); err != nil {
+			t.Fatalf("read EVM-only transaction count %s from node %d: %v", sender, nodeIndex, err)
+		}
+		if got != 1 {
+			t.Fatalf("node %d returned transaction count %d for %s, want 1", nodeIndex, got, sender)
 		}
 	}
 }

@@ -434,11 +434,18 @@ cast chain-id --rpc-url http://127.0.0.1:8545
 ```
 
 `eth_getTransactionCount` accepts the `latest`, `safe`, `finalized`, and
-`pending` block tags; all four read the same current committed state, because
-Sei has instant finality. An explicit height, an explicit hash, or `earliest`
-returns an error: historical state is not available from this RPC.
-`eth_blockNumber` and `eth_chainId` take no block selector and always return
-the current height and the network's configured EVM chain ID.
+`pending` block tags, but all four resolve to the current committed nonce.
+`pending` is accepted so standard tooling that requests it (`cast send`,
+ethers, viem) keeps working, not because instant finality makes committed and
+pending equivalent: instant finality removes reorg risk, not the
+broadcast-to-commit window `pending` exists to cover. Two transactions sent
+back-to-back from the same key before the first commits are therefore
+assigned the same nonce, and the second is rejected; callers issuing rapid
+sequential sends must track the next nonce themselves rather than relying on
+`pending`. An explicit height, an explicit hash, or `earliest` returns an
+error: historical state is not available from this RPC. `eth_blockNumber` and
+`eth_chainId` take no block selector and always return the current height and
+the network's configured EVM chain ID.
 
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. There is no
 `eth_getTransactionByHash` or block API to discover a `sei-load` transfer hash,
