@@ -301,6 +301,22 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 	}, nil
 }
 
+// EvmTransactionCount returns the address transaction count (nonce) from the
+// current committed EVM state.
+func (env *Environment) EvmTransactionCount(address common.Address) uint64 {
+	return env.App.EvmNonce(address)
+}
+
+// EvmBlockNumber returns the height of the most recently committed block.
+func (env *Environment) EvmBlockNumber() uint64 {
+	return utils.Clamp[uint64](env.App.LastBlockHeight())
+}
+
+// EvmChainID returns the EVM chain ID this node is configured for.
+func (env *Environment) EvmChainID() uint64 {
+	return env.App.EvmChainID()
+}
+
 // CheckTx checks the transaction without executing it. The transaction won't
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
