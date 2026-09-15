@@ -60,13 +60,20 @@ func (a *application) forward(ctx context.Context, options forwardOptions) error
 		if state.AWS == nil {
 			return fmt.Errorf("aws metadata is missing")
 		}
-		_, _ = fmt.Fprintf(a.stdout, "Forwarding %s to %s:8545 through %s. Press Ctrl-C to stop.\n", localAddress, node.Name, state.AWS.PublicIP)
-		baseArgs := sshBaseArgs(state)
+		host, ok := state.AWS.validatorByIndex(node.Index)
+		if !ok {
+			host = awsHost{PublicIP: state.AWS.PublicIP}
+		}
+		if host.PublicIP == "" {
+			return fmt.Errorf("validator %s has no public IP", node.Name)
+		}
+		_, _ = fmt.Fprintf(a.stdout, "Forwarding %s to %s:%d through %s. Press Ctrl-C to stop.\n", localAddress, node.Name, awsEVMPort, host.PublicIP)
+		baseArgs := sshBaseArgsTo(state, host)
 		destination := baseArgs[len(baseArgs)-1]
 		args := append(baseArgs[:len(baseArgs)-1],
 			"-o", "ExitOnForwardFailure=yes",
 			"-N",
-			"-L", fmt.Sprintf("%s:127.0.0.1:%d", localAddress, node.EVMHostPort),
+			"-L", fmt.Sprintf("%s:127.0.0.1:%d", localAddress, awsEVMPort),
 			destination,
 		)
 		return a.runner.stream(ctx, commandSpec{name: "ssh", args: args})

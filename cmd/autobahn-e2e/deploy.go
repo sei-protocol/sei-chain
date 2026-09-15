@@ -51,7 +51,7 @@ func (a *application) newDeployCommand() *cobra.Command {
 	flags := cmd.Flags()
 	flags.StringVar(&options.name, "name", defaultClusterName, "cluster name")
 	flags.StringVar(&options.target, "target", targetLocal, "deployment target: local or aws")
-	flags.DurationVar(&options.timeout, "timeout", 20*time.Minute, "deployment readiness timeout")
+	flags.DurationVar(&options.timeout, "timeout", 40*time.Minute, "deployment readiness timeout")
 	flags.StringVar(&options.region, "region", "us-west-2", "AWS region")
 	flags.StringVar(&options.profile, "profile", "", "AWS CLI profile")
 	flags.StringVar(&options.instanceType, "instance-type", "r7i.12xlarge", "EC2 instance type")

@@ -2,6 +2,7 @@
 
 NODE_ID=${ID:-0}
 CLUSTER_SIZE=${CLUSTER_SIZE:-1}
+PHASE=${AUTOBAHN_E2E_PHASE:-all}
 
 # Clean up and env set up
 export GOPATH=$HOME/go
@@ -19,56 +20,95 @@ mkdir -p $GOBIN
 # here races with other nodes writing init/genesis/launch coordination files.
 mkdir -p build/generated
 
-# Step 0: Build on node 0
-if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
-then
-  /usr/bin/build.sh $MOCK_BALANCES
-fi
+ensure_seid() {
+  if [ -f build/seid ]; then
+    cp build/seid "$GOBIN"/
+  fi
+}
 
-if ! [ "$SKIP_BUILD" ]
-then
-  until [ -f build/generated/build.complete ]
-  do
-       sleep 1
-  done
-fi
+run_build() {
+  if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
+  then
+    /usr/bin/build.sh $MOCK_BALANCES
+  fi
 
-# Step 1: Run init on all nodes
-/usr/bin/configure_init.sh
+  if ! [ "$SKIP_BUILD" ]
+  then
+    until [ -f build/generated/build.complete ]
+    do
+         sleep 1
+    done
+  fi
+}
 
-# Step 2&3: Genesis on node 0
-if [ "$NODE_ID" = 0 ]
-then
-  # wait for other nodes init complete
-  until [ -f build/generated/init.complete ]
-  do
-       sleep 1
-  done
-  while [ $(cat build/generated/init.complete |wc -l) -lt "$CLUSTER_SIZE" ]
-  do
-       sleep 1
-  done
+run_init() {
+  /usr/bin/configure_init.sh
+}
+
+run_genesis() {
+  if [ "$NODE_ID" != 0 ]
+  then
+    return
+  fi
+  if [ "$PHASE" = "all" ]
+  then
+    until [ -f build/generated/init.complete ]
+    do
+         sleep 1
+    done
+    while [ $(cat build/generated/init.complete |wc -l) -lt "$CLUSTER_SIZE" ]
+    do
+         sleep 1
+    done
+  fi
   echo "Running genesis on node 0"
   /usr/bin/genesis.sh
-fi
+}
 
-until [ -f build/generated/genesis.json ]
-do
-     sleep 1
-done
+run_start() {
+  until [ -f build/generated/genesis.json ]
+  do
+       sleep 1
+  done
 
-# Step 4: Config overrides
-/usr/bin/config_override.sh
+  /usr/bin/config_override.sh
+  /usr/bin/start_sei.sh
 
-# Step 5: Start the chain
-/usr/bin/start_sei.sh
+  if [ "$PHASE" = "all" ]
+  then
+    while [ $(cat build/generated/launch.complete |wc -l) -lt "$CLUSTER_SIZE" ]
+    do
+      sleep 1
+    done
+    sleep 5
+    echo "All $CLUSTER_SIZE Nodes started successfully."
+  fi
+  tail -f /dev/null
+}
 
-# Wait until the chain started
-while [ $(cat build/generated/launch.complete |wc -l) -lt "$CLUSTER_SIZE" ]
-do
-  sleep 1
-done
-sleep 5
-echo "All $CLUSTER_SIZE Nodes started successfully."
-
-tail -f /dev/null
+case "$PHASE" in
+  init)
+    run_build
+    run_init
+    echo "init phase complete for node $NODE_ID"
+    ;;
+  genesis)
+    ensure_seid
+    run_genesis
+    echo "genesis phase complete"
+    ;;
+  start)
+    ensure_seid
+    run_start
+    ;;
+  all)
+    run_build
+    run_init
+    run_genesis
+    run_start
+    ;;
+  *)
+    echo "unknown AUTOBAHN_E2E_PHASE=$PHASE" >&2
+    exit 1
+    ;;
+esac

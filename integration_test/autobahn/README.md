@@ -1,8 +1,10 @@
 # Autobahn EVM-only E2E clusters
 
 `autobahn-e2e` manages the four-validator, disk-backed EVM-only Autobahn
-topology used for integration and load testing. It can run the topology in
-local Docker or on one AWS EC2 instance.
+topology used for integration and load testing. Locally it runs all four
+validators in Docker on one host. On AWS it places each validator on its
+own EC2 instance and adds a fifth instance that scrapes metrics and runs
+`sei-load` against all four.
 
 Run every command in this document from the root of a `sei-chain` checkout.
 The examples use the default cluster name, `autobahn-evmonly`. If `--name` is
@@ -69,10 +71,13 @@ replace existing `sei-node-*` containers or existing manager metadata.
 
 ## Start a cluster on AWS
 
-The AWS target creates one Ubuntu EC2 host and runs the same four-node Docker
-topology on it, plus Prometheus and Grafana. The managed security group admits
-SSH from the caller and Grafana (`:3000`) from the internet. EVM JSON-RPC
-stays private and is accessed through `forward`.
+The AWS target creates five Ubuntu EC2 hosts: four validators and one
+load/monitoring instance. Each validator runs a single `seid` container that
+advertises the instance's private IP. The load instance runs Prometheus,
+Grafana, and `sei-load` pointed at all four private EVM endpoints. The
+managed security group admits SSH from the caller, Grafana (`:3000`) from
+the internet, and all TCP between the five instances. EVM JSON-RPC stays
+off the public internet and is accessed through `forward`.
 
 ```sh
 ./autobahn-e2e deploy --target aws \
@@ -87,7 +92,16 @@ admin). `list` repeats it under `DASHBOARD`. Open **Autobahn E2E**. The
 login is the default Grafana pair on a temporary test host; tear the
 cluster down when finished.
 
-In another terminal, forward one node to the load-generator host:
+Deploy starts `sei-load` on the fifth instance against
+`http://<validator-private-ip>:8545` for every validator, using the same
+defaults as [`sei-load.local.json`](sei-load.local.json) (250 TPS). SSH to
+the load host to change the config and restart it:
+
+```sh
+ssh -i ~/.sei/autobahn-e2e/my-autobahn.pem ubuntu@<load-public-ip>
+```
+
+In another terminal, forward one validator to the laptop:
 
 ```sh
 ./autobahn-e2e forward \
@@ -96,11 +110,10 @@ In another terminal, forward one node to the load-generator host:
   --local-port 18545
 ```
 
-One forwarded endpoint is sufficient: validator EVM proxying is enabled by
-default, so transactions submitted to node 0 are forwarded to the Autobahn
-validator that owns the sender's shard. To distribute load across all four
-entry points, start four `forward` processes with distinct local ports and put
-all four URLs in the `sei-load` configuration.
+One forwarded endpoint is sufficient for `cast` and similar tools:
+validator EVM proxying is enabled by default, so transactions submitted
+to node 0 are forwarded to the Autobahn validator that owns the sender's
+shard.
 
 AWS credentials use the AWS CLI credential chain. Use `--profile NAME` to
 select a profile. If no credentials work in an interactive terminal, the
@@ -122,11 +135,14 @@ deployment time, and Grafana from `0.0.0.0/0`. Use `--ssh-cidr` when a VPN,
 NAT, or IPv6 setup makes the SSH source incorrect. Use `--subnet-id` if the
 region has no default VPC or the instance needs a specific public subnet.
 
-The default instance is `r7i.12xlarge` with 1024 GiB of gp3 storage
+The default validator instance is `r7i.12xlarge` with 1024 GiB of gp3 storage
 (10000 IOPS, 1000 MB/s) and the
-current Ubuntu 24.04 AMD64 AMI from AWS Systems Manager. Override the disk
-with `--volume-size`, `--volume-iops`, and `--volume-throughput`. When changing
-architecture, override `--instance-type` and `--ami-id` together.
+current Ubuntu 24.04 AMD64 AMI from AWS Systems Manager. The load instance
+uses the same AMI and instance type with a 100 GiB gp3 root volume. Override
+the validator disk with `--volume-size`, `--volume-iops`, and
+`--volume-throughput`. When changing architecture, override `--instance-type`
+and `--ami-id` together. `--timeout` defaults to 40 minutes to cover the
+image build, `seid` compile, and five-instance bootstrap.
 `--repo-url` and `--ref` select the source built remotely; they default to this
 checkout's origin and current commit. The selected commit must be reachable
 from the EC2 host, so uncommitted local changes are not deployed.
@@ -211,8 +227,11 @@ GOBIN="$PWD/build/tools" go install github.com/sei-protocol/sei-load@v0.0.1
 ```
 
 The checked-in [`sei-load.local.json`](sei-load.local.json) is a ready local
-four-endpoint configuration. For AWS with the single tunnel shown above, copy
-it and change `endpoints` to only `http://127.0.0.1:18545`.
+four-endpoint configuration. An AWS deploy writes
+`integration_test/autobahn/sei-load.aws.json` on the load instance with the
+four private EVM URLs and starts `sei-load` from there. To drive load from
+the laptop instead, copy the local file and point `endpoints` at one or
+more `forward` tunnels.
 
 Start load and press Ctrl-C to stop it cleanly:
 
@@ -289,8 +308,9 @@ those methods are not exposed yet.
 
 ## Watch the dashboard
 
-An AWS deploy starts Prometheus and Grafana on the instance and prints a
-public URL. Open that address (admin / admin) and select **Autobahn E2E**.
+An AWS deploy starts Prometheus and Grafana on the load instance and prints
+a public URL. Open that address (admin / admin) and select **Autobahn E2E**.
+Prometheus scrapes each validator at `<private-ip>:26660`.
 
 For a local cluster, start the monitornode containers after the nodes are
 up. Prometheus scrapes each validator at `:26660` and Grafana provisions
@@ -397,7 +417,7 @@ Stop the local containers and remove their manager metadata:
 ./autobahn-e2e teardown --name autobahn-evmonly
 ```
 
-Stop an AWS cluster and remove the EC2 instance, security group, managed key
+Stop an AWS cluster and remove the five EC2 instances, security group, managed key
 pair, local managed private key, and manager metadata:
 
 ```sh
