@@ -149,8 +149,8 @@ func (a *application) collectValidatorArtifacts(ctx context.Context, state clust
 func (a *application) distributeGenesis(ctx context.Context, state clusterState, validators []awsHost) error {
 	primary := validators[0]
 	bundle := "/tmp/autobahn-e2e-genesis.tgz"
-	nodeDirs := make([]string, 0, len(validators)+1)
-	nodeDirs = append(nodeDirs, "genesis.json")
+	nodeDirs := make([]string, 0, len(validators)+2)
+	nodeDirs = append(nodeDirs, "genesis.json", "persistent_peers.txt")
 	for _, host := range validators {
 		nodeDirs = append(nodeDirs, fmt.Sprintf("node_%d", host.Index))
 	}

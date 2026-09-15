@@ -252,7 +252,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 
-	gigametrics.MainLoop().SetPhase(gigametrics.PhaseStorage)
+	gigametrics.SetPhase(gigametrics.PhaseStorage)
 
 	// Commit this height's app hash to the equivocation guard before persisting app state, so the
 	// vault always records our commitment to a height before the state it implies is committed (and
@@ -458,14 +458,13 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}
 
-	loop := gigametrics.MainLoop()
 	for n := next; ; n += 1 {
-		loop.SetPhase(gigametrics.PhaseConsensus)
+		gigametrics.SetPhase(gigametrics.PhaseConsensus)
 		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
-		loop.SetPhase(gigametrics.PhaseExecution)
+		gigametrics.SetPhase(gigametrics.PhaseExecution)
 		commitResp, err := r.executeBlock(ctx, b, hashVault)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)

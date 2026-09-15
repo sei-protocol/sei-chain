@@ -29,6 +29,7 @@ type deployOptions struct {
 	amiID            string
 	subnetID         string
 	sshCIDR          string
+	grafanaCIDR      string
 	sshUser          string
 	keyName          string
 	sshKeyPath       string
@@ -59,6 +60,7 @@ func (a *application) newDeployCommand() *cobra.Command {
 	flags.StringVar(&options.amiID, "ami-id", "", "EC2 AMI ID; defaults to Ubuntu 24.04 AMD64")
 	flags.StringVar(&options.subnetID, "subnet-id", "", "EC2 subnet; defaults to a default VPC subnet")
 	flags.StringVar(&options.sshCIDR, "ssh-cidr", "", "CIDR allowed to SSH; defaults to the caller's public IP")
+	flags.StringVar(&options.grafanaCIDR, "grafana-cidr", "", "CIDR allowed to reach Grafana :3000; defaults to --ssh-cidr")
 	flags.StringVar(&options.sshUser, "ssh-user", "ubuntu", "EC2 SSH user")
 	flags.StringVar(&options.keyName, "key-name", "", "existing EC2 key pair name; omitted creates a managed key")
 	flags.StringVar(&options.sshKeyPath, "ssh-key", "", "private key for --key-name")

@@ -162,8 +162,10 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	require.Contains(t, commands, "authorize-security-group-ingress")
 	require.Contains(t, commands, "--cidr 198.51.100.4/32")
 	require.Contains(t, commands, "--port 3000")
-	require.Contains(t, commands, "--cidr 0.0.0.0/0")
+	require.Contains(t, commands, "--port 22")
+	require.NotContains(t, commands, "--cidr 0.0.0.0/0")
 	require.Contains(t, commands, "UserIdGroupPairs")
+	require.Contains(t, commands, "autobahn-e2e-genesis.tgz' genesis.json persistent_peers.txt")
 	require.Contains(t, commands, "--count 4")
 	require.Contains(t, commands, "--count 1")
 	require.Contains(t, commands, "docker-aws-validator-init")
@@ -491,6 +493,68 @@ func TestPrometheusAndLoadConfigUsePrivateEVMEndpoints(t *testing.T) {
 func TestGrafanaPublicURL(t *testing.T) {
 	require.Equal(t, "", grafanaPublicURL(""))
 	require.Equal(t, "http://203.0.113.10:3000", grafanaPublicURL("203.0.113.10"))
+}
+
+func TestResolveGrafanaCIDR(t *testing.T) {
+	got, err := resolveGrafanaCIDR("", "198.51.100.4/32")
+	require.NoError(t, err)
+	require.Equal(t, "198.51.100.4/32", got)
+
+	got, err = resolveGrafanaCIDR("0.0.0.0/0", "198.51.100.4/32")
+	require.NoError(t, err)
+	require.Equal(t, "0.0.0.0/0", got)
+
+	_, err = resolveGrafanaCIDR("not-a-cidr", "198.51.100.4/32")
+	require.Error(t, err)
+}
+
+func TestAWSDeployGrafanaCIDRCanBeWidened(t *testing.T) {
+	stateDir := t.TempDir()
+	runner := &fakeRunner{}
+	runner.outputFn = func(spec commandSpec) (string, error) {
+		joined := strings.Join(spec.args, " ")
+		switch {
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return `{}`, nil
+		case strings.Contains(joined, "describe-vpcs"):
+			return "vpc-123\n", nil
+		case strings.Contains(joined, "create-security-group"):
+			return "sg-123\n", nil
+		case strings.Contains(joined, "create-key-pair"):
+			return "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n", nil
+		case strings.Contains(joined, "run-instances"):
+			if strings.Contains(joined, "Value=load") {
+				return "i-load\n", nil
+			}
+			return "i-v0\ti-v1\ti-v2\ti-v3\n", nil
+		case strings.Contains(joined, "describe-instances"):
+			return "i-v0\t203.0.113.10\t10.0.0.10\ni-v1\t203.0.113.11\t10.0.0.11\ni-v2\t203.0.113.12\t10.0.0.12\ni-v3\t203.0.113.13\t10.0.0.13\ni-load\t203.0.113.20\t10.0.0.20\n", nil
+		case spec.name == "ssh":
+			return "", nil
+		default:
+			return "", nil
+		}
+	}
+	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, stateDir: stateDir}
+	require.NoError(t, app.deploy(context.Background(), deployOptions{
+		name:             "grafana-open",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		grafanaCIDR:      "0.0.0.0/0",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://github.com/sei-protocol/sei-chain.git",
+		ref:              "deadbeef",
+		topology:         awsTopologyDistributed,
+	}))
+	require.Contains(t, joinedCommands(runner.commands), "--cidr 0.0.0.0/0")
+	require.Contains(t, joinedCommands(runner.commands), "--port 3000")
 }
 
 func TestShellQuote(t *testing.T) {
