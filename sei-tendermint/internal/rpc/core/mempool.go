@@ -26,6 +26,14 @@ func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Cli
 	return utils.None[*ethrpc.Client]()
 }
 
+// EvmProxyEnabled reports whether EvmProxy can return a client for any sender.
+func (env *Environment) EvmProxyEnabled() bool {
+	if r, ok := env.gigaRouter().Get(); ok {
+		return r.EvmProxyEnabled()
+	}
+	return false
+}
+
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
 	if giga, ok := env.gigaRouter().Get(); ok {
 		if v, ok := giga.Mempool().Get(); ok {

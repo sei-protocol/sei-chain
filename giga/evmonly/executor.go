@@ -101,7 +101,7 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, e.cfg.ParseWorkers)
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.KnownSender, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}

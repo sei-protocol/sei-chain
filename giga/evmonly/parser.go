@@ -9,7 +9,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, workers int) ([]PreparedTx, error) {
+// knownSenderFunc returns the already verified sender of the transaction with
+// the given hash. A nil function knows no senders.
+type knownSenderFunc func(common.Hash) (common.Address, bool)
+
+func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, known knownSenderFunc, workers int) ([]PreparedTx, error) {
 	parsed := make([]PreparedTx, len(txs))
 	if len(txs) == 0 {
 		return parsed, nil
@@ -19,7 +23,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, wo
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			prepared, err := parsePreparedTx(raw, signer)
+			prepared, err := parsePreparedTx(raw, signer, known)
 			if err != nil {
 				return nil, fmt.Errorf("parse tx %d: %w", i, err)
 			}
@@ -45,7 +49,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, wo
 	for range workers {
 		g.Go(func() error {
 			for i := range jobs {
-				prepared, err := parsePreparedTx(txs[i], signer)
+				prepared, err := parsePreparedTx(txs[i], signer, known)
 				if err != nil {
 					return fmt.Errorf("parse tx %d: %w", i, err)
 				}
@@ -60,25 +64,46 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, wo
 	return parsed, nil
 }
 
-func parsePreparedTx(raw []byte, signer ethtypes.Signer) (PreparedTx, error) {
-	tx, sender, err := parseTx(raw, signer)
+// parsePreparedTx decodes raw and resolves its sender. The sender is taken from
+// known when it has an entry for the decoded transaction's hash, which binds the
+// remembered sender to exactly these bytes; otherwise it is recovered from the
+// signature.
+func parsePreparedTx(raw []byte, signer ethtypes.Signer, known knownSenderFunc) (PreparedTx, error) {
+	tx, err := decodeRawTx(raw)
 	if err != nil {
 		return PreparedTx{}, err
 	}
 	if err := validateSupportedTx(tx); err != nil {
 		return PreparedTx{}, err
 	}
+	if known != nil {
+		if sender, ok := known(tx.Hash()); ok {
+			return PreparedTx{Tx: tx, Sender: sender}, nil
+		}
+	}
+	sender, err := ethtypes.Sender(signer, tx)
+	if err != nil {
+		return PreparedTx{}, err
+	}
 	return PreparedTx{Tx: tx, Sender: sender}, nil
 }
 
 func parseTx(raw []byte, signer ethtypes.Signer) (*ethtypes.Transaction, common.Address, error) {
-	var tx ethtypes.Transaction
-	if err := tx.UnmarshalBinary(raw); err != nil {
-		return nil, common.Address{}, err
-	}
-	sender, err := ethtypes.Sender(signer, &tx)
+	tx, err := decodeRawTx(raw)
 	if err != nil {
 		return nil, common.Address{}, err
 	}
-	return &tx, sender, nil
+	sender, err := ethtypes.Sender(signer, tx)
+	if err != nil {
+		return nil, common.Address{}, err
+	}
+	return tx, sender, nil
+}
+
+func decodeRawTx(raw []byte) (*ethtypes.Transaction, error) {
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		return nil, err
+	}
+	return tx, nil
 }

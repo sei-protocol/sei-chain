@@ -30,6 +30,11 @@ func evmOnlyBaseFee() *big.Int { return new(big.Int) }
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
+// checkedSendersCap bounds the senders remembered from CheckTx. Entries are
+// dropped as their transactions execute; the cap only guards against admitted
+// transactions that never reach a block.
+const checkedSendersCap = 1 << 18
+
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
@@ -39,6 +44,10 @@ type evmOnlyApplication struct {
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
 	state            utils.Mutex[*evmOnlyState]
+	// checkedSenders maps the hash of every transaction this process admitted
+	// in CheckTx to the sender recovered there, so execution does not recover
+	// it again.
+	checkedSenders utils.Mutex[map[common.Hash]common.Address]
 }
 
 type evmOnlyState struct {
@@ -76,6 +85,7 @@ func NewEVMOnlyApplication(
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
+		checkedSenders:   utils.NewMutex(map[common.Hash]common.Address{}),
 	}
 }
 
@@ -174,6 +184,7 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 	if !ok {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
+	a.rememberSender(tx.Hash(), sender)
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:         abci.CodeTypeOK,
@@ -185,6 +196,32 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 		EVMHash:          tx.Hash(),
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
+	}
+}
+
+func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {
+	for senders := range a.checkedSenders.Lock() {
+		if len(senders) >= checkedSendersCap {
+			clear(senders)
+		}
+		senders[hash] = sender
+	}
+}
+
+// knownSender returns the sender CheckTx recovered for hash, if any.
+func (a *evmOnlyApplication) knownSender(hash common.Hash) (common.Address, bool) {
+	for senders := range a.checkedSenders.Lock() {
+		sender, ok := senders[hash]
+		return sender, ok
+	}
+	panic("unreachable")
+}
+
+func (a *evmOnlyApplication) forgetSenders(result *evmonly.BlockResult) {
+	for senders := range a.checkedSenders.Lock() {
+		for _, tx := range result.Txs {
+			delete(senders, tx.Hash)
+		}
 	}
 }
 
@@ -275,12 +312,14 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlockHash:   blockHash,
 				PrevRandao:  crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp)),
 			},
-			Txs: req.Txs,
+			Txs:         req.Txs,
+			KnownSender: a.knownSender,
 		})
 		if err != nil {
 			return nil, err
 		}
 		defer result.Release()
+		a.forgetSenders(result)
 		appHash, err := hashEVMOnlyResult(state.appHash, number, blockHash, result)
 		if err != nil {
 			return nil, err

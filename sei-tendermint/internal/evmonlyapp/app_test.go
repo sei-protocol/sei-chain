@@ -192,6 +192,34 @@ func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	require.Equal(t, firstResponse.AppHash, secondResponse.AppHash)
 }
 
+func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
+	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	request := &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("checked-block")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	}
+	checked := newInitializedEVMOnlyTestApp(t)
+	unchecked := newInitializedEVMOnlyTestApp(t)
+
+	check := checked.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+	require.True(t, check.IsOK())
+	require.Equal(t, sender, check.EVMSenderAddress)
+	checkedResponse, err := checked.FinalizeBlock(t.Context(), request)
+	require.NoError(t, err)
+	uncheckedResponse, err := unchecked.FinalizeBlock(t.Context(), request)
+	require.NoError(t, err)
+
+	require.Equal(t, uncheckedResponse.AppHash, checkedResponse.AppHash)
+	require.Equal(t, uncheckedResponse.TxResults[0].GasUsed, checkedResponse.TxResults[0].GasUsed)
+	_, err = checked.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), checked.EvmNonce(sender))
+}
+
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 

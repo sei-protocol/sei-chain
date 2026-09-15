@@ -19,9 +19,10 @@ import (
 )
 
 type testBackend struct {
-	broadcast func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
-	block     func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
-	proxy     utils.Option[*ethrpc.Client]
+	broadcast  func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	block      func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
+	proxy      utils.Option[*ethrpc.Client]
+	proxyCalls int
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
@@ -33,7 +34,12 @@ func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo
 }
 
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
+	b.proxyCalls++
 	return b.proxy
+}
+
+func (b *testBackend) EvmProxyEnabled() bool {
+	return b.proxy.IsPresent()
 }
 
 func TestSendRawTransaction(t *testing.T) {
@@ -65,6 +71,20 @@ func TestSendRawTransaction(t *testing.T) {
 	require.ErrorContains(t, err, "method eth_chainId does not exist")
 	err = client.CallContext(t.Context(), nil, "status")
 	require.ErrorContains(t, err, "method status does not exist")
+}
+
+func TestSkipsShardLookupWithoutProxies(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			return &coretypes.ResultBroadcastTx{}, nil
+		},
+		proxy: utils.None[*ethrpc.Client](),
+	}
+	got, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash(), got)
+	require.Zero(t, backend.proxyCalls)
 }
 
 func TestRejectsInvalidTransaction(t *testing.T) {
