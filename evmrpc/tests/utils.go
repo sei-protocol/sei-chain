@@ -20,6 +20,7 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -187,11 +188,10 @@ func setupTestServer(
 	}
 	pinStateStoreLatestVersion(a, ctxProvider)
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
-		latest := int64(math.MaxInt64)
-		if err := store.SetLatestVersion(latest); err != nil {
+		// These tests seed receipts by other means and would otherwise read against an unset window.
+		if err := receipt.PinVersions(store, 1, math.MaxInt64); err != nil {
 			panic(err)
 		}
-		_ = store.SetEarliestVersion(1)
 	}
 	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a, ctxProvider: ctxProvider}
 }

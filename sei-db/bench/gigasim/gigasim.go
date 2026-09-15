@@ -18,7 +18,7 @@ import (
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 // GigaSim runs the benchmark, driving generated blocks through the block store, the state DB and the
@@ -401,7 +401,7 @@ func (g *GigaSim) finalizeSetupBlock() error {
 	if err := g.blocks.writeBlock(number, payload); err != nil {
 		return err
 	}
-	if err := g.persistExecutionResults(number, nil, g.accounts.Counters()); err != nil {
+	if err := g.persistExecutionResults(number, nil, 0, g.accounts.Counters()); err != nil {
 		return err
 	}
 	g.accounts.ReportEndOfBlock()
@@ -472,7 +472,7 @@ func (g *GigaSim) halt() {
 func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 	g.executeBlock(block)
 
-	if err := g.persistExecutionResults(block.number, block.receipts, block.counters); err != nil {
+	if err := g.persistExecutionResults(block.number, block.receiptRecords, block.receiptBytes, block.counters); err != nil {
 		return err
 	}
 
@@ -514,12 +514,13 @@ func (g *GigaSim) executeBlock(block *simulatedBlock) {
 // the reverse leaves committed state whose receipts were dropped.
 func (g *GigaSim) persistExecutionResults(
 	number int64,
-	receipts []*evmtypes.Receipt,
+	records []receipt.ReceiptRecord,
+	receiptBytes int64,
 	counters identifierCounters,
 ) error {
 	if g.receipts != nil {
 		g.lifecycle.SetPhase("write_receipts")
-		if err := g.receipts.writeBlock(number, receipts); err != nil {
+		if err := g.receipts.writeBlock(number, records, receiptBytes); err != nil {
 			return err
 		}
 	}
