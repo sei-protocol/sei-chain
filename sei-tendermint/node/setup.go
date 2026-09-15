@@ -270,6 +270,7 @@ func buildValidatorGigaConfig(
 			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
 			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
 			BlockInterval:           time.Duration(fc.BlockInterval),
+			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nil
 }
