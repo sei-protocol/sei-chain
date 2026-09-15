@@ -12,6 +12,11 @@ import (
 
 //go:generate go run gen_blake3_xof16.go
 
+// vzeroupper clears the upper halves of the vector registers.
+//
+//go:noescape
+func vzeroupper()
+
 // simdBackendName is the name reported by ActiveBackend for the AVX-512 path.
 const simdBackendName = "simd"
 
@@ -22,11 +27,24 @@ func simdBackend() (backend, bool) {
 	if !archsimd.X86.AVX512() || !archsimd.X86.AVX512VBMI2() {
 		return backend{}, false
 	}
+	// The compiler emits no VZEROUPPER after AVX-512 code, and legacy-SSE code
+	// in the caller (memmove, SHA-NI) runs several times slower while the upper
+	// halves are dirty, so every kernel is wrapped here rather than trusting
+	// each one to clear them.
 	return backend{
-		name:   simdBackendName,
-		expand: expandSIMD,
-		add:    addSIMD,
-		sub:    subSIMD,
+		name: simdBackendName,
+		expand: func(data []byte, dst *LtHash) {
+			expandSIMD(data, dst)
+			vzeroupper()
+		},
+		add: func(dst, src *LtHash) {
+			addSIMD(dst, src)
+			vzeroupper()
+		},
+		sub: func(dst, src *LtHash) {
+			subSIMD(dst, src)
+			vzeroupper()
+		},
 	}, true
 }
 
