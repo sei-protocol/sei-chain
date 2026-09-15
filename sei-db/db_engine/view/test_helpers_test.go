@@ -42,6 +42,9 @@ type testDB struct {
 	commitBlock   chan struct{}
 	getGate       chan struct{}
 	closed        atomic.Bool
+	// Incremented when a Get reaches the store after Close. Lets tests assert that nothing read the
+	// database once it was released.
+	getsAfterClose atomic.Int64
 	// Batch lifecycle counters: batchesCreated increments in NewBatch, batchesClosed on a
 	// batch's first Close. Lets tests assert every created batch is released (types.Batch
 	// requires Close even after a successful Commit).
@@ -61,6 +64,9 @@ func (d *testDB) Get(key []byte) ([]byte, error) {
 	d.getCalls.Add(1)
 	if d.getGate != nil {
 		<-d.getGate
+	}
+	if d.closed.Load() {
+		d.getsAfterClose.Add(1)
 	}
 	if d.getErr != nil {
 		return nil, d.getErr

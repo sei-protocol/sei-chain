@@ -1203,12 +1203,27 @@ func (c *viewManager) Close() error {
 	return c.closeErr
 }
 
+// awaitOutstandingFolds blocks until every fold staged by BatchUpdate has resolved in every shard.
+//
+// A fold is the manager's only background work that no caller waits for: it runs on a pool, reads
+// through to the database the manager owns, and submits that read to a pool the manager's owner
+// closes once Close returns. Close calls this before cancelling, so that a fold in flight resolves
+// against an open database instead of abandoning a read that would then race db.Close, and outside
+// versionLock, which a failing fold takes to brick the manager.
+func (c *viewManager) awaitOutstandingFolds() {
+	for _, s := range c.shards {
+		s.AwaitOutstandingFolds()
+	}
+}
+
 func (c *viewManager) closeInternal() error {
 	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
 	// buffered, so it does not block when the runner has already exited (manager failure), and
 	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
 	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
+
+	c.awaitOutstandingFolds()
 
 	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
 	// View callers, and reads still awaiting results. The cancel happens under versionLock

@@ -670,6 +670,26 @@ func (s *shard) awaitVersionFoldsUnlocked(version uint64) error {
 	return nil
 }
 
+// AwaitOutstandingFolds blocks until every fold this shard has staged has resolved, whatever it
+// resolved to.
+//
+// The wait is not interruptible: it exists to keep a shutdown from overtaking a fold, and a manager
+// that has already failed has already cancelled the context an interruptible wait would observe.
+// Every fold resolves its version's latch whether it produced a value or failed, so the wait
+// terminates either way.
+func (s *shard) AwaitOutstandingFolds() {
+	s.lock.RLock()
+	latches := make([]*versionLatch, 0, len(s.versionLatches))
+	for _, latch := range s.versionLatches {
+		latches = append(latches, latch)
+	}
+	s.lock.RUnlock()
+
+	for _, latch := range latches {
+		<-latch.done
+	}
+}
+
 // FoldStagedValues folds every value a batch staged and records what each produced. Either every fold
 // in the batch is recorded or none is.
 func (s *shard) FoldStagedValues(folds []stagedFold, updater BatchUpdater, version uint64) {
