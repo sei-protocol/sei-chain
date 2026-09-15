@@ -64,16 +64,17 @@ func (a *application) teardownAWS(ctx context.Context, state clusterState) error
 			if host.PublicIP == "" {
 				continue
 			}
-			command := "cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-aws-validator-stop"
+			command := "if [ -d " + shellQuote(state.AWS.RemoteDir) + " ]; then cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-aws-validator-stop; fi"
 			if err := a.runner.stream(ctx, sshCommandTo(state, host, command)); err != nil {
 				_, _ = fmt.Fprintf(a.stderr, "warning: remote validator teardown failed: %v\n", err)
 			}
 		}
 		if load, ok := state.AWS.loadHost(); ok && load.PublicIP != "" {
-			command := "cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-aws-load-stop"
+			stop := "docker-aws-load-stop"
 			if len(state.AWS.Hosts) == 0 {
-				command = "cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-cluster-stop-monitoring"
+				stop = "docker-cluster-stop-monitoring"
 			}
+			command := "if [ -d " + shellQuote(state.AWS.RemoteDir) + " ]; then cd " + shellQuote(state.AWS.RemoteDir) + " && make " + stop + "; fi"
 			if err := a.runner.stream(ctx, sshCommandTo(state, load, command)); err != nil {
 				_, _ = fmt.Fprintf(a.stderr, "warning: remote load-host teardown failed: %v\n", err)
 			}
