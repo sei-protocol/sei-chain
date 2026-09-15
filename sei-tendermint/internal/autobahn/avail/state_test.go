@@ -577,6 +577,73 @@ func TestProduceLocalBlock_ParentHashSurvivesPrune(t *testing.T) {
 	require.Equal(t, first.Msg().Block().Header().Hash(), second.Msg().Block().Header().ParentHash())
 }
 
+// TestProduceLocalBlock_ParentHashSurvivesRestart certifies the only block of
+// the local lane, restarts from disk with an Anchor that already covers it, and
+// checks that the next block still points to it.
+func TestProduceLocalBlock_ParentHashSurvivesRestart(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
+	dir := t.TempDir()
+	ds := newTestDataState(&data.Config{Registry: registry})
+
+	var state1 *State
+	var first *types.Signed[*types.LaneProposal]
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("data.Run", func() error { return utils.IgnoreCancel(ds.Run(ctx)) })
+		state, err := NewState(keys[0], ds, utils.Some(dir))
+		if err != nil {
+			return err
+		}
+		state1 = state
+		s.SpawnBgNamed("avail.Run", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+
+		first, err = state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+		if err != nil {
+			return fmt.Errorf("ProduceLocalBlock: %w", err)
+		}
+		for _, vote := range makeLaneVotes(keys, first.Msg().Block().Header()) {
+			if err := state.PushVote(ctx, vote); err != nil {
+				return fmt.Errorf("PushVote: %w", err)
+			}
+		}
+		laneQCs, err := state.WaitForLaneQCs(ctx, ep, utils.None[*types.CommitQC]())
+		if err != nil {
+			return fmt.Errorf("WaitForLaneQCs: %w", err)
+		}
+		qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), laneQCs)
+		if err := state.PushCommitQC(ctx, qc); err != nil {
+			return fmt.Errorf("PushCommitQC: %w", err)
+		}
+		appHash := types.GenAppHash(rng)
+		appProposal := types.NewAppProposal(qc.Proposal(), appHash)
+		if err := ds.PushAppHash(ctx, appProposal.GlobalRange().Next-1, appHash, nil); err != nil {
+			return fmt.Errorf("PushAppHash: %w", err)
+		}
+		for _, vote := range makeAppVotes(keys, appProposal) {
+			if err := state.PushAppVote(ctx, vote); err != nil {
+				return fmt.Errorf("PushAppVote: %w", err)
+			}
+		}
+		// Data's Anchor covering the block is what makes the restart prune the
+		// lane past it.
+		_, err = ds.Anchor().Wait(ctx, func(a utils.Option[data.Anchor]) bool {
+			got, ok := a.Get()
+			return ok && got.CommitQC.Index() == qc.Index()
+		})
+		return err
+	}))
+	require.NoError(t, state1.Close())
+
+	state2, err := NewState(keys[0], ds, utils.Some(dir))
+	require.NoError(t, err)
+	require.Equal(t, first.Msg().Block().Header().Next(), state2.NextBlock(lane))
+	second, err := state2.ProduceLocalBlock(lane, state2.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, first.Msg().Block().Header().Hash(), second.Msg().Block().Header().ParentHash())
+}
+
 func TestPushBlockRejectsWrongSigner(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()

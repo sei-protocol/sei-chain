@@ -68,13 +68,19 @@ func (s *laneWALState) flush(lane types.LaneID) error {
 }
 
 // truncateForAnchor prunes the WAL so that `first` becomes the oldest retained block number, and moves
-// the cursor up when the anchor has advanced past every block the lane holds.
+// the cursor up when the anchor has advanced past every block the lane holds. The last persisted block
+// is always retained: it is the parent of the next block the lane produces, and restoration needs its
+// hash even once the anchor has moved past it.
 //
 // Pruning is lazy: blocks below `first` may remain on disk until the file holding them falls entirely
 // below the threshold. Caller must hold the per-lane lock.
 func (s *laneWALState) truncateForAnchor(lane types.LaneID, first types.BlockNumber) error {
-	if err := s.wal.PruneBefore(uint64(first)); err != nil {
-		return fmt.Errorf("prune lane %s WAL before block %d: %w", lane, first, err)
+	keep := first
+	if s.nextBlockNum > 0 {
+		keep = min(keep, s.nextBlockNum-1)
+	}
+	if err := s.wal.PruneBefore(uint64(keep)); err != nil {
+		return fmt.Errorf("prune lane %s WAL before block %d: %w", lane, keep, err)
 	}
 	if first > s.nextBlockNum {
 		// The anchor moved past every block persisted for this lane, so the next block to persist is

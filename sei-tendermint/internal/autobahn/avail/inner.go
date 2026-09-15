@@ -12,7 +12,9 @@ import (
 
 // blockQueue is a lane's queue of LaneProposals which additionally remembers
 // the hash of the last block pushed, so that the parent hash of the next
-// block is known even after the queue has been pruned.
+// block is known even after the queue has been pruned. On restart the hash
+// is recovered from the last block on disk, which the lane WAL retains past
+// the anchor for this purpose.
 type blockQueue struct {
 	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
 	lastHash utils.Option[types.BlockHeaderHash]
@@ -28,7 +30,7 @@ func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 }
 
 // parentHash returns the hash the next block of the lane should point to:
-// the zero hash if no block has been pushed to the queue since construction.
+// the zero hash if no block of the lane is known.
 func (q *blockQueue) parentHash() types.BlockHeaderHash {
 	if h, ok := q.lastHash.Get(); ok {
 		return h
@@ -111,6 +113,9 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(bs), BlocksPerLane)
 			}
 			if b.Number < q.next {
+				if b.Number == q.next-1 {
+					q.lastHash = utils.Some(b.Proposal.Msg().Block().Header().Hash())
+				}
 				continue
 			}
 			if b.Number != q.next {

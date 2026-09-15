@@ -493,6 +493,44 @@ func TestPruneReclaimsSealedFiles(t *testing.T) {
 	require.Equal(t, types.BlockNumber(total), s2.nextBlockNum)
 }
 
+// TestPrunePastAllKeepsLastBlock verifies that truncateForAnchor retains the last persisted block when
+// the anchor has moved past every block of the lane, so a reopened lane still knows its tip.
+func TestPrunePastAllKeepsLastBlock(t *testing.T) {
+	rng := utils.TestRng()
+	key := types.GenSecretKey(rng)
+	lane := types.LaneID{Validator: key.Public(), Joined: 0}
+	dir := t.TempDir()
+
+	const total = 40
+	const fileSize = 512
+
+	w, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, fileSize, blocksWALMetrics)
+	require.NoError(t, err)
+	s := &laneWALState{wal: w}
+	var last *types.Signed[*types.LaneProposal]
+	for i := range types.BlockNumber(total) {
+		last = testSignedProposal(rng, key, i)
+		require.NoError(t, s.persistBlock(last))
+	}
+	require.NoError(t, s.flush(lane))
+	require.NoError(t, s.truncateForAnchor(lane, total))
+	require.NoError(t, s.wal.Close())
+
+	w2, err := openWAL(dir, blocksWALName, types.SignedLaneProposalConv, fileSize, blocksWALMetrics)
+	require.NoError(t, err)
+	s2 := &laneWALState{wal: w2}
+	loaded, err := s2.loadAll(lane)
+	require.NoError(t, err)
+	require.NoError(t, s2.wal.Close())
+
+	require.True(t, len(loaded) > 0, "the last block must survive pruning")
+	require.True(t, loaded[0].Number > 0, "pruning should have reclaimed the oldest blocks")
+	got := loaded[len(loaded)-1]
+	require.Equal(t, types.BlockNumber(total-1), got.Number)
+	require.Equal(t, last.Msg().Block().Header().Hash(), got.Proposal.Msg().Block().Header().Hash())
+	require.Equal(t, types.BlockNumber(total), s2.nextBlockNum)
+}
+
 func TestPersistBlockConcurrentDistinctLanes(t *testing.T) {
 	rng := utils.TestRng()
 	dir := t.TempDir()
