@@ -17,8 +17,7 @@ jobs:
   tests-rocksdb:
     name: RocksDB Tests
     runs-on: ubuntu-latest
-    # Not a required check; the giga-1 merge queue only runs the fast gates.
-    if: ${{ !(github.event_name == 'merge_group' && github.event.merge_group.base_ref == 'refs/heads/giga-1') }}
+    if: github.base_ref != 'giga-1' && github.event.merge_group.base_ref != 'refs/heads/giga-1'
     steps:
       - uses: actions/setup-go@v7
         with:
