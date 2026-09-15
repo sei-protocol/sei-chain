@@ -368,6 +368,83 @@ func TestMempool_BadNonce(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestInsertTx_NewSenderUsesAppNonce(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	addr, nonce := app.NewAccount(rng)
+
+	for _, txNonce := range []uint64{nonce, nonce + 1} {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+		require.NoError(t, err)
+	}
+	require.Equal(t, nonce+2, env.state.EvmNextPendingNonce(addr))
+}
+
+func TestInsertTx_ConcurrentSequentialNonces(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+
+	const (
+		accountCount = 5
+		txCount      = 20
+	)
+	type account struct {
+		addr  common.Address
+		start uint64
+		rng   utils.Rng
+	}
+	accounts := make([]account, accountCount)
+	for i := range accounts {
+		accounts[i] = account{rng: rng.Split()}
+		accounts[i].addr, accounts[i].start = app.NewAccount(rng)
+	}
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, account := range accounts {
+			s.Spawn(func() error {
+				for nonce := account.start; nonce < account.start+txCount; nonce++ {
+					if _, err := env.state.InsertTx(ctx, env.genTx(account.rng, account.addr, nonce).encode()); err != nil {
+						return fmt.Errorf("InsertTx(): %w", err)
+					}
+				}
+				return nil
+			})
+		}
+		return nil
+	}))
+
+	for _, account := range accounts {
+		require.Equal(t, account.start+txCount, env.state.EvmNextPendingNonce(account.addr))
+	}
+}
+
+func TestInsertTx_BadNonceRejected(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	addr, nonce := app.NewAccount(rng)
+
+	for _, txNonce := range []uint64{nonce - 1, nonce + 1} {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+		require.ErrorIs(t, err, errBadNonce)
+	}
+	_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode())
+	require.NoError(t, err)
+
+	for _, txNonce := range []uint64{nonce, nonce + 2} {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+		require.ErrorIs(t, err, errBadNonce)
+	}
+}
+
 type blockStats struct {
 	count        uint64
 	sizeBytes    uint64

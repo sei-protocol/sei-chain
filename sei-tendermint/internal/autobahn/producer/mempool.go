@@ -201,6 +201,23 @@ func (s *State) getMempool(ctx context.Context) (*mempool, error) {
 	return mp, nil
 }
 
+// preReadEvmNonce reads the app nonce of addr outside the mempool lock, unless the
+// mempool already tracks addr. It also returns the lane's first block at the time of
+// the check, which insertTx uses to detect prunes racing the read.
+func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (nonce uint64, first types.BlockNumber, haveAppNonce bool, err error) {
+	for m := range mp.inner.Lock() {
+		if m.closed {
+			return 0, 0, false, ErrNotProducing
+		}
+		first = m.first
+		_, tracked := m.evmNonces[addr]
+		if tracked {
+			return 0, first, false, nil
+		}
+	}
+	return s.app.EvmNonce(addr), first, true, nil
+}
+
 // Inserts transaction. Blocks until there is capacity in the mempool.
 // NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
 // It has to be added after testnet launch.
@@ -244,6 +261,16 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return nil, errTooLarge
 	}
 
+	var appNonce uint64
+	var first types.BlockNumber
+	var haveAppNonce bool
+	if resp.IsEVM {
+		appNonce, first, haveAppNonce, err = s.preReadEvmNonce(mp, resp.EVMSenderAddress)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed {
 			return nil, ErrNotProducing
@@ -269,7 +296,16 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 			addr := resp.EVMSenderAddress
 			nonce, ok := m.evmNonces[addr]
 			if !ok {
-				nonce = s.app.EvmNonce(addr)
+				// The tracked entry, when present, is authoritative: it covers txs already
+				// sequenced but not yet executed. The pre-read app nonce is used only when
+				// there is no entry and no block was pruned since it was taken (m.first
+				// unchanged), since pruning may delete this sender's entry and advance the
+				// app nonce.
+				if haveAppNonce && m.first == first {
+					nonce = appNonce
+				} else {
+					nonce = s.app.EvmNonce(addr)
+				}
 			}
 			if nonce != resp.EVMNonce {
 				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)
