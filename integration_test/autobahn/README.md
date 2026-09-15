@@ -70,7 +70,8 @@ replace existing `sei-node-*` containers or existing manager metadata.
 ## Start a cluster on AWS
 
 The AWS target creates one Ubuntu EC2 host and runs the same four-node Docker
-topology on it. Only SSH is opened in the managed security group. EVM JSON-RPC
+topology on it, plus Prometheus and Grafana. The managed security group admits
+SSH from the caller and Grafana (`:3000`) from the internet. EVM JSON-RPC
 stays private and is accessed through `forward`.
 
 ```sh
@@ -80,6 +81,11 @@ stays private and is accessed through `forward`.
 
 ./autobahn-e2e list --name my-autobahn
 ```
+
+Deploy prints the public Grafana URL (`http://<public-ip>:3000`, admin /
+admin). `list` repeats it under `DASHBOARD`. Open **Autobahn E2E**. The
+login is the default Grafana pair on a temporary test host; tear the
+cluster down when finished.
 
 In another terminal, forward one node to the load-generator host:
 
@@ -111,13 +117,15 @@ manager state directory with mode `0600`. To use an existing key pair instead:
   --ssh-key ~/.ssh/my-key-pair.pem
 ```
 
-The default security-group rule admits SSH only from the public IP detected at
-deployment time. Use `--ssh-cidr` when a VPN, NAT, or IPv6 setup makes that
-incorrect. Use `--subnet-id` if the region has no default VPC or the instance
-needs a specific public subnet.
+The default security-group rule admits SSH from the public IP detected at
+deployment time, and Grafana from `0.0.0.0/0`. Use `--ssh-cidr` when a VPN,
+NAT, or IPv6 setup makes the SSH source incorrect. Use `--subnet-id` if the
+region has no default VPC or the instance needs a specific public subnet.
 
-The default instance is `c7g.2xlarge` with 100 GiB of gp3 storage and the
-current Ubuntu 24.04 ARM64 AMI from AWS Systems Manager. When changing
+The default instance is `r7i.12xlarge` with 1024 GiB of gp3 storage
+(10000 IOPS, 1000 MB/s) and the
+current Ubuntu 24.04 AMD64 AMI from AWS Systems Manager. Override the disk
+with `--volume-size`, `--volume-iops`, and `--volume-throughput`. When changing
 architecture, override `--instance-type` and `--ami-id` together.
 `--repo-url` and `--ref` select the source built remotely; they default to this
 checkout's origin and current commit. The selected commit must be reachable
@@ -278,6 +286,32 @@ Do not enable `trackReceipts`, `trackBlocks`, or `trackUserLatency` with the
 current EVM-only RPC. `sei-load` implements receipt tracking by subscribing to
 new heads and fetching blocks, rather than polling individual receipts, and
 those methods are not exposed yet.
+
+## Watch the dashboard
+
+An AWS deploy starts Prometheus and Grafana on the instance and prints a
+public URL. Open that address (admin / admin) and select **Autobahn E2E**.
+
+For a local cluster, start the monitornode containers after the nodes are
+up. Prometheus scrapes each validator at `:26660` and Grafana provisions
+**Autobahn E2E** from `docker/monitornode/dashboards`.
+
+```sh
+docker/monitornode/scripts/start-prometheus.sh
+docker/monitornode/scripts/start-grafana.sh
+```
+
+Open http://localhost:3000 (admin / admin) and select **Autobahn E2E**.
+The overview line is executed TPS, blocks/sec, and produce-to-execute
+finalize time. The pie and stacked line are the execute goroutine split
+across consensus wait, EVM execution, and storage.
+
+If Prometheus was already running from a gigasim or cryptosim session,
+run `start-prometheus.sh` again after the cluster is up so it joins the
+node network and reloads scrape targets.
+
+`make docker-cluster-start-monitoring` provisions the same dashboard
+(Grafana at http://localhost:3000, Prometheus UI at http://localhost:9099).
 
 ## Interact with a running cluster
 

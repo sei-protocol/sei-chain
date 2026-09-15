@@ -12,24 +12,31 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const dockerClusterSize = 4
+const (
+	dockerClusterSize         = 4
+	defaultVolumeSizeGiB      = 1024
+	defaultVolumeIOPS         = 10000
+	defaultVolumeThroughputMB = 1000
+)
 
 type deployOptions struct {
-	name         string
-	target       string
-	timeout      time.Duration
-	region       string
-	profile      string
-	instanceType string
-	amiID        string
-	subnetID     string
-	sshCIDR      string
-	sshUser      string
-	keyName      string
-	sshKeyPath   string
-	volumeSize   int
-	repoURL      string
-	ref          string
+	name             string
+	target           string
+	timeout          time.Duration
+	region           string
+	profile          string
+	instanceType     string
+	amiID            string
+	subnetID         string
+	sshCIDR          string
+	sshUser          string
+	keyName          string
+	sshKeyPath       string
+	volumeSize       int
+	volumeIOPS       int
+	volumeThroughput int
+	repoURL          string
+	ref              string
 }
 
 func (a *application) newDeployCommand() *cobra.Command {
@@ -47,14 +54,16 @@ func (a *application) newDeployCommand() *cobra.Command {
 	flags.DurationVar(&options.timeout, "timeout", 20*time.Minute, "deployment readiness timeout")
 	flags.StringVar(&options.region, "region", "us-west-2", "AWS region")
 	flags.StringVar(&options.profile, "profile", "", "AWS CLI profile")
-	flags.StringVar(&options.instanceType, "instance-type", "c7g.2xlarge", "EC2 instance type")
-	flags.StringVar(&options.amiID, "ami-id", "", "EC2 AMI ID; defaults to Ubuntu 24.04 ARM64")
+	flags.StringVar(&options.instanceType, "instance-type", "r7i.12xlarge", "EC2 instance type")
+	flags.StringVar(&options.amiID, "ami-id", "", "EC2 AMI ID; defaults to Ubuntu 24.04 AMD64")
 	flags.StringVar(&options.subnetID, "subnet-id", "", "EC2 subnet; defaults to a default VPC subnet")
 	flags.StringVar(&options.sshCIDR, "ssh-cidr", "", "CIDR allowed to SSH; defaults to the caller's public IP")
 	flags.StringVar(&options.sshUser, "ssh-user", "ubuntu", "EC2 SSH user")
 	flags.StringVar(&options.keyName, "key-name", "", "existing EC2 key pair name; omitted creates a managed key")
 	flags.StringVar(&options.sshKeyPath, "ssh-key", "", "private key for --key-name")
-	flags.IntVar(&options.volumeSize, "volume-size", 100, "EC2 root volume size in GiB")
+	flags.IntVar(&options.volumeSize, "volume-size", defaultVolumeSizeGiB, "EC2 root volume size in GiB")
+	flags.IntVar(&options.volumeIOPS, "volume-iops", defaultVolumeIOPS, "EC2 root gp3 IOPS")
+	flags.IntVar(&options.volumeThroughput, "volume-throughput", defaultVolumeThroughputMB, "EC2 root gp3 throughput in MB/s")
 	flags.StringVar(&options.repoURL, "repo-url", "", "Git repository cloned on EC2; defaults to origin")
 	flags.StringVar(&options.ref, "ref", "", "Git ref deployed on EC2; defaults to the current commit")
 	return cmd

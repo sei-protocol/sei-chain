@@ -116,17 +116,19 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	app := &application{runner: runner, stdout: &stdout, stderr: &stderr, stateDir: stateDir}
 	options := deployOptions{
-		name:         "aws-test",
-		target:       "aws",
-		timeout:      time.Minute,
-		region:       "us-west-2",
-		instanceType: "c7g.2xlarge",
-		amiID:        "ami-123",
-		sshCIDR:      "198.51.100.4/32",
-		sshUser:      "ubuntu",
-		volumeSize:   100,
-		repoURL:      "https://github.com/sei-protocol/sei-chain.git",
-		ref:          "deadbeef",
+		name:             "aws-test",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://github.com/sei-protocol/sei-chain.git",
+		ref:              "deadbeef",
 	}
 
 	require.NoError(t, app.deploy(context.Background(), options))
@@ -141,12 +143,18 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), keyInfo.Mode().Perm())
 	require.Contains(t, stdout.String(), "Cluster aws-test is ready")
+	require.Contains(t, stdout.String(), "Grafana: http://203.0.113.10:3000")
 
 	commands := joinedCommands(runner.commands)
 	require.Contains(t, commands, "authorize-security-group-ingress")
 	require.Contains(t, commands, "--cidr 198.51.100.4/32")
+	require.Contains(t, commands, "--port 3000")
+	require.Contains(t, commands, "--cidr 0.0.0.0/0")
+	require.Contains(t, commands, "docker-cluster-start-monitoring")
+	require.Contains(t, commands, ebsRootMapping(defaultVolumeSizeGiB, defaultVolumeIOPS, defaultVolumeThroughputMB))
 	require.Contains(t, commands, "AUTOBAHN_EVMONLY=true")
 	require.Contains(t, commands, "-o StrictHostKeyChecking=accept-new")
+	require.Contains(t, commands, "curl -fsS -o /dev/null http://127.0.0.1:3000/api/health")
 }
 
 func TestAWSDeployRetainsFailedState(t *testing.T) {
@@ -171,17 +179,19 @@ func TestAWSDeployRetainsFailedState(t *testing.T) {
 	}
 	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, stateDir: stateDir}
 	err := app.deploy(context.Background(), deployOptions{
-		name:         "failed-aws",
-		target:       "aws",
-		timeout:      time.Minute,
-		region:       "us-west-2",
-		instanceType: "c7g.2xlarge",
-		amiID:        "ami-123",
-		sshCIDR:      "198.51.100.4/32",
-		sshUser:      "ubuntu",
-		volumeSize:   100,
-		repoURL:      "https://example.com/repo.git",
-		ref:          "deadbeef",
+		name:             "failed-aws",
+		target:           "aws",
+		timeout:          time.Minute,
+		region:           "us-west-2",
+		instanceType:     "r7i.12xlarge",
+		amiID:            "ami-123",
+		sshCIDR:          "198.51.100.4/32",
+		sshUser:          "ubuntu",
+		volumeSize:       defaultVolumeSizeGiB,
+		volumeIOPS:       defaultVolumeIOPS,
+		volumeThroughput: defaultVolumeThroughputMB,
+		repoURL:          "https://example.com/repo.git",
+		ref:              "deadbeef",
 	})
 	require.Error(t, err)
 	state, loadErr := app.store().load("failed-aws")
@@ -245,6 +255,36 @@ func TestListShowsPartialAWSDeploymentWithoutCredentials(t *testing.T) {
 	require.Contains(t, stdout.String(), "partial-aws")
 	require.Contains(t, stdout.String(), "failed")
 	require.Empty(t, runner.commands)
+}
+
+func TestAWSTeardownStopsMonitoringStack(t *testing.T) {
+	stateDir := t.TempDir()
+	state := clusterState{
+		Version: stateVersion,
+		Name:    "monitored-aws",
+		Target:  targetAWS,
+		Status:  "ready",
+		Nodes:   clusterNodes(4),
+		AWS: &awsState{
+			Region:     "us-west-2",
+			PublicIP:   "203.0.113.10",
+			SSHUser:    "ubuntu",
+			SSHKeyPath: "/tmp/test.pem",
+			RemoteDir:  "/home/ubuntu/sei-chain-monitored-aws",
+		},
+	}
+	store := newStateStore(stateDir)
+	require.NoError(t, store.save(state))
+	runner := &fakeRunner{outputFn: func(spec commandSpec) (string, error) {
+		if strings.Contains(strings.Join(spec.args, " "), "sts get-caller-identity") {
+			return `{}`, nil
+		}
+		return "", nil
+	}}
+	app := &application{runner: runner, stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, stateDir: stateDir}
+
+	require.NoError(t, app.teardown(context.Background(), teardownOptions{name: state.Name}))
+	require.Contains(t, joinedCommands(runner.commands), "docker-cluster-stop-monitoring")
 }
 
 func TestAWSTeardownToleratesAlreadyDeletedManagedResources(t *testing.T) {
@@ -319,6 +359,18 @@ func TestWriteUserDataUsesSelectedSSHUser(t *testing.T) {
 	require.Contains(t, string(data), "usermod -aG docker ec2-user")
 	require.Contains(t, string(data), "go1.27.1")
 	require.Contains(t, string(data), "/var/lib/autobahn-e2e-ready")
+}
+
+func TestEBSRootMapping(t *testing.T) {
+	require.Equal(t,
+		"DeviceName=/dev/sda1,Ebs={VolumeSize=1024,VolumeType=gp3,Iops=10000,Throughput=1000,DeleteOnTermination=true}",
+		ebsRootMapping(1024, 10000, 1000),
+	)
+}
+
+func TestGrafanaPublicURL(t *testing.T) {
+	require.Equal(t, "", grafanaPublicURL(""))
+	require.Equal(t, "http://203.0.113.10:3000", grafanaPublicURL("203.0.113.10"))
 }
 
 func TestShellQuote(t *testing.T) {

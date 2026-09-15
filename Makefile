@@ -251,8 +251,8 @@ build-linux:
 	fi
 .PHONY: build-linux
 
-# Auto-detect platform: use arm64 on ARM Macs, amd64 elsewhere
-DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
+# Auto-detect platform: arm64 on ARM Macs and Graviton (aarch64), amd64 elsewhere
+DOCKER_PLATFORM ?= $(shell if [ "$$(uname -m)" = "arm64" ] || [ "$$(uname -m)" = "aarch64" ]; then echo "linux/arm64"; else echo "linux/amd64"; fi)
 export DOCKER_PLATFORM
 
 # Build docker image for detected platform
