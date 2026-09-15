@@ -56,7 +56,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if !sshUserPattern.MatchString(options.sshUser) {
 		return fmt.Errorf("invalid --ssh-user %q", options.sshUser)
 	}
-	for _, name := range []string{"aws", "git", "ssh"} {
+	for _, name := range []string{"aws", "git", "ssh", "scp"} {
 		if err := a.runner.lookPath(name); err != nil {
 			return err
 		}
@@ -119,7 +119,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	securityGroupID, err := client.output(ctx,
 		"ec2", "create-security-group",
 		"--group-name", securityGroupName,
-		"--description", "SSH and public Grafana for Sei Autobahn EVM-only E2E",
+		"--description", "SSH, Grafana, and intra-cluster traffic for Sei Autobahn E2E",
 		"--vpc-id", vpcID,
 		"--query", "GroupId",
 		"--output", "text",
@@ -142,6 +142,9 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		return fail(err)
 	}
 	if err := client.authorizeTCP(ctx, state.AWS.SecurityGroupID, strconv.Itoa(grafanaPublicPort), grafanaPublicCIDR); err != nil {
+		return fail(err)
+	}
+	if err := client.authorizeTCPFromGroup(ctx, state.AWS.SecurityGroupID, "1", "65535"); err != nil {
 		return fail(err)
 	}
 
@@ -181,57 +184,54 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		return fail(err)
 	}
 	defer func() { _ = os.Remove(userDataPath) }()
-	runArgs := []string{
-		"ec2", "run-instances",
-		"--image-id", amiID,
-		"--instance-type", options.instanceType,
-		"--key-name", state.AWS.KeyName,
-		"--security-group-ids", state.AWS.SecurityGroupID,
-		"--associate-public-ip-address",
-		"--metadata-options", "HttpTokens=required,HttpEndpoint=enabled",
-		"--block-device-mappings", ebsRootMapping(options.volumeSize, options.volumeIOPS, options.volumeThroughput),
-		"--user-data", "file://" + userDataPath,
-		"--tag-specifications", fmt.Sprintf("ResourceType=instance,Tags=[{Key=Name,Value=sei-autobahn-e2e-%s},{Key=sei-autobahn-e2e-cluster,Value=%s}]", options.name, options.name),
-		"--query", "Instances[0].InstanceId",
-		"--output", "text",
-	}
-	if options.subnetID != "" {
-		runArgs = append(runArgs, "--subnet-id", options.subnetID)
-	}
-	instanceID, err := client.output(ctx, runArgs...)
+
+	_, _ = fmt.Fprintf(a.stdout, "Launching %d validator instances and 1 load instance in %s.\n", awsValidatorCount, options.region)
+	validatorIDs, err := client.runInstances(ctx, options, state, amiID, userDataPath, awsRoleValidator, awsValidatorCount, options.volumeSize, options.volumeIOPS, options.volumeThroughput)
 	if err != nil {
 		return fail(err)
 	}
-	state.AWS.InstanceID = strings.TrimSpace(instanceID)
+	state.AWS.Hosts = hostsFromIDs(awsRoleValidator, validatorIDs)
 	if err := a.store().save(state); err != nil {
 		return err
 	}
-	if err := client.stream(ctx, "ec2", "wait", "instance-running", "--instance-ids", state.AWS.InstanceID); err != nil {
-		return fail(err)
-	}
-	if err := client.stream(ctx, "ec2", "wait", "instance-status-ok", "--instance-ids", state.AWS.InstanceID); err != nil {
-		return fail(err)
-	}
-	publicIP, err := client.output(ctx,
-		"ec2", "describe-instances",
-		"--instance-ids", state.AWS.InstanceID,
-		"--query", "Reservations[0].Instances[0].PublicIpAddress",
-		"--output", "text",
-	)
+	loadIDs, err := client.runInstances(ctx, options, state, amiID, userDataPath, awsRoleLoad, 1, defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB)
 	if err != nil {
 		return fail(err)
 	}
-	state.AWS.PublicIP = strings.TrimSpace(publicIP)
-	if state.AWS.PublicIP == "" || state.AWS.PublicIP == "None" {
-		return fail(fmt.Errorf("ec2 instance has no public IP; choose a subnet that assigns public addresses"))
+	state.AWS.Hosts = append(state.AWS.Hosts, hostsFromIDs(awsRoleLoad, loadIDs)...)
+	allIDs := append(append([]string{}, validatorIDs...), loadIDs...)
+	if err := a.store().save(state); err != nil {
+		return err
+	}
+	if err := client.waitInstances(ctx, allIDs); err != nil {
+		return fail(err)
+	}
+	infos, err := client.describeInstanceIPs(ctx, allIDs)
+	if err != nil {
+		return fail(err)
+	}
+	hosts, err := assignAWSHosts(validatorIDs, loadIDs, infos)
+	if err != nil {
+		return fail(err)
+	}
+	state.AWS.Hosts = hosts
+	if load, ok := state.AWS.loadHost(); ok {
+		state.AWS.InstanceID = load.InstanceID
+		state.AWS.PublicIP = load.PublicIP
 	}
 	if err := a.store().save(state); err != nil {
 		return err
+	}
+	for _, host := range state.AWS.validators() {
+		name := fmt.Sprintf("sei-autobahn-e2e-%s-validator-%d", options.name, host.Index)
+		if _, err := client.output(ctx, "ec2", "create-tags", "--resources", host.InstanceID, "--tags", "Key=Name,Value="+name); err != nil {
+			return fail(err)
+		}
 	}
 
 	readyCtx, cancel := context.WithTimeout(ctx, options.timeout)
 	defer cancel()
-	if err := a.waitForEC2Bootstrap(readyCtx, state); err != nil {
+	if err := a.waitForAllBootstraps(readyCtx, state); err != nil {
 		return fail(err)
 	}
 	if err := a.startRemoteCluster(readyCtx, state); err != nil {
@@ -247,7 +247,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err := a.store().save(state); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready on EC2 instance %s (%s).\n", state.Name, state.AWS.InstanceID, state.AWS.PublicIP)
+	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready with %d validator instances and 1 load instance.\n", state.Name, len(state.AWS.validators()))
 	_, _ = fmt.Fprintf(a.stdout, "Grafana: %s  (admin / admin)\n", grafanaPublicURL(state.AWS.PublicIP))
 	return nil
 }
@@ -412,36 +412,6 @@ touch /var/lib/autobahn-e2e-ready
 	return path, nil
 }
 
-func (a *application) waitForEC2Bootstrap(ctx context.Context, state clusterState) error {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	for {
-		_, err := a.runner.output(ctx, sshCommand(state, "test -f /var/lib/autobahn-e2e-ready"))
-		if err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for EC2 bootstrap: %w", ctx.Err())
-		case <-ticker.C:
-		}
-	}
-}
-
-func (a *application) startRemoteCluster(ctx context.Context, state clusterState) error {
-	aws := state.AWS
-	command := strings.Join([]string{
-		"git clone --filter=blob:none " + shellQuote(aws.RepoURL) + " " + shellQuote(aws.RemoteDir),
-		"cd " + shellQuote(aws.RemoteDir),
-		"git checkout --detach " + shellQuote(aws.Ref),
-		"AUTOBAHN=true AUTOBAHN_EVMONLY=true DOCKER_DETACH=true make docker-cluster-start-monitoring",
-	}, " && ")
-	if err := a.runner.stream(ctx, sshCommand(state, command)); err != nil {
-		return fmt.Errorf("start remote cluster: %w", err)
-	}
-	return nil
-}
-
 func (c awsClient) authorizeTCP(ctx context.Context, groupID, port, cidr string) error {
 	_, err := c.output(ctx,
 		"ec2", "authorize-security-group-ingress",
@@ -453,12 +423,163 @@ func (c awsClient) authorizeTCP(ctx context.Context, groupID, port, cidr string)
 	return err
 }
 
+func (c awsClient) authorizeTCPFromGroup(ctx context.Context, groupID, fromPort, toPort string) error {
+	permission := fmt.Sprintf("IpProtocol=tcp,FromPort=%s,ToPort=%s,UserIdGroupPairs=[{GroupId=%s}]", fromPort, toPort, groupID)
+	_, err := c.output(ctx,
+		"ec2", "authorize-security-group-ingress",
+		"--group-id", groupID,
+		"--ip-permissions", permission,
+	)
+	return err
+}
+
+func (c awsClient) runInstances(ctx context.Context, options deployOptions, state clusterState, amiID, userDataPath, role string, count, volumeSize, volumeIOPS, volumeThroughput int) ([]string, error) {
+	name := fmt.Sprintf("sei-autobahn-e2e-%s-%s", options.name, role)
+	runArgs := []string{
+		"ec2", "run-instances",
+		"--image-id", amiID,
+		"--count", strconv.Itoa(count),
+		"--instance-type", options.instanceType,
+		"--key-name", state.AWS.KeyName,
+		"--security-group-ids", state.AWS.SecurityGroupID,
+		"--associate-public-ip-address",
+		"--metadata-options", "HttpTokens=required,HttpEndpoint=enabled",
+		"--block-device-mappings", ebsRootMapping(volumeSize, volumeIOPS, volumeThroughput),
+		"--user-data", "file://" + userDataPath,
+		"--tag-specifications", fmt.Sprintf("ResourceType=instance,Tags=[{Key=Name,Value=%s},{Key=sei-autobahn-e2e-cluster,Value=%s},{Key=sei-autobahn-e2e-role,Value=%s}]", name, options.name, role),
+		"--query", "Instances[*].InstanceId",
+		"--output", "text",
+	}
+	if options.subnetID != "" {
+		runArgs = append(runArgs, "--subnet-id", options.subnetID)
+	}
+	value, err := c.output(ctx, runArgs...)
+	if err != nil {
+		return nil, err
+	}
+	ids := strings.Fields(strings.TrimSpace(value))
+	if len(ids) != count {
+		return nil, fmt.Errorf("run-instances for %s: expected %d instance IDs, got %d", role, count, len(ids))
+	}
+	return ids, nil
+}
+
+func (c awsClient) waitInstances(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("wait for instances: no instance IDs")
+	}
+	args := append([]string{"ec2", "wait", "instance-running", "--instance-ids"}, ids...)
+	if err := c.stream(ctx, args...); err != nil {
+		return err
+	}
+	args = append([]string{"ec2", "wait", "instance-status-ok", "--instance-ids"}, ids...)
+	return c.stream(ctx, args...)
+}
+
+type instanceAddrs struct {
+	publicIP  string
+	privateIP string
+}
+
+func (c awsClient) describeInstanceIPs(ctx context.Context, ids []string) (map[string]instanceAddrs, error) {
+	args := append([]string{"ec2", "describe-instances", "--instance-ids"}, ids...)
+	args = append(args, "--query", "Reservations[].Instances[].[InstanceId,PublicIpAddress,PrivateIpAddress]", "--output", "text")
+	value, err := c.output(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	infos := map[string]instanceAddrs{}
+	for _, line := range strings.Split(strings.TrimSpace(value), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		infos[fields[0]] = instanceAddrs{publicIP: fields[1], privateIP: fields[2]}
+	}
+	return infos, nil
+}
+
+func hostsFromIDs(role string, ids []string) []awsHost {
+	hosts := make([]awsHost, len(ids))
+	for i, id := range ids {
+		hosts[i] = awsHost{Role: role, Index: i, InstanceID: id}
+	}
+	if role == awsRoleLoad {
+		for i := range hosts {
+			hosts[i].Index = 0
+		}
+	}
+	return hosts
+}
+
+func assignAWSHosts(validatorIDs, loadIDs []string, infos map[string]instanceAddrs) ([]awsHost, error) {
+	hosts := make([]awsHost, 0, len(validatorIDs)+len(loadIDs))
+	for i, id := range validatorIDs {
+		info, ok := infos[id]
+		if !ok {
+			return nil, fmt.Errorf("missing addresses for validator instance %s", id)
+		}
+		if info.publicIP == "" || info.publicIP == "None" || info.privateIP == "" || info.privateIP == "None" {
+			return nil, fmt.Errorf("ec2 instance %s has no public or private IP; choose a subnet that assigns public addresses", id)
+		}
+		hosts = append(hosts, awsHost{
+			Role:       awsRoleValidator,
+			Index:      i,
+			InstanceID: id,
+			PublicIP:   info.publicIP,
+			PrivateIP:  info.privateIP,
+		})
+	}
+	for _, id := range loadIDs {
+		info, ok := infos[id]
+		if !ok {
+			return nil, fmt.Errorf("missing addresses for load instance %s", id)
+		}
+		if info.publicIP == "" || info.publicIP == "None" || info.privateIP == "" || info.privateIP == "None" {
+			return nil, fmt.Errorf("ec2 instance %s has no public or private IP; choose a subnet that assigns public addresses", id)
+		}
+		hosts = append(hosts, awsHost{
+			Role:       awsRoleLoad,
+			InstanceID: id,
+			PublicIP:   info.publicIP,
+			PrivateIP:  info.privateIP,
+		})
+	}
+	return hosts, nil
+}
+
+func (a *application) waitForAllBootstraps(ctx context.Context, state clusterState) error {
+	return a.forEachHost(ctx, state.AWS.Hosts, func(ctx context.Context, host awsHost) error {
+		return a.waitForEC2Bootstrap(ctx, state, host)
+	})
+}
+
+func (a *application) waitForEC2Bootstrap(ctx context.Context, state clusterState, host awsHost) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		_, err := a.runner.output(ctx, sshCommandTo(state, host, "test -f /var/lib/autobahn-e2e-ready"))
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for EC2 bootstrap on %s: %w", host.PublicIP, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func (a *application) waitForRemoteGrafana(ctx context.Context, state clusterState) error {
+	load, ok := state.AWS.loadHost()
+	if !ok {
+		return fmt.Errorf("wait for Grafana: load instance is missing")
+	}
 	command := "curl -fsS -o /dev/null http://127.0.0.1:" + strconv.Itoa(grafanaPublicPort) + "/api/health"
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
-		if _, err := a.runner.output(ctx, sshCommand(state, command)); err == nil {
+		if _, err := a.runner.output(ctx, sshCommandTo(state, load, command)); err == nil {
 			return nil
 		}
 		select {
@@ -470,34 +591,59 @@ func (a *application) waitForRemoteGrafana(ctx context.Context, state clusterSta
 }
 
 func (a *application) waitForRemoteCluster(ctx context.Context, state clusterState) error {
-	command := "test \"$(wc -l < " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/launch.complete")) + ")\" -ge " + strconv.Itoa(dockerClusterSize)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		if _, err := a.runner.output(ctx, sshCommand(state, command)); err == nil {
-			return nil
+	command := "test \"$(wc -l < " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/launch.complete")) + ")\" -ge 1"
+	return a.forEachHost(ctx, state.AWS.validators(), func(ctx context.Context, host awsHost) error {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			if _, err := a.runner.output(ctx, sshCommandTo(state, host, command)); err == nil {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("wait for remote validator %d: %w", host.Index, ctx.Err())
+			case <-ticker.C:
+			}
 		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for remote cluster: %w", ctx.Err())
-		case <-ticker.C:
-		}
-	}
+	})
 }
 
 func sshCommand(state clusterState, remoteCommand string) commandSpec {
-	return commandSpec{name: "ssh", args: append(sshBaseArgs(state), remoteCommand)}
+	return sshCommandTo(state, awsHost{PublicIP: state.AWS.PublicIP}, remoteCommand)
+}
+
+func sshCommandTo(state clusterState, host awsHost, remoteCommand string) commandSpec {
+	return commandSpec{name: "ssh", args: append(sshBaseArgsTo(state, host), remoteCommand)}
 }
 
 func sshBaseArgs(state clusterState) []string {
+	return sshBaseArgsTo(state, awsHost{PublicIP: state.AWS.PublicIP})
+}
+
+func sshBaseArgsTo(state clusterState, host awsHost) []string {
 	aws := state.AWS
 	return []string{
 		"-i", expandHome(aws.SSHKeyPath),
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=10",
 		"-o", "StrictHostKeyChecking=accept-new",
-		aws.SSHUser + "@" + aws.PublicIP,
+		aws.SSHUser + "@" + host.PublicIP,
 	}
+}
+
+func scpBaseArgs(state clusterState) []string {
+	return []string{
+		"-3",
+		"-r",
+		"-i", expandHome(state.AWS.SSHKeyPath),
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+}
+
+func remoteSSHPath(state clusterState, host awsHost, path string) string {
+	return state.AWS.SSHUser + "@" + host.PublicIP + ":" + path
 }
 
 func ebsRootMapping(sizeGiB, iops, throughputMB int) string {

@@ -17,6 +17,14 @@ const (
 
 	grafanaPublicPort = 3000
 	grafanaPublicCIDR = "0.0.0.0/0"
+
+	awsValidatorCount             = 4
+	awsEVMPort                    = 8545
+	awsMetricsPort                = 26660
+	defaultLoadVolumeSizeGiB      = 100
+	defaultLoadVolumeIOPS         = 3000
+	defaultLoadVolumeThroughputMB = 125
+	seiLoadVersion                = "v0.0.1"
 )
 
 func grafanaPublicURL(host string) string {

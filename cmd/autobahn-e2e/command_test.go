@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 type fakeRunner struct {
+	mu       sync.Mutex
 	commands []commandSpec
 	outputFn func(commandSpec) (string, error)
 	streamFn func(commandSpec) error
@@ -21,6 +23,8 @@ type fakeRunner struct {
 }
 
 func (r *fakeRunner) output(_ context.Context, spec commandSpec) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.commands = append(r.commands, spec)
 	if r.outputFn == nil {
 		return "", nil
@@ -29,6 +33,8 @@ func (r *fakeRunner) output(_ context.Context, spec commandSpec) (string, error)
 }
 
 func (r *fakeRunner) stream(_ context.Context, spec commandSpec) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.commands = append(r.commands, spec)
 	if r.streamFn == nil {
 		return nil
@@ -104,9 +110,12 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 		case strings.Contains(joined, "create-key-pair"):
 			return "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n", nil
 		case strings.Contains(joined, "run-instances"):
-			return "i-123\n", nil
+			if strings.Contains(joined, "Value=load") {
+				return "i-load\n", nil
+			}
+			return "i-v0\ti-v1\ti-v2\ti-v3\n", nil
 		case strings.Contains(joined, "describe-instances"):
-			return "203.0.113.10\n", nil
+			return "i-v0\t203.0.113.10\t10.0.0.10\ni-v1\t203.0.113.11\t10.0.0.11\ni-v2\t203.0.113.12\t10.0.0.12\ni-v3\t203.0.113.13\t10.0.0.13\ni-load\t203.0.113.20\t10.0.0.20\n", nil
 		case spec.name == "ssh":
 			return "", nil
 		default:
@@ -135,23 +144,33 @@ func TestAWSDeployCreatesManagedResourcesAndReadyState(t *testing.T) {
 	state, err := app.store().load(options.name)
 	require.NoError(t, err)
 	require.Equal(t, "ready", state.Status)
-	require.Equal(t, "i-123", state.AWS.InstanceID)
-	require.Equal(t, "203.0.113.10", state.AWS.PublicIP)
+	require.Equal(t, "i-load", state.AWS.InstanceID)
+	require.Equal(t, "203.0.113.20", state.AWS.PublicIP)
+	require.Len(t, state.AWS.Hosts, 5)
+	require.Len(t, state.AWS.validators(), 4)
 	require.True(t, state.AWS.ManagedKey)
 	require.FileExists(t, state.AWS.SSHKeyPath)
 	keyInfo, err := os.Stat(state.AWS.SSHKeyPath)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), keyInfo.Mode().Perm())
 	require.Contains(t, stdout.String(), "Cluster aws-test is ready")
-	require.Contains(t, stdout.String(), "Grafana: http://203.0.113.10:3000")
+	require.Contains(t, stdout.String(), "Grafana: http://203.0.113.20:3000")
 
 	commands := joinedCommands(runner.commands)
 	require.Contains(t, commands, "authorize-security-group-ingress")
 	require.Contains(t, commands, "--cidr 198.51.100.4/32")
 	require.Contains(t, commands, "--port 3000")
 	require.Contains(t, commands, "--cidr 0.0.0.0/0")
-	require.Contains(t, commands, "docker-cluster-start-monitoring")
+	require.Contains(t, commands, "UserIdGroupPairs")
+	require.Contains(t, commands, "--count 4")
+	require.Contains(t, commands, "--count 1")
+	require.Contains(t, commands, "docker-aws-validator-init")
+	require.Contains(t, commands, "docker-aws-validator-genesis")
+	require.Contains(t, commands, "docker-aws-validator-start")
+	require.Contains(t, commands, "docker-aws-load-start")
+	require.Contains(t, commands, "sei-load")
 	require.Contains(t, commands, ebsRootMapping(defaultVolumeSizeGiB, defaultVolumeIOPS, defaultVolumeThroughputMB))
+	require.Contains(t, commands, ebsRootMapping(defaultLoadVolumeSizeGiB, defaultLoadVolumeIOPS, defaultLoadVolumeThroughputMB))
 	require.Contains(t, commands, "AUTOBAHN_EVMONLY=true")
 	require.Contains(t, commands, "-o StrictHostKeyChecking=accept-new")
 	require.Contains(t, commands, "curl -fsS -o /dev/null http://127.0.0.1:3000/api/health")
@@ -212,6 +231,12 @@ func TestAWSForwardUsesChosenNodePort(t *testing.T) {
 			PublicIP:   "203.0.113.10",
 			SSHUser:    "ubuntu",
 			SSHKeyPath: "/tmp/test.pem",
+			Hosts: []awsHost{
+				{Role: awsRoleValidator, Index: 0, PublicIP: "203.0.113.10"},
+				{Role: awsRoleValidator, Index: 1, PublicIP: "203.0.113.11"},
+				{Role: awsRoleValidator, Index: 2, PublicIP: "203.0.113.12"},
+				{Role: awsRoleValidator, Index: 3, PublicIP: "203.0.113.13"},
+			},
 		},
 	}
 	require.NoError(t, newStateStore(stateDir).save(state))
@@ -228,8 +253,8 @@ func TestAWSForwardUsesChosenNodePort(t *testing.T) {
 	require.Len(t, runner.commands, 1)
 	require.Equal(t, "ssh", runner.commands[0].name)
 	joined := strings.Join(runner.commands[0].args, " ")
-	require.Contains(t, joined, "-L 127.0.0.1:18545:127.0.0.1:8551")
-	require.True(t, strings.HasSuffix(joined, "ubuntu@203.0.113.10"))
+	require.Contains(t, joined, "-L 127.0.0.1:18545:127.0.0.1:8545")
+	require.True(t, strings.HasSuffix(joined, "ubuntu@203.0.113.13"))
 }
 
 func TestListShowsPartialAWSDeploymentWithoutCredentials(t *testing.T) {
@@ -366,6 +391,35 @@ func TestEBSRootMapping(t *testing.T) {
 		"DeviceName=/dev/sda1,Ebs={VolumeSize=1024,VolumeType=gp3,Iops=10000,Throughput=1000,DeleteOnTermination=true}",
 		ebsRootMapping(1024, 10000, 1000),
 	)
+}
+
+func TestAssignAWSHostsRequiresPublicAndPrivateIPs(t *testing.T) {
+	_, err := assignAWSHosts([]string{"i-v0"}, []string{"i-load"}, map[string]instanceAddrs{
+		"i-v0":   {publicIP: "203.0.113.10", privateIP: "10.0.0.10"},
+		"i-load": {publicIP: "None", privateIP: "10.0.0.20"},
+	})
+	require.Error(t, err)
+
+	hosts, err := assignAWSHosts([]string{"i-v0"}, []string{"i-load"}, map[string]instanceAddrs{
+		"i-v0":   {publicIP: "203.0.113.10", privateIP: "10.0.0.10"},
+		"i-load": {publicIP: "203.0.113.20", privateIP: "10.0.0.20"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, awsRoleValidator, hosts[0].Role)
+	require.Equal(t, "10.0.0.10", hosts[0].PrivateIP)
+	require.Equal(t, awsRoleLoad, hosts[1].Role)
+	require.Equal(t, "203.0.113.20", hosts[1].PublicIP)
+}
+
+func TestPrometheusAndLoadConfigUsePrivateEVMEndpoints(t *testing.T) {
+	prom := prometheusScrapeConfig([]string{"10.0.0.10", "10.0.0.11"})
+	require.Contains(t, prom, "10.0.0.10:26660")
+	require.Contains(t, prom, "10.0.0.11:26660")
+
+	cfg, err := seiLoadAWSConfig([]string{"10.0.0.10", "10.0.0.11"})
+	require.NoError(t, err)
+	require.Contains(t, cfg, "http://10.0.0.10:8545")
+	require.Contains(t, cfg, "http://10.0.0.11:8545")
 }
 
 func TestGrafanaPublicURL(t *testing.T) {
