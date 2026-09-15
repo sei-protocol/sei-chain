@@ -36,7 +36,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cobra"
@@ -610,8 +609,6 @@ func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 	midBlockStart := time.Now()
 	defer func() {
 		moduleMetrics.totalMidBlockDuration.Record(ctx.Context(), time.Since(midBlockStart).Seconds())
-		// TODO(PLT-414): remove once module_total_mid_block_duration verified
-		telemetry.MeasureSince(midBlockStart, "module", "total_mid_block")
 	}()
 	for _, moduleName := range m.OrderMidBlockers {
 		module, ok := m.Modules[moduleName].(MidBlockAppModule)
@@ -621,8 +618,6 @@ func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 		moduleStartTime := time.Now()
 		module.MidBlock(ctx, height)
 		moduleMetrics.midBlockDuration.Record(ctx.Context(), time.Since(moduleStartTime).Seconds(), m.midBlockAttrs[moduleName])
-		// TODO(PLT-414): remove once module_mid_block_duration verified
-		telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "mid_block")
 	}
 
 	return ctx.EventManager().ABCIEvents()

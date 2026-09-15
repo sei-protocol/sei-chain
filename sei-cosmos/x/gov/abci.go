@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
@@ -29,8 +28,6 @@ func EndBlocker(ctx sdk.Context, keeper keeper.Keeper) {
 	endBlockerStart := time.Now()
 	defer func() {
 		govMetrics.endBlockerDuration.Record(ctx.Context(), time.Since(endBlockerStart).Seconds())
-		// TODO(PLT-414): remove once gov_end_blocker_duration verified
-		telemetry.ModuleMeasureSince(types.ModuleName, endBlockerStart, telemetry.MetricKeyEndBlocker)
 	}()
 	if !keeper.IncrementalTallyEnabled(ctx) {
 		legacyEndBlocker(ctx, keeper)
