@@ -112,7 +112,12 @@ func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *
 }
 
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t)
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorage(t, home)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	tx := new(ethtypes.Transaction)
 	require.NoError(t, tx.UnmarshalBinary(raw))
@@ -147,8 +152,13 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	gotBalance = app.EvmBalance(sender, nil)
 	require.Equal(t, wantBalance, gotBalance.ToBig())
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
+
+	// Receipt writes are queued behind the block; closing the storage drains
+	// them, so the reopened store is where the receipt is guaranteed to be.
+	_, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
-	receipt, err := app.(*evmOnlyApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
+	receipt, err := storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
 	require.Equal(t, uint64(1), receipt.BlockNumber)
