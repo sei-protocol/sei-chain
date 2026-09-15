@@ -5,13 +5,11 @@ services:
     ports:
       - "9099:9090"
     volumes:
-      - ./docker_compose_monitoring/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ${PROJECT_HOME}/build/generated/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
-    networks:
-      - localnet
 
   grafana:
     container_name: sei-grafana
@@ -28,8 +26,3 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - prometheus
-    networks:
-      - localnet
-
-networks:
-  localnet:

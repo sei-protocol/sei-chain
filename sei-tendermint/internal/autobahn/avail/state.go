@@ -666,6 +666,7 @@ func (s *State) ProduceLocalBlock(lane types.LaneID, n types.BlockNumber, payloa
 		q.pushBack(result)
 		ctrl.Updated()
 	}
+	metrics.ObserveProducedTxs(len(payload.Txs()))
 	return result, nil
 }
 

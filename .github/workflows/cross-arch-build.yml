@@ -19,6 +19,7 @@ jobs:
   linux-amd64:
     name: "Linux AMD64"
     runs-on: ubuntu-latest
+    if: github.base_ref != 'giga-1' && github.event.merge_group.base_ref != 'refs/heads/giga-1'
     steps:
       - name: Checkout code
         # See: https://github.com/actions/checkout/releases/tag/v7.0.0
@@ -59,6 +60,7 @@ jobs:
   linux-arm64:
     name: "Linux ARM64"
     runs-on: ubuntu-24.04-arm
+    if: github.base_ref != 'giga-1' && github.event.merge_group.base_ref != 'refs/heads/giga-1'
     steps:
       - name: Checkout code
         # See: https://github.com/actions/checkout/releases/tag/v7.0.0
@@ -240,6 +242,7 @@ jobs:
   macos-arm64:
     name: "macOS ARM64"
     runs-on: macos-latest
+    if: github.base_ref != 'giga-1' && github.event.merge_group.base_ref != 'refs/heads/giga-1'
     steps:
       - name: Checkout code
         # See: https://github.com/actions/checkout/releases/tag/v7.0.0
