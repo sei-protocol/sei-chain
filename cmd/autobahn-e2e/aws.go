@@ -221,9 +221,11 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		return fail(err)
 	}
 	allIDs := append(append([]string{}, validatorIDs...), loadIDs...)
+	_, _ = fmt.Fprintf(a.stdout, "Launched %d instances; waiting for them to pass status checks.\n", len(allIDs))
 	if err := client.waitInstances(ctx, allIDs); err != nil {
 		return fail(err)
 	}
+	_, _ = fmt.Fprintln(a.stdout, "All instances passed status checks.")
 	infos, err := client.describeInstanceIPs(ctx, allIDs)
 	if err != nil {
 		return fail(err)
@@ -249,6 +251,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 
 	readyCtx, cancel := context.WithTimeout(ctx, options.timeout)
 	defer cancel()
+	_, _ = fmt.Fprintln(a.stdout, "Waiting for cloud-init on every instance.")
 	if err := a.waitForAllBootstraps(readyCtx, state); err != nil {
 		return fail(err)
 	}

@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+set -e
 
 NODE_ID=${ID:-0}
 CLUSTER_SIZE=${CLUSTER_SIZE:-1}
