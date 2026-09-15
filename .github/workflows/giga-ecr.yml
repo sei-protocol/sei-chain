@@ -61,19 +61,13 @@ jobs:
           TAG_INPUT: ${{ inputs.tag }}
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           TAG_PREFIX: ${{ matrix.variant.tag_prefix }}
-          IS_PUSH: ${{ github.event_name == 'push' }}
         run: |
           SHA=$(git rev-parse HEAD)
           SUFFIX="${TAG_INPUT:-$SHA}"
           IMAGE="${REGISTRY}/sei/sei-chain:${TAG_PREFIX}giga-1"
-          TAGS="${IMAGE}-${SUFFIX}"
-          # Move the floating giga-1 tag only when this commit is still the branch head,
-          # so concurrent builds of successive pushes cannot leave it pointing at stale code.
-          if [ "${IS_PUSH}" = "true" ] && [ "$(git ls-remote origin refs/heads/giga-1 | cut -f1)" = "${SHA}" ]; then
-            TAGS="${TAGS},${IMAGE}"
-          fi
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${IMAGE}-${SUFFIX}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         # See: https://github.com/docker/setup-buildx-action/releases/tag/v4.1.0
@@ -87,17 +81,39 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          tags: ${{ steps.tag.outputs.tags }}
+          tags: ${{ steps.tag.outputs.sha_tag }}
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga-1-${{ matrix.variant.name }}
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga-1-${{ matrix.variant.name }},mode=max,compression=zstd,compression-level=3,image-manifest=true,oci-mediatypes=true
           build-args: |
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
             GO_BUILD_TAGS=${{ matrix.variant.build_tags }}
 
+      - name: Move floating tag
+        id: floating
+        if: github.event_name == 'push'
+        env:
+          SHA: ${{ steps.tag.outputs.sha }}
+          IMAGE: ${{ steps.tag.outputs.image }}
+          SHA_TAG: ${{ steps.tag.outputs.sha_tag }}
+        run: |
+          # Re-check the branch head after the build so a newer push that finished while
+          # this one was building keeps the floating tag.
+          if [ "$(git ls-remote origin refs/heads/giga-1 | cut -f1)" != "${SHA}" ]; then
+            echo "giga-1 has moved past ${SHA}; leaving ${IMAGE} untouched"
+            exit 0
+          fi
+          docker buildx imagetools create -t "${IMAGE}" "${SHA_TAG}"
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+
       - name: Summary
+        env:
+          SHA_TAG: ${{ steps.tag.outputs.sha_tag }}
+          IMAGE: ${{ steps.tag.outputs.image }}
+          MOVED: ${{ steps.floating.outputs.moved }}
         run: |
           {
             echo "### Giga ECR publish (${{ matrix.variant.name }})"
             echo ""
-            echo "${{ steps.tag.outputs.tags }}" | tr ',' '\n' | sed 's/^/- `/; s/$/`/'
+            echo "- \`${SHA_TAG}\`"
+            if [ "${MOVED}" = "true" ]; then echo "- \`${IMAGE}\`"; fi
           } >> "$GITHUB_STEP_SUMMARY"
