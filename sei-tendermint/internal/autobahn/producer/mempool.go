@@ -235,9 +235,11 @@ func waitForCapacity(ctx context.Context, m *mempoolInner, ctrl *utils.WatchCtrl
 		if err := ctrl.Wait(ctx); err != nil {
 			return time.Since(start), err
 		}
-		wakeups++
 		if m.closed {
 			return time.Since(start), ErrNotProducing
+		}
+		if m.IsFull() {
+			wakeups++
 		}
 	}
 	return time.Since(start), nil
@@ -315,7 +317,8 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 	admitStart := time.Now()
 	var waited time.Duration
 	defer func() { metrics.ObserveAdmit(time.Since(admitStart) - waited) }()
-	defer metrics.PhaseAdmit.Enter()()
+	leaveAdmit := metrics.PhaseAdmit.Enter()
+	defer func() { leaveAdmit() }()
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed {
 			return nil, ErrNotProducing
@@ -324,8 +327,11 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 			return nil, errMempoolFull
 		}
 		if m.IsFull() {
+			leaveAdmit()
 			var err error
-			if waited, err = waitForCapacity(ctx, m, ctrl); err != nil {
+			waited, err = waitForCapacity(ctx, m, ctrl)
+			leaveAdmit = metrics.PhaseAdmit.Enter()
+			if err != nil {
 				return nil, err
 			}
 		}
