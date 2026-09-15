@@ -856,15 +856,17 @@ func (c *viewManager) brick(err error) {
 //
 // Must be called without the shard lock held: it acquires versionLock, and the established order is
 // versionLock before any shard lock.
-// reportFoldFailure handles a fold that could not produce its value by bricking the manager. Separate
-// from reportReadFailure because the two are different failures and an operator reading the latched
-// error needs to be told which one happened.
-func (c *viewManager) reportFoldFailure(err error) {
-	c.brick(fmt.Errorf("failed to fold a staged value: %w", err))
-}
-
 func (c *viewManager) reportReadFailure(err error) {
 	c.brick(fmt.Errorf("failed to read from the underlying database: %w", err))
+}
+
+// reportFoldFailure handles a fold that could not produce its value by bricking the manager. The
+// latched error names the fold rather than the read that may have fed it.
+//
+// Must be called without the shard lock held: it acquires versionLock, and the established order is
+// versionLock before any shard lock.
+func (c *viewManager) reportFoldFailure(err error) {
+	c.brick(fmt.Errorf("failed to fold a staged value: %w", err))
 }
 
 // brickLocked latches the fatal error, cancels the manager context, wakes backpressure waiters, and
