@@ -22,40 +22,12 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 		return fmt.Errorf("start remote cluster: load instance is missing")
 	}
 
-	_, _ = fmt.Fprintln(a.stdout, "Cloning the repository onto every instance.")
-	if err := a.forEachHost(ctx, state.AWS.Hosts, func(ctx context.Context, host awsHost) error {
-		return a.cloneRemoteRepo(ctx, state, host)
-	}); err != nil {
-		return err
-	}
-
-	_, _ = fmt.Fprintln(a.stdout, "Building the node image on each validator.")
+	_, _ = fmt.Fprintln(a.stdout, "Cloning, building, and initializing all validators in parallel.")
 	if err := a.forEachHost(ctx, validators, func(ctx context.Context, host awsHost) error {
-		return a.remoteStream(ctx, state, host, "cd "+shellQuote(state.AWS.RemoteDir)+" && make build-docker-node")
-	}); err != nil {
-		return fmt.Errorf("build validator image: %w", err)
-	}
-
-	_, _ = fmt.Fprintf(a.stdout, "Initializing validator %d and compiling seid.\n", validators[0].Index)
-	if err := a.initValidator(ctx, state, validators[0], false); err != nil {
-		return err
-	}
-	if err := a.forEachHost(ctx, validators[1:], func(ctx context.Context, host awsHost) error {
-		if err := a.remoteStream(ctx, state, host, "mkdir -p "+shellQuote(filepath.Join(state.AWS.RemoteDir, "build"))); err != nil {
-			return fmt.Errorf("prepare build dir on validator %d: %w", host.Index, err)
+		if err := a.cloneRemoteRepo(ctx, state, host); err != nil {
+			return err
 		}
-		seid := filepath.Join(state.AWS.RemoteDir, "build", "seid")
-		if err := a.copyBetweenHosts(ctx, state, validators[0], seid, host, seid); err != nil {
-			return fmt.Errorf("copy seid to validator %d: %w", host.Index, err)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	_, _ = fmt.Fprintln(a.stdout, "Initializing the remaining validators.")
-	if err := a.forEachHost(ctx, validators[1:], func(ctx context.Context, host awsHost) error {
-		return a.initValidator(ctx, state, host, true)
+		return a.buildAndInitValidator(ctx, state, host)
 	}); err != nil {
 		return err
 	}
@@ -81,7 +53,10 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 		return fmt.Errorf("start validators: %w", err)
 	}
 
-	_, _ = fmt.Fprintln(a.stdout, "Starting Grafana, Prometheus, and sei-load on the load instance.")
+	_, _ = fmt.Fprintln(a.stdout, "Setting up Grafana and Prometheus on the load instance.")
+	if err := a.cloneRemoteRepo(ctx, state, load); err != nil {
+		return err
+	}
 	if err := a.startLoadHost(ctx, state, load, validators); err != nil {
 		return err
 	}
@@ -100,16 +75,17 @@ func (a *application) cloneRemoteRepo(ctx context.Context, state clusterState, h
 	return nil
 }
 
-func (a *application) initValidator(ctx context.Context, state clusterState, host awsHost, skipBuild bool) error {
-	vars := map[string]string{
-		"ID":           strconv.Itoa(host.Index),
-		"ADVERTISE_IP": host.PrivateIP,
-	}
-	if skipBuild {
-		vars["SKIP_BUILD"] = "true"
-	}
-	if err := a.remoteStream(ctx, state, host, remoteMake(state, "docker-aws-validator-init", vars)); err != nil {
-		return fmt.Errorf("init validator %d: %w", host.Index, err)
+func (a *application) buildAndInitValidator(ctx context.Context, state clusterState, host awsHost) error {
+	command := strings.Join([]string{
+		"cd " + shellQuote(state.AWS.RemoteDir),
+		"make build-docker-node",
+		remoteMake(state, "docker-aws-validator-init", map[string]string{
+			"ID":           strconv.Itoa(host.Index),
+			"ADVERTISE_IP": host.PrivateIP,
+		}),
+	}, " && ")
+	if err := a.remoteStream(ctx, state, host, command); err != nil {
+		return fmt.Errorf("build and init validator %d: %w", host.Index, err)
 	}
 	return nil
 }
@@ -185,7 +161,7 @@ func (a *application) startLoadHost(ctx context.Context, state clusterState, loa
 	}
 	write := strings.Join([]string{
 		"set -euo pipefail",
-		"mkdir -p " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated")) + " " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/tools")),
+		"mkdir -p " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated")),
 		"cat > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/prometheus.yml")) + " <<'EOF'\n" + prom + "EOF",
 		"cat > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "integration_test/autobahn/sei-load.aws.json")) + " <<'EOF'\n" + loadCfg + "EOF",
 	}, "\n")
@@ -194,18 +170,6 @@ func (a *application) startLoadHost(ctx context.Context, state clusterState, loa
 	}
 	if err := a.remoteStream(ctx, state, load, remoteMake(state, "docker-aws-load-start", nil)); err != nil {
 		return fmt.Errorf("start load-host monitoring: %w", err)
-	}
-	installAndRun := strings.Join([]string{
-		"set -euo pipefail",
-		"cd " + shellQuote(state.AWS.RemoteDir),
-		"GOBIN=" + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/tools")) + " go install github.com/sei-protocol/sei-load@" + seiLoadVersion,
-		"nohup " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/tools/sei-load")) +
-			" --config " + shellQuote(filepath.Join(state.AWS.RemoteDir, "integration_test/autobahn/sei-load.aws.json")) +
-			" --metricsListenAddr 0.0.0.0:19698" +
-			" > " + shellQuote(filepath.Join(state.AWS.RemoteDir, "build/generated/sei-load.log")) + " 2>&1 &",
-	}, "\n")
-	if err := a.remoteStream(ctx, state, load, installAndRun); err != nil {
-		return fmt.Errorf("start sei-load: %w", err)
 	}
 	return nil
 }

@@ -3,8 +3,8 @@
 `autobahn-e2e` manages the four-validator, disk-backed EVM-only Autobahn
 topology used for integration and load testing. Locally it runs all four
 validators in Docker on one host. On AWS it places each validator on its
-own EC2 instance and adds a fifth instance that scrapes metrics and runs
-`sei-load` against all four.
+own EC2 instance and adds a fifth instance that scrapes metrics. Start
+`sei-load` on that host when you want traffic.
 
 Run every command in this document from the root of a `sei-chain` checkout.
 The examples use the default cluster name, `autobahn-evmonly`. If `--name` is
@@ -73,8 +73,9 @@ replace existing `sei-node-*` containers or existing manager metadata.
 
 The AWS target creates five Ubuntu EC2 hosts: four validators and one
 load/monitoring instance. Each validator runs a single `seid` container that
-advertises the instance's private IP. The load instance runs Prometheus,
-Grafana, and `sei-load` pointed at all four private EVM endpoints. The
+advertises the instance's private IP. The four validators clone, compile,
+and initialize in parallel. The load instance is brought up afterward
+with Prometheus and Grafana; `sei-load` is left for you to start. The
 managed security group admits SSH from the caller, Grafana (`:3000`) from
 the internet, and all TCP between the five instances. EVM JSON-RPC stays
 off the public internet and is accessed through `forward`.
@@ -92,13 +93,17 @@ admin). `list` repeats it under `DASHBOARD`. Open **Autobahn E2E**. The
 login is the default Grafana pair on a temporary test host; tear the
 cluster down when finished.
 
-Deploy starts `sei-load` on the fifth instance against
-`http://<validator-private-ip>:8545` for every validator, using the same
-defaults as [`sei-load.local.json`](sei-load.local.json) (250 TPS). SSH to
-the load host to change the config and restart it:
+Deploy writes `integration_test/autobahn/sei-load.aws.json` on the load
+instance with `http://<validator-private-ip>:8545` for every validator.
+It does not start `sei-load`. When you want traffic, SSH in and run it:
 
 ```sh
 ssh -i ~/.sei/autobahn-e2e/my-autobahn.pem ubuntu@<load-public-ip>
+cd ~/sei-chain-my-autobahn
+GOBIN="$PWD/build/tools" go install github.com/sei-protocol/sei-load@v0.0.1
+./build/tools/sei-load \
+  --config integration_test/autobahn/sei-load.aws.json \
+  --metricsListenAddr 0.0.0.0:19698
 ```
 
 In another terminal, forward one validator to the laptop:
@@ -229,7 +234,7 @@ GOBIN="$PWD/build/tools" go install github.com/sei-protocol/sei-load@v0.0.1
 The checked-in [`sei-load.local.json`](sei-load.local.json) is a ready local
 four-endpoint configuration. An AWS deploy writes
 `integration_test/autobahn/sei-load.aws.json` on the load instance with the
-four private EVM URLs and starts `sei-load` from there. To drive load from
+four private EVM URLs and leaves `sei-load` stopped. To drive load from
 the laptop instead, copy the local file and point `endpoints` at one or
 more `forward` tunnels.
 
