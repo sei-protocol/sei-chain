@@ -67,10 +67,12 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 	})
 }
 
-// EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
-// EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
+// EvmProxyEnabled is always true: fullnodes have no local mempool and proxy
+// every transaction.
 func (r *gigaFullnodeRouter) EvmProxyEnabled() bool { return true }
 
+// EvmProxy on the fullnode always returns the shard owner's EVM RPC client.
+// EnableEvmProxy is a no-op here because fullnodes do not have a local mempool.
 func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) utils.Option[*ethrpc.Client] {
 	return r.evmProxy(r.nextCommitEpoch.Load().Committee().EvmShard(sender))
 }

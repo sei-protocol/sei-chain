@@ -61,6 +61,17 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, sender, prepared.Sender)
 	})
+
+	t.Run("known sender is ignored for a tx from another chain", func(t *testing.T) {
+		otherChain := big.NewInt(testChainID + 1)
+		otherRaw := signLegacyTx(t, key, otherChain, 0, &recipient, big.NewInt(1), nil)
+		known := func(common.Hash) (common.Address, bool) {
+			t.Fatal("known sender consulted for a tx from another chain")
+			return claimed, true
+		}
+		_, err := parsePreparedTx(otherRaw, signer, known)
+		require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
+	})
 }
 
 func TestParseBlockTxsMixesKnownAndRecoveredSenders(t *testing.T) {

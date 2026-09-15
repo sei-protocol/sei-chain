@@ -19,6 +19,13 @@ import (
 
 const evmOnlyTestChainID uint64 = 713715
 
+func decodeEVMOnlyTestTx(t *testing.T, raw []byte) *ethtypes.Transaction {
+	t.Helper()
+	tx := new(ethtypes.Transaction)
+	require.NoError(t, tx.UnmarshalBinary(raw))
+	return tx
+}
+
 func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, common.Address) {
 	t.Helper()
 	key, err := crypto.GenerateKey()
@@ -202,14 +209,22 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 			Time:   time.Unix(1_700_000_001, 0),
 		},
 	}
-	checked := newInitializedEVMOnlyTestApp(t)
+	checked, ok := newInitializedEVMOnlyTestApp(t).(*evmOnlyApplication)
+	require.True(t, ok)
 	unchecked := newInitializedEVMOnlyTestApp(t)
 
 	check := checked.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
 	require.True(t, check.IsOK())
 	require.Equal(t, sender, check.EVMSenderAddress)
+	_, ok = checked.knownSender(common.Hash{})
+	require.False(t, ok)
+	known, ok := checked.knownSender(decodeEVMOnlyTestTx(t, raw).Hash())
+	require.True(t, ok)
+	require.Equal(t, sender, known)
 	checkedResponse, err := checked.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
+	_, ok = checked.knownSender(decodeEVMOnlyTestTx(t, raw).Hash())
+	require.False(t, ok)
 	uncheckedResponse, err := unchecked.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
 

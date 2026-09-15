@@ -38,8 +38,9 @@ type ResultSink interface {
 // BlockRequest contains all consensus/runtime inputs needed to execute a block.
 // Txs must be raw Ethereum transaction RLP bytes. KnownSender, when non-nil,
 // returns the sender of a transaction whose signature this process has already
-// verified, keyed by transaction hash; PrepareBlock uses it instead of
-// recovering the sender. Transactions it does not know are recovered as usual.
+// verified against the executor's chain ID, keyed by transaction hash;
+// PrepareBlock uses it instead of recovering the sender for transactions bound
+// to that chain. Transactions it does not know are recovered as usual.
 type BlockRequest struct {
 	Context     BlockContext
 	Txs         [][]byte

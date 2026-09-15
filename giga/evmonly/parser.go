@@ -65,8 +65,8 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, kn
 }
 
 // parsePreparedTx decodes raw and resolves its sender. The sender is taken from
-// known when it has an entry for the decoded transaction's hash, which binds the
-// remembered sender to exactly these bytes; otherwise it is recovered from the
+// known when it has an entry for the decoded transaction's hash and the
+// transaction is bound to signer's chain; otherwise it is recovered from the
 // signature.
 func parsePreparedTx(raw []byte, signer ethtypes.Signer, known knownSenderFunc) (PreparedTx, error) {
 	tx, err := decodeRawTx(raw)
@@ -76,7 +76,7 @@ func parsePreparedTx(raw []byte, signer ethtypes.Signer, known knownSenderFunc) 
 	if err := validateSupportedTx(tx); err != nil {
 		return PreparedTx{}, err
 	}
-	if known != nil {
+	if known != nil && tx.Protected() && tx.ChainId().Cmp(signer.ChainID()) == 0 {
 		if sender, ok := known(tx.Hash()); ok {
 			return PreparedTx{Tx: tx, Sender: sender}, nil
 		}
@@ -86,18 +86,6 @@ func parsePreparedTx(raw []byte, signer ethtypes.Signer, known knownSenderFunc) 
 		return PreparedTx{}, err
 	}
 	return PreparedTx{Tx: tx, Sender: sender}, nil
-}
-
-func parseTx(raw []byte, signer ethtypes.Signer) (*ethtypes.Transaction, common.Address, error) {
-	tx, err := decodeRawTx(raw)
-	if err != nil {
-		return nil, common.Address{}, err
-	}
-	sender, err := ethtypes.Sender(signer, tx)
-	if err != nil {
-		return nil, common.Address{}, err
-	}
-	return tx, sender, nil
 }
 
 func decodeRawTx(raw []byte) (*ethtypes.Transaction, error) {
