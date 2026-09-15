@@ -24,6 +24,7 @@ type nodeReport struct {
 	Status     string `json:"status"`
 	Height     string `json:"height"`
 	EVMTarget  string `json:"evm_target"`
+	Dashboard  string `json:"dashboard,omitempty"`
 	InstanceID string `json:"instance_id,omitempty"`
 	PublicIP   string `json:"public_ip,omitempty"`
 }
@@ -91,7 +92,21 @@ func (a *application) list(ctx context.Context, options listOptions) error {
 			report.InstanceID,
 		)
 	}
-	return writer.Flush()
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	printed := map[string]struct{}{}
+	for _, report := range reports {
+		if report.Dashboard == "" {
+			continue
+		}
+		if _, ok := printed[report.Dashboard]; ok {
+			continue
+		}
+		printed[report.Dashboard] = struct{}{}
+		_, _ = fmt.Fprintf(a.stdout, "\nDASHBOARD  %s  (admin / admin)\n", report.Dashboard)
+	}
+	return nil
 }
 
 func (a *application) inspectCluster(ctx context.Context, state clusterState) ([]nodeReport, error) {
@@ -193,6 +208,7 @@ func (a *application) inspectAWSCluster(ctx context.Context, state clusterState)
 			Status:     status,
 			Height:     height,
 			EVMTarget:  fmt.Sprintf("SSH→127.0.0.1:%d", node.EVMHostPort),
+			Dashboard:  grafanaPublicURL(state.AWS.PublicIP),
 			InstanceID: state.AWS.InstanceID,
 			PublicIP:   state.AWS.PublicIP,
 		}

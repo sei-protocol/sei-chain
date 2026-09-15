@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const ubuntuARM64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id"
+const ubuntuAMD64AMIParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 
 var sshUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 
@@ -44,6 +44,12 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if options.volumeSize < 20 {
 		return fmt.Errorf("--volume-size must be at least 20 GiB")
 	}
+	if options.volumeIOPS <= 0 {
+		return fmt.Errorf("--volume-iops must be positive")
+	}
+	if options.volumeThroughput <= 0 {
+		return fmt.Errorf("--volume-throughput must be positive")
+	}
 	if options.keyName != "" && options.sshKeyPath == "" {
 		return fmt.Errorf("--ssh-key is required with --key-name")
 	}
@@ -67,7 +73,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if amiID == "" {
 		amiID, err = client.output(ctx,
 			"ssm", "get-parameter",
-			"--name", ubuntuARM64AMIParameter,
+			"--name", ubuntuAMD64AMIParameter,
 			"--query", "Parameter.Value",
 			"--output", "text",
 		)
@@ -113,7 +119,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	securityGroupID, err := client.output(ctx,
 		"ec2", "create-security-group",
 		"--group-name", securityGroupName,
-		"--description", "SSH access for Sei Autobahn EVM-only E2E",
+		"--description", "SSH and public Grafana for Sei Autobahn EVM-only E2E",
 		"--vpc-id", vpcID,
 		"--query", "GroupId",
 		"--output", "text",
@@ -132,13 +138,10 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	); err != nil {
 		return fail(err)
 	}
-	if _, err := client.output(ctx,
-		"ec2", "authorize-security-group-ingress",
-		"--group-id", state.AWS.SecurityGroupID,
-		"--protocol", "tcp",
-		"--port", "22",
-		cidrFlag(sshCIDR), sshCIDR,
-	); err != nil {
+	if err := client.authorizeTCP(ctx, state.AWS.SecurityGroupID, "22", sshCIDR); err != nil {
+		return fail(err)
+	}
+	if err := client.authorizeTCP(ctx, state.AWS.SecurityGroupID, strconv.Itoa(grafanaPublicPort), grafanaPublicCIDR); err != nil {
 		return fail(err)
 	}
 
@@ -186,7 +189,7 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 		"--security-group-ids", state.AWS.SecurityGroupID,
 		"--associate-public-ip-address",
 		"--metadata-options", "HttpTokens=required,HttpEndpoint=enabled",
-		"--block-device-mappings", fmt.Sprintf("DeviceName=/dev/sda1,Ebs={VolumeSize=%d,VolumeType=gp3,DeleteOnTermination=true}", options.volumeSize),
+		"--block-device-mappings", ebsRootMapping(options.volumeSize, options.volumeIOPS, options.volumeThroughput),
 		"--user-data", "file://" + userDataPath,
 		"--tag-specifications", fmt.Sprintf("ResourceType=instance,Tags=[{Key=Name,Value=sei-autobahn-e2e-%s},{Key=sei-autobahn-e2e-cluster,Value=%s}]", options.name, options.name),
 		"--query", "Instances[0].InstanceId",
@@ -237,11 +240,15 @@ func (a *application) deployAWS(ctx context.Context, options deployOptions) erro
 	if err := a.waitForRemoteCluster(readyCtx, state); err != nil {
 		return fail(err)
 	}
+	if err := a.waitForRemoteGrafana(readyCtx, state); err != nil {
+		return fail(err)
+	}
 	state.Status = "ready"
 	if err := a.store().save(state); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(a.stdout, "Cluster %s is ready on EC2 instance %s (%s).\n", state.Name, state.AWS.InstanceID, state.AWS.PublicIP)
+	_, _ = fmt.Fprintf(a.stdout, "Grafana: %s  (admin / admin)\n", grafanaPublicURL(state.AWS.PublicIP))
 	return nil
 }
 
@@ -427,12 +434,39 @@ func (a *application) startRemoteCluster(ctx context.Context, state clusterState
 		"git clone --filter=blob:none " + shellQuote(aws.RepoURL) + " " + shellQuote(aws.RemoteDir),
 		"cd " + shellQuote(aws.RemoteDir),
 		"git checkout --detach " + shellQuote(aws.Ref),
-		"AUTOBAHN=true AUTOBAHN_EVMONLY=true DOCKER_DETACH=true make docker-cluster-start",
+		"AUTOBAHN=true AUTOBAHN_EVMONLY=true DOCKER_DETACH=true make docker-cluster-start-monitoring",
 	}, " && ")
 	if err := a.runner.stream(ctx, sshCommand(state, command)); err != nil {
 		return fmt.Errorf("start remote cluster: %w", err)
 	}
 	return nil
+}
+
+func (c awsClient) authorizeTCP(ctx context.Context, groupID, port, cidr string) error {
+	_, err := c.output(ctx,
+		"ec2", "authorize-security-group-ingress",
+		"--group-id", groupID,
+		"--protocol", "tcp",
+		"--port", port,
+		cidrFlag(cidr), cidr,
+	)
+	return err
+}
+
+func (a *application) waitForRemoteGrafana(ctx context.Context, state clusterState) error {
+	command := "curl -fsS -o /dev/null http://127.0.0.1:" + strconv.Itoa(grafanaPublicPort) + "/api/health"
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		if _, err := a.runner.output(ctx, sshCommand(state, command)); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for Grafana: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (a *application) waitForRemoteCluster(ctx context.Context, state clusterState) error {
@@ -464,6 +498,13 @@ func sshBaseArgs(state clusterState) []string {
 		"-o", "StrictHostKeyChecking=accept-new",
 		aws.SSHUser + "@" + aws.PublicIP,
 	}
+}
+
+func ebsRootMapping(sizeGiB, iops, throughputMB int) string {
+	return fmt.Sprintf(
+		"DeviceName=/dev/sda1,Ebs={VolumeSize=%d,VolumeType=gp3,Iops=%d,Throughput=%d,DeleteOnTermination=true}",
+		sizeGiB, iops, throughputMB,
+	)
 }
 
 func shellQuote(value string) string {

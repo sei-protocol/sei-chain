@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
@@ -450,6 +451,9 @@ func openEVMOnlyStorageManager(
 	rootDir string,
 	fc *config.AutobahnFileConfig,
 ) (*bootstrap.GigaStorageManager, error) {
+	if err := gigametrics.SetupPrometheus(); err != nil {
+		return nil, err
+	}
 	commonCfg := &p2p.GigaRouterCommonConfig{PersistentStateDir: fc.PersistentStateDir}
 	if err := preparePersistentStateDir(rootDir, commonCfg); err != nil {
 		return nil, err

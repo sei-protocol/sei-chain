@@ -14,7 +14,17 @@ const (
 	defaultClusterName = "autobahn-evmonly"
 	targetLocal        = "local"
 	targetAWS          = "aws"
+
+	grafanaPublicPort = 3000
+	grafanaPublicCIDR = "0.0.0.0/0"
 )
+
+func grafanaPublicURL(host string) string {
+	if host == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", host, grafanaPublicPort)
+}
 
 type application struct {
 	runner   commandRunner

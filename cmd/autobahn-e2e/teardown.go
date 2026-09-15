@@ -60,7 +60,7 @@ func (a *application) teardownAWS(ctx context.Context, state clusterState) error
 		return err
 	}
 	if state.AWS.PublicIP != "" && state.AWS.RemoteDir != "" {
-		command := "cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-cluster-stop"
+		command := "cd " + shellQuote(state.AWS.RemoteDir) + " && make docker-cluster-stop-monitoring"
 		if err := a.runner.stream(ctx, sshCommand(state, command)); err != nil {
 			_, _ = fmt.Fprintf(a.stderr, "warning: remote Docker teardown failed: %v\n", err)
 		}
