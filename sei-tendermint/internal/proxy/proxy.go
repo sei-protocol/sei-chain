@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/holiman/uint256"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -57,6 +58,24 @@ func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 func (app *Proxy) EvmChainID() uint64 {
 	defer addTimeSample(Global.MethodTimingAt("evm_chain_id", "sync"))()
 	return app.app.EvmChainID()
+}
+
+// evmCaller is implemented by applications that can run a read-only EVM call
+// against their current state.
+type evmCaller interface {
+	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
+}
+
+// EvmCall executes msg as a read-only call against the wrapped application's
+// current EVM state. It errors if that application does not support EVM
+// calls.
+func (app *Proxy) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_call", "sync"))()
+	caller, ok := app.app.(evmCaller)
+	if !ok {
+		return nil, fmt.Errorf("application does not support EVM calls")
+	}
+	return caller.EvmCall(ctx, msg)
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
