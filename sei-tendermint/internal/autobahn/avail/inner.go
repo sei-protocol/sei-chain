@@ -13,8 +13,7 @@ import (
 // blockQueue is a per-lane block queue.
 type blockQueue struct {
 	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-	// last is the last proposal this node pushed, or None if prune jumped past
-	// every block it held.
+	// last is None, or this node's last pushed proposal at height >= first-1.
 	last utils.Option[*types.Signed[*types.LaneProposal]]
 }
 
@@ -27,13 +26,15 @@ func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 	q.last = utils.Some(p)
 }
 
+// prune drops [first, newFirst). last is kept when newFirst <= next and
+// cleared when newFirst > next.
 func (q *blockQueue) prune(newFirst types.BlockNumber) {
 	if newFirst <= q.first {
 		return
 	}
 	if newFirst > q.next {
-		// The Anchor certified past every block this lane holds, so the block it
-		// names as the new tip was never seen locally.
+		// TODO: seed last from a non-empty LaneRange LastHash at Next()-1.
+		// Empty ranges carry a zero LastHash, so they cannot replace a local last.
 		q.last = utils.None[*types.Signed[*types.LaneProposal]]()
 	}
 	q.queue.prune(newFirst)
@@ -296,10 +297,6 @@ func (i *inner) prune(anchor data.Anchor) int {
 	for lane, vq := range i.votes {
 		lr := anchor.CommitQC.LaneRange(lane)
 		bq := i.blocks[lane]
-		// TODO: when prune jumps past what this node holds, seed the parent from
-		// lr.LastHash() at Next()-1 (non-empty range only). Empty ranges still
-		// carry a zero LastHash, so a later QC cannot replace a conflicting
-		// local predecessor or recover a tip the WAL does not have.
 		vq.prune(lr.Next())
 		bq.prune(lr.Next())
 		// A lagging cursor stops at retentionFloor so an unflushed last can still
