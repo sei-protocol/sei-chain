@@ -16,6 +16,7 @@ type testBackend struct {
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	balance          func(common.Address) uint256.Int
 	proxy            utils.Option[*ethrpc.Client]
+	proxyCalls       int
 	transactionCount func(common.Address) uint64
 	blockNumber      func() uint64
 	chainID          func() uint64
@@ -34,7 +35,12 @@ func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 }
 
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
+	b.proxyCalls++
 	return b.proxy
+}
+
+func (b *testBackend) EvmProxyEnabled() bool {
+	return b.proxy.IsPresent()
 }
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
