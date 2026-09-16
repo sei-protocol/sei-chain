@@ -3,11 +3,13 @@ package gigasim
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"hash"
+	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -64,10 +66,80 @@ func writeSyntheticTxHash(dst []byte, rand *crand.CannedRandom, blockNumber int6
 // topicsPerTransferLog is the Transfer event signature plus its two indexed address topics.
 const topicsPerTransferLog = 3
 
+// bloomBits are the three bit positions a value contributes to a log bloom.
+type bloomBits [3]uint
+
+// bloomBitsFor derives the three bits a value sets in a log bloom by mixing its bytes rather than
+// hashing them, which no filter could match against. Nothing here reads a log back, so what is kept
+// is what reaches the store: the same bits per value, the same spread, and the same bits on a
+// rerun of the seed.
+func bloomBitsFor(value []byte) bloomBits {
+	// FNV-1a, for a spread across the bloom's positions that costs a multiply per byte.
+	const (
+		fnvOffset uint64 = 14695981039346656037
+		fnvPrime  uint64 = 1099511628211
+	)
+	mixed := fnvOffset
+	for _, b := range value {
+		mixed ^= uint64(b)
+		mixed *= fnvPrime
+	}
+	var bits bloomBits
+	for i := range bits {
+		bits[i] = uint(mixed & 2047)
+		mixed >>= 11
+	}
+	return bits
+}
+
+// receiptCache holds what a receipt repeats rather than derives anew: the event signature's bloom
+// bits, and the values that follow from a contract address. It is not safe for concurrent use.
+type receiptCache struct {
+	signature bloomBits
+	contracts map[[keys.AddressLen]byte]contractFields
+}
+
+// contractFields are the per-contract values a receipt repeats and none of its transactions change.
+type contractFields struct {
+	bits bloomBits
+	hex  string
+}
+
+// newReceiptCache returns a cache with the constant inputs already resolved.
+func newReceiptCache() *receiptCache {
+	return &receiptCache{
+		signature: bloomBitsFor(erc20TransferEventSignatureBytes[:]),
+		contracts: make(map[[keys.AddressLen]byte]contractFields),
+	}
+}
+
+// contract returns an ERC20 contract's bloom bits and hex address, resolving one it has not seen.
+func (c *receiptCache) contract(address []byte) contractFields {
+	var key [keys.AddressLen]byte
+	copy(key[:], address)
+	if fields, ok := c.contracts[key]; ok {
+		return fields
+	}
+	fields := contractFields{bits: bloomBitsFor(address), hex: bytesToHex(address)}
+	c.contracts[key] = fields
+	return fields
+}
+
+// setBits marks bits in a bloom.
+func setBits(bloom *ethtypes.Bloom, bits bloomBits) {
+	for _, bit := range bits {
+		bloom[ethtypes.BloomByteLength-1-bit/8] |= byte(1 << (bit % 8))
+	}
+}
+
 // receiptBuffer holds one block's receipts in a fixed number of allocations: every array a receipt
 // points into is carved out of a slice the buffer owns.
 type receiptBuffer struct {
-	receipts []*evmtypes.Receipt
+	// The records the store is handed, marshaled as each receipt is built.
+	records []receipt.ReceiptRecord
+
+	// The total size of what those records marshaled to.
+	encodedBytes int64
 
 	storage []evmtypes.Receipt
 	logs    []evmtypes.Log
@@ -76,30 +148,29 @@ type receiptBuffer struct {
 	blooms  []ethtypes.Bloom
 	data    []byte
 
-	// The bloom hasher, which belongs to the generator rather than to any one block: it is reset
-	// before each use, and building one per receipt costs more than the hashing does.
-	hasher hash.Hash
+	// What the generator has already resolved about the contract pool, kept across blocks.
+	cache *receiptCache
 }
 
 // newReceiptBuffer allocates the backing storage for one block of receipts.
-func newReceiptBuffer(count int, hasher hash.Hash) *receiptBuffer {
+func newReceiptBuffer(count int, cache *receiptCache) *receiptBuffer {
 	return &receiptBuffer{
-		receipts: make([]*evmtypes.Receipt, count),
-		storage:  make([]evmtypes.Receipt, count),
-		logs:     make([]evmtypes.Log, count),
-		logRefs:  make([]*evmtypes.Log, count),
-		topics:   make([]string, count*topicsPerTransferLog),
-		blooms:   make([]ethtypes.Bloom, count),
-		data:     make([]byte, count*hashLen),
-		hasher:   hasher,
+		records: make([]receipt.ReceiptRecord, count),
+		storage: make([]evmtypes.Receipt, count),
+		logs:    make([]evmtypes.Log, count),
+		logRefs: make([]*evmtypes.Log, count),
+		topics:  make([]string, count*topicsPerTransferLog),
+		blooms:  make([]ethtypes.Bloom, count),
+		data:    make([]byte, count*hashLen),
+		cache:   cache,
 	}
 }
 
 // build fills in the receipt an ERC20 transfer would leave behind: one Transfer log with two indexed
 // address topics, and a bloom covering them. The values are synthetic, since the receipt store is
 // measured on the volume and shape of what it stores rather than on the arithmetic behind it.
-func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) {
-	contractAddress := addressFromKey(txn.erc20Contract)
+func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transaction, blockNumber int64) error {
+	contract := b.cache.contract(addressFromKey(txn.erc20Contract))
 	senderTopic := indexedAddressTopic(addressFromKey(txn.srcAccount))
 	receiverTopic := indexedAddressTopic(addressFromKey(txn.dstAccount))
 
@@ -112,11 +183,9 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	effectiveGasPrice := receiptGasPriceBase + rand.Int64Range(0, receiptGasPriceSpan)
 	transferAmount := receiptTransferBase + rand.Int64Range(0, receiptTransferSpan)
 
-	contractAddressHex := bytesToHex(contractAddress)
-
 	bloom := &b.blooms[index]
 	*bloom = ethtypes.Bloom{}
-	b.addTransferLogToBloom(bloom, contractAddress, senderTopic[:], receiverTopic[:])
+	b.addTransferLogToBloom(bloom, contract.bits, senderTopic[:], receiverTopic[:])
 
 	topics := b.topics[index*topicsPerTransferLog : (index+1)*topicsPerTransferLog]
 	topics[0] = erc20TransferEventSignatureHex
@@ -130,7 +199,7 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	log := &b.logs[index]
 	b.logRefs[index] = log
 	*log = evmtypes.Log{
-		Address: contractAddressHex,
+		Address: contract.hex,
 		Topics:  topics,
 		Data:    amount,
 		Index:   0,
@@ -139,13 +208,12 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 	var txHash [hashLen]byte
 	writeSyntheticTxHash(txHash[:], rand, blockNumber, index)
 
-	receipt := &b.storage[index]
-	b.receipts[index] = receipt
+	built := &b.storage[index]
 	//nolint:gosec // G115 - benchmark values are bounded well below the conversion limits
-	*receipt = evmtypes.Receipt{
+	*built = evmtypes.Receipt{
 		TxType:            txType,
 		CumulativeGasUsed: uint64(gasUsed + int64(index)*previousGas),
-		ContractAddress:   contractAddressHex,
+		ContractAddress:   contract.hex,
 		TxHashHex:         bytesToHex(txHash[:]),
 		GasUsed:           uint64(gasUsed),
 		EffectiveGasPrice: uint64(effectiveGasPrice),
@@ -153,38 +221,37 @@ func (b *receiptBuffer) build(index int, rand *crand.CannedRandom, txn *transact
 		TransactionIndex:  uint32(index),
 		Status:            uint32(ethtypes.ReceiptStatusSuccessful),
 		From:              bytesToHex(addressFromKey(txn.srcAccount)),
-		To:                contractAddressHex,
+		To:                contract.hex,
 		Logs:              b.logRefs[index : index+1],
 		LogsBloom:         bloom[:],
 	}
+
+	// Marshaled here rather than on the execution loop, which is what paces the run. The receipt is
+	// final once built, so nothing downstream changes what this encodes.
+	encoded, err := built.Marshal()
+	if err != nil {
+		return fmt.Errorf("failed to marshal the receipt for transaction %d of block %d: %w",
+			index, blockNumber, err)
+	}
+	b.encodedBytes += int64(len(encoded))
+	b.records[index] = receipt.ReceiptRecord{
+		TxHash:       common.BytesToHash(txHash[:]),
+		Receipt:      built,
+		ReceiptBytes: encoded,
+	}
+	return nil
 }
 
 // addTransferLogToBloom sets the bits a Transfer log contributes: the emitting contract, the event
 // signature and both indexed topics.
 func (b *receiptBuffer) addTransferLogToBloom(
 	bloom *ethtypes.Bloom,
-	contractAddress, senderTopic, receiverTopic []byte,
+	contractBits bloomBits, senderTopic, receiverTopic []byte,
 ) {
-	var digest [hashLen]byte
-	for _, value := range [4][]byte{
-		contractAddress,
-		erc20TransferEventSignatureBytes[:],
-		senderTopic,
-		receiverTopic,
-	} {
-		addToBloom(b.hasher, &digest, bloom, value)
-	}
-}
-
-// addToBloom sets the three bits a value contributes to a bloom filter.
-func addToBloom(hasher hash.Hash, digest *[hashLen]byte, bloom *ethtypes.Bloom, value []byte) {
-	hasher.Reset()
-	_, _ = hasher.Write(value)
-	sum := hasher.Sum(digest[:0])
-	for i := 0; i < 6; i += 2 {
-		bit := (uint(sum[i])<<8)&2047 + uint(sum[i+1])
-		bloom[ethtypes.BloomByteLength-1-bit/8] |= byte(1 << (bit % 8))
-	}
+	setBits(bloom, contractBits)
+	setBits(bloom, b.cache.signature)
+	setBits(bloom, bloomBitsFor(senderTopic))
+	setBits(bloom, bloomBitsFor(receiverTopic))
 }
 
 // addressFromKey takes the address out of an EVM key, which carries it after a one-byte prefix. A

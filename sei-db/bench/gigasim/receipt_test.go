@@ -3,8 +3,10 @@ package gigasim
 import (
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 )
 
@@ -31,6 +33,30 @@ func TestSyntheticTxHashesAreUniqueAcrossPositions(t *testing.T) {
 				"block %d transaction %d repeats a hash already used at another position", block, txIndex)
 			seen[hash] = struct{}{}
 		}
+	}
+}
+
+// TestBuiltRecordKeysOnItsOwnReceiptHash pins a record's key to the hash inside the receipt it
+// carries. The store keys on TxHash, so a record keyed on anything else would hide its receipt.
+func TestBuiltRecordKeysOnItsOwnReceiptHash(t *testing.T) {
+	t.Parallel()
+
+	const count = 8
+	buffer := newReceiptBuffer(count, newReceiptCache())
+	rand := crand.NewCannedRandom(1<<20, 1337)
+	txn := &transaction{
+		erc20Contract: make([]byte, 1+keys.AddressLen+hashLen),
+		srcAccount:    make([]byte, 1+keys.AddressLen+hashLen),
+		dstAccount:    make([]byte, 1+keys.AddressLen+hashLen),
+	}
+
+	for index := range count {
+		require.NoError(t, buffer.build(index, rand, txn, 3))
+
+		record := buffer.records[index]
+		require.Equal(t, common.HexToHash(record.Receipt.TxHashHex), record.TxHash,
+			"the record's key must be the hash its own receipt reports")
+		require.NotEmpty(t, record.ReceiptBytes, "a record reaches the store already marshaled")
 	}
 }
 

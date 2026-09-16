@@ -47,8 +47,7 @@ import (
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	t.Helper()
-	require.NoError(t, store.SetLatestVersion(latest))
-	require.NoError(t, store.SetEarliestVersion(1))
+	require.NoError(t, pinReceiptVersions(store, latest))
 }
 
 // bcAlwaysFailClient fails every Block call (header resolution uses a single block fetch).

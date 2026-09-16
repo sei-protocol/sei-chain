@@ -3,13 +3,11 @@ package gigasim
 import (
 	"context"
 	"fmt"
-	"hash"
 
-	"golang.org/x/crypto/sha3"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 )
 
 // writesPerTransaction is how many keys one transfer writes: both accounts' records and both of their
@@ -27,8 +25,13 @@ type simulatedBlock struct {
 	// executor pool, so a block's transaction count is also its degree of parallelism.
 	transactions []*transaction
 
-	// The receipts written to the receipt store, empty when receipts are disabled.
-	receipts []*evmtypes.Receipt
+	// The receipts written to the receipt store, in the form it takes them, empty when receipts are
+	// disabled. They are marshaled here because execution does not change them and its loop paces
+	// the run.
+	receiptRecords []receipt.ReceiptRecord
+
+	// What those records marshaled to, which the run reports as bytes written.
+	receiptBytes int64
 
 	// The transaction bytes the block store persists. These stand in for encoded transactions, which
 	// the block store holds as opaque bytes.
@@ -91,7 +94,7 @@ type blockGenerator struct {
 
 	// The keccak hasher every receipt's bloom is built with, held here because only this goroutine
 	// builds receipts.
-	bloomHasher hash.Hash
+	receiptCache *receiptCache
 
 	// This goroutine's share of a block's critical path: building it and storing it.
 	lifecycle *metrics.PhaseTimer
@@ -128,7 +131,7 @@ func newBlockGenerator(
 		batch:           newStateBatch(writesPerTransaction*config.TransactionsPerBlock + 1),
 		rateLimiter:     rateLimiter,
 		blocksChan:      make(chan *simulatedBlock, config.MaxPendingExecutionQueueSize),
-		bloomHasher:     sha3.NewLegacyKeccak256(),
+		receiptCache:    newReceiptCache(),
 		lifecycle:       gigasimMetrics.NewBlockProducingTimer(),
 		blockStoreWrite: blockStoreWrite,
 		metrics:         gigasimMetrics,
@@ -216,8 +219,8 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 	}
 	var receipts *receiptBuffer
 	if g.config.EnableReceiptStore {
-		receipts = newReceiptBuffer(count, g.bloomHasher)
-		block.receipts = receipts.receipts
+		receipts = newReceiptBuffer(count, g.receiptCache)
+		block.receiptRecords = receipts.records
 	}
 
 	for i := range count {
@@ -230,8 +233,13 @@ func (g *blockGenerator) buildBlock() (*simulatedBlock, error) {
 		g.stageTransactionWrites(txn)
 
 		if receipts != nil {
-			receipts.build(i, g.accounts.Rand(), txn, number)
+			if err := receipts.build(i, g.accounts.Rand(), txn, number); err != nil {
+				return nil, err
+			}
 		}
+	}
+	if receipts != nil {
+		block.receiptBytes = receipts.encodedBytes
 	}
 
 	// Staged once, after the transactions, because they all name this one key: every transaction draws
