@@ -15,11 +15,23 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish giga-1 container
+    name: Publish giga-1 container (${{ matrix.variant.name }})
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          # mock_balances credits every account, so a load generator needs no
+          # funding step. harbor's giga-testnet consumes that variant.
+          - name: vanilla
+            tag_prefix: ''
+            build_tags: ''
+          - name: mock_balances
+            tag_prefix: 'mock-'
+            build_tags: 'mock_balances'
     steps:
       - name: Refuse a ref that is not giga-1
         run: |
@@ -34,13 +46,15 @@ jobs:
 
       - name: Compute tag components
         id: tag
+        env:
+          TAG_PREFIX: ${{ matrix.variant.tag_prefix }}
         run: |
           set -euo pipefail
           SHA=$(git rev-parse HEAD)
           SHA7=$(git rev-parse --short=7 HEAD)
           TS=$(TZ=UTC0 git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
           echo "sha=${SHA}"   >> "$GITHUB_OUTPUT"
-          echo "giga1=giga1-${TS}-${SHA7}" >> "$GITHUB_OUTPUT"
+          echo "giga1=${TAG_PREFIX}giga1-${TS}-${SHA7}" >> "$GITHUB_OUTPUT"
 
       - name: AWS Login
         uses: aws-actions/configure-aws-credentials@v4
@@ -64,10 +78,13 @@ jobs:
           load: true
           push: false
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.giga1 }}
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1,mode=max
+          # Cache per variant. The build tags change the compiled output, so a
+          # shared cache would miss every run and evict the other variant.
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1-${{ matrix.variant.name }}
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1-${{ matrix.variant.name }},mode=max
           build-args: |
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+            GO_BUILD_TAGS=${{ matrix.variant.build_tags }}
 
       - name: Smoke the binary before publishing
         env:
@@ -82,11 +99,12 @@ jobs:
       - name: Summary
         env:
           TAG: ${{ steps.tag.outputs.giga1 }}
+          VARIANT: ${{ matrix.variant.name }}
         run: |
           {
-            echo "### Giga-1 ECR publish"
+            echo "### Giga-1 ECR publish (${VARIANT})"
             echo ""
             echo "| Tag | Variant | Consumer |"
             echo "|-----|---------|----------|"
-            echo "| \`${TAG}\` | vanilla | harbor giga-testnet (Flux) |"
+            echo "| \`${TAG}\` | ${VARIANT} | harbor giga-testnet (Flux) |"
           } >> "$GITHUB_STEP_SUMMARY"
