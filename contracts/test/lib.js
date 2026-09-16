@@ -435,12 +435,6 @@ async function getGasPrice() {
     return response.data.result;
 }
 
-async function getPointerForNative(name) {
-    const command = `seid query evm pointer NATIVE ${name} -o json`
-    const output = await execute(command);
-    return JSON.parse(output);
-}
-
 // Highest existing wasm code_id, or 0 if the chain has no codes yet.
 // Used as the side-effect signal for storeWasm: after a successful
 // store, the max code_id grows by one.
@@ -492,106 +486,6 @@ async function storeWasm(path, from=adminKeyName) {
         throw new Error(`storeWasm failed: ${e.message}`)
     }
     return String(newCodeId)
-}
-
-async function getPointerForCw20(cw20Address) {
-    const command = `seid query evm pointer CW20 ${cw20Address} -o json`
-    const output = await execute(command);
-    return JSON.parse(output);
-}
-
-async function getPointerForCw721(cw721Address) {
-    const command = `seid query evm pointer CW721 ${cw721Address} -o json`
-    const output = await execute(command);
-    return JSON.parse(output);
-}
-
-async function getPointerForCw1155(cw1155Address) {
-    const command = `seid query evm pointer CW1155 ${cw1155Address} -o json`
-    const output = await execute(command);
-    return JSON.parse(output);
-}
-
-async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b sync`
-    if (evmRpc) {
-        command = command + ` --evm-rpc=${evmRpc}`
-    }
-    const output = await execute(command);
-    const txHash = output.replace(/.*0x/, "0x").trim()
-    let attempt = 0;
-    while(attempt < attempts) {
-        const receipt = await tryGetReceipt(provider, txHash);
-        if(receipt && receipt.status === 1) {
-            return (await getPointerForCw20(cw20Address)).pointer
-        } else if(receipt){
-            throw new Error("contract deployment failed")
-        }
-        await sleep(500)
-        attempt++
-    }
-    throw new Error("contract deployment failed")
-}
-
-async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b sync`
-    if (evmRpc) {
-        command = command + ` --evm-rpc=${evmRpc}`
-    }
-    const output = await execute(command);
-    const txHash = output.replace(/.*0x/, "0x").trim()
-    let attempt = 0;
-    while(attempt < 10) {
-        const receipt = await tryGetReceipt(provider, txHash);
-        if(receipt) {
-            return (await getPointerForNative(name)).pointer
-        }
-        await sleep(500)
-        attempt++
-    }
-    throw new Error("contract deployment failed")
-}
-
-async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b sync`
-    if (evmRpc) {
-        command = command + ` --evm-rpc=${evmRpc}`
-    }
-    const output = await execute(command);
-    const txHash = output.replace(/.*0x/, "0x").trim()
-    let attempt = 0;
-    while(attempt < 10) {
-        const receipt = await tryGetReceipt(provider, txHash);
-        if(receipt && receipt.status === 1) {
-            return (await getPointerForCw721(cw721Address)).pointer
-        } else if(receipt){
-            throw new Error("contract deployment failed")
-        }
-        await sleep(500)
-        attempt++
-    }
-    throw new Error("contract deployment failed")
-}
-
-async function deployErc1155PointerForCw1155(provider, cw1155Address, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=${from} -b sync`
-    if (evmRpc) {
-        command = command + ` --evm-rpc=${evmRpc}`
-    }
-    const output = await execute(command);
-    const txHash = output.replace(/.*0x/, "0x").trim()
-    let attempt = 0;
-    while(attempt < 10) {
-        const receipt = await tryGetReceipt(provider, txHash);
-        if(receipt && receipt.status === 1) {
-            return (await getPointerForCw1155(cw1155Address)).pointer
-        } else if(receipt){
-            throw new Error("contract deployment failed")
-        }
-        await sleep(500)
-        attempt++
-    }
-    throw new Error("contract deployment failed")
 }
 
 async function deployWasm(path, adminAddr, label, args = {}, from=adminKeyName) {
@@ -1126,11 +1020,6 @@ module.exports = {
     getAdmin,
     setupSigners,
     deployEvmContract,
-    deployErc20PointerForCw20,
-    deployErc20PointerNative,
-    deployErc721PointerForCw721,
-    deployErc1155PointerForCw1155,
-    getPointerForNative,
     proposeCW20toERC20Upgrade,
     proposeParamChange,
     proposeDisableWasm,
