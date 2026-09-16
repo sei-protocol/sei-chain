@@ -18,25 +18,23 @@ var receiptMetrics = struct {
 }{
 	written: mustReceiptMetric(otel.Meter("seidb_receipt").Int64Counter(
 		"receipts_written_total",
-		metric.WithDescription("Receipt store writes by receipt status (success, failed)"),
+		metric.WithDescription("Receipts committed by the receipt store, by receipt status (success, reverted, failed)"),
 		metric.WithUnit("{receipt}"),
 	)),
 }
 
-func init() {
-	ctx := context.Background()
-	for _, status := range receiptWriteStatuses {
-		receiptMetrics.written.Add(ctx, 0, receiptWriteStatusAttr(status))
-	}
-}
-
 const (
-	receiptWriteStatusSuccess = "success"
-	receiptWriteStatusFailed  = "failed"
+	receiptWriteStatusSuccess  = "success"
+	receiptWriteStatusReverted = "reverted"
+	receiptWriteStatusFailed   = "failed"
 )
 
+// receiptWriteStatuses is the closed label vocabulary of receipts_written_total.
+// It matches the one txs_executed_total uses, so the two counters compare
+// bucket for bucket.
 var receiptWriteStatuses = []string{
 	receiptWriteStatusSuccess,
+	receiptWriteStatusReverted,
 	receiptWriteStatusFailed,
 }
 
@@ -64,26 +62,35 @@ func receiptWriteStatusAttr(status string) metric.MeasurementOption {
 	return receiptWriteStatusOptions[receiptWriteStatusFailed]
 }
 
+// receiptWriteStatus maps a receipt onto the bounded status label vocabulary used
+// by receipts_written_total.
 func receiptWriteStatus(receipt *types.Receipt) string {
-	if receipt == nil {
+	switch receipt.Status {
+	case uint32(ethtypes.ReceiptStatusSuccessful):
+		return receiptWriteStatusSuccess
+	case uint32(ethtypes.ReceiptStatusFailed):
+		return receiptWriteStatusReverted
+	default:
+		// The EVM writes only the two statuses above, so this bucket catches a
+		// receipt no execution path is expected to produce.
 		return receiptWriteStatusFailed
 	}
-	if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
-		return receiptWriteStatusFailed
-	}
-	return receiptWriteStatusSuccess
 }
 
-// RecordReceiptsWritten emits receipt write counts for a block write batch.
+// RecordReceiptsWritten reports a batch of written receipts by status, every
+// status in the vocabulary including the ones the batch had none of. Callers
+// record once the write path has accepted the batch, so a rejected write is not
+// counted as a written one.
+//
+// A counter series exists only once something has recorded to it, and a global
+// instrument drops measurements taken before the meter provider is installed, so
+// a status is only reachable by a query if a batch reports it as zero.
 func RecordReceiptsWritten(ctx context.Context, records []ReceiptRecord) {
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
-	if len(records) == 0 {
-		return
-	}
 	counts := make(map[string]int64, len(receiptWriteStatuses))
 	for _, record := range records {
 		if record.Receipt == nil {
@@ -91,9 +98,7 @@ func RecordReceiptsWritten(ctx context.Context, records []ReceiptRecord) {
 		}
 		counts[receiptWriteStatus(record.Receipt)]++
 	}
-	for status, count := range counts {
-		if count > 0 {
-			receiptMetrics.written.Add(ctx, count, receiptWriteStatusAttr(status))
-		}
+	for _, status := range receiptWriteStatuses {
+		receiptMetrics.written.Add(ctx, counts[status], receiptWriteStatusAttr(status))
 	}
 }

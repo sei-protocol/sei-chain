@@ -207,7 +207,7 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEVMOnlyABCIResultsReflectTransactionStatus(t *testing.T) {
+func TestEVMOnlyABCIResultsCarryRevertReasonWithoutFailingTheTx(t *testing.T) {
 	result := &evmonly.BlockResult{
 		Txs: []evmonly.TxResult{
 			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusSuccessful},
@@ -218,7 +218,8 @@ func TestEVMOnlyABCIResultsReflectTransactionStatus(t *testing.T) {
 	txResults := evmOnlyABCIResults(result)
 
 	require.Equal(t, abci.CodeTypeOK, txResults[0].Code)
-	require.Equal(t, uint32(1), txResults[1].Code)
+	require.Empty(t, txResults[0].Log)
+	require.Equal(t, abci.CodeTypeOK, txResults[1].Code, "a revert must not mark the tx for a mempool retry")
 	require.Equal(t, "execution reverted", txResults[1].Log)
 }
 

@@ -23,7 +23,7 @@ func bindTestReceiptMetrics(t *testing.T) *sdkmetric.ManualReader {
 	return reader
 }
 
-func TestRecordReceiptsWrittenLabelsSuccessAndFailed(t *testing.T) {
+func TestRecordReceiptsWrittenLabelsSuccessAndReverted(t *testing.T) {
 	reader := bindTestReceiptMetrics(t)
 	txHash := common.HexToHash("0x0100000000000000000000000000000000000000000000000000000000000001")
 	RecordReceiptsWritten(t.Context(), []ReceiptRecord{
@@ -31,18 +31,55 @@ func TestRecordReceiptsWrittenLabelsSuccessAndFailed(t *testing.T) {
 		{TxHash: txHash, Receipt: &evmtypes.Receipt{Status: uint32(ethtypes.ReceiptStatusFailed)}},
 	})
 
+	collected := collectReceiptMetrics(t, reader)
+	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipts_written_total",
+		attribute.String("status", receiptWriteStatusSuccess)))
+	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipts_written_total",
+		attribute.String("status", receiptWriteStatusReverted)))
+}
+
+// A run whose receipts all succeed still has to make the non-success buckets
+// reachable, so a query can tell zero failures from an absent series.
+func TestRecordReceiptsWrittenReportsEveryStatus(t *testing.T) {
+	reader := bindTestReceiptMetrics(t)
+	RecordReceiptsWritten(t.Context(), []ReceiptRecord{
+		{Receipt: &evmtypes.Receipt{Status: uint32(ethtypes.ReceiptStatusSuccessful)}},
+	})
+
+	collected := collectReceiptMetrics(t, reader)
+	for _, status := range receiptWriteStatuses {
+		want := int64(0)
+		if status == receiptWriteStatusSuccess {
+			want = 1
+		}
+		require.Equal(t, want, requireReceiptCounter(t, collected, "receipts_written_total",
+			attribute.String("status", status)), "status %s", status)
+	}
+}
+
+func TestRecordReceiptsWrittenSkipsRecordsWithoutAReceipt(t *testing.T) {
+	reader := bindTestReceiptMetrics(t)
+	RecordReceiptsWritten(t.Context(), []ReceiptRecord{{TxHash: common.Hash{0x01}}})
+
+	collected := collectReceiptMetrics(t, reader)
+	for _, status := range receiptWriteStatuses {
+		require.Equal(t, int64(0), requireReceiptCounter(t, collected, "receipts_written_total",
+			attribute.String("status", status)), "status %s", status)
+	}
+}
+
+// collectReceiptMetrics returns the collected metrics keyed by name.
+func collectReceiptMetrics(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata.Metrics {
+	t.Helper()
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &rm))
 	collected := map[string]metricdata.Metrics{}
 	for _, scope := range rm.ScopeMetrics {
-		for _, metric := range scope.Metrics {
-			collected[metric.Name] = metric
+		for _, m := range scope.Metrics {
+			collected[m.Name] = m
 		}
 	}
-	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipts_written_total",
-		attribute.String("status", receiptWriteStatusSuccess)))
-	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipts_written_total",
-		attribute.String("status", receiptWriteStatusFailed)))
+	return collected
 }
 
 func requireReceiptCounter(t *testing.T, collected map[string]metricdata.Metrics, name string, attrs ...attribute.KeyValue) int64 {

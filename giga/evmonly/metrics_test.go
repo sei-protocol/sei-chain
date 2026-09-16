@@ -372,6 +372,34 @@ func TestRecordTxExecutionStatsLabelsSuccessAndReverted(t *testing.T) {
 		attribute.String("status", txExecutionStatusReverted)))
 }
 
+// A run that only ever succeeds still has to make the non-success buckets
+// reachable, so a query can tell zero failures from an absent series.
+func TestRecordTxExecutionStatsReportsEveryStatusOnEveryBlock(t *testing.T) {
+	reader := bindTestExecutionMetrics(t)
+	recordTxExecutionStats(t.Context(), []TxResult{{Status: types.ReceiptStatusSuccessful}})
+
+	collected := collectOCCMetrics(t, reader)
+	for _, status := range txExecutionStatuses {
+		want := int64(0)
+		if status == txExecutionStatusSuccess {
+			want = 1
+		}
+		require.Equal(t, want, requireCounter(t, collected, "txs_executed_total",
+			attribute.String("status", status)), "status %s", status)
+	}
+}
+
+func TestRecordTxExecutionStatsReportsAnEmptyBlock(t *testing.T) {
+	reader := bindTestExecutionMetrics(t)
+	recordTxExecutionStats(t.Context(), nil)
+
+	collected := collectOCCMetrics(t, reader)
+	for _, status := range txExecutionStatuses {
+		require.Equal(t, int64(0), requireCounter(t, collected, "txs_executed_total",
+			attribute.String("status", status)), "status %s", status)
+	}
+}
+
 func TestTxExecutionStatusMapsUnknownStatusToFailed(t *testing.T) {
 	require.Equal(t, txExecutionStatusFailed, txExecutionStatus(TxResult{Status: 99}))
 }

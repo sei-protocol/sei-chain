@@ -65,13 +65,6 @@ var (
 	}
 )
 
-func init() {
-	ctx := context.Background()
-	for _, status := range txExecutionStatuses {
-		executionMetrics.txsExecuted.Add(ctx, 0, txExecutionStatusAttr(status))
-	}
-}
-
 const (
 	txExecutionStatusSuccess  = "success"
 	txExecutionStatusReverted = "reverted"
@@ -106,36 +99,39 @@ func txExecutionStatusAttr(status string) metric.MeasurementOption {
 // txExecutionStatus maps a transaction result onto the bounded status label
 // vocabulary used by txs_executed_total.
 func txExecutionStatus(tx TxResult) string {
-	switch {
-	case tx.Status == ethtypes.ReceiptStatusSuccessful:
+	switch tx.Status {
+	case ethtypes.ReceiptStatusSuccessful:
 		return txExecutionStatusSuccess
-	case tx.Status == ethtypes.ReceiptStatusFailed:
+	case ethtypes.ReceiptStatusFailed:
 		return txExecutionStatusReverted
 	default:
+		// A transaction that produced no receipt aborts the whole block rather than
+		// reaching here, so this bucket catches a status the executor is not
+		// expected to produce.
 		return txExecutionStatusFailed
 	}
 }
 
 // recordTxExecutionStats emits per-transaction execution outcomes for a finished
-// block. This runs inside block execution, so a telemetry fault must not panic
-// into the caller.
+// block, reporting every status in the vocabulary including the ones this block
+// had none of.
+//
+// A counter series exists only once something has recorded to it, and a global
+// instrument drops measurements taken before the meter provider is installed, so
+// a status is only reachable by a query if a block reports it as zero. This runs
+// inside block execution, so a telemetry fault must not panic into the caller.
 func recordTxExecutionStats(ctx context.Context, txs []TxResult) {
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
-	if len(txs) == 0 {
-		return
-	}
 	counts := make(map[string]int64, len(txExecutionStatuses))
 	for _, tx := range txs {
 		counts[txExecutionStatus(tx)]++
 	}
-	for status, count := range counts {
-		if count > 0 {
-			executionMetrics.txsExecuted.Add(ctx, count, txExecutionStatusAttr(status))
-		}
+	for _, status := range txExecutionStatuses {
+		executionMetrics.txsExecuted.Add(ctx, counts[status], txExecutionStatusAttr(status))
 	}
 }
 
