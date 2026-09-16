@@ -276,15 +276,14 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	check := checked.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
 	require.True(t, check.IsOK())
 	require.Equal(t, sender, check.EVMSenderAddress)
-	_, ok = checked.knownSender(common.Hash{})
-	require.False(t, ok)
-	known, ok := checked.knownSender(decodeEVMOnlyTestTx(t, raw).Hash())
-	require.True(t, ok)
-	require.Equal(t, sender, known)
+	for senders := range checked.checkedSenders.Lock() {
+		require.Equal(t, map[common.Hash]common.Address{decodeEVMOnlyTestTx(t, raw).Hash(): sender}, senders)
+	}
 	checkedResponse, err := checked.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
-	_, ok = checked.knownSender(decodeEVMOnlyTestTx(t, raw).Hash())
-	require.False(t, ok)
+	for senders := range checked.checkedSenders.Lock() {
+		require.Empty(t, senders)
+	}
 	uncheckedResponse, err := unchecked.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
 

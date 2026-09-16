@@ -258,21 +258,22 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 	}
 }
 
-// knownSender returns the sender CheckTx recovered for hash, if any.
-func (a *evmOnlyApplication) knownSender(hash common.Hash) (common.Address, bool) {
+// takeSenders returns, aligned with txs, the sender CheckTx recovered for each
+// transaction this process admitted, and forgets those entries. The hash of a
+// raw transaction is the keccak of its bytes for every transaction type, so no
+// decoding is needed.
+func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
+	out := make([]utils.Option[common.Address], len(txs))
 	for senders := range a.checkedSenders.Lock() {
-		sender, ok := senders[hash]
-		return sender, ok
-	}
-	panic("unreachable")
-}
-
-func (a *evmOnlyApplication) forgetSenders(result *evmonly.BlockResult) {
-	for senders := range a.checkedSenders.Lock() {
-		for _, tx := range result.Txs {
-			delete(senders, tx.Hash)
+		for i, raw := range txs {
+			hash := crypto.Keccak256Hash(raw)
+			if sender, ok := senders[hash]; ok {
+				out[i] = utils.Some(sender)
+				delete(senders, hash)
+			}
 		}
 	}
+	return out
 }
 
 func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.Address, error) {
@@ -364,14 +365,13 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlockHash:   blockHash,
 				PrevRandao:  crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp)),
 			},
-			Txs:         req.Txs,
-			KnownSender: a.knownSender,
+			Txs:     req.Txs,
+			Senders: a.takeSenders(req.Txs),
 		})
 		if err != nil {
 			return nil, errors.Join(err, a.abandonPending(height))
 		}
 		defer result.Release()
-		a.forgetSenders(result)
 		pending, err := a.pendingCursor(height)
 		if err != nil {
 			return nil, err

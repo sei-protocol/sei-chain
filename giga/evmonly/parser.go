@@ -7,13 +7,20 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// knownSenderFunc returns the already verified sender of the transaction with
-// the given hash. A nil function knows no senders.
-type knownSenderFunc func(common.Hash) (common.Address, bool)
+// senderAt returns the already verified sender of txs[i], if any. senders is
+// either empty or aligned with txs.
+func senderAt(senders []utils.Option[common.Address], i int) utils.Option[common.Address] {
+	if i < len(senders) {
+		return senders[i]
+	}
+	return utils.None[common.Address]()
+}
 
-func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, known knownSenderFunc, workers int) ([]PreparedTx, error) {
+func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]PreparedTx, error) {
 	parsed := make([]PreparedTx, len(txs))
 	if len(txs) == 0 {
 		return parsed, nil
@@ -23,7 +30,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, kn
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			prepared, err := parsePreparedTx(raw, signer, known)
+			prepared, err := parsePreparedTx(raw, signer, senderAt(senders, i))
 			if err != nil {
 				return nil, fmt.Errorf("parse tx %d: %w", i, err)
 			}
@@ -49,7 +56,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, kn
 	for range workers {
 		g.Go(func() error {
 			for i := range jobs {
-				prepared, err := parsePreparedTx(txs[i], signer, known)
+				prepared, err := parsePreparedTx(txs[i], signer, senderAt(senders, i))
 				if err != nil {
 					return fmt.Errorf("parse tx %d: %w", i, err)
 				}
@@ -65,10 +72,9 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, kn
 }
 
 // parsePreparedTx decodes raw and resolves its sender. The sender is taken from
-// known when it has an entry for the decoded transaction's hash and the
-// transaction is bound to signer's chain; otherwise it is recovered from the
-// signature.
-func parsePreparedTx(raw []byte, signer ethtypes.Signer, known knownSenderFunc) (PreparedTx, error) {
+// known when present and the transaction is bound to signer's chain; otherwise
+// it is recovered from the signature.
+func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[common.Address]) (PreparedTx, error) {
 	tx, err := decodeRawTx(raw)
 	if err != nil {
 		return PreparedTx{}, err
@@ -76,10 +82,8 @@ func parsePreparedTx(raw []byte, signer ethtypes.Signer, known knownSenderFunc) 
 	if err := validateSupportedTx(tx); err != nil {
 		return PreparedTx{}, err
 	}
-	if known != nil && tx.Protected() && tx.ChainId().Cmp(signer.ChainID()) == 0 {
-		if sender, ok := known(tx.Hash()); ok {
-			return PreparedTx{Tx: tx, Sender: sender}, nil
-		}
+	if sender, ok := known.Get(); ok && tx.Protected() && tx.ChainId().Cmp(signer.ChainID()) == 0 {
+		return PreparedTx{Tx: tx, Sender: sender}, nil
 	}
 	sender, err := ethtypes.Sender(signer, tx)
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
@@ -36,15 +38,15 @@ type ResultSink interface {
 }
 
 // BlockRequest contains all consensus/runtime inputs needed to execute a block.
-// Txs must be raw Ethereum transaction RLP bytes. KnownSender, when non-nil,
-// returns the sender of a transaction whose signature this process has already
-// verified against the executor's chain ID, keyed by transaction hash;
-// PrepareBlock uses it instead of recovering the sender for transactions bound
-// to that chain. Transactions it does not know are recovered as usual.
+// Txs must be raw Ethereum transaction RLP bytes. Senders, when non-empty, is
+// aligned with Txs and holds the sender of every transaction whose signature
+// the caller has already verified against the executor's chain ID; PrepareBlock
+// uses those instead of recovering them. Transactions whose slot is None are
+// recovered as usual.
 type BlockRequest struct {
-	Context     BlockContext
-	Txs         [][]byte
-	KnownSender func(common.Hash) (common.Address, bool)
+	Context BlockContext
+	Txs     [][]byte
+	Senders []utils.Option[common.Address]
 }
 
 // PreparedBlock contains decoded transactions with recovered senders. It is a

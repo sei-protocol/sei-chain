@@ -8,6 +8,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func TestParsePreparedTxUsesKnownSender(t *testing.T) {
@@ -22,42 +24,14 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 	claimed := testAddress(0xc2)
 
 	t.Run("known sender is used without recovery", func(t *testing.T) {
-		lookups := 0
-		known := func(hash common.Hash) (common.Address, bool) {
-			lookups++
-			require.Equal(t, tx.Hash(), hash)
-			return claimed, true
-		}
-		prepared, err := parsePreparedTx(rawTx, signer, known)
+		prepared, err := parsePreparedTx(rawTx, signer, utils.Some(claimed))
 		require.NoError(t, err)
-		require.Equal(t, 1, lookups)
 		require.Equal(t, claimed, prepared.Sender)
 		require.Equal(t, tx.Hash(), prepared.Tx.Hash())
 	})
 
-	t.Run("unknown hash falls back to recovery", func(t *testing.T) {
-		known := func(common.Hash) (common.Address, bool) { return claimed, false }
-		prepared, err := parsePreparedTx(rawTx, signer, known)
-		require.NoError(t, err)
-		require.Equal(t, sender, prepared.Sender)
-	})
-
-	t.Run("nil lookup recovers", func(t *testing.T) {
-		prepared, err := parsePreparedTx(rawTx, signer, nil)
-		require.NoError(t, err)
-		require.Equal(t, sender, prepared.Sender)
-	})
-
-	t.Run("sender remembered for other bytes is not applied", func(t *testing.T) {
-		otherRaw := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(1), nil)
-		other := decodeTx(t, otherRaw)
-		known := func(hash common.Hash) (common.Address, bool) {
-			if hash == other.Hash() {
-				return claimed, true
-			}
-			return common.Address{}, false
-		}
-		prepared, err := parsePreparedTx(rawTx, signer, known)
+	t.Run("no known sender recovers", func(t *testing.T) {
+		prepared, err := parsePreparedTx(rawTx, signer, utils.None[common.Address]())
 		require.NoError(t, err)
 		require.Equal(t, sender, prepared.Sender)
 	})
@@ -65,11 +39,7 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 	t.Run("known sender is ignored for a tx from another chain", func(t *testing.T) {
 		otherChain := big.NewInt(testChainID + 1)
 		otherRaw := signLegacyTx(t, key, otherChain, 0, &recipient, big.NewInt(1), nil)
-		known := func(common.Hash) (common.Address, bool) {
-			t.Fatal("known sender consulted for a tx from another chain")
-			return claimed, true
-		}
-		_, err := parsePreparedTx(otherRaw, signer, known)
+		_, err := parsePreparedTx(otherRaw, signer, utils.Some(claimed))
 		require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 	})
 }
@@ -81,22 +51,18 @@ func TestParseBlockTxsMixesKnownAndRecoveredSenders(t *testing.T) {
 	const n = 8
 	raws := make([][]byte, n)
 	senders := make([]common.Address, n)
-	known := map[common.Hash]common.Address{}
+	known := make([]utils.Option[common.Address], n)
 	for i := range n {
 		key, err := crypto.GenerateKey()
 		require.NoError(t, err)
 		senders[i] = crypto.PubkeyToAddress(key.PublicKey)
 		raws[i] = signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
 		if i%2 == 0 {
-			known[decodeTx(t, raws[i]).Hash()] = senders[i]
+			known[i] = utils.Some(senders[i])
 		}
 	}
-	lookup := func(hash common.Hash) (common.Address, bool) {
-		sender, ok := known[hash]
-		return sender, ok
-	}
 	for _, workers := range []int{1, 4} {
-		parsed, err := parseBlockTxs(t.Context(), raws, signer, lookup, workers)
+		parsed, err := parseBlockTxs(t.Context(), raws, signer, known, workers)
 		require.NoError(t, err)
 		require.Len(t, parsed, n)
 		for i, prepared := range parsed {
@@ -112,21 +78,25 @@ func TestExecutorPrepareBlockUsesKnownSender(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := testAddress(0xc4)
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
-	tx := decodeTx(t, rawTx)
-	// A deliberately wrong sender proves the lookup, not recovery, decided.
+	// A deliberately wrong sender proves the slice, not recovery, decided.
 	claimed := testAddress(0xc5)
 
 	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
 	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
-		KnownSender: func(hash common.Hash) (common.Address, bool) {
-			return claimed, hash == tx.Hash()
-		},
+		Senders: []utils.Option[common.Address]{utils.Some(claimed)},
 	})
 	require.NoError(t, err)
 	require.Len(t, prepared.Txs, 1)
 	require.Equal(t, claimed, prepared.Txs[0].Sender)
+
+	_, err = executor.PrepareBlock(t.Context(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{rawTx, rawTx},
+		Senders: []utils.Option[common.Address]{utils.Some(claimed)},
+	})
+	require.Error(t, err)
 
 	prepared, err = executor.PrepareBlock(t.Context(), BlockRequest{
 		Context: blockContext(chainID),
@@ -144,11 +114,11 @@ func BenchmarkParsePreparedTx(b *testing.B) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := testAddress(0xc6)
 	rawTx := signLegacyTx(b, key, chainID, 0, &recipient, big.NewInt(1), nil)
-	known := func(common.Hash) (common.Address, bool) { return sender, true }
+	known := utils.Some(sender)
 
 	b.Run("recover", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := parsePreparedTx(rawTx, signer, nil); err != nil {
+			if _, err := parsePreparedTx(rawTx, signer, utils.None[common.Address]()); err != nil {
 				b.Fatal(err)
 			}
 		}
