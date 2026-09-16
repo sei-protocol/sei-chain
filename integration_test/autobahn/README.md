@@ -372,6 +372,7 @@ The public EVM JSON-RPC surface intentionally contains only:
 
 - `eth_sendRawTransaction`, used by `sei-load` and `cast publish`;
 - `eth_getTransactionReceipt`, for finalized receipts;
+- `eth_getTransactionByHash`, for a finalized transaction's decoded fields;
 - `eth_getBalance`, for the current committed EVM balance;
 - `eth_getTransactionCount`, for the current committed nonce;
 - `eth_blockNumber`, for the current committed block height;
@@ -422,6 +423,21 @@ unset TEST_KEY RAW_TX TX_HASH
 This works because every new address receives the test-only initial balance
 and has nonce zero. Use a new key each time so the explicit nonce remains
 correct.
+
+### Fetch a transaction with `cast tx`
+
+`cast tx` works for a known finalized transaction hash, decoding it the same
+way `eth_sendRawTransaction` decoded it on the way in:
+
+```sh
+cast tx \
+  --rpc-url http://127.0.0.1:8545 \
+  0xYOUR_TRANSACTION_HASH
+```
+
+Like `eth_getTransactionReceipt`, a lookup for a pending or unknown hash
+returns `null` rather than a pending-shaped result: this RPC tracks no local
+mempool to resolve a pending transaction from.
 
 ### Fetch the nonce, block height, and chain ID with `cast`
 
@@ -477,13 +493,14 @@ blocks) and `blockhash(current-1)` and further back are unavailable (only the
 current block's own hash is tracked outside of block execution). A view
 function that depends on either reads a placeholder rather than a real value.
 
-The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. There is no
-`eth_getTransactionByHash` or block API to discover a `sei-load` transfer hash,
-and `sei-load` does not currently print every submitted hash. There are also no
-fee-estimation, gas-estimation, log, or WebSocket subscription methods.
-Commands that depend on those queries cannot operate normally; raw
-transactions must provide gas limit and gas price offline as in the example
-above.
+The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
+does not currently print every submitted hash, and there is still no block API
+(`eth_getBlockByNumber`/`eth_getBlockByHash`, or the by-block-and-index
+transaction lookups) to discover a `sei-load` transfer hash independently.
+There are also no fee-estimation, gas-estimation, log, or WebSocket
+subscription methods. Commands that depend on those queries cannot operate
+normally; raw transactions must provide gas limit and gas price offline as in
+the example above.
 
 ## Tear down
 

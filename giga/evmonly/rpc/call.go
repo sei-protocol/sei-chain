@@ -29,8 +29,10 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err := requireCurrentState(block); err != nil {
 		return nil, err
 	}
-	// Must match the base fee EvmCall executes under (evmOnlyBaseFee).
-	baseFee := new(big.Int)
+	baseFee, err := api.backend.EvmBaseFee()
+	if err != nil {
+		return nil, err
+	}
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err

@@ -10,10 +10,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -34,32 +36,90 @@ func (api *txAPI) GetTransactionCount(_ context.Context, address common.Address,
 
 // GetTransactionReceipt returns the finalized Ethereum receipt for hash.
 func (api *txAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]any, error) {
+	stored, block, err := api.lookupFinalizedTx(ctx, hash)
+	if err != nil || stored == nil {
+		return nil, err
+	}
+	return encodeReceipt(hash, stored, common.BytesToHash(block.BlockID.Hash)), nil
+}
+
+// GetTransactionByHash returns hash's transaction as committed in a finalized
+// block, decoded from the block's raw transaction bytes, or nil if hash is
+// unknown or its block is not yet finalized. This server tracks no local
+// mempool, so unlike a full Ethereum node it never returns a pending result.
+func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*export.RPCTransaction, error) {
+	stored, block, err := api.lookupFinalizedTx(ctx, hash)
+	if err != nil || stored == nil {
+		return nil, err
+	}
+	if int(stored.TransactionIndex) >= len(block.Block.Txs) {
+		return nil, fmt.Errorf("receipt transaction index %d exceeds block %d transaction count %d",
+			stored.TransactionIndex, stored.BlockNumber, len(block.Block.Txs))
+	}
+	ethtx := new(ethtypes.Transaction)
+	if err := ethtx.UnmarshalBinary(block.Block.Txs[stored.TransactionIndex]); err != nil {
+		return nil, fmt.Errorf("decode transaction at block %d index %d: %w", stored.BlockNumber, stored.TransactionIndex, err)
+	}
+	chainConfig, err := api.backend.EvmChainConfig()
+	if err != nil {
+		return nil, err
+	}
+	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+	if !ok {
+		return nil, fmt.Errorf("block %d time is negative: %s", stored.BlockNumber, block.Block.Time)
+	}
+	baseFee, err := api.backend.EvmBaseFee()
+	if err != nil {
+		return nil, err
+	}
+	// TODO: If the EVM-only base fee becomes dynamic, read the fee for
+	// stored.BlockNumber here or persist it with the receipt. Using the current
+	// fee would misreport a historical transaction's effective gas price.
+	result := export.NewRPCTransaction(ethtx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, blockUnix,
+		uint64(stored.TransactionIndex), baseFee, chainConfig)
+	replaceFrom(result, stored)
+	return result, nil
+}
+
+// lookupFinalizedTx resolves hash's stored receipt and finalized block. It
+// returns a nil receipt with a nil error when hash is unknown or its block is
+// not yet finalized.
+func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, *coretypes.ResultBlock, error) {
 	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
 	if errors.Is(err, receiptpkg.ErrNotFound) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read transaction receipt: %w", err)
+		return nil, nil, fmt.Errorf("read transaction receipt: %w", err)
 	}
 	if stored == nil {
-		return nil, errors.New("receipt store returned a nil receipt")
+		return nil, nil, errors.New("receipt store returned a nil receipt")
 	}
 	if stored.BlockNumber > math.MaxInt64 {
-		return nil, fmt.Errorf("receipt block number %d exceeds int64", stored.BlockNumber)
+		return nil, nil, fmt.Errorf("receipt block number %d exceeds int64", stored.BlockNumber)
 	}
 
 	height := coretypes.Int64(stored.BlockNumber)
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &height})
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read receipt block %d: %w", stored.BlockNumber, err)
+		return nil, nil, fmt.Errorf("read receipt block %d: %w", stored.BlockNumber, err)
 	}
 	if block == nil || block.Block == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return encodeReceipt(hash, stored, common.BytesToHash(block.BlockID.Hash)), nil
+	return stored, block, nil
+}
+
+// replaceFrom patches a decoded transaction's From field from its stored
+// receipt when the tx's own signature did not resolve a sender, an edge case
+// for some legacy transaction shapes.
+func replaceFrom(tx *export.RPCTransaction, stored *evmtypes.Receipt) {
+	if tx.From == (common.Address{}) {
+		tx.From = common.HexToAddress(stored.From)
+	}
 }
 
 func encodeReceipt(hash common.Hash, stored *evmtypes.Receipt, blockHash common.Hash) map[string]any {

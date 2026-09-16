@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -327,10 +329,21 @@ func (env *Environment) EvmChainID() uint64 {
 	return env.App.EvmChainID()
 }
 
+// EvmChainConfig returns the EVM chain configuration of the wrapped application.
+func (env *Environment) EvmChainConfig() (*params.ChainConfig, error) {
+	return env.App.EvmChainConfig()
+}
+
 // EvmCall executes msg as a read-only call against the current committed EVM
 // state, without creating a transaction or persisting any state change.
 func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
 	return env.App.EvmCall(ctx, msg)
+}
+
+// EvmBaseFee returns the base fee the wrapped application executes every
+// block at.
+func (env *Environment) EvmBaseFee() (*big.Int, error) {
+	return env.App.EvmBaseFee()
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't

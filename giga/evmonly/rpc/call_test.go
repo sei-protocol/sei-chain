@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"math/big"
 	"net/http/httptest"
 	"testing"
 
@@ -40,6 +41,7 @@ func TestCallHappyPath(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{ReturnData: []byte{0x2a}}, nil
@@ -65,6 +67,7 @@ func TestCallCapsExplicitGasAboveDefault(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{}, nil
@@ -85,6 +88,7 @@ func TestCallPreservesExplicitGasBelowDefault(t *testing.T) {
 	var gotMsg *core.Message
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
 		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
 			gotMsg = msg
 			return &core.ExecutionResult{}, nil
@@ -105,6 +109,7 @@ func TestCallSurfacesRevertReason(t *testing.T) {
 	revert := revertData("insufficient balance")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
 		},
@@ -127,6 +132,7 @@ func TestCallPassesThroughNonRevertExecutionError(t *testing.T) {
 	wantErr := errors.New("out of gas")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{Err: wantErr}, nil
 		},
@@ -164,6 +170,7 @@ func TestHandlerServesCall(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend := &testBackend{
 		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
 		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
 			return &core.ExecutionResult{ReturnData: []byte{0x01, 0x02}}, nil
 		},

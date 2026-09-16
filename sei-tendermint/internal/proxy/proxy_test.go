@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"context"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -108,4 +110,58 @@ func TestEvmCallDelegatesToASupportingApplication(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, want, got)
 	require.Same(t, msg, gotMsg)
+}
+
+func TestEvmChainConfigErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	_, err := proxyApp.EvmChainConfig()
+
+	require.Error(t, err)
+}
+
+type testEvmChainConfigApp struct {
+	testApp
+	chainConfig *params.ChainConfig
+}
+
+func (app testEvmChainConfigApp) EvmChainConfig() *params.ChainConfig {
+	return app.chainConfig
+}
+
+func TestEvmChainConfigDelegatesToASupportingApplication(t *testing.T) {
+	want := &params.ChainConfig{ChainID: big.NewInt(713715)}
+	proxyApp := New(testEvmChainConfigApp{chainConfig: want})
+
+	got, err := proxyApp.EvmChainConfig()
+
+	require.NoError(t, err)
+	require.Same(t, want, got)
+}
+
+func TestEvmBaseFeeErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	_, err := proxyApp.EvmBaseFee()
+
+	require.Error(t, err)
+}
+
+type testEvmBaseFeeApp struct {
+	testApp
+	baseFee *big.Int
+}
+
+func (app testEvmBaseFeeApp) EvmBaseFee() *big.Int {
+	return app.baseFee
+}
+
+func TestEvmBaseFeeDelegatesToASupportingApplication(t *testing.T) {
+	want := big.NewInt(7)
+	proxyApp := New(testEvmBaseFeeApp{baseFee: want})
+
+	got, err := proxyApp.EvmBaseFee()
+
+	require.NoError(t, err)
+	require.Same(t, want, got)
 }
