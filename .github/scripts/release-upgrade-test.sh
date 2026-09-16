@@ -21,6 +21,7 @@ BOUNDARY_FROM=
 UPGRADE_NAME=
 UPGRADE_TAG=
 CROSS_VERSION_TESTS=
+STAGED_RELEASE_LIBS=()
 
 log() {
   printf '\n[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
@@ -225,6 +226,19 @@ build_binary() {
 
   install -m 0755 "$source_dir/build/seid" "$output_path"
   sha256sum "$output_path" | tee "$ARTIFACT_ROOT/$label.sha256"
+}
+
+# stage_release_shared_libraries copies release libraries missing from the main worktree.
+stage_release_shared_libraries() {
+  log "Staging release shared libraries missing from $REPO_ROOT"
+  local lib rel
+  while IFS= read -r -d '' lib; do
+    rel="${lib#"$RELEASE_WORKTREE"/}"
+    [[ -e "$REPO_ROOT/$rel" ]] && continue
+    install -D -m 0644 "$lib" "$REPO_ROOT/$rel"
+    STAGED_RELEASE_LIBS+=("$REPO_ROOT/$rel")
+    printf 'staged_release_lib=%s\n' "$rel" | tee -a "$ARTIFACT_ROOT/revisions.txt"
+  done < <(find "$RELEASE_WORKTREE" -name '.git' -prune -o -type f -name '*.so' -print0)
 }
 
 height() {
@@ -589,6 +603,13 @@ cleanup() {
       DOCKER_PLATFORM=linux/amd64 make docker-cluster-stop
     )
   fi
+  if ((${#STAGED_RELEASE_LIBS[@]})); then
+    rm -f "${STAGED_RELEASE_LIBS[@]}"
+    local lib
+    for lib in "${STAGED_RELEASE_LIBS[@]}"; do
+      rmdir -p --ignore-fail-on-non-empty "$(dirname "$lib")" 2>/dev/null || true
+    done
+  fi
   git -C "$REPO_ROOT" worktree remove --force "$MAIN_WORKTREE" 2>/dev/null
   git -C "$REPO_ROOT" worktree remove --force "$RELEASE_WORKTREE" 2>/dev/null
   exit "$exit_code"
@@ -606,6 +627,7 @@ main() {
   discover_cross_version_tests
   build_localnode_image
   build_binary "$RELEASE_WORKTREE" "$BUILD_ROOT/release-seid" release
+  stage_release_shared_libraries
   build_binary "$MAIN_WORKTREE" "$BUILD_ROOT/main-seid" main
   start_release_cluster
   run_cross_version_phase before
