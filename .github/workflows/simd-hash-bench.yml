@@ -4,16 +4,16 @@ on:
   pull_request:
     paths:
       - 'sei-db/state_db/sc/flatkv/lthash/**'
-      - 'sei-tendermint/crypto/tmhash/**'
       - 'sei-tendermint/crypto/merkle/**'
-      - '.github/workflows/lthash-bench.yml'
+      - 'sei-tendermint/crypto/tmhash/**'
+      - '.github/workflows/simd-hash-bench.yml'
   push:
     branches:
       - main
     paths:
       - 'sei-db/state_db/sc/flatkv/lthash/**'
-      - 'sei-tendermint/crypto/tmhash/**'
       - 'sei-tendermint/crypto/merkle/**'
+      - 'sei-tendermint/crypto/tmhash/**'
 
 concurrency:
   cancel-in-progress: true
@@ -107,7 +107,7 @@ jobs:
         continue-on-error: true
         uses: actions/github-script@v8
         env:
-          MARKER: '<!-- lthash-bench:${{ matrix.runner }} -->'
+          MARKER: '<!-- simd-hash-bench:${{ matrix.runner }} -->'
         with:
           script: |
             const fs = require('fs');
@@ -125,7 +125,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lthash-bench-${{ matrix.runner }}
+          name: simd-hash-bench-${{ matrix.runner }}
           path: |
             bench.txt
             benchstat.md

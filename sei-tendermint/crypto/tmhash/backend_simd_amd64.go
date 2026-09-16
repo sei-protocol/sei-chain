@@ -18,8 +18,10 @@ func vzeroupper()
 
 const (
 	simdBackendName = "simd"
-	simdLanes       = 16
-	blockSize       = 64
+	// simdLanes is the number of 32-bit SHA-256 words in one 512-bit ZMM
+	// register, i.e. how many independent messages one kernel pass hashes.
+	simdLanes = 16
+	blockSize = 64
 	// simdMaxBlocks bounds the per-lane message length hashed by the SIMD
 	// kernel; longer messages go through the scalar path so the block
 	// scratch stays small.
