@@ -55,6 +55,11 @@ type DBImpl struct {
 
 func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	feeCollector, _ := k.GetFeeCollectorAddress(ctx)
+	// Nested DBs reuse the request cache so writes can invalidate balances warmed
+	// by an outer DB. Each snapshot layer still has a distinct context identity.
+	if ctx.EVMBalanceCache() == nil {
+		ctx = ctx.WithEVMBalanceCache(sdk.NewEVMBalanceCache())
+	}
 	s := &DBImpl{
 		ctx:                ctx,
 		k:                  k,
@@ -98,6 +103,7 @@ func (s *DBImpl) Cleanup() {
 	s.tempState = nil
 	s.logger = nil
 	s.snapshottedCtxs = nil
+	s.ctx = s.ctx.WithEVMBalanceCache(nil)
 	clear(s.codeCache)
 }
 
@@ -107,6 +113,7 @@ func (s *DBImpl) CleanupForTracer() {
 		s.ctx = s.snapshottedCtxs[0]
 	}
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
+	s.ctx = s.ctx.WithEVMBalanceCache(sdk.NewEVMBalanceCache())
 	s.coinbaseEvmAddress = feeCollector
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
@@ -121,6 +128,11 @@ func (s *DBImpl) CleanupForTracer() {
 // CacheMultiStore.Write() on any shared store layer.
 func (s *DBImpl) ResetForTracer() {
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
+	balanceCache := sdk.NewEVMBalanceCache()
+	s.ctx = s.ctx.WithEVMBalanceCache(balanceCache)
+	for i := range s.snapshottedCtxs {
+		s.snapshottedCtxs[i] = s.snapshottedCtxs[i].WithEVMBalanceCache(balanceCache)
+	}
 	s.coinbaseEvmAddress = feeCollector
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
@@ -184,12 +196,16 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 }
 
 func (s *DBImpl) Copy() vm.StateDB {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	balanceCache := sdk.NewEVMBalanceCache()
+	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager()).WithEVMBalanceCache(balanceCache)
 	journal := make([]journalEntry, len(s.journal))
 	copy(journal, s.journal)
 	snapshots := make([]sdk.Context, len(s.snapshottedCtxs)+1)
 	copy(snapshots, s.snapshottedCtxs)
 	snapshots[len(s.snapshottedCtxs)] = s.ctx
+	for i := range snapshots {
+		snapshots[i] = snapshots[i].WithEVMBalanceCache(balanceCache)
+	}
 	copied := &DBImpl{
 		ctx:                newCtx,
 		snapshottedCtxs:    snapshots,

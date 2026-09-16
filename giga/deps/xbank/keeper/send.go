@@ -293,6 +293,7 @@ func (k BaseSendKeeper) initBalances(ctx sdk.Context, addr sdk.AccAddress, balan
 			accountStore.Set([]byte(balance.Denom), bz)
 		}
 	}
+	ctx.InvalidateCachedEVMBalance(addr)
 
 	return nil
 }
@@ -312,6 +313,7 @@ func (k BaseSendKeeper) setBalance(ctx sdk.Context, addr sdk.AccAddress, balance
 		bz := k.cdc.MustMarshal(&balance)
 		accountStore.Set([]byte(balance.Denom), bz)
 	}
+	ctx.InvalidateCachedEVMBalance(addr)
 
 	return nil
 }
@@ -320,6 +322,7 @@ func (k BaseSendKeeper) setWeiBalance(ctx sdk.Context, addr sdk.AccAddress, amt 
 	store := prefix.NewStore(k.GetKVStore(ctx), types.WeiBalancesPrefix)
 	if amt.IsZero() {
 		store.Delete(addr)
+		ctx.InvalidateCachedEVMBalance(addr)
 		return nil
 	}
 	val, err := amt.Marshal()
@@ -327,6 +330,7 @@ func (k BaseSendKeeper) setWeiBalance(ctx sdk.Context, addr sdk.AccAddress, amt 
 		return err
 	}
 	store.Set(addr, val)
+	ctx.InvalidateCachedEVMBalance(addr)
 	return nil
 }
 
