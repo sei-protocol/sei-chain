@@ -18,7 +18,9 @@ you rejected, say why in one sentence.
 
 Paragraph 3 (when relevant): risk and rollout. Consensus, state, or
 wire-format impact; migration or upgrade-handler needs; feature gating;
-what a reviewer should scrutinise most closely.
+what a reviewer should scrutinise most closely. Say in one sentence how
+you validated the change (which tests or manual runs), without pasting
+output.
 
 Omit anything a reader can trivially see in the diff. Do not restate
 commit messages. Do not include agent/session links or attribution.
