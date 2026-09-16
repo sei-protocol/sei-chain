@@ -11,7 +11,9 @@ const MetricsSubsystem = "internal_autobahn_producer"
 
 //go:generate go run github.com/sei-protocol/sei-chain/sei-tendermint/scripts/metricsgen -struct=metrics
 type metrics struct {
-	// Duration of the app CheckTx call made for each inserted tx.
+	// Time an insert spent waiting for a CheckTx concurrency permit.
+	checkTxWaitLatency prometheus.HistogramVec `metrics_buckets:"exp(0.00001, 2, 30)"`
+	// Duration of the app CheckTx call made for each inserted tx, excluding time spent waiting for a permit.
 	checkTxLatency prometheus.HistogramVec `metrics_buckets:"exp(0.00001, 2, 30)"`
 	// Duration of the app nonce lookup made for a sender not yet tracked by the mempool.
 	nonceLookupLatency prometheus.HistogramVec `metrics_buckets:"exp(0.00001, 2, 30)"`
@@ -31,6 +33,7 @@ type metrics struct {
 type Phase struct{ gauge *prometheus.GaugeInt }
 
 var (
+	PhaseCheckTxWait  = Phase{Global.inFlightAt("check_tx_wait")}
 	PhaseCheckTx      = Phase{Global.inFlightAt("check_tx")}
 	PhaseCapacityWait = Phase{Global.inFlightAt("capacity_wait")}
 	PhaseAdmit        = Phase{Global.inFlightAt("admit")}
@@ -57,6 +60,9 @@ var (
 
 // Observe counts one insert finishing with this outcome.
 func (r Result) Observe() { r.counter.Add(1) }
+
+// ObserveCheckTxWait records the time one insert waited for a CheckTx permit.
+func ObserveCheckTxWait(d time.Duration) { Global.checkTxWaitLatencyAt().Observe(d.Seconds()) }
 
 // ObserveCheckTx records the duration of one CheckTx call.
 func ObserveCheckTx(d time.Duration) { Global.checkTxLatencyAt().Observe(d.Seconds()) }
