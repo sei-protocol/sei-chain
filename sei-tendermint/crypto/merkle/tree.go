@@ -9,7 +9,9 @@ import (
 )
 
 // HashFromByteSlices computes a Merkle tree where the leaves are the byte slice,
-// in the provided order. It follows RFC-6962.
+// in the provided order. It follows RFC-6962: a leaf hashes as
+// SHA-256(0x00 || item), an inner node as SHA-256(0x01 || left || right), and
+// the root is the same 32 bytes whichever tmhash backend is active.
 func HashFromByteSlices(items [][]byte) []byte {
 	if lanes := tmhash.BatchLanes(); lanes > 1 && len(items) >= lanes {
 		return hashFromByteSlicesBatched(items)

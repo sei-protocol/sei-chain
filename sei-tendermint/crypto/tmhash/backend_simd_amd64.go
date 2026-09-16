@@ -121,7 +121,10 @@ func sumBatchSIMD(prefix []byte, msgs [][]byte, out [][Size]byte) {
 }
 
 // sha256Lanes hashes the sixteen messages selected by lanes, each of nb
-// padded blocks, with one kernel call.
+// padded blocks, with one kernel call. Each lane's blocks are the standard
+// SHA-256 message layout, prefix || msg || 0x80 || zeros || 64-bit big-endian
+// bit length, transposed into sha256Block16 word-major form; the state words
+// are read back per lane and stored big-endian as the digest.
 func sha256Lanes(sp *laneScratch, prefix []byte, msgs [][]byte, out [][Size]byte, lanes *[simdLanes]int, nb int) {
 	if cap(sp.blocks) < nb {
 		sp.blocks = make([]sha256Block16, nb)

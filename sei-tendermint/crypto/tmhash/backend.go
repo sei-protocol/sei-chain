@@ -30,8 +30,9 @@ func BatchLanes() int {
 	return active.lanes
 }
 
-// SumBatch writes SHA-256(prefix || msgs[i]) to out[i] for every i.
-// out must be at least as long as msgs.
+// SumBatch writes SHA-256(prefix || msgs[i]) to out[i] for every i, as the
+// 32-byte big-endian digest crypto/sha256 would produce for the same bytes,
+// regardless of the active backend. out must be at least as long as msgs.
 func SumBatch(prefix []byte, msgs [][]byte, out [][Size]byte) {
 	active.sumBatch(prefix, msgs, out)
 }
