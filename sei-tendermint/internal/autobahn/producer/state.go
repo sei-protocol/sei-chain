@@ -32,6 +32,10 @@ type Config struct {
 	// Max number of CheckTx calls executed concurrently by InsertTx/TryInsertTx.
 	// None means half of GOMAXPROCS, at least 1.
 	MaxConcurrentCheckTx utils.Option[uint64]
+	// Max number of InsertTx calls blocked waiting for mempool capacity;
+	// further calls fail immediately with a mempool-full error.
+	// 0 means DefaultMaxPendingInserts.
+	MaxPendingInserts uint64
 }
 
 func (c *Config) maxConcurrentCheckTx() int {
@@ -41,10 +45,20 @@ func (c *Config) maxConcurrentCheckTx() int {
 	return max(1, runtime.GOMAXPROCS(0)/2)
 }
 
+// DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
+const DefaultMaxPendingInserts uint64 = 4096
+
 const minTxGas = 21000
 
 func (c *Config) maxTxsPerBlock() uint64 {
 	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock)
+}
+
+func (c *Config) maxPendingInserts() uint64 {
+	if c.MaxPendingInserts == 0 {
+		return DefaultMaxPendingInserts
+	}
+	return c.MaxPendingInserts
 }
 
 // State is the block producer state.
@@ -73,7 +87,7 @@ func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State 
 func (s *State) alignMempool(lane types.LaneID) (*mempool, types.BlockNumber) {
 	n := s.consensus.Avail().NextBlock(lane)
 	m := newMempoolInner(avail.BlocksPerLane, lane, n)
-	mp := &mempool{inner: utils.NewWatch(m)}
+	mp := &mempool{inner: utils.NewWatch(m), pendingInserts: utils.NewAtomicSend[uint64](0)}
 	s.mempool.Store(utils.Some(mp))
 	return mp, n
 }
@@ -86,8 +100,7 @@ func (s *State) clearMempool() {
 		return
 	}
 	for m, ctrl := range mp.inner.Lock() {
-		m.closed = true
-		ctrl.Updated()
+		m.close(ctrl)
 	}
 }
 
@@ -125,8 +138,7 @@ func (s *State) runMempool(ctx context.Context, availState *avail.State, lane ty
 		scope.SpawnBg(func() error {
 			_ = availState.WaitUntilClosed(ctx, lane)
 			for m, ctrl := range mp.inner.Lock() {
-				m.closed = true
-				ctrl.Updated()
+				m.close(ctrl)
 			}
 			return nil
 		})
