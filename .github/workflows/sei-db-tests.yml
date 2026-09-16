@@ -75,8 +75,8 @@ jobs:
     name: Coverage
     runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-latest' || 'uci-default' }}
     # Skip coverage report for merge groups, since the queue is about safety check. The merge to main will run coverage anyway.
-    # GitHub does not support setting "Required" CI workflows for merge queue separately from PRs. If we skip the job at top
-    # level we then have to work around result not being present. Hence, the repeated if statements per step.
+    # The job runs in every merge queue (a job-level skip would also do) but logs why it is a no-op there, so the
+    # per-step if statements keep the "Check trigger" step as the visible reason.
     env:
       GOFLAGS: -tags=ledger,test_ledger_mock
     steps:
