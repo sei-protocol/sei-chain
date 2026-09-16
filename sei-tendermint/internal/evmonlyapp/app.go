@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime"
@@ -139,9 +140,6 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 	}
 	gasLimit, err := evmOnlyGasLimit(req)
 	if err != nil {
-		return nil, err
-	}
-	if err := a.seedInitialStateVersion(req.InitialHeight); err != nil {
 		return nil, err
 	}
 	for executor := range a.executor.Lock() {
@@ -332,8 +330,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 			Txs: req.Txs,
 		})
 		if err != nil {
-			a.abandonPending()
-			return nil, err
+			return nil, errors.Join(err, a.abandonPending(height))
 		}
 		defer result.Release()
 		pending, err := a.pendingCursor(height)
@@ -363,11 +360,21 @@ func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
 	panic("unreachable")
 }
 
-// abandonPending drops a cursor staged by a block whose commit failed.
-func (a *evmOnlyApplication) abandonPending() {
+// abandonPending drops the cursor staged by a failed block unless the store
+// already holds that block's version, in which case the cursor is durable and
+// stays pending for Commit.
+func (a *evmOnlyApplication) abandonPending(height int64) error {
+	latest, err := a.storage.SC().GetLatestVersion()
+	if err != nil {
+		return fmt.Errorf("read EVM-only state version: %w", err)
+	}
+	if latest >= height {
+		return nil
+	}
 	for state := range a.cursor.Lock() {
 		state.pending = utils.None[evmOnlyCursor]()
 	}
+	return nil
 }
 
 func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) {
