@@ -4,8 +4,9 @@
 //
 // A client that routes transactions to the owning validator (sei-load) cannot
 // import Committee, so it re-implements the rule and checks that
-// re-implementation against this fixture. The fixture fails on either side
-// drifting.
+// re-implementation against this fixture. The golden test beside this tool
+// pins the rule on this side, so a change to EvmShard fails here and prompts
+// regeneration.
 //
 //	go run ./cmd/evmshard-fixture -weights 1,1,1,1 -addresses 1000 > evmshard_uniform4.json
 //	go run ./cmd/evmshard-fixture -weights 7,1,1,1 -addresses 1000 > evmshard_7111.json
@@ -19,6 +20,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -58,7 +60,7 @@ func main() {
 	}
 }
 
-func run(weightsFlag string, addresses int, seed string, out *os.File) error {
+func run(weightsFlag string, addresses int, seed string, out io.Writer) error {
 	var weights []uint64
 	for _, s := range strings.Split(weightsFlag, ",") {
 		w, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64)
