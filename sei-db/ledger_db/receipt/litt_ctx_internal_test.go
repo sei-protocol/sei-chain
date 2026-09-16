@@ -77,6 +77,7 @@ func TestBlockLogsReturnsCanceledContextBeforeScanning(t *testing.T) {
 	topic := common.HexToHash("0xdef1")
 	txHash, rcpt := littCtxTestReceipt(1, 0, addr, topic, 1)
 	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	requireReceiptVersion(t, s, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -95,6 +96,7 @@ func TestCandidateBlockLogsReturnsCanceledContextBeforeTx(t *testing.T) {
 	topic := common.HexToHash("0xdef2")
 	txHash, rcpt := littCtxTestReceipt(2, 0, addr, topic, 1)
 	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(2), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	requireReceiptVersion(t, s, 2)
 
 	candidates, err := s.blockTagCandidates(2, criteriaTagGroups(filters.FilterCriteria{}))
 	require.NoError(t, err)
@@ -121,6 +123,7 @@ func TestCandidateBlockLogsCancelsMidLoopOverLogs(t *testing.T) {
 	topic := common.HexToHash("0xdef3")
 	txHash, rcpt := littCtxTestReceipt(3, 0, addr, topic, 5)
 	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(3), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	requireReceiptVersion(t, s, 3)
 
 	candidates, err := s.blockTagCandidates(3, criteriaTagGroups(filters.FilterCriteria{}))
 	require.NoError(t, err)
@@ -147,6 +150,7 @@ func TestCandidateBlockLogsTripsBudgetMidLoopOverLogs(t *testing.T) {
 	topic := common.HexToHash("0xdef4")
 	txHash, rcpt := littCtxTestReceipt(4, 0, addr, topic, 2)
 	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(4), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	requireReceiptVersion(t, s, 4)
 
 	candidates, err := s.blockTagCandidates(4, criteriaTagGroups(filters.FilterCriteria{}))
 	require.NoError(t, err)
@@ -173,6 +177,7 @@ func TestFilterLogsByTagsPreCanceledContextReturnsEmptyFast(t *testing.T) {
 	for block := uint64(1); block <= 5; block++ {
 		txHash, rcpt := littCtxTestReceipt(block, 0, addr, topic, 1)
 		require.NoError(t, s.SetReceipts(newTestCtxAtHeight(block), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+		requireReceiptVersion(t, s, int64(block))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -196,6 +201,7 @@ func TestFilterLogsThreadsSDKContext(t *testing.T) {
 	topic := common.HexToHash("0xdef6")
 	txHash, rcpt := littCtxTestReceipt(6, 0, addr, topic, 1)
 	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(6), []ReceiptRecord{{TxHash: txHash, Receipt: rcpt}}))
+	requireReceiptVersion(t, s, 6)
 
 	crit := filters.FilterCriteria{Addresses: []common.Address{addr}}
 
