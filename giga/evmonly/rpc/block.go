@@ -25,18 +25,9 @@ type blockAPI struct {
 }
 
 // GetBlockByNumber returns the block identified by number, or nil if number
-// does not resolve to a committed block.
-//
-// latest/safe/finalized/pending all resolve to the current committed block,
-// the same convention eth_getTransactionCount/eth_getBalance/eth_call use:
-// pending returns the latest committed block rather than a mempool-pending
-// one, because this server tracks no local mempool. Unlike account state,
-// block data is retained indefinitely, so every other explicit height,
-// including one below the current chain head, is looked up directly rather
-// than rejected. "earliest" is this go-ethereum fork's literal height 0,
-// which this executor never commits (its first committed height is 1), so it
-// resolves like any other height that does not exist: nil, not an error. A
-// height above the chain head resolves the same way.
+// does not resolve to a committed block. latest/safe/finalized/pending all
+// resolve to the current committed block; any other height, past or future,
+// is looked up directly.
 func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, fullTx bool) (map[string]any, error) {
 	block, err := api.resolveBlockByNumber(ctx, number)
 	if err != nil || block == nil {
@@ -58,10 +49,8 @@ func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 	return api.encodeBlock(ctx, block, fullTx)
 }
 
-// resolveBlockByNumber translates number into the height format Block
-// expects and looks it up, returning a nil block with a nil error for any
-// height Block reports as out of range, whether below the committed range
-// (an explicit "earliest"/0) or above it (not yet committed).
+// resolveBlockByNumber looks up number, returning a nil block and nil error
+// for any height outside the committed range.
 func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
 	var height *coretypes.Int64
 	switch number {
@@ -84,17 +73,9 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	return block, nil
 }
 
-// encodeBlock renders block as an eth_getBlockBy* response.
-//
-// Several fields the real chain's evmrpc populates from the CometBFT header
-// are always zero here: parentHash, stateRoot, transactionsRoot,
-// receiptsRoot, and miner. Autobahn's translation from its own GlobalBlock
-// into this coretypes.ResultBlock shape (gigaRouterCommon.translateGlobalBlock)
-// only fills in BlockID.Hash and Header.ChainID/Height/Time/Data.Txs; every
-// other header field, including the ones those five read from, stays at its
-// zero value. logsBloom is also left zero: computing the real value requires
-// a receipt per transaction, the same cost eth_getBlockReceipts pays and
-// which this method deliberately avoids for gasUsed.
+// encodeBlock renders block as an eth_getBlockBy* response. parentHash,
+// stateRoot, transactionsRoot, receiptsRoot, miner, and logsBloom are always
+// zero: this execution path's block translation never populates them.
 func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlock, fullTx bool) (map[string]any, error) {
 	number := block.Block.Height
 	blockHash := common.BytesToHash(block.BlockID.Hash)

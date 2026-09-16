@@ -91,9 +91,6 @@ func TestGetBlockByNumberAcceptsAnExplicitHistoricalHeight(t *testing.T) {
 		}, nil
 	})
 
-	// Unlike requireCurrentState (eth_getBalance/eth_getTransactionCount/eth_call),
-	// GetBlockByNumber serves a past height directly: block and receipt data is
-	// retained indefinitely, unlike this application's current-only state view.
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(3), false)
 
 	require.NoError(t, err)
@@ -113,10 +110,6 @@ func TestGetBlockByNumberReturnsNullForAFutureHeight(t *testing.T) {
 }
 
 func TestGetBlockByNumberEarliestReturnsNullBeforeAnyCommittedBlock(t *testing.T) {
-	// "earliest" is represented as literal height 0 in this go-ethereum fork,
-	// a height this executor never commits (its first committed height is 1),
-	// so Block reports it out of range the same way it would any other
-	// nonexistent height.
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.NotNil(t, req.Height)
 		require.Equal(t, coretypes.Int64(0), *req.Height)
@@ -244,9 +237,6 @@ func TestEncodeBlockHashOnlyListMatchesGetTransactionByHash(t *testing.T) {
 	// The last transaction's receipt already carries the block's total gas used.
 	require.Equal(t, hexutil.Uint64(43_500), got["gasUsed"])
 
-	// Cross-check against eth_getTransactionByHash for the same transactions:
-	// GetBlockByNumber must not use a different hash derivation (e.g. the
-	// Tendermint-internal raw-bytes hash from Block.GetTxHashes).
 	txAPI := &txAPI{backend: backend, store: store}
 	byHash1, err := txAPI.GetTransactionByHash(t.Context(), tx1.Hash())
 	require.NoError(t, err)
@@ -282,18 +272,13 @@ func TestEncodeBlockFullTxIncludesDecodedTransactionsInOrder(t *testing.T) {
 	require.Equal(t, (*hexutil.Big)(big.NewInt(0)), got["totalDifficulty"])
 }
 
-// TestEncodeBlockDocumentedHeaderGaps pins the fields Autobahn's translation
-// from a GlobalBlock to this coretypes.ResultBlock shape
-// (gigaRouterCommon.translateGlobalBlock) never populates: parentHash,
-// stateRoot, transactionsRoot, receiptsRoot, and miner all stay at their zero
-// value, confirmed by reading that translation directly rather than assumed.
+// TestEncodeBlockDocumentedHeaderGaps pins the header fields
+// gigaRouterCommon.translateGlobalBlock never populates, confirmed by reading
+// that translation rather than assumed.
 func TestEncodeBlockDocumentedHeaderGaps(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return &coretypes.ResultBlock{
-			// Matches translateGlobalBlock's output shape exactly: only
-			// BlockID.Hash and Header.ChainID/Height/Time/Data.Txs are ever
-			// populated; every other field is left at its zero value.
 			BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
 			Block: &tmtypes.Block{
 				Header:     tmtypes.Header{ChainID: "evmonly-test", Height: 4, Time: time.Unix(1_700_000_000, 0)},
