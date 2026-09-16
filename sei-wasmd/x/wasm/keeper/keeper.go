@@ -20,8 +20,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
-	v152 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v152"
-	v155 "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/artifacts/v155"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/ioutils"
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	wasmvm "github.com/sei-protocol/sei-chain/sei-wasmvm"
@@ -80,8 +78,6 @@ type Keeper struct {
 	wasmVM                types.WasmerEngine
 	simulationWasmVM      types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
-	rpcWasmVM152          types.WasmerEngine
-	rpcWasmVM155          types.WasmerEngine
 	wasmVMQueryHandler    WasmVMQueryHandler
 	wasmVMResponseHandler WasmVMResponseHandler
 	messenger             Messenger
@@ -123,14 +119,6 @@ func NewKeeper(
 	if err != nil {
 		panic(err)
 	}
-	rpcWasmer152, err := v152.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
-	if err != nil {
-		panic(err)
-	}
-	rpcWasmer155, err := v155.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
-	if err != nil {
-		panic(err)
-	}
 	// set KeyTable if it has not already been set
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
@@ -143,8 +131,6 @@ func NewKeeper(
 		wasmVM:            NewVMWrapper(wasmer),
 		simulationWasmVM:  NewVMWrapper(simulationWasmer),
 		rpcWasmVM:         NewVMWrapper(rpcWasmer),
-		rpcWasmVM152:      NewVMWrapper(rpcWasmer152),
-		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
 		messenger:         NewDefaultMessageHandler(router, bankKeeper, cdc),
@@ -169,15 +155,6 @@ func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
 		return k.simulationWasmVM
 	}
 	if ctx.IsTracing() {
-		if ctx.ChainID() != "pacific-1" {
-			return k.rpcWasmVM
-		}
-		if ctx.BlockHeight() < 102491599 {
-			return k.rpcWasmVM152
-		}
-		if ctx.BlockHeight() < 139936278 {
-			return k.rpcWasmVM155
-		}
 		return k.rpcWasmVM
 	}
 	return k.wasmVM

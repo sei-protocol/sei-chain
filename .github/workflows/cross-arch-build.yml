@@ -114,7 +114,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PATTERN='^(scripts/(build-static|boot-smoke|check-libwasmvm-static|goreleaser-shim|check-goreleaser-hooks)\.sh|Makefile|third_party/alpine-gcc10-libgcc/|sei-wasmvm/internal/api/link_|sei-wasmd/x/wasm/artifacts/v[0-9]+/api/link_|link_(constraints|directives)_test\.go|\.goreleaser\.yaml|\.github/workflows/cross-arch-build\.yml)'
+          PATTERN='^(scripts/(build-static|boot-smoke|check-libwasmvm-static|goreleaser-shim|check-goreleaser-hooks)\.sh|Makefile|third_party/alpine-gcc10-libgcc/|sei-wasmvm/internal/api/link_|link_(constraints|directives)_test\.go|\.goreleaser\.yaml|\.github/workflows/cross-arch-build\.yml)'
           FILES=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate -q '.[].filename')
           if echo "$FILES" | grep -qE "$PATTERN"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -145,7 +145,7 @@ jobs:
 
       # Build inside Alpine (musl-native): Ubuntu's musl-gcc can't fully static-link
       # on 24.04 (glibc libgcc -> _dl_find_object, absent in musl), and zig cc rejects
-      # the -z muldefs flag needed to link the libwasmvm v152/v155 archives. Alpine's
+      # the -z muldefs flag needed to link the libwasmvm archives. Alpine's
       # gcc is GNU ld + musl, so it links cleanly. Same script the goreleaser release
       # build runs (scripts/build-static.sh); goreleaser then packages it via the tool shim.
       - name: Build statically (Alpine / musl)
