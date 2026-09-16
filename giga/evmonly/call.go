@@ -3,10 +3,17 @@ package evmonly
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
 )
+
+// callTimeout bounds how long a Call may run before its EVM is cancelled,
+// matching evmrpc's simulation_evm_timeout default. A var, not a const, so
+// tests can shrink it rather than run for the full timeout.
+var callTimeout = 60 * time.Second
 
 // Call executes msg as a read-only EVM message call against the current
 // committed state and returns the execution result. It persists no state
@@ -37,8 +44,21 @@ func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Me
 	stateDB.SetEVM(evm)
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 
+	// core.ApplyMessage does not itself respect ctx, so bound it with a timer
+	// that cancels the EVM directly; gas pricing alone cannot cap wall-clock
+	// cost (e.g. modexp with adversarial inputs).
+	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	go func() {
+		<-callCtx.Done()
+		evm.Cancel()
+	}()
+
 	gasPool := new(core.GasPool).AddGas(msg.GasLimit)
 	result, err := core.ApplyMessage(evm, msg, gasPool)
+	if evm.Cancelled() {
+		return nil, fmt.Errorf("EVM-only call exceeded %s execution timeout", callTimeout)
+	}
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return nil, stateErr
 	}

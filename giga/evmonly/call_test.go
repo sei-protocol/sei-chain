@@ -3,6 +3,7 @@ package evmonly
 import (
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -198,6 +199,43 @@ func TestExecutorCallDoesNotMutateCommittedState(t *testing.T) {
 	defer afterView.Close()
 	require.Equal(t, common.Hash{}, afterView.GetStorage(contractAddr, slot),
 		"eth_call-style execution must never persist a state change")
+}
+
+// infiniteLoopCode returns runtime bytecode that loops forever
+// (JUMPDEST, PUSH1 0, JUMP), for a call whose gas alone would never stop it.
+func infiniteLoopCode() []byte {
+	return []byte{0x5b, 0x60, 0x00, 0x56}
+}
+
+func TestExecutorCallTimesOutOnUnboundedExecution(t *testing.T) {
+	original := callTimeout
+	callTimeout = 20 * time.Millisecond
+	defer func() { callTimeout = original }()
+
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	contractAddr := crypto.CreateAddress(sender, 0)
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(2_000_000_000_000_000))
+	store := NewMemoryStore(state)
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), store.EncodeChangeSet))
+
+	deploy := signLegacyTxWithGas(t, key, chainID, 0, nil, big.NewInt(0), initCode(infiniteLoopCode()), 300_000)
+	_, err = executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{deploy},
+	})
+	require.NoError(t, err)
+
+	msg := callMessage(sender, &contractAddr)
+	msg.GasLimit = 1_000_000_000_000 // far more gas than the shrunk timeout allows spending
+
+	_, err = executor.Call(t.Context(), blockContext(chainID), msg)
+
+	require.ErrorContains(t, err, "timeout")
 }
 
 func TestExecutorCallRejectsMissingStateStore(t *testing.T) {
