@@ -19,7 +19,7 @@ func bindTestReceiptMetrics(t *testing.T) *sdkmetric.ManualReader {
 	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("seidb_receipt")
 	previous := receiptMetrics
 	t.Cleanup(func() { receiptMetrics = previous })
-	receiptMetrics.written = mustReceiptMetric(meter.Int64Counter("receipts_written_total"))
+	receiptMetrics.written = mustReceiptMetric(meter.Int64Counter("receipt_store_receipts_written_total"))
 	return reader
 }
 
@@ -32,9 +32,9 @@ func TestRecordReceiptsWrittenLabelsSuccessAndReverted(t *testing.T) {
 	})
 
 	collected := collectReceiptMetrics(t, reader)
-	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipts_written_total",
+	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipt_store_receipts_written_total",
 		attribute.String("status", receiptWriteStatusSuccess)))
-	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipts_written_total",
+	require.Equal(t, int64(1), requireReceiptCounter(t, collected, "receipt_store_receipts_written_total",
 		attribute.String("status", receiptWriteStatusReverted)))
 }
 
@@ -52,7 +52,7 @@ func TestRecordReceiptsWrittenReportsEveryStatus(t *testing.T) {
 		if status == receiptWriteStatusSuccess {
 			want = 1
 		}
-		require.Equal(t, want, requireReceiptCounter(t, collected, "receipts_written_total",
+		require.Equal(t, want, requireReceiptCounter(t, collected, "receipt_store_receipts_written_total",
 			attribute.String("status", status)), "status %s", status)
 	}
 }
@@ -63,7 +63,7 @@ func TestRecordReceiptsWrittenSkipsRecordsWithoutAReceipt(t *testing.T) {
 
 	collected := collectReceiptMetrics(t, reader)
 	for _, status := range receiptWriteStatuses {
-		require.Equal(t, int64(0), requireReceiptCounter(t, collected, "receipts_written_total",
+		require.Equal(t, int64(0), requireReceiptCounter(t, collected, "receipt_store_receipts_written_total",
 			attribute.String("status", status)), "status %s", status)
 	}
 }

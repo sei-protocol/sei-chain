@@ -42,7 +42,7 @@ func bindTestExecutionMetrics(t *testing.T) *sdkmetric.ManualReader {
 	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("giga_evmonly")
 	previous := executionMetrics
 	t.Cleanup(func() { executionMetrics = previous })
-	executionMetrics.txsExecuted = must(meter.Int64Counter("txs_executed_total"))
+	executionMetrics.txsExecuted = must(meter.Int64Counter("giga_evmonly_txs_executed_total"))
 	return reader
 }
 
@@ -366,9 +366,9 @@ func TestRecordTxExecutionStatsLabelsSuccessAndReverted(t *testing.T) {
 	})
 
 	collected := collectOCCMetrics(t, reader)
-	require.Equal(t, int64(1), requireCounter(t, collected, "txs_executed_total",
+	require.Equal(t, int64(1), requireCounter(t, collected, "giga_evmonly_txs_executed_total",
 		attribute.String("status", txExecutionStatusSuccess)))
-	require.Equal(t, int64(1), requireCounter(t, collected, "txs_executed_total",
+	require.Equal(t, int64(1), requireCounter(t, collected, "giga_evmonly_txs_executed_total",
 		attribute.String("status", txExecutionStatusReverted)))
 }
 
@@ -384,7 +384,7 @@ func TestRecordTxExecutionStatsReportsEveryStatusOnEveryBlock(t *testing.T) {
 		if status == txExecutionStatusSuccess {
 			want = 1
 		}
-		require.Equal(t, want, requireCounter(t, collected, "txs_executed_total",
+		require.Equal(t, want, requireCounter(t, collected, "giga_evmonly_txs_executed_total",
 			attribute.String("status", status)), "status %s", status)
 	}
 }
@@ -395,7 +395,7 @@ func TestRecordTxExecutionStatsReportsAnEmptyBlock(t *testing.T) {
 
 	collected := collectOCCMetrics(t, reader)
 	for _, status := range txExecutionStatuses {
-		require.Equal(t, int64(0), requireCounter(t, collected, "txs_executed_total",
+		require.Equal(t, int64(0), requireCounter(t, collected, "giga_evmonly_txs_executed_total",
 			attribute.String("status", status)), "status %s", status)
 	}
 }

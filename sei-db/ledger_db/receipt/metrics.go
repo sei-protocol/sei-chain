@@ -17,7 +17,7 @@ var receiptMetrics = struct {
 	written metric.Int64Counter
 }{
 	written: mustReceiptMetric(otel.Meter("seidb_receipt").Int64Counter(
-		"receipts_written_total",
+		"receipt_store_receipts_written_total",
 		metric.WithDescription("Receipts committed by the receipt store, by receipt status (success, reverted, failed)"),
 		metric.WithUnit("{receipt}"),
 	)),
@@ -29,9 +29,10 @@ const (
 	receiptWriteStatusFailed   = "failed"
 )
 
-// receiptWriteStatuses is the closed label vocabulary of receipts_written_total.
-// It matches the one txs_executed_total uses, so the two counters compare
-// bucket for bucket.
+// receiptWriteStatuses is the closed label vocabulary of
+// receipt_store_receipts_written_total. It matches the one
+// giga_evmonly_txs_executed_total uses, so the two counters compare bucket for
+// bucket.
 var receiptWriteStatuses = []string{
 	receiptWriteStatusSuccess,
 	receiptWriteStatusReverted,
@@ -63,7 +64,7 @@ func receiptWriteStatusAttr(status string) metric.MeasurementOption {
 }
 
 // receiptWriteStatus maps a receipt onto the bounded status label vocabulary used
-// by receipts_written_total.
+// by receipt_store_receipts_written_total.
 func receiptWriteStatus(receipt *types.Receipt) string {
 	switch receipt.Status {
 	case uint32(ethtypes.ReceiptStatusSuccessful):

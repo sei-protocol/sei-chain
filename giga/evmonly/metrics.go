@@ -23,7 +23,7 @@ var (
 		txsExecuted metric.Int64Counter
 	}{
 		txsExecuted: must(occMeter.Int64Counter(
-			"txs_executed_total",
+			"giga_evmonly_txs_executed_total",
 			metric.WithDescription("EVM-only transactions executed per block, by outcome (success, reverted, failed)"),
 			metric.WithUnit("{transaction}"),
 		)),
@@ -97,7 +97,7 @@ func txExecutionStatusAttr(status string) metric.MeasurementOption {
 }
 
 // txExecutionStatus maps a transaction result onto the bounded status label
-// vocabulary used by txs_executed_total.
+// vocabulary used by giga_evmonly_txs_executed_total.
 func txExecutionStatus(tx TxResult) string {
 	switch tx.Status {
 	case ethtypes.ReceiptStatusSuccessful:
