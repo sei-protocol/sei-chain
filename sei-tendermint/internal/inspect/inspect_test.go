@@ -588,19 +588,19 @@ func testRPCConfig(t testing.TB) *config.RPCConfig {
 	return cfg
 }
 
-// requireConnect blocks until a TCP connection to addr succeeds. The test's
-// overall deadline bounds the wait.
+// requireConnect blocks until a TCP connection to addr succeeds, failing the
+// test if none does within 30 seconds.
 func requireConnect(t testing.TB, addr string) {
 	parts := strings.SplitN(addr, "://", 2)
 	if len(parts) != 2 {
 		t.Fatalf("malformed address to dial: %s", addr)
 	}
-	for {
+	require.Eventually(t, func() bool {
 		conn, err := net.Dial(parts[0], parts[1])
-		if err == nil {
-			conn.Close()
-			return
+		if err != nil {
+			return false
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		conn.Close()
+		return true
+	}, 30*time.Second, 10*time.Millisecond, "unable to connect to server %s", addr)
 }
