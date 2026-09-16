@@ -26,9 +26,9 @@ func pushPeerLaneBlock(state *State, key types.SecretKey, payload *types.Payload
 			return nil, ErrLaneClosed
 		}
 		n := q.next
-		var parent types.BlockHeaderHash
-		if q.first < q.next {
-			parent = q.q[q.next-1].Msg().Block().Header().Hash()
+		parent := types.BlockHeaderHash{}
+		if prev, ok := q.last.Get(); ok {
+			parent = prev.Msg().Block().Header().Hash()
 		}
 		b = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, n, parent, payload)))
 		q.pushBack(b)
@@ -61,6 +61,21 @@ func makeLaneVotes(keys []types.SecretKey, h *types.BlockHeader) []*types.Signed
 		votes = append(votes, types.Sign(k, types.NewLaneVote(h)))
 	}
 	return votes
+}
+
+func pruneToHeader(state *State, keys []types.SecretKey, h *types.BlockHeader) {
+	ep := state.SubscribeConsensusSpec().Load().Epoch
+	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
+		h.Lane(): types.NewLaneQC(makeLaneVotes(keys, h)),
+	})
+	for inner, ctrl := range state.inner.Lock() {
+		inner.prune(data.Anchor{
+			CommitQC: qc,
+			AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+			Epoch:    ep,
+		})
+		ctrl.Updated()
+	}
 }
 
 func qcPayloadHashes(qc *types.FullCommitQC) byLane[types.PayloadHash] {
@@ -558,6 +573,88 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.NoError(t, state.PushBlock(ctx, fakeProp))
 	// Queue did not advance — the bad block was dropped.
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+}
+
+func TestPushBlockRejectsBadRetainedParentHash(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	first, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	pruneToHeader(state, keys, first.Msg().Block().Header())
+
+	block := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(block))))
+	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+}
+
+func TestProduceLocalBlockUsesRetainedLast(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	first, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	pruneToHeader(state, keys, first.Msg().Block().Header())
+
+	second, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, first.Msg().Block().Header().Hash(), second.Msg().Block().Header().ParentHash())
+}
+
+func TestCollectPersistBatchWritesUnflushedLast(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	first, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	pruneToHeader(state, keys, first.Msg().Block().Header())
+
+	batch, err := state.collectPersistBatch(ctx)
+	require.NoError(t, err)
+	bb := batch.blocks[lane]
+	require.Equal(t, types.BlockNumber(0), bb.first)
+	require.Equal(t, []*types.Signed[*types.LaneProposal]{first}, bb.tail)
+}
+
+func TestSetNextBlockToPersistDoesNotRewind(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	state.setNextBlockToPersist(lane, 5)
+	state.setNextBlockToPersist(lane, 3)
+	for inner := range state.inner.Lock() {
+		require.Equal(t, types.BlockNumber(5), inner.nextBlockToPersist[lane])
+	}
+	state.setNextBlockToPersist(lane, 6)
+	for inner := range state.inner.Lock() {
+		require.Equal(t, types.BlockNumber(6), inner.nextBlockToPersist[lane])
+	}
 }
 
 func TestPushBlockRejectsWrongSigner(t *testing.T) {

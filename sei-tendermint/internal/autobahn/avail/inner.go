@@ -10,6 +10,54 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// blockQueue is a per-lane block queue.
+type blockQueue struct {
+	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+	// last is the last proposal this node pushed, or None if prune jumped past
+	// every block it held.
+	last utils.Option[*types.Signed[*types.LaneProposal]]
+}
+
+func newBlockQueue() *blockQueue {
+	return &blockQueue{queue: *newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()}
+}
+
+func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
+	q.queue.pushBack(p)
+	q.last = utils.Some(p)
+}
+
+func (q *blockQueue) prune(newFirst types.BlockNumber) {
+	if newFirst <= q.first {
+		return
+	}
+	if newFirst > q.next {
+		// The Anchor certified past every block this lane holds, so the block it
+		// names as the new tip was never seen locally.
+		q.last = utils.None[*types.Signed[*types.LaneProposal]]()
+	}
+	q.queue.prune(newFirst)
+}
+
+// unpersistedLast returns the last block once it has left the active range and
+// block persistence has not reached it.
+func (q *blockQueue) unpersistedLast(nextToPersist types.BlockNumber) utils.Option[*types.Signed[*types.LaneProposal]] {
+	if p, ok := q.last.Get(); ok {
+		if n := p.Msg().Block().Header().BlockNumber(); n < q.first && nextToPersist <= n {
+			return utils.Some(p)
+		}
+	}
+	return utils.None[*types.Signed[*types.LaneProposal]]()
+}
+
+// retentionFloor returns the lowest block number the WAL must still hold.
+func (q *blockQueue) retentionFloor() types.BlockNumber {
+	if p, ok := q.last.Get(); ok {
+		return min(q.first, p.Msg().Block().Header().BlockNumber())
+	}
+	return q.first
+}
+
 // inner holds roads and per-LaneID block/vote maps.
 type inner struct {
 	persistedCommitQC utils.AtomicSend[utils.Option[*types.CommitQC]] // latest persisted CommitQC
@@ -25,7 +73,7 @@ type inner struct {
 	// When it lags applied, epochForVote falls back to this committee for
 	// departing-lane voters.
 	anchorEpoch utils.Option[*types.Epoch]
-	blocks      map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
+	blocks      map[types.LaneID]*blockQueue
 	votes       map[types.LaneID]*queue[types.BlockNumber, *blockVotes]
 	// nextBlockToPersist tracks per-lane how far block persistence has progressed.
 	// RecvBatch only yields blocks below this cursor for voting.
@@ -61,7 +109,7 @@ func newInner(ep *types.Epoch, first types.RoadIndex) *inner {
 		persistedCommitQC:  utils.NewAtomicSend(utils.None[*types.CommitQC]()),
 		consensusSpec:      utils.NewAtomicSend(types.ConsensusSpec{CommitQC: utils.None[*types.CommitQC](), Epoch: ep}),
 		roads:              roads,
-		blocks:             map[types.LaneID]*queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]{},
+		blocks:             map[types.LaneID]*blockQueue{},
 		votes:              map[types.LaneID]*queue[types.BlockNumber, *blockVotes]{},
 		nextBlockToPersist: map[types.LaneID]types.BlockNumber{},
 	}
@@ -85,18 +133,20 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 				return fmt.Errorf("lane %s: loaded %d blocks exceeds capacity %d", lane, len(bs), BlocksPerLane)
 			}
 			if b.Number < q.next {
+				// Certified. Restore last from the proposal at first-1 when present.
+				if b.Number+1 == q.first {
+					q.last = utils.Some(b.Proposal)
+				}
 				continue
 			}
 			if b.Number != q.next {
 				return fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Number)
 			}
-			// We check the parent hash only for the blocks above the anchor, because:
-			// * node can cast LaneVote for the block of the lane without checking the parent hash,
-			//   in case the previous block was already (executed and) pruned from memory.
-			// * current WAL implementation is lazily pruning on disk, so old executed blocks might be loaded on startup.
-			if q.Len() > 0 {
+			// In-range blocks must parent to last when last is known (queue tip, or
+			// first-1 restored above). Certified WAL records are not re-checked.
+			if prev, ok := q.last.Get(); ok {
 				ph := b.Proposal.Msg().Block().Header().ParentHash()
-				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
+				if prev.Msg().Block().Header().Hash() != ph {
 					return fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, b.Number)
 				}
 			}
@@ -192,7 +242,7 @@ func (i *inner) addLane(lane types.LaneID) bool {
 	if _, ok := i.blocks[lane]; ok {
 		return false
 	}
-	i.blocks[lane] = newQueue[types.BlockNumber, *types.Signed[*types.LaneProposal]]()
+	i.blocks[lane] = newBlockQueue()
 	i.votes[lane] = newQueue[types.BlockNumber, *blockVotes]()
 	i.nextBlockToPersist[lane] = 0
 	return true
@@ -246,10 +296,16 @@ func (i *inner) prune(anchor data.Anchor) int {
 	for lane, vq := range i.votes {
 		lr := anchor.CommitQC.LaneRange(lane)
 		bq := i.blocks[lane]
+		// TODO: when prune jumps past what this node holds, seed the parent from
+		// lr.LastHash() at Next()-1 (non-empty range only). Empty ranges still
+		// carry a zero LastHash, so a later QC cannot replace a conflicting
+		// local predecessor or recover a tip the WAL does not have.
 		vq.prune(lr.Next())
 		bq.prune(lr.Next())
-		if i.nextBlockToPersist[lane] < lr.Next() {
-			i.nextBlockToPersist[lane] = lr.Next()
+		// A lagging cursor stops at retentionFloor so an unflushed last can still
+		// be written. The cursor is never rewound: already past last means it is on disk.
+		if floor := bq.retentionFloor(); i.nextBlockToPersist[lane] < floor {
+			i.nextBlockToPersist[lane] = floor
 		}
 	}
 	if i.roads.Len() == 0 {
