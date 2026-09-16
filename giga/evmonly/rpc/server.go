@@ -35,6 +35,7 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 // is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
+	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmBaseFee() (*big.Int, error)
@@ -42,6 +43,7 @@ type Backend interface {
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
+	EvmGasLimit() (uint64, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
 	EvmTransactionCount(common.Address) uint64
@@ -94,6 +96,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	}
 	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
+		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
 	}
 	return rpcServer, nil
 }

@@ -377,7 +377,9 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getTransactionCount`, for the current committed nonce;
 - `eth_blockNumber`, for the current committed block height;
 - `eth_chainId`, for the configured EVM chain ID;
-- `eth_call`, for a read-only message call against current committed state.
+- `eth_call`, for a read-only message call against current committed state;
+- `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
+  height (including any past height) or by hash.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -493,10 +495,31 @@ blocks) and `blockhash(current-1)` and further back are unavailable (only the
 current block's own hash is tracked outside of block execution). A view
 function that depends on either reads a placeholder rather than a real value.
 
+### Fetch a block with `cast block`
+
+`cast block` works by height or by hash. Unlike `eth_getBalance`,
+`eth_getTransactionCount`, and `eth_call`, an explicit height is not
+historical-state-restricted: block and receipt data is retained indefinitely,
+so any past height works the same as `latest`:
+
+```sh
+cast block --rpc-url http://127.0.0.1:8545 latest
+cast block --rpc-url http://127.0.0.1:8545 1
+cast block --rpc-url http://127.0.0.1:8545 0xYOUR_BLOCK_HASH
+```
+
+A height above the current chain head, or `earliest` (this executor's first
+committed height is 1, not 0), returns `null` rather than an error, matching
+`eth_getTransactionByHash`'s treatment of an unknown hash. `parentHash`,
+`stateRoot`, `transactionsRoot`, `receiptsRoot`, and `miner` are always the
+zero value: Autobahn's translation from its internal block representation
+into the shape this RPC reads from never populates them. `logsBloom` is also
+always empty. `gasUsed` and the transaction list are real, decoded the same
+way `eth_getTransactionByHash` decodes a transaction.
+
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
-does not currently print every submitted hash, and there is still no block API
-(`eth_getBlockByNumber`/`eth_getBlockByHash`, or the by-block-and-index
-transaction lookups) to discover a `sei-load` transfer hash independently.
+does not currently print every submitted hash, and there are still no
+by-block-and-index transaction lookups or block-transaction-count methods.
 There are also no fee-estimation, gas-estimation, log, or WebSocket
 subscription methods. Commands that depend on those queries cannot operate
 normally; raw transactions must provide gas limit and gas price offline as in
