@@ -145,10 +145,6 @@ type viewReferenceCounter struct {
 	// flushedToDisk. Used as a synchronization handle for AwaitFlush waiters; a closed channel is
 	// immediately selectable, so the "already flushed at call time" case requires no special path.
 	flushCompleted chan struct{}
-
-	// Carries this version's writes, ordered by key, from the sort pool to the flush. Buffered, and
-	// written exactly once by the sort job, so neither side waits on the other beyond the handoff.
-	sortedDiff chan sortedDiffResult
 }
 
 // Creates a new ViewManager.
@@ -447,7 +443,7 @@ func (c *viewManager) Commit() (View, error) {
 	// and the queue drains only as the flush consumes results — which needs versionLock. Blocking here
 	// while holding it would deadlock against the very work that would unblock it.
 	c.metrics.setViewPhase("submit_diff_sort")
-	c.sortDiffAtVersion(sealedVersion)
+	c.materializeDiffAtVersion(sealedVersion)
 
 	return view, nil
 }
@@ -489,7 +485,6 @@ func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 		version:        sealedVersion,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
-		sortedDiff:     make(chan sortedDiffResult, 1),
 	}
 
 	c.versionMap[sealedVersion] = currentVersionRefCounter
@@ -1059,34 +1054,34 @@ func (c *viewManager) flushViews(
 	for version := firstVersion; version < lastVersion; version++ {
 		versionsInBatch++
 		if batch == nil {
-			// Created at the size it is cut at, so it does not double its way there. A batch overshoots
-			// that by at most the last version appended to it.
-			batch = c.db.NewBatchWithSize(int(c.config.TargetBytesPerFlush)) //nolint:gosec
+			// Never sized up front: pebble hands back a pooled batch still carrying the buffer its last
+			// use grew, and asking for a capacity replaces that buffer with a fresh allocation instead.
+			batch = c.db.NewBatch()
 		}
 
-		// Each version's writes were gathered, ordered by key, and encoded on the sort pool when the
-		// version was sealed, so absorbing one here moves a finished buffer rather than walking its
-		// keys. Appended a version at a time and never merged across versions: pebble resolves two
-		// writes to one key by sequence number, which it assigns in batch order, so a key written in
-		// several of a batch's versions must reach it oldest first.
-		versionBatch, err := c.awaitSortedDiff(version)
+		// Ordered by key on the sort pool when the version was sealed, so this is a merge of finished
+		// runs rather than a sort. One version at a time and never merged across versions: pebble
+		// resolves two writes to one key by sequence number, which it assigns in batch order, so a key
+		// written in several of a batch's versions must reach it oldest first.
+		shardDiffs, err := c.materializeSortedDiffs(version)
 		if err != nil {
 			return err
 		}
-		appendErr := batch.Append(versionBatch)
-		closeErr := versionBatch.Close()
-		if appendErr != nil {
-			return fmt.Errorf("flush failed to append the diff at version %d: %w", version, appendErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("flush failed to close the diff at version %d: %w", version, closeErr)
+		err = forEachMergedEntry(shardDiffs, func(entry diffEntry) error {
+			if entry.value == nil {
+				return batch.DeleteString(entry.key)
+			}
+			return batch.SetString(entry.key, entry.value)
+		})
+		if err != nil {
+			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
 		}
 
 		// The caller's metadata goes in the same batch as its block's data, so the two land atomically,
 		// and last, so that a metadata key colliding with a data key still wins. It cannot be part of the
-		// version's sorted batch: that is built when the version is sealed, and FinalizeView supplies
-		// these writes later. A Delete pair becomes a tombstone, and a pair carrying an empty value is
-		// normalized to a non-nil empty slice to keep the two distinguishable.
+		// merge above: that runs over diffs ordered when the version was sealed, and FinalizeView
+		// supplies these writes later. A Delete pair becomes a tombstone, and a pair carrying an empty
+		// value is normalized to a non-nil empty slice to keep the two distinguishable.
 		for _, pair := range versionWrites[version] {
 			if pair.Delete {
 				if err := batch.Delete(pair.Key); err != nil {
@@ -1254,8 +1249,6 @@ func (c *viewManager) closeInternal() error {
 
 	c.awaitOutstandingFolds()
 
-	c.discardUnflushedDiffBatches()
-
 	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
 	// View callers, and reads still awaiting results. The cancel happens under versionLock
 	// because backpressure waiters re-check the context under that lock before parking on the
@@ -1293,31 +1286,6 @@ func (c *viewManager) closeInternal() error {
 		return errors.Join(fmt.Errorf("close underlying database: %w", dbErr), leakedErr)
 	}
 	return leakedErr
-}
-
-// discardUnflushedDiffBatches closes the encoded diffs the flush never consumed, before the database
-// they were built from goes away.
-//
-// Best-effort, and only sound because the lifecycle runner has already exited: a sort job still in
-// flight delivers its batch afterwards, and that one is left to the garbage collector. An abandoned
-// batch is a buffer that misses its pool rather than a leaked resource, so nothing is owed beyond this.
-func (c *viewManager) discardUnflushedDiffBatches() {
-	c.versionLock.Lock()
-	batches := make([]types.Batch, 0, len(c.versionMap))
-	for _, counter := range c.versionMap {
-		select {
-		case result := <-counter.sortedDiff:
-			if result.batch != nil {
-				batches = append(batches, result.batch)
-			}
-		default:
-		}
-	}
-	c.versionLock.Unlock()
-
-	for _, batch := range batches {
-		_ = batch.Close()
-	}
 }
 
 // assertNoLeakedIterators checks that every iterator handed out has been closed, returning an error

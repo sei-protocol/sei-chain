@@ -85,39 +85,3 @@ func TestFlushOrdersWithinEachVersionNotAcrossThem(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "from-v2", string(value), "the newer version's write must win")
 }
-
-// A version's encoded diff is a batch the sort pool built and nobody consumed unless that version
-// flushes. Close has to release the ones left over, before the database they came from goes away.
-func TestCloseReleasesTheDiffBatchesTheFlushNeverTook(t *testing.T) {
-	db := newTestDB(nil)
-	manager := newTestManagerWithConfig(t, newTestConfig(1, 4096), db)
-
-	require.NoError(t, manager.Set([]byte("k"), []byte("v")))
-	_, err := manager.Commit() // seals version 1, and deliberately leaves it unfinalized
-	require.NoError(t, err)
-
-	// An unfinalized version never becomes flushable, so its batch sits in the channel. Waiting for
-	// the delivery is what makes this deterministic: a batch still being built when Close runs is
-	// left to the garbage collector by design, and would not be counted here.
-	awaitSortedDiffDelivery(t, manager, 1)
-
-	require.NoError(t, manager.Close())
-
-	require.Positive(t, db.batchesCreated.Load(), "the sort pool must have built a batch")
-	require.Equal(t, db.batchesCreated.Load(), db.batchesClosed.Load(),
-		"every batch the sort pool built must be closed, including the unflushed one")
-}
-
-// awaitSortedDiffDelivery blocks until the sort pool has delivered a version's encoded diff, without
-// consuming it.
-func awaitSortedDiffDelivery(t *testing.T, manager ViewManager, version uint64) {
-	t.Helper()
-	m := manager.(*viewManager)
-	require.Eventually(t, func() bool {
-		m.versionLock.Lock()
-		defer m.versionLock.Unlock()
-		counter, tracked := m.versionMap[version]
-		return tracked && len(counter.sortedDiff) == 1
-	}, 2*time.Second, 2*time.Millisecond, "the sorted diff at version %d was not delivered in time",
-		version)
-}

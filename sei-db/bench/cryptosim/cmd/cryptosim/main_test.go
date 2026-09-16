@@ -37,12 +37,11 @@ func get(t *testing.T, addr string, path string) (int, []byte) {
 	return response.StatusCode, body
 }
 
-// Asserts that the metrics and every profile the benchmark is expected to expose share one address,
-// since the alternative is discovering a missing handler after a remote run has already been spent.
-func TestHTTPServerServesMetricsAndProfiles(t *testing.T) {
+// Asserts that every profile the benchmark is expected to expose is actually reachable, since the
+// alternative is discovering a missing handler after a remote run has already been spent.
+func TestPprofServerServesProfiles(t *testing.T) {
 	config := cryptosim.DefaultCryptoSimConfig()
-	config.MetricsAddr = "127.0.0.1:0"
-	config.EnablePprof = true
+	config.PprofAddr = "127.0.0.1:0"
 	config.MutexProfileFraction = 1
 	config.BlockProfileRate = 1
 
@@ -55,12 +54,11 @@ func TestHTTPServerServesMetricsAndProfiles(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	addr, err := startHTTPServer(ctx, testRegistry(t), config)
+	addr, err := startPprofServer(ctx, config)
 	require.NoError(t, err)
 	require.NotEmpty(t, addr)
 
 	for _, path := range []string{
-		"/metrics",
 		"/debug/pprof/",
 		"/debug/pprof/goroutine?debug=1",
 		"/debug/pprof/heap",
@@ -74,52 +72,57 @@ func TestHTTPServerServesMetricsAndProfiles(t *testing.T) {
 	}
 }
 
-// Asserts that the profiles are genuinely opt-out and that turning them off leaves the metrics alone.
-func TestHTTPServerWithoutPprof(t *testing.T) {
-	config := cryptosim.DefaultCryptoSimConfig()
-	config.MetricsAddr = "127.0.0.1:0"
-	config.EnablePprof = false
-
+// The metrics server is a separate server on a separate address, because it starts only once setup
+// is done. It must serve the scrape and nothing else.
+func TestMetricsServerServesOnlyMetrics(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	addr, err := startHTTPServer(ctx, testRegistry(t), config)
+	addr, err := startMetricsServer(ctx, testRegistry(t), "127.0.0.1:0")
 	require.NoError(t, err)
+	require.NotEmpty(t, addr)
 
-	status, _ := get(t, addr, "/metrics")
-	require.Equal(t, http.StatusOK, status, "metrics must be served with the profiles off")
+	status, body := get(t, addr, "/metrics")
+	require.Equal(t, http.StatusOK, status)
+	require.NotEmpty(t, body)
 
 	status, _ = get(t, addr, "/debug/pprof/")
-	require.Equal(t, http.StatusNotFound, status, "the profiles must not be registered when off")
+	require.Equal(t, http.StatusNotFound, status, "the profiles belong to the pprof server alone")
 }
 
-// Asserts that an empty MetricsAddr starts nothing, which is how a run serves neither.
-func TestHTTPServerDisabled(t *testing.T) {
+// Asserts that an empty address starts nothing, which is how a run opts out of either server.
+func TestServersDisabled(t *testing.T) {
 	config := cryptosim.DefaultCryptoSimConfig()
-	config.MetricsAddr = ""
-	config.EnablePprof = false
+	config.PprofAddr = ""
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	addr, err := startHTTPServer(ctx, testRegistry(t), config)
+	addr, err := startPprofServer(ctx, config)
+	require.NoError(t, err)
+	require.Empty(t, addr)
+
+	addr, err = startMetricsServer(ctx, testRegistry(t), "")
 	require.NoError(t, err)
 	require.Empty(t, addr)
 }
 
-// Asserts that a port already in use is reported rather than swallowed, which it was before the
-// server bound up front.
-func TestHTTPServerReportsBindFailure(t *testing.T) {
+// Asserts that a port already in use is reported rather than swallowed, which the metrics server did
+// before it bound up front.
+func TestServersReportBindFailure(t *testing.T) {
 	config := cryptosim.DefaultCryptoSimConfig()
-	config.MetricsAddr = "127.0.0.1:0"
+	config.PprofAddr = "127.0.0.1:0"
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	addr, err := startHTTPServer(ctx, testRegistry(t), config)
+	taken, err := startPprofServer(ctx, config)
 	require.NoError(t, err)
 
-	config.MetricsAddr = addr
-	_, err = startHTTPServer(ctx, testRegistry(t), config)
+	config.PprofAddr = taken
+	_, err = startPprofServer(ctx, config)
+	require.Error(t, err)
+
+	_, err = startMetricsServer(ctx, testRegistry(t), taken)
 	require.Error(t, err)
 }

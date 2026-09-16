@@ -45,36 +45,68 @@ func setupOtelPrometheus() (*prometheus.Registry, func(context.Context) error, e
 	return reg, provider.Shutdown, nil
 }
 
-// startHTTPServer serves /metrics from the given gatherer and, when the config asks for it, the pprof
-// endpoints beside them. It returns the address it bound, or "" when MetricsAddr is empty. Shuts down
-// when ctx is cancelled.
+// startMetricsServer serves /metrics from the given gatherer. It returns the address it bound, or ""
+// when addr is empty, and shuts down when ctx is cancelled.
 //
 // Binding happens before this returns, so a port already in use is an error here rather than silence
 // at the far end of an ssh tunnel.
-//
-// The server has no write timeout: a CPU or trace profile holds its response open for the length of
-// the collection, which a timeout would truncate.
-func startHTTPServer(
-	ctx context.Context,
-	gatherer prometheus.Gatherer,
-	config *cryptosim.CryptoSimConfig,
-) (string, error) {
-
-	if config.MetricsAddr == "" {
+func startMetricsServer(ctx context.Context, gatherer prometheus.Gatherer, addr string) (string, error) {
+	if addr == "" {
 		return "", nil
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return "", fmt.Errorf("listen on metrics address %q: %w", addr, err)
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
-	if config.EnablePprof {
-		registerPprof(mux, config)
+	serve(ctx, mux, listener)
+
+	return listener.Addr().String(), nil
+}
+
+// startPprofServer serves the pprof endpoints and enables the mutex and block profiles at the
+// configured sample rates. It returns the address it bound, or "" when PprofAddr is empty, and shuts
+// down when ctx is cancelled.
+//
+// Binding happens before this returns, for the reason given on startMetricsServer.
+func startPprofServer(ctx context.Context, config *cryptosim.CryptoSimConfig) (string, error) {
+	if config.PprofAddr == "" {
+		return "", nil
 	}
 
-	listener, err := net.Listen("tcp", config.MetricsAddr)
+	// Off unless asked for, because sampling either one charges the events it samples.
+	if config.MutexProfileFraction > 0 {
+		runtime.SetMutexProfileFraction(config.MutexProfileFraction)
+	}
+	if config.BlockProfileRate > 0 {
+		runtime.SetBlockProfileRate(config.BlockProfileRate)
+	}
+
+	listener, err := net.Listen("tcp", config.PprofAddr)
 	if err != nil {
-		return "", fmt.Errorf("listen on metrics address %q: %w", config.MetricsAddr, err)
+		return "", fmt.Errorf("listen on pprof address %q: %w", config.PprofAddr, err)
 	}
 
+	// Index covers the heap, goroutine, allocs, mutex and block profiles.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	serve(ctx, mux, listener)
+
+	return listener.Addr().String(), nil
+}
+
+// serve runs mux on listener until ctx is cancelled.
+//
+// The server has no write timeout: a CPU or trace profile holds its response open for the length of
+// the collection, which a timeout would truncate.
+func serve(ctx context.Context, mux *http.ServeMux, listener net.Listener) {
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -88,34 +120,6 @@ func startHTTPServer(
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
-
-	return listener.Addr().String(), nil
-}
-
-// pprofSuffix names the pprof endpoints in the startup line when they are being served.
-func pprofSuffix(config *cryptosim.CryptoSimConfig) string {
-	if config.EnablePprof {
-		return " and pprof"
-	}
-	return ""
-}
-
-// registerPprof adds the pprof endpoints to mux and enables the mutex and block profiles at the
-// configured sample rates. Index covers the heap, goroutine, allocs, mutex and block profiles.
-func registerPprof(mux *http.ServeMux, config *cryptosim.CryptoSimConfig) {
-	// Off unless asked for, because sampling either one charges the events it samples.
-	if config.MutexProfileFraction > 0 {
-		runtime.SetMutexProfileFraction(config.MutexProfileFraction)
-	}
-	if config.BlockProfileRate > 0 {
-		runtime.SetBlockProfileRate(config.BlockProfileRate)
-	}
-
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 // Run the cryptosim benchmark.
@@ -170,15 +174,14 @@ func run() error {
 		_ = shutdown(context.Background())
 	}()
 
-	// Before cryptosim is built rather than after, so that setup is profilable and observable too.
-	// Scrapes landing during setup see the process and Go collectors with cryptosim's own metrics not
-	// yet populated, which is what a run in setup should report.
-	httpAddr, err := startHTTPServer(ctx, reg, config)
+	// Before cryptosim is built rather than after, so that setup is profilable too. The metrics
+	// server deliberately waits until setup is done (see below).
+	pprofAddr, err := startPprofServer(ctx, config)
 	if err != nil {
-		return fmt.Errorf("start http server: %w", err)
+		return fmt.Errorf("start pprof server: %w", err)
 	}
-	if httpAddr != "" {
-		fmt.Printf("metrics%s listening on %s\n", pprofSuffix(config), httpAddr)
+	if pprofAddr != "" {
+		fmt.Printf("pprof listening on %s\n", pprofAddr)
 	}
 
 	cs, err := cryptosim.NewCryptoSim(ctx, config)
@@ -191,6 +194,16 @@ func run() error {
 			fmt.Fprintf(os.Stderr, "Error closing cryptosim: %v\n", err)
 		}
 	}()
+
+	// After setup rather than before, so that the blocks and transactions account creation generates
+	// stay out of the series and a run's throughput reads as the workload's alone.
+	metricsAddr, err := startMetricsServer(ctx, reg, config.MetricsAddr)
+	if err != nil {
+		return fmt.Errorf("start metrics server: %w", err)
+	}
+	if metricsAddr != "" {
+		fmt.Printf("metrics listening on %s\n", metricsAddr)
+	}
 
 	// Toggle suspend/resume on Enter when enabled
 	if config.EnableSuspension {

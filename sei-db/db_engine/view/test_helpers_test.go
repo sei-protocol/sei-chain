@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -160,9 +159,6 @@ func (d *testDB) NewBatch() types.Batch {
 	return &testBatch{db: d}
 }
 
-// The hint changes only how the real batch allocates, which this fake does not model.
-func (d *testDB) NewBatchWithSize(int) types.Batch { return d.NewBatch() }
-
 func (d *testDB) Flush() error { return nil }
 
 func (d *testDB) Close() error {
@@ -238,17 +234,6 @@ func (b *testBatch) SetString(key string, value []byte) error {
 
 func (b *testBatch) DeleteString(key string) error {
 	return b.Delete([]byte(key))
-}
-
-// Append takes the other batch's ops in order and leaves it untouched, which is the ordering the
-// pebble batch's bulk append gives and what the flush's per-version sequence depends on.
-func (b *testBatch) Append(other types.Batch) error {
-	otherBatch, ok := other.(*testBatch)
-	if !ok {
-		return fmt.Errorf("cannot append a %T to a test batch", other)
-	}
-	b.ops = append(b.ops, otherBatch.ops...)
-	return nil
 }
 
 func (b *testBatch) Commit(_ types.WriteOptions) error {

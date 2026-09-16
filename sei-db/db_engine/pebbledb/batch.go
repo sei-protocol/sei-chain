@@ -18,18 +18,12 @@ type pebbleBatch struct {
 
 var _ types.Batch = (*pebbleBatch)(nil)
 
+// NewBatch returns a batch from pebble's pool, which still carries the buffer its previous use grew.
+// Asking pebble for a sized batch instead replaces that buffer with a fresh allocation on every call,
+// which is why nothing here does.
 func (p *pebbleDB) NewBatch() types.Batch {
-	return p.wrapBatch(p.db.NewBatch())
-}
-
-func (p *pebbleDB) NewBatchWithSize(size int) types.Batch {
-	return p.wrapBatch(p.db.NewBatchWithSize(size))
-}
-
-// wrapBatch hands a pebble batch the metrics its operations and commits report through.
-func (p *pebbleDB) wrapBatch(b *pebble.Batch) types.Batch {
 	return &pebbleBatch{
-		b:                b,
+		b:                p.db.NewBatch(),
 		operationMetrics: p.operationMetrics,
 		commitMetrics:    p.commitMetrics,
 	}
@@ -58,18 +52,6 @@ func (pb *pebbleBatch) DeleteString(key string) error {
 	op := pb.b.DeleteDeferred(len(key))
 	copy(op.Key, key)
 	return op.Finish()
-}
-
-func (pb *pebbleBatch) Append(other types.Batch) error {
-	otherBatch, ok := other.(*pebbleBatch)
-	if !ok {
-		return fmt.Errorf("cannot append a %T to a pebble batch", other)
-	}
-	// Moves the other batch's encoded records in bulk rather than replaying them one at a time.
-	if err := pb.b.Apply(otherBatch.b, nil); err != nil {
-		return fmt.Errorf("failed to append batch: %w", err)
-	}
-	return nil
 }
 
 func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
