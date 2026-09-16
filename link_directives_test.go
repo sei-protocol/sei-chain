@@ -17,9 +17,9 @@ var linkDirs = []string{
 
 // reLDFlag captures the -l<name> argument from a cgo LDFLAGS line, e.g.
 //
-//	// #cgo LDFLAGS: -Wl,-rpath,${SRCDIR} -L${SRCDIR} -lwasmvm_muslc
+//	// #cgo LDFLAGS: -Wl,-rpath,${SRCDIR} -L${SRCDIR} -lwasmvm155_muslc
 //
-// yields "wasmvm_muslc".
+// yields "wasmvm155_muslc".
 var reLDFlag = regexp.MustCompile(`#cgo LDFLAGS:.*?-l(\S+)`)
 
 // linkableExts is the set of extensions cgo's linker will accept when
@@ -36,12 +36,12 @@ var linkableExts = []string{".a", ".so", ".dylib"}
 //  1. A link_*.go references -l<name> but no lib<name>.{a,so,dylib}
 //     exists in $SRCDIR. This is what surfaced in PLT-41 once the
 //     static-build path was first exercised: link_muslc.go declared
-//     -lwasmvm_muslc but no libwasmvm_muslc.a was checked in,
-//     producing `cannot find -lwasmvm_muslc` at link time.
+//     -lwasmvm155_muslc but no libwasmvm155_muslc.a was checked in,
+//     producing `cannot find -lwasmvm155_muslc` at link time.
 //
 //  2. An artifact is checked in under a name no link directive resolves
 //     against — orphaned files that look authoritative but aren't wired
-//     to anything. An unreferenced libwasmvmstatic.a (Mach-O arm64) was
+//     to anything. The previous libwasmvm155static.a (Mach-O arm64) was
 //     a textbook example: present in the tree, consumed by nothing.
 //
 // The 1 KiB floor on file size is a sanity gate against the failure
@@ -87,7 +87,7 @@ func TestLinkDirectivesResolve(t *testing.T) {
 // TestArtifactsHaveNoOrphans asserts the inverse direction: every
 // library file in a linkDir corresponds to *something* a link_*.go
 // might consume. Catches the "checked in but never used" class — files
-// like an unreferenced libwasmvmstatic.a that was never resolved by any
+// like the original libwasmvm155static.a that were never resolved by any
 // directive and sat dormant until someone tried to static-link.
 //
 // Allowed: lib<name>.{a,so,dylib} where some link_*.go in the same dir
