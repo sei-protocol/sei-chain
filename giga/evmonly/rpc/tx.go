@@ -56,9 +56,9 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 		return nil, fmt.Errorf("receipt transaction index %d exceeds block %d transaction count %d",
 			stored.TransactionIndex, stored.BlockNumber, len(block.Block.Txs))
 	}
-	ethtx := new(ethtypes.Transaction)
-	if err := ethtx.UnmarshalBinary(block.Block.Txs[stored.TransactionIndex]); err != nil {
-		return nil, fmt.Errorf("decode transaction at block %d index %d: %w", stored.BlockNumber, stored.TransactionIndex, err)
+	ethtx, err := decodeBlockTx(block.Block.Txs[stored.TransactionIndex], block.Block.Height, int(stored.TransactionIndex))
+	if err != nil {
+		return nil, err
 	}
 	chainConfig, err := api.backend.EvmChainConfig()
 	if err != nil {
@@ -120,6 +120,16 @@ func replaceFrom(tx *export.RPCTransaction, stored *evmtypes.Receipt) {
 	if tx.From == (common.Address{}) {
 		tx.From = common.HexToAddress(stored.From)
 	}
+}
+
+// decodeBlockTx decodes the raw transaction bytes stored at index in block
+// blockNumber, identifying the failing position in the returned error.
+func decodeBlockTx(raw []byte, blockNumber int64, index int) (*ethtypes.Transaction, error) {
+	ethtx := new(ethtypes.Transaction)
+	if err := ethtx.UnmarshalBinary(raw); err != nil {
+		return nil, fmt.Errorf("decode transaction at block %d index %d: %w", blockNumber, index, err)
+	}
+	return ethtx, nil
 }
 
 func encodeReceipt(hash common.Hash, stored *evmtypes.Receipt, blockHash common.Hash) map[string]any {

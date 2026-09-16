@@ -334,6 +334,11 @@ func (env *Environment) EvmChainConfig() (*params.ChainConfig, error) {
 	return env.App.EvmChainConfig()
 }
 
+// EvmGasLimit returns the gas limit of the most recently committed block.
+func (env *Environment) EvmGasLimit() (uint64, error) {
+	return env.App.EvmGasLimit()
+}
+
 // EvmCall executes msg as a read-only call against the current committed EVM
 // state, without creating a transaction or persisting any state change.
 func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {

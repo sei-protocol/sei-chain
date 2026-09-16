@@ -18,11 +18,13 @@ type testBackend struct {
 	balance          func(common.Address) uint256.Int
 	baseFee          func() (*big.Int, error)
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
+	blockByHash      func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
 	broadcast        func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
 	chainConfig      func() (*params.ChainConfig, error)
 	chainID          func() uint64
+	gasLimit         func() (uint64, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
 	transactionCount func(common.Address) uint64
@@ -34,6 +36,10 @@ func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBro
 
 func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 	return b.block(ctx, req)
+}
+
+func (b *testBackend) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+	return b.blockByHash(ctx, req)
 }
 
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
@@ -67,6 +73,10 @@ func (b *testBackend) EvmChainConfig() (*params.ChainConfig, error) {
 
 func (b *testBackend) EvmChainID() uint64 {
 	return b.chainID()
+}
+
+func (b *testBackend) EvmGasLimit() (uint64, error) {
+	return b.gasLimit()
 }
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
