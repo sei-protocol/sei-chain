@@ -4,18 +4,6 @@ package staking
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	stakingv552 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v552"
-	stakingv555 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v555"
-	stakingv562 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v562"
-	stakingv580 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v580"
-	stakingv605 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v605"
-	stakingv606 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v606"
-	stakingv610 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v610"
-	stakingv614 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v614"
-	stakingv620 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v620"
-	stakingv630 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v630"
-	stakingv640 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v640"
-	stakingv65 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v65"
 	stakingv66 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v66"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
@@ -23,18 +11,6 @@ import (
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(stakingv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(stakingv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(stakingv562.NewPrecompile(keepers)),
-		"v5.8.0":      check(stakingv580.NewPrecompile(keepers)),
-		"v6.0.5":      check(stakingv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(stakingv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(stakingv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(stakingv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(stakingv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(stakingv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(stakingv640.NewPrecompile(keepers)),
-		"v6.5":        check(stakingv65.NewPrecompile(keepers)),
 		"v6.6":        check(stakingv66.NewPrecompile(keepers)),
 	}
 }
