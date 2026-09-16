@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -48,13 +49,18 @@ type evmOnlyState struct {
 	committedHeight int64
 	appHash         common.Hash
 	parentHash      common.Hash
-	pending         utils.Option[evmOnlyPending]
+	// lastBlockTime is the Time of the most recently committed block. EvmCall
+	// uses it to reproduce that block's execution context for a read-only call
+	// against current state.
+	lastBlockTime uint64
+	pending       utils.Option[evmOnlyPending]
 }
 
 type evmOnlyPending struct {
 	height    int64
 	appHash   common.Hash
 	blockHash common.Hash
+	timestamp uint64
 }
 
 var _ abci.Application = (*evmOnlyApplication)(nil)
@@ -242,6 +248,51 @@ func (a *evmOnlyApplication) EvmChainID() uint64 {
 	return a.chainID.Uint64()
 }
 
+// evmOnlyPrevRandao derives a block's PrevRandao the same deterministic way
+// for every caller that needs one: this application has no real randomness
+// beacon, so it stands in one pseudo-randomly from the block timestamp.
+func evmOnlyPrevRandao(timestamp uint64) common.Hash {
+	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
+}
+
+// EvmCall executes msg as a read-only call against the most recently
+// committed EVM state and returns the raw execution result. It is not part of
+// abci.Application: running a call requires a chain config and an EVM, which
+// only this application's executor can supply, so callers reach it through a
+// narrower capability check (proxy.Proxy.EvmCall) instead of a method every
+// Application implementer would otherwise have to stub.
+//
+// Coinbase is always the zero address and ParentHash is always the zero hash:
+// FinalizeBlock never sets a coinbase, and the block before the current head
+// is not tracked outside of the single FinalizeBlock call that used it, so a
+// call has no way to answer blockhash(current-1).
+func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	var executor *evmonly.Executor
+	var blockCtx evmonly.BlockContext
+	for state := range a.state.Lock() {
+		exec, ok := state.executor.Get()
+		if !ok {
+			return nil, fmt.Errorf("EVM-only call attempted before InitChain")
+		}
+		number, ok := utils.SafeCast[uint64](state.committedHeight)
+		if !ok {
+			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
+		}
+		executor = exec
+		blockCtx = evmonly.BlockContext{
+			Number:      number,
+			Time:        state.lastBlockTime,
+			GasLimit:    state.gasLimit,
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     evmOnlyBaseFee(),
+			BlobBaseFee: new(big.Int),
+			BlockHash:   state.parentHash,
+			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
+		}
+	}
+	return executor.Call(ctx, blockCtx, msg)
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
@@ -277,7 +328,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlobBaseFee: new(big.Int),
 				ParentHash:  state.parentHash,
 				BlockHash:   blockHash,
-				PrevRandao:  crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp)),
+				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
 			Txs: req.Txs,
 		})
@@ -289,7 +340,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if err != nil {
 			return nil, err
 		}
-		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
+		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash, timestamp: timestamp})
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -308,6 +359,7 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.nextHeight = pending.height + 1
 		state.appHash = pending.appHash
 		state.parentHash = pending.blockHash
+		state.lastBlockTime = pending.timestamp
 		state.pending = utils.None[evmOnlyPending]()
 		return &abci.ResponseCommit{}, nil
 	}

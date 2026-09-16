@@ -1,0 +1,47 @@
+package evmonly
+
+import (
+	"context"
+	"errors"
+
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/vm"
+)
+
+// Call executes msg as a read-only EVM message call against the current
+// committed state and returns the execution result. It builds its own state
+// overlay from a fresh store snapshot and discards that overlay when it
+// returns, so a call can never persist a state change or become visible to
+// another caller.
+func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Message) (*core.ExecutionResult, error) {
+	chainConfig := e.chainConfig(blockCtx)
+	if err := validateBlockContext(chainConfig, blockCtx); err != nil {
+		return nil, err
+	}
+	if e.stateStore == nil {
+		return nil, errMissingStateStore
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	snapshot := e.stateStore.OpenView()
+	if snapshot == nil {
+		return nil, errors.New("giga store returned a nil snapshot")
+	}
+	defer snapshot.Close()
+
+	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
+	defer e.releaseStateDB(stateDB)
+
+	evm := vm.NewEVM(buildBlockContext(blockCtx), stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	stateDB.SetEVM(evm)
+	evm.SetTxContext(core.NewEVMTxContext(msg))
+
+	gasPool := new(core.GasPool).AddGas(msg.GasLimit)
+	result, err := core.ApplyMessage(evm, msg, gasPool)
+	if stateErr := stateDB.Error(); stateErr != nil {
+		return nil, stateErr
+	}
+	return result, err
+}

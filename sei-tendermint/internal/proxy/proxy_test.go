@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -72,4 +73,39 @@ func TestCheckTxSafeAllowsValidEVMResponse(t *testing.T) {
 	})
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.NoError(t, err)
+}
+
+func TestEvmCallErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	_, err := proxyApp.EvmCall(t.Context(), &core.Message{})
+
+	require.Error(t, err)
+}
+
+type testEvmCallerApp struct {
+	testApp
+	call func(context.Context, *core.Message) (*core.ExecutionResult, error)
+}
+
+func (app testEvmCallerApp) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+	return app.call(ctx, msg)
+}
+
+func TestEvmCallDelegatesToASupportingApplication(t *testing.T) {
+	want := &core.ExecutionResult{ReturnData: []byte{0x2a}}
+	var gotMsg *core.Message
+	proxyApp := New(testEvmCallerApp{
+		call: func(_ context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+			gotMsg = msg
+			return want, nil
+		},
+	})
+	msg := &core.Message{GasLimit: 21_000}
+
+	got, err := proxyApp.EvmCall(t.Context(), msg)
+
+	require.NoError(t, err)
+	require.Same(t, want, got)
+	require.Same(t, msg, gotMsg)
 }

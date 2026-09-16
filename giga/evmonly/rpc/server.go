@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
@@ -33,6 +34,7 @@ type Backend interface {
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmBlockNumber() uint64
+	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainID() uint64
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmTransactionCount(common.Address) uint64
@@ -82,6 +84,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	}
 	if err := rpcServer.RegisterName("eth", &infoAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only info RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend}); err != nil {
+		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
 	}
 	return rpcServer, nil
 }

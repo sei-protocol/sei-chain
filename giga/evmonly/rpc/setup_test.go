@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
@@ -19,6 +20,7 @@ type testBackend struct {
 	transactionCount func(common.Address) uint64
 	blockNumber      func() uint64
 	chainID          func() uint64
+	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
@@ -47,4 +49,8 @@ func (b *testBackend) EvmBlockNumber() uint64 {
 
 func (b *testBackend) EvmChainID() uint64 {
 	return b.chainID()
+}
+
+func (b *testBackend) EvmCall(ctx context.Context, msg *core.Message) (*core.ExecutionResult, error) {
+	return b.call(ctx, msg)
 }
