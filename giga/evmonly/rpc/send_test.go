@@ -129,3 +129,17 @@ func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 	require.NoError(t, err)
 	return tx, raw
 }
+
+func TestSkipsShardLookupWithoutProxies(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			return &coretypes.ResultBroadcastTx{}, nil
+		},
+		proxy: utils.None[*ethrpc.Client](),
+	}
+	got, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash(), got)
+	require.Zero(t, backend.proxyCalls)
+}

@@ -2,9 +2,12 @@ package receipt_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
@@ -14,6 +17,62 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
+
+// TestLittIdxSynchronousWriteBuffer pins the AsyncWriteBuffer <= 0 case: the write is applied on the
+// caller, so the block is queryable the moment SetReceipts returns.
+func TestLittIdxSynchronousWriteBuffer(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.AsyncWriteBuffer = 0
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	addr := common.HexToAddress("0xabc")
+	record := litReceipt(1, 0, addr, common.HexToHash("0xdead"))
+	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{record}))
+
+	require.Equal(t, int64(1), store.LatestVersion())
+	got, err := store.GetReceipt(ctx, record.TxHash)
+	require.NoError(t, err)
+	require.Equal(t, record.Receipt.TxHashHex, got.TxHashHex)
+}
+
+// TestLittIdxWriteBufferBoundsLag pins that the buffer is the back-pressure point: with room for one
+// block, a writer cannot get further than the buffer ahead of what has been applied.
+func TestLittIdxWriteBufferBoundsLag(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.AsyncWriteBuffer = 1
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	addr := common.HexToAddress("0xabc")
+	const blocks = 8
+	for block := uint64(1); block <= blocks; block++ {
+		record := litReceipt(block, 0, addr, common.HexToHash("0xdead"))
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), //nolint:gosec // small test heights
+			[]receipt.ReceiptRecord{record}))
+		// One queued block plus the one in flight is as far as the store may trail.
+		require.GreaterOrEqual(t, store.LatestVersion(), int64(block)-2) //nolint:gosec // small test heights
+	}
+
+	require.Eventually(t, func() bool { return store.LatestVersion() == blocks },
+		5*time.Second, time.Millisecond)
+}
 
 func setupLittIdx(t *testing.T, dir string) (receipt.ReceiptStore, sdk.Context) {
 	t.Helper()
@@ -64,6 +123,21 @@ func litReceipt(block uint64, txIndex uint32, addr common.Address, topics ...com
 func writeLitBlock(t *testing.T, store receipt.ReceiptStore, ctx sdk.Context, block uint64, records ...receipt.ReceiptRecord) {
 	t.Helper()
 	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), records)) //nolint:gosec // small test heights
+	if len(records) == 0 {
+		return
+	}
+	// A write puts its bodies in litt before it commits its log index, so a readable receipt does not
+	// mean a queryable one. LatestVersion does not close that gap either: a block written in parts
+	// does not advance it past the first part. Waiting for the last record's log covers both stages.
+	last := records[len(records)-1].TxHash
+	require.Eventually(t, func() bool {
+		//nolint:gosec // small test heights
+		logs, err := store.FilterLogs(ctx, block, block, filters.FilterCriteria{}, nil)
+		if err != nil {
+			return false
+		}
+		return slices.ContainsFunc(logs, func(l *ethtypes.Log) bool { return l.TxHash == last })
+	}, 5*time.Second, time.Millisecond)
 }
 
 func TestLittIdxReadWrite(t *testing.T) {

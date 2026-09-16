@@ -28,6 +28,14 @@ func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Cli
 	return utils.None[*ethrpc.Client]()
 }
 
+// EvmProxyEnabled reports whether EvmProxy can return a client for any sender.
+func (env *Environment) EvmProxyEnabled() bool {
+	if r, ok := env.gigaRouter().Get(); ok {
+		return r.EvmProxyEnabled()
+	}
+	return false
+}
+
 // EvmBalance returns the address balance from the current committed EVM state.
 func (env *Environment) EvmBalance(address common.Address) uint256.Int {
 	return env.App.EvmBalance(address, nil)

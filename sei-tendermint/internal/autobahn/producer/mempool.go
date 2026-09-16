@@ -270,6 +270,23 @@ func (s *State) getMempool(ctx context.Context) (*mempool, error) {
 	return mp, nil
 }
 
+// preReadEvmNonce reads the app nonce of addr outside the mempool lock, returning None
+// when the mempool already tracks addr. It also returns the lane's first block at the
+// time of the check, which insertTx uses to detect prunes racing the read.
+func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[uint64], types.BlockNumber, error) {
+	var first types.BlockNumber
+	for m := range mp.inner.Lock() {
+		if m.closed {
+			return utils.None[uint64](), 0, ErrNotProducing
+		}
+		first = m.first
+		if _, tracked := m.evmNonces[addr]; tracked {
+			return utils.None[uint64](), first, nil
+		}
+	}
+	return utils.Some(s.evmNonce(addr)), first, nil
+}
+
 // checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
 // for the duration of the call. Waiting for a permit is cancelled with ctx.
 func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
@@ -376,6 +393,15 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		return nil, errTooLarge
 	}
 
+	appNonce := utils.None[uint64]()
+	var first types.BlockNumber
+	if resp.IsEVM {
+		appNonce, first, err = s.preReadEvmNonce(mp, resp.EVMSenderAddress)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	admitStart := time.Now()
 	var waited time.Duration
 	var wakeups int64
@@ -429,7 +455,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 				}
 				continue
 			}
-			err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated)
+			err := s.appendTx(m, ctrl, tx, resp, gasWanted, gasEstimated, appNonce, first)
 			if t, ok := ticket.Get(); ok {
 				mp.dequeue(m, t)
 			}
@@ -443,12 +469,23 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 
 // appendTx adds an admitted tx to the next lane block, sealing the current one first when the
 // tx would exceed one of its limits. Must be called with the mempool locked and not full.
-func (s *State) appendTx(m *mempoolInner, ctrl *utils.WatchCtrl, tx tmtypes.Tx, resp *abci.ResponseCheckTxV2, gasWanted, gasEstimated uint64) error {
+// appendTx admits tx into the next block. appNonce is the sender's app nonce pre-read
+// outside the lock while the lane's first block was first; see preReadEvmNonce.
+func (s *State) appendTx(m *mempoolInner, ctrl *utils.WatchCtrl, tx tmtypes.Tx, resp *abci.ResponseCheckTxV2, gasWanted, gasEstimated uint64, appNonce utils.Option[uint64], first types.BlockNumber) error {
 	if resp.IsEVM {
 		addr := resp.EVMSenderAddress
 		nonce, ok := m.evmNonces[addr]
 		if !ok {
-			nonce = s.evmNonce(addr)
+			// The tracked entry, when present, is authoritative: it covers txs already
+			// sequenced but not yet executed. The pre-read app nonce is used only when
+			// there is no entry and no block was pruned since it was taken (m.first
+			// unchanged), since pruning may delete this sender's entry and advance the
+			// app nonce.
+			if pre, ok := appNonce.Get(); ok && m.first == first {
+				nonce = pre
+			} else {
+				nonce = s.evmNonce(addr)
+			}
 		}
 		if nonce != resp.EVMNonce {
 			return fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)

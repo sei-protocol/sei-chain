@@ -29,6 +29,8 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
 // Backend submits transactions, reads committed EVM state and finalized
 // blocks, and returns the RPC client for an Autobahn shard owner.
+// EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
+// is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
@@ -37,6 +39,7 @@ type Backend interface {
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainID() uint64
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
+	EvmProxyEnabled() bool
 	EvmTransactionCount(common.Address) uint64
 }
 

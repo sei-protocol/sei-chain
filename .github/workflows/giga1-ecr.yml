@@ -1,0 +1,92 @@
+name: Giga-1 ECR
+
+on:
+  push:
+    branches:
+      - giga-1
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: giga1-ecr
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish giga-1 container
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Refuse a ref that is not giga-1
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/giga-1" ] || {
+            echo "::error::giga1-ecr publishes giga-1 only; got $GITHUB_REF"
+            exit 1
+          }
+
+      - name: Checkout the pushed commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Compute tag components
+        id: tag
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          SHA7=$(git rev-parse --short=7 HEAD)
+          TS=$(TZ=UTC0 git show -s --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
+          echo "sha=${SHA}"   >> "$GITHUB_OUTPUT"
+          echo "giga1=giga1-${TS}-${SHA7}" >> "$GITHUB_OUTPUT"
+
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 7200
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+
+      - name: Build giga-1 image
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.giga1 }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:giga1,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+
+      - name: Smoke the binary before publishing
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.giga1 }}
+        run: docker run --rm "$IMAGE" version
+
+      - name: Push giga-1 image
+        env:
+          IMAGE: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.giga1 }}
+        run: docker push "$IMAGE"
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.tag.outputs.giga1 }}
+        run: |
+          {
+            echo "### Giga-1 ECR publish"
+            echo ""
+            echo "| Tag | Variant | Consumer |"
+            echo "|-----|---------|----------|"
+            echo "| \`${TAG}\` | vanilla | harbor giga-testnet (Flux) |"
+          } >> "$GITHUB_STEP_SUMMARY"
