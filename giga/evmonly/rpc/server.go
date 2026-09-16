@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"time"
@@ -36,6 +37,7 @@ type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address) uint256.Int
+	EvmBaseFee() (*big.Int, error)
 	EvmBlockNumber() uint64
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)

@@ -343,6 +343,11 @@ func (a *evmOnlyApplication) EvmChainConfig() *params.ChainConfig {
 	return a.chainConfig
 }
 
+// EvmBaseFee returns the base fee this application executes every block at.
+func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
+	return evmOnlyBaseFee()
+}
+
 // evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
 func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))

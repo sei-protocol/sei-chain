@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"time"
 
@@ -337,6 +338,12 @@ func (env *Environment) EvmChainConfig() (*params.ChainConfig, error) {
 // state, without creating a transaction or persisting any state change.
 func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
 	return env.App.EvmCall(ctx, msg)
+}
+
+// EvmBaseFee returns the base fee the wrapped application executes every
+// block at.
+func (env *Environment) EvmBaseFee() (*big.Int, error) {
+	return env.App.EvmBaseFee()
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't

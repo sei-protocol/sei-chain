@@ -255,6 +255,7 @@ func TestGetTransactionByHash(t *testing.T) {
 			}, nil
 		},
 		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
+		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
 	}
 
 	got, err := (&txAPI{backend: backend, store: store}).GetTransactionByHash(t.Context(), tx.Hash())
@@ -321,6 +322,7 @@ func TestGetTransactionByHashPatchesFromWhenSenderDoesNotRecover(t *testing.T) {
 			}, nil
 		},
 		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
+		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
 	}
 
 	got, err := (&txAPI{backend: backend, store: store}).GetTransactionByHash(t.Context(), tx.Hash())
@@ -391,6 +393,7 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 			}, nil
 		},
 		chainConfig: func() (*params.ChainConfig, error) { return chainConfig, nil },
+		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
 	}
 	handler, err := newHandler(backend, store)
 	require.NoError(t, err)

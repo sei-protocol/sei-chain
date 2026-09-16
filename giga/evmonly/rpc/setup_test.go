@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -15,6 +16,7 @@ import (
 
 type testBackend struct {
 	balance          func(common.Address) uint256.Int
+	baseFee          func() (*big.Int, error)
 	block            func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	blockNumber      func() uint64
 	broadcast        func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
@@ -41,6 +43,10 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 
 func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 	return b.balance(address)
+}
+
+func (b *testBackend) EvmBaseFee() (*big.Int, error) {
+	return b.baseFee()
 }
 
 func (b *testBackend) EvmProxyEnabled() bool {

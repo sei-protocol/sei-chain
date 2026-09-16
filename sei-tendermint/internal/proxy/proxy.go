@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"runtime/debug"
 	"time"
 
@@ -94,6 +95,23 @@ func (app *Proxy) EvmChainConfig() (*params.ChainConfig, error) {
 		return nil, fmt.Errorf("application does not expose an EVM chain configuration")
 	}
 	return provider.EvmChainConfig(), nil
+}
+
+// evmBaseFeeProvider is implemented by applications that expose the base fee
+// they execute every block at.
+type evmBaseFeeProvider interface {
+	EvmBaseFee() *big.Int
+}
+
+// EvmBaseFee returns the wrapped application's execution base fee. It errors
+// if that application does not expose one.
+func (app *Proxy) EvmBaseFee() (*big.Int, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_base_fee", "sync"))()
+	provider, ok := app.app.(evmBaseFeeProvider)
+	if !ok {
+		return nil, fmt.Errorf("application does not expose an EVM base fee")
+	}
+	return provider.EvmBaseFee(), nil
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {

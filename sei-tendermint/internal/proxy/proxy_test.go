@@ -138,3 +138,30 @@ func TestEvmChainConfigDelegatesToASupportingApplication(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, want, got)
 }
+
+func TestEvmBaseFeeErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	_, err := proxyApp.EvmBaseFee()
+
+	require.Error(t, err)
+}
+
+type testEvmBaseFeeApp struct {
+	testApp
+	baseFee *big.Int
+}
+
+func (app testEvmBaseFeeApp) EvmBaseFee() *big.Int {
+	return app.baseFee
+}
+
+func TestEvmBaseFeeDelegatesToASupportingApplication(t *testing.T) {
+	want := big.NewInt(7)
+	proxyApp := New(testEvmBaseFeeApp{baseFee: want})
+
+	got, err := proxyApp.EvmBaseFee()
+
+	require.NoError(t, err)
+	require.Same(t, want, got)
+}

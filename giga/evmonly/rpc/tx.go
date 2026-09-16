@@ -68,8 +68,13 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", stored.BlockNumber, block.Block.Time)
 	}
-	// Must match the base fee EvmCall executes under (evmOnlyBaseFee).
-	baseFee := new(big.Int)
+	baseFee, err := api.backend.EvmBaseFee()
+	if err != nil {
+		return nil, err
+	}
+	// TODO: If the EVM-only base fee becomes dynamic, read the fee for
+	// stored.BlockNumber here or persist it with the receipt. Using the current
+	// fee would misreport a historical transaction's effective gas price.
 	result := export.NewRPCTransaction(ethtx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, blockUnix,
 		uint64(stored.TransactionIndex), baseFee, chainConfig)
 	replaceFrom(result, stored)
