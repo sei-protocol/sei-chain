@@ -106,6 +106,10 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	if err != nil {
 		return nil, err
 	}
+	baseFee, err := api.backend.EvmBaseFee()
+	if err != nil {
+		return nil, err
+	}
 
 	txs := block.Block.Txs
 	transactions := make([]any, len(txs))
@@ -115,8 +119,6 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		if err != nil {
 			return nil, err
 		}
-		// Must match the base fee EvmCall executes under (evmOnlyBaseFee).
-		baseFee := new(big.Int)
 		for i, raw := range txs {
 			ethtx, err := decodeBlockTx(raw, number, i)
 			if err != nil {
@@ -180,8 +182,7 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		"size":             hexutil.Uint64(block.Block.Size()), //nolint:gosec // G115: block size is positive.
 		"uncles":           []common.Hash{},                    // inapplicable to Sei
 		"transactions":     transactions,
-		// Must match the base fee EvmCall executes under (evmOnlyBaseFee).
-		"baseFeePerGas": (*hexutil.Big)(new(big.Int)),
+		"baseFeePerGas":    (*hexutil.Big)(baseFee),
 	}
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei

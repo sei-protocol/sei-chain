@@ -56,6 +56,7 @@ func fixedGasLimitBackend(t *testing.T, gasLimit uint64, block func(context.Cont
 		block:       block,
 		gasLimit:    func() (uint64, error) { return gasLimit, nil },
 		chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
+		baseFee:     func() (*big.Int, error) { return new(big.Int), nil },
 	}
 }
 
