@@ -29,10 +29,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err := requireCurrentState(block); err != nil {
 		return nil, err
 	}
-	// Must match the base fee the call actually executes under
-	// (evmOnlyBaseFee in sei-tendermint/internal/evmonlyapp/app.go): a
-	// mismatch here would misprice a caller-supplied fee cap/tip against the
-	// block context the EVM sees.
+	// Must match the base fee EvmCall executes under (evmOnlyBaseFee).
 	baseFee := new(big.Int)
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
