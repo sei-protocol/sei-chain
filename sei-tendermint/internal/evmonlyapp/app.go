@@ -261,6 +261,13 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 		if !ok {
 			return nil, fmt.Errorf("EVM-only call attempted before InitChain")
 		}
+		if state.pending.IsPresent() {
+			// FinalizeBlock already wrote this block's state to the store, but
+			// committedHeight/lastBlockTime (below) only advance on Commit, so a
+			// call in this window would see the new block's storage under the
+			// previous block's NUMBER/TIMESTAMP/PrevRandao.
+			return nil, fmt.Errorf("EVM-only call attempted before committing the finalized block")
+		}
 		number, ok := utils.SafeCast[uint64](state.committedHeight)
 		if !ok {
 			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)

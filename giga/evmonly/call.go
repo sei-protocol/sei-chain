@@ -32,7 +32,9 @@ func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Me
 	stateDB := e.acquireStateDB(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
 	defer e.releaseStateDB(stateDB)
 
-	evm := vm.NewEVM(buildBlockContext(blockCtx), stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
+	// NoBaseFee lets a caller who leaves GasFeeCap/GasTipCap at zero skip the
+	// fee-cap-vs-basefee check, matching go-ethereum's own eth_call behavior.
+	evm := vm.NewEVM(buildBlockContext(blockCtx), stateDB, chainConfig, vm.Config{NoBaseFee: true}, customPrecompileMap(e.cfg.CustomPrecompiles))
 	stateDB.SetEVM(evm)
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 

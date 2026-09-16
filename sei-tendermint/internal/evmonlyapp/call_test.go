@@ -138,6 +138,24 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	require.Equal(t, common.Hash{}, after.GetStorage(contractAddr, slot))
 }
 
+func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+
+	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = evmApp.EvmCall(t.Context(), callMessage(common.Address{}, nil))
+
+	require.Error(t, err)
+}
+
 func TestEVMOnlyApplicationEvmCallRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 	evmApp := app.(*evmOnlyApplication)

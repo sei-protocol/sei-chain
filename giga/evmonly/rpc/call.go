@@ -11,8 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // defaultCallGasCap bounds the gas an eth_call may consume, filling in an
@@ -31,7 +29,11 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err := requireCurrentState(block); err != nil {
 		return nil, err
 	}
-	baseFee := evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	// Must match the base fee the call actually executes under
+	// (evmOnlyBaseFee in sei-tendermint/internal/evmonlyapp/app.go): a
+	// mismatch here would misprice a caller-supplied fee cap/tip against the
+	// block context the EVM sees.
+	baseFee := new(big.Int)
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err
