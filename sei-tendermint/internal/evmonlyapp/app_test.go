@@ -68,8 +68,36 @@ func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.App
 	return NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 }
 
+func openEVMOnlyTestStorage(t *testing.T, home string) *bootstrap.GigaStorageManager {
+	t.Helper()
+	storageConfig, err := evmonly.NewValidatorStorageConfig(home)
+	require.NoError(t, err)
+	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
+	require.NoError(t, err)
+	return storage
+}
+
+func reopenEVMOnlyTestApp(t *testing.T, storage *bootstrap.GigaStorageManager, home string) (*evmOnlyApplication, *bootstrap.GigaStorageManager) {
+	t.Helper()
+	require.NoError(t, storage.Close())
+	reopened := openEVMOnlyTestStorage(t, home)
+	app, ok := NewEVMOnlyApplication(evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC())).(*evmOnlyApplication)
+	require.True(t, ok)
+	return app, reopened
+}
+
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t)
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorage(t, home)
+	app, ok := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC())).(*evmOnlyApplication)
+	require.True(t, ok)
+	_, err := app.InitChain(&abci.RequestInitChain{
+		InitialHeight: 1,
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{MaxGas: 30_000_000},
+		},
+	})
+	require.NoError(t, err)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	tx := new(ethtypes.Transaction)
 	require.NoError(t, tx.UnmarshalBinary(raw))
@@ -104,8 +132,10 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	gotBalance = app.EvmBalance(sender, nil)
 	require.Equal(t, wantBalance, gotBalance.ToBig())
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
+	_, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
-	receipt, err := app.(*evmOnlyApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
+	receipt, err := storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
 	require.Equal(t, uint64(1), receipt.BlockNumber)
