@@ -575,7 +575,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
 }
 
-func TestPushBlockRejectsBadRetainedParentHash(t *testing.T) {
+func TestPushBlockDoesNotCheckParentAfterPrune(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -592,7 +592,28 @@ func TestPushBlockRejectsBadRetainedParentHash(t *testing.T) {
 
 	block := types.NewBlock(lane, 1, types.GenBlockHeaderHash(rng), types.GenPayload(rng))
 	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(block))))
-	require.Equal(t, types.BlockNumber(1), state.NextBlock(lane))
+	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
+}
+
+func TestPushBlockRecoversWhenCertifiedLastDiffers(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	state := utils.OrPanic1(NewState(
+		keys[0],
+		newTestDataState(&data.Config{Registry: registry}),
+		utils.None[string](),
+	))
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+
+	_, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	certified := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng))
+	pruneToHeader(state, keys, certified.Header())
+
+	next := types.NewBlock(lane, 1, certified.Header().Hash(), types.GenPayload(rng))
+	require.NoError(t, state.PushBlock(ctx, types.Sign(keys[0], types.NewLaneProposal(next))))
+	require.Equal(t, types.BlockNumber(2), state.NextBlock(lane))
 }
 
 func TestProduceLocalBlockUsesRetainedLast(t *testing.T) {

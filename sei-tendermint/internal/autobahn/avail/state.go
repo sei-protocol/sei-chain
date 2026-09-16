@@ -467,8 +467,10 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 		// chain than we already have). We log it to aid debugging stalled
 		// lanes but do not return an error — the caller should not tear
 		// down the peer connection over an equivocating producer.
-		if prev, ok := q.last.Get(); ok {
-			prevHash := prev.Msg().Block().Header().Hash()
+		// Parent is checked only while the predecessor is still in [first, next).
+		// last retained below first is for local production, not this check.
+		if q.first < q.next {
+			prevHash := q.q[q.next-1].Msg().Block().Header().Hash()
 			if h.ParentHash() != prevHash {
 				logger.Error("parent hash mismatch (producer equivocation)",
 					"lane", lane,

@@ -142,11 +142,11 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			if b.Number != q.next {
 				return fmt.Errorf("lane %s: non-contiguous persisted blocks: expected %d, got %d", lane, q.next, b.Number)
 			}
-			// In-range blocks must parent to last when last is known (queue tip, or
-			// first-1 restored above). Certified WAL records are not re-checked.
-			if prev, ok := q.last.Get(); ok {
+			// Parent is checked only inside [first, next). last restored from
+			// first-1 is for local production, not this check.
+			if q.first < q.next {
 				ph := b.Proposal.Msg().Block().Header().ParentHash()
-				if prev.Msg().Block().Header().Hash() != ph {
+				if q.q[q.next-1].Msg().Block().Header().Hash() != ph {
 					return fmt.Errorf("lane %s: parent hash mismatch at block %d", lane, b.Number)
 				}
 			}

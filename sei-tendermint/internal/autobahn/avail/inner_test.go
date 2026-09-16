@@ -99,6 +99,33 @@ func TestInnerPruneViaQCRetainsLast(t *testing.T) {
 	require.Equal(t, blocks[2].Proposal, p)
 }
 
+func TestInnerPruneKeepsLastAheadOfQC(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+	ep := registry.MustEpoch(0)
+	lane := ep.Committee().Lane(keys[0].Public()).OrPanic("lane")
+	blocks := contiguousBlocks(keys[0], lane, 3, rng)
+	i := newInner(ep, 0)
+	for _, b := range blocks {
+		i.blocks[lane].pushBack(b.Proposal)
+	}
+
+	qc := types.BuildCommitQC(ep, keys, utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{
+		lane: types.NewLaneQC(makeLaneVotes(keys, blocks[0].Proposal.Msg().Block().Header())),
+	})
+	require.Equal(t, types.BlockNumber(1), qc.LaneRange(lane).Next())
+
+	i.prune(data.Anchor{
+		CommitQC: qc,
+		AppQC:    data.TestAppQC(keys, types.NewAppProposal(qc.Proposal(), types.AppHash{})),
+		Epoch:    ep,
+	})
+	q := i.blocks[lane]
+	require.Equal(t, types.BlockNumber(1), q.first)
+	require.Equal(t, types.BlockNumber(3), q.next)
+	require.Equal(t, utils.Some(blocks[2].Proposal), q.last)
+}
+
 func TestBlockQueueLastSurvivesRestart(t *testing.T) {
 	rng := utils.TestRng()
 	registry, keys := epoch.GenRegistry(rng, 3)
@@ -239,6 +266,26 @@ func TestRestoreInner_LoadedBlocks(t *testing.T) {
 		require.Equal(t, utils.Some(blocks[1].Proposal), q.last)
 		require.Equal(t, types.BlockNumber(1), q.retentionFloor())
 		require.Equal(t, types.BlockNumber(2), i.nextBlockToPersist[lane])
+	})
+
+	t.Run("leftover below first is not parent-checked", func(t *testing.T) {
+		rng := utils.TestRng()
+		registry, keys := epoch.GenRegistry(rng, 4)
+		lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("keys[0]")
+		old := testSignedBlock(keys[0], lane, 0, types.BlockHeaderHash{}, rng)
+		live := testSignedBlock(keys[0], lane, 1, types.GenBlockHeaderHash(rng), rng)
+		i := newInner(registry.MustEpoch(0), 0)
+		i.blocks[lane].prune(1)
+
+		err := i.restoreBlocks(map[types.LaneID][]persist.LoadedBlock{lane: {
+			{Number: 0, Proposal: old},
+			{Number: 1, Proposal: live},
+		}})
+		require.NoError(t, err)
+		q := i.blocks[lane]
+		require.Equal(t, types.BlockNumber(1), q.first)
+		require.Equal(t, types.BlockNumber(2), q.next)
+		require.Equal(t, utils.Some(live), q.last)
 	})
 
 	t.Run("foreign loaded lane does not touch committee queues", func(t *testing.T) {
