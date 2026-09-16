@@ -8,8 +8,8 @@
 // pins the rule on this side, so a change to EvmShard fails here and prompts
 // regeneration.
 //
-//	go run ./cmd/evmshard-fixture -weights 1,1,1,1 -addresses 1000 -chain-commit $(git rev-parse HEAD) > evmshard_uniform4.json
-//	go run ./cmd/evmshard-fixture -weights 7,1,1,1 -addresses 1000 -chain-commit $(git rev-parse HEAD) > evmshard_7111.json
+//	go run ./cmd/evmshard-fixture -weights 1,1,1,1 -chain-commit $(git rev-parse HEAD) > evmshard_uniform4.json
+//	go run ./cmd/evmshard-fixture -weights 7,1,1,1 -chain-commit $(git rev-parse HEAD) > evmshard_7111.json
 //
 // The generator path and, when given, the chain commit are recorded in the
 // fixture so a consumer can tell which rule it was pinned against.
@@ -40,12 +40,6 @@ type validator struct {
 	Power           uint64 `json:"power"`
 }
 
-type owner struct {
-	Address common.Address `json:"address"`
-	// Validator indexes Fixture.Validators.
-	Validator int `json:"validator"`
-}
-
 type fixture struct {
 	// Generator is the path of this tool within sei-chain.
 	Generator string `json:"generator"`
@@ -54,12 +48,14 @@ type fixture struct {
 	ChainCommit string      `json:"chainCommit,omitempty"`
 	Seed        string      `json:"seed"`
 	Validators  []validator `json:"validators"`
-	Owners      []owner     `json:"owners"`
+	// Owners maps each sender address to the index into Validators of the
+	// validator that owns it.
+	Owners map[common.Address]int `json:"owners"`
 }
 
 func main() {
 	weightsFlag := flag.String("weights", "1,1,1,1", "comma-separated voting power per validator, in derivation order")
-	addresses := flag.Int("addresses", 1000, "number of sender addresses to assign")
+	addresses := flag.Int("addresses", 200, "number of sender addresses to assign")
 	seed := flag.String("seed", "evmshard-fixture", "string every key and address is derived from")
 	chainCommit := flag.String("chain-commit", "", "sei-chain commit to record in the fixture")
 	flag.Parse()
@@ -80,7 +76,7 @@ func run(weightsFlag string, addresses int, seed, chainCommit string, out io.Wri
 		}
 		weights = append(weights, w)
 	}
-	f := fixture{Generator: generatorPath, ChainCommit: chainCommit, Seed: seed}
+	f := fixture{Generator: generatorPath, ChainCommit: chainCommit, Seed: seed, Owners: make(map[common.Address]int, addresses)}
 	committeeWeights := make(map[types.PublicKey]uint64, len(weights))
 	index := make(map[types.PublicKey]int, len(weights))
 	for i, w := range weights {
@@ -100,7 +96,7 @@ func run(weightsFlag string, addresses int, seed, chainCommit string, out io.Wri
 	for j := range addresses {
 		raw := sha256.Sum256(fmt.Appendf(nil, "%s/address/%d", seed, j))
 		addr := common.BytesToAddress(raw[:20])
-		f.Owners = append(f.Owners, owner{Address: addr, Validator: index[committee.EvmShard(addr)]})
+		f.Owners[addr] = index[committee.EvmShard(addr)]
 	}
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")

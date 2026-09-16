@@ -26,7 +26,8 @@ func TestGolden(t *testing.T) {
 				common.HexToAddress("0xafcbb36b936ce04dfd2ee3dda528db75e0ea7a68"): 1,
 				common.HexToAddress("0x1b44a9edd0db5cb3807f62c17967716f3e7cefbb"): 0,
 				common.HexToAddress("0xddb8c6f97215f143bd7bc4a80cbbe6f34befbcfc"): 3,
-				common.HexToAddress("0x58b9ccec47ab79f5b7f9b22629177e9f5601bd93"): 1,
+				common.HexToAddress("0x005ab63fa4af4aee330698cfbe068cb44c330c5e"): 3,
+				common.HexToAddress("0x0d29cd5d3f7a381bea7b09a191c035949471c6fc"): 0,
 			},
 		},
 		{
@@ -37,23 +38,20 @@ func TestGolden(t *testing.T) {
 				common.HexToAddress("0xafcbb36b936ce04dfd2ee3dda528db75e0ea7a68"): 0,
 				common.HexToAddress("0x1b44a9edd0db5cb3807f62c17967716f3e7cefbb"): 0,
 				common.HexToAddress("0xddb8c6f97215f143bd7bc4a80cbbe6f34befbcfc"): 0,
-				common.HexToAddress("0x58b9ccec47ab79f5b7f9b22629177e9f5601bd93"): 1,
+				common.HexToAddress("0x005ab63fa4af4aee330698cfbe068cb44c330c5e"): 2,
+				common.HexToAddress("0x0d29cd5d3f7a381bea7b09a191c035949471c6fc"): 1,
 			},
 		},
 	} {
 		t.Run(tc.weights, func(t *testing.T) {
 			var buf bytes.Buffer
-			require.NoError(t, run(tc.weights, 1000, "evmshard-fixture", "", &buf))
+			require.NoError(t, run(tc.weights, 200, "evmshard-fixture", "", &buf))
 			var f fixture
 			require.NoError(t, json.Unmarshal(buf.Bytes(), &f))
 			require.Len(t, f.Validators, 4)
-			require.Len(t, f.Owners, 1000)
-			got := make(map[common.Address]int, len(f.Owners))
-			for _, o := range f.Owners {
-				got[o.Address] = o.Validator
-			}
+			require.Len(t, f.Owners, 200)
 			for addr, want := range tc.want {
-				owner, ok := got[addr]
+				owner, ok := f.Owners[addr]
 				require.True(t, ok, "address %s missing from fixture", addr)
 				require.Equal(t, want, owner, "owner of %s", addr)
 			}
