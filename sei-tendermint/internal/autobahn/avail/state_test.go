@@ -577,6 +577,29 @@ func TestProduceLocalBlock_ParentHashSurvivesPrune(t *testing.T) {
 	require.Equal(t, first.Msg().Block().Header().Hash(), second.Msg().Block().Header().ParentHash())
 }
 
+// TestProduceLocalBlock_ParentHashFromAnchor checks that a lane whose blocks
+// were never held locally takes its parent hash from the anchor's lane range,
+// including one that merely carries the hash forward from an earlier tipcut.
+func TestProduceLocalBlock_ParentHashFromAnchor(t *testing.T) {
+	rng := utils.TestRng()
+	registry, keys := epoch.GenRegistry(rng, 3)
+
+	ds := newTestDataState(&data.Config{Registry: registry})
+	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
+
+	lane := registry.MustEpoch(0).Committee().Lane(keys[0].Public()).OrPanic("lane")
+	prevHeader := types.NewBlock(lane, 0, types.BlockHeaderHash{}, types.GenPayload(rng)).Header()
+	lr := types.NewEmptyLaneRange(types.NewLaneRange(lane, 0, utils.Some(prevHeader)))
+	for inner := range state.inner.Lock() {
+		inner.blocks[lane].pruneTo(lr)
+	}
+
+	require.Equal(t, prevHeader.Next(), state.NextBlock(lane))
+	next, err := state.ProduceLocalBlock(lane, state.NextBlock(lane), types.GenPayload(rng))
+	require.NoError(t, err)
+	require.Equal(t, prevHeader.Hash(), next.Msg().Block().Header().ParentHash())
+}
+
 // TestProduceLocalBlock_ParentHashSurvivesRestart certifies the only block of
 // the local lane, restarts from disk with an Anchor that already covers it, and
 // checks that the next block still points to it.

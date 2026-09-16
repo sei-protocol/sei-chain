@@ -15,7 +15,9 @@ import (
 // MaxLaneRangeInProposal is the maximum number of blocks a proposal may advance a lane by.
 const MaxLaneRangeInProposal = 10
 
-// LaneRange represents a range [first,next) of blocks of a lane.
+// LaneRange represents a range [first,next) of blocks of a lane, together with
+// the hash of block next-1, so that the tip of the lane is known even when the
+// range is empty.
 type LaneRange struct {
 	utils.ReadOnly
 	lane     LaneID
@@ -24,12 +26,19 @@ type LaneRange struct {
 	lastHash BlockHeaderHash
 }
 
-// NewLaneRange constructs a LaneRange.
+// NewLaneRange constructs a LaneRange ending at h, or an empty range at first
+// with a zero hash if h is None.
 func NewLaneRange(lane LaneID, first BlockNumber, h utils.Option[*BlockHeader]) *LaneRange {
 	if h, ok := h.Get(); ok {
 		return &LaneRange{lane: lane, first: first, next: h.BlockNumber() + 1, lastHash: h.Hash()}
 	}
 	return &LaneRange{lane: lane, first: first, next: first, lastHash: BlockHeaderHash{}}
+}
+
+// NewEmptyLaneRange constructs the empty range following prev, which keeps
+// prev's last hash.
+func NewEmptyLaneRange(prev *LaneRange) *LaneRange {
+	return &LaneRange{lane: prev.lane, first: prev.next, next: prev.next, lastHash: prev.lastHash}
 }
 
 // Lane of this block range.
@@ -44,8 +53,7 @@ func (m *LaneRange) Next() BlockNumber { return m.next }
 // Len returns the number of blocks in the range.
 func (m *LaneRange) Len() uint64 { return uint64(m.next - m.first) }
 
-// LastHash is the hash of the last block of the range.
-// Returns a zero hash for an empty range.
+// LastHash is the hash of block Next()-1, or the zero hash if Next() is 0.
 func (m *LaneRange) LastHash() BlockHeaderHash { return m.lastHash }
 
 // Verify verifies the LaneRange against the committee.
@@ -56,8 +64,8 @@ func (m *LaneRange) Verify(c *Committee) error {
 	if m.first > m.next {
 		return fmt.Errorf("invalid range [%v,%v)", m.first, m.next)
 	}
-	if m.first == m.next && m.lastHash != (BlockHeaderHash{}) {
-		return errors.New("non-zero hash for an empty range")
+	if m.next == 0 && m.lastHash != (BlockHeaderHash{}) {
+		return errors.New("non-zero hash for a lane without blocks")
 	}
 	return nil
 }
@@ -337,18 +345,18 @@ func buildProposal(
 ) (*Proposal, error) {
 	var laneRanges []*LaneRange
 	for lane := range committee.Lanes().All() {
-		first := LaneRangeOpt(viewSpec.CommitQC, lane).Next()
+		prev := LaneRangeOpt(viewSpec.CommitQC, lane)
 		if lQC, ok := laneQCs[lane]; ok {
 			if lQC.Header().Lane() != lane {
 				return nil, fmt.Errorf("laneQC %v for lane %v", lQC.Header().Lane(), lane)
 			}
-			laneRange := NewLaneRange(lane, first, utils.Some(lQC.Header()))
+			laneRange := NewLaneRange(lane, prev.Next(), utils.Some(lQC.Header()))
 			if got := laneRange.Len(); got > MaxLaneRangeInProposal {
 				return nil, fmt.Errorf("laneRange[%v].Len() = %d, want <= %d", lane, got, MaxLaneRangeInProposal)
 			}
 			laneRanges = append(laneRanges, laneRange)
 		} else {
-			laneRanges = append(laneRanges, NewLaneRange(lane, first, utils.None[*BlockHeader]()))
+			laneRanges = append(laneRanges, NewEmptyLaneRange(prev))
 		}
 	}
 	// Normalize the creation timestamp.
@@ -459,28 +467,34 @@ func (m *FullProposal) Verify(vs ViewSpec) error {
 		for lane := range c.Lanes().All() {
 			r := proposal.LaneRange(lane)
 			// Verify that range matches previous commitQC.
-			if got, want := r.First(), LaneRangeOpt(vs.CommitQC, r.Lane()).Next(); got != want {
+			prev := LaneRangeOpt(vs.CommitQC, r.Lane())
+			if got, want := r.First(), prev.Next(); got != want {
 				return fmt.Errorf("laneRange[%v].First() = %v, want %v", r.Lane(), got, want)
 			}
-			// Verify that the necessary laneQC is present and valid.
-			if r.First() < r.Next() {
-				qc, ok := m.LaneQC(r.Lane())
-				if !ok {
-					return fmt.Errorf("missing qc for %q", r.Lane())
+			// An empty range carries the previous tip forward.
+			if r.Len() == 0 {
+				if got, want := r.LastHash(), prev.LastHash(); got != want {
+					return fmt.Errorf("laneRange[%v].LastHash() = %v, want %v", r.Lane(), got, want)
 				}
-				if got, want := qc.Header().BlockNumber(), r.Next()-1; got != want {
-					return fmt.Errorf("qc[%v].BlockNumber() = %v, want %v", r.Lane(), got, want)
-				}
-				if got, want := qc.Header().Hash(), r.LastHash(); got != want {
-					return fmt.Errorf("qc[%v].Header().Hash() = %v, want %v", r.Lane(), got, want)
-				}
-				s.Spawn(func() error {
-					if err := qc.Verify(c); err != nil {
-						return fmt.Errorf("qc[%v]: %w", r.Lane(), err)
-					}
-					return nil
-				})
+				continue
 			}
+			// Verify that the necessary laneQC is present and valid.
+			qc, ok := m.LaneQC(r.Lane())
+			if !ok {
+				return fmt.Errorf("missing qc for %q", r.Lane())
+			}
+			if got, want := qc.Header().BlockNumber(), r.Next()-1; got != want {
+				return fmt.Errorf("qc[%v].BlockNumber() = %v, want %v", r.Lane(), got, want)
+			}
+			if got, want := qc.Header().Hash(), r.LastHash(); got != want {
+				return fmt.Errorf("qc[%v].Header().Hash() = %v, want %v", r.Lane(), got, want)
+			}
+			s.Spawn(func() error {
+				if err := qc.Verify(c); err != nil {
+					return fmt.Errorf("qc[%v]: %w", r.Lane(), err)
+				}
+				return nil
+			})
 		}
 		return nil
 	})

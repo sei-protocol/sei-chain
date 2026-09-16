@@ -10,14 +10,21 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
+// laneTip identifies the last known block of a lane.
+type laneTip struct {
+	number types.BlockNumber
+	hash   types.BlockHeaderHash
+}
+
 // blockQueue is a lane's queue of LaneProposals which additionally remembers
-// the hash of the last block pushed, so that the parent hash of the next
-// block is known even after the queue has been pruned. On restart the hash
-// is recovered from the last block on disk, which the lane WAL retains past
-// the anchor for this purpose.
+// the lane's tip, so that the parent hash of the next block is known even
+// after the queue has been pruned. The tip is taken from the last block
+// pushed, from the anchor's lane range when it prunes past the queue, and on
+// restart from the last block on disk, which the lane WAL retains past the
+// anchor for this purpose.
 type blockQueue struct {
 	queue[types.BlockNumber, *types.Signed[*types.LaneProposal]]
-	lastHash utils.Option[types.BlockHeaderHash]
+	tip utils.Option[laneTip]
 }
 
 func newBlockQueue() *blockQueue {
@@ -26,14 +33,31 @@ func newBlockQueue() *blockQueue {
 
 func (q *blockQueue) pushBack(p *types.Signed[*types.LaneProposal]) {
 	q.queue.pushBack(p)
-	q.lastHash = utils.Some(p.Msg().Block().Header().Hash())
+	q.setTip(p.Msg().Block().Header())
+}
+
+func (q *blockQueue) setTip(h *types.BlockHeader) {
+	q.tip = utils.Some(laneTip{number: h.BlockNumber(), hash: h.Hash()})
+}
+
+// pruneTo advances the queue to the anchor's lane range, adopting its last
+// block as the tip when the range covers every block the queue held.
+func (q *blockQueue) pruneTo(lr *types.LaneRange) {
+	q.prune(lr.Next())
+	if lr.Next() == 0 {
+		return
+	}
+	if t, ok := q.tip.Get(); ok && t.number+1 >= lr.Next() {
+		return
+	}
+	q.tip = utils.Some(laneTip{number: lr.Next() - 1, hash: lr.LastHash()})
 }
 
 // parentHash returns the hash the next block of the lane should point to:
 // the zero hash if no block of the lane is known.
 func (q *blockQueue) parentHash() types.BlockHeaderHash {
-	if h, ok := q.lastHash.Get(); ok {
-		return h
+	if t, ok := q.tip.Get(); ok && t.number+1 == q.next {
+		return t.hash
 	}
 	return types.BlockHeaderHash{}
 }
@@ -114,7 +138,7 @@ func (i *inner) restoreBlocks(blocks map[types.LaneID][]persist.LoadedBlock) err
 			}
 			if b.Number < q.next {
 				if b.Number == q.next-1 {
-					q.lastHash = utils.Some(b.Proposal.Msg().Block().Header().Hash())
+					q.setTip(b.Proposal.Msg().Block().Header())
 				}
 				continue
 			}
@@ -278,7 +302,7 @@ func (i *inner) prune(anchor data.Anchor) int {
 		lr := anchor.CommitQC.LaneRange(lane)
 		bq := i.blocks[lane]
 		vq.prune(lr.Next())
-		bq.prune(lr.Next())
+		bq.pruneTo(lr)
 		if i.nextBlockToPersist[lane] < lr.Next() {
 			i.nextBlockToPersist[lane] = lr.Next()
 		}

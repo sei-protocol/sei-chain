@@ -392,6 +392,49 @@ func TestProposalVerifyAcceptsNonContiguousImplicitRanges(t *testing.T) {
 	require.NoError(t, shortFP.Verify(vs))
 }
 
+// TestProposalEmptyRangeKeepsLastHash checks that a lane omitted from a tipcut
+// keeps the last hash of the previous CommitQC, and that dropping it is rejected.
+func TestProposalEmptyRangeKeepsLastHash(t *testing.T) {
+	rng := utils.TestRng()
+	committee, keys := GenCommittee(rng, 4)
+	ep := genFreshEpoch(rng, committee)
+	lane0 := committee.Lanes().At(0)
+	lane1 := committee.Lanes().At(1)
+
+	// Road 0 commits a block on lane0.
+	prev := BuildCommitQC(ep, keys, utils.None[*CommitQC](), map[LaneID]*LaneQC{
+		lane0: makeLaneQC(rng, committee, keys, lane0, 0, BlockHeaderHash{}),
+	})
+	want := prev.LaneRange(lane0).LastHash()
+	require.NotEqual(t, BlockHeaderHash{}, want)
+
+	// Road 1 commits a block on lane1 only.
+	vs := ViewSpec{ConsensusSpec: ConsensusSpec{CommitQC: utils.Some(prev), Epoch: ep}}
+	proposerKey := leaderKey(committee, keys, vs.View())
+	fp := utils.OrPanic1(NewProposal(proposerKey, vs, time.Now(), map[LaneID]*LaneQC{
+		lane1: makeLaneQC(rng, committee, keys, lane1, 0, BlockHeaderHash{}),
+	}))
+	require.NoError(t, fp.Verify(vs))
+	lr := fp.Proposal().Msg().LaneRange(lane0)
+	require.Equal(t, uint64(0), lr.Len())
+	require.Equal(t, want, lr.LastHash())
+
+	// Zeroing the carried hash is rejected.
+	origP := fp.Proposal().Msg()
+	var tamperedRanges []*LaneRange
+	for _, r := range origP.laneRanges {
+		if r.Lane() == lane0 {
+			r = NewLaneRange(lane0, r.First(), utils.None[*BlockHeader]())
+		}
+		tamperedRanges = append(tamperedRanges, r)
+	}
+	tamperedFP := &FullProposal{
+		proposal: Sign(proposerKey, newProposal(origP.view, origP.timestamp, tamperedRanges, origP.GlobalRange().First)),
+		laneQCs:  fp.laneQCs,
+	}
+	require.Error(t, tamperedFP.Verify(vs))
+}
+
 func TestProposalVerifyRejectsLaneRangeFirstMismatch(t *testing.T) {
 	rng := utils.TestRng()
 	committee, keys := GenCommittee(rng, 4)
