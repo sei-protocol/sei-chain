@@ -42,6 +42,7 @@ func TestInspectConstructor(t *testing.T) {
 func TestInspectRun(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "test")
 	require.NoError(t, err)
+	cfg.RPC = testRPCConfig(t)
 
 	t.Cleanup(leaktest.Check(t))
 	defer func() { _ = os.RemoveAll(cfg.RootDir) }()
@@ -78,7 +79,7 @@ func TestBlock(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -91,7 +92,7 @@ func TestBlock(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	runtime.Gosched()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 	resultBlock, err := cli.Block(ctx, &testHeight)
@@ -124,7 +125,7 @@ func TestTxSearch(t *testing.T) {
 		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), mock.Anything).
 		Return([]*abcitypes.TxResultV2{testTxResult}, nil)
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -140,7 +141,7 @@ func TestTxSearch(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 
@@ -171,7 +172,7 @@ func TestTx(t *testing.T) {
 		Tx: testTx,
 	}, nil)
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 	ctx := t.Context()
 	wg := &sync.WaitGroup{}
@@ -187,7 +188,7 @@ func TestTx(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 
@@ -219,7 +220,7 @@ func TestConsensusParams(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
@@ -236,7 +237,7 @@ func TestConsensusParams(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 	params, err := cli.ConsensusParams(ctx, &testHeight)
@@ -270,7 +271,7 @@ func TestBlockResults(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
@@ -287,7 +288,7 @@ func TestBlockResults(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 	res, err := cli.BlockResults(ctx, &testHeight)
@@ -318,7 +319,7 @@ func TestCommit(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
@@ -335,7 +336,7 @@ func TestCommit(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 	res, err := cli.Commit(ctx, &testHeight)
@@ -372,7 +373,7 @@ func TestBlockByHash(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
@@ -389,7 +390,7 @@ func TestBlockByHash(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 	res, err := cli.BlockByHash(ctx, testHash)
@@ -425,7 +426,7 @@ func TestBlockchain(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
@@ -442,7 +443,7 @@ func TestBlockchain(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 	res, err := cli.BlockchainInfo(ctx, 0, 100)
@@ -478,7 +479,7 @@ func TestValidators(t *testing.T) {
 	eventSinkMock.On("Stop").Return(nil)
 	eventSinkMock.On("Type").Return(indexer.EventSinkType("Mock"))
 
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
@@ -495,7 +496,7 @@ func TestValidators(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 
@@ -537,7 +538,7 @@ func TestBlockSearch(t *testing.T) {
 	eventSinkMock.On("SearchBlockEvents", mock.Anything,
 		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), mock.Anything).
 		Return([]int64{testHeight}, nil)
-	rpcConfig := config.TestRPCConfig()
+	rpcConfig := testRPCConfig(t)
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock})
 
 	ctx := t.Context()
@@ -554,7 +555,7 @@ func TestBlockSearch(t *testing.T) {
 	// FIXME: used to induce context switch.
 	// Determine more deterministic method for prompting a context switch
 	startedWG.Wait()
-	requireConnect(t, rpcConfig.ListenAddress, 20)
+	requireConnect(t, rpcConfig.ListenAddress)
 	cli, err := httpclient.New(rpcConfig.ListenAddress)
 	require.NoError(t, err)
 
@@ -574,21 +575,32 @@ func TestBlockSearch(t *testing.T) {
 	})
 }
 
-func requireConnect(t testing.TB, addr string, retries int) {
+// testRPCConfig returns the test RPC config listening on a free loopback port,
+// so tests do not collide with each other or with other test binaries.
+func testRPCConfig(t testing.TB) *config.RPCConfig {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := l.Addr().String()
+	require.NoError(t, l.Close())
+	cfg := config.TestRPCConfig()
+	cfg.ListenAddress = "tcp://" + addr
+	return cfg
+}
+
+// requireConnect blocks until a TCP connection to addr succeeds. The test's
+// overall deadline bounds the wait.
+func requireConnect(t testing.TB, addr string) {
 	parts := strings.SplitN(addr, "://", 2)
 	if len(parts) != 2 {
 		t.Fatalf("malformed address to dial: %s", addr)
 	}
-	var err error
-	for i := 0; i < retries; i++ {
-		var conn net.Conn
-		conn, err = net.Dial(parts[0], parts[1])
+	for {
+		conn, err := net.Dial(parts[0], parts[1])
 		if err == nil {
 			conn.Close()
 			return
 		}
-		// FIXME attempt to yield and let the other goroutine continue execution.
-		time.Sleep(time.Microsecond * 100)
+		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("unable to connect to server %s after %d tries: %s", addr, retries, err)
 }
