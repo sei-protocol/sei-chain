@@ -11,8 +11,7 @@
 # Output is build/seid-<arch>, so the two architectures do not overwrite each other.
 #
 # Ubuntu's musl-gcc can't fully static-link on 24.04 (glibc libgcc needs _dl_find_object,
-# absent in musl) and zig cc rejects the -z muldefs flag needed for the libwasmvm
-# archives; Alpine's GNU ld + musl links cleanly. The pinned golang image
+# absent in musl); Alpine's GNU ld + musl links cleanly. The pinned golang image
 # digest is a multi-arch index, so the same pin serves both targets. Building a
 # non-native architecture needs binfmt registered on the host.
 #
