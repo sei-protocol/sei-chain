@@ -234,7 +234,10 @@ stage_release_shared_libraries() {
   local lib rel
   while IFS= read -r -d '' lib; do
     rel="${lib#"$RELEASE_WORKTREE"/}"
-    [[ -e "$REPO_ROOT/$rel" ]] && continue
+    if [[ -e "$REPO_ROOT/$rel" ]]; then
+      printf 'skipped_release_lib=%s\n' "$rel" | tee -a "$ARTIFACT_ROOT/revisions.txt"
+      continue
+    fi
     install -D -m 0644 "$lib" "$REPO_ROOT/$rel"
     STAGED_RELEASE_LIBS+=("$REPO_ROOT/$rel")
     printf 'staged_release_lib=%s\n' "$rel" | tee -a "$ARTIFACT_ROOT/revisions.txt"
