@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/epoch"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -117,6 +118,7 @@ func (a *testApp) Cfg() *Config {
 		MaxGasEstimatedPerBlock: 1000000,
 		MaxTxsPerBlock:          types.MaxTxsPerBlock,
 		BlockInterval:           time.Hour,
+		MaxPendingInserts:       DefaultMaxPendingInserts,
 	}
 }
 
@@ -366,6 +368,83 @@ func TestMempool_BadNonce(t *testing.T) {
 	tx := env.genTx(rng, addr, nonce)
 	_, err := env.state.InsertTx(ctx, tx.encode())
 	require.NoError(t, err)
+}
+
+func TestInsertTx_NewSenderUsesAppNonce(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	addr, nonce := app.NewAccount(rng)
+
+	for _, txNonce := range []uint64{nonce, nonce + 1} {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+		require.NoError(t, err)
+	}
+	require.Equal(t, nonce+2, env.state.EvmNextPendingNonce(addr))
+}
+
+func TestInsertTx_ConcurrentSequentialNonces(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+
+	const (
+		accountCount = 5
+		txCount      = 20
+	)
+	type account struct {
+		addr  common.Address
+		start uint64
+		rng   utils.Rng
+	}
+	accounts := make([]account, accountCount)
+	for i := range accounts {
+		accounts[i] = account{rng: rng.Split()}
+		accounts[i].addr, accounts[i].start = app.NewAccount(rng)
+	}
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, account := range accounts {
+			s.Spawn(func() error {
+				for nonce := account.start; nonce < account.start+txCount; nonce++ {
+					if _, err := env.state.InsertTx(ctx, env.genTx(account.rng, account.addr, nonce).encode()); err != nil {
+						return fmt.Errorf("InsertTx(): %w", err)
+					}
+				}
+				return nil
+			})
+		}
+		return nil
+	}))
+
+	for _, account := range accounts {
+		require.Equal(t, account.start+txCount, env.state.EvmNextPendingNonce(account.addr))
+	}
+}
+
+func TestInsertTx_BadNonceRejected(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	env.alignLocalMempool()
+	addr, nonce := app.NewAccount(rng)
+
+	for _, txNonce := range []uint64{nonce - 1, nonce + 1} {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+		require.ErrorIs(t, err, errBadNonce)
+	}
+	_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, nonce).encode())
+	require.NoError(t, err)
+
+	for _, txNonce := range []uint64{nonce, nonce + 2} {
+		_, err := env.state.InsertTx(ctx, env.genTx(rng, addr, txNonce).encode())
+		require.ErrorIs(t, err, errBadNonce)
+	}
 }
 
 type blockStats struct {
@@ -658,5 +737,203 @@ func TestInsertTx_WaitUnblocksOnLeave(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotProducing)
 	case <-time.After(time.Second):
 		t.Fatal("InsertTx did not unblock after leave")
+	}
+}
+
+// fullTx returns a tx that alone fills a block, so every admitted one seals the previous block.
+func (env *testEnv) fullTx(rng utils.Rng, app *testApp) *txSpec {
+	addr, nonce := app.NewAccount(rng)
+	tx := env.genTx(rng, addr, nonce)
+	tx.GasWanted = env.state.cfg.MaxGasWantedPerBlock
+	tx.GasEstimated = tx.GasWanted
+	return tx
+}
+
+// fillMempool installs a session mempool and inserts txs until it is full.
+func (env *testEnv) fillMempool(ctx context.Context, rng utils.Rng, app *testApp) (*mempool, error) {
+	env.alignLocalMempool()
+	mp := env.state.mempool.Load().OrPanic("aligned")
+	for range avail.BlocksPerLane + 1 {
+		if _, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode()); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := env.state.TryInsertTx(ctx, env.fullTx(rng, app).encode()); !errors.Is(err, errMempoolFull) {
+		return nil, fmt.Errorf("TryInsertTx on full mempool: got %v, want errMempoolFull", err)
+	}
+	return mp, nil
+}
+
+// freeOneBlock prunes the oldest lane block, making room for exactly one more sealed block.
+func (env *testEnv) freeOneBlock(mp *mempool) {
+	var first types.BlockNumber
+	for m := range mp.inner.Lock() {
+		first = m.first
+	}
+	env.state.pruneMempool(mp, first+1)
+}
+
+// waitPending blocks until at most n InsertTx calls are queued and returns the exact count.
+func waitPending(ctx context.Context, mp *mempool, n uint64) (uint64, error) {
+	return mp.pendingInserts.Wait(ctx, func(got uint64) bool { return got <= n })
+}
+
+// spawnInserter spawns an InsertTx call and returns the first error different from want.
+func (env *testEnv) spawnInserter(ctx context.Context, s scope.Scope, tx *txSpec, want error) {
+	s.Spawn(func() error {
+		_, err := env.state.InsertTx(ctx, tx.encode())
+		if !errors.Is(err, want) {
+			return fmt.Errorf("InsertTx(): got %v, want %v", err, want)
+		}
+		return nil
+	})
+}
+
+// enqueueInserters spawns n blocked InsertTx calls one at a time, so the queue order is known.
+func (env *testEnv) enqueueInserters(ctx context.Context, s scope.Scope, rng utils.Rng, app *testApp, mp *mempool, n int, want error) ([]*txSpec, error) {
+	txs := make([]*txSpec, 0, n)
+	pending := mp.pendingInserts.Load()
+	for range n {
+		tx := env.fullTx(rng, app)
+		txs = append(txs, tx)
+		env.spawnInserter(ctx, s, tx, want)
+		pending += 1
+		if _, err := mp.pendingInserts.Wait(ctx, func(got uint64) bool { return got == pending }); err != nil {
+			return nil, err
+		}
+	}
+	return txs, nil
+}
+
+// Blocked InsertTx calls are admitted in arrival order, one per freed block.
+func TestInsertTx_FIFOAdmission(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	const n = 5
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		txs, err := env.enqueueInserters(ctx, s, rng, app, mp, n, nil)
+		if err != nil {
+			return err
+		}
+		for i, tx := range txs {
+			env.freeOneBlock(mp)
+			got, err := waitPending(ctx, mp, uint64(n-i-1))
+			if err != nil {
+				return err
+			}
+			if got != uint64(n-i-1) {
+				return fmt.Errorf("pending after freeing block %d: got %d, want %d", i, got, n-i-1)
+			}
+			if want := [][]byte{tx.encode()}; !slices.EqualFunc(env.state.UnconfirmedTxs(), want, slices.Equal) {
+				return fmt.Errorf("admitted tx %d out of order", i)
+			}
+		}
+		return nil
+	}))
+}
+
+// A cancelled waiter leaves the queue without holding up the ones behind it.
+func TestInsertTx_CancelledWaiterLeavesQueue(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		headCtx, cancelHead := context.WithCancel(ctx)
+		defer cancelHead()
+		env.spawnInserter(headCtx, s, env.fullTx(rng, app), context.Canceled)
+		if _, err := mp.pendingInserts.Wait(ctx, func(got uint64) bool { return got == 1 }); err != nil {
+			return err
+		}
+		txs, err := env.enqueueInserters(ctx, s, rng, app, mp, 2, nil)
+		if err != nil {
+			return err
+		}
+		cancelHead()
+		if _, err := waitPending(ctx, mp, 2); err != nil {
+			return err
+		}
+		for i, tx := range txs {
+			env.freeOneBlock(mp)
+			if _, err := waitPending(ctx, mp, uint64(1-i)); err != nil {
+				return err
+			}
+			if want := [][]byte{tx.encode()}; !slices.EqualFunc(env.state.UnconfirmedTxs(), want, slices.Equal) {
+				return fmt.Errorf("admitted tx %d out of order", i)
+			}
+		}
+		return nil
+	}))
+}
+
+// Closing the mempool fails every queued InsertTx call with ErrNotProducing.
+func TestInsertTx_WaitersReleasedOnClose(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	env := newTestEnv(rng, app.Cfg(), app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if _, err := env.enqueueInserters(ctx, s, rng, app, mp, 3, ErrNotProducing); err != nil {
+			return err
+		}
+		env.state.clearMempool()
+		return nil
+	}))
+}
+
+// Once MaxPendingInserts calls are blocked, InsertTx fails immediately with errMempoolFull.
+func TestInsertTx_PendingInsertsBounded(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	cfg := app.Cfg()
+	cfg.MaxPendingInserts = 2
+	env := newTestEnv(rng, cfg, app.Proxy())
+	mp, err := env.fillMempool(ctx, rng, app)
+	require.NoError(t, err)
+
+	require.NoError(t, utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if _, err := env.enqueueInserters(ctx, s, rng, app, mp, 2, context.Canceled); err != nil {
+			return err
+		}
+		if _, err := env.state.InsertTx(ctx, env.fullTx(rng, app).encode()); !errors.Is(err, errMempoolFull) {
+			return fmt.Errorf("InsertTx over the bound: got %v, want errMempoolFull", err)
+		}
+		if got := mp.pendingInserts.Load(); got != 2 {
+			return fmt.Errorf("pending: got %d, want 2", got)
+		}
+		s.Cancel(context.Canceled)
+		return nil
+	})))
+}
+
+func TestInsertResult(t *testing.T) {
+	ok := &abci.ResponseCheckTx{Code: abci.CodeTypeOK}
+	rejected := &abci.ResponseCheckTx{Code: 1}
+	for _, tc := range []struct {
+		resp *abci.ResponseCheckTx
+		err  error
+		want metrics.Result
+	}{
+		{ok, nil, metrics.ResultOK},
+		{rejected, nil, metrics.ResultRejected},
+		{nil, errTooLarge, metrics.ResultTooLarge},
+		{nil, errMempoolFull, metrics.ResultFull},
+		{nil, ErrNotProducing, metrics.ResultNotProducing},
+		{nil, fmt.Errorf("%w: got 1, want 2", errBadNonce), metrics.ResultBadNonce},
+		{nil, context.Canceled, metrics.ResultError},
+	} {
+		require.Equal(t, tc.want, insertResult(tc.resp, tc.err))
 	}
 }

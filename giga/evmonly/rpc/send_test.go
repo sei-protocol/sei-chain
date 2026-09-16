@@ -18,24 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-type testBackend struct {
-	broadcast func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
-	block     func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
-	proxy     utils.Option[*ethrpc.Client]
-}
-
-func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	return b.broadcast(ctx, req)
-}
-
-func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-	return b.block(ctx, req)
-}
-
-func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	return b.proxy
-}
-
 func TestSendRawTransaction(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	var broadcastRaw []byte
@@ -60,9 +42,9 @@ func TestSendRawTransaction(t *testing.T) {
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, raw, broadcastRaw)
 
-	var chainID hexutil.Big
-	err = client.CallContext(t.Context(), &chainID, "eth_chainId")
-	require.ErrorContains(t, err, "method eth_chainId does not exist")
+	var callResult hexutil.Bytes
+	err = client.CallContext(t.Context(), &callResult, "eth_call")
+	require.ErrorContains(t, err, "method eth_call does not exist")
 	err = client.CallContext(t.Context(), nil, "status")
 	require.ErrorContains(t, err, "method status does not exist")
 }
@@ -146,4 +128,18 @@ func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)
 	return tx, raw
+}
+
+func TestSkipsShardLookupWithoutProxies(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			return &coretypes.ResultBroadcastTx{}, nil
+		},
+		proxy: utils.None[*ethrpc.Client](),
+	}
+	got, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash(), got)
+	require.Zero(t, backend.proxyCalls)
 }

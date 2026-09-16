@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -27,6 +28,13 @@ var _ StateReader = gigaSnapshotStateReader{}
 // while the block's read snapshot is still open. It must treat the input as
 // immutable and must not retain references to it after returning.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
+
+// BlockChangeSetEncoder contributes named changesets that are committed in the
+// same CommitStateChanges call as the block's EVM state changes, so they are
+// durable, rolled back and replayed together with that state. It is called
+// after execution with the block's context and result, which it must treat as
+// immutable. Changesets under keys.EVMStoreKey are reserved for the state encoder.
+type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
@@ -54,6 +62,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	gigametrics.SetPhase(gigametrics.PhaseExecution)
 	snapshot := stateStore.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
@@ -77,9 +86,17 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	gigametrics.SetPhase(gigametrics.PhaseStorage)
 	changesets, err := e.changeSetEncoder(result.ChangeSet)
 	if err != nil {
 		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
+	}
+	if e.blockChangeSetEncoder != nil {
+		extra, err := e.blockChangeSetEncoder(req.Context, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
+		}
+		changesets = append(changesets, extra...)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

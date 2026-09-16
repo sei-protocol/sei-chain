@@ -88,6 +88,10 @@ func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) uint256.Int {
 	return uint256.Int{}
 }
 
+func (app *BaseApp) EvmChainID() uint64 {
+	return 0
+}
+
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {
 	// initialized on creation

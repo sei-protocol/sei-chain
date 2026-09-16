@@ -1,8 +1,10 @@
 # Autobahn EVM-only E2E clusters
 
 `autobahn-e2e` manages the four-validator, disk-backed EVM-only Autobahn
-topology used for integration and load testing. It can run the topology in
-local Docker or on one AWS EC2 instance.
+topology used for integration and load testing. Locally it runs all four
+validators in Docker on one host. On AWS it places each validator on its
+own EC2 instance and adds a fifth instance that scrapes metrics. Start
+`sei-load` on that host when you want traffic.
 
 Run every command in this document from the root of a `sei-chain` checkout.
 The examples use the default cluster name, `autobahn-evmonly`. If `--name` is
@@ -69,19 +71,55 @@ replace existing `sei-node-*` containers or existing manager metadata.
 
 ## Start a cluster on AWS
 
-The AWS target creates one Ubuntu EC2 host and runs the same four-node Docker
-topology on it. Only SSH is opened in the managed security group. EVM JSON-RPC
-stays private and is accessed through `forward`.
+AWS deploy has two topologies, selected with `--topology`:
+
+- `distributed` (default): five Ubuntu EC2 hosts — four validators and one
+  load/monitoring instance. Each validator runs a single `seid` container
+  that advertises the instance's private IP. The four validators clone,
+  compile, and initialize in parallel. The load instance is brought up
+  afterward with Prometheus and Grafana; `sei-load` is left for you to
+  start. The security group admits SSH from the caller, Grafana (`:3000`)
+  from the internet, and all TCP between the five instances.
+- `colocated`: one Ubuntu EC2 host running the same four-container Docker
+  topology used locally, plus Prometheus and Grafana. Use this when you
+  want the cheaper single-instance setup.
+
+EVM JSON-RPC stays off the public internet and is accessed through
+`forward`.
 
 ```sh
 ./autobahn-e2e deploy --target aws \
   --name my-autobahn \
-  --region us-west-2
+  --region us-west-2 \
+  --topology distributed
+
+./autobahn-e2e deploy --target aws \
+  --name my-autobahn-colo \
+  --region us-west-2 \
+  --topology colocated
 
 ./autobahn-e2e list --name my-autobahn
 ```
 
-In another terminal, forward one node to the load-generator host:
+Deploy prints the public Grafana URL (`http://<public-ip>:3000`, admin /
+admin). `list` repeats it under `DASHBOARD`. Open **Autobahn E2E**. The
+login is the default Grafana pair on a temporary test host; tear the
+cluster down when finished.
+
+Deploy writes `integration_test/autobahn/sei-load.aws.json` on the load
+instance with `http://<validator-private-ip>:8545` for every validator.
+It does not start `sei-load`. When you want traffic, SSH in and run it:
+
+```sh
+ssh -i ~/.sei/autobahn-e2e/my-autobahn.pem ubuntu@<load-public-ip>
+cd ~/sei-chain-my-autobahn
+GOBIN="$PWD/build/tools" go install github.com/sei-protocol/sei-load@v0.0.1
+./build/tools/sei-load \
+  --config integration_test/autobahn/sei-load.aws.json \
+  --metricsListenAddr 0.0.0.0:19698
+```
+
+In another terminal, forward one validator to the laptop:
 
 ```sh
 ./autobahn-e2e forward \
@@ -90,11 +128,10 @@ In another terminal, forward one node to the load-generator host:
   --local-port 18545
 ```
 
-One forwarded endpoint is sufficient: validator EVM proxying is enabled by
-default, so transactions submitted to node 0 are forwarded to the Autobahn
-validator that owns the sender's shard. To distribute load across all four
-entry points, start four `forward` processes with distinct local ports and put
-all four URLs in the `sei-load` configuration.
+One forwarded endpoint is sufficient for `cast` and similar tools:
+validator EVM proxying is enabled by default, so transactions submitted
+to node 0 are forwarded to the Autobahn validator that owns the sender's
+shard.
 
 AWS credentials use the AWS CLI credential chain. Use `--profile NAME` to
 select a profile. If no credentials work in an interactive terminal, the
@@ -111,14 +148,20 @@ manager state directory with mode `0600`. To use an existing key pair instead:
   --ssh-key ~/.ssh/my-key-pair.pem
 ```
 
-The default security-group rule admits SSH only from the public IP detected at
-deployment time. Use `--ssh-cidr` when a VPN, NAT, or IPv6 setup makes that
-incorrect. Use `--subnet-id` if the region has no default VPC or the instance
-needs a specific public subnet.
+The default security-group rule admits SSH and Grafana from the public IP
+detected at deployment time. Use `--ssh-cidr` when a VPN, NAT, or IPv6 setup
+makes that source incorrect. Use `--grafana-cidr` to widen Grafana
+independently (for example `0.0.0.0/0`). Use `--subnet-id` if the
+region has no default VPC or the instance needs a specific public subnet.
 
-The default instance is `c7g.2xlarge` with 100 GiB of gp3 storage and the
-current Ubuntu 24.04 ARM64 AMI from AWS Systems Manager. When changing
-architecture, override `--instance-type` and `--ami-id` together.
+The default validator instance is `r7i.12xlarge` with 1024 GiB of gp3 storage
+(10000 IOPS, 1000 MB/s) and the
+current Ubuntu 24.04 AMD64 AMI from AWS Systems Manager. The load instance
+uses the same AMI and instance type with a 100 GiB gp3 root volume. Override
+the validator disk with `--volume-size`, `--volume-iops`, and
+`--volume-throughput`. When changing architecture, override `--instance-type`
+and `--ami-id` together. `--timeout` defaults to 40 minutes to cover the
+image build, `seid` compile, and five-instance bootstrap.
 `--repo-url` and `--ref` select the source built remotely; they default to this
 checkout's origin and current commit. The selected commit must be reachable
 from the EC2 host, so uncommitted local changes are not deployed.
@@ -203,8 +246,11 @@ GOBIN="$PWD/build/tools" go install github.com/sei-protocol/sei-load@v0.0.1
 ```
 
 The checked-in [`sei-load.local.json`](sei-load.local.json) is a ready local
-four-endpoint configuration. For AWS with the single tunnel shown above, copy
-it and change `endpoints` to only `http://127.0.0.1:18545`.
+four-endpoint configuration. An AWS deploy writes
+`integration_test/autobahn/sei-load.aws.json` on the load instance with the
+four private EVM URLs and leaves `sei-load` stopped. To drive load from
+the laptop instead, copy the local file and point `endpoints` at one or
+more `forward` tunnels.
 
 Start load and press Ctrl-C to stop it cleanly:
 
@@ -279,6 +325,34 @@ current EVM-only RPC. `sei-load` implements receipt tracking by subscribing to
 new heads and fetching blocks, rather than polling individual receipts, and
 those methods are not exposed yet.
 
+## Watch the dashboard
+
+An AWS deploy starts Prometheus and Grafana on the load instance and prints
+a URL reachable from the same CIDR as SSH. Open that address (admin / admin)
+and select **Autobahn E2E**. Prometheus scrapes each validator at
+`<private-ip>:26660`.
+
+For a local cluster, start the monitornode containers after the nodes are
+up. Prometheus scrapes each validator at `:26660` and Grafana provisions
+**Autobahn E2E** from `docker/monitornode/dashboards`.
+
+```sh
+docker/monitornode/scripts/start-prometheus.sh
+docker/monitornode/scripts/start-grafana.sh
+```
+
+Open http://localhost:3000 (admin / admin) and select **Autobahn E2E**.
+The overview line is executed TPS, blocks/sec, and produce-to-execute
+finalize time. The pie and stacked line are the execute goroutine split
+across consensus wait, EVM execution, and storage.
+
+If Prometheus was already running from a gigasim or cryptosim session,
+run `start-prometheus.sh` again after the cluster is up so it joins the
+node network and reloads scrape targets.
+
+`make docker-cluster-start-monitoring` provisions the same dashboard
+(Grafana at http://localhost:3000, Prometheus UI at http://localhost:9099).
+
 ## Interact with a running cluster
 
 Inspect node health and the last executed height at any time:
@@ -297,7 +371,11 @@ tail -f build/generated/logs/seid-0.log
 The public EVM JSON-RPC surface intentionally contains only:
 
 - `eth_sendRawTransaction`, used by `sei-load` and `cast publish`;
-- `eth_getTransactionReceipt`, for finalized receipts.
+- `eth_getTransactionReceipt`, for finalized receipts;
+- `eth_getBalance`, for the current committed EVM balance;
+- `eth_getTransactionCount`, for the current committed nonce;
+- `eth_blockNumber`, for the current committed block height;
+- `eth_chainId`, for the configured EVM chain ID.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -313,12 +391,9 @@ cast receipt \
   0xYOUR_TRANSACTION_HASH
 ```
 
-Without `--async`, `cast receipt` polls until the receipt exists. While it is
-waiting, current Foundry versions may also poll `eth_blockNumber` and print a
-method-not-found error, although the command still returns the receipt after
-finalization. Add `--async` for a one-shot lookup that fails immediately when
-the hash is not found. Confirmation counting is not available without
-`eth_blockNumber`; the endpoint itself only returns finalized receipts.
+Without `--async`, `cast receipt` polls until the receipt exists, now also
+polling `eth_blockNumber` for confirmation counting. Add `--async` for a
+one-shot lookup that fails immediately when the hash is not found.
 
 For a repeatable end-to-end check, create a new throwaway key, sign completely
 offline, publish the raw transaction, and fetch its receipt:
@@ -347,13 +422,38 @@ This works because every new address receives the test-only initial balance
 and has nonce zero. Use a new key each time so the explicit nonce remains
 correct.
 
+### Fetch the nonce, block height, and chain ID with `cast`
+
+`cast nonce`, `cast block-number`, and `cast chain-id` all work against the
+EVM-only RPC:
+
+```sh
+cast nonce --rpc-url http://127.0.0.1:8545 0xYOUR_ADDRESS
+cast block-number --rpc-url http://127.0.0.1:8545
+cast chain-id --rpc-url http://127.0.0.1:8545
+```
+
+`eth_getTransactionCount` accepts the `latest`, `safe`, `finalized`, and
+`pending` block tags, but all four resolve to the current committed nonce.
+`pending` is accepted so standard tooling that requests it (`cast send`,
+ethers, viem) keeps working, not because instant finality makes committed and
+pending equivalent: instant finality removes reorg risk, not the
+broadcast-to-commit window `pending` exists to cover. Two transactions sent
+back-to-back from the same key before the first commits are therefore
+assigned the same nonce, and the second is rejected; callers issuing rapid
+sequential sends must track the next nonce themselves rather than relying on
+`pending`. An explicit height, an explicit hash, or `earliest` returns an
+error: historical state is not available from this RPC. `eth_blockNumber` and
+`eth_chainId` take no block selector and always return the current height and
+the network's configured EVM chain ID.
+
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. There is no
 `eth_getTransactionByHash` or block API to discover a `sei-load` transfer hash,
 and `sei-load` does not currently print every submitted hash. There are also no
-chain ID, balance, nonce, fee-estimation, gas-estimation, call, log, or
-WebSocket subscription methods. Commands that depend on those queries cannot
-operate normally; raw transactions must provide chain ID, nonce, gas limit,
-and gas price offline as in the example above.
+fee-estimation, gas-estimation, call, log, or WebSocket subscription methods.
+Commands that depend on those queries cannot operate normally; raw
+transactions must provide gas limit and gas price offline as in the example
+above.
 
 ## Tear down
 
@@ -363,7 +463,7 @@ Stop the local containers and remove their manager metadata:
 ./autobahn-e2e teardown --name autobahn-evmonly
 ```
 
-Stop an AWS cluster and remove the EC2 instance, security group, managed key
+Stop an AWS cluster and remove the five EC2 instances, security group, managed key
 pair, local managed private key, and manager metadata:
 
 ```sh

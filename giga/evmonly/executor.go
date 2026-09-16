@@ -30,8 +30,10 @@ type Executor struct {
 	stateStore       gigatypes.StateDB
 	receiptStore     receipt.ReceiptStore
 	changeSetEncoder NamedChangeSetEncoder
-	missingState     StateReader
-	closed           atomic.Bool
+	// Optional: nil commits only the state encoder's changesets.
+	blockChangeSetEncoder BlockChangeSetEncoder
+	missingState          StateReader
+	closed                atomic.Bool
 }
 
 type Option func(*Executor)
@@ -47,6 +49,14 @@ func WithResultSink(sink ResultSink) Option {
 func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
 		e.missingState = state
+	}
+}
+
+// WithBlockChangeSetEncoder commits the encoder's changesets alongside every
+// block's state changes.
+func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
+	return func(e *Executor) {
+		e.blockChangeSetEncoder = encoder
 	}
 }
 
@@ -101,7 +111,10 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 		return PreparedBlock{}, err
 	}
 	signer := ethtypes.MakeSigner(chainConfig, new(big.Int).SetUint64(req.Context.Number), req.Context.Time)
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, e.cfg.ParseWorkers)
+	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
+		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
+	}
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
 	}

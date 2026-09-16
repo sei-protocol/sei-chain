@@ -103,6 +103,9 @@ type Database struct {
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
 
+	// Guards the one close of pendingChanges, so Close stays idempotent.
+	drainOnce sync.Once
+
 	// Reports pendingChanges from the writer's side: how full it was when a write needed room, and how
 	// long writes waited when it had none.
 	pendingChangesQueue *seidbmetrics.QueueMeter
@@ -149,7 +152,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               64 << 20, // 64 MB
+		LBaseMaxBytes:               64 << 20, // 64 MiB
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		// Let Pebble run several compactions in parallel so it can keep up with
@@ -239,23 +242,27 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	walKeepRecent := changelogKeepRecent(config)
-	// Snapshot rollback replays the changelog forward from the oldest retained
-	// snapshot, so count-based pruning must not cut inside that span. The
-	// snapshot manager prunes this changelog by snapshot version after every
-	// retention pass and is what actually holds it down; the count below is the
-	// ceiling for the states that pass does not cover — external snapshot
-	// pruning, and the stretch before enough snapshots exist to prune. Raising
-	// the ceiling is what a rollback window costs on disk: roughly one snapshot
-	// interval of changelog per retained snapshot.
-	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    walKeepRecent,
-		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
-	})
-	if err != nil {
-		return nil, err
+	// An owner that logs every block replays it into this store, leaving the changelog here written
+	// and never read.
+	if !config.DisableInternalWAL {
+		walKeepRecent := changelogKeepRecent(config)
+		// Snapshot rollback replays the changelog forward from the oldest retained
+		// snapshot, so count-based pruning must not cut inside that span. The
+		// snapshot manager prunes this changelog by snapshot version after every
+		// retention pass and is what actually holds it down; the count below is the
+		// ceiling for the states that pass does not cover — external snapshot
+		// pruning, and the stretch before enough snapshots exist to prune. Raising
+		// the ceiling is what a rollback window costs on disk: roughly one snapshot
+		// interval of changelog per retained snapshot.
+		streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
+			KeepRecent:    walKeepRecent,
+			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		})
+		if err != nil {
+			return nil, err
+		}
+		database.streamHandler = streamHandler
 	}
-	database.streamHandler = streamHandler
 	database.asyncWriteWG.Add(1)
 	go database.writeAsyncInBackground()
 
@@ -395,12 +402,15 @@ func (db *Database) Close() error {
 		db.metricsCancel()
 	}
 
-	if db.streamHandler != nil {
+	// Owed whether or not a changelog is kept, the queued blocks being only in memory. The channel
+	// is left in place so a send after close still panics rather than blocking on a nil one.
+	db.drainOnce.Do(func() {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
 		// Wait for the async writes to finish
 		db.asyncWriteWG.Wait()
-		// Now close the WAL stream
+	})
+	if db.streamHandler != nil {
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 	}
