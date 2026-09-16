@@ -44,6 +44,7 @@ type Backend interface {
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
 	EvmGasLimit() (uint64, error)
+	EvmMinGasPrice() (*big.Int, error)
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool
 	EvmTransactionCount(common.Address) uint64
@@ -91,7 +92,7 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	if err := rpcServer.RegisterName("eth", &stateAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only state RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &infoAPI{backend: backend}); err != nil {
+	if err := rpcServer.RegisterName("eth", &infoAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only info RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend}); err != nil {

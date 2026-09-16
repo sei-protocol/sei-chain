@@ -358,6 +358,12 @@ func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
 	return evmOnlyBaseFee()
 }
 
+// EvmMinGasPrice returns the minimum effective gas price this application
+// admits a transaction at.
+func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
+	return big.NewInt(evmOnlyMinGasPrice)
+}
+
 // evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
 func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))

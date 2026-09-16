@@ -30,7 +30,7 @@ type blockAPI struct {
 // is looked up directly, and a height the node has since pruned returns nil rather
 // than an error.
 func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, fullTx bool) (map[string]any, error) {
-	block, err := api.resolveBlockByNumber(ctx, number)
+	block, err := resolveBlockByNumber(ctx, api.backend, number)
 	if err != nil || block == nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 
 // resolveBlockByNumber looks up number, returning a nil block and nil error
 // for any height outside the committed range or since pruned from retention.
-func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
+func resolveBlockByNumber(ctx context.Context, backend Backend, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
 	var height *coretypes.Int64
 	switch number {
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
@@ -61,7 +61,7 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 		h := coretypes.Int64(number.Int64())
 		height = &h
 	}
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
+	block, err := backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
 		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) ||
 		errors.Is(err, coretypes.ErrHeightNotAvailable) {

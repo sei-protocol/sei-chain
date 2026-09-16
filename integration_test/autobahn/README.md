@@ -380,7 +380,10 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_call`, for a read-only message call against current committed state;
 - `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
   height (including any height still within the node's retention window) or
-  by hash.
+  by hash;
+- `eth_gasPrice`, for a suggested gas price;
+- `eth_feeHistory`, for per-block gas-used ratios and (a simplified) reward
+  history over a range of blocks.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -525,13 +528,32 @@ point in the chain. Revisit once superblocks merge lanes into a single
 block; punted for now since a block today is exactly one lane's
 transactions.
 
+### Fetch gas price and fee history with `cast`
+
+```sh
+cast gas-price --rpc-url http://127.0.0.1:8545
+cast rpc --rpc-url http://127.0.0.1:8545 eth_feeHistory 4 latest '[25,50,75]'
+```
+
+`eth_gasPrice` returns this application's fixed admission floor (1 gwei) plus
+10%, so a client using the suggestion sits above the rejection boundary rather
+than on it. `eth_feeHistory` accepts the same `latest`/`safe`/`finalized`/
+`pending`/explicit-height/`earliest` block selector as `eth_getBlockByNumber`,
+walking backward from it across the requested block count; a count above
+1024 is capped, and a count below 1 returns an empty result rather than an
+error. `baseFeePerGas` is always zero: this application executes every block
+at a zero base fee. This chain has no congestion-based fee market, so
+`reward`, when requested, is a known simplification: every requested
+percentile in every block is the same fixed admission floor rather than a
+real per-transaction percentile.
+
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash, and there are still no
 by-block-and-index transaction lookups or block-transaction-count methods.
-There are also no fee-estimation, gas-estimation, log, or WebSocket
-subscription methods. Commands that depend on those queries cannot operate
-normally; raw transactions must provide gas limit and gas price offline as in
-the example above.
+There are also no gas-estimation, log, or WebSocket subscription methods.
+Commands that depend on those queries cannot operate normally; raw
+transactions must provide gas limit and gas price offline as in the example
+above.
 
 ## Tear down
 

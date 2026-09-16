@@ -351,6 +351,12 @@ func (env *Environment) EvmBaseFee() (*big.Int, error) {
 	return env.App.EvmBaseFee()
 }
 
+// EvmMinGasPrice returns the minimum effective gas price the wrapped
+// application admits a transaction at.
+func (env *Environment) EvmMinGasPrice() (*big.Int, error) {
+	return env.App.EvmMinGasPrice()
+}
+
 // CheckTx checks the transaction without executing it. The transaction won't
 // be added to the mempool either.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/check_tx
