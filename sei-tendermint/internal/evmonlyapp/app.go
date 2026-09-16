@@ -49,9 +49,7 @@ type evmOnlyState struct {
 	committedHeight int64
 	appHash         common.Hash
 	parentHash      common.Hash
-	// lastBlockTime is the Time of the most recently committed block. EvmCall
-	// uses it to reproduce that block's execution context for a read-only call
-	// against current state.
+	// lastBlockTime is the Time of the most recently committed block.
 	lastBlockTime uint64
 	pending       utils.Option[evmOnlyPending]
 }
@@ -248,24 +246,13 @@ func (a *evmOnlyApplication) EvmChainID() uint64 {
 	return a.chainID.Uint64()
 }
 
-// evmOnlyPrevRandao derives a block's PrevRandao the same deterministic way
-// for every caller that needs one: this application has no real randomness
-// beacon, so it stands in one pseudo-randomly from the block timestamp.
+// evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
 func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
 }
 
 // EvmCall executes msg as a read-only call against the most recently
-// committed EVM state and returns the raw execution result. It is not part of
-// abci.Application: running a call requires a chain config and an EVM, which
-// only this application's executor can supply, so callers reach it through a
-// narrower capability check (proxy.Proxy.EvmCall) instead of a method every
-// Application implementer would otherwise have to stub.
-//
-// Coinbase is always the zero address and ParentHash is always the zero hash:
-// FinalizeBlock never sets a coinbase, and the block before the current head
-// is not tracked outside of the single FinalizeBlock call that used it, so a
-// call has no way to answer blockhash(current-1).
+// committed EVM state and returns the execution result.
 func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
 	var executor *evmonly.Executor
 	var blockCtx evmonly.BlockContext
@@ -279,6 +266,8 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
 		}
 		executor = exec
+		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
+		// FinalizeBlock, and only the current block's hash is tracked at all.
 		blockCtx = evmonly.BlockContext{
 			Number:      number,
 			Time:        state.lastBlockTime,

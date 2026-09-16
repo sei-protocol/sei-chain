@@ -9,10 +9,8 @@ import (
 )
 
 // Call executes msg as a read-only EVM message call against the current
-// committed state and returns the execution result. It builds its own state
-// overlay from a fresh store snapshot and discards that overlay when it
-// returns, so a call can never persist a state change or become visible to
-// another caller.
+// committed state and returns the execution result. It persists no state
+// change.
 func (e *Executor) Call(ctx context.Context, blockCtx BlockContext, msg *core.Message) (*core.ExecutionResult, error) {
 	chainConfig := e.chainConfig(blockCtx)
 	if err := validateBlockContext(chainConfig, blockCtx); err != nil {

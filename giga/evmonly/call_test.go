@@ -60,8 +60,7 @@ func abiEncodeString(s string) []byte {
 }
 
 // revertCodeForPayload returns runtime bytecode that copies payload out of its
-// own code (via CODECOPY) and REVERTs with it, for constructing EVM code that
-// reverts with an arbitrary ABI-encoded reason.
+// own code (via CODECOPY) and REVERTs with it.
 func revertCodeForPayload(payload []byte) []byte {
 	const preambleLen = 14
 	if len(payload) > 0xffff {

@@ -11,14 +11,13 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// defaultCallGasCap bounds the gas an eth_call may consume: it is used both to
-// fill in a caller-omitted gas limit and to cap one the caller supplied. It
-// matches evmrpc's simulation_gas_limit default so the two EVM JSON-RPC
-// surfaces this node serves behave the same way for an unbounded caller. It is
-// not derived from the block gas limit: a call's gas pool is a standalone
-// budget for that one execution, not a share of a block's real capacity.
+// defaultCallGasCap bounds the gas an eth_call may consume, filling in an
+// omitted gas limit and capping a caller-supplied one. It matches evmrpc's
+// simulation_gas_limit default.
 const defaultCallGasCap = 10_000_000
 
 type callAPI struct {
@@ -32,7 +31,7 @@ func (api *callAPI) Call(ctx context.Context, args export.TransactionArgs, block
 	if err := requireCurrentState(block); err != nil {
 		return nil, err
 	}
-	baseFee := new(big.Int)
+	baseFee := evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return nil, err

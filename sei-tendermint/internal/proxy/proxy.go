@@ -61,10 +61,7 @@ func (app *Proxy) EvmChainID() uint64 {
 }
 
 // evmCaller is implemented by applications that can run a read-only EVM call
-// against their current state. Only the Autobahn EVM-only application does
-// today, so this stays a capability check on the concrete app rather than a
-// method on abci.Application, which every other implementer would then have
-// to stub.
+// against their current state.
 type evmCaller interface {
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 }
