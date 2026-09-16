@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
@@ -37,6 +38,7 @@ type Backend interface {
 	EvmBalance(common.Address) uint256.Int
 	EvmBlockNumber() uint64
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
+	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
 	EvmProxyEnabled() bool

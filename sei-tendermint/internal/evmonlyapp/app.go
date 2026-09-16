@@ -338,6 +338,11 @@ func (a *evmOnlyApplication) EvmChainID() uint64 {
 	return a.chainID.Uint64()
 }
 
+// EvmChainConfig returns the EVM chain configuration this node executes against.
+func (a *evmOnlyApplication) EvmChainConfig() *params.ChainConfig {
+	return a.chainConfig
+}
+
 // evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
 func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))

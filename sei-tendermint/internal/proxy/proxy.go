@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -76,6 +77,23 @@ func (app *Proxy) EvmCall(ctx context.Context, msg *core.Message) (*core.Executi
 		return nil, fmt.Errorf("application does not support EVM calls")
 	}
 	return caller.EvmCall(ctx, msg)
+}
+
+// evmChainConfigProvider is implemented by applications that expose the EVM
+// chain configuration they execute against.
+type evmChainConfigProvider interface {
+	EvmChainConfig() *params.ChainConfig
+}
+
+// EvmChainConfig returns the wrapped application's EVM chain configuration.
+// It errors if that application does not expose one.
+func (app *Proxy) EvmChainConfig() (*params.ChainConfig, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_chain_config", "sync"))()
+	provider, ok := app.app.(evmChainConfigProvider)
+	if !ok {
+		return nil, fmt.Errorf("application does not expose an EVM chain configuration")
+	}
+	return provider.EvmChainConfig(), nil
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
