@@ -133,6 +133,7 @@ func initRootCmd(
 	// node's sei.toml and writes nothing.
 	configCmd := config.Cmd()
 	configCmd.AddCommand(configmanager.CheckCmd())
+	configCmd.AddCommand(configmanager.GenerateCmd())
 
 	rootCmd.AddCommand(
 		InitCmd(app.ModuleBasics, app.DefaultNodeHome),
