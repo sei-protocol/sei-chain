@@ -2,7 +2,6 @@ package gigasim
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -11,11 +10,6 @@ import (
 // maxStagedKeyLen is the longest key the benchmark stages: a storage key, which carries an address and
 // a slot after the one-byte EVM prefix.
 const maxStagedKeyLen = 1 + storageKeyLen
-
-// batchShards is how many independently locked maps the staged writes are spread across, which keeps the
-// executor pool from serialising on a single lock. It must not exceed 256, the range of the key byte the
-// shard is chosen by.
-const batchShards = 256
 
 // stagedKey is an EVM key held by value, so that using it as a map key costs no allocation.
 type stagedKey struct {
@@ -41,93 +35,69 @@ type stagedWrite struct {
 	value []byte
 }
 
-// batchShard is one independently locked slice of the staged writes. It is padded out to a cache line
-// so that an executor taking one shard's lock does not invalidate a neighbouring shard for another.
-type batchShard struct {
-	mu      sync.Mutex
-	entries map[stagedKey]stagedWrite
-	_       [40]byte
+// blockWrites is one block's state changes in the form the state DB takes, along with the volume of
+// key and value bytes they carry.
+type blockWrites struct {
+	changeSets []*proto.NamedChangeSet
+
+	// The bytes the state WAL, SC and SS each take in, counted while the changeset was assembled so
+	// that the commit thread does not walk the pairs again to find out.
+	bytes int64
 }
 
-// stateBatch collects the writes of the block being executed, keyed so that a key written twice in one
-// block commits once. The executors fill it concurrently and the main thread drains it at commit.
+// stateBatch collects the writes of one block, keyed so that a key written twice in one block commits
+// once.
+//
+// It carries no synchronization, because it never has more than one writer: the generator stages the
+// block it is building, and setup stages on the main thread. Nothing writes here during execution — a
+// block's writes are known when it is generated, so they are staged then.
 type stateBatch struct {
-	shards [batchShards]batchShard
+	entries map[stagedKey]stagedWrite
 }
 
-// newStateBatch returns an empty batch with every shard ready to accept writes.
-func newStateBatch() *stateBatch {
-	batch := &stateBatch{}
-	for i := range batch.shards {
-		batch.shards[i].entries = make(map[stagedKey]stagedWrite)
-	}
-	return batch
-}
-
-// shardFor picks a key's shard from its last byte, which holds random data for every key the benchmark
-// stages and so spreads keys evenly.
-func (b *stateBatch) shardFor(key []byte) *batchShard {
-	return &b.shards[uint(key[len(key)-1])%batchShards]
+// newStateBatch returns an empty batch sized for the number of distinct keys one block writes.
+func newStateBatch(expectedWrites int) *stateBatch {
+	return &stateBatch{entries: make(map[stagedKey]stagedWrite, expectedWrites)}
 }
 
 // Put stages a write, replacing any earlier write to the same key.
-//
-// Safe to call concurrently with Put and Get, but not with drainToChangeSet.
 func (b *stateBatch) Put(key []byte, value []byte) {
-	shard := b.shardFor(key)
-	shard.mu.Lock()
-	shard.entries[newStagedKey(key)] = stagedWrite{key: key, value: value}
-	shard.mu.Unlock()
-}
-
-// Get returns a staged write, reporting false when the block being executed has not written the key.
-//
-// Safe to call concurrently with Put and Get, but not with drainToChangeSet.
-func (b *stateBatch) Get(key []byte) ([]byte, bool) {
-	shard := b.shardFor(key)
-	shard.mu.Lock()
-	write, found := shard.entries[newStagedKey(key)]
-	shard.mu.Unlock()
-	return write.value, found
+	b.entries[newStagedKey(key)] = stagedWrite{key: key, value: value}
 }
 
 // drainToChangeSet empties the batch into a single changeset over the EVM store, appending the
 // identifier counters that ride along with every block.
-//
-// Must not run concurrently with Put or Get.
-func (b *stateBatch) drainToChangeSet(counters identifierCounters) []*proto.NamedChangeSet {
+func (b *stateBatch) drainToChangeSet(counters identifierCounters) blockWrites {
 	total := b.count() + len(counterKeys)
 	pairs := make([]proto.KVPair, total)
 	pointers := make([]*proto.KVPair, total)
 
 	next := 0
+	var staged int64
 	stage := func(key []byte, value []byte) {
 		pairs[next] = proto.KVPair{Key: key, Value: value}
 		pointers[next] = &pairs[next]
+		staged += int64(len(key) + len(value))
 		next++
 	}
 
-	for i := range b.shards {
-		entries := b.shards[i].entries
-		for _, write := range entries {
-			stage(write.key, write.value)
-		}
-		clear(entries)
+	for _, write := range b.entries {
+		stage(write.key, write.value)
 	}
+	clear(b.entries)
 	stage(counterKeys[0], encodeCounter(counters.nextAccountID))
 	stage(counterKeys[1], encodeCounter(counters.nextErc20ContractID))
 
-	return []*proto.NamedChangeSet{{
-		Name:      keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: pointers},
-	}}
+	return blockWrites{
+		changeSets: []*proto.NamedChangeSet{{
+			Name:      keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: pointers},
+		}},
+		bytes: staged,
+	}
 }
 
-// count returns how many distinct keys the block being executed has written.
+// count returns how many distinct keys the batch holds.
 func (b *stateBatch) count() int {
-	total := 0
-	for i := range b.shards {
-		total += len(b.shards[i].entries)
-	}
-	return total
+	return len(b.entries)
 }
