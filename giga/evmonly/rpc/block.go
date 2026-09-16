@@ -25,9 +25,10 @@ type blockAPI struct {
 }
 
 // GetBlockByNumber returns the block identified by number, or nil if number
-// does not resolve to a committed block. latest/safe/finalized/pending all
-// resolve to the current committed block; any other height, past or future,
-// is looked up directly.
+// does not resolve to a committed, still-retained block. latest/safe/finalized/pending
+// all resolve to the current committed block; any other height, past or future,
+// is looked up directly, and a height the node has since pruned returns nil rather
+// than an error.
 func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, fullTx bool) (map[string]any, error) {
 	block, err := api.resolveBlockByNumber(ctx, number)
 	if err != nil || block == nil {
@@ -50,7 +51,7 @@ func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 }
 
 // resolveBlockByNumber looks up number, returning a nil block and nil error
-// for any height outside the committed range.
+// for any height outside the committed range or since pruned from retention.
 func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
 	var height *coretypes.Int64
 	switch number {
@@ -61,7 +62,9 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 		height = &h
 	}
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
-	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) || errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
+	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
+		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) ||
+		errors.Is(err, coretypes.ErrHeightNotAvailable) {
 		return nil, nil
 	}
 	if err != nil {
@@ -73,9 +76,11 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	return block, nil
 }
 
-// encodeBlock renders block as an eth_getBlockBy* response. parentHash,
-// stateRoot, transactionsRoot, receiptsRoot, miner, and logsBloom are always
-// zero: this execution path's block translation never populates them.
+// encodeBlock renders block as an eth_getBlockBy* response. nonce, mixHash,
+// sha3Uncles, difficulty, extraData, uncles, and totalDifficulty are always
+// their Ethereum-inapplicable zero value, matching evmrpc's v2 encoder.
+// logsBloom is always zero: unlike v2, this execution path does not read a
+// receipt per transaction to aggregate one.
 func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlock, fullTx bool) (map[string]any, error) {
 	number := block.Block.Height
 	blockHash := common.BytesToHash(block.BlockID.Hash)
@@ -100,6 +105,8 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		if err != nil {
 			return nil, err
 		}
+		// One receipt read per transaction here, not just for the last one:
+		// deferred pending a bulk receipt-load API on the receipt store.
 		for i, raw := range txs {
 			ethtx, err := decodeBlockTx(raw, number, i)
 			if err != nil {
@@ -137,6 +144,11 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	// The last transaction's CumulativeGasUsed already equals the whole
 	// block's gas used; summing every transaction's own GasUsed would need a
 	// receipt per transaction instead of one.
+	//
+	// This total is scoped to the one Autobahn lane this block belongs to,
+	// not every lane executing concurrently at this point in the chain.
+	// Revisit once superblocks merge lanes into a single block; punted for
+	// now since a block today is exactly one lane's transactions.
 	var gasUsed hexutil.Uint64
 	if lastReceipt != nil {
 		gasUsed = hexutil.Uint64(lastReceipt.CumulativeGasUsed)

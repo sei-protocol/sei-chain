@@ -122,6 +122,17 @@ func TestGetBlockByNumberEarliestReturnsNullBeforeAnyCommittedBlock(t *testing.T
 	require.Nil(t, got)
 }
 
+func TestGetBlockByNumberReturnsNullForAPrunedHeight(t *testing.T) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return nil, coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]())
+	})
+
+	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(1), false)
+
+	require.NoError(t, err)
+	require.Nil(t, got)
+}
+
 func TestGetBlockByHashReturnsNullForUnknownHash(t *testing.T) {
 	backend := &testBackend{
 		blockByHash: func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {

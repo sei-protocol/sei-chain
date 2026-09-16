@@ -379,7 +379,8 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_chainId`, for the configured EVM chain ID;
 - `eth_call`, for a read-only message call against current committed state;
 - `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
-  height (including any past height) or by hash.
+  height (including any height still within the node's retention window) or
+  by hash.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -499,8 +500,8 @@ function that depends on either reads a placeholder rather than a real value.
 
 `cast block` works by height or by hash. Unlike `eth_getBalance`,
 `eth_getTransactionCount`, and `eth_call`, an explicit height is not
-historical-state-restricted: block and receipt data is retained indefinitely,
-so any past height works the same as `latest`:
+historical-state-restricted: any past height still within the node's
+retention window works the same as `latest`:
 
 ```sh
 cast block --rpc-url http://127.0.0.1:8545 latest
@@ -508,14 +509,21 @@ cast block --rpc-url http://127.0.0.1:8545 1
 cast block --rpc-url http://127.0.0.1:8545 0xYOUR_BLOCK_HASH
 ```
 
-A height above the current chain head, or `earliest` (this executor's first
-committed height is 1, not 0), returns `null` rather than an error, matching
-`eth_getTransactionByHash`'s treatment of an unknown hash. `parentHash`,
-`stateRoot`, `transactionsRoot`, `receiptsRoot`, and `miner` are always the
-zero value: Autobahn's translation from its internal block representation
-into the shape this RPC reads from never populates them. `logsBloom` is also
-always empty. `gasUsed` and the transaction list are real, decoded the same
-way `eth_getTransactionByHash` decodes a transaction.
+A height above the current chain head, `earliest` (this executor's first
+committed height is 1, not 0), or a height the node has since pruned all
+return `null` rather than an error, matching `eth_getTransactionByHash`'s
+treatment of an unknown hash. `nonce`, `mixHash`, `sha3Uncles`, `difficulty`,
+`extraData`, `uncles`, and `totalDifficulty` are always their
+Ethereum-inapplicable zero value, matching `eth_getBlockByNumber` on the
+regular (non-EVM-only) RPC. `logsBloom` is always empty, unlike the regular
+RPC, which aggregates it from a receipt per transaction. `gasUsed` and the
+transaction list are real, decoded the same way `eth_getTransactionByHash`
+decodes a transaction, but `gasUsed` is scoped to the one Autobahn lane this
+block belongs to: four lanes execute concurrently, each advancing its own
+block sequence, so this total does not cover every lane's activity at this
+point in the chain. Revisit once superblocks merge lanes into a single
+block; punted for now since a block today is exactly one lane's
+transactions.
 
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash, and there are still no
