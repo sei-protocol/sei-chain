@@ -3,6 +3,7 @@ package gigasim
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
@@ -22,6 +23,10 @@ const (
 	slotLen       = 32
 	storageKeyLen = keys.AddressLen + slotLen
 )
+
+// selectionPatternCycle is the number of account selections the hot and minting patterns repeat over.
+// A share is rounded to this many parts, so it also sets the resolution of those shares.
+const selectionPatternCycle = 1_000_000
 
 // EVM value sizes. These are not configurable: FlatKV parses the value by the key it arrives under and
 // rejects a write whose length does not match, so a record of any other size never reaches disk.
@@ -150,6 +155,10 @@ type accountModel struct {
 
 	rand *crand.CannedRandom
 
+	// How many account selections this model has served. Which kind a selection is follows from this
+	// count alone, which is what makes the mints of any run of selections computable in advance.
+	selectionCount int64
+
 	// The identifier the next account created takes, and so also the number of accounts in existence.
 	nextAccountID int64
 
@@ -253,25 +262,61 @@ func (a *accountModel) CreateErc20Contract() {
 	a.state.Put(address, a.rand.Bytes(a.config.Erc20ContractSize))
 }
 
-// RandomAccount selects the account for one side of a transfer, minting a new one with the configured
-// probability. The identifier is returned alongside the address because the storage slots a
+// RandomAccount selects the account for one side of a transfer, minting a new one on the configured
+// share of selections. The identifier is returned alongside the address because the storage slots a
 // transaction touches are derived from it.
+//
+// Which of the three kinds a selection is follows from its position in the selection sequence rather
+// than from a draw, so the accounts any run of selections mints are known before it runs. Which
+// account it lands on within the hot set or the cold population is still drawn at random.
 //
 // A dormant account is never returned. Dormant identifiers are not excluded by narrowing the range,
 // which is what let them be selected before: those minted during a run are interleaved with the hot
 // and cold ones, so the classes have to be addressed rather than bounded.
 func (a *accountModel) RandomAccount() (address []byte, accountID int64, err error) {
-	if a.rand.Float64() < a.config.HotAccountProbability {
-		return a.selectHot()
-	}
+	selection := a.selectionCount
+	a.selectionCount++
 
-	if a.rand.Float64() < a.config.NewAccountProbability {
+	// Minting takes precedence over a hot selection where the two coincide. Both patterns run over the
+	// same counter, so they intersect, and letting the hot selection win there would make the accounts
+	// a run of selections mints depend on the hot pattern rather than on the run itself.
+	if a.selectionMintsAccount(selection) {
 		accountID := a.nextAccountID
 		a.nextAccountID++
 		return a.accountAddress(accountID), accountID, nil
 	}
 
+	if a.selectionIsHot(selection) {
+		return a.selectHot()
+	}
+
 	return a.selectCold()
+}
+
+// selectionMintsAccount reports whether the selection at the given count mints a new account.
+//
+// A function of the count alone, so the accounts any span of selections will mint are known before any
+// of them run. The minting selections are spread evenly through each cycle of selectionPatternCycle,
+// so their share of a cycle is NewAccountProbability at that resolution.
+func (a *accountModel) selectionMintsAccount(selection int64) bool {
+	return selectionInShare(selection, a.config.NewAccountProbability)
+}
+
+// selectionIsHot reports whether the selection at the given count draws from the hot set.
+//
+// A function of the count alone, like selectionMintsAccount(). A selection that both patterns claim
+// mints instead, so the hot share is short by the minting share wherever the two coincide.
+func (a *accountModel) selectionIsHot(selection int64) bool {
+	return selectionInShare(selection, a.config.HotAccountProbability)
+}
+
+// selectionInShare reports whether the selection at the given count falls in a pattern covering the
+// given share of every cycle. The selections it claims are spread evenly through the cycle, so any run
+// of them carries that share rather than only a long run doing so.
+func selectionInShare(selection int64, share float64) bool {
+	claimed := int64(math.Round(share * selectionPatternCycle))
+	position := selection % selectionPatternCycle
+	return (position+1)*claimed/selectionPatternCycle > position*claimed/selectionPatternCycle
 }
 
 // mintedSoFar is how many accounts have been minted at or below the newest identifier selection may
