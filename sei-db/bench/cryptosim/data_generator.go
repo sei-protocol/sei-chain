@@ -67,6 +67,14 @@ type DataGenerator struct {
 	// entirely dormant.
 	numberOfColdAccounts int64
 
+	// The number of cold accounts a selection may draw from, held apart from the live count and frozen
+	// for the duration of a block.
+	//
+	// Frozen for the same reason highestSafeAccountIDInBlock is: a window that moved as accounts were
+	// created would make the account a transaction selects depend on how many its own generator had
+	// created first, and so on how a block was divided among workers.
+	coldAccountsVisibleInBlock int64
+
 	// The metrics for the benchmark.
 	metrics *CryptosimMetrics
 }
@@ -117,6 +125,7 @@ func NewDataGenerator(
 		highestSafeAccountIDInBlock: nextAccountID - 1,
 		numberOfColdAccounts:        int64(config.MinimumNumberOfColdAccounts),
 		coldAccountsAtStart:         int64(config.MinimumNumberOfColdAccounts),
+		coldAccountsVisibleInBlock:  int64(config.MinimumNumberOfColdAccounts),
 		metrics:                     metrics,
 	}
 }
@@ -250,9 +259,11 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		return accountID, keys.BuildEVMKey(accountKeyPrefix, addr), false, nil
 	}
 
-	// Select an existing account from the cold window at random.
+	// Select an existing account from the cold window at random. Both bounds are frozen for the block,
+	// so the account this selection lands on does not depend on what the generator has created since
+	// the block began.
 	lastLegalColdAccountID := d.highestSafeAccountIDInBlock + 1
-	firstLegalColdAccountID := lastLegalColdAccountID - d.numberOfColdAccounts
+	firstLegalColdAccountID := lastLegalColdAccountID - d.coldAccountsVisibleInBlock
 
 	accountID := d.rand.Int64Range(firstLegalColdAccountID, lastLegalColdAccountID)
 	addr := d.rand.Address(accountPrefix, accountID, keys.AddressLen)
@@ -324,7 +335,11 @@ func (d *DataGenerator) Fork(firstAccountID int64) *DataGenerator {
 	fork.nextAccountID = firstAccountID
 	fork.firstMintableAccountID = firstAccountID
 	fork.coldAccountsAtStart = d.numberOfColdAccounts
+
+	// The two quantities a block's selections are drawn against. Carried over explicitly because
+	// freezing them is what makes a block's contents independent of how it was divided.
 	fork.highestSafeAccountIDInBlock = d.highestSafeAccountIDInBlock
+	fork.coldAccountsVisibleInBlock = d.coldAccountsVisibleInBlock
 	return &fork
 }
 
@@ -414,9 +429,11 @@ func (d *DataGenerator) FeeCollectionAddress() []byte {
 }
 
 // Call this to signal that we have reached the end of a block. This is a signal that it is now safe to use
-// recently created accounts as read/write targets.
+// recently created accounts as read/write targets, and that the accounts the block created may be
+// selected from.
 func (d *DataGenerator) ReportEndOfBlock() {
 	d.highestSafeAccountIDInBlock = d.nextAccountID - 1
+	d.coldAccountsVisibleInBlock = d.numberOfColdAccounts
 }
 
 // Get the random number generator. Note that the random number generator is not thread safe, and
