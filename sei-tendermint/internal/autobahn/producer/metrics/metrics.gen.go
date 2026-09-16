@@ -11,6 +11,7 @@ var Global = newMetrics()
 
 func init() {
 	prometheus.MustRegister(
+		Global.checkTxWaitLatency,
 		Global.checkTxLatency,
 		Global.nonceLookupLatency,
 		Global.capacityWaitLatency,
@@ -23,11 +24,18 @@ func init() {
 
 func newMetrics() *metrics {
 	return &metrics{
+		checkTxWaitLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: MetricsNamespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "check_tx_wait_latency",
+			Help:      "Time an insert spent waiting for a CheckTx concurrency permit.",
+			Buckets:   prometheus.ExponentialBuckets(0.00001, 2, 30),
+		}, nil),
 		checkTxLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: MetricsNamespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "check_tx_latency",
-			Help:      "Duration of the app CheckTx call made for each inserted tx.",
+			Help:      "Duration of the app CheckTx call made for each inserted tx, excluding time spent waiting for a permit.",
 			Buckets:   prometheus.ExponentialBuckets(0.00001, 2, 30),
 		}, nil),
 		nonceLookupLatency: tmprometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -70,6 +78,10 @@ func newMetrics() *metrics {
 			Help:      "Number of finished inserts by outcome.",
 		}, []string{"result"}),
 	}
+}
+
+func (m *metrics) checkTxWaitLatencyAt() *tmprometheus.Histogram {
+	return m.checkTxWaitLatency.WithLabelValues()
 }
 
 func (m *metrics) checkTxLatencyAt() *tmprometheus.Histogram {

@@ -270,12 +270,26 @@ func (s *State) getMempool(ctx context.Context) (*mempool, error) {
 	return mp, nil
 }
 
-// checkTx runs the app CheckTx for tx.
+// checkTx runs the app CheckTx for tx, holding one of cfg.MaxConcurrentCheckTx permits
+// for the duration of the call. Waiting for a permit is cancelled with ctx.
 func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
+	release, err := s.acquireCheckTxPermit(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	defer metrics.PhaseCheckTx.Enter()()
 	start := time.Now()
 	defer func() { metrics.ObserveCheckTx(time.Since(start)) }()
 	return s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+}
+
+// acquireCheckTxPermit takes one CheckTx permit, recording the wait as its own insert phase.
+func (s *State) acquireCheckTxPermit(ctx context.Context) (func(), error) {
+	defer metrics.PhaseCheckTxWait.Enter()()
+	start := time.Now()
+	defer func() { metrics.ObserveCheckTxWait(time.Since(start)) }()
+	return s.checkTxSem.Acquire(ctx)
 }
 
 // evmNonce reads the executed nonce of addr from the app.

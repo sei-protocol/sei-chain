@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"runtime"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -27,10 +29,20 @@ type Config struct {
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
 	MaxTxsPerSecond utils.Option[uint64]
+	// Max number of CheckTx calls executed concurrently by InsertTx/TryInsertTx.
+	// None means half of GOMAXPROCS, at least 1.
+	MaxConcurrentCheckTx utils.Option[uint64]
 	// Max number of InsertTx calls blocked waiting for mempool capacity;
 	// further calls fail immediately with a mempool-full error.
 	// 0 means DefaultMaxPendingInserts.
 	MaxPendingInserts uint64
+}
+
+func (c *Config) maxConcurrentCheckTx() int {
+	if v, ok := c.MaxConcurrentCheckTx.Get(); ok && v > 0 {
+		return int(min(v, math.MaxInt32))
+	}
+	return max(1, runtime.GOMAXPROCS(0)/2)
 }
 
 // DefaultMaxPendingInserts is the Config.MaxPendingInserts used when the field is 0.
@@ -55,16 +67,19 @@ type State struct {
 	app       *proxy.Proxy
 	mempool   utils.AtomicSend[utils.Option[*mempool]] // None when not producing
 	consensus *consensus.State
+	// checkTxSem bounds concurrent CheckTx calls on the insert path.
+	checkTxSem *utils.Semaphore
 }
 
 // NewState constructs a new block producer state.
 // Mempool starts None; alignMempool creates it for each produce session.
 func NewState(cfg *Config, consensus *consensus.State, app *proxy.Proxy) *State {
 	return &State{
-		cfg:       cfg,
-		app:       app,
-		mempool:   utils.NewAtomicSend(utils.None[*mempool]()),
-		consensus: consensus,
+		cfg:        cfg,
+		app:        app,
+		mempool:    utils.NewAtomicSend(utils.None[*mempool]()),
+		consensus:  consensus,
+		checkTxSem: utils.NewSemaphore(cfg.maxConcurrentCheckTx()),
 	}
 }
 
