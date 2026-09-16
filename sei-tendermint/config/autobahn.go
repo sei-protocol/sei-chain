@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
@@ -73,6 +74,11 @@ type AutobahnFileConfig struct {
 	// fullnodes serving downstream block-sync are subject to the same
 	// cap). Absent ⇒ DefaultMaxInboundFullnodePeers. Some(0) ⇒ reject all.
 	MaxInboundFullnodePeers utils.Option[uint64] `json:"max_inbound_fullnode_peers,omitzero"`
+	// MaxConcurrentCheckTx caps the number of CheckTx calls the local mempool
+	// runs concurrently for incoming broadcast_tx requests, so that ingest
+	// cannot starve the consensus and data loops of CPU.
+	// Absent ⇒ half of GOMAXPROCS (at least 1).
+	MaxConcurrentCheckTx utils.Option[uint64] `json:"max_concurrent_check_tx,omitzero"`
 	// Whether validators proxy mempool EVM RPC requests to the validator
 	// handling a given shard of addresses.
 	// No-op on fullnodes: they do not have a local mempool, so EVM RPC
@@ -125,6 +131,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.DialInterval <= 0 {
 		return errors.New("dial_interval must be > 0")
+	}
+	if v, ok := fc.MaxConcurrentCheckTx.Get(); ok && (v == 0 || v > math.MaxInt32) {
+		return fmt.Errorf("max_concurrent_check_tx must be in 1..%d when set", math.MaxInt32)
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)
