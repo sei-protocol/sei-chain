@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -57,6 +59,16 @@ func TestFastCheckTxApplicationOverridesCheckTx(t *testing.T) {
 	require.True(t, res.IsEVM)
 }
 
+// unusedGenesisDocProvider fails the test if a non-EVM-only prepareApplication
+// reads the genesis document.
+func unusedGenesisDocProvider() (*types.GenesisDoc, error) {
+	return nil, errors.New("genesis document must not be read")
+}
+
+func evmOnlyTestGenesisDocProvider() (*types.GenesisDoc, error) {
+	return &types.GenesisDoc{InitialHeight: 1}, nil
+}
+
 func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 	app := abci.BaseApplication{}
 
@@ -65,7 +77,7 @@ func TestPrepareApplicationMockAppIgnoresFastCheckTx(t *testing.T) {
 			MockApp:     true,
 			FastCheckTx: true,
 		},
-	}, app)
+	}, app, unusedGenesisDocProvider)
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -80,7 +92,7 @@ func TestPrepareApplicationFastCheckTxWithoutMockApp(t *testing.T) {
 		BaseConfig: config.BaseConfig{
 			FastCheckTx: true,
 		},
-	}, app)
+	}, app, unusedGenesisDocProvider)
 	require.NoError(t, err)
 	require.False(t, storage.IsPresent())
 
@@ -100,7 +112,7 @@ func TestPrepareApplicationEVMOnly(t *testing.T) {
 			FastCheckTx: true,
 		},
 		AutobahnConfigFile: autobahnConfigFile,
-	}, app)
+	}, app, evmOnlyTestGenesisDocProvider)
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
@@ -122,7 +134,7 @@ func TestPrepareApplicationEVMOnlyRequiresReadableAutobahnConfig(t *testing.T) {
 	_, _, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{EVMOnly: true},
 		AutobahnConfigFile: "/missing/autobahn.json",
-	}, abci.BaseApplication{})
+	}, abci.BaseApplication{}, evmOnlyTestGenesisDocProvider)
 
 	require.Error(t, err)
 }

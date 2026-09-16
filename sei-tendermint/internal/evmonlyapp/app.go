@@ -75,9 +75,12 @@ var _ abci.Application = (*evmOnlyApplication)(nil)
 // NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
 // load tests. State, receipts, and blocks are owned by storage. A storage that
 // already holds committed blocks resumes from its durable cursor, so Info
-// reports the stored height and InitChain is refused.
+// reports the stored height and InitChain is refused. initialHeight is the
+// genesis initial height; it identifies a store seeded by InitChain that holds
+// no block yet, which is the only non-empty store allowed to lack a cursor.
 func NewEVMOnlyApplication(
 	chainID uint64,
+	initialHeight int64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	changeSetEncoder evmonly.NamedChangeSetEncoder,
@@ -94,7 +97,10 @@ func NewEVMOnlyApplication(
 		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
 		checkedSenders:   utils.NewMutex(map[common.Hash]common.Address{}),
 	}
-	cursor, err := loadEVMOnlyCursor(storage.SC())
+	if initialHeight <= 0 {
+		return nil, fmt.Errorf("EVM-only initial height must be positive: %d", initialHeight)
+	}
+	cursor, err := loadEVMOnlyCursor(storage.SC(), initialHeight)
 	if err != nil {
 		return nil, err
 	}

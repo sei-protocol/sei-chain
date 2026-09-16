@@ -2,6 +2,7 @@ package evmonlyapp
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -63,10 +64,15 @@ func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
 	}, nil
 }
 
+// errEVMOnlyCursorMissing reports a store holding block state that carries no
+// execution cursor. It cannot be resumed and must not be re-initialized.
+var errEVMOnlyCursorMissing = errors.New("EVM-only state holds no execution cursor")
+
 // loadEVMOnlyCursor reads the cursor of the store's latest version. It is None
-// for an empty store and for one seeded by InitChain with no block committed
-// yet; both are resumed through InitChain.
-func loadEVMOnlyCursor(store *flatkv.CommitStore) (utils.Option[evmOnlyCursor], error) {
+// for an empty store and for one seeded by InitChain at initialHeight with no
+// block committed yet; both are resumed through InitChain. A store at any
+// other version without a cursor is refused.
+func loadEVMOnlyCursor(store *flatkv.CommitStore, initialHeight int64) (utils.Option[evmOnlyCursor], error) {
 	latest, err := store.GetLatestVersion()
 	if err != nil {
 		return utils.None[evmOnlyCursor](), fmt.Errorf("read EVM-only state version: %w", err)
@@ -76,7 +82,14 @@ func loadEVMOnlyCursor(store *flatkv.CommitStore) (utils.Option[evmOnlyCursor], 
 	}
 	raw, found := store.Get(evmOnlyCursorModule, []byte(evmOnlyCursorKey))
 	if !found {
-		return utils.None[evmOnlyCursor](), nil
+		if latest == initialHeight-1 {
+			return utils.None[evmOnlyCursor](), nil
+		}
+		return utils.None[evmOnlyCursor](), fmt.Errorf(
+			"%w: state is at height %d but the chain starts at %d; "+
+				"the store predates cursor persistence or lost it, reset the EVM-only state directory to resync",
+			errEVMOnlyCursorMissing, latest, initialHeight,
+		)
 	}
 	cursor, err := decodeEVMOnlyCursor(raw)
 	if err != nil {

@@ -67,7 +67,14 @@ func New(
 	if err := validateFreezeMode(conf.Mode, opts.freezeHeight); err != nil {
 		return nil, err
 	}
-	app, storageManager, err := prepareApplication(ctx, conf, app)
+	var genProvider genesisDocProvider
+	switch gen {
+	case nil:
+		genProvider = defaultGenesisDocProviderFunc(conf)
+	default:
+		genProvider = func() (*tmtypes.GenesisDoc, error) { return gen, nil }
+	}
+	app, storageManager, err := prepareApplication(ctx, conf, app, genProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -84,14 +91,6 @@ func New(
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
-	}
-
-	var genProvider genesisDocProvider
-	switch gen {
-	case nil:
-		genProvider = defaultGenesisDocProviderFunc(conf)
-	default:
-		genProvider = func() (*tmtypes.GenesisDoc, error) { return gen, nil }
 	}
 
 	switch conf.Mode {
@@ -156,9 +155,14 @@ func prepareApplication(
 	ctx context.Context,
 	conf *config.Config,
 	app abci.Application,
+	genProvider genesisDocProvider,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
 	if conf.EVMOnly {
+		genDoc, err := genProvider()
+		if err != nil {
+			return nil, noStorage, fmt.Errorf("load EVM-only genesis: %w", err)
+		}
 		fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 		if err != nil {
 			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
@@ -174,6 +178,7 @@ func prepareApplication(
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
 		prepared, err := evmonlyapp.NewEVMOnlyApplication(
 			config.AutobahnEVMOnlyChainID,
+			genDoc.InitialHeight,
 			validators,
 			manager,
 			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),

@@ -73,7 +73,7 @@ func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.App
 	t.Helper()
 	storage := openEVMOnlyTestStorage(t, t.TempDir())
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, 1, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 	require.NoError(t, err)
 	return app
 }
@@ -89,11 +89,11 @@ func openEVMOnlyTestStorage(t *testing.T, home string) *bootstrap.GigaStorageMan
 
 // reopenEVMOnlyTestApp closes storage and constructs a fresh application over
 // the same home, the way a restarted process does.
-func reopenEVMOnlyTestApp(t *testing.T, storage *bootstrap.GigaStorageManager, home string) (abci.Application, *bootstrap.GigaStorageManager) {
+func reopenEVMOnlyTestApp(t *testing.T, storage *bootstrap.GigaStorageManager, home string, initialHeight int64) (abci.Application, *bootstrap.GigaStorageManager) {
 	t.Helper()
 	require.NoError(t, storage.Close())
 	reopened := openEVMOnlyTestStorage(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, initialHeight, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()))
 	require.NoError(t, err)
 	return app, reopened
 }
@@ -121,7 +121,7 @@ func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorage(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, 1, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 
 	// Receipt writes are queued behind the block; closing the storage drains
 	// them, so the reopened store is where the receipt is guaranteed to be.
-	_, storage = reopenEVMOnlyTestApp(t, storage, home)
+	_, storage = reopenEVMOnlyTestApp(t, storage, home, 1)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
 	receipt, err := storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
@@ -314,7 +314,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorage(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, 1, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -322,7 +322,7 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 		require.Equal(t, wantHashes[height], finalizeAndCommitEVMOnlyTestBlock(t, app, block(height+1)))
 	}
 
-	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	app, storage = reopenEVMOnlyTestApp(t, storage, home, 1)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	info := app.Info()
@@ -347,7 +347,7 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorage(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, 1, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 	require.NoError(t, err)
 	_, err = app.InitChain(evmOnlyTestInitChain())
 	require.NoError(t, err)
@@ -355,7 +355,7 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 	finalized, err := app.FinalizeBlock(t.Context(), block(2))
 	require.NoError(t, err)
 
-	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	app, storage = reopenEVMOnlyTestApp(t, storage, home, 1)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	info := app.Info()
@@ -370,14 +370,14 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	home := t.TempDir()
 	storage := openEVMOnlyTestStorage(t, home)
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, 1, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 	require.NoError(t, err)
 	init := evmOnlyTestInitChain()
 	init.InitialHeight = 5
 	_, err = app.InitChain(init)
 	require.NoError(t, err)
 
-	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	app, storage = reopenEVMOnlyTestApp(t, storage, home, init.InitialHeight)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	require.Equal(t, int64(0), app.Info().LastBlockHeight)
@@ -386,6 +386,31 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	require.Equal(t, int64(4), app.Info().LastBlockHeight)
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(5))
 	require.Equal(t, int64(5), app.LastBlockHeight())
+}
+
+// A store holding block state but no execution cursor cannot tell where
+// execution stopped. Reporting height zero would send the router back through
+// InitChain against populated state, so construction refuses the store instead.
+func TestEVMOnlyApplicationRefusesStateWithoutCursor(t *testing.T) {
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorage(t, home)
+	const height = 3
+	for version := int64(1); version <= height; version++ {
+		require.NoError(t, storage.SC().ApplyChangeSets(version, nil))
+		_, err := storage.SC().Commit(version)
+		require.NoError(t, err)
+	}
+	require.NoError(t, storage.Close())
+
+	reopened := openEVMOnlyTestStorage(t, home)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	_, err := NewEVMOnlyApplication(evmOnlyTestChainID, 1, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()))
+	require.ErrorIs(t, err, errEVMOnlyCursorMissing)
+
+	// The same store is a valid seed for a chain whose first block is height+1.
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, height+1, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()))
+	require.NoError(t, err)
+	require.Equal(t, int64(0), app.Info().LastBlockHeight)
 }
 
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
