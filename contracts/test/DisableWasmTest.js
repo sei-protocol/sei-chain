@@ -24,14 +24,16 @@ const { expect } = require("chai");
  * Tests the chain parameter controls for CosmWasm operations:
  * 
  * 1. Pre-flight Check - Verifies WASM is enabled and store/instantiate work
- * 2. Disable WASM - Disables via governance, verifies new deployments fail,
- *                   but existing CW20 contracts still work (query + execute)
+ * 2. Disable WASM - Disables via governance, verifies new uploads fail, while code
+ *                   stored beforehand stays instantiable and existing CW20 contracts
+ *                   still work (query + execute)
  * 3. Re-enable WASM - Re-enables via governance, verifies deployments work again
  * 4. Two-step Proposal - Tests creating and passing proposals as separate steps
  */
 describe("Disable WASM Test", function () {
     let accounts;
     let admin;
+    let cw20CodeId;
     let cw20Contract;
 
     before(async function () {
@@ -43,9 +45,9 @@ describe("Disable WASM Test", function () {
         expect(await isWasmEnabled()).to.be.true;
 
         // Deploy a CW20 the disabled-wasm scenarios can keep calling
-        const codeId = await storeWasm(WASM.CW20);
+        cw20CodeId = await storeWasm(WASM.CW20);
         cw20Contract = await instantiateWasm(
-            codeId,
+            cw20CodeId,
             admin.seiAddress,
             "test-cw20-existing",
             {
@@ -112,25 +114,24 @@ describe("Disable WASM Test", function () {
             }
         });
 
-        it("should fail to instantiate new contracts when disabled", async function () {
-            try {
-                await instantiateWasm(
-                    1,
-                    admin.seiAddress,
-                    "test-cw20-should-fail",
-                    {
-                        name: "Test",
-                        symbol: "TST",
-                        decimals: 6,
-                        initial_balances: [],
-                        mint: { minter: admin.seiAddress }
-                    }
-                );
-                expect.fail("Expected instantiateWasm to fail when disabled");
-            } catch (error) {
-                // Error should indicate unauthorized/permission denied
-                expect(error.message.toLowerCase()).to.include("instantiatewasm failed");
-            }
+        // Disabling wasm sets instantiate_default_permission to Nobody, which wasmd reads
+        // when code is stored rather than when it is instantiated: the permission is frozen
+        // into CodeInfo at upload time. Code uploaded while wasm was enabled therefore stays
+        // instantiable, and only new uploads are blocked.
+        it("should still allow instantiating already-stored code when disabled", async function () {
+            const contractAddr = await instantiateWasm(
+                cw20CodeId,
+                admin.seiAddress,
+                "test-cw20-existing-code",
+                {
+                    name: "Test",
+                    symbol: "TST",
+                    decimals: 6,
+                    initial_balances: [],
+                    mint: { minter: admin.seiAddress }
+                }
+            );
+            expect(contractAddr).to.be.a("string");
         });
 
         it("should still allow querying existing CW20 contract when wasm is disabled", async function () {
