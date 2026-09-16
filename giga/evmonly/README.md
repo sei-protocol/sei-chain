@@ -98,6 +98,18 @@ including for empty blocks. A receipt failure leaves state unchanged so the
 block can be retried. A state failure can leave receipts behind, but retrying
 the block overwrites them. `ResultSink` runs only after both stores succeed.
 
+`ExecuteBlock` advances the state store's version itself, independently of any
+ABCI `Commit`, so what the store holds after a restart is decided by the
+storage layer (which flushes asynchronously and re-executes blocks from
+BlockDB), not by which `Commit` calls the application saw. An ABCI application
+built on the executor must therefore derive `Info()` from storage rather than
+from memory: after a restart, the Giga router calls `InitChain` and replays
+block 1 whenever `Info().LastBlockHeight` is zero, which fails against state
+that already exists. `WithBlockChangeSetEncoder(...)` lets the application
+commit its own named changesets (for example an execution cursor holding the
+app hash and parent hash) in the same `CommitStateChanges` call as the block's
+EVM state, so the two can never disagree on disk.
+
 The FlatKV encoder persists balance, nonce, code, and storage changes, and the
 executor reads them through the current Giga state view. EVM-only Autobahn load
 tests use `WithMissingAccountState(...)` to supply the initial funded state for
