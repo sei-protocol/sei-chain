@@ -203,21 +203,21 @@ func (s *State) getMempool(ctx context.Context) (*mempool, error) {
 	return mp, nil
 }
 
-// preReadEvmNonce reads the app nonce of addr outside the mempool lock, unless the
-// mempool already tracks addr. It also returns the lane's first block at the time of
-// the check, which insertTx uses to detect prunes racing the read.
-func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (nonce uint64, first types.BlockNumber, haveAppNonce bool, err error) {
+// preReadEvmNonce reads the app nonce of addr outside the mempool lock, returning None
+// when the mempool already tracks addr. It also returns the lane's first block at the
+// time of the check, which insertTx uses to detect prunes racing the read.
+func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (utils.Option[uint64], types.BlockNumber, error) {
+	var first types.BlockNumber
 	for m := range mp.inner.Lock() {
 		if m.closed {
-			return 0, 0, false, ErrNotProducing
+			return utils.None[uint64](), 0, ErrNotProducing
 		}
 		first = m.first
-		_, tracked := m.evmNonces[addr]
-		if tracked {
-			return 0, first, false, nil
+		if _, tracked := m.evmNonces[addr]; tracked {
+			return utils.None[uint64](), first, nil
 		}
 	}
-	return s.evmNonce(addr), first, true, nil
+	return utils.Some(s.evmNonce(addr)), first, nil
 }
 
 // checkTx runs the app CheckTx for tx.
@@ -331,11 +331,10 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 		return nil, errTooLarge
 	}
 
-	var appNonce uint64
+	appNonce := utils.None[uint64]()
 	var first types.BlockNumber
-	var haveAppNonce bool
 	if resp.IsEVM {
-		appNonce, first, haveAppNonce, err = s.preReadEvmNonce(mp, resp.EVMSenderAddress)
+		appNonce, first, err = s.preReadEvmNonce(mp, resp.EVMSenderAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -371,8 +370,8 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 				// there is no entry and no block was pruned since it was taken (m.first
 				// unchanged), since pruning may delete this sender's entry and advance the
 				// app nonce.
-				if haveAppNonce && m.first == first {
-					nonce = appNonce
+				if pre, ok := appNonce.Get(); ok && m.first == first {
+					nonce = pre
 				} else {
 					nonce = s.evmNonce(addr)
 				}
