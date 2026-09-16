@@ -54,6 +54,11 @@ func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	return app.app.EvmBalance(addr, seiAddr)
 }
 
+func (app *Proxy) EvmChainID() uint64 {
+	defer addTimeSample(Global.MethodTimingAt("evm_chain_id", "sync"))()
+	return app.app.EvmChainID()
+}
+
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
 	defer addTimeSample(Global.MethodTimingAt("commit", "sync"))()
 	return app.app.Commit(ctx)
