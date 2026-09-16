@@ -24,6 +24,10 @@ import (
 
 const evmOnlyMinGasPrice = 1_000_000_000
 
+// evmOnlyBaseFee is the base fee this application executes every block at.
+// Admission and block validity both price against it, so they cannot diverge.
+func evmOnlyBaseFee() *big.Int { return new(big.Int) }
+
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
 type evmOnlyApplication struct {
@@ -198,8 +202,12 @@ func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.
 	if tx.Type() == ethtypes.BlobTxType {
 		return nil, common.Address{}, fmt.Errorf("blob transactions are not supported")
 	}
-	if tx.GasPrice().Cmp(big.NewInt(evmOnlyMinGasPrice)) < 0 {
-		return nil, common.Address{}, fmt.Errorf("ethereum transaction gas price is below %d", evmOnlyMinGasPrice)
+	// The predicate block validity uses, not tx.GasPrice(): on a dynamic-fee tx
+	// that is the fee cap, so admitting on it let through transactions the
+	// executor then refused — and an executor refusal is a node panic, not a
+	// failed receipt.
+	if evmonly.EffectiveGasPrice(tx, evmOnlyBaseFee()).Cmp(big.NewInt(evmOnlyMinGasPrice)) < 0 {
+		return nil, common.Address{}, fmt.Errorf("ethereum transaction effective gas price is below %d", evmOnlyMinGasPrice)
 	}
 	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(a.chainID), tx)
 	if err != nil {
@@ -261,7 +269,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				Time:        timestamp,
 				GasLimit:    state.gasLimit,
 				ChainID:     new(big.Int).Set(a.chainID),
-				BaseFee:     new(big.Int),
+				BaseFee:     evmOnlyBaseFee(),
 				BlobBaseFee: new(big.Int),
 				ParentHash:  state.parentHash,
 				BlockHash:   blockHash,

@@ -74,18 +74,21 @@ func BuildTransaction(
 	captureMetrics := dataGenerator.rand.Float64() < dataGenerator.config.TransactionMetricsSampleRate
 
 	return &transaction{
-		srcAccount:        srcAccountAddress,
-		isSrcNew:          isSrcNew,
-		dstAccount:        dstAccountAddress,
-		isDstNew:          isDstNew,
-		srcAccountSlot:    srcAccountSlot,
-		dstAccountSlot:    dstAccountSlot,
-		erc20Contract:     erc20Contract,
-		newSrcBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
-		newDstBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
-		newFeeBalance:     append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize)...),
-		newSrcAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
-		newDstAccountSlot: append([]byte(nil), dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize)...),
+		srcAccount:     srcAccountAddress,
+		isSrcNew:       isSrcNew,
+		dstAccount:     dstAccountAddress,
+		isDstNew:       isDstNew,
+		srcAccountSlot: srcAccountSlot,
+		dstAccountSlot: dstAccountSlot,
+		erc20Contract:  erc20Contract,
+		// Windows onto the canned buffer rather than copies of it. The buffer is never written after
+		// construction, and every consumer of a value copies what it keeps. A copy here would be a copy
+		// of bytes nothing can change, five times per transaction.
+		newSrcBalance:     dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize),
+		newDstBalance:     dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize),
+		newFeeBalance:     dataGenerator.rand.Bytes(dataGenerator.config.AccountBalanceSize),
+		newSrcAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
+		newDstAccountSlot: dataGenerator.rand.Bytes(dataGenerator.config.Erc20StorageSlotSize),
 		captureMetrics:    captureMetrics,
 	}, nil
 }
@@ -143,46 +146,11 @@ func (txn *transaction) Execute(
 		database.Get(feeCollectionAddress)
 	}
 
-	phaseTimer.SetPhase("update_balances")
-	var err error
-
-	// Write the following:
-	// - the sender's native balance
-	// - the receiver's native balance
-	// - the sender's storage slot for the ERC20 contract
-	// - the receiver's storage slot for the ERC20 contract
-	// - the fee collection account's native balance
-
-	// Write the sender's account data.
-	err = database.Put(txn.srcAccount, txn.newSrcBalance)
-	if err != nil {
-		return fmt.Errorf("failed to put source account: %w", err)
-	}
-
-	// Write the receiver's account data.
-	err = database.Put(txn.dstAccount, txn.newDstBalance)
-	if err != nil {
-		return fmt.Errorf("failed to put destination account: %w", err)
-	}
-
-	// Write the sender's storage slot for the ERC20 contract.
-	err = database.Put(txn.srcAccountSlot, txn.newSrcAccountSlot)
-	if err != nil {
-		return fmt.Errorf("failed to put source account slot: %w", err)
-	}
-
-	// Write the receiver's storage slot for the ERC20 contract.
-	err = database.Put(txn.dstAccountSlot, txn.newDstAccountSlot)
-	if err != nil {
-		return fmt.Errorf("failed to put destination account slot: %w", err)
-	}
-
-	// Write the fee collection account's native balance.
-	err = database.Put(feeCollectionAddress, txn.newFeeBalance)
-	if err != nil {
-		return fmt.Errorf("failed to put fee collection account: %w", err)
-	}
-
+	// The writes this transaction makes — both accounts' balances and both ERC20 storage slots, plus the
+	// block's single fee collection write — were recorded when the block was generated, so there is
+	// nothing to write here. See recordTransactionWrites(): the values are pre-generated and depend on
+	// nothing that was just read, so issuing them on this thread only took time away from the reads,
+	// which are what this benchmark exists to measure.
 	phaseTimer.Reset()
 
 	return nil

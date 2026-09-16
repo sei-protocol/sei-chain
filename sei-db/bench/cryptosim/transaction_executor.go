@@ -55,11 +55,15 @@ func NewTransactionExecutor(
 	return e
 }
 
-// Schedule a transaction for execution.
-func (e *TransactionExecutor) ScheduleForExecution(txn *transaction) {
+// Schedule a run of transactions for execution.
+//
+// A whole range is handed over in one message rather than one message per transaction: at thousands of
+// transactions per block, the channel sends and receives were themselves a measurable share of the main
+// thread's time and of this goroutine's. The slice is owned by the block and is only read here.
+func (e *TransactionExecutor) ScheduleRange(txns []*transaction) {
 	select {
 	case <-e.ctx.Done():
-	case e.workChan <- txn:
+	case e.workChan <- txns:
 	}
 }
 
@@ -87,24 +91,32 @@ func (e *TransactionExecutor) mainLoop() {
 			return
 		case request := <-e.workChan:
 			switch request := request.(type) {
-			case *transaction:
+			case []*transaction:
 
 				if e.config.DisableTransactionExecution {
 					continue
 				}
 
-				var phaseTimer *metrics.PhaseTimer
-				if request.ShouldCaptureMetrics() {
-					phaseTimer = e.phaseTimer
-				}
-
-				if err := request.Execute(e.database, e.feeCollectionAddress, phaseTimer); err != nil {
-					log.Printf("transaction execution error: %v", err)
-					e.cancel()
+				for _, txn := range request {
+					e.execute(txn)
 				}
 			case flushRequest:
 				request.doneChan <- struct{}{}
 			}
 		}
+	}
+}
+
+// execute runs one transaction. A failure stops the benchmark: a transaction that cannot execute means
+// the database is not answering, and whatever ran afterwards would not be measuring anything.
+func (e *TransactionExecutor) execute(txn *transaction) {
+	var phaseTimer *metrics.PhaseTimer
+	if txn.ShouldCaptureMetrics() {
+		phaseTimer = e.phaseTimer
+	}
+
+	if err := txn.Execute(e.database, e.feeCollectionAddress, phaseTimer); err != nil {
+		log.Printf("transaction execution error: %v", err)
+		e.cancel()
 	}
 }

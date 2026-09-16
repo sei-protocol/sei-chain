@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	autobahn "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
@@ -51,11 +52,16 @@ type GigasimConfig struct {
 	// chosen for a transaction; they exist to give the state DB a realistic resident size.
 	MinimumNumberOfDormantAccounts int
 
-	// The probability in [0,1] that a transaction picks one of its accounts from the hot set.
+	// The share in [0,1] of account selections that draw from the hot set. Which selections those are
+	// follows from their position rather than from a draw, so any run of selections carries this share.
+	//
+	// A selection that is also a minting selection mints instead, so the hot share is short by
+	// NewAccountProbability wherever the two patterns coincide.
 	HotAccountProbability float64
 
-	// The probability in [0,1] that a non-hot account selection creates a new account instead of
-	// reusing a cold one.
+	// The share in [0,1] of account selections that mint a new account rather than reusing an existing
+	// one. Like the hot share, position decides, so the accounts any run of selections mints are known
+	// before it runs.
 	NewAccountProbability float64
 
 	// The share in [0,1] of newly created accounts that join the hot population.
@@ -149,6 +155,16 @@ type GigasimConfig struct {
 	// two stores, which nothing else reports.
 	LittMetricsEnabled bool
 
+	// If true, the live state DB's read caches record their own instruments: a hit counter, a miss
+	// counter and a miss latency histogram, all of them per read and reported into by every executor
+	// thread. At the read rates a measured run drives, what the run measures starts to include the cost
+	// of measuring it.
+	//
+	// The cost of leaving it off is visibility: cache hit rate and cache size are reported by these
+	// same instruments, so a run configured that way cannot show them. Turn it on for any run whose
+	// question is about cache behaviour rather than throughput.
+	ReadCacheMetricsEnabled bool
+
 	// If true, pressing Enter in the terminal toggles suspend/resume.
 	EnableSuspension bool
 
@@ -210,6 +226,7 @@ func DefaultGigasimConfig() *GigasimConfig {
 		MetricsAddr:                     ":9090",
 		BackgroundMetricsScrapeInterval: 60,
 		LittMetricsEnabled:              true,
+		ReadCacheMetricsEnabled:         false,
 		EnableSuspension:                true,
 		LogDir:                          "logs",
 		LogLevel:                        "info",
@@ -235,6 +252,15 @@ func (c *GigasimConfig) storageConfig() (*config.GigaStorageConfig, error) {
 
 	storage.BlockDBConfig.Litt.MetricsEnabled = c.LittMetricsEnabled
 	storage.ReceiptDBConfig.LittMetricsEnabled = c.LittMetricsEnabled
+
+	for _, store := range []*view.ViewManagerConfig{
+		&storage.FlatKVConfig.AccountStoreConfig,
+		&storage.FlatKVConfig.CodeStoreConfig,
+		&storage.FlatKVConfig.StorageStoreConfig,
+		&storage.FlatKVConfig.MiscStoreConfig,
+	} {
+		store.MetricsEnabled = c.ReadCacheMetricsEnabled
+	}
 
 	storage.PruningConfig.RollbackWindow = c.RollbackWindow
 	storage.PruningConfig.LookbackWindow = c.LookbackWindow

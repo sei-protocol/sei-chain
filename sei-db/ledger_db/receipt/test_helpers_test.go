@@ -1,12 +1,24 @@
 package receipt
 
 import (
+	"testing"
+	"time"
+
 	"github.com/ethereum/go-ethereum/common"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/require"
 )
+
+// requireReceiptVersion waits for the store to publish height. A write may be applied after
+// SetReceipts returns, and LatestVersion is how a reader learns that it landed.
+func requireReceiptVersion(t *testing.T, store ReceiptStore, height int64) {
+	t.Helper()
+	require.Eventually(t, func() bool { return store.LatestVersion() >= height },
+		5*time.Second, time.Millisecond)
+}
 
 func newTestContext() (sdk.Context, storetypes.StoreKey) {
 	storeKey := storetypes.NewKVStoreKey("evm")

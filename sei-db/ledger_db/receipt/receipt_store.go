@@ -51,12 +51,14 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 type ReceiptStore interface {
 	controller.PrunableStore
 
+	// LatestVersion is the highest block whose receipts are queryable. A write may land after
+	// SetReceipts returns, so a reader follows this rather than the height it last wrote.
 	LatestVersion() int64
 	EarliestVersion() int64
-	SetLatestVersion(version int64) error
-	SetEarliestVersion(version int64) error
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
 	GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
+	// SetReceipts writes the block's receipts, carrying the version markers with them. An
+	// implementation may apply the write in the background; LatestVersion reports when it lands.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.
@@ -66,6 +68,26 @@ type ReceiptStore interface {
 	// enforce the matched-log count on the normalized result separately.
 	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error)
 	Close() error
+}
+
+// VersionPinner is implemented by receipt stores whose version markers can be written directly. It
+// is for a caller that put receipts in place by other means and has to state the window they cover.
+type VersionPinner interface {
+	SetLatestVersion(version int64) error
+	SetEarliestVersion(version int64) error
+}
+
+// PinVersions widens store's queryable window to [earliest, latest], reporting a store that cannot
+// be pinned rather than leaving the window unset.
+func PinVersions(store ReceiptStore, earliest, latest int64) error {
+	pinner, ok := store.(VersionPinner)
+	if !ok {
+		return fmt.Errorf("receipt store %T cannot pin versions", store)
+	}
+	if err := pinner.SetLatestVersion(latest); err != nil {
+		return err
+	}
+	return pinner.SetEarliestVersion(earliest)
 }
 
 type ReceiptRecord struct {

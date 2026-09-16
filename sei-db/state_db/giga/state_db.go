@@ -77,7 +77,7 @@ func NewStateDB(
 ) (db *StateDB, retErr error) {
 	s := &StateDB{
 		flatkvCfg: flatkvCfg,
-		ssCfg:     ssCfg,
+		ssCfg:     stateStoreConfigFor(ssCfg),
 		commitPhases: metrics.NewPhaseTimerFactory(otel.Meter(gigaMeterName), commitPhaseTimerName).
 			RecordLatencies().Build(),
 	}
@@ -108,6 +108,14 @@ func NewStateDB(
 	return s, nil
 }
 
+// stateStoreConfigFor is the config a StateDB opens SS with. It is settled here rather than at each
+// open because the rollback path opens the same databases through DiscardStateAbove. The changelog
+// is off: this StateDB's own state WAL is what catchUpTo replays into SS.
+func stateStoreConfigFor(cfg config.StateStoreConfig) config.StateStoreConfig {
+	cfg.DisableInternalWAL = true
+	return cfg
+}
+
 // NewStateDBWithRollback rolls SC, SS and the state WAL back to target and then opens them, so the
 // returned StateDB commits target+1. It cuts the WAL's tail to target and puts whichever of SC and SS
 // sits above target on its newest snapshot at or below it, all while the stores are closed, then opens
@@ -131,7 +139,7 @@ func NewStateDBWithRollback(
 	}
 
 	// rewindTo only moves files, so it needs no store open, only where they live.
-	offline := &StateDB{flatkvCfg: flatkvCfg, ssCfg: ssCfg}
+	offline := &StateDB{flatkvCfg: flatkvCfg, ssCfg: stateStoreConfigFor(ssCfg)}
 	if err := offline.rewindTo(target); err != nil {
 		return nil, err
 	}
