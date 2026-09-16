@@ -134,6 +134,7 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	if err := receiptContextError(ctx); err != nil {
 		return err
 	}
+	receipt.RecordReceiptsWritten(ctx.Context(), records)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
@@ -32,6 +33,16 @@ func bindTestOCCMetrics(t *testing.T) *sdkmetric.ManualReader {
 		"giga_occ_rerun_depth",
 		metric.WithExplicitBucketBoundaries(occRerunDepthBuckets()...),
 	))
+	return reader
+}
+
+func bindTestExecutionMetrics(t *testing.T) *sdkmetric.ManualReader {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("giga_evmonly")
+	previous := executionMetrics
+	t.Cleanup(func() { executionMetrics = previous })
+	executionMetrics.txsExecuted = must(meter.Int64Counter("txs_executed_total"))
 	return reader
 }
 
@@ -345,4 +356,22 @@ func TestOCCConflictOptionsCoverEveryStateAccessKind(t *testing.T) {
 	for kind := stateAccessAccount; kind <= stateAccessStorage; kind++ {
 		require.Contains(t, occConflictKinds, kind.String(), "stateAccessKind %d is missing a conflict label", kind)
 	}
+}
+
+func TestRecordTxExecutionStatsLabelsSuccessAndReverted(t *testing.T) {
+	reader := bindTestExecutionMetrics(t)
+	recordTxExecutionStats(t.Context(), []TxResult{
+		{Status: types.ReceiptStatusSuccessful},
+		{Status: types.ReceiptStatusFailed},
+	})
+
+	collected := collectOCCMetrics(t, reader)
+	require.Equal(t, int64(1), requireCounter(t, collected, "txs_executed_total",
+		attribute.String("status", txExecutionStatusSuccess)))
+	require.Equal(t, int64(1), requireCounter(t, collected, "txs_executed_total",
+		attribute.String("status", txExecutionStatusReverted)))
+}
+
+func TestTxExecutionStatusMapsUnknownStatusToFailed(t *testing.T) {
+	require.Equal(t, txExecutionStatusFailed, txExecutionStatus(TxResult{Status: 99}))
 }

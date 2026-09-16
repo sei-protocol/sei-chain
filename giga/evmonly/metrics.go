@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime/debug"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -17,6 +18,16 @@ import (
 // giga_occ_blocks_total is scraped as sei_chain_giga_occ_blocks_total.
 var (
 	occMeter = otel.Meter("giga_evmonly")
+
+	executionMetrics = struct {
+		txsExecuted metric.Int64Counter
+	}{
+		txsExecuted: must(occMeter.Int64Counter(
+			"txs_executed_total",
+			metric.WithDescription("EVM-only transactions executed per block, by outcome (success, reverted, failed)"),
+			metric.WithUnit("{transaction}"),
+		)),
+	}
 
 	occMetrics = struct {
 		blocks     metric.Int64Counter
@@ -53,6 +64,80 @@ var (
 		)),
 	}
 )
+
+func init() {
+	ctx := context.Background()
+	for _, status := range txExecutionStatuses {
+		executionMetrics.txsExecuted.Add(ctx, 0, txExecutionStatusAttr(status))
+	}
+}
+
+const (
+	txExecutionStatusSuccess  = "success"
+	txExecutionStatusReverted = "reverted"
+	txExecutionStatusFailed   = "failed"
+)
+
+var txExecutionStatuses = []string{
+	txExecutionStatusSuccess,
+	txExecutionStatusReverted,
+	txExecutionStatusFailed,
+}
+
+var (
+	txExecutionStatusOptions = txExecutionStatusOptionTable()
+)
+
+func txExecutionStatusOptionTable() map[string]metric.MeasurementOption {
+	table := make(map[string]metric.MeasurementOption, len(txExecutionStatuses))
+	for _, status := range txExecutionStatuses {
+		table[status] = metric.WithAttributes(attribute.String("status", status))
+	}
+	return table
+}
+
+func txExecutionStatusAttr(status string) metric.MeasurementOption {
+	if option, ok := txExecutionStatusOptions[status]; ok {
+		return option
+	}
+	return txExecutionStatusOptions[txExecutionStatusFailed]
+}
+
+// txExecutionStatus maps a transaction result onto the bounded status label
+// vocabulary used by txs_executed_total.
+func txExecutionStatus(tx TxResult) string {
+	switch {
+	case tx.Status == ethtypes.ReceiptStatusSuccessful:
+		return txExecutionStatusSuccess
+	case tx.Status == ethtypes.ReceiptStatusFailed:
+		return txExecutionStatusReverted
+	default:
+		return txExecutionStatusFailed
+	}
+}
+
+// recordTxExecutionStats emits per-transaction execution outcomes for a finished
+// block. This runs inside block execution, so a telemetry fault must not panic
+// into the caller.
+func recordTxExecutionStats(ctx context.Context, txs []TxResult) {
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
+		}
+	}()
+	if len(txs) == 0 {
+		return
+	}
+	counts := make(map[string]int64, len(txExecutionStatuses))
+	for _, tx := range txs {
+		counts[txExecutionStatus(tx)]++
+	}
+	for status, count := range counts {
+		if count > 0 {
+			executionMetrics.txsExecuted.Add(ctx, count, txExecutionStatusAttr(status))
+		}
+	}
+}
 
 // occLabelUnknown is the value every label vocabulary in this file collapses an
 // unrecognized value onto.

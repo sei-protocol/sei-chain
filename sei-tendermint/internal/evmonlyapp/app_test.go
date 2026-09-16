@@ -1,6 +1,7 @@
 package evmonlyapp
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -204,6 +205,21 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	})
 
 	require.Error(t, err)
+}
+
+func TestEVMOnlyABCIResultsReflectTransactionStatus(t *testing.T) {
+	result := &evmonly.BlockResult{
+		Txs: []evmonly.TxResult{
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusSuccessful},
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusFailed, Err: errors.New("execution reverted")},
+		},
+	}
+
+	txResults := evmOnlyABCIResults(result)
+
+	require.Equal(t, abci.CodeTypeOK, txResults[0].Code)
+	require.Equal(t, uint32(1), txResults[1].Code)
+	require.Equal(t, "execution reverted", txResults[1].Log)
 }
 
 func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {

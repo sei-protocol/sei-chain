@@ -282,6 +282,7 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 }
 
 func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
+	RecordReceiptsWritten(ctx.Context(), receipts)
 	pairs := make([]*proto.KVPair, 0, len(receipts))
 	for _, record := range receipts {
 		if record.Receipt == nil {

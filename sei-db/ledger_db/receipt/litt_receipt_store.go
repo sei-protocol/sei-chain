@@ -370,6 +370,7 @@ func (s *littReceiptStore) queueWrite(write receiptWrite) error {
 // applyReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
 // litt first, so an indexed block always has its values written.
 func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord) error {
+	RecordReceiptsWritten(context.Background(), receipts)
 	blockNumbers, receiptsByBlock := groupReceiptRecordsByBlock(receipts)
 	if len(blockNumbers) == 0 {
 		return s.SetLatestVersion(height)

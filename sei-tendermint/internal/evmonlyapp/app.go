@@ -314,8 +314,17 @@ func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	txResults := make([]*abci.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
 		gasUsed := utils.Clamp[int64](tx.GasUsed)
+		code := abci.CodeTypeOK
+		var log string
+		if tx.Status != ethtypes.ReceiptStatusSuccessful {
+			code = 1
+			if tx.Err != nil {
+				log = tx.Err.Error()
+			}
+		}
 		txResults[i] = &abci.ExecTxResult{
-			Code:      abci.CodeTypeOK,
+			Code:      code,
+			Log:       log,
 			GasWanted: gasUsed,
 			GasUsed:   gasUsed,
 		}
