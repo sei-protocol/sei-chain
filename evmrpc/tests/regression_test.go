@@ -456,7 +456,6 @@ func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Co
 		return ctx
 	}
 	params.SeiSstoreSetGasEip2200 = legacySstoreGas
-	params.RegisterPointerDisabled = false
 	a.EvmKeeper.SetParams(ctx, params)
 	return ctx
 }

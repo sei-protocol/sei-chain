@@ -2,11 +2,9 @@ const {
     getAdmin,
     queryWasm,
     executeWasm,
-    deployEvmContract,
     setupSigners,
     storeWasm,
     instantiateWasm,
-    registerPointerForERC20,
     disableWasm,
     enableWasm,
     isWasmEnabled,
@@ -27,20 +25,14 @@ const { expect } = require("chai");
  * 
  * 1. Pre-flight Check - Verifies WASM is enabled and store/instantiate work
  * 2. Disable WASM - Disables via governance, verifies new deployments fail,
- *                   but existing CW20 pointers still work (query + execute)
+ *                   but existing CW20 contracts still work (query + execute)
  * 3. Re-enable WASM - Re-enables via governance, verifies deployments work again
  * 4. Two-step Proposal - Tests creating and passing proposals as separate steps
  */
 describe("Disable WASM Test", function () {
     let accounts;
     let admin;
-    let testToken;
-    let cw20Pointer;
-
-    async function setBalance(addr, balance) {
-        const resp = await testToken.setBalance(addr, balance);
-        await resp.wait();
-    }
+    let cw20Contract;
 
     before(async function () {
         accounts = await setupSigners(await hre.ethers.getSigners());
@@ -50,15 +42,20 @@ describe("Disable WASM Test", function () {
         await ensureWasmEnabled();
         expect(await isWasmEnabled()).to.be.true;
 
-        // Deploy TestToken (ERC20)
-        testToken = await deployEvmContract("TestToken", ["TEST", "TEST"]);
-        const tokenAddr = await testToken.getAddress();
-
-        // Give admin balance
-        await setBalance(admin.evmAddress, 1000000000000);
-
-        // Register CW20 pointer for the ERC20 token
-        cw20Pointer = await registerPointerForERC20(tokenAddr);
+        // Deploy a CW20 the disabled-wasm scenarios can keep calling
+        const codeId = await storeWasm(WASM.CW20);
+        cw20Contract = await instantiateWasm(
+            codeId,
+            admin.seiAddress,
+            "test-cw20-existing",
+            {
+                name: "Test",
+                symbol: "TST",
+                decimals: 6,
+                initial_balances: [{ address: admin.seiAddress, amount: "1000000000000" }],
+                mint: { minter: admin.seiAddress }
+            }
+        );
     });
 
     // Global cleanup - always ensure WASM is enabled when tests finish
@@ -136,21 +133,21 @@ describe("Disable WASM Test", function () {
             }
         });
 
-        it("should still allow querying existing CW20 pointer when wasm is disabled", async function () {
-            const result = await queryWasm(cw20Pointer, "token_info", {});
+        it("should still allow querying existing CW20 contract when wasm is disabled", async function () {
+            const result = await queryWasm(cw20Contract, "token_info", {});
             expect(result.data).to.have.property("name");
             expect(result.data).to.have.property("symbol");
         });
 
-        it("should still allow executing on existing CW20 pointer when wasm is disabled", async function () {
-            const balanceBefore = await queryWasm(cw20Pointer, "balance", { address: admin.seiAddress });
+        it("should still allow executing on existing CW20 contract when wasm is disabled", async function () {
+            const balanceBefore = await queryWasm(cw20Contract, "balance", { address: admin.seiAddress });
 
-            const transferResult = await executeWasm(cw20Pointer, {
+            const transferResult = await executeWasm(cw20Contract, {
                 transfer: { recipient: accounts[0].seiAddress, amount: "100" }
             });
             expect(transferResult.txhash).to.be.a("string");
 
-            const balanceAfter = await queryWasm(cw20Pointer, "balance", { address: admin.seiAddress });
+            const balanceAfter = await queryWasm(cw20Contract, "balance", { address: admin.seiAddress });
             expect(parseInt(balanceAfter.data.balance)).to.be.lessThan(parseInt(balanceBefore.data.balance));
         });
     });
@@ -195,8 +192,8 @@ describe("Disable WASM Test", function () {
             expect(contractAddr).to.be.a("string");
         });
 
-        it("should still allow existing pointer to work after re-enabling", async function () {
-            const result = await queryWasm(cw20Pointer, "token_info", {});
+        it("should still allow the existing contract to work after re-enabling", async function () {
+            const result = await queryWasm(cw20Contract, "token_info", {});
             expect(result.data).to.have.property("name");
         });
     });

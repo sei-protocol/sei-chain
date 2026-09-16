@@ -109,14 +109,16 @@ Pointer contracts enable tokens on one VM to be accessed from the other VM. This
 - CW721 NFTs get an ERC721 pointer.
 - CW1155 multi-tokens get an ERC1155 pointer.
 
-**CW wrappers for ERC tokens:**
-- ERC20 tokens get a CW20 wrapper.
-- ERC721 NFTs get a CW721 wrapper.
-- ERC1155 multi-tokens get a CW1155 wrapper.
+**CW wrappers for ERC tokens:** retired. ERC20/721/1155 tokens could once be given a
+CosmWasm wrapper through `MsgRegisterPointer`, which instantiated a wasm contract. That
+handler now returns `ErrRegisterPointerDeprecated` and the wrapper wasm is no longer
+shipped. Wrappers registered before the retirement remain live and readable: their
+registry entries, versions, and queries are unchanged, and `AssociateContractAddress`
+still gives one an EVM address.
 
 Pointers are versioned and can be upgraded. A reverse registry allows looking up the original token from its pointer address.
 
-Pre-compiled bytecode for all pointer contracts is embedded in the binary under `artifacts/`.
+Pre-compiled bytecode for the EVM pointer contracts is embedded in the binary under `artifacts/`.
 
 ---
 
