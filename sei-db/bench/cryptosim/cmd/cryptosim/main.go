@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/pprof" //nolint:gosec // the profiling endpoint is the point; it is opt-in via PprofAddr
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -42,20 +45,42 @@ func setupOtelPrometheus() (*prometheus.Registry, func(context.Context) error, e
 	return reg, provider.Shutdown, nil
 }
 
-// startMetricsServer serves /metrics from the given gatherer. Shuts down when ctx is cancelled.
-func startMetricsServer(ctx context.Context, gatherer prometheus.Gatherer, addr string) {
-	if addr == "" {
-		return
+// startHTTPServer serves /metrics from the given gatherer and, when the config asks for it, the pprof
+// endpoints beside them. It returns the address it bound, or "" when MetricsAddr is empty. Shuts down
+// when ctx is cancelled.
+//
+// Binding happens before this returns, so a port already in use is an error here rather than silence
+// at the far end of an ssh tunnel.
+//
+// The server has no write timeout: a CPU or trace profile holds its response open for the length of
+// the collection, which a timeout would truncate.
+func startHTTPServer(
+	ctx context.Context,
+	gatherer prometheus.Gatherer,
+	config *cryptosim.CryptoSimConfig,
+) (string, error) {
+
+	if config.MetricsAddr == "" {
+		return "", nil
 	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(gatherer, promhttp.HandlerOpts{}))
+	if config.EnablePprof {
+		registerPprof(mux, config)
+	}
+
+	listener, err := net.Listen("tcp", config.MetricsAddr)
+	if err != nil {
+		return "", fmt.Errorf("listen on metrics address %q: %w", config.MetricsAddr, err)
+	}
+
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
-		_ = srv.ListenAndServe()
+		_ = srv.Serve(listener)
 	}()
 	go func() {
 		<-ctx.Done()
@@ -63,6 +88,34 @@ func startMetricsServer(ctx context.Context, gatherer prometheus.Gatherer, addr 
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
+
+	return listener.Addr().String(), nil
+}
+
+// pprofSuffix names the pprof endpoints in the startup line when they are being served.
+func pprofSuffix(config *cryptosim.CryptoSimConfig) string {
+	if config.EnablePprof {
+		return " and pprof"
+	}
+	return ""
+}
+
+// registerPprof adds the pprof endpoints to mux and enables the mutex and block profiles at the
+// configured sample rates. Index covers the heap, goroutine, allocs, mutex and block profiles.
+func registerPprof(mux *http.ServeMux, config *cryptosim.CryptoSimConfig) {
+	// Off unless asked for, because sampling either one charges the events it samples.
+	if config.MutexProfileFraction > 0 {
+		runtime.SetMutexProfileFraction(config.MutexProfileFraction)
+	}
+	if config.BlockProfileRate > 0 {
+		runtime.SetBlockProfileRate(config.BlockProfileRate)
+	}
+
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 // Run the cryptosim benchmark.
@@ -117,6 +170,17 @@ func run() error {
 		_ = shutdown(context.Background())
 	}()
 
+	// Before cryptosim is built rather than after, so that setup is profilable and observable too.
+	// Scrapes landing during setup see the process and Go collectors with cryptosim's own metrics not
+	// yet populated, which is what a run in setup should report.
+	httpAddr, err := startHTTPServer(ctx, reg, config)
+	if err != nil {
+		return fmt.Errorf("start http server: %w", err)
+	}
+	if httpAddr != "" {
+		fmt.Printf("metrics%s listening on %s\n", pprofSuffix(config), httpAddr)
+	}
+
 	cs, err := cryptosim.NewCryptoSim(ctx, config)
 	if err != nil {
 		return fmt.Errorf("failed to create cryptosim: %w", err)
@@ -127,9 +191,6 @@ func run() error {
 			fmt.Fprintf(os.Stderr, "Error closing cryptosim: %v\n", err)
 		}
 	}()
-
-	// Start metrics HTTP server after cryptosim setup (metrics are populated).
-	startMetricsServer(ctx, reg, config.MetricsAddr)
 
 	// Toggle suspend/resume on Enter when enabled
 	if config.EnableSuspension {

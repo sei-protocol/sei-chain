@@ -147,6 +147,27 @@ type CryptoSimConfig struct {
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
 	MetricsAddr string
 
+	// Whether to serve the pprof endpoints, alongside the metrics on MetricsAddr.
+	//
+	// Serving them costs nothing while nothing is scraping, so the CPU, heap and goroutine profiles
+	// are available in any run. The mutex and block profiles additionally need the two sample rates
+	// below.
+	EnablePprof bool
+
+	// The sampling rate of the mutex profile: 1 records every contention event, N records on average
+	// one in N, and 0 leaves the profile off.
+	//
+	// Recording costs time inside the lock handoff it measures, so a run with this on is a diagnostic
+	// run and its throughput is not comparable to a run without it.
+	MutexProfileFraction int
+
+	// The sampling rate of the block profile, in nanoseconds of blocked time per sample: 1 records
+	// every blocking event, and 0 leaves the profile off.
+	//
+	// This carries the same caveat as MutexProfileFraction: it charges the events it samples, so it
+	// buys attribution at the cost of the number being measured.
+	BlockProfileRate int
+
 	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
 	TransactionMetricsSampleRate float64
 
@@ -284,6 +305,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
+		EnablePprof:                       true,
+		MutexProfileFraction:              0,
+		BlockProfileRate:                  0,
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
@@ -465,6 +489,23 @@ func (c *CryptoSimConfig) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
+	}
+	if c.MutexProfileFraction < 0 {
+		return fmt.Errorf("MutexProfileFraction must not be negative (got %d)", c.MutexProfileFraction)
+	}
+	if c.BlockProfileRate < 0 {
+		return fmt.Errorf("BlockProfileRate must not be negative (got %d)", c.BlockProfileRate)
+	}
+	if !c.EnablePprof && (c.MutexProfileFraction > 0 || c.BlockProfileRate > 0) {
+		// Both profiles accumulate in memory and are only readable over the pprof endpoints, so enabling
+		// one without them pays their cost and discards the result.
+		return fmt.Errorf("MutexProfileFraction (%d) and BlockProfileRate (%d) require EnablePprof",
+			c.MutexProfileFraction, c.BlockProfileRate)
+	}
+	if c.EnablePprof && c.MetricsAddr == "" {
+		// The pprof endpoints are served by the metrics server, so without an address there is nowhere
+		// to reach them.
+		return fmt.Errorf("EnablePprof requires MetricsAddr to be set")
 	}
 	return nil
 }
