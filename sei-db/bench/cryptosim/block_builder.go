@@ -198,8 +198,11 @@ func (b *blockBuilder) buildBlockRanges(blockNumber int64) []buildRangeResult {
 			results[index] = b.buildRange(blockNumber, first, transactionCount, accountID)
 		}(i, firstTransaction, count, firstAccountID)
 
+		// Counted from the first selection of the run rather than of the block, matching what the
+		// generator serves: a reservation measured from the block's own start would not be the run the
+		// worker goes on to use.
 		firstAccountID += b.dataGenerator.AccountsMintedPerSelections(
-			int64(firstTransaction)*selectionsPerTransaction,
+			b.firstSelectionOf(blockNumber, firstTransaction),
 			int64(count)*selectionsPerTransaction)
 		firstTransaction += count
 	}
@@ -216,10 +219,7 @@ func (b *blockBuilder) buildRange(
 	firstAccountID int64,
 ) buildRangeResult {
 
-	generator := b.dataGenerator.ForkForSelections(
-		int64(firstTransaction)*selectionsPerTransaction,
-		int64(transactionCount)*selectionsPerTransaction,
-		firstAccountID)
+	generator := b.dataGenerator.Fork(firstAccountID)
 
 	result := buildRangeResult{
 		transactions: make([]*transaction, 0, transactionCount),
@@ -230,11 +230,10 @@ func (b *blockBuilder) buildRange(
 	}
 
 	for i := 0; i < transactionCount; i++ {
-		// Re-pointed per transaction rather than left to run on: the randomness a transaction draws has
-		// to depend on which transaction it is, or a block's contents would depend on how many workers
-		// generated it.
-		index := int64(firstTransaction + i)
-		generator.BeginTransaction(blockNumber*int64(b.config.TransactionsPerBlock)+index, index)
+		// Re-pointed per transaction rather than left to run on: what a transaction draws and whether it
+		// creates an account have to depend on which transaction it is, or a block's contents would
+		// depend on how many workers generated it.
+		generator.BeginTransaction(b.transactionIndexOf(blockNumber, firstTransaction+i))
 
 		txn, err := BuildTransaction(generator)
 		if err != nil {
@@ -265,6 +264,19 @@ func (b *blockBuilder) buildRange(
 	result.accountsMinted = generator.AccountsMinted()
 	result.coldAccountsMinted = generator.ColdAccountsMinted()
 	return result
+}
+
+// transactionIndexOf returns a transaction's index counted from the first transaction of the run,
+// given its index within its block. Both the randomness a transaction draws and the selections it
+// serves are keyed on this, so neither restarts at a block boundary.
+func (b *blockBuilder) transactionIndexOf(blockNumber int64, transactionInBlock int) int64 {
+	return blockNumber*int64(b.config.TransactionsPerBlock) + int64(transactionInBlock)
+}
+
+// firstSelectionOf returns the selection count a transaction's first selection sits at, counted from
+// the first selection of the run.
+func (b *blockBuilder) firstSelectionOf(blockNumber int64, transactionInBlock int) int64 {
+	return b.transactionIndexOf(blockNumber, transactionInBlock) * selectionsPerTransaction
 }
 
 // recordTransactionWrites records the writes a transaction makes: the two accounts' balances and their

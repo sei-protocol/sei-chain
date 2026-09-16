@@ -46,13 +46,14 @@ type CryptoSimConfig struct {
 	// a value between 0.0 and 1.0.
 	HotAccountProbability float64
 
-	// One new account is created every this many account selections. 0 never creates accounts.
+	// One new account is created every this many account selections, of which a transaction makes two.
+	// 0 never creates accounts.
 	//
 	// A cadence rather than a probability, so that the set of accounts in existence at any point in a
 	// block follows from arithmetic rather than from the draws that came before. That is what lets a
 	// block's transactions be generated in parallel: a worker can compute which account IDs it will
 	// create without coordinating with any other worker.
-	TransactionsPerNewAccount int
+	SelectionsPerNewAccount int
 
 	// Each account contains an integer value used to track a balance, plus a bunch of random
 	// bytes for padding. This is the total size of the account after padding is added.
@@ -258,7 +259,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		MinimumNumberOfDormantAccounts:    1_000_000,
 		NewAccountDormancyProbability:     1.0,
 		HotAccountProbability:             0.1,
-		TransactionsPerNewAccount:         1111,
+		SelectionsPerNewAccount:           1111,
 		PaddedAccountSize:                 32,
 		MinimumNumberOfErc20Contracts:     10_000,
 		HotErc20ContractProbability:       0.5,
@@ -372,8 +373,8 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.HotAccountProbability < 0 || c.HotAccountProbability > 1 {
 		return fmt.Errorf("HotAccountProbability must be in [0, 1] (got %f)", c.HotAccountProbability)
 	}
-	if c.TransactionsPerNewAccount < 0 {
-		return fmt.Errorf("TransactionsPerNewAccount must be non-negative (got %d)", c.TransactionsPerNewAccount)
+	if c.SelectionsPerNewAccount < 0 {
+		return fmt.Errorf("SelectionsPerNewAccount must be non-negative (got %d)", c.SelectionsPerNewAccount)
 	}
 	if c.HotErc20ContractProbability < 0 || c.HotErc20ContractProbability > 1 {
 		return fmt.Errorf("HotErc20ContractProbability must be in [0, 1] (got %f)", c.HotErc20ContractProbability)
