@@ -8,8 +8,11 @@
 // pins the rule on this side, so a change to EvmShard fails here and prompts
 // regeneration.
 //
-//	go run ./cmd/evmshard-fixture -weights 1,1,1,1 -addresses 1000 > evmshard_uniform4.json
-//	go run ./cmd/evmshard-fixture -weights 7,1,1,1 -addresses 1000 > evmshard_7111.json
+//	go run ./cmd/evmshard-fixture -weights 1,1,1,1 -addresses 1000 -chain-commit $(git rev-parse HEAD) > evmshard_uniform4.json
+//	go run ./cmd/evmshard-fixture -weights 7,1,1,1 -addresses 1000 -chain-commit $(git rev-parse HEAD) > evmshard_7111.json
+//
+// The generator path and, when given, the chain commit are recorded in the
+// fixture so a consumer can tell which rule it was pinned against.
 //
 // Validators are listed in derivation order, which is not the committee's sort
 // order, so a consumer has to sort by key to reproduce the indices.
@@ -44,23 +47,31 @@ type owner struct {
 }
 
 type fixture struct {
-	Seed       string      `json:"seed"`
-	Validators []validator `json:"validators"`
-	Owners     []owner     `json:"owners"`
+	// Generator is the path of this tool within sei-chain.
+	Generator string `json:"generator"`
+	// ChainCommit is the sei-chain commit the fixture was generated at, if
+	// the caller supplied one.
+	ChainCommit string      `json:"chainCommit,omitempty"`
+	Seed        string      `json:"seed"`
+	Validators  []validator `json:"validators"`
+	Owners      []owner     `json:"owners"`
 }
 
 func main() {
 	weightsFlag := flag.String("weights", "1,1,1,1", "comma-separated voting power per validator, in derivation order")
 	addresses := flag.Int("addresses", 1000, "number of sender addresses to assign")
 	seed := flag.String("seed", "evmshard-fixture", "string every key and address is derived from")
+	chainCommit := flag.String("chain-commit", "", "sei-chain commit to record in the fixture")
 	flag.Parse()
-	if err := run(*weightsFlag, *addresses, *seed, os.Stdout); err != nil {
+	if err := run(*weightsFlag, *addresses, *seed, *chainCommit, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(weightsFlag string, addresses int, seed string, out io.Writer) error {
+const generatorPath = "sei-tendermint/cmd/evmshard-fixture"
+
+func run(weightsFlag string, addresses int, seed, chainCommit string, out io.Writer) error {
 	var weights []uint64
 	for _, s := range strings.Split(weightsFlag, ",") {
 		w, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64)
@@ -69,7 +80,7 @@ func run(weightsFlag string, addresses int, seed string, out io.Writer) error {
 		}
 		weights = append(weights, w)
 	}
-	f := fixture{Seed: seed}
+	f := fixture{Generator: generatorPath, ChainCommit: chainCommit, Seed: seed}
 	committeeWeights := make(map[types.PublicKey]uint64, len(weights))
 	index := make(map[types.PublicKey]int, len(weights))
 	for i, w := range weights {

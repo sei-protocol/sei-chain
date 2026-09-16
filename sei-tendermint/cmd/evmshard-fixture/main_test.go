@@ -43,7 +43,7 @@ func TestGolden(t *testing.T) {
 	} {
 		t.Run(tc.weights, func(t *testing.T) {
 			var buf bytes.Buffer
-			require.NoError(t, run(tc.weights, 1000, "evmshard-fixture", &buf))
+			require.NoError(t, run(tc.weights, 1000, "evmshard-fixture", "", &buf))
 			var f fixture
 			require.NoError(t, json.Unmarshal(buf.Bytes(), &f))
 			require.Len(t, f.Validators, 4)
