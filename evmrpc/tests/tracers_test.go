@@ -68,17 +68,16 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 			}
 			bz, err := json.Marshal(args)
 			require.Nil(t, err)
-			// error when traced on a block prior to v6.0.5
 			res := sendRequestWithNamespace("debug", port, "traceCall", bz, "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			errMsg := res["result"].([]interface{})[0].(map[string]interface{})["error"].(string)
-			require.Contains(t, errMsg, "no method with id")
-			// no error when traced on a block post v6.0.5
+			resultMap := res["result"].([]interface{})[0].(map[string]interface{})
+			require.NotContains(t, resultMap, "error")
+
 			res = sendRequestWithNamespace("debug", port, "traceCall", bz, "0x3", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			resultMap := res["result"].([]interface{})[0].(map[string]interface{})
+			resultMap = res["result"].([]interface{})[0].(map[string]interface{})
 			require.NotContains(t, resultMap, "error")
 		},
 	)
