@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -215,13 +217,81 @@ func (s *State) preReadEvmNonce(mp *mempool, addr common.Address) (nonce uint64,
 			return 0, first, false, nil
 		}
 	}
-	return s.app.EvmNonce(addr), first, true, nil
+	return s.evmNonce(addr), first, true, nil
+}
+
+// checkTx runs the app CheckTx for tx.
+func (s *State) checkTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTxV2, error) {
+	defer metrics.PhaseCheckTx.Enter()()
+	start := time.Now()
+	defer func() { metrics.ObserveCheckTx(time.Since(start)) }()
+	return s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+}
+
+// evmNonce reads the executed nonce of addr from the app.
+func (s *State) evmNonce(addr common.Address) uint64 {
+	start := time.Now()
+	defer func() { metrics.ObserveNonceLookup(time.Since(start)) }()
+	return s.app.EvmNonce(addr)
+}
+
+// waitForCapacity blocks until the mempool is not full or closed, returning the time spent waiting.
+// Must be called with the mempool locked; the lock is released while waiting.
+func waitForCapacity(ctx context.Context, m *mempoolInner, ctrl *utils.WatchCtrl) (time.Duration, error) {
+	defer metrics.PhaseCapacityWait.Enter()()
+	start := time.Now()
+	var wakeups int64
+	defer func() { metrics.ObserveCapacityWait(time.Since(start), wakeups) }()
+	for m.IsFull() {
+		// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
+		// in favor of waiting for smaller txs. This simple algorithm allows us to cap
+		// pending txs to size of a single block. We can refine this rule later if needed.
+		// NOTE: in case there are N concurrent InsertTx calls, this condition is reevaluated N times
+		// every time mempool is updated. Depending on proportion of N to the block size it might get too
+		// expensive.
+		if err := ctrl.Wait(ctx); err != nil {
+			return time.Since(start), err
+		}
+		if m.closed {
+			return time.Since(start), ErrNotProducing
+		}
+		if m.IsFull() {
+			wakeups++
+		}
+	}
+	return time.Since(start), nil
+}
+
+// insertResult classifies an insert outcome for the inserts metric.
+func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
+	switch {
+	case errors.Is(err, errTooLarge):
+		return metrics.ResultTooLarge
+	case errors.Is(err, errMempoolFull):
+		return metrics.ResultFull
+	case errors.Is(err, ErrNotProducing):
+		return metrics.ResultNotProducing
+	case errors.Is(err, errBadNonce):
+		return metrics.ResultBadNonce
+	case err != nil:
+		return metrics.ResultError
+	case !resp.IsOK():
+		return metrics.ResultRejected
+	default:
+		return metrics.ResultOK
+	}
 }
 
 // Inserts transaction. Blocks until there is capacity in the mempool.
 // NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
 // It has to be added after testnet launch.
 func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
+	insertResult(resp, err).Observe()
+	return resp, err
+}
+
+func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
@@ -241,7 +311,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		}
 		mp = loaded
 	}
-	resp, err := s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	resp, err := s.checkTx(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +341,11 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		}
 	}
 
+	admitStart := time.Now()
+	var waited time.Duration
+	defer func() { metrics.ObserveAdmit(time.Since(admitStart) - waited) }()
+	leaveAdmit := metrics.PhaseAdmit.Enter()
+	defer func() { leaveAdmit() }()
 	for m, ctrl := range mp.inner.Lock() {
 		if m.closed {
 			return nil, ErrNotProducing
@@ -278,18 +353,13 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		if m.IsFull() && !waitIfFull {
 			return nil, errMempoolFull
 		}
-		for m.IsFull() {
-			// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
-			// in favor of waiting for smaller txs. This simple algorithm allows us to cap
-			// pending txs to size of a single block. We can refine this rule later if needed.
-			// NOTE: in case there are N concurrent InsertTx calls, this condition is reevaluated N times
-			// every time mempool is updated. Depending on proportion of N to the block size it might get too
-			// expensive.
-			if err := ctrl.Wait(ctx); err != nil {
+		if m.IsFull() {
+			leaveAdmit()
+			var err error
+			waited, err = waitForCapacity(ctx, m, ctrl)
+			leaveAdmit = metrics.PhaseAdmit.Enter()
+			if err != nil {
 				return nil, err
-			}
-			if m.closed {
-				return nil, ErrNotProducing
 			}
 		}
 		if resp.IsEVM {
@@ -304,7 +374,7 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 				if haveAppNonce && m.first == first {
 					nonce = appNonce
 				} else {
-					nonce = s.app.EvmNonce(addr)
+					nonce = s.evmNonce(addr)
 				}
 			}
 			if nonce != resp.EVMNonce {
