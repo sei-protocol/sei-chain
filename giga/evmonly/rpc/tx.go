@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -17,13 +18,22 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-type receiptAPI struct {
+type txAPI struct {
 	backend Backend
 	store   receiptpkg.ReceiptStore
 }
 
+// GetTransactionCount returns the address nonce from the current committed EVM state.
+func (api *txAPI) GetTransactionCount(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	if err := requireCurrentState(block); err != nil {
+		return nil, err
+	}
+	nonce := hexutil.Uint64(api.backend.EvmTransactionCount(address))
+	return &nonce, nil
+}
+
 // GetTransactionReceipt returns the finalized Ethereum receipt for hash.
-func (api *receiptAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]any, error) {
+func (api *txAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]any, error) {
 	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
 	if errors.Is(err, receiptpkg.ErrNotFound) {
 		return nil, nil
