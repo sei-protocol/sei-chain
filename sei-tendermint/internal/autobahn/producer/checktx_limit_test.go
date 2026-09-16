@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -83,7 +84,7 @@ func TestInsertTx_BoundsConcurrentCheckTx(t *testing.T) {
 			rng := utils.TestRng()
 			app := newGatedApp()
 			cfg := app.Cfg()
-			cfg.MaxConcurrentCheckTx = limit
+			cfg.MaxConcurrentCheckTx = utils.Some(uint64(limit)) //nolint:gosec // small test constant
 			env := newTestEnv(rng, cfg, app.Proxy())
 			env.alignLocalMempool()
 
@@ -119,7 +120,7 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	rng := utils.TestRng()
 	app := newGatedApp()
 	cfg := app.Cfg()
-	cfg.MaxConcurrentCheckTx = 1
+	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
 	env := newTestEnv(rng, cfg, app.Proxy())
 	env.alignLocalMempool()
 
@@ -163,11 +164,11 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
 }
 
-// A default (zero) limit resolves to at least one permit so inserts proceed.
+// An absent limit resolves to at least one permit so inserts proceed.
 func TestConfig_MaxConcurrentCheckTxDefault(t *testing.T) {
 	cfg := &Config{}
 	require.True(t, cfg.maxConcurrentCheckTx() >= 1)
-	require.Equal(t, DefaultMaxConcurrentCheckTx(), cfg.maxConcurrentCheckTx())
-	cfg.MaxConcurrentCheckTx = 7
+	require.Equal(t, max(1, runtime.GOMAXPROCS(0)/2), cfg.maxConcurrentCheckTx())
+	cfg.MaxConcurrentCheckTx = utils.Some[uint64](7)
 	require.Equal(t, 7, cfg.maxConcurrentCheckTx())
 }
