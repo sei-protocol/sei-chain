@@ -13,12 +13,26 @@ import (
 type pebbleBatch struct {
 	b                *pebble.Batch
 	operationMetrics *OperationMetrics
+	commitMetrics    *CommitMetrics
 }
 
 var _ types.Batch = (*pebbleBatch)(nil)
 
 func (p *pebbleDB) NewBatch() types.Batch {
-	return &pebbleBatch{b: p.db.NewBatch(), operationMetrics: p.operationMetrics}
+	return p.wrapBatch(p.db.NewBatch())
+}
+
+func (p *pebbleDB) NewBatchWithSize(size int) types.Batch {
+	return p.wrapBatch(p.db.NewBatchWithSize(size))
+}
+
+// wrapBatch hands a pebble batch the metrics its operations and commits report through.
+func (p *pebbleDB) wrapBatch(b *pebble.Batch) types.Batch {
+	return &pebbleBatch{
+		b:                b,
+		operationMetrics: p.operationMetrics,
+		commitMetrics:    p.commitMetrics,
+	}
 }
 
 func (pb *pebbleBatch) Set(key, value []byte) error {
@@ -29,6 +43,35 @@ func (pb *pebbleBatch) Delete(key []byte) error {
 	return pb.b.Delete(key, nil)
 }
 
+// Written through pebble's deferred-op API, which reserves the record inside the batch's own buffer
+// and hands back slices to fill: copying a string into those needs no intermediate byte slice, and
+// so no allocation per key.
+func (pb *pebbleBatch) SetString(key string, value []byte) error {
+	op := pb.b.SetDeferred(len(key), len(value))
+	copy(op.Key, key)
+	copy(op.Value, value)
+	return op.Finish()
+}
+
+// Written through pebble's deferred-op API for the same reason as SetString.
+func (pb *pebbleBatch) DeleteString(key string) error {
+	op := pb.b.DeleteDeferred(len(key))
+	copy(op.Key, key)
+	return op.Finish()
+}
+
+func (pb *pebbleBatch) Append(other types.Batch) error {
+	otherBatch, ok := other.(*pebbleBatch)
+	if !ok {
+		return fmt.Errorf("cannot append a %T to a pebble batch", other)
+	}
+	// Moves the other batch's encoded records in bulk rather than replaying them one at a time.
+	if err := pb.b.Apply(otherBatch.b, nil); err != nil {
+		return fmt.Errorf("failed to append batch: %w", err)
+	}
+	return nil
+}
+
 func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 	writeCount := int64(pb.b.Count())
 	err := pb.b.Commit(toPebbleWriteOpts(opts))
@@ -36,6 +79,8 @@ func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
 	pb.operationMetrics.AddWrite(writeCount)
+	// Read after the commit returns, since that is when pebble has finished filling the stats in.
+	pb.commitMetrics.Record(pb.b.CommitStats())
 	return nil
 }
 

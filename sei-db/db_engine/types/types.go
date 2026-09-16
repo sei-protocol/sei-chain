@@ -81,6 +81,11 @@ type KeyValueDB interface {
 	// NewBatch returns a new batch for atomic writes.
 	NewBatch() Batch
 
+	// NewBatchWithSize returns a new batch for atomic writes with room reserved for size encoded bytes,
+	// so a caller that knows roughly how large the batch will be does not pay for it growing into that
+	// size. The hint bounds nothing: a batch that exceeds it still grows.
+	NewBatchWithSize(size int) Batch
+
 	// Flush flushes the database to disk.
 	Flush() error
 
@@ -92,6 +97,20 @@ type KeyValueDB interface {
 type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error
+
+	// SetString sets the value for the given key, which the implementation must not retain: a
+	// string key lets the caller pass a map key straight through without converting it to bytes.
+	SetString(key string, value []byte) error
+
+	// DeleteString deletes the value for the given key, which the implementation must not retain.
+	DeleteString(key string) error
+
+	// Append adds every operation in other to this batch, in order, as though each had been
+	// performed on this batch directly. It leaves other unchanged and still its owner's to close.
+	//
+	// This is what lets one thread build a batch and another absorb it without walking the
+	// operations again: an implementation is expected to move the encoded form in bulk.
+	Append(other Batch) error
 
 	// Commit applies the batch atomically: after a crash it is either fully present or fully absent.
 	// Sequential commits on the same DB become durable in commit order — a crash may lose a suffix of
