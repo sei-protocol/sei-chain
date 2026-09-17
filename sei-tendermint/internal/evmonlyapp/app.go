@@ -41,6 +41,9 @@ var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 // transactions that never reach a block.
 const checkedSendersCap = 1 << 18
 
+// minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
+const minTxsPerHashWorker = 64
+
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
@@ -295,12 +298,9 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 // transaction this process admitted, and forgets those entries. The hash of a
 // raw transaction is the keccak of its bytes for every transaction type, so no
 // decoding is needed.
-//
-// The hashing is the whole cost here and it runs before the lock is taken. CheckTx
-// writes the same map thousands of times a second, so hashing a block's worth of
-// transactions under the lock would hold admission off for the length of the pass.
 func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
 	out := make([]utils.Option[common.Address], len(txs))
+	// Hashed before the lock: CheckTx writes this map constantly, so the lock covers only the lookups.
 	hashes := hashRawTxs(txs)
 	for senders := range a.checkedSenders.Lock() {
 		for i, hash := range hashes {
@@ -317,11 +317,11 @@ func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Add
 func hashRawTxs(txs [][]byte) []common.Hash {
 	hashes := make([]common.Hash, len(txs))
 	workers := min(runtime.GOMAXPROCS(0), len(txs))
-	if workers <= 1 {
+	if workers <= 1 || len(txs) <= minTxsPerHashWorker {
 		hashRawTxRange(txs, hashes, 0, len(txs))
 		return hashes
 	}
-	chunk := (len(txs) + workers - 1) / workers
+	chunk := max((len(txs)+workers-1)/workers, minTxsPerHashWorker)
 	var wg sync.WaitGroup
 	for start := 0; start < len(txs); start += chunk {
 		end := min(start+chunk, len(txs))
@@ -335,9 +335,9 @@ func hashRawTxs(txs [][]byte) []common.Hash {
 	return hashes
 }
 
-// hashRawTxRange hashes txs[start:end] into hashes, reusing one hasher across the
-// range rather than allocating one for every transaction.
+// hashRawTxRange hashes txs[start:end] into hashes.
 func hashRawTxRange(txs [][]byte, hashes []common.Hash, start, end int) {
+	// One hasher per range.
 	state := crypto.NewKeccakState()
 	for i := start; i < end; i++ {
 		state.Reset()

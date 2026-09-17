@@ -486,7 +486,7 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 // that differs by one byte silently loses every sender and makes the executor
 // recover them all again.
 func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
-	for _, count := range []int{0, 1, 2, 17, 1848} {
+	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {
 		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
 			txs := make([][]byte, count)
 			for i := range txs {
