@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -40,14 +41,66 @@ func (s *littReceiptStore) IterateReceipts(startBlock uint64) (ReceiptIterator, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open receipt iterator at block %d: %w", start, err)
 	}
+	if found {
+		return &receiptIterator{it: it}, nil
+	}
+	return s.walkFromOldest(start)
+}
+
+// walkFromOldest begins a walk at the oldest data litt holds, positioned at the first block at or
+// above start. It reports an exhausted walk when litt holds no such block.
+func (s *littReceiptStore) walkFromOldest(start uint64) (ReceiptIterator, error) {
+	it, err := s.receipts.Iterator(false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open receipt iterator: %w", err)
+	}
+
+	// Seeking forward is what keeps pruned receipts out of the walk. Positioning by key asks litt's
+	// keymap, while a walk from the oldest data reads segment files, and garbage collection deletes
+	// a segment's keys from the keymap before it advances the line marking the oldest readable
+	// segment. A prune landing in that interval leaves the part key for start missing from the
+	// keymap — which is how the walk arrived here — while its segment is still readable. Without
+	// this seek the walk would yield receipts from below the retention floor, which a point read
+	// refuses to serve.
+	block, found, err := seekBlock(it, start)
+	if err != nil {
+		return nil, errors.Join(err, it.Close())
+	}
 	if !found {
-		// Possible if GC deleted the block out from under us. If this happens, just start at begining of data.
-		it, err = s.receipts.Iterator(false)
+		if closeErr := it.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to close receipt iterator: %w", closeErr)
+		}
+		return &receiptIterator{}, nil
+	}
+	return &receiptIterator{it: it, block: block}, nil
+}
+
+// seekBlock advances it to the part key of the first block at or above start, reporting the block
+// that part belongs to. found is false once the walk is exhausted with no such block.
+func seekBlock(it litt.Iterator, start uint64) (block uint64, found bool, err error) {
+	for {
+		ok, err := it.Next()
 		if err != nil {
-			return nil, fmt.Errorf("failed to open receipt iterator: %w", err)
+			return 0, false, fmt.Errorf("failed to advance receipt iterator: %w", err)
+		}
+		if !ok {
+			return 0, false, nil
+		}
+		key, isPrimary, err := it.GetKey()
+		if err != nil {
+			return 0, false, fmt.Errorf("failed to read receipt key: %w", err)
+		}
+		if !isPrimary {
+			continue
+		}
+		at, err := decodePartKeyHeight(key)
+		if err != nil {
+			return 0, false, err
+		}
+		if at >= start {
+			return at, true, nil
 		}
 	}
-	return &receiptIterator{it: it}, nil
 }
 
 func (r *receiptIterator) Next() (bool, error) {

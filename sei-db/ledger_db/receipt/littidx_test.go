@@ -44,6 +44,61 @@ func TestLittIdxSynchronousWriteBuffer(t *testing.T) {
 	require.Equal(t, record.Receipt.TxHashHex, got.TxHashHex)
 }
 
+// setupLittIdxSync is setupLittIdx with the write buffer off, so a write is applied on the caller
+// and a refusal comes back from SetReceipts rather than latching for the next one.
+func setupLittIdxSync(t *testing.T) (receipt.ReceiptStore, sdk.Context) {
+	t.Helper()
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.AsyncWriteBuffer = 0
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	return store, ctx
+}
+
+// Every block must reach the store, so a walk can position at any of them. A writer that jumps a
+// height is a bug, and the store says so rather than leaving a block with no key.
+func TestLittIdxRefusesSkippedBlock(t *testing.T) {
+	store, ctx := setupLittIdxSync(t)
+	addr := common.HexToAddress("0xabc")
+	topic := common.HexToHash("0xdead")
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{litReceipt(1, 0, addr, topic)}))
+
+	err := store.SetReceipts(ctx.WithBlockHeight(3), []receipt.ReceiptRecord{litReceipt(3, 0, addr, topic)})
+	require.ErrorContains(t, err, "skips block 2")
+	require.Equal(t, int64(1), store.LatestVersion(), "a refused write must not move the head")
+}
+
+// A block's first write establishes where the store's history begins, so it may land at any height.
+func TestLittIdxFirstWriteMayStartAboveGenesis(t *testing.T) {
+	store, ctx := setupLittIdxSync(t)
+	addr := common.HexToAddress("0xabc")
+	topic := common.HexToHash("0xdead")
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(5000),
+		[]receipt.ReceiptRecord{litReceipt(5000, 0, addr, topic)}))
+	require.Equal(t, int64(5000), store.LatestVersion())
+}
+
+// A block written in parts repeats its height, which is not a skip.
+func TestLittIdxAcceptsRepeatedBlock(t *testing.T) {
+	store, ctx := setupLittIdxSync(t)
+	addr := common.HexToAddress("0xabc")
+	topic := common.HexToHash("0xdead")
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{litReceipt(1, 0, addr, topic)}))
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{litReceipt(1, 1, addr, topic)}))
+	require.Equal(t, int64(1), store.LatestVersion())
+}
+
 // TestLittIdxWriteBufferBoundsLag pins that the buffer is the back-pressure point: with room for one
 // block, a writer cannot get further than the buffer ahead of what has been applied.
 func TestLittIdxWriteBufferBoundsLag(t *testing.T) {

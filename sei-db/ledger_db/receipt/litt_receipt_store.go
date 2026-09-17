@@ -381,6 +381,9 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord)
 		// The part key is what a walk positions at.
 		blockNumbers = []uint64{uint64(height)} //nolint:gosec // height is non-negative
 	}
+	if err := s.requireNoSkippedBlock(blockNumbers); err != nil {
+		return err
+	}
 
 	// Closes the stage in flight, so the gap until the next write is charged to neither.
 	defer s.writePhases.Reset()
@@ -464,6 +467,29 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 
 	s.writePhases.SetPhase("stage_tag_keys")
 	return s.stageTagKeys(batch, blockNumber, records)
+}
+
+// requireNoSkippedBlock refuses a write that would leave a block unrecorded between the store's
+// head and this write. A walk positions at a block's part key, so a block that never reached the
+// store makes a walk starting there restart from the oldest receipt. blockNumbers must be sorted
+// ascending.
+func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
+	head := s.latestVersion.Load()
+	if head <= 0 {
+		// Nothing is recorded yet, so this write establishes where the store's history begins.
+		return nil
+	}
+	next := uint64(head) + 1 //nolint:gosec // head is positive
+	for _, blockNumber := range blockNumbers {
+		if blockNumber > next {
+			return fmt.Errorf("receipt write for block %d skips block %d; the store's head is %d",
+				blockNumber, next, head)
+		}
+		if blockNumber >= next {
+			next = blockNumber + 1
+		}
+	}
+	return nil
 }
 
 // nextPartIndex returns the number of parts already written for the block,
