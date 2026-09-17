@@ -77,8 +77,7 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
 
-	// Tracing a height predating the v6.8 upgrade reproduces the legacy
-	// timestamp hash.
+	// Pre-v6.8 heights replay the legacy timestamp hash.
 	r, err := ctx.BlockHeader().Time.MarshalBinary()
 	require.NoError(t, err)
 	legacy := crypto.Keccak256Hash(r)
@@ -87,8 +86,7 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, legacy, *blockCtx.Random)
 
-	// At the scheduled upgrade height the done marker does not exist yet —
-	// the pending plan is the record that the height ran the new binary.
+	// The pending plan marks the upgrade height; no done marker exists yet.
 	err = k.UpgradeKeeper().ScheduleUpgrade(ctx, upgradetypes.Plan{Name: "v6.8", Height: 100})
 	require.NoError(t, err)
 	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(99), 0)
@@ -98,8 +96,7 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
 
-	// Once v6.8 is marked done, the done height is compared against the
-	// traced height: below it stays legacy, at/above it uses the app hash.
+	// The done height is compared against the traced height.
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(100), "v6.8")
 	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(50), 0)
 	require.NoError(t, err)

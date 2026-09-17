@@ -734,8 +734,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 			tmBlock = nil
 		}
 	}()
-	// The base ctx carries the latest committed header; the traced block's
-	// AppHash is what it originally executed with and must be restored.
+	// The traced block's AppHash is what it executed with; the base ctx's is latest.
 	header := baseCtx.BlockHeader()
 	header.AppHash = tmBlock.Block.AppHash
 	sdkCtx = baseCtx.WithBlockHeader(header).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)

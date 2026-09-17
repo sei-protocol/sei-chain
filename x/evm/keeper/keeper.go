@@ -273,9 +273,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	}
 
 	// PREVRANDAO is the prior block's app hash, which this block's header
-	// carries; this block's own app hash is only known after execution.
-	// Pre-v6.8 blocks derived it from the block timestamp; that value is only
-	// needed when replaying a pre-v6.8 height under trace mode.
+	// carries; pre-v6.8 blocks derived it from the block timestamp instead.
 	var rh common.Hash
 	if k.prevRandaoIsLegacyTimestamp(ctx) {
 		r, err := ctx.BlockHeader().Time.MarshalBinary()
@@ -321,13 +319,8 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	}, nil
 }
 
-// prevRandaoIsLegacyTimestamp reports whether the block at ctx's height used
-// the pre-v6.8 timestamp-derived PREVRANDAO. Live execution only ever runs
-// post-upgrade heights, so the check matters only under trace mode, where
-// the versioned upgrade store reflects what was committed by that height.
-// The upgrade block itself records no done marker at its parent height —
-// upgrade.BeginBlocker is skipped under tracing, so the record is never
-// replayed — but its still-scheduled plan is present and serves the check.
+// prevRandaoIsLegacyTimestamp reports whether ctx's height used the pre-v6.8
+// timestamp-derived PREVRANDAO.
 func (k *Keeper) prevRandaoIsLegacyTimestamp(ctx sdk.Context) bool {
 	if !ctx.IsTracing() {
 		return false
@@ -336,6 +329,9 @@ func (k *Keeper) prevRandaoIsLegacyTimestamp(ctx sdk.Context) bool {
 	if k.upgradeKeeper.IsUpgradeActiveAtHeight(gasFreeCtx, "v6.8", ctx.BlockHeight()) {
 		return false
 	}
+	// At the upgrade height the done marker is not committed yet and tracing
+	// skips the BeginBlocker that would write it; the pending plan is the
+	// only record of the boundary block.
 	if plan, found := k.upgradeKeeper.GetUpgradePlan(gasFreeCtx); found && plan.Name == "v6.8" {
 		return !plan.ShouldExecute(ctx)
 	}

@@ -105,8 +105,7 @@ func TestInitializeBlockUsesTracedBlockAppHash(t *testing.T) {
 	backend, block := newInitializeBlockTestBackend(t)
 	backend.tmClient.(*fakeTMClient).blocksByHeight[8].Block.AppHash = tracedAppHash
 
-	// The base ctx carries the latest committed header, whose AppHash differs
-	// from the traced block's; the traced block's value must win.
+	// The base ctx's latest-head AppHash must not leak into the trace ctx.
 	baseCtx := sdk.Context{}.WithBlockHeader(tmproto.Header{AppHash: latestAppHash})
 	sdkCtx, _, release, err := backend.initializeBlock(t.Context(), block, func(int64) (sdk.Context, func()) {
 		return baseCtx, func() {}
