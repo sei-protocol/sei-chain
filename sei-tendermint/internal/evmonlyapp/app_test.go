@@ -1,6 +1,7 @@
 package evmonlyapp
 
 import (
+	"encoding/binary"
 	"math/big"
 	"testing"
 	"time"
@@ -84,6 +85,26 @@ func reopenEVMOnlyTestApp(t *testing.T, storage *bootstrap.GigaStorageManager, h
 	app, ok := NewEVMOnlyApplication(evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC())).(*evmOnlyApplication)
 	require.True(t, ok)
 	return app, reopened
+}
+
+func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
+	return &abci.RequestFinalizeBlock{
+		Txs:  txs,
+		Hash: crypto.Keccak256(binary.BigEndian.AppendUint64([]byte("block-"), uint64(height))), //nolint:gosec // G115: test heights are positive.
+		Header: &tmproto.Header{
+			Height: height,
+			Time:   time.Unix(1_700_000_000+height, 0),
+		},
+	}
+}
+
+func finalizeAndCommitEVMOnlyTestBlock(t *testing.T, app abci.Application, req *abci.RequestFinalizeBlock) []byte {
+	t.Helper()
+	response, err := app.FinalizeBlock(t.Context(), req)
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	return response.AppHash
 }
 
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
