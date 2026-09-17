@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -14,9 +15,19 @@ import (
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+func mustHexToBytes(h string) []byte {
+	bz, err := hex.DecodeString(h)
+	if err != nil {
+		panic(err)
+	}
+	return bz
+}
 
 func TestReleaseOnContextPanic(t *testing.T) {
 	t.Parallel()
@@ -80,6 +91,29 @@ func TestInitializeBlockReleasesLeaseOnUnrelatedBeginBlockPanic(t *testing.T) {
 		})
 	})
 	require.Equal(t, 1, released)
+}
+
+func TestInitializeBlockUsesTracedBlockAppHash(t *testing.T) {
+	orig := runTraceBeginBlock
+	t.Cleanup(func() { runTraceBeginBlock = orig })
+	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {
+	}
+
+	tracedAppHash := bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000008"))
+	latestAppHash := bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000010"))
+
+	backend, block := newInitializeBlockTestBackend(t)
+	backend.tmClient.(*fakeTMClient).blocksByHeight[8].Block.AppHash = tracedAppHash
+
+	// The base ctx carries the latest committed header, whose AppHash differs
+	// from the traced block's; the traced block's value must win.
+	baseCtx := sdk.Context{}.WithBlockHeader(tmproto.Header{AppHash: latestAppHash})
+	sdkCtx, _, release, err := backend.initializeBlock(t.Context(), block, func(int64) (sdk.Context, func()) {
+		return baseCtx, func() {}
+	})
+	require.NoError(t, err)
+	defer release()
+	require.Equal(t, []byte(tracedAppHash), []byte(sdkCtx.BlockHeader().AppHash))
 }
 
 func newInitializeBlockTestBackend(t *testing.T) (*Backend, *ethtypes.Block) {

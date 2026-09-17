@@ -73,6 +73,20 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	blockCtx, err := k.GetVMBlockContext(ctx, 0)
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
+
+	// Tracing a v6.8-or-later height still uses the prior app hash.
+	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithClosestUpgradeName("v6.8"), 0)
+	require.NoError(t, err)
+	require.Equal(t, priorAppHash, *blockCtx.Random)
+
+	// Tracing a pre-v6.8 height reproduces the legacy timestamp hash.
+	r, err := ctx.BlockHeader().Time.MarshalBinary()
+	require.NoError(t, err)
+	legacy := crypto.Keccak256Hash(r)
+	require.NotEqual(t, priorAppHash, legacy)
+	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithClosestUpgradeName("v6.7"), 0)
+	require.NoError(t, err)
+	require.Equal(t, legacy, *blockCtx.Random)
 }
 
 func TestGetHashFn(t *testing.T) {

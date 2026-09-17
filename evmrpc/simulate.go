@@ -734,7 +734,11 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 			tmBlock = nil
 		}
 	}()
-	sdkCtx = baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	// The base ctx carries the latest committed header; the traced block's
+	// AppHash is what it originally executed with and must be restored.
+	header := baseCtx.BlockHeader()
+	header.AppHash = tmBlock.Block.AppHash
+	sdkCtx = baseCtx.WithBlockHeader(header).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	if ctx != nil {
 		// The RPC/trace deadline must be on the SDK context so KVStore
 		// iteration can pass it into the SS MVCC skip loops.

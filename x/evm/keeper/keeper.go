@@ -16,6 +16,7 @@ import (
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
@@ -33,6 +34,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	"golang.org/x/mod/semver"
 
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -273,7 +275,18 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 
 	// PREVRANDAO is the prior block's app hash, which this block's header
 	// carries; this block's own app hash is only known after execution.
-	rh := common.BytesToHash(ctx.BlockHeader().AppHash)
+	// Pre-v6.8 blocks derived it from the block timestamp; that value is only
+	// needed when replaying a pre-v6.8 height under trace mode.
+	var rh common.Hash
+	if ctx.IsTracing() && semver.Compare(ctx.ClosestUpgradeName(), "v6.8") < 0 {
+		r, err := ctx.BlockHeader().Time.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		rh = crypto.Keccak256Hash(r)
+	} else {
+		rh = common.BytesToHash(ctx.BlockHeader().AppHash)
+	}
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
 		if IsPayablePrecompile(&recipient) {
