@@ -68,6 +68,7 @@ func encodeFlatKVChangeSet(store *flatkv.CommitStore, changes StateChangeSet) ([
 		copy(codePair.Value, change.Code)
 	}
 	for _, address := range changes.StorageClears {
+		// Clear pairs come from iterating the store, so their count is unknown up front and they are allocated individually.
 		var err error
 		b.pairPtrs, err = appendFlatKVStorageClearPairs(store, b.pairPtrs, address)
 		if err != nil {
@@ -92,15 +93,8 @@ func encodeFlatKVChangeSet(store *flatkv.CommitStore, changes StateChangeSet) ([
 	}}, nil
 }
 
-// flatKVChangeSetBuilder cuts a block's pairs, keys and values from one slab each
-// instead of allocating three objects per pair.
-//
-// Keys and values are handed out as subslices of those slabs, so they stay valid
-// after the changeset is released — the contract NamedChangeSetEncoder states — as
-// long as nothing writes past the length it was given. Storage clears are discovered
-// by iterating the store, so their count is unknown here and they are appended
-// individually; a block with no clear, which is every block on an EVM-only chain
-// that never selfdestructs, stays entirely on the slabs.
+// flatKVChangeSetBuilder assembles a block's KVPairs, keys and values from per-call
+// slabs. Keys and values are subslices of those slabs and outlive the changeset.
 type flatKVChangeSetBuilder struct {
 	pairs       []proto.KVPair
 	pairPtrs    []*proto.KVPair
@@ -157,19 +151,19 @@ func (b *flatKVChangeSetBuilder) nextPair(keyLen int) *proto.KVPair {
 	pair := &b.pairs[b.pairOffset]
 	b.pairOffset++
 	b.pairPtrs = append(b.pairPtrs, pair)
-	pair.Key = b.keys[b.keyOffset : b.keyOffset+keyLen]
+	pair.Key = b.keys[b.keyOffset : b.keyOffset+keyLen : b.keyOffset+keyLen]
 	b.keyOffset += keyLen
 	return pair
 }
 
 func (b *flatKVChangeSetBuilder) takeFixedValue(size int) []byte {
-	value := b.fixedValues[b.fixedOffset : b.fixedOffset+size]
+	value := b.fixedValues[b.fixedOffset : b.fixedOffset+size : b.fixedOffset+size]
 	b.fixedOffset += size
 	return value
 }
 
 func (b *flatKVChangeSetBuilder) takeCodeValue(size int) []byte {
-	value := b.codeValues[b.codeOffset : b.codeOffset+size]
+	value := b.codeValues[b.codeOffset : b.codeOffset+size : b.codeOffset+size]
 	b.codeOffset += size
 	return value
 }

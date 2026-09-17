@@ -1,7 +1,6 @@
 package evmonly
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -11,12 +10,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
-// flatKVEveryBranch covers every path encodeFlatKVChangeSet takes: a written balance,
-// a zero balance (stored as a deletion), a nil balance, a nonce, written code, deleted
-// code, empty code, a written slot, an explicitly deleted slot and a zero-valued slot.
+// flatKVEveryBranch covers every encodeFlatKVChangeSet path except storage clears,
+// which TestEncodeFlatKVChangeSetGoldenStorageClear covers.
 func flatKVEveryBranch() StateChangeSet {
 	addr := func(b byte) common.Address { return common.Address{b, 0x5e, 0x11} }
 	return StateChangeSet{
@@ -43,8 +42,7 @@ func flatKVEveryBranch() StateChangeSet {
 	}
 }
 
-// flatKVPairDigest renders every pair in order. Order, keys, delete flags and values all
-// reach FlatKV's LtHash, so any of them moving changes the committed state.
+// flatKVPairDigest renders every pair in order.
 func flatKVPairDigest(t testing.TB, changes StateChangeSet) string {
 	cfg := flatkvconfig.DefaultConfig()
 	cfg.DataDir = t.TempDir()
@@ -52,6 +50,10 @@ func flatKVPairDigest(t testing.TB, changes StateChangeSet) string {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
+	return flatKVPairListing(t, store, changes)
+}
+
+func flatKVPairListing(t testing.TB, store *flatkv.CommitStore, changes StateChangeSet) string {
 	encoded, err := NewFlatKVChangeSetEncoder(store)(changes)
 	require.NoError(t, err)
 	require.Len(t, encoded, 1)
@@ -60,15 +62,66 @@ func flatKVPairDigest(t testing.TB, changes StateChangeSet) string {
 	for _, pair := range encoded[0].Changeset.Pairs {
 		fmt.Fprintf(&sb, "%s|%t|%s\n", hex.EncodeToString(pair.Key), pair.Delete, hex.EncodeToString(pair.Value))
 	}
-	sum := sha256.Sum256([]byte(sb.String()))
-	return fmt.Sprintf("%d pairs sha256=%s", len(encoded[0].Changeset.Pairs), hex.EncodeToString(sum[:]))
+	return sb.String()
 }
 
 // TestEncodeFlatKVChangeSetGolden pins the encoder's output. The pairs are committed to
 // FlatKV and enter its LtHash, so a change here changes the state root.
 func TestEncodeFlatKVChangeSetGolden(t *testing.T) {
 	got := flatKVPairDigest(t, flatKVEveryBranch())
-	require.Equal(t, "15 pairs sha256=4ffb764a0a7a39b0df4bcc3c1c79c75e1a8b70b760d0927be9b86a1e9a2a5fd4", got)
+	const want = `21015e110000000000000000000000000000000000|false|0000000000000000000000000000000000000000000000000000000000000063
+21025e110000000000000000000000000000000000|true|
+21035e110000000000000000000000000000000000|true|
+21045e110000000000000000000000000000000000|false|8000000000000000000000000000000000000000000000000000000000000000
+0a055e110000000000000000000000000000000000|false|0000000000000000
+0a065e110000000000000000000000000000000000|false|ffffffffffffffff
+08075e110000000000000000000000000000000000|false|fa75857afed3839ad65a0a0c36243417b5745254a8de666dc416e2f26db904c0
+07075e110000000000000000000000000000000000|false|60016002f3
+08085e110000000000000000000000000000000000|true|
+07085e110000000000000000000000000000000000|true|
+08095e110000000000000000000000000000000000|true|
+07095e110000000000000000000000000000000000|true|
+030a5e1100000000000000000000000000000000002100000000000000000000000000000000000000000000000000000000000000|false|aa00000000000000000000000000000000000000000000000000000000000000
+030b5e1100000000000000000000000000000000002200000000000000000000000000000000000000000000000000000000000000|true|
+030c5e1100000000000000000000000000000000002300000000000000000000000000000000000000000000000000000000000000|true|
+`
+	require.Equal(t, want, got)
+}
+
+func TestEncodeFlatKVChangeSetGoldenStorageClear(t *testing.T) {
+	cfg := flatkvconfig.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	store, err := openFlatKVTestStore(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	addr := func(b byte) common.Address { return common.Address{b} }
+	storageAddress := addr(0x0d)
+	encode := NewFlatKVChangeSetEncoder(store)
+	initial, err := encode(StateChangeSet{
+		Storage: []StorageChange{
+			{Address: storageAddress, Key: common.Hash{0x21}, Value: common.Hash{0xaa}},
+			{Address: storageAddress, Key: common.Hash{0x22}, Value: common.Hash{0xbb}},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, store.CommitStateChanges(1, initial))
+
+	got := flatKVPairListing(t, store, StateChangeSet{
+		Balances:      []BalanceChange{{Address: addr(0x01), Balance: big.NewInt(99)}},
+		StorageClears: []common.Address{storageAddress},
+		Storage: []StorageChange{{
+			Address: storageAddress,
+			Key:     common.Hash{0x23},
+			Value:   common.Hash{0xcc},
+		}},
+	})
+	const want = `210100000000000000000000000000000000000000|false|0000000000000000000000000000000000000000000000000000000000000063
+030d000000000000000000000000000000000000002100000000000000000000000000000000000000000000000000000000000000|true|
+030d000000000000000000000000000000000000002200000000000000000000000000000000000000000000000000000000000000|true|
+030d000000000000000000000000000000000000002300000000000000000000000000000000000000000000000000000000000000|false|cc00000000000000000000000000000000000000000000000000000000000000
+`
+	require.Equal(t, want, got)
 }
 
 func TestEncodeFlatKVChangeSetRejectsNegativeBalance(t *testing.T) {
