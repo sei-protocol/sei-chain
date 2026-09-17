@@ -1,12 +1,9 @@
 package evmonlyapp
 
 import (
-<<<<<<< HEAD
 	"crypto/ecdsa"
 	"encoding/binary"
-=======
 	"errors"
->>>>>>> aa7d397 (giga: make EVM-only transaction outcomes observable (PLT-1290) (#4204))
 	"math/big"
 	"testing"
 	"time"
