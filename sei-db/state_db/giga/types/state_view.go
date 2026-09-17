@@ -49,6 +49,24 @@ type StateView interface {
 }
 
 // EVMStateView is the EVM-specific read surface embedded by StateView, and carries the same contract.
+// AccountSnapshot is what an account's row holds, read in one go.
+type AccountSnapshot struct {
+	Balance  Hash
+	Nonce    uint64
+	CodeHash Hash
+}
+
+// AccountReader is an optional EVMStateView capability: one read of the fields an account keeps in
+// a single row. Reading them one at a time re-resolves and re-parses that row per field, which is
+// most of what a transaction spends on state.
+//
+// A caller must fall back to the per-field accessors when a view does not implement it.
+type AccountReader interface {
+	// ReadAccount returns addr's row fields, or false when addr has no account. CodeHash is the
+	// empty-code hash for an account that holds no code, matching GetCodeHash.
+	ReadAccount(addr Address) (AccountSnapshot, bool)
+}
+
 type EVMStateView interface {
 
 	// AccountExists reports whether addr has an account in state,
