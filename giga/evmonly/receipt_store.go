@@ -134,7 +134,15 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	if err := receiptContextError(ctx); err != nil {
 		return err
 	}
+	if err := s.storeRecords(ctx, stored, latestVersion); err != nil {
+		return err
+	}
+	receipt.RecordReceiptsWritten(ctx.Context(), stored)
+	return nil
+}
 
+// storeRecords installs a block's receipt records and advances the store version.
+func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.ReceiptRecord, latestVersion int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := receiptContextError(ctx); err != nil {
@@ -173,6 +181,11 @@ func (*MemoryReceiptStore) FilterLogs(
 	if err := receiptContextError(ctx); err != nil {
 		return nil, err
 	}
+	return nil, receipt.ErrRangeQueryNotSupported
+}
+
+// IterateReceipts reports that the in-memory backend does not support walking its receipts.
+func (*MemoryReceiptStore) IterateReceipts(_ uint64) (receipt.ReceiptIterator, error) {
 	return nil, receipt.ErrRangeQueryNotSupported
 }
 

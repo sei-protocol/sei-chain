@@ -184,6 +184,29 @@ func TestEncodeBlockEmptyBlockHasZeroGasUsedAndNoTransactions(t *testing.T) {
 	require.Equal(t, hexutil.Uint64(35_000_000), got["gasLimit"])
 }
 
+func TestEncodeBlockIgnoresAReceiptOverwrittenByALaterBlock(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 10, CumulativeGasUsed: 10_000}},
+	}))
+	block := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: common.HexToHash("0x9").Bytes()},
+		Block: &tmtypes.Block{
+			Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
+			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+		},
+	}
+	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
+	})
+
+	got, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(0), got["gasUsed"])
+}
+
 // multiTxBlock builds a two-transaction ResultBlock and the matching receipt
 // store entries, returning the block, its two decoded transactions in order,
 // and the store.

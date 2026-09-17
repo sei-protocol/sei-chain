@@ -451,6 +451,10 @@ func (f *fakeReceiptStore) FilterLogs(sdk.Context, uint64, uint64, filters.Filte
 	return nil, receipt.ErrRangeQueryNotSupported
 }
 
+func (f *fakeReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
+	return nil, receipt.ErrRangeQueryNotSupported
+}
+
 func (f *fakeReceiptStore) Close() error { return nil }
 
 func (f *fakeReceiptStore) Name() string                    { return "fake-receipts" }

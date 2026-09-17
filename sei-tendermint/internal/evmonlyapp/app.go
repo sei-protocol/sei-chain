@@ -11,11 +11,13 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
@@ -125,7 +127,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	},
 		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
-		evmonly.WithBlockChangeSetEncoder(a.encodeCursorChangeSet),
+		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
 	)
 }
 
@@ -224,6 +226,18 @@ func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
 		}
 	}
 	panic("unreachable")
+}
+
+// InitLastHeader seeds the committed block time on the router's restart path.
+// The cursor carries height, hashes and gas limit but not Time, so without this
+// EvmCall would answer with TIMESTAMP 0 until the next Commit.
+func (a *evmOnlyApplication) InitLastHeader(lastHeader *tmproto.Header) {
+	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
+		return
+	}
+	for state := range a.cursor.Lock() {
+		state.lastBlockTime = uint64(lastHeader.Time.Unix()) // nolint:gosec // guarded non-negative above
+	}
 }
 
 func (a *evmOnlyApplication) LastBlockHeight() int64 {
@@ -362,6 +376,12 @@ func (a *evmOnlyApplication) EvmChainConfig() *params.ChainConfig {
 // EvmBaseFee returns the base fee this application executes every block at.
 func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
 	return evmOnlyBaseFee()
+}
+
+// EvmMinGasPrice returns the minimum effective gas price this application
+// admits a transaction at.
+func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
+	return big.NewInt(evmOnlyMinGasPrice)
 }
 
 // evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
@@ -517,17 +537,36 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 	panic("unreachable")
 }
 
+// evmOnlyABCIResults reports a block's executed transactions to consensus, each
+// one an OK result carrying the EVM failure reason, if it had one, in its log.
+//
+// A reverted transaction is a successfully executed one at this layer: it consumed
+// its nonce and gas, and the receipt status carries its failure, which is why every
+// result here is OK. A non-OK code would put the hash in the mempool's failed set,
+// which holds a transaction for a second chance rather than recording it as
+// executed. The log is safe to vary with the failure because the results hash
+// covers only the code, data and gas.
 func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	txResults := make([]*abci.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
 		gasUsed := utils.Clamp[int64](tx.GasUsed)
 		txResults[i] = &abci.ExecTxResult{
 			Code:      abci.CodeTypeOK,
+			Log:       evmOnlyTxFailureLog(tx),
 			GasWanted: gasUsed,
 			GasUsed:   gasUsed,
 		}
 	}
 	return txResults
+}
+
+// evmOnlyTxFailureLog returns the reason a transaction failed, or the empty string
+// when it succeeded.
+func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
+	if tx.Err == nil {
+		return ""
+	}
+	return tx.Err.Error()
 }
 
 func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {
