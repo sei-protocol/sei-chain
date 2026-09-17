@@ -47,8 +47,11 @@ type Executor struct {
 	// The commit running behind the current block, and what it will write. A block reads the latter
 	// through an overlay so it need not wait for the former.
 	pipelineMu      sync.Mutex
-	pipelineDone    chan error
+	pipelineDone    chan struct{}
+	pipelineErr     error
 	pipelineChanges *StateChangeSet
+	// The first commit that failed, kept so no caller can miss it.
+	pipelineFailure error
 }
 
 type Option func(*Executor)
@@ -124,8 +127,11 @@ const waitingForBlockPhase = "waiting_for_block"
 // arrive. The next ExecutePreparedBlock ends the phase.
 //
 // Without it the phase totals only cover time inside a block, and so describe a share of the work
-// rather than a share of the clock. One executor keeps one set of phases, so this describes a
-// single loop; two loops driving one executor interleave their transitions and neither is measured.
+// rather than a share of the clock.
+//
+// An executor keeps one phase timer, and that timer is not safe for concurrent use: calling this
+// from any goroutine other than the one that drives ExecutePreparedBlock is a data race, not just
+// a muddled measurement.
 func (e *Executor) MarkWaitingForBlock() {
 	if e == nil {
 		return

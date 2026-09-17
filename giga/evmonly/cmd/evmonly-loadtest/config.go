@@ -277,6 +277,12 @@ func parseConfig(args []string) (config, error) {
 	if cfg.workload == workloadSnapshotRevert && cfg.recipientConflictRate != 0 {
 		return config{}, fmt.Errorf("recipient-conflict-rate is not supported with snapshot-revert workload")
 	}
+	// A pooled run seeds its senders once, up front. same-sender derives its sender from the block
+	// height instead, so that sender is never funded and every transaction fails for want of funds
+	// while the run still reports a throughput number.
+	if cfg.sameSender && cfg.accounts > 0 {
+		return config{}, fmt.Errorf("same-sender cannot be used with an account pool (--accounts)")
+	}
 	if cfg.sameSender && cfg.workload != workloadTransfer {
 		return config{}, fmt.Errorf("same-sender is only supported with transfer workload")
 	}

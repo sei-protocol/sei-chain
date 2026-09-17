@@ -216,6 +216,11 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 	if errors.Is(err, context.Canceled) {
 		err = nil
 	}
+	// The last block's commit is still running when its execution returns, so without this a run
+	// whose final commit failed would print its report and exit 0.
+	if commitErr := executor.AwaitCommits(); commitErr != nil && err == nil {
+		err = commitErr
+	}
 	printFinalReport(startedAt, metrics.snapshot())
 	// Drop raw block retention before heap profiling forces a GC.
 	prebuilt = nil
@@ -279,8 +284,9 @@ func prebuildBlockRequests(ctx context.Context, cfg config, workload blockWorklo
 // front. Memory is then the queue rather than the run, so a run's length stops being bounded by it.
 //
 // Builders work in parallel and finish out of order, so a reorder buffer releases a height only
-// once every lower one has gone: the executor commits in block order. A builder holds at most one
-// finished block, so the buffer cannot grow past the builder count.
+// once every lower one has gone: the executor commits in block order. The buffer holds whatever
+// the builders have run ahead of the missing height, which is bounded by how far they drift apart
+// rather than by their count.
 //
 // The cost is that signing lands in the measured window, which prebuilding exists to avoid.
 func streamBlocks(

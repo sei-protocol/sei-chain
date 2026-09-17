@@ -368,6 +368,16 @@ func TestAccountPoolMustCoverTwoBlocks(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// A pooled run seeds its senders up front, but same-sender derives one from the block height, so
+// the two together would run every transaction from an unfunded account.
+func TestSameSenderIsRejectedWithAnAccountPool(t *testing.T) {
+	_, err := parseConfig([]string{"--blocks=0", "--accounts=4000", "--txs-per-block=100", "--same-sender"})
+	require.ErrorContains(t, err, "same-sender cannot be used with an account pool")
+
+	_, err = parseConfig([]string{"--blocks=10", "--txs-per-block=100", "--same-sender"})
+	require.NoError(t, err)
+}
+
 func TestDefaultChainIDIsLocal(t *testing.T) {
 	cfg, err := parseConfig([]string{"--blocks=1"})
 	require.NoError(t, err)

@@ -110,13 +110,15 @@ func (o *pendingOverlay) ReadAccount(addr common.Address) (accountSnapshot, bool
 		}
 		return accountSnapshot{}, false
 	}
-	// Touched by the pending block, so the row beneath is only part of the answer.
+	// Touched by the pending block, so the row beneath is only part of the answer. A base that
+	// declines the combined read still has to answer field by field, or a field the pending block
+	// left alone would read as zero instead of what the base holds.
 	var snapshot accountSnapshot
+	served := false
 	if reader, ok := o.base.(accountSnapshotReader); ok {
-		if read, served := reader.ReadAccount(addr); served {
-			snapshot = read
-		}
-	} else {
+		snapshot, served = reader.ReadAccount(addr)
+	}
+	if !served {
 		snapshot = accountSnapshot{
 			Balance: o.base.GetBalance(addr),
 			Nonce:   o.base.GetNonce(addr),

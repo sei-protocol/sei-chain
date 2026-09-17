@@ -8,7 +8,7 @@ import (
 
 // pipelineMeterName scopes the stages that run ahead of the executor. The executor publishes its
 // own phases under evmonly_block.
-const pipelineMeterName = "evmonly-loadtest"
+const pipelineMeterName = "evmonly_loadtest"
 
 // Stages of the pipeline that run before execution. Together with the executor's own phases they
 // account for the whole of a block's cost.

@@ -10,7 +10,6 @@ import (
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
@@ -28,6 +27,10 @@ var _ StateReader = gigaSnapshotStateReader{}
 // on-disk changesets understood by a giga store. It is called synchronously
 // while the block's read snapshot is still open. It must treat the input as
 // immutable and must not retain references to it after returning.
+//
+// What it returns must not alias the input either. The commit runs in the background, outliving
+// the block result and its return to the pool, so an aliasing pair would be rewritten underneath
+// the write by the next block.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
 // BlockChangeSetEncoder contributes named changesets that are committed in the
@@ -35,6 +38,9 @@ type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 // durable, rolled back and replayed together with that state. It is called
 // after execution with the block's context and result, which it must treat as
 // immutable. Changesets under keys.EVMStoreKey are reserved for the state encoder.
+//
+// As with NamedChangeSetEncoder, what it returns must not alias the result: the commit outlives
+// the block.
 type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
@@ -97,7 +103,29 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	// Receipts first, because they touch a different store and so can be written while the previous
+	// block's state commit is still running.
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
+	e.blockPhases.SetPhase("encode_receipts")
+	records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+	if err != nil {
+		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+	}
+	e.blockPhases.SetPhase("write_receipts")
+	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+	}
+
+	// Landed before the changesets are encoded, never after: expanding a storage clear iterates the
+	// live store, so it has to see a store holding every earlier block and none of this one. By now
+	// the previous commit has had this block's whole execution to finish, so this rarely waits.
+	e.blockPhases.SetPhase("await_commit")
+	if err := e.awaitPipelineCommit(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	e.blockPhases.SetPhase("encode_changesets")
 	changesets, err := e.changeSetEncoder(result.ChangeSet)
 	if err != nil {
@@ -110,23 +138,9 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 		changesets = append(changesets, extra...)
 	}
+	// Re-checked after encoding, not only before: an encoder may be what cancels, and a commit
+	// started here would run in the background past the caller's abort.
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	e.blockPhases.SetPhase("encode_receipts")
-	records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
-	if err != nil {
-		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
-	}
-	e.blockPhases.SetPhase("write_receipts")
-	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
-		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
-	}
-	// Waited for here rather than before execution: the previous block's commit has had this whole
-	// block to run, so by now it has almost always finished. Landing it before the next OpenView is
-	// what keeps that view's height unambiguous.
-	e.blockPhases.SetPhase("await_commit")
-	if err := e.awaitPipelineCommit(); err != nil {
 		return nil, err
 	}
 	e.blockPhases.SetPhase("commit_state")
@@ -138,11 +152,15 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
-// failure among them.
+// commit that failed.
 //
 // A block's commit runs behind the block that follows it, so the state a block produced is not in
 // the store when ExecutePreparedBlock returns. A caller that reads the store directly — rather than
-// through the next block's execution, which sees it regardless — has to wait here first.
+// through the next block's execution, which sees it regardless — has to wait here first. A run has
+// to call it before reporting success, or a failed final commit goes unnoticed.
+//
+// A failure is remembered, so every later call reports it too, and it is safe to call from several
+// goroutines at once.
 func (e *Executor) AwaitCommits() error {
 	if e == nil {
 		return nil
@@ -158,25 +176,33 @@ func (e *Executor) pipelinePending() *StateChangeSet {
 	return e.pipelineChanges
 }
 
-// awaitPipelineCommit blocks until the in-flight commit has landed, reporting its failure. After it
-// returns the store holds every block this executor has run, so the next view opens on a known
-// height and needs no overlay.
+// awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
+// failed. After it returns the store holds every block this executor has run, so the next view
+// opens on a known height and needs no overlay.
+//
+// The commit closes its channel rather than sending on it, so however many goroutines wait here
+// they are all released.
 func (e *Executor) awaitPipelineCommit() error {
 	e.pipelineMu.Lock()
 	done := e.pipelineDone
 	e.pipelineMu.Unlock()
-	if done == nil {
-		return nil
+	if done != nil {
+		<-done
+		e.pipelineMu.Lock()
+		// Only the waiters on this commit retire it; a later one owns its own state.
+		if e.pipelineDone == done {
+			if e.pipelineErr != nil && e.pipelineFailure == nil {
+				e.pipelineFailure = fmt.Errorf("commit state changes: %w", e.pipelineErr)
+			}
+			e.pipelineDone = nil
+			e.pipelineChanges = nil
+			e.pipelineErr = nil
+		}
+		e.pipelineMu.Unlock()
 	}
-	err := <-done
 	e.pipelineMu.Lock()
-	e.pipelineDone = nil
-	e.pipelineChanges = nil
-	e.pipelineMu.Unlock()
-	if err != nil {
-		return fmt.Errorf("commit state changes: %w", err)
-	}
-	return nil
+	defer e.pipelineMu.Unlock()
+	return e.pipelineFailure
 }
 
 // startPipelineCommit writes the block in the background and records what it changed, so the next
@@ -186,14 +212,23 @@ func (e *Executor) awaitPipelineCommit() error {
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
 	pending := changes.clone()
-	done := make(chan error, 1)
+	done := make(chan struct{})
 	e.pipelineMu.Lock()
+	if failure := e.pipelineFailure; failure != nil {
+		e.pipelineMu.Unlock()
+		return failure
+	}
 	e.pipelineChanges = pending
 	e.pipelineDone = done
+	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
 
 	go func() {
-		done <- e.stateStore.CommitStateChanges(blockNumber, changesets)
+		err := e.stateStore.CommitStateChanges(blockNumber, changesets)
+		e.pipelineMu.Lock()
+		e.pipelineErr = err
+		e.pipelineMu.Unlock()
+		close(done)
 	}()
 	return nil
 }
@@ -244,7 +279,7 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (accountSnapsh
 		Nonce:   row.Nonce,
 	}
 	// An account with the empty-code hash has no code, so the code store need not be asked.
-	if common.Hash(row.CodeHash) != types.EmptyCodeHash {
+	if common.Hash(row.CodeHash) != gigatypes.EmptyCodeHash {
 		snapshot.Code = cloneBytes(r.snapshot.GetCode(addr))
 	}
 	return snapshot, true
