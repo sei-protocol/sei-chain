@@ -31,6 +31,10 @@ var _ StateReader = gigaSnapshotStateReader{}
 // What it returns must not alias the input either. The commit runs in the background, outliving
 // the block result and its return to the pool, so an aliasing pair would be rewritten underneath
 // the write by the next block.
+//
+// It must read only the changeset it is given. Encoding overlaps the previous block's commit, so
+// an encoder that reads the store would see a store mid-write. Expanding a storage clear is the
+// one exception, and the executor waits for that commit before encoding a block that has one.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
 // BlockChangeSetEncoder contributes named changesets that are committed in the
@@ -201,10 +205,16 @@ func (e *Executor) pipelinePending() *StateChangeSet {
 // The commit closes its channel rather than sending on it, so however many goroutines wait here
 // they are all released.
 func (e *Executor) awaitPipelineCommit() error {
-	e.pipelineMu.Lock()
-	done := e.pipelineDone
-	e.pipelineMu.Unlock()
-	if done != nil {
+	// Looped because a commit may have started while this waiter was blocked on the last one, and
+	// the promise is that every block is committed when this returns, not merely the one in flight
+	// when it was called.
+	for {
+		e.pipelineMu.Lock()
+		done := e.pipelineDone
+		e.pipelineMu.Unlock()
+		if done == nil {
+			break
+		}
 		<-done
 		e.pipelineMu.Lock()
 		// Only the waiters on this commit retire it; a later one owns its own state.

@@ -138,7 +138,7 @@ func parseConfig(args []string) (config, error) {
 	fs.Uint64Var(&cfg.blocks, "blocks", 0,
 		"blocks to prebuild and execute; 0 builds blocks as the run goes and runs until interrupted, which requires --accounts")
 	fs.Uint64Var(&cfg.accounts, "accounts", 0,
-		"size of the sender pool to draw from and reuse; 0 mints a fresh sender per transaction. Must be at least twice --txs-per-block")
+		"size of the sender pool to draw from and reuse; 0 mints a fresh sender per transaction. Must be at least twice --txs-per-block. Senders are funded once, so a long run eventually drains them and transactions start failing for want of funds: watch the failed count")
 	fs.IntVar(&cfg.txsPerBlock, "txs-per-block", defaultTxsPerBlock, "transactions generated per block")
 	fs.IntVar(&cfg.queueSize, "queue-size", defaultQueueSize, "buffered blocks waiting for executor workers")
 	fs.IntVar(&cfg.gcPercent, "gc-percent", defaultGCPercent, "Go GC target percentage, trading memory for throughput; 0 keeps Go's default, and GOGC overrides it. Bound the heap with GOMEMLIMIT when the host has a memory limit")
