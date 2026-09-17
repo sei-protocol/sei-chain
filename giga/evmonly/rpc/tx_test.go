@@ -80,7 +80,12 @@ func TestGetTransactionCountEndToEnd(t *testing.T) {
 }
 
 func TestGetTransactionReceipt(t *testing.T) {
-	txHash := common.HexToHash("0x1234")
+	tx, raw := testSignedTransaction(t)
+	txHash := tx.Hash()
+	previous, previousRaw := secondSignedTransaction(t)
+	other := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 42})
+	otherRaw, err := other.MarshalBinary()
+	require.NoError(t, err)
 	blockHash := common.HexToHash("0xabcd")
 	sender := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	recipient := common.HexToAddress("0x2000000000000000000000000000000000000002")
@@ -111,13 +116,18 @@ func TestGetTransactionReceipt(t *testing.T) {
 		},
 	}}))
 
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: previous.Hash(), Receipt: &evmtypes.Receipt{BlockNumber: 7, TransactionIndex: 0}},
+		{TxHash: other.Hash(), Receipt: &evmtypes.Receipt{BlockNumber: 7, TransactionIndex: 1}},
+	}))
+
 	backend := &testBackend{
 		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 			require.NotNil(t, req.Height)
 			require.Equal(t, coretypes.Int64(7), *req.Height)
 			return &coretypes.ResultBlock{
 				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
-				Block:   &tmtypes.Block{},
+				Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 7}, Data: tmtypes.Data{Txs: tmtypes.Txs{previousRaw, otherRaw, raw}}},
 			}, nil
 		},
 		proxy: utils.None[*ethrpc.Client](),
@@ -228,6 +238,7 @@ func TestGetTransactionByHash(t *testing.T) {
 	raw, err := tx.MarshalBinary()
 	require.NoError(t, err)
 
+	previous, previousRaw := secondSignedTransaction(t)
 	blockHash := common.HexToHash("0xabcd")
 	blockTime := time.Unix(1_700_000_000, 0)
 	store := evmonly.NewMemoryReceiptStore()
@@ -241,6 +252,9 @@ func TestGetTransactionByHash(t *testing.T) {
 		},
 	}}))
 
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: previous.Hash(), Receipt: &evmtypes.Receipt{BlockNumber: 9, TransactionIndex: 0}},
+	}))
 	chainConfig := testChainConfig(chainID)
 	backend := &testBackend{
 		block: func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
@@ -249,8 +263,8 @@ func TestGetTransactionByHash(t *testing.T) {
 			return &coretypes.ResultBlock{
 				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
 				Block: &tmtypes.Block{
-					Header: tmtypes.Header{Time: blockTime},
-					Data:   tmtypes.Data{Txs: tmtypes.Txs{[]byte("some other transaction"), raw}},
+					Header: tmtypes.Header{Height: 9, Time: blockTime},
+					Data:   tmtypes.Data{Txs: tmtypes.Txs{previousRaw, raw}},
 				},
 			}, nil
 		},
