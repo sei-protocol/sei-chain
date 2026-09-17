@@ -40,7 +40,8 @@ type Config struct {
 
 	// Accounts bounds the sender pool, so a run reuses accounts instead of minting one per
 	// transaction. Zero mints a fresh account every time, which leaves no account ever read twice.
-	// Must be at least TxsPerBlock when set, so a block never draws one sender twice.
+	// Must be at least twice TxsPerBlock when set: a block never draws one sender twice, and a
+	// recipient taken half a pool away falls outside the block that paid it.
 	Accounts uint64
 }
 

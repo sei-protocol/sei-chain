@@ -72,6 +72,11 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		return nil, err
 	}
 	gigametrics.SetPhase(gigametrics.PhaseExecution)
+	// Taken before the view, never after. Another goroutine may retire the previous commit at any
+	// moment, and reading second would let it clear these changes after a view was opened that
+	// predates them, leaving nothing to supply them. Read first, the worst case is a view that
+	// already holds them and an overlay that replays the same values over the top.
+	pending := e.pipelinePending()
 	e.blockPhases.SetPhase("open_view")
 	snapshot := stateStore.OpenView()
 	if snapshot == nil {
@@ -86,7 +91,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, e.pipelinePending())
+	source = newPendingOverlay(source, pending)
 
 	e.blockPhases.SetPhase("execute")
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -103,13 +108,16 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// Landed before anything else in storage: expanding a storage clear iterates the live store, so
-	// it has to see a store holding every earlier block and none of this one. By now the previous
-	// commit has had this block's whole execution to finish, so this rarely waits.
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	e.blockPhases.SetPhase("await_commit")
-	if err := e.awaitPipelineCommit(); err != nil {
-		return nil, err
+	// Encoding that reads the store has to see a store holding every earlier block and none of
+	// this one, so the previous commit lands first. Encoding that reads only this block's own
+	// changes runs while that commit is still going, and waits below instead.
+	settleBeforeEncoding := e.encodingReadsTheStore(&result.ChangeSet)
+	if settleBeforeEncoding {
+		e.blockPhases.SetPhase("await_commit")
+		if err := e.awaitPipelineCommit(); err != nil {
+			return nil, err
+		}
 	}
 	e.blockPhases.SetPhase("encode_changesets")
 	changesets, err := e.changeSetEncoder(result.ChangeSet)
@@ -135,12 +143,30 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
 		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 	}
+	// One commit is in flight at a time, so the previous one lands before this block starts its
+	// own. It has had this block's whole execution to run, so it rarely still holds.
+	if !settleBeforeEncoding {
+		e.blockPhases.SetPhase("await_commit")
+		if err := e.awaitPipelineCommit(); err != nil {
+			return nil, err
+		}
+	}
 	e.blockPhases.SetPhase("commit_state")
 	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
 	return result, nil
+}
+
+// encodingReadsTheStore reports whether encoding this block's changesets reads the store as well as
+// the block's own changes, which decides whether encoding may overlap the previous block's commit.
+//
+// Expanding a storage clear iterates the live store to find the slots to delete, so a block that
+// clears one must not be encoded against a store mid-commit. A block encoder is caller-supplied and
+// free to read whatever it likes, so one being configured is treated the same way.
+func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
+	return len(changes.StorageClears) > 0 || e.blockChangeSetEncoder != nil
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first

@@ -14,7 +14,8 @@ import (
 // taken before that commit cannot answer for it; the overlay supplies exactly the difference.
 //
 // It is read-only and safe for concurrent readers once built, which is what lets the OCC workers
-// share it.
+// share it. Its maps are shared for the whole block, so it hands out copies: a caller that mutated
+// a returned balance or code in place would corrupt the pending state for every other reader.
 type pendingOverlay struct {
 	base StateReader
 
@@ -69,7 +70,7 @@ func newPendingOverlay(base StateReader, changes *StateChangeSet) StateReader {
 
 func (o *pendingOverlay) GetBalance(addr common.Address) *big.Int {
 	if balance, ok := o.balances[addr]; ok {
-		return balance
+		return cloneBig(balance)
 	}
 	return o.base.GetBalance(addr)
 }
@@ -83,7 +84,7 @@ func (o *pendingOverlay) GetNonce(addr common.Address) uint64 {
 
 func (o *pendingOverlay) GetCode(addr common.Address) []byte {
 	if code, ok := o.code[addr]; ok {
-		return code
+		return cloneBytes(code)
 	}
 	return o.base.GetCode(addr)
 }
@@ -126,13 +127,13 @@ func (o *pendingOverlay) ReadAccount(addr common.Address) (accountSnapshot, bool
 		}
 	}
 	if balance, ok := o.balances[addr]; ok {
-		snapshot.Balance = balance
+		snapshot.Balance = cloneBig(balance)
 	}
 	if nonce, ok := o.nonces[addr]; ok {
 		snapshot.Nonce = nonce
 	}
 	if code, ok := o.code[addr]; ok {
-		snapshot.Code = code
+		snapshot.Code = cloneBytes(code)
 	}
 	return snapshot, true
 }

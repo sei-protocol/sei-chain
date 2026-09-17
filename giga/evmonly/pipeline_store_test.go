@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // errTestCommitFailed is the failure a test store reports from its background commit.
@@ -112,6 +113,60 @@ func TestConcurrentWaitersOnOneCommitAreAllReleased(t *testing.T) {
 			t.Fatal("a waiter was never released by the commit")
 		}
 	}
+}
+
+// retiringOnOpenStore retires the in-flight commit while a block is opening its view, which is the
+// exact window a concurrent AwaitCommits or Close occupies.
+type retiringOnOpenStore struct {
+	*recordingGigaStore
+	retire func()
+}
+
+func (s *retiringOnOpenStore) OpenView() gigatypes.StateView {
+	if s.retire != nil {
+		s.retire()
+	}
+	return s.recordingGigaStore.OpenView()
+}
+
+// Retiring the previous commit must never cost the next block the state its predecessor produced.
+// The block reads the pending changes before opening its view, so a retire landing in between
+// cannot leave it with a view that predates those changes and no overlay to supply them.
+//
+// The store here never applies a commit to its view, so the overlay is the only source of block
+// 41's payment: if it were read after the view, this block would execute against nothing.
+func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	funderKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	funder := crypto.PubkeyToAddress(funderKey.PublicKey)
+	middleKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	middle := crypto.PubkeyToAddress(middleKey.PublicKey)
+	last := testAddress(0xc3)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(funder, new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(100)))
+	store := &retiringOnOpenStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	defer executor.Close()
+
+	payment := new(big.Int).Mul(big.NewInt(testFundedBalanceWei), big.NewInt(10))
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, funderKey, chainID, 0, &middle, payment, nil))
+
+	retires := 0
+	store.retire = func() {
+		retires++
+		require.NoError(t, executor.AwaitCommits())
+	}
+	second := executePipelinedBlock(t, executor, chainID, 42,
+		signLegacyTx(t, middleKey, chainID, 0, &last, big.NewInt(1_000), nil))
+
+	require.Equal(t, 1, retires, "the retire must land while the view is being opened")
+	require.Equal(t, uint64(1), second.Txs[0].Status,
+		"block 42 lost what block 41 paid it when the commit was retired underneath it")
+	require.Contains(t, second.ChangeSet.Balances, BalanceChange{Address: last, Balance: big.NewInt(1_000)})
 }
 
 // executePipelinedBlock runs one block through the pipelined path, which returns before the block's
