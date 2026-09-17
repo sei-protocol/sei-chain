@@ -267,6 +267,11 @@ func (e *Executor) executeTxSpeculative(
 	if err != nil {
 		return result, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
 	}
+	// Stale nonces are rejected before reserving gas, including when the block's
+	// remaining gas is below the transaction's declared limit.
+	if errors.Is(txResult.Err, core.ErrNonceTooLow) {
+		result.gasLimit = 0
+	}
 	stateDB.ChangeSetInto(&result.changeSet)
 	return result, nil
 }

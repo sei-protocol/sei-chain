@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -338,6 +339,9 @@ func (e *Executor) executeTx(
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
+	if errors.Is(err, core.ErrNonceTooLow) {
+		return staleNonceResult(p, block, txIndexUint, baseFee, err)
+	}
 	if err != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
 	}
@@ -390,6 +394,30 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+// staleNonceResult records a rejected transaction with no gas or state effects.
+func staleNonceResult(p PreparedTx, block BlockContext, txIndex uint, baseFee *big.Int, err error) (TxResult, *ethtypes.Receipt, error) {
+	// ApplyMessage rejects a stale nonce before buying gas or changing state. Keep
+	// its nonce read in the OCC read set so speculative rejection is revalidated.
+	tx := p.Tx
+	receipt := &ethtypes.Receipt{
+		Type:              tx.Type(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		TxHash:            tx.Hash(),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
+		BlockHash:         block.BlockHash,
+		BlockNumber:       new(big.Int).SetUint64(block.Number),
+		TransactionIndex:  txIndex,
+	}
+	return TxResult{
+		Hash:              tx.Hash(),
+		Sender:            p.Sender,
+		To:                tx.To(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		EffectiveGasPrice: new(big.Int).Set(receipt.EffectiveGasPrice),
+		Err:               err,
+	}, receipt, nil
 }
 
 func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {
