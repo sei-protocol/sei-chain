@@ -298,6 +298,39 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 // A restarted node must resume from the height and app hash its storage holds,
 // and continue executing without an InitChain. The reference app runs the same
 // blocks without restarting, so the resumed chain has to match it hash for hash.
+// The cursor does not carry the block time, so a resumed app would answer
+// EvmCall with TIMESTAMP 0 until the next Commit. The router seeds it through
+// InitLastHeader on its restart path.
+func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	const blocks = 3
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorage(t, home)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	var last *abci.RequestFinalizeBlock
+	for height := range int64(blocks) {
+		last = evmOnlyTestBlock(height+1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height))) //nolint:gosec // G115: test heights are positive.
+		finalizeAndCommitEVMOnlyTestBlock(t, app, last)
+	}
+
+	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+
+	resumed, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	for state := range resumed.cursor.Lock() {
+		require.Zero(t, state.lastBlockTime, "a resumed app has no block time before InitLastHeader")
+	}
+	resumed.InitLastHeader(last.Header)
+	for state := range resumed.cursor.Lock() {
+		require.Equal(t, uint64(last.Header.Time.Unix()), state.lastBlockTime) //nolint:gosec // G115: test times are positive.
+	}
+}
+
 func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)

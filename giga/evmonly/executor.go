@@ -37,8 +37,11 @@ type Executor struct {
 	changeSetEncoder NamedChangeSetEncoder
 	// Optional: nil commits only the state encoder's changesets.
 	blockChangeSetEncoder BlockChangeSetEncoder
-	missingState          StateReader
-	closed                atomic.Bool
+	// blockEncoderReadsStore is false only for an encoder registered as
+	// store-independent, which lets encoding overlap the previous commit.
+	blockEncoderReadsStore bool
+	missingState           StateReader
+	closed                 atomic.Bool
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -72,9 +75,20 @@ func WithMissingAccountState(state StateReader) Option {
 
 // WithBlockChangeSetEncoder commits the encoder's changesets alongside every
 // block's state changes.
+// WithStoreIndependentBlockChangeSetEncoder registers an encoder that reads only
+// the block context and result. Encoding then overlaps the previous block's
+// commit. An encoder that touches the store must use WithBlockChangeSetEncoder.
+func WithStoreIndependentBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
+	return func(e *Executor) {
+		e.blockChangeSetEncoder = encoder
+		e.blockEncoderReadsStore = false
+	}
+}
+
 func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 	return func(e *Executor) {
 		e.blockChangeSetEncoder = encoder
+		e.blockEncoderReadsStore = true
 	}
 }
 

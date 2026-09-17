@@ -11,11 +11,13 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
@@ -119,7 +121,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	},
 		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
-		evmonly.WithBlockChangeSetEncoder(a.encodeCursorChangeSet),
+		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
 	)
 }
 
@@ -218,6 +220,18 @@ func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
 		}
 	}
 	panic("unreachable")
+}
+
+// InitLastHeader seeds the committed block time on the router's restart path.
+// The cursor carries height, hashes and gas limit but not Time, so without this
+// EvmCall would answer with TIMESTAMP 0 until the next Commit.
+func (a *evmOnlyApplication) InitLastHeader(lastHeader *tmproto.Header) {
+	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
+		return
+	}
+	for state := range a.cursor.Lock() {
+		state.lastBlockTime = uint64(lastHeader.Time.Unix()) // nolint:gosec // guarded non-negative above
+	}
 }
 
 func (a *evmOnlyApplication) LastBlockHeight() int64 {
