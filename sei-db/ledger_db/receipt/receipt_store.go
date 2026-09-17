@@ -63,6 +63,9 @@ type ReceiptStore interface {
 
 	// SetReceipts writes the block's receipts, carrying the version markers with them. An
 	// implementation may apply the write in the background; LatestVersion reports when it lands.
+	//
+	// Every block must be written, one that produced no receipts included; an implementation may
+	// refuse a write that skips a block.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 
 	// FilterLogs queries logs across a range of blocks.
@@ -71,6 +74,8 @@ type ReceiptStore interface {
 	// configured ceiling is exceeded; nil disables all caps. Callers on the
 	// eth range path typically pass a byte-only budget (maxLog=0) here and
 	// enforce the matched-log count on the normalized result separately.
+	//
+	// A store that cannot answer a range query returns ErrRangeQueryNotSupported.
 	FilterLogs(
 		ctx sdk.Context,
 		fromBlock uint64,
