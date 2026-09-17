@@ -66,6 +66,17 @@ func TestGetVMBlockContext(t *testing.T) {
 	require.NotNil(t, err)
 }
 
+func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper(t)
+	priorAppHash := crypto.Keccak256Hash([]byte("prior-app-hash"))
+	header := ctx.BlockHeader()
+	header.AppHash = priorAppHash.Bytes()
+	ctx = ctx.WithBlockHeader(header)
+	blockCtx, err := k.GetVMBlockContext(ctx, 0)
+	require.NoError(t, err)
+	require.Equal(t, priorAppHash, *blockCtx.Random)
+}
+
 func TestGetHashFn(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)

@@ -16,7 +16,6 @@ import (
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
@@ -272,12 +271,9 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		return nil, err
 	}
 
-	// Use hash of block timestamp as info for PREVRANDAO
-	r, err := ctx.BlockHeader().Time.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	rh := crypto.Keccak256Hash(r)
+	// PREVRANDAO is the prior block's app hash, which this block's header
+	// carries; this block's own app hash is only known after execution.
+	rh := common.BytesToHash(ctx.BlockHeader().AppHash)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
 		if IsPayablePrecompile(&recipient) {

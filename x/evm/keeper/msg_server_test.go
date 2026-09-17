@@ -784,6 +784,53 @@ func TestEvmError(t *testing.T) {
 	require.Equal(t, receipt.VmError, res.EvmTxInfo.VmError)
 }
 
+func TestEVMTransactionFeedsPrevRandaoThePriorAppHash(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+
+	priorAppHash := crypto.Keccak256Hash([]byte("prior-app-hash"))
+	header := ctx.BlockHeader()
+	header.AppHash = priorAppHash.Bytes()
+	ctx = ctx.WithBlockHeader(header)
+
+	privKey := testkeeper.MockPrivateKey()
+	key, _ := crypto.HexToECDSA(hex.EncodeToString(privKey.Bytes()))
+	// PREVRANDAO; PUSH1 0; SSTORE — the creation stores the opcode's value in slot 0.
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      100000,
+		Value:    big.NewInt(0),
+		Data:     common.FromHex("0x44600055"),
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	ethCfg := types.DefaultChainConfig().EthereumConfig(chainID)
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(ctx.BlockHeight()), uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
+
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	res, err := keeper.NewMsgServerImpl(k).EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+	require.Empty(t, res.VmError)
+
+	contractAddr := crypto.CreateAddress(evmAddr, 0)
+	stateDB := state.NewDBImpl(ctx, k, false)
+	require.Equal(t, priorAppHash, stateDB.GetState(contractAddr, common.Hash{}))
+}
+
 func TestAssociateContractAddress(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
