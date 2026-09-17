@@ -1,6 +1,7 @@
 package evmonlyapp
 
 import (
+	"crypto/ecdsa"
 	"encoding/binary"
 	"errors"
 	"math/big"
@@ -32,6 +33,11 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 	t.Helper()
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
+	return signedEVMOnlyTestTxFrom(t, key, chainID, nonce), crypto.PubkeyToAddress(key.PublicKey)
+}
+
+func signedEVMOnlyTestTxFrom(t *testing.T, key *ecdsa.PrivateKey, chainID uint64, nonce uint64) []byte {
+	t.Helper()
 	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,
@@ -44,7 +50,7 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 	require.NoError(t, err)
 	raw, err := signed.MarshalBinary()
 	require.NoError(t, err)
-	return raw, crypto.PubkeyToAddress(key.PublicKey)
+	return raw
 }
 
 func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
