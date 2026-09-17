@@ -514,7 +514,7 @@ func TestLittIdxFilterLogsParallelOrder(t *testing.T) {
 	}
 }
 
-func TestLittIdxDuplicateHashUsesLastReceipt(t *testing.T) {
+func TestLittIdxDuplicateHashPreservesExecutedReceipt(t *testing.T) {
 	store, ctx := setupLittIdxSync(t)
 	addr := common.HexToAddress("0xabc")
 	original := litReceipt(1, 0, addr, common.HexToHash("0xdead"))
@@ -527,30 +527,30 @@ func TestLittIdxDuplicateHashUsesLastReceipt(t *testing.T) {
 	stale.Receipt.GasUsed = 0
 	stale.Receipt.Logs = nil
 	stale.Receipt.VmError = "nonce too low"
-	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{original, other, stale}))
+	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{stale, other, original}))
 
 	got, err := store.GetReceipt(ctx, original.TxHash)
 	require.NoError(t, err)
-	require.Equal(t, stale.Receipt, got)
+	require.Equal(t, original.Receipt, got)
 	got, err = store.GetReceipt(ctx, other.TxHash)
 	require.NoError(t, err)
 	require.Equal(t, other.Receipt, got)
 
-	replay := litReceipt(2, 0, addr)
-	replay.TxHash = original.TxHash
-	replay.Receipt.TxHashHex = original.TxHash.Hex()
-	replay.Receipt.GasUsed = 0
-	replay.Receipt.Logs = nil
-	replay.Receipt.VmError = "nonce too low"
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{replay}))
-	got, err = store.GetReceipt(ctx, original.TxHash)
+	logs, err := store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{common.HexToHash("0xdead")}},
+	}, nil)
 	require.NoError(t, err)
-	require.Equal(t, replay.Receipt, got)
+	require.Len(t, logs, 2)
+	require.Equal(t, original.TxHash, logs[0].TxHash)
+	require.Equal(t, uint(0), logs[0].TxIndex)
+	require.Equal(t, []byte{0xde, 0xad}, logs[0].Data)
+	require.Equal(t, other.TxHash, logs[1].TxHash)
 
 	it, err := store.IterateReceipts(1)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, it.Close()) }()
-	for _, record := range []receipt.ReceiptRecord{other, stale, replay} {
+	for _, record := range []receipt.ReceiptRecord{original, other} {
 		ok, err := it.Next()
 		require.NoError(t, err)
 		require.True(t, ok)

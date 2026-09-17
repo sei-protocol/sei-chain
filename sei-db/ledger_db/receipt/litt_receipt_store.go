@@ -447,11 +447,8 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 	s.writePhases.SetPhase("encode_values")
 	value := make([]byte, 0)
 	secondaryKeys := make([]*litttypes.SecondaryKey, 0, len(records))
-	lastPositions := make(map[common.Hash]int, len(records))
-	for i, record := range records {
-		lastPositions[record.TxHash] = i
-	}
-	for i, record := range records {
+	indexedHashes := make(map[common.Hash]struct{}, len(records))
+	for _, record := range records {
 		body, err := marshaledReceipt(record)
 		if err != nil {
 			return err
@@ -467,11 +464,12 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		partOffset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
 		value = append(value, bz...)
 
-		// LittDB requires unique keys within one Put. Index the last occurrence
-		// of each hash, keeping secondary keys in transaction order.
-		if lastPositions[record.TxHash] != i {
+		// LittDB requires unique keys within one Put. Keep the first occurrence
+		// so a later stale duplicate cannot hide its executed receipt and logs.
+		if _, exists := indexedHashes[record.TxHash]; exists {
 			continue
 		}
+		indexedHashes[record.TxHash] = struct{}{}
 
 		txHash := make([]byte, common.HashLength)
 		copy(txHash, record.TxHash[:])
