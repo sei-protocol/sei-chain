@@ -106,7 +106,9 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 			return nil, err
 		}
 		// One receipt read per transaction here, not just for the last one:
-		// deferred pending a bulk receipt-load API on the receipt store.
+		// deferred pending a bulk receipt-load API on the receipt store. That
+		// API would also let eth_feeHistory's reward (info.go) compute a real
+		// per-percentile value instead of a fixed one.
 		for i, raw := range txs {
 			ethtx, err := decodeBlockTx(raw, number, i)
 			if err != nil {

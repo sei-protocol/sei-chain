@@ -169,6 +169,9 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 }
 
 // fixedReward returns count independent copies of the suggested gas price.
+// A real per-percentile reward needs a receipt per transaction across the
+// range; deferred for the same reason block.go's fullTx encoding is, pending
+// a bulk receipt-load API on the receipt store.
 func fixedReward(floor *big.Int, count int) []*hexutil.Big {
 	price := suggestedGasPrice(floor)
 	row := make([]*hexutil.Big, count)
