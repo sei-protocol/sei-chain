@@ -71,13 +71,12 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			firstHash := decodeTx(t, first).Hash()
 			original, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), firstHash)
 			require.NoError(t, err)
-			require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), original.Status)
-			require.Zero(t, original.GasUsed)
-			require.NotEmpty(t, original.VmError)
-			require.Equal(t, uint32(2), original.TransactionIndex)
+			require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), original.Status)
+			require.Equal(t, uint64(21_000), original.GasUsed)
+			require.Empty(t, original.VmError)
+			require.Equal(t, uint32(1), original.TransactionIndex)
 
-			// A replay in a later block gets its own failed receipt. Hash lookups
-			// follow the receipt store's latest-write semantics.
+			// A replay must preserve the receipt of the original execution.
 			block.Number = 2
 			replayed, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{first}})
 			require.NoError(t, err)
@@ -86,12 +85,7 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			require.Zero(t, replayed.GasUsed)
 			latest, err := receipts.GetReceipt(newReceiptContext(t.Context(), 2), firstHash)
 			require.NoError(t, err)
-			require.Equal(t, uint64(2), latest.BlockNumber)
-			require.Equal(t, uint32(0), latest.TransactionIndex)
-			require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), latest.Status)
-			require.Zero(t, latest.GasUsed)
-			require.Zero(t, latest.CumulativeGasUsed)
-			require.NotEmpty(t, latest.VmError)
+			require.Equal(t, original, latest)
 		})
 	}
 }
@@ -115,6 +109,7 @@ func TestReceiptRecordsIncludeStaleNonces(t *testing.T) {
 			require.Len(t, records, count)
 			for i, record := range records {
 				require.Equal(t, uint32(i), record.Receipt.TransactionIndex)
+				require.Equal(t, i%2 == 1, record.KeepExisting)
 				if i%2 == 1 {
 					require.Equal(t, "replay: "+core.ErrNonceTooLow.Error(), record.Receipt.VmError)
 					require.Zero(t, record.Receipt.GasUsed)

@@ -179,13 +179,16 @@ func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.
 }
 
 // blockGasUsed returns the cumulative gas from the last receipt belonging to
-// block, or zero when no transaction has a receipt at that height.
+// block at its original index, or zero when none is available.
 func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (uint64, error) {
 	// A trailing stale transaction may have no receipt or retain one from another
 	// block. Walk backwards to the last transaction with a receipt for this block.
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
 	number := block.Block.Height
+	if store == nil || number > store.LatestVersion() || number < store.EarliestVersion() {
+		return 0, nil
+	}
 	txs := block.Block.Txs
 	for i := len(txs) - 1; i >= 0; i-- {
 		tx, err := decodeBlockTx(txs[i], number, i)
@@ -196,7 +199,7 @@ func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *cor
 		if err != nil {
 			return 0, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
 		}
-		if stored != nil && stored.BlockNumber == uint64(number) { //nolint:gosec // G115: number is a validated block height.
+		if stored != nil && stored.BlockNumber == uint64(number) && uint64(stored.TransactionIndex) == uint64(i) { //nolint:gosec // G115: height and index are non-negative.
 			return stored.CumulativeGasUsed, nil
 		}
 	}

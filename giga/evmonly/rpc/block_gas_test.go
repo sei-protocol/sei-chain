@@ -22,12 +22,14 @@ import (
 
 func TestBlockGasRPCsUseLastReceiptAtMatchingHeight(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		first      bool
-		lastHeight uint64
-		want       uint64
+		name        string
+		first       bool
+		lastHeight  uint64
+		replayFirst bool
+		want        uint64
 	}{
 		{name: "last receipt matches", first: true, lastHeight: 9, want: 43_500},
+		{name: "trailing replay of first transaction", first: true, lastHeight: 9, replayFirst: true, want: 43_500},
 		{name: "trailing receipt missing", first: true, want: 21_000},
 		{name: "trailing receipt from earlier block", first: true, lastHeight: 8, want: 21_000},
 		{name: "trailing receipt from later block", first: true, lastHeight: 10, want: 21_000},
@@ -46,16 +48,20 @@ func TestBlockGasRPCsUseLastReceiptAtMatchingHeight(t *testing.T) {
 			}
 			if tc.lastHeight != 0 {
 				records = append(records, receipt.ReceiptRecord{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{
-					TxHashHex: tx2.Hash().Hex(), BlockNumber: tc.lastHeight, CumulativeGasUsed: 43_500,
+					TxHashHex: tx2.Hash().Hex(), BlockNumber: tc.lastHeight, TransactionIndex: 1, CumulativeGasUsed: 43_500,
 				}})
 			}
-			require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), records))
+			require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(9), records))
+			trailing := raw2
+			if tc.replayFirst {
+				trailing = raw1
+			}
 			blockHash := common.HexToHash("0x9")
 			block := &coretypes.ResultBlock{
 				BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
 				Block: &tmtypes.Block{
 					Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
-					Data:   tmtypes.Data{Txs: tmtypes.Txs{raw1, raw2, raw2}},
+					Data:   tmtypes.Data{Txs: tmtypes.Txs{raw1, raw2, trailing}},
 				},
 			}
 			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
@@ -98,7 +104,9 @@ func TestBlockGasRPCsPropagateReceiptReadErrors(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	_, trailing := secondSignedTransaction(t)
 	readErr := errors.New("receipt read failed")
-	store := failingGasReceiptStore{ReceiptStore: evmonly.NewMemoryReceiptStore(), hash: tx.Hash(), err: readErr}
+	memory := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, memory.SetLatestVersion(9))
+	store := failingGasReceiptStore{ReceiptStore: memory, hash: tx.Hash(), err: readErr}
 	block := &coretypes.ResultBlock{Block: &tmtypes.Block{
 		Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
 		Data:   tmtypes.Data{Txs: tmtypes.Txs{raw, trailing}},
@@ -113,4 +121,46 @@ func TestBlockGasRPCsPropagateReceiptReadErrors(t *testing.T) {
 	}
 	_, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, 9, nil)
 	require.ErrorIs(t, err, readErr)
+}
+
+func TestBlockGasRPCsSkipUnavailableReceiptHeights(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		latest   int64
+		earliest int64
+	}{
+		{name: "pending", latest: 8},
+		{name: "pruned", latest: 10, earliest: 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			memory := evmonly.NewMemoryReceiptStore()
+			require.NoError(t, memory.SetLatestVersion(tc.latest))
+			require.NoError(t, memory.SetEarliestVersion(tc.earliest))
+			store := &countingReceiptStore{ReceiptStore: memory}
+			_, raw := testSignedTransaction(t)
+			block := &coretypes.ResultBlock{Block: &tmtypes.Block{
+				Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
+				Data:   tmtypes.Data{Txs: make(tmtypes.Txs, 100)},
+			}}
+			for i := range block.Block.Txs {
+				block.Block.Txs[i] = raw
+			}
+			backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return block, nil
+			})
+			backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
+			got, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, false)
+			require.NoError(t, err)
+			require.Equal(t, hexutil.Uint64(0), got["gasUsed"])
+			history, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, 9, nil)
+			require.NoError(t, err)
+			require.Equal(t, []float64{0}, history.GasUsedRatio)
+			require.Zero(t, store.reads)
+			// Gas lookup also skips decoding transactions for unavailable heights.
+			block.Block.Txs[99] = []byte("invalid transaction")
+			gas, err := blockGasUsed(t.Context(), store, block)
+			require.NoError(t, err)
+			require.Zero(t, gas)
+		})
+	}
 }

@@ -136,6 +136,8 @@ type ReceiptRecord struct {
 	TxHash       common.Hash
 	Receipt      *types.Receipt
 	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
+	// KeepExisting makes this record an insert-only write for its transaction hash.
+	KeepExisting bool
 	// TxOffset and TxLength locate the raw transaction within its block's stored
 	// value in the block store (the sub-range holding this tx). They are written
 	// into the receipt value's metadata prefix so a receipt lookup can find the
@@ -159,6 +161,7 @@ type ReceiptReadMetrics interface {
 var _ ReceiptStore = (*receiptStore)(nil)
 
 type receiptStore struct {
+	writeMu     sync.Mutex
 	db          seidbtypes.StateStore
 	storeKey    sdk.StoreKey
 	stopPruning chan struct{}
@@ -324,6 +327,24 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 }
 
 func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var err error
+	drained := false
+	receipts, err = FilterExistingReceipts(receipts, func(hash common.Hash) (bool, error) {
+		// A conditional read must see every previously queued write.
+		if !drained {
+			if waiter, ok := s.db.(seidbtypes.PendingWriteWaiter); ok {
+				waiter.WaitForPendingWrites()
+			}
+			drained = true
+		}
+		value, err := s.db.Get(types.ReceiptStoreKey, s.db.GetLatestVersion(), types.ReceiptKey(hash))
+		return value != nil, err
+	})
+	if err != nil {
+		return err
+	}
 	pairs := make([]*proto.KVPair, 0, len(receipts))
 	for _, record := range receipts {
 		if record.Receipt == nil {
