@@ -129,6 +129,29 @@ func BuildEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 	return result
 }
 
+// PutEVMKey writes kind's prefix and the concatenated parts into dst, which must be
+// exactly 1 + the total length of parts. It reports whether kind has a prefix; on false
+// dst is untouched. It is BuildEVMKey for a caller that owns the storage.
+func PutEVMKey(dst []byte, kind EVMKeyKind, parts ...[]byte) bool {
+	prefix, ok := EVMKeyPrefixByte(kind)
+	if !ok {
+		return false
+	}
+	total := 1
+	for _, part := range parts {
+		total += len(part)
+	}
+	if len(dst) != total {
+		return false
+	}
+	dst[0] = prefix
+	offset := 1
+	for _, part := range parts {
+		offset += copy(dst[offset:], part)
+	}
+	return true
+}
+
 // InternalKeyLen returns the expected internal key length for a given kind.
 // Used for validation in Iterator and tests.
 func InternalKeyLen(kind EVMKeyKind) int {
