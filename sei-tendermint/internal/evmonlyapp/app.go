@@ -176,14 +176,6 @@ func (a *evmOnlyApplication) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-// EvmGasLimit returns the gas limit configured during InitChain.
-func (a *evmOnlyApplication) EvmGasLimit() uint64 {
-	for state := range a.state.Lock() {
-		return state.gasLimit
-	}
-	panic("unreachable")
-}
-
 func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
 	return slices.Clone(a.validators)
 }
