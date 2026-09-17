@@ -65,9 +65,6 @@ const WASM = {
     CW1155: "../contracts/wasm/cw1155_base.wasm",
     CW721: "../contracts/wasm/cw721_base.wasm",
     CW20: "../contracts/wasm/cw20_base.wasm",
-    POINTER_CW20: "../example/cosmwasm/cw20/artifacts/cwerc20.wasm",
-    POINTER_CW721: "../example/cosmwasm/cw721/artifacts/cwerc721.wasm",
-    POINTER_CW1155: "../example/cosmwasm/cw721/artifacts/cwerc1155.wasm",
 }
 
 function sleep(ms) {
@@ -810,42 +807,6 @@ async function passProposal(proposalId,  desposit="200000000usei", fees="200000u
     return proposalId
 }
 
-async function registerPointerForERC20(erc20Address, fees="20000usei", from=adminKeyName) {
-    return await registerPointerForCw(erc20Address, "ERC20", fees, from)
-}
-
-async function registerPointerForERC721(erc721Address, fees="20000usei", from=adminKeyName) {
-    return await registerPointerForCw(erc721Address, "ERC721", fees, from)
-}
-
-async function registerPointerForERC1155(erc1155Address, fees="200000usei", from=adminKeyName) {
-    return await registerPointerForCw(erc1155Address, "ERC1155", fees, from)
-}
-
-async function registerPointerForCw(cwAddress, type, fees, from) {
-    const command = `seid tx evm register-cw-pointer ${type} ${cwAddress} --from ${from} --fees ${fees} -b sync -y -o json`
-    const response = JSON.parse(await execute(command))
-    if (response.code !== 0) throw new Error(`contract deployment failed: ${response.raw_log}`)
-    let pointer = ''
-    try {
-        await waitForCondition(
-            async () => {
-                const out = await execute(`seid query evm pointer ${type} ${cwAddress} -o json`)
-                pointer = JSON.parse(out).pointer || ''
-                return pointer !== ''
-            },
-            `pointer for ${type} ${cwAddress}`,
-        )
-    } catch (e) {
-        // CheckTx accepted the tx but no pointer was registered (rejected
-        // at DeliverTx — e.g. trying to register a pointer for an address
-        // that's already a pointer). Wrap with the "contract deployment
-        // failed" prefix that callers match on.
-        throw new Error(`contract deployment failed: ${e.message}`)
-    }
-    return pointer
-}
-
 async function getSeiAddress(evmAddress) {
     const command = `seid q evm sei-addr ${evmAddress} -o json`
     const output = await execute(command);
@@ -1169,9 +1130,6 @@ module.exports = {
     deployErc20PointerNative,
     deployErc721PointerForCw721,
     deployErc1155PointerForCw1155,
-    registerPointerForERC20,
-    registerPointerForERC721,
-    registerPointerForERC1155,
     getPointerForNative,
     proposeCW20toERC20Upgrade,
     proposeParamChange,

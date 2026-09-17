@@ -84,7 +84,7 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 }
 
 func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
-	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cwIter := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	txBzList := make([][]byte, 100)
 	for nonce := 1; nonce <= 100; nonce++ {
 		txBzList[nonce-1] = signAndEncodeTx(sendErc20(uint64(nonce)), erc20DeployerMnemonics)
@@ -122,7 +122,7 @@ func TestTraceStateAccess(t *testing.T) {
 }
 
 func TestTraceTransactionProfile(t *testing.T) {
-	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cwIter := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	txData := callWasmIter(0, cwIter)
 	signedTx := signTxWithMnemonic(txData, mnemonic1)
 	txBz := encodeEvmTx(txData, signedTx)
@@ -199,7 +199,7 @@ func TestTraceBlockByNumberDefaultTracerDoesNotAbortOnFailedTx(t *testing.T) {
 }
 
 func TestTraceBlockByNumberDefaultTracerMatchesTraceTransaction(t *testing.T) {
-	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cwIter := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 
 	tx1Data := callWasmIter(0, cwIter)
 	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
