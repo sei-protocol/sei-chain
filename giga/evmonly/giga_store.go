@@ -103,27 +103,12 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// Receipts first, because they touch a different store and so can be written while the previous
-	// block's state commit is still running.
+	// Landed before anything else in storage: expanding a storage clear iterates the live store, so
+	// it has to see a store holding every earlier block and none of this one. By now the previous
+	// commit has had this block's whole execution to finish, so this rarely waits.
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	e.blockPhases.SetPhase("encode_receipts")
-	records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
-	if err != nil {
-		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
-	}
-	e.blockPhases.SetPhase("write_receipts")
-	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
-		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
-	}
-
-	// Landed before the changesets are encoded, never after: expanding a storage clear iterates the
-	// live store, so it has to see a store holding every earlier block and none of this one. By now
-	// the previous commit has had this block's whole execution to finish, so this rarely waits.
 	e.blockPhases.SetPhase("await_commit")
 	if err := e.awaitPipelineCommit(); err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	e.blockPhases.SetPhase("encode_changesets")
@@ -138,10 +123,17 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 		changesets = append(changesets, extra...)
 	}
-	// Re-checked after encoding, not only before: an encoder may be what cancels, and a commit
-	// started here would run in the background past the caller's abort.
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	e.blockPhases.SetPhase("encode_receipts")
+	records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+	if err != nil {
+		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+	}
+	e.blockPhases.SetPhase("write_receipts")
+	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
 	}
 	e.blockPhases.SetPhase("commit_state")
 	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
