@@ -184,6 +184,8 @@ func TestGigaSnapshotStateReaderMissingStateFallback(t *testing.T) {
 	noFallback := gigaSnapshotStateReader{snapshot: snapshot}
 	require.Zero(t, noFallback.GetBalance(absent).Sign())
 	require.Equal(t, uint64(0), noFallback.GetNonce(absent))
+	require.Empty(t, noFallback.GetCode(absent))
+	require.Equal(t, common.Hash{}, noFallback.GetState(absent, slot))
 }
 
 func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
