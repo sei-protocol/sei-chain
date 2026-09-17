@@ -3,6 +3,7 @@ package evmonlyapp
 import (
 	"crypto/ecdsa"
 	"encoding/binary"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -400,6 +401,22 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	})
 
 	require.Error(t, err)
+}
+
+func TestEVMOnlyABCIResultsCarryRevertReasonWithoutFailingTheTx(t *testing.T) {
+	result := &evmonly.BlockResult{
+		Txs: []evmonly.TxResult{
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusSuccessful},
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusFailed, Err: errors.New("execution reverted")},
+		},
+	}
+
+	txResults := evmOnlyABCIResults(result)
+
+	require.Equal(t, abci.CodeTypeOK, txResults[0].Code)
+	require.Empty(t, txResults[0].Log)
+	require.Equal(t, abci.CodeTypeOK, txResults[1].Code, "a revert must not mark the tx for a mempool retry")
+	require.Equal(t, "execution reverted", txResults[1].Log)
 }
 
 func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {
