@@ -273,17 +273,6 @@ func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status 
 	return err
 }
 
-// WaitForConnClosed blocks until conn has been removed from the peer manager. Unlike WaitForConn(target, false),
-// it observes the teardown of one specific connection, so it does not miss a disconnect followed by an
-// immediate reconnect of the same peer.
-func (n *TestNode) WaitForConnClosed(ctx context.Context, conn *ConnV2) error {
-	_, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-		current, ok := conns.Get(conn.connID())
-		return !ok || current != conn
-	})
-	return err
-}
-
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) error {
 	_ = n.Router.peerManager.PushPex(utils.Some(target.NodeID), utils.Slice(target.NodeAddress))
 	if err := n.WaitForConn(ctx, target.NodeID, true); err != nil {
@@ -301,7 +290,7 @@ func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 		conn.Close()
 	}
 	for _, conn := range conns {
-		utils.OrPanic(n.WaitForConnClosed(ctx, conn))
+		n.WaitForDisconnect(ctx, conn)
 	}
 }
 
