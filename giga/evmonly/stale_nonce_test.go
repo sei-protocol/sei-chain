@@ -63,27 +63,40 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			wantBalance := new(big.Int).Sub(initialBalance, big.NewInt(42_000*testGasPriceWei+2))
 			require.Equal(t, wantBalance, new(big.Int).SetBytes(view.GetBalance(sender).Bytes()))
 			view.Close()
+			staleReceipt, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), decodeTx(t, stale).Hash())
+			require.NoError(t, err)
+			require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), staleReceipt.Status)
+			require.Zero(t, staleReceipt.GasUsed)
+			require.NotEmpty(t, staleReceipt.VmError)
 			firstHash := decodeTx(t, first).Hash()
 			original, err := receipts.GetReceipt(newReceiptContext(t.Context(), 1), firstHash)
 			require.NoError(t, err)
-			require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), original.Status)
-			require.Equal(t, uint32(1), original.TransactionIndex)
+			require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), original.Status)
+			require.Zero(t, original.GasUsed)
+			require.NotEmpty(t, original.VmError)
+			require.Equal(t, uint32(2), original.TransactionIndex)
 
-			// A replay in a later block must not replace the successful receipt.
+			// A replay in a later block gets its own failed receipt. Hash lookups
+			// follow the receipt store's latest-write semantics.
 			block.Number = 2
 			replayed, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: block, Txs: [][]byte{first}})
 			require.NoError(t, err)
 			defer replayed.Release()
 			require.Empty(t, replayed.ChangeSet)
 			require.Zero(t, replayed.GasUsed)
-			preserved, err := receipts.GetReceipt(newReceiptContext(t.Context(), 2), firstHash)
+			latest, err := receipts.GetReceipt(newReceiptContext(t.Context(), 2), firstHash)
 			require.NoError(t, err)
-			require.Equal(t, original, preserved)
+			require.Equal(t, uint64(2), latest.BlockNumber)
+			require.Equal(t, uint32(0), latest.TransactionIndex)
+			require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), latest.Status)
+			require.Zero(t, latest.GasUsed)
+			require.Zero(t, latest.CumulativeGasUsed)
+			require.NotEmpty(t, latest.VmError)
 		})
 	}
 }
 
-func TestReceiptRecordsOmitStaleNonces(t *testing.T) {
+func TestReceiptRecordsIncludeStaleNonces(t *testing.T) {
 	for _, count := range []int{2, occParallelReceiptThreshold} {
 		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
 			executor := NewExecutor(Config{OCCWorkers: 4})
@@ -99,9 +112,13 @@ func TestReceiptRecordsOmitStaleNonces(t *testing.T) {
 			}
 			records, err := executor.receiptRecordsParallel(t.Context(), 1, result)
 			require.NoError(t, err)
-			require.Len(t, records, count/2)
+			require.Len(t, records, count)
 			for i, record := range records {
-				require.Equal(t, uint32(i*2), record.Receipt.TransactionIndex)
+				require.Equal(t, uint32(i), record.Receipt.TransactionIndex)
+				if i%2 == 1 {
+					require.Equal(t, "replay: "+core.ErrNonceTooLow.Error(), record.Receipt.VmError)
+					require.Zero(t, record.Receipt.GasUsed)
+				}
 			}
 		})
 	}

@@ -2,12 +2,9 @@ package evmonly
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -26,7 +23,7 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 			return nil, err
 		}
 	}
-	return executedReceiptRecords(records), nil
+	return records, nil
 }
 
 // encodeReceiptRecord writes the record for one transaction. Records are independent of each other,
@@ -46,10 +43,6 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int, records
 			return fmt.Errorf("receipt %d status %d exceeds uint32", i, ethReceipt.Status)
 		}
 		txResult := result.Txs[i]
-		// A replay must not replace the receipt of its earlier execution.
-		if errors.Is(txResult.Err, core.ErrNonceTooLow) {
-			return nil
-		}
 		stored := &evmtypes.Receipt{
 			TxType:            uint32(ethReceipt.Type),
 			CumulativeGasUsed: ethReceipt.CumulativeGasUsed,
@@ -77,13 +70,6 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int, records
 		records[i] = receipt.ReceiptRecord{TxHash: ethReceipt.TxHash, Receipt: stored}
 	}
 	return nil
-}
-
-// executedReceiptRecords excludes transactions rejected before execution.
-func executedReceiptRecords(records []receipt.ReceiptRecord) []receipt.ReceiptRecord {
-	return slices.DeleteFunc(records, func(record receipt.ReceiptRecord) bool {
-		return record.Receipt == nil
-	})
 }
 
 // receiptRecordsParallel fills the block's records across the executor's worker pool. Encoding is a
@@ -116,7 +102,7 @@ func (e *Executor) receiptRecordsParallel(ctx context.Context, blockNumber uint6
 	if err != nil {
 		return nil, err
 	}
-	return executedReceiptRecords(records), nil
+	return records, nil
 }
 
 // occParallelReceiptThreshold is the block size below which fanning receipt encoding out costs more

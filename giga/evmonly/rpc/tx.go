@@ -40,13 +40,7 @@ func (api *txAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (
 	if err != nil || stored == nil {
 		return nil, err
 	}
-	index, err := rpcTransactionIndex(ctx, api.store, block, stored)
-	if err != nil {
-		return nil, err
-	}
-	visible := *stored
-	visible.TransactionIndex = index
-	return encodeReceipt(hash, &visible, common.BytesToHash(block.BlockID.Hash)), nil
+	return encodeReceipt(hash, stored, common.BytesToHash(block.BlockID.Hash)), nil
 }
 
 // GetTransactionByHash returns hash's transaction as committed in a finalized
@@ -78,15 +72,11 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 	if err != nil {
 		return nil, err
 	}
-	index, err := rpcTransactionIndex(ctx, api.store, block, stored)
-	if err != nil {
-		return nil, err
-	}
 	// TODO: If the EVM-only base fee becomes dynamic, read the fee for
 	// stored.BlockNumber here or persist it with the receipt. Using the current
 	// fee would misreport a historical transaction's effective gas price.
 	result := export.NewRPCTransaction(ethtx, common.BytesToHash(block.BlockID.Hash), stored.BlockNumber, blockUnix,
-		uint64(index), baseFee, chainConfig)
+		uint64(stored.TransactionIndex), baseFee, chainConfig)
 	replaceFrom(result, stored)
 	return result, nil
 }

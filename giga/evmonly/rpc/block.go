@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
-	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -97,31 +96,44 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, err
 	}
 
-	var chainConfig *params.ChainConfig
+	txs := block.Block.Txs
+	transactions := make([]any, len(txs))
 	if fullTx {
-		chainConfig, err = api.backend.EvmChainConfig()
+		chainConfig, err := api.backend.EvmChainConfig()
 		if err != nil {
 			return nil, err
+		}
+		// One receipt read per transaction here, not just for the last one:
+		// deferred pending a bulk receipt-load API on the receipt store. That
+		// API would also let eth_feeHistory's reward (info.go) compute a real
+		// per-percentile value instead of a fixed one.
+		for i, raw := range txs {
+			ethtx, err := decodeBlockTx(raw, number, i)
+			if err != nil {
+				return nil, err
+			}
+			stored, err := receiptFor(ctx, api.store, ethtx.Hash())
+			if err != nil {
+				return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
+			}
+			result := export.NewRPCTransaction(ethtx, blockHash, uint64(number), blockUnix, uint64(i), baseFee, chainConfig) //nolint:gosec // G115: number is a validated block height.
+			if stored != nil {
+				replaceFrom(result, stored)
+			}
+			transactions[i] = result
+		}
+	} else {
+		for i, raw := range txs {
+			ethtx, err := decodeBlockTx(raw, number, i)
+			if err != nil {
+				return nil, err
+			}
+			transactions[i] = ethtx.Hash()
 		}
 	}
-	transactions := make([]any, 0, len(block.Block.Txs))
-	var gasUsed uint64
-	for i := range block.Block.Txs {
-		tx, stored, err := executedBlockTx(ctx, api.store, block, i)
-		if err != nil {
-			return nil, err
-		}
-		if stored == nil {
-			continue
-		}
-		gasUsed = stored.CumulativeGasUsed
-		if fullTx {
-			result := export.NewRPCTransaction(tx, blockHash, uint64(number), blockUnix, uint64(len(transactions)), baseFee, chainConfig) //nolint:gosec // G115: number is a validated block height.
-			replaceFrom(result, stored)
-			transactions = append(transactions, result)
-		} else {
-			transactions = append(transactions, tx.Hash())
-		}
+	gasUsed, err := blockGasUsed(ctx, api.store, block)
+	if err != nil {
+		return nil, err
 	}
 
 	result := map[string]any{
@@ -173,54 +185,20 @@ func blockGasUsed(ctx context.Context, store receiptpkg.ReceiptStore, block *cor
 	// block. Walk backwards to the last transaction with a receipt for this block.
 	// The total covers this lane's block; superblocks merging lanes would need a
 	// combined total instead.
-	for i := len(block.Block.Txs) - 1; i >= 0; i-- {
-		_, stored, err := executedBlockTx(ctx, store, block, i)
+	number := block.Block.Height
+	txs := block.Block.Txs
+	for i := len(txs) - 1; i >= 0; i-- {
+		tx, err := decodeBlockTx(txs[i], number, i)
 		if err != nil {
 			return 0, err
 		}
-		if stored != nil {
+		stored, err := receiptFor(ctx, store, tx.Hash())
+		if err != nil {
+			return 0, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
+		}
+		if stored != nil && stored.BlockNumber == uint64(number) { //nolint:gosec // G115: number is a validated block height.
 			return stored.CumulativeGasUsed, nil
 		}
 	}
 	return 0, nil
-}
-
-// executedBlockTx returns the transaction and receipt for an executed block
-// position, or a nil receipt when that occurrence was not executed.
-func executedBlockTx(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock, index int) (*ethtypes.Transaction, *evmtypes.Receipt, error) {
-	number := block.Block.Height
-	tx, err := decodeBlockTx(block.Block.Txs[index], number, index)
-	if err != nil {
-		return nil, nil, err
-	}
-	stored, err := receiptFor(ctx, store, tx.Hash())
-	if err != nil {
-		return nil, nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, index, err)
-	}
-	// Matching the position also excludes replays of an earlier transaction in
-	// this same block, which share both its hash and its receipt's block height.
-	if stored == nil || stored.BlockNumber != uint64(number) || uint64(stored.TransactionIndex) != uint64(index) { //nolint:gosec // G115: block height and index are non-negative.
-		return tx, nil, nil
-	}
-	return tx, stored, nil
-}
-
-// rpcTransactionIndex returns the transaction's position among executed block
-// transactions. Stored receipt indices continue to address the raw proposal.
-func rpcTransactionIndex(ctx context.Context, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock, stored *evmtypes.Receipt) (uint32, error) {
-	if uint64(stored.TransactionIndex) >= uint64(len(block.Block.Txs)) {
-		return 0, fmt.Errorf("receipt transaction index %d exceeds block %d transaction count %d",
-			stored.TransactionIndex, stored.BlockNumber, len(block.Block.Txs))
-	}
-	var index uint32
-	for i := 0; uint64(i) < uint64(stored.TransactionIndex); i++ { //nolint:gosec // G115: i is non-negative.
-		_, previous, err := executedBlockTx(ctx, store, block, i)
-		if err != nil {
-			return 0, err
-		}
-		if previous != nil {
-			index++
-		}
-	}
-	return index, nil
 }

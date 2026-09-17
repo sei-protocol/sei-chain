@@ -46,7 +46,7 @@ func TestBlockGasRPCsUseLastReceiptAtMatchingHeight(t *testing.T) {
 			}
 			if tc.lastHeight != 0 {
 				records = append(records, receipt.ReceiptRecord{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{
-					TxHashHex: tx2.Hash().Hex(), BlockNumber: tc.lastHeight, TransactionIndex: 1, CumulativeGasUsed: 43_500,
+					TxHashHex: tx2.Hash().Hex(), BlockNumber: tc.lastHeight, CumulativeGasUsed: 43_500,
 				}})
 			}
 			require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), records))
@@ -66,22 +66,13 @@ func TestBlockGasRPCsUseLastReceiptAtMatchingHeight(t *testing.T) {
 			}
 			backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
 			blocks := &blockAPI{backend: backend, store: store}
-			wantTransactions := 0
-			if tc.first {
-				wantTransactions++
-			}
-			if tc.lastHeight == 9 {
-				wantTransactions++
-			}
 			for _, fullTx := range []bool{false, true} {
 				byNumber, err := blocks.GetBlockByNumber(t.Context(), 9, fullTx)
 				require.NoError(t, err)
 				require.Equal(t, hexutil.Uint64(tc.want), byNumber["gasUsed"])
-				require.Len(t, byNumber["transactions"], wantTransactions)
 				byHash, err := blocks.GetBlockByHash(t.Context(), blockHash, fullTx)
 				require.NoError(t, err)
 				require.Equal(t, hexutil.Uint64(tc.want), byHash["gasUsed"])
-				require.Len(t, byHash["transactions"], wantTransactions)
 			}
 			history, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, ethrpc.BlockNumber(9), nil)
 			require.NoError(t, err)

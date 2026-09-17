@@ -513,3 +513,52 @@ func TestLittIdxFilterLogsParallelOrder(t *testing.T) {
 		require.NoError(t, store.Close())
 	}
 }
+
+func TestLittIdxDuplicateHashUsesLastReceipt(t *testing.T) {
+	store, ctx := setupLittIdxSync(t)
+	addr := common.HexToAddress("0xabc")
+	original := litReceipt(1, 0, addr, common.HexToHash("0xdead"))
+	original.Receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
+	other := litReceipt(1, 1, addr, common.HexToHash("0xdead"))
+	stale := litReceipt(1, 2, addr)
+	stale.TxHash = original.TxHash
+	stale.Receipt.TxHashHex = original.TxHash.Hex()
+	stale.Receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
+	stale.Receipt.GasUsed = 0
+	stale.Receipt.Logs = nil
+	stale.Receipt.VmError = "nonce too low"
+	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{original, other, stale}))
+
+	got, err := store.GetReceipt(ctx, original.TxHash)
+	require.NoError(t, err)
+	require.Equal(t, stale.Receipt, got)
+	got, err = store.GetReceipt(ctx, other.TxHash)
+	require.NoError(t, err)
+	require.Equal(t, other.Receipt, got)
+
+	replay := litReceipt(2, 0, addr)
+	replay.TxHash = original.TxHash
+	replay.Receipt.TxHashHex = original.TxHash.Hex()
+	replay.Receipt.GasUsed = 0
+	replay.Receipt.Logs = nil
+	replay.Receipt.VmError = "nonce too low"
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(2), []receipt.ReceiptRecord{replay}))
+	got, err = store.GetReceipt(ctx, original.TxHash)
+	require.NoError(t, err)
+	require.Equal(t, replay.Receipt, got)
+
+	it, err := store.IterateReceipts(1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	for _, record := range []receipt.ReceiptRecord{other, stale, replay} {
+		ok, err := it.Next()
+		require.NoError(t, err)
+		require.True(t, ok)
+		got, err := it.Receipt()
+		require.NoError(t, err)
+		require.Equal(t, record.Receipt, got)
+	}
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.False(t, ok)
+}

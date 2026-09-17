@@ -20,92 +20,70 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func TestStaleTransactionsAreAbsentFromRPCBlocks(t *testing.T) {
-	first, rawFirst := testSignedTransaction(t)
-	second, rawSecond := secondSignedTransaction(t)
-	missing := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 99})
-	rawMissing, err := missing.MarshalBinary()
-	require.NoError(t, err)
-	prior := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 98})
-	rawPrior, err := prior.MarshalBinary()
-	require.NoError(t, err)
-	store := evmonly.NewMemoryReceiptStore()
-	ctx := sdk.Context{}.WithContext(t.Context())
-	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{
-		{TxHash: prior.Hash(), Receipt: &evmtypes.Receipt{BlockNumber: 8, TransactionIndex: 0, CumulativeGasUsed: 21_000}},
-		{TxHash: first.Hash(), Receipt: &evmtypes.Receipt{BlockNumber: 9, TransactionIndex: 2, CumulativeGasUsed: 21_000}},
-		{TxHash: second.Hash(), Receipt: &evmtypes.Receipt{
-			BlockNumber: 9, TransactionIndex: 4, CumulativeGasUsed: 42_000,
-			Logs: []*evmtypes.Log{{Index: 0}},
-		}},
-	}))
+type countingReceiptStore struct {
+	receipt.ReceiptStore
+	reads int
+}
+
+func (s *countingReceiptStore) GetReceipt(ctx sdk.Context, hash common.Hash) (*evmtypes.Receipt, error) {
+	s.reads++
+	return s.ReceiptStore.GetReceipt(ctx, hash)
+}
+
+func TestStaleReceiptRPCsKeepStoredPositions(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	const index = 99
+	store := &countingReceiptStore{ReceiptStore: evmonly.NewMemoryReceiptStore()}
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{
+			BlockNumber: 9, TransactionIndex: index, CumulativeGasUsed: 42_000,
+			Status: uint32(ethtypes.ReceiptStatusFailed), VmError: "nonce too low",
+		},
+	}}))
 	blockHash := common.HexToHash("0x9")
-	blocks := map[int64]*coretypes.ResultBlock{
-		8: {BlockID: tmtypes.BlockID{Hash: common.HexToHash("0x8").Bytes()}, Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: 8, Time: time.Unix(1_700_000_000, 0)},
-			Data:   tmtypes.Data{Txs: tmtypes.Txs{rawPrior}},
-		}},
-		9: {BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()}, Block: &tmtypes.Block{
-			Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_001, 0)},
-			Data:   tmtypes.Data{Txs: tmtypes.Txs{rawMissing, rawPrior, rawFirst, rawFirst, rawSecond, rawFirst, rawMissing}},
-		}},
+	block := &coretypes.ResultBlock{BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()}, Block: &tmtypes.Block{
+		Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
+		Data:   tmtypes.Data{Txs: make(tmtypes.Txs, index+1)},
+	}}
+	for i := range block.Block.Txs {
+		block.Block.Txs[i] = raw
 	}
-	backend := fixedGasLimitBackend(t, 100_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-		if req.Height == nil {
-			return blocks[9], nil
-		}
-		return blocks[int64(*req.Height)], nil
+	backend := fixedGasLimitBackend(t, 100_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
 	})
-	backend.blockByHash = func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-		return blocks[9], nil
-	}
 	backend.minGasPrice = func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil }
-	blockRPC := &blockAPI{backend: backend, store: store}
-	for _, full := range []bool{false, true} {
-		byNumber, err := blockRPC.GetBlockByNumber(t.Context(), 9, full)
-		require.NoError(t, err)
-		byHash, err := blockRPC.GetBlockByHash(t.Context(), blockHash, full)
-		require.NoError(t, err)
-		require.Equal(t, byNumber, byHash)
-		require.Equal(t, hexutil.Uint64(42_000), byNumber["gasUsed"])
-		transactions := byNumber["transactions"].([]any)
-		require.Len(t, transactions, 2)
-		for i, hash := range []common.Hash{first.Hash(), second.Hash()} {
-			if full {
-				tx := transactions[i].(*export.RPCTransaction)
-				require.Equal(t, hash, tx.Hash)
-				require.Equal(t, hexutil.Uint64(i), *tx.TransactionIndex)
-			} else {
-				require.Equal(t, hash, transactions[i])
-			}
-		}
+	txs := &txAPI{backend: backend, store: store}
+	gotReceipt, err := txs.GetTransactionReceipt(t.Context(), tx.Hash())
+	require.NoError(t, err)
+	require.Equal(t, 1, store.reads)
+	require.Equal(t, hexutil.Uint64(index), gotReceipt["transactionIndex"])
+	require.Equal(t, hexutil.Uint64(ethtypes.ReceiptStatusFailed), gotReceipt["status"])
+	require.Equal(t, hexutil.Uint64(0), gotReceipt["gasUsed"])
+
+	store.reads = 0
+	gotTx, err := txs.GetTransactionByHash(t.Context(), tx.Hash())
+	require.NoError(t, err)
+	require.Equal(t, 1, store.reads)
+	require.Equal(t, hexutil.Uint64(index), *gotTx.TransactionIndex)
+
+	store.reads = 0
+	gotBlock, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, false)
+	require.NoError(t, err)
+	require.Equal(t, 1, store.reads)
+	require.Len(t, gotBlock["transactions"], index+1)
+	require.Equal(t, hexutil.Uint64(42_000), gotBlock["gasUsed"])
+
+	fullBlock, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), 9, true)
+	require.NoError(t, err)
+	transactions := fullBlock["transactions"].([]any)
+	require.Len(t, transactions, index+1)
+	for i, transaction := range transactions {
+		require.Equal(t, hexutil.Uint64(i), *transaction.(*export.RPCTransaction).TransactionIndex)
 	}
-	txRPC := &txAPI{backend: backend, store: store}
-	for i, hash := range []common.Hash{first.Hash(), second.Hash()} {
-		tx, err := txRPC.GetTransactionByHash(t.Context(), hash)
-		require.NoError(t, err)
-		require.Equal(t, hash, tx.Hash)
-		require.Equal(t, hexutil.Uint64(i), *tx.TransactionIndex)
-		got, err := txRPC.GetTransactionReceipt(t.Context(), hash)
-		require.NoError(t, err)
-		require.Equal(t, hexutil.Uint64(i), got["transactionIndex"])
-		for _, log := range got["logs"].([]*ethtypes.Log) {
-			require.Equal(t, uint(i), log.TxIndex)
-		}
-	}
-	missingTx, err := txRPC.GetTransactionByHash(t.Context(), missing.Hash())
-	require.NoError(t, err)
-	require.Nil(t, missingTx)
-	missingReceipt, err := txRPC.GetTransactionReceipt(t.Context(), missing.Hash())
-	require.NoError(t, err)
-	require.Nil(t, missingReceipt)
-	original, err := txRPC.GetTransactionReceipt(t.Context(), prior.Hash())
-	require.NoError(t, err)
-	require.Equal(t, hexutil.Uint64(8), original["blockNumber"])
+
+	store.reads = 0
 	history, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, 9, nil)
 	require.NoError(t, err)
+	require.Equal(t, 1, store.reads)
 	require.Equal(t, []float64{0.42}, history.GasUsedRatio)
-	stored, err := store.GetReceipt(ctx, second.Hash())
-	require.NoError(t, err)
-	require.Equal(t, uint32(4), stored.TransactionIndex)
 }
