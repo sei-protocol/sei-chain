@@ -14,8 +14,7 @@ import (
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
-// flatKVEveryBranch covers every encodeFlatKVChangeSet path except storage clears,
-// which TestEncodeFlatKVChangeSetGoldenStorageClear covers.
+// flatKVEveryBranch covers every encodeFlatKVChangeSet path except storage clears.
 func flatKVEveryBranch() StateChangeSet {
 	addr := func(b byte) common.Address { return common.Address{b, 0x5e, 0x11} }
 	return StateChangeSet{
@@ -65,8 +64,7 @@ func flatKVPairListing(t testing.TB, store *flatkv.CommitStore, changes StateCha
 	return sb.String()
 }
 
-// TestEncodeFlatKVChangeSetGolden pins the encoder's output. The pairs are committed to
-// FlatKV and enter its LtHash, so a change here changes the state root.
+// TestEncodeFlatKVChangeSetGolden pins the emitted pairs, which enter FlatKV's LtHash.
 func TestEncodeFlatKVChangeSetGolden(t *testing.T) {
 	got := flatKVPairDigest(t, flatKVEveryBranch())
 	const want = `21015e110000000000000000000000000000000000|false|0000000000000000000000000000000000000000000000000000000000000063
@@ -138,7 +136,7 @@ func TestEncodeFlatKVChangeSetRejectsNegativeBalance(t *testing.T) {
 }
 
 func BenchmarkEncodeFlatKVChangeSet(b *testing.B) {
-	// 1,167 accounts touched produce about the 3,500 pairs a full block emits.
+	// ~3,500 pairs, a full block.
 	const accounts = 1167
 	changes := StateChangeSet{}
 	for i := range accounts {

@@ -129,9 +129,8 @@ func BuildEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 	return result
 }
 
-// PutEVMKey writes kind's prefix and the concatenated parts into dst, which must be
-// exactly 1 + the total length of parts. It reports whether kind has a prefix; on false
-// dst is untouched. It is BuildEVMKey for a caller that owns the storage.
+// PutEVMKey writes kind's prefix and parts into dst, which must be exactly 1 + the total length of parts.
+// It reports false and leaves dst untouched when kind has no prefix.
 func PutEVMKey(dst []byte, kind EVMKeyKind, parts ...[]byte) bool {
 	prefix, ok := EVMKeyPrefixByte(kind)
 	if !ok {

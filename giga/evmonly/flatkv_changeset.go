@@ -68,7 +68,7 @@ func encodeFlatKVChangeSet(store *flatkv.CommitStore, changes StateChangeSet) ([
 		copy(codePair.Value, change.Code)
 	}
 	for _, address := range changes.StorageClears {
-		// Clear pairs come from iterating the store, so their count is unknown up front and they are allocated individually.
+		// Clears are discovered by iterating the store, so they are allocated per pair.
 		var err error
 		b.pairPtrs, err = appendFlatKVStorageClearPairs(store, b.pairPtrs, address)
 		if err != nil {
@@ -110,8 +110,7 @@ type flatKVChangeSetBuilder struct {
 func newFlatKVChangeSetBuilder(changes StateChangeSet) *flatKVChangeSetBuilder {
 	addressPairs := len(changes.Balances) + len(changes.Nonces) + 2*len(changes.Code)
 	pairCount := addressPairs + len(changes.Storage)
-	// Sized for every pair that could carry a value, so a block of deletions overshoots
-	// rather than reallocating.
+	// Sized for every pair that could carry a value.
 	fixedValueBytes := len(changes.Balances)*vtype.BalanceLen +
 		len(changes.Nonces)*vtype.NonceLen +
 		len(changes.Code)*vtype.CodeHashLen +
