@@ -140,10 +140,11 @@ func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, r
 			return nil, err
 		}
 		next := evmOnlyCursor{
-			height:    height,
-			appHash:   appHash,
-			blockHash: block.BlockHash,
-			gasLimit:  block.GasLimit,
+			height:     height,
+			appHash:    appHash,
+			blockHash:  block.BlockHash,
+			prevRandao: block.PrevRandao,
+			gasLimit:   block.GasLimit,
 		}
 		state.pending = utils.Some(next)
 		state.pendingBlockTime = block.Time
@@ -358,11 +359,6 @@ func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
 	return evmOnlyBaseFee()
 }
 
-// evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
-func evmOnlyPrevRandao(timestamp uint64) common.Hash {
-	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
-}
-
 // EvmCall executes msg as a read-only call against the most recently
 // committed EVM state and returns the execution result.
 func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
@@ -394,7 +390,7 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 			BaseFee:     evmOnlyBaseFee(),
 			BlobBaseFee: new(big.Int),
 			BlockHash:   state.committed.blockHash,
-			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
+			PrevRandao:  state.committed.prevRandao,
 		}
 	}
 	return executor.Call(ctx, blockCtx, msg)
