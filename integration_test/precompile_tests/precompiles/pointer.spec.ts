@@ -25,7 +25,7 @@ import {
 } from '../utils/precompileUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 
-const DEPRECATION_ERROR = 'EVM pointer creation is deprecated';
+const RETIRED = 'pointer precompile is retired';
 
 describe('pointer precompile (0x100b)', function () {
     this.timeout(180 * 1000);
@@ -57,7 +57,7 @@ describe('pointer precompile (0x100b)', function () {
         it('addNativePointer reverts for a metadata-backed denom and registers nothing', async () => {
             await expectVmError(
                 pointer.addNativePointer(denom, { gasLimit: 5_000_000 }),
-                DEPRECATION_ERROR,
+                RETIRED,
             );
             const [, , exists] = await pointerview.getNativePointer(denom);
             expect(exists, 'no pointer may be registered').to.equal(false);

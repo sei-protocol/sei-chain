@@ -2,7 +2,7 @@
  * start up a local instance of sei: `./scripts/initialize_local_chain.sh`
  * run a hardhat tests:
     * `cd contracts`
-    * `npx hardhat test --network seilocal test/ERC20toCW20PointerTest.js`
+    * `npx hardhat test --network seilocal test/EVMCompatabilityTest.js`
 
 ## Compile and build contracts with Foundry
  * run: `forge install` and `forge build`

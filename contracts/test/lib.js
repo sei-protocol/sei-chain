@@ -522,15 +522,6 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKe
     return newContract
 }
 
-async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20-pointer", version=99, description="erc20 pointer",fees="200000usei", from=adminKeyName) {
-    const maxIdBefore = await maxProposalId()
-    const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json -b sync`
-    const response = JSON.parse(await execute(command))
-    if (response.code !== 0) throw new Error(`proposeCW20toERC20Upgrade failed: ${response.raw_log}`)
-    const proposalId = await findProposalByTitle(title, maxIdBefore, response.txhash)
-    return await passProposal(proposalId)
-}
-
 async function proposeParamChange(title, description, changes, deposit="200000000usei", fees="200000usei", from=adminKeyName, expedited=true) {
     const proposal = {
         title,
@@ -1020,7 +1011,6 @@ module.exports = {
     getAdmin,
     setupSigners,
     deployEvmContract,
-    proposeCW20toERC20Upgrade,
     proposeParamChange,
     proposeDisableWasm,
     proposeEnableWasm,
