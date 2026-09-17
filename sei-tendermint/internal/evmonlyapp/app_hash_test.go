@@ -11,8 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
-// evmOnlyHashFixture builds a changeset covering every field hashEVMOnlyResult walks:
-// a balance, a nonce, code, a code deletion, a storage write and a storage deletion.
+// evmOnlyHashFixture builds a changeset touching every field hashEVMOnlyResult walks.
 func evmOnlyHashFixture(pairs int) *evmonly.BlockResult {
 	addr := func(b byte) common.Address {
 		var a common.Address
@@ -49,9 +48,7 @@ func evmOnlyHashFixture(pairs int) *evmonly.BlockResult {
 	return result
 }
 
-// TestHashEVMOnlyResultGoldenVector pins the app-hash byte stream. The hash is the
-// value validators vote on, so any change here forks the chain: a failure means the
-// stream moved, not that the vector is stale.
+// TestHashEVMOnlyResultGoldenVector pins the app-hash byte stream validators vote on.
 func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 	for _, tc := range []struct {
 		pairs int
@@ -75,7 +72,7 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 }
 
 func BenchmarkHashEVMOnlyResult(b *testing.B) {
-	// 1,167 accounts touched produce about the 3,500 pairs a full block emits.
+	// ~3,500 pairs, a full block.
 	result := evmOnlyHashFixture(1167)
 	previous := common.HexToHash("0xabcd")
 	blockHash := common.HexToHash("0xdcba")

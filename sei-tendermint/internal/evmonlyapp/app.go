@@ -597,8 +597,7 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 // evmOnlyHashBufferSize is the buffer between the stream and the hash.
 const evmOnlyHashBufferSize = 32 << 10
 
-// evmOnlyHashWriter carries the app-hash byte stream into a hash. The stream is what
-// validators vote on, so it must not change. flush must run before the digest is read.
+// evmOnlyHashWriter buffers the app-hash byte stream into a hash; flush before reading the digest.
 type evmOnlyHashWriter struct {
 	buf     *bufio.Writer
 	scratch [8]byte
