@@ -32,6 +32,36 @@ type Config struct {
 	FixedRecipient         *common.Address
 	RecipientConflictRate  float64
 	SameSender             bool
+
+	// FirstBlockHeight is the height of the first block a run builds, genesis having taken the ones
+	// below it. Sender indices count from there, so the pool's first pass carries nonce zero. Zero
+	// means one.
+	FirstBlockHeight uint64
+
+	// Accounts bounds the sender pool, so a run reuses accounts instead of minting one per
+	// transaction. Zero mints a fresh account every time, which leaves no account ever read twice.
+	// Must be at least twice TxsPerBlock when set: a block never draws one sender twice, and a
+	// recipient taken half a pool away falls outside the block that paid it.
+	Accounts uint64
+}
+
+// senderSlot is the account a transaction is sent from and the nonce it carries.
+type senderSlot struct {
+	account uint64
+	nonce   uint64
+}
+
+// senderFor maps a run-wide transaction index onto the pool. Both halves come from the index, so
+// nothing has to be tracked per account: index i takes account i%Accounts, and that account has
+// been used i/Accounts times before, which is its next nonce.
+//
+// Callers reserve a contiguous range of indices per block, so a block's senders are distinct as
+// long as the pool is at least TxsPerBlock, and an account's nonces rise in block order.
+func (c Config) senderFor(index uint64) senderSlot {
+	if c.Accounts == 0 {
+		return senderSlot{account: index, nonce: 0}
+	}
+	return senderSlot{account: index % c.Accounts, nonce: index / c.Accounts}
 }
 
 type State interface {
@@ -42,6 +72,13 @@ type State interface {
 
 type Workload interface {
 	BuildBlock(context.Context, uint64) (evmonly.BlockRequest, error)
+}
+
+// PoolSeeder is implemented by workloads that draw senders from a bounded pool. A run that builds
+// blocks as it goes needs every sender in state before genesis is committed, which only a bounded
+// pool makes possible.
+type PoolSeeder interface {
+	SeedAccountPool(context.Context) error
 }
 
 func NewWorkload(kind string, cfg Config, state State) (Workload, error) {

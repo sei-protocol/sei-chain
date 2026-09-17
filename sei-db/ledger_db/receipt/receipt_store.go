@@ -348,7 +348,15 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 		Name:      types.ReceiptStoreKey,
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
+	if err := s.applyChangeset(ctx, ncs); err != nil {
+		return err
+	}
+	RecordReceiptsWritten(ctx.Context(), receipts)
+	return nil
+}
 
+// applyChangeset hands a block's receipt changeset to the state store.
+func (s *receiptStore) applyChangeset(ctx sdk.Context, ncs *proto.NamedChangeSet) error {
 	// Genesis and some unit tests execute at block height 0. Async writes
 	// rely on a positive version to avoid regressions in the underlying
 	// state store metadata, so fall back to a synchronous apply in that case.
