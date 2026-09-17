@@ -433,7 +433,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlobBaseFee: new(big.Int),
 				ParentHash:  parent.blockHash,
 				BlockHash:   blockHash,
-				PrevRandao:  evmOnlyPrevRandao(timestamp),
+				PrevRandao:  parent.appHash,
 			},
 			Txs:     req.Txs,
 			Senders: a.takeSenders(req.Txs),
