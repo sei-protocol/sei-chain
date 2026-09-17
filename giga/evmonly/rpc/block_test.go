@@ -18,7 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
@@ -346,4 +349,72 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 	}
 	require.NoError(t, client.CallContext(t.Context(), &missing, "eth_getBlockByHash", common.Hash{9}, false))
 	require.Nil(t, missing)
+}
+
+// realReceiptStore returns a disk-backed littidx receipt store, the same
+// backend giga/evmonly runs in production, so IterateReceipts actually
+// walks data (MemoryReceiptStore always reports it unsupported).
+func realReceiptStore(t *testing.T) (receipt.ReceiptStore, sdk.Context) {
+	t.Helper()
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.AsyncWriteBuffer = 0
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	return store, testutil.DefaultContext(storeKey, tkey)
+}
+
+func TestEncodeBlockFullTxUsesReceiptIteratorWhenSupported(t *testing.T) {
+	store, ctx := realReceiptStore(t)
+	tx1, raw1 := testSignedTransaction(t)
+	sender1, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx1)
+	require.NoError(t, err)
+	tx2, raw2 := secondSignedTransaction(t)
+	sender2, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(big.NewInt(713715)), tx2)
+	require.NoError(t, err)
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(9), []receipt.ReceiptRecord{
+		{TxHash: tx1.Hash(), Receipt: &evmtypes.Receipt{
+			TxHashHex: tx1.Hash().Hex(), BlockNumber: 9, TransactionIndex: 0,
+			From: sender1.Hex(), CumulativeGasUsed: 21_000,
+		}},
+		{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{
+			TxHashHex: tx2.Hash().Hex(), BlockNumber: 9, TransactionIndex: 1,
+			From: sender2.Hex(), CumulativeGasUsed: 43_500,
+		}},
+	}))
+
+	blockHash := common.HexToHash("0xabcd")
+	block := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
+		Block: &tmtypes.Block{
+			Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
+			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw1, raw2}},
+		},
+	}
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
+	})
+
+	got, err := (&blockAPI{backend: backend, store: store}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
+
+	require.NoError(t, err)
+	gotTxs, ok := got["transactions"].([]any)
+	require.True(t, ok)
+	require.Len(t, gotTxs, 2)
+	first, ok := gotTxs[0].(*export.RPCTransaction)
+	require.True(t, ok)
+	require.Equal(t, tx1.Hash(), first.Hash)
+	require.Equal(t, sender1, first.From)
+	second, ok := gotTxs[1].(*export.RPCTransaction)
+	require.True(t, ok)
+	require.Equal(t, tx2.Hash(), second.Hash)
+	require.Equal(t, sender2, second.From)
+	require.Equal(t, hexutil.Uint64(43_500), got["gasUsed"])
 }

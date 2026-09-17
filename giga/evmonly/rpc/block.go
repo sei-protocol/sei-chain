@@ -105,16 +105,23 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		if err != nil {
 			return nil, err
 		}
-		// One receipt read per transaction here, not just for the last one:
-		// deferred pending a bulk receipt-load API on the receipt store.
+		receipts, err := api.receiptsForBlock(ctx, number)
+		if err != nil {
+			return nil, err
+		}
 		for i, raw := range txs {
 			ethtx, err := decodeBlockTx(raw, number, i)
 			if err != nil {
 				return nil, err
 			}
-			stored, err := api.receiptFor(ctx, ethtx.Hash())
-			if err != nil {
-				return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
+			var stored *evmtypes.Receipt
+			if receipts != nil {
+				stored = receipts[ethtx.Hash()]
+			} else {
+				stored, err = api.receiptFor(ctx, ethtx.Hash())
+				if err != nil {
+					return nil, fmt.Errorf("read transaction receipt at block %d index %d: %w", number, i, err)
+				}
 			}
 			result := export.NewRPCTransaction(ethtx, blockHash, uint64(number), blockUnix, uint64(i), baseFee, chainConfig) //nolint:gosec // G115: number is a validated block height.
 			if stored != nil {
@@ -194,4 +201,39 @@ func (api *blockAPI) receiptFor(ctx context.Context, hash common.Hash) (*evmtype
 		return nil, err
 	}
 	return stored, nil
+}
+
+// receiptsForBlock returns every receipt stored for height, keyed by
+// transaction hash, in one iterator walk. Returns a nil map and nil error
+// when the store cannot iterate, signaling the caller to fall back to
+// receiptFor per transaction.
+func (api *blockAPI) receiptsForBlock(ctx context.Context, height int64) (map[common.Hash]*evmtypes.Receipt, error) {
+	it, err := api.store.IterateReceipts(uint64(height)) //nolint:gosec // G115: height is a validated block height.
+	if errors.Is(err, receiptpkg.ErrRangeQueryNotSupported) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open receipt iterator at block %d: %w", height, err)
+	}
+	defer func() {
+		if closeErr := it.Close(); closeErr != nil {
+			logger.Error("close receipt iterator", "block", height, "err", closeErr)
+		}
+	}()
+
+	receipts := make(map[common.Hash]*evmtypes.Receipt)
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			return nil, fmt.Errorf("advance receipt iterator at block %d: %w", height, err)
+		}
+		if !ok || it.BlockNumber() != uint64(height) { //nolint:gosec // G115: height is a validated block height.
+			return receipts, nil
+		}
+		stored, err := it.Receipt()
+		if err != nil {
+			return nil, fmt.Errorf("read receipt at block %d: %w", height, err)
+		}
+		receipts[it.TxHash()] = stored
+	}
 }
