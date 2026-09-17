@@ -176,12 +176,10 @@ func (a *evmOnlyApplication) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
-// EvmGasLimit returns the gas limit of the most recently committed block.
-// This application never changes it after InitChain, so it is also the gas
-// limit of every earlier committed block.
+// EvmGasLimit returns the gas limit configured during InitChain.
 func (a *evmOnlyApplication) EvmGasLimit() uint64 {
-	for state := range a.cursor.Lock() {
-		return state.committed.gasLimit
+	for state := range a.state.Lock() {
+		return state.gasLimit
 	}
 	panic("unreachable")
 }
