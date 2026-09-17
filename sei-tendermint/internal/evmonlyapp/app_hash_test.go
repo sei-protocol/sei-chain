@@ -70,16 +70,3 @@ func TestHashEVMOnlyResultGoldenVector(t *testing.T) {
 		})
 	}
 }
-
-func BenchmarkHashEVMOnlyResult(b *testing.B) {
-	// ~3,500 pairs, a full block.
-	result := evmOnlyHashFixture(1167)
-	previous := common.HexToHash("0xabcd")
-	blockHash := common.HexToHash("0xdcba")
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := hashEVMOnlyResult(previous, 4_321, blockHash, result); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
