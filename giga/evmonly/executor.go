@@ -35,10 +35,8 @@ type Executor struct {
 	stateStore       gigatypes.StateDB
 	receiptStore     receipt.ReceiptStore
 	changeSetEncoder NamedChangeSetEncoder
-	// Optional: nil commits only the state encoder's changesets.
-	blockChangeSetEncoder BlockChangeSetEncoder
-	missingState          StateReader
-	closed                atomic.Bool
+	missingState     StateReader
+	closed           atomic.Bool
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -67,14 +65,6 @@ func WithResultSink(sink ResultSink) Option {
 func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
 		e.missingState = state
-	}
-}
-
-// WithBlockChangeSetEncoder commits the encoder's changesets alongside every
-// block's state changes.
-func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
-	return func(e *Executor) {
-		e.blockChangeSetEncoder = encoder
 	}
 }
 
@@ -188,6 +178,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 		return nil, err
 	}
 	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
+	recordTxExecutionStats(ctx, result.Txs)
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err

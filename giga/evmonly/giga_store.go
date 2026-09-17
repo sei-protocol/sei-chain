@@ -37,16 +37,6 @@ var _ StateReader = gigaSnapshotStateReader{}
 // one exception, and the executor waits for that commit before encoding a block that has one.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
-// BlockChangeSetEncoder contributes named changesets that are committed in the
-// same CommitStateChanges call as the block's EVM state changes, so they are
-// durable, rolled back and replayed together with that state. It is called
-// after execution with the block's context and result, which it must treat as
-// immutable. Changesets under keys.EVMStoreKey are reserved for the state encoder.
-//
-// As with NamedChangeSetEncoder, what it returns must not alias the result: the commit outlives
-// the block.
-type BlockChangeSetEncoder func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error)
-
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
 	stateStore := e.stateStore
 	if stateStore == nil {
@@ -128,13 +118,6 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err != nil {
 		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
 	}
-	if e.blockChangeSetEncoder != nil {
-		extra, err := e.blockChangeSetEncoder(req.Context, result)
-		if err != nil {
-			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
-		}
-		changesets = append(changesets, extra...)
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -167,10 +150,9 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 // the block's own changes, which decides whether encoding may overlap the previous block's commit.
 //
 // Expanding a storage clear iterates the live store to find the slots to delete, so a block that
-// clears one must not be encoded against a store mid-commit. A block encoder is caller-supplied and
-// free to read whatever it likes, so one being configured is treated the same way.
+// clears one must not be encoded against a store mid-commit.
 func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
-	return len(changes.StorageClears) > 0 || e.blockChangeSetEncoder != nil
+	return len(changes.StorageClears) > 0
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
