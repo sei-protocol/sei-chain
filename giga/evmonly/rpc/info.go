@@ -18,7 +18,12 @@ import (
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
 
-// earliestCommittedHeight is the first height this executor ever commits.
+// earliestCommittedHeight assumes genesis InitialHeight is 1, true of every
+// genesis this executor is deployed with today. A chain configured with a
+// higher InitialHeight (allowed by evmOnlyApplication.InitChain) would need
+// its real value here instead; nothing currently exposes it after restart,
+// since InitChain runs once at genesis and this executor's persisted state
+// does not carry it forward.
 const earliestCommittedHeight = ethrpc.BlockNumber(1)
 
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the
@@ -73,12 +78,20 @@ type FeeHistoryResult struct {
 	GasUsedRatio []float64        `json:"gasUsedRatio"`
 }
 
+// emptyFeeHistoryResult is the "no retrievable blocks" response: oldestBlock
+// 0 and an empty gasUsedRatio, matching go-ethereum's shape rather than a
+// zero-value struct's nil fields, which a strict client's unconditional
+// BigInt(oldestBlock) would reject.
+func emptyFeeHistoryResult() *FeeHistoryResult {
+	return &FeeHistoryResult{OldestBlock: (*hexutil.Big)(new(big.Int)), GasUsedRatio: []float64{}}
+}
+
 // FeeHistory returns gas-used ratios and base fees for the blockCount blocks
 // ending at lastBlock. baseFeePerGas is always zero; reward, when requested,
 // is the same suggested gas price for every percentile.
 func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock ethrpc.BlockNumber, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	if blockCount < 1 {
-		return &FeeHistoryResult{}, nil
+		return emptyFeeHistoryResult(), nil
 	}
 	if blockCount > maxFeeHistoryBlockCount {
 		blockCount = maxFeeHistoryBlockCount
@@ -103,6 +116,10 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	if err != nil {
 		return nil, err
 	}
+	// The current gas limit is applied to every block in the range; a
+	// gasUsedRatio for a block committed under a different limit would be
+	// wrong, but this executor has no record of a block's own limit to use
+	// instead.
 	gasLimit, err := api.backend.EvmGasLimit()
 	if err != nil {
 		return nil, err
@@ -160,7 +177,9 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		}
 	}
 	if result.OldestBlock == nil {
-		return &FeeHistoryResult{}, nil
+		// end resolved successfully just before this call; only a store
+		// eviction racing that resolution reaches here.
+		return nil, fmt.Errorf("block %d is no longer available", end)
 	}
 	// baseFeePerGas carries one more entry than gasUsedRatio: the projected
 	// fee for the block after end. Always zero here.
@@ -199,7 +218,8 @@ func validateRewardPercentiles(percentiles []float64) error {
 }
 
 // lastTxGasUsedRatio returns block's gas-used ratio, read from its last
-// transaction's receipt, or 0 for an empty block.
+// transaction's receipt. Returns 0 both for an empty block and for one whose
+// last receipt is missing or stale; the two are indistinguishable here.
 func (api *infoAPI) lastTxGasUsedRatio(ctx context.Context, block *coretypes.ResultBlock, gasLimit uint64) (float64, error) {
 	txs := block.Block.Txs
 	if len(txs) == 0 || gasLimit == 0 {

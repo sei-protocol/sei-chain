@@ -122,7 +122,7 @@ func TestFeeHistoryBlockCountLessThanOneReturnsEmptyResult(t *testing.T) {
 	got, err := (&infoAPI{backend: &testBackend{}}).FeeHistory(t.Context(), 0, ethrpc.LatestBlockNumber, nil)
 
 	require.NoError(t, err)
-	require.Equal(t, &FeeHistoryResult{}, got)
+	require.Equal(t, emptyFeeHistoryResult(), got)
 }
 
 func TestFeeHistoryRejectsDescendingPercentiles(t *testing.T) {

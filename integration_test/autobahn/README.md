@@ -542,7 +542,10 @@ the requested block count; a count above 1024 is capped, and below 1 returns
 an empty result. Unlike `eth_getBlockByNumber`, an ending block that does not
 resolve — future or pruned — is an error, not `null`. `baseFeePerGas` is
 always zero, and `reward`, when requested, is the same fixed suggested price
-for every percentile rather than a real per-transaction one.
+for every percentile rather than a real per-transaction one. `gasUsedRatio`
+applies the current gas limit to every block in the range rather than each
+block's own, and reads 0 for a block whose last receipt is missing or stale,
+the same as for a genuinely empty block.
 
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash, and there are still no

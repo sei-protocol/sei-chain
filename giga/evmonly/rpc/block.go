@@ -152,7 +152,7 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	// Revisit once superblocks merge lanes into a single block; punted for
 	// now since a block today is exactly one lane's transactions.
 	var gasUsed hexutil.Uint64
-	if lastReceipt != nil {
+	if lastReceipt != nil && lastReceipt.BlockNumber == uint64(number) { //nolint:gosec // G115: number is a validated block height.
 		gasUsed = hexutil.Uint64(lastReceipt.CumulativeGasUsed)
 	}
 
