@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -478,4 +479,21 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 
 	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
+}
+
+// TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
+func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
+	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {
+		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
+			txs := make([][]byte, count)
+			for i := range txs {
+				txs[i] = []byte(fmt.Sprintf("raw transaction %d with a body of some length", i))
+			}
+			hashes := hashRawTxs(txs)
+			require.Equal(t, count, len(hashes))
+			for i, raw := range txs {
+				require.Equal(t, crypto.Keccak256Hash(raw), hashes[i], "tx %d", i)
+			}
+		})
+	}
 }
