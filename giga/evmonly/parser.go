@@ -3,6 +3,7 @@ package evmonly
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -19,6 +20,11 @@ func senderAt(senders []utils.Option[common.Address], i int) utils.Option[common
 	}
 	return utils.None[common.Address]()
 }
+
+// parseClaim is how many transactions a worker takes per claim. It keeps the shared
+// counter off the critical path for work this small, and stays small enough that an
+// uneven tail still spreads over the pool.
+const parseClaim = 16
 
 func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]PreparedTx, error) {
 	parsed := make([]PreparedTx, len(txs))
@@ -40,29 +46,29 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, se
 	}
 	workers = min(workers, len(txs))
 
+	// Workers claim their own ranges rather than taking indices from a producer. A block
+	// carries a sender for nearly every transaction, so parsing one is a decode rather than
+	// a signature recovery, and a rendezvous per transaction costs more than the parse.
 	g, groupCtx := errgroup.WithContext(ctx)
-	jobs := make(chan int)
-	g.Go(func() error {
-		defer close(jobs)
-		for i := range txs {
-			select {
-			case jobs <- i:
-			case <-groupCtx.Done():
-				return groupCtx.Err()
-			}
-		}
-		return nil
-	})
+	var claimed atomic.Int64
 	for range workers {
 		g.Go(func() error {
-			for i := range jobs {
-				prepared, err := parsePreparedTx(txs[i], signer, senderAt(senders, i))
-				if err != nil {
-					return fmt.Errorf("parse tx %d: %w", i, err)
+			for {
+				start := int(claimed.Add(parseClaim)) - parseClaim
+				if start >= len(txs) {
+					return nil
 				}
-				parsed[i] = prepared
+				if err := groupCtx.Err(); err != nil {
+					return err
+				}
+				for i := start; i < min(start+parseClaim, len(txs)); i++ {
+					prepared, err := parsePreparedTx(txs[i], signer, senderAt(senders, i))
+					if err != nil {
+						return fmt.Errorf("parse tx %d: %w", i, err)
+					}
+					parsed[i] = prepared
+				}
 			}
-			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
