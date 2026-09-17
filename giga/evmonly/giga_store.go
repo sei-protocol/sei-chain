@@ -103,31 +103,43 @@ type gigaSnapshotStateReader struct {
 	missingState StateReader
 }
 
+// A non-zero balance, nonce, or code proves the account exists in the snapshot,
+// so the getters below only pay for the AccountExists probe when the field read
+// back zero and a missingState fallback could change the answer.
+
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {
-	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+	balance := r.snapshot.GetBalance(addr)
+	if balance == (common.Hash{}) && r.useMissingState(addr) {
 		return cloneBig(r.missingState.GetBalance(addr))
 	}
-	balance := r.snapshot.GetBalance(addr)
 	return new(big.Int).SetBytes(balance[:])
 }
 
 func (r gigaSnapshotStateReader) GetNonce(addr common.Address) uint64 {
-	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+	nonce := r.snapshot.GetNonce(addr)
+	if nonce == 0 && r.useMissingState(addr) {
 		return r.missingState.GetNonce(addr)
 	}
-	return r.snapshot.GetNonce(addr)
+	return nonce
 }
 
 func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
-	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+	code := r.snapshot.GetCode(addr)
+	if len(code) == 0 && r.useMissingState(addr) {
 		return cloneBytes(r.missingState.GetCode(addr))
 	}
-	return cloneBytes(r.snapshot.GetCode(addr))
+	return cloneBytes(code)
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
-	if !r.snapshot.AccountExists(addr) && r.missingState != nil {
+	if r.useMissingState(addr) {
 		return r.missingState.GetState(addr, key)
 	}
 	return r.snapshot.GetStorage(addr, key)
+}
+
+// useMissingState reports whether addr must be served from missingState: a
+// fallback is configured and the snapshot holds no account for addr.
+func (r gigaSnapshotStateReader) useMissingState(addr common.Address) bool {
+	return r.missingState != nil && !r.snapshot.AccountExists(addr)
 }
