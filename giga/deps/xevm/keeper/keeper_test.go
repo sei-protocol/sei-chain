@@ -22,6 +22,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
@@ -83,6 +84,17 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true), 0)
 	require.NoError(t, err)
 	require.Equal(t, legacy, *blockCtx.Random)
+
+	// At the scheduled upgrade height the done marker does not exist yet —
+	// the pending plan is the record that the height ran the new binary.
+	err = k.UpgradeKeeper().ScheduleUpgrade(ctx, upgradetypes.Plan{Name: "v6.8", Height: 100})
+	require.NoError(t, err)
+	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(99), 0)
+	require.NoError(t, err)
+	require.Equal(t, legacy, *blockCtx.Random)
+	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(100), 0)
+	require.NoError(t, err)
+	require.Equal(t, priorAppHash, *blockCtx.Random)
 
 	// Once v6.8 is marked done, the done height is compared against the
 	// traced height: below it stays legacy, at/above it uses the app hash.
