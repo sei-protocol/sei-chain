@@ -297,7 +297,7 @@ func (r gigaSnapshotStateReader) ReadAccount(addr common.Address) (accountSnapsh
 		Nonce:   row.Nonce,
 	}
 	// An account with the empty-code hash has no code, so the code store need not be asked.
-	if common.Hash(row.CodeHash) != gigatypes.EmptyCodeHash {
+	if row.CodeHash != gigatypes.EmptyCodeHash {
 		snapshot.Code = cloneBytes(r.snapshot.GetCode(addr))
 	}
 	return snapshot, true
