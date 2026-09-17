@@ -34,7 +34,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
-	"golang.org/x/mod/semver"
 
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -276,9 +275,11 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	// PREVRANDAO is the prior block's app hash, which this block's header
 	// carries; this block's own app hash is only known after execution.
 	// Pre-v6.8 blocks derived it from the block timestamp; that value is only
-	// needed when replaying a pre-v6.8 height under trace mode.
+	// needed when replaying a pre-v6.8 height under trace mode. The versioned
+	// upgrade store answers whether the upgrade had run by the traced height.
 	var rh common.Hash
-	if ctx.IsTracing() && semver.Compare(ctx.ClosestUpgradeName(), "v6.8") < 0 {
+	if ctx.IsTracing() &&
+		!k.upgradeKeeper.IsUpgradeActiveAtHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "v6.8", ctx.BlockHeight()) {
 		r, err := ctx.BlockHeader().Time.MarshalBinary()
 		if err != nil {
 			return nil, err

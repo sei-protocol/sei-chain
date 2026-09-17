@@ -74,19 +74,25 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
 
-	// Tracing a v6.8-or-later height still uses the prior app hash.
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithClosestUpgradeName("v6.8"), 0)
-	require.NoError(t, err)
-	require.Equal(t, priorAppHash, *blockCtx.Random)
-
-	// Tracing a pre-v6.8 height reproduces the legacy timestamp hash.
+	// Tracing a height predating the v6.8 upgrade reproduces the legacy
+	// timestamp hash.
 	r, err := ctx.BlockHeader().Time.MarshalBinary()
 	require.NoError(t, err)
 	legacy := crypto.Keccak256Hash(r)
 	require.NotEqual(t, priorAppHash, legacy)
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithClosestUpgradeName("v6.7"), 0)
+	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true), 0)
 	require.NoError(t, err)
 	require.Equal(t, legacy, *blockCtx.Random)
+
+	// Once v6.8 is marked done, the done height is compared against the
+	// traced height: below it stays legacy, at/above it uses the app hash.
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(100), "v6.8")
+	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(50), 0)
+	require.NoError(t, err)
+	require.Equal(t, legacy, *blockCtx.Random)
+	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(150), 0)
+	require.NoError(t, err)
+	require.Equal(t, priorAppHash, *blockCtx.Random)
 }
 
 func TestGetHashFn(t *testing.T) {
