@@ -147,6 +147,14 @@ func TestEvmBaseFeeErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEvmGasLimitErrorsWhenApplicationDoesNotSupportIt(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	_, err := proxyApp.EvmGasLimit()
+
+	require.Error(t, err)
+}
+
 type testEvmBaseFeeApp struct {
 	testApp
 	baseFee *big.Int
@@ -164,4 +172,22 @@ func TestEvmBaseFeeDelegatesToASupportingApplication(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Same(t, want, got)
+}
+
+type testEvmGasLimitApp struct {
+	testApp
+	gasLimit uint64
+}
+
+func (app testEvmGasLimitApp) EvmGasLimit() uint64 {
+	return app.gasLimit
+}
+
+func TestEvmGasLimitDelegatesToASupportingApplication(t *testing.T) {
+	proxyApp := New(testEvmGasLimitApp{gasLimit: 35_000_000})
+
+	got, err := proxyApp.EvmGasLimit()
+
+	require.NoError(t, err)
+	require.Equal(t, uint64(35_000_000), got)
 }

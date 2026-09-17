@@ -114,6 +114,23 @@ func (app *Proxy) EvmBaseFee() (*big.Int, error) {
 	return provider.EvmBaseFee(), nil
 }
 
+// evmGasLimitProvider is implemented by applications that expose the gas
+// limit of their most recently committed block.
+type evmGasLimitProvider interface {
+	EvmGasLimit() uint64
+}
+
+// EvmGasLimit returns the wrapped application's most recently committed
+// block gas limit. It errors if that application does not expose one.
+func (app *Proxy) EvmGasLimit() (uint64, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_gas_limit", "sync"))()
+	provider, ok := app.app.(evmGasLimitProvider)
+	if !ok {
+		return 0, fmt.Errorf("application does not expose an EVM gas limit")
+	}
+	return provider.EvmGasLimit(), nil
+}
+
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
 	defer addTimeSample(Global.MethodTimingAt("commit", "sync"))()
 	return app.app.Commit(ctx)
