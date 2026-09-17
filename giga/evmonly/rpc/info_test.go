@@ -158,22 +158,21 @@ func TestFeeHistoryAcceptsAnExplicitHistoricalHeight(t *testing.T) {
 	require.Equal(t, (*hexutil.Big)(big.NewInt(3)), got.OldestBlock)
 }
 
-func TestFeeHistoryEarliestReturnsEmptyResult(t *testing.T) {
+func TestFeeHistoryEarliestResolvesToTheFirstCommittedHeight(t *testing.T) {
 	backend := heightRangeBackend(t, 9, 100_000, big.NewInt(1_000_000_000))
 
 	got, err := (&infoAPI{backend: backend}).FeeHistory(t.Context(), 1, ethrpc.EarliestBlockNumber, nil)
 
 	require.NoError(t, err)
-	require.Equal(t, &FeeHistoryResult{}, got)
+	require.Equal(t, (*hexutil.Big)(big.NewInt(1)), got.OldestBlock)
 }
 
-func TestFeeHistoryFutureHeightReturnsEmptyResult(t *testing.T) {
-	backend := heightRangeBackend(t, 9, 100_000, big.NewInt(1_000_000_000))
+func TestFeeHistoryFutureHeightReturnsAnError(t *testing.T) {
+	backend := &testBackend{blockNumber: func() uint64 { return 9 }, block: heightRangeBackend(t, 9, 100_000, nil).block}
 
-	got, err := (&infoAPI{backend: backend}).FeeHistory(t.Context(), 1, ethrpc.BlockNumber(100), nil)
+	_, err := (&infoAPI{backend: backend}).FeeHistory(t.Context(), 1, ethrpc.BlockNumber(100), nil)
 
-	require.NoError(t, err)
-	require.Equal(t, &FeeHistoryResult{}, got)
+	require.ErrorContains(t, err, "not yet available")
 }
 
 func TestFeeHistoryTrimsRangeBelowTheChainHead(t *testing.T) {
@@ -211,9 +210,9 @@ func TestFeeHistorySingleBlockReportsGasUsedRatioAndFixedReward(t *testing.T) {
 	require.Equal(t, []float64{43_500.0 / 100_000.0}, got.GasUsedRatio)
 	require.Equal(t, []*hexutil.Big{(*hexutil.Big)(new(big.Int)), (*hexutil.Big)(new(big.Int))}, got.BaseFee)
 	require.Equal(t, [][]*hexutil.Big{{
-		(*hexutil.Big)(big.NewInt(1_000_000_000)),
-		(*hexutil.Big)(big.NewInt(1_000_000_000)),
-		(*hexutil.Big)(big.NewInt(1_000_000_000)),
+		(*hexutil.Big)(big.NewInt(1_100_000_000)),
+		(*hexutil.Big)(big.NewInt(1_100_000_000)),
+		(*hexutil.Big)(big.NewInt(1_100_000_000)),
 	}}, got.Reward)
 }
 
@@ -300,5 +299,50 @@ func TestFeeHistoryEndToEnd(t *testing.T) {
 	require.Equal(t, (*hexutil.Big)(big.NewInt(9)), got.OldestBlock)
 	require.Equal(t, []float64{43_500.0 / 100_000.0}, got.GasUsedRatio)
 	require.Len(t, got.BaseFee, 2)
-	require.Equal(t, [][]*hexutil.Big{{(*hexutil.Big)(big.NewInt(1_000_000_000))}}, got.Reward)
+	require.Equal(t, [][]*hexutil.Big{{(*hexutil.Big)(big.NewInt(1_100_000_000))}}, got.Reward)
+}
+
+func TestFixedRewardCellsAreIndependentCopies(t *testing.T) {
+	floor := big.NewInt(1_000_000_000)
+
+	row := fixedReward(floor, 2)
+	row[0].ToInt().SetInt64(1)
+
+	require.Equal(t, big.NewInt(1_100_000_000), row[1].ToInt())
+	require.Equal(t, big.NewInt(1_000_000_000), floor)
+}
+
+func TestFeeHistoryIgnoresAReceiptOverwrittenByALaterBlock(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: tx.Hash(), Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 10, CumulativeGasUsed: 10_000}},
+	}))
+	block := &coretypes.ResultBlock{
+		BlockID: tmtypes.BlockID{Hash: common.HexToHash("0x9").Bytes()},
+		Block: &tmtypes.Block{
+			Header: tmtypes.Header{Height: 9, Time: time.Unix(1_700_000_000, 0)},
+			Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+		},
+	}
+	backend := &testBackend{
+		gasLimit:    func() (uint64, error) { return 100_000, nil },
+		minGasPrice: func() (*big.Int, error) { return big.NewInt(1_000_000_000), nil },
+		block:       func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) { return block, nil },
+	}
+
+	got, err := (&infoAPI{backend: backend, store: store}).FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, nil)
+
+	require.NoError(t, err)
+	require.Equal(t, []float64{0}, got.GasUsedRatio)
+}
+
+func TestFeeHistoryStopsOnACanceledContext(t *testing.T) {
+	backend := heightRangeBackend(t, 9, 100_000, big.NewInt(1_000_000_000))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err := (&infoAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).FeeHistory(ctx, 5, ethrpc.BlockNumber(9), nil)
+
+	require.ErrorIs(t, err, context.Canceled)
 }

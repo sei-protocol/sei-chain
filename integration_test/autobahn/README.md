@@ -538,14 +538,19 @@ cast rpc --rpc-url http://127.0.0.1:8545 eth_feeHistory 4 latest '[25,50,75]'
 `eth_gasPrice` returns this application's fixed admission floor (1 gwei) plus
 10%, so a client using the suggestion sits above the rejection boundary rather
 than on it. `eth_feeHistory` accepts the same `latest`/`safe`/`finalized`/
-`pending`/explicit-height/`earliest` block selector as `eth_getBlockByNumber`,
-walking backward from it across the requested block count; a count above
-1024 is capped, and a count below 1 returns an empty result rather than an
-error. `baseFeePerGas` is always zero: this application executes every block
-at a zero base fee. This chain has no congestion-based fee market, so
-`reward`, when requested, is a known simplification: every requested
-percentile in every block is the same fixed admission floor rather than a
-real per-transaction percentile.
+`pending`/explicit-height/`earliest` block selector as `eth_getBlockByNumber`
+for its ending block, walking backward from it across the requested block
+count; a count above 1024 is capped, and a count below 1 returns an empty
+result rather than an error. Unlike `eth_getBlockByNumber`, an ending block
+that does not resolve — a future height, or one the node has since pruned —
+is an error here rather than `null`: a fee estimate silently returned as
+all-zero could be mistaken for a real quote. `earliest` resolves to height 1,
+this executor's first committed height. `baseFeePerGas` is always zero: this
+application executes every block at a zero base fee. This chain has no
+congestion-based fee market, so `reward`, when requested, is a known
+simplification: every requested percentile in every block is the same
+suggested price `eth_gasPrice` returns, not a real per-transaction
+percentile.
 
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. `sei-load`
 does not currently print every submitted hash, and there are still no

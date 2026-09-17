@@ -18,6 +18,12 @@ import (
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
 
+// earliestCommittedHeight is the first height this executor ever commits.
+// eth_feeHistory resolves "earliest" here rather than the literal height 0
+// this go-ethereum fork uses for the sentinel, which this executor never
+// commits and would otherwise report as unavailable.
+const earliestCommittedHeight = ethrpc.BlockNumber(1)
+
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the
 // admission gas-price floor up for eth_gasPrice, so a client using the
 // suggested price sits above the rejection boundary rather than on it.
@@ -51,9 +57,14 @@ func (api *infoAPI) GasPrice(_ context.Context) (*hexutil.Big, error) {
 	if err != nil {
 		return nil, err
 	}
+	return (*hexutil.Big)(suggestedGasPrice(floor)), nil
+}
+
+// suggestedGasPrice scales floor up by the gas-price suggestion margin,
+// returning a new *big.Int the caller owns.
+func suggestedGasPrice(floor *big.Int) *big.Int {
 	price := new(big.Int).Mul(floor, big.NewInt(gasPriceSuggestionNumerator))
-	price.Div(price, big.NewInt(gasPriceSuggestionDenominator))
-	return (*hexutil.Big)(price), nil
+	return price.Div(price, big.NewInt(gasPriceSuggestionDenominator))
 }
 
 // FeeHistoryResult is the eth_feeHistory response, matching go-ethereum's
@@ -82,12 +93,16 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 		return nil, err
 	}
 
-	endBlock, err := resolveBlockByNumber(ctx, api.backend, lastBlock)
+	resolvedLastBlock := lastBlock
+	if resolvedLastBlock == ethrpc.EarliestBlockNumber {
+		resolvedLastBlock = earliestCommittedHeight
+	}
+	endBlock, err := resolveBlockByNumber(ctx, api.backend, resolvedLastBlock)
 	if err != nil {
 		return nil, err
 	}
 	if endBlock == nil {
-		return &FeeHistoryResult{}, nil
+		return nil, api.lastBlockUnavailableError(resolvedLastBlock)
 	}
 
 	floor, err := api.backend.EvmMinGasPrice()
@@ -106,14 +121,33 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	return result, nil
 }
 
+// lastBlockUnavailableError explains why requested (already past the
+// "earliest" remap) failed to resolve to a block: not yet committed, or no
+// longer retained.
+func (api *infoAPI) lastBlockUnavailableError(requested ethrpc.BlockNumber) error {
+	if requested < 0 {
+		return errors.New("no committed block available for fee history")
+	}
+	if current := api.backend.EvmBlockNumber(); uint64(requested) > current { //nolint:gosec // G115: requested is non-negative here.
+		return fmt.Errorf("requested last block %d is not yet available; latest is %d", requested, current)
+	}
+	return fmt.Errorf("requested last block %d is not available", requested)
+}
+
 // walkFeeHistoryRange collects gasUsedRatio, baseFee, and (when requested)
 // reward entries for the blockCount blocks ending at end, oldest first.
 // Heights below 1 are outside the chain and are skipped rather than erroring,
 // so a blockCount larger than the chain's height yields a shorter result.
+// Heights above 1 that the store has since pruned still cost one lookup
+// each: there is no lower-bound accessor yet to skip them outright (same gap
+// tracked in sei-tendermint/internal/rpc/core/blocks.go's autobahnCheckAndGetHeight).
 func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, floor *big.Int, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	result := &FeeHistoryResult{GasUsedRatio: []float64{}}
 	start := end - blockCount + 1
 	for height := start; height <= end; height++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if height < 1 {
 			continue
 		}
@@ -146,12 +180,14 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 	return result, nil
 }
 
-// fixedReward returns count copies of floor, this application's stand-in for
-// a per-percentile priority-fee reward.
+// fixedReward returns count independent copies of the suggested gas price
+// (see suggestedGasPrice), this application's stand-in for a per-percentile
+// priority-fee reward.
 func fixedReward(floor *big.Int, count int) []*hexutil.Big {
+	price := suggestedGasPrice(floor)
 	row := make([]*hexutil.Big, count)
 	for i := range row {
-		row[i] = (*hexutil.Big)(floor)
+		row[i] = (*hexutil.Big)(new(big.Int).Set(price))
 	}
 	return row
 }
@@ -190,6 +226,12 @@ func (api *infoAPI) lastTxGasUsedRatio(ctx context.Context, block *coretypes.Res
 	}
 	if err != nil {
 		return 0, fmt.Errorf("read last transaction receipt for block %d: %w", block.Block.Height, err)
+	}
+	if stored.BlockNumber != uint64(block.Block.Height) { //nolint:gosec // G115: block height is positive.
+		// A resubmitted tx hash can overwrite this receipt with one from a
+		// later block; treat that as no receipt for this height rather than
+		// misreport the later block's gas used.
+		return 0, nil
 	}
 	return float64(stored.CumulativeGasUsed) / float64(gasLimit), nil
 }
