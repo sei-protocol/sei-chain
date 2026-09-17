@@ -30,7 +30,7 @@ type blockAPI struct {
 // is looked up directly, and a height the node has since pruned returns nil rather
 // than an error.
 func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, fullTx bool) (map[string]any, error) {
-	block, err := api.resolveBlockByNumber(ctx, number)
+	block, err := resolveBlockByNumber(ctx, api.backend, number)
 	if err != nil || block == nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 
 // resolveBlockByNumber looks up number, returning a nil block and nil error
 // for any height outside the committed range or since pruned from retention.
-func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
+func resolveBlockByNumber(ctx context.Context, backend Backend, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
 	var height *coretypes.Int64
 	switch number {
 	case ethrpc.LatestBlockNumber, ethrpc.SafeBlockNumber, ethrpc.FinalizedBlockNumber, ethrpc.PendingBlockNumber:
@@ -61,7 +61,7 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 		h := coretypes.Int64(number.Int64())
 		height = &h
 	}
-	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
+	block, err := backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
 		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) ||
 		errors.Is(err, coretypes.ErrHeightNotAvailable) {
@@ -106,7 +106,9 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 			return nil, err
 		}
 		// One receipt read per transaction here, not just for the last one:
-		// deferred pending a bulk receipt-load API on the receipt store.
+		// deferred pending a bulk receipt-load API on the receipt store. That
+		// API would also let eth_feeHistory's reward (info.go) compute a real
+		// per-percentile value instead of a fixed one.
 		for i, raw := range txs {
 			ethtx, err := decodeBlockTx(raw, number, i)
 			if err != nil {
@@ -150,7 +152,7 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 	// Revisit once superblocks merge lanes into a single block; punted for
 	// now since a block today is exactly one lane's transactions.
 	var gasUsed hexutil.Uint64
-	if lastReceipt != nil {
+	if lastReceipt != nil && lastReceipt.BlockNumber == uint64(number) { //nolint:gosec // G115: number is a validated block height.
 		gasUsed = hexutil.Uint64(lastReceipt.CumulativeGasUsed)
 	}
 
