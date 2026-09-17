@@ -347,13 +347,24 @@ func (e *Executor) executeTx(
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
+	snapshot := stateDB.Snapshot()
+	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
+	poolGas := gasPool.Gas()
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
+	// Read before any revert: RevertToSnapshot restores the recorded error too.
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		if !e.cfg.RejectUnappliableTxs {
+			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		}
+		stateDB.RevertToSnapshot(snapshot)
+		stateDB.clearSnapshots()
+		gasPool.SetGas(poolGas)
+		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+		return txResult, receipt, nil
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
@@ -404,6 +415,37 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+// rejectedTx builds the failed, zero-gas receipt and result for a transaction the
+// executor did not run.
+func rejectedTx(
+	p PreparedTx,
+	block BlockContext,
+	txIndexUint uint,
+	baseFee *big.Int,
+	cause error,
+) (TxResult, *ethtypes.Receipt) {
+	tx := p.Tx
+	receipt := &ethtypes.Receipt{
+		Type:              tx.Type(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		TxHash:            tx.Hash(),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
+		BlockHash:         block.BlockHash,
+		BlockNumber:       new(big.Int).SetUint64(block.Number),
+		TransactionIndex:  txIndexUint,
+	}
+	receipt.Bloom = ethtypes.CreateBloom(receipt)
+	return TxResult{
+		Hash:              tx.Hash(),
+		Sender:            p.Sender,
+		To:                tx.To(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		EffectiveGasPrice: new(big.Int).Set(receipt.EffectiveGasPrice),
+		Err:               cause,
+		Rejected:          true,
+	}, receipt
 }
 
 func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {
