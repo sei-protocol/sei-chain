@@ -450,11 +450,8 @@ func TestClientMethodCalls(t *testing.T) {
 			})
 			t.Run("Events", func(t *testing.T) {
 				t.Run("Header", func(t *testing.T) {
-					ctx, cancel := context.WithTimeout(t.Context(), waitForEventTimeout)
-					defer cancel()
 					query := types.QueryForEvent(types.EventNewBlockHeaderValue).String()
-					evt, err := client.WaitForOneEvent(ctx, c, query)
-					require.NoError(t, err, "%d: %+v", i, err)
+					evt := waitForOneEvent(t.Context(), t, c, query)
 					_, ok := evt.(types.EventDataNewBlockHeader)
 					require.True(t, ok, "%d: %#v", i, evt)
 					// TODO: more checks...
@@ -635,7 +632,9 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 	})
 	t.Run("TxSearchWithTimeout", func(t *testing.T) {
 
-		timeoutClient := getHTTPClientWithTimeout(t, conf, 10*time.Second)
+		// The client's deadline has to outlast the node's broadcast_tx_commit budget, or a slow block
+		// surfaces as a client timeout rather than the node's own answer.
+		timeoutClient := getHTTPClientWithTimeout(t, conf, conf.RPC.TimeoutWrite)
 
 		_, _, tx := MakeTxKV()
 		_, err := timeoutClient.BroadcastTxCommit(ctx, tx)
