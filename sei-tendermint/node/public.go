@@ -172,15 +172,12 @@ func prepareApplication(
 			return nil, noStorage, fmt.Errorf("open EVM-only storage: %w", err)
 		}
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
-		prepared, err := evmonlyapp.NewEVMOnlyApplication(
+		prepared := evmonlyapp.NewEVMOnlyApplication(
 			config.AutobahnEVMOnlyChainID,
 			validators,
 			manager,
 			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
 		)
-		if err != nil {
-			return nil, noStorage, errors.Join(fmt.Errorf("restore EVM-only application: %w", err), manager.Close())
-		}
 		return prepared, utils.Some(manager), nil
 	}
 	if conf.MockApp {
