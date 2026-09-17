@@ -497,26 +497,3 @@ func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 		})
 	}
 }
-
-func BenchmarkHashRawTxs(b *testing.B) {
-	const blockTxs = 1848
-	txs := make([][]byte, blockTxs)
-	for i := range txs {
-		txs[i] = make([]byte, 140) // a funded-transfer tx is about this size on the wire
-		binary.BigEndian.PutUint64(txs[i], uint64(i))
-	}
-	b.Run("parallel", func(b *testing.B) {
-		b.ReportAllocs()
-		for b.Loop() {
-			hashRawTxs(txs)
-		}
-	})
-	b.Run("serial", func(b *testing.B) {
-		b.ReportAllocs()
-		for b.Loop() {
-			for _, raw := range txs {
-				_ = crypto.Keccak256Hash(raw)
-			}
-		}
-	})
-}
