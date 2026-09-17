@@ -21,9 +21,7 @@ func senderAt(senders []utils.Option[common.Address], i int) utils.Option[common
 	return utils.None[common.Address]()
 }
 
-// parseClaim is how many transactions a worker takes per claim. It keeps the shared
-// counter off the critical path for work this small, and stays small enough that an
-// uneven tail still spreads over the pool.
+// parseClaim is the number of transactions a worker takes per claim.
 const parseClaim = 16
 
 func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, senders []utils.Option[common.Address], workers int) ([]PreparedTx, error) {
@@ -46,9 +44,6 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, se
 	}
 	workers = min(workers, len(txs))
 
-	// Workers claim their own ranges rather than taking indices from a producer. A block
-	// carries a sender for nearly every transaction, so parsing one is a decode rather than
-	// a signature recovery, and a rendezvous per transaction costs more than the parse.
 	g, groupCtx := errgroup.WithContext(ctx)
 	var claimed atomic.Int64
 	for range workers {

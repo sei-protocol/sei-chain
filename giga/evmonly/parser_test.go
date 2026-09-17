@@ -161,8 +161,7 @@ func BenchmarkParsePreparedTx(b *testing.B) {
 	})
 }
 
-// BenchmarkParseBlockTxs parses a block the size giga-testnet-2 builds, with a sender
-// carried for every transaction, which is the shape the node path produces.
+// BenchmarkParseBlockTxs parses a full block with a sender carried for every transaction.
 func BenchmarkParseBlockTxs(b *testing.B) {
 	const blockTxs = 1848
 	chainID := big.NewInt(testChainID)
