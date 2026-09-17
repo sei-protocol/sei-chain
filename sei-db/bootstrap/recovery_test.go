@@ -158,8 +158,14 @@ func closeReceiptDB(t *testing.T, manager *GigaStorageManager) {
 // snapshotSCAt commits block height so SC snapshots it, leaving a snapshot a later rollback can rewind
 // to. A BlockInterval of 1 makes every offered version a boundary, and the snapshot is written off the
 // commit path, so it has to be waited for.
+//
+// The blocks committed before this are flushed through the writer first. A block is offered to the
+// writer on commit but asked about on the writer's goroutine, against whichever schedule is installed
+// when it gets there, so one still queued when the every-block schedule goes in would be snapshotted
+// too.
 func snapshotSCAt(t *testing.T, manager *GigaStorageManager, height byte) {
 	t.Helper()
+	require.NoError(t, manager.SC().FlushSnapshots())
 	manager.SC().SetCheckpointScheduler(controller.NewCheckpointScheduler(config.CheckpointConfig{BlockInterval: 1}))
 	require.NoError(t, manager.StateDB().CommitStateChanges(int64(height), evmBlock(height, height)))
 	require.NoError(t, manager.SC().FlushSnapshots())
