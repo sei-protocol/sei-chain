@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -61,6 +62,20 @@ func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.App
 	return NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 }
 
+// waitForReceiptVersion blocks until the receipt store has published height. The store applies
+// writes in the background, so a receipt is readable once LatestVersion reaches its block rather
+// than once SetReceipts returns.
+func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int64) {
+	t.Helper()
+	for store.LatestVersion() < height {
+		select {
+		case <-t.Context().Done():
+			t.Fatalf("receipt store still at version %d before %d: %v", store.LatestVersion(), height, t.Context().Err())
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
@@ -97,11 +112,13 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	gotBalance = app.EvmBalance(sender, nil)
 	require.Equal(t, wantBalance, gotBalance.ToBig())
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
+	receiptDB := app.(*evmOnlyApplication).storage.ReceiptDB()
+	waitForReceiptVersion(t, receiptDB, 1)
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
-	receipt, err := app.(*evmOnlyApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
+	gotReceipt, err := receiptDB.GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
-	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
-	require.Equal(t, uint64(1), receipt.BlockNumber)
+	require.Equal(t, tx.Hash().Hex(), gotReceipt.TxHashHex)
+	require.Equal(t, uint64(1), gotReceipt.BlockNumber)
 }
 
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
