@@ -4,20 +4,24 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime"
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -44,21 +48,22 @@ type evmOnlyApplication struct {
 	storage          *bootstrap.GigaStorageManager
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
-	state            utils.Mutex[*evmOnlyState]
+	executor         utils.Mutex[*utils.Option[*evmonly.Executor]]
+	// Lock order: executor before cursor. FinalizeBlock holds executor while
+	// the block's cursor encoder takes cursor.
+	cursor utils.Mutex[*evmOnlyCursorState]
 	// checkedSenders maps the hash of every transaction this process admitted
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
 	checkedSenders utils.Mutex[map[common.Hash]common.Address]
 }
 
-type evmOnlyState struct {
-	executor        utils.Option[*evmonly.Executor]
-	gasLimit        uint64
-	nextHeight      int64
-	committedHeight int64
-	appHash         common.Hash
-	parentHash      common.Hash
-	pending         utils.Option[evmOnlyPending]
+// evmOnlyCursorState is the execution position: the block whose state is
+// committed to storage and the block finalized but not yet acknowledged by
+// Commit.
+type evmOnlyCursorState struct {
+	committed evmOnlyCursor
+	pending   utils.Option[evmOnlyCursor]
 	// lastBlockTime is the Time of the most recently committed block, used by
 	// EvmCall to reproduce that block's execution context for a read-only call.
 	lastBlockTime uint64
@@ -67,33 +72,86 @@ type evmOnlyState struct {
 	pendingBlockTime uint64
 }
 
-type evmOnlyPending struct {
-	height    int64
-	appHash   common.Hash
-	blockHash common.Hash
-}
-
 var _ abci.Application = (*evmOnlyApplication)(nil)
 
 // NewEVMOnlyApplication returns the raw-Ethereum application used by Autobahn
-// load tests. State, receipts, and blocks are owned by storage.
+// load tests. State, receipts, and blocks are owned by storage. A storage that
+// already holds committed blocks resumes from its durable cursor, so Info
+// reports the stored height and InitChain is refused.
 func NewEVMOnlyApplication(
 	chainID uint64,
 	validators []abci.ValidatorUpdate,
 	storage *bootstrap.GigaStorageManager,
 	changeSetEncoder evmonly.NamedChangeSetEncoder,
-) abci.Application {
+) (abci.Application, error) {
 	chainConfig := *params.AllDevChainProtocolChanges
 	chainConfig.ChainID = new(big.Int).SetUint64(chainID)
-	return &evmOnlyApplication{
+	a := &evmOnlyApplication{
 		chainID:          new(big.Int).SetUint64(chainID),
 		chainConfig:      &chainConfig,
 		storage:          storage,
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
-		state:            utils.NewMutex(&evmOnlyState{}),
+		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
+		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
 		checkedSenders:   utils.NewMutex(map[common.Hash]common.Address{}),
 	}
+	cursor, err := loadEVMOnlyCursor(storage.SC())
+	if err != nil {
+		return nil, err
+	}
+	if cursor, ok := cursor.Get(); ok {
+		for executor := range a.executor.Lock() {
+			*executor = utils.Some(a.newExecutor())
+		}
+		for state := range a.cursor.Lock() {
+			state.committed = cursor
+		}
+	}
+	return a, nil
+}
+
+func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
+	return evmonly.NewExecutor(evmonly.Config{
+		ChainConfig:         a.chainConfig,
+		MinGasPrice:         big.NewInt(evmOnlyMinGasPrice),
+		OCCWorkers:          runtime.GOMAXPROCS(0),
+		ParseWorkers:        runtime.GOMAXPROCS(0),
+		BlockResultPoolSize: 1,
+	},
+		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
+		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
+		evmonly.WithStoreIndependentBlockChangeSetEncoder(a.encodeCursorChangeSet),
+	)
+}
+
+// encodeCursorChangeSet chains the block into the app hash and stages the
+// resulting cursor as pending, returning it as the changeset committed with
+// the block's state.
+func (a *evmOnlyApplication) encodeCursorChangeSet(block evmonly.BlockContext, result *evmonly.BlockResult) ([]*proto.NamedChangeSet, error) {
+	height, ok := utils.SafeCast[int64](block.Number)
+	if !ok {
+		return nil, fmt.Errorf("EVM-only block number exceeds int64: %d", block.Number)
+	}
+	for state := range a.cursor.Lock() {
+		if height != state.committed.height+1 {
+			return nil, fmt.Errorf("EVM-only block height %d does not follow committed height %d", height, state.committed.height)
+		}
+		appHash, err := hashEVMOnlyResult(state.committed.appHash, block.Number, block.BlockHash, result)
+		if err != nil {
+			return nil, err
+		}
+		next := evmOnlyCursor{
+			height:    height,
+			appHash:   appHash,
+			blockHash: block.BlockHash,
+			gasLimit:  block.GasLimit,
+		}
+		state.pending = utils.Some(next)
+		state.pendingBlockTime = block.Time
+		return []*proto.NamedChangeSet{next.changeSet()}, nil
+	}
+	panic("unreachable")
 }
 
 func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -104,41 +162,36 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 	if err != nil {
 		return nil, err
 	}
-	if err := a.seedInitialStateVersion(req.InitialHeight); err != nil {
-		return nil, err
-	}
-	for state := range a.state.Lock() {
-		if state.executor.IsPresent() {
+	for executor := range a.executor.Lock() {
+		if executor.IsPresent() {
 			return nil, fmt.Errorf("EVM-only application already initialized")
 		}
-		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
-			ChainConfig:         a.chainConfig,
-			MinGasPrice:         big.NewInt(evmOnlyMinGasPrice),
-			OCCWorkers:          runtime.GOMAXPROCS(0),
-			ParseWorkers:        runtime.GOMAXPROCS(0),
-			BlockResultPoolSize: 1,
-		},
-			evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
-			evmonly.WithMissingAccountState(evmOnlyFundedState{}),
-		))
-		state.gasLimit = gasLimit
-		state.nextHeight = req.InitialHeight
-		state.committedHeight = req.InitialHeight - 1
+		if err := a.seedInitialStateVersion(req.InitialHeight); err != nil {
+			return nil, err
+		}
+		*executor = utils.Some(a.newExecutor())
+		for state := range a.cursor.Lock() {
+			state.committed = evmOnlyCursor{height: req.InitialHeight - 1, gasLimit: gasLimit}
+		}
 		return &abci.ResponseInitChain{}, nil
 	}
 	panic("unreachable")
 }
 
+// seedInitialStateVersion moves an empty state store to the version preceding
+// initialHeight. A store already seeded there is accepted, since a crash
+// between InitChain and the first block leaves it that way; a store holding
+// any block is refused.
 func (a *evmOnlyApplication) seedInitialStateVersion(initialHeight int64) error {
 	stateStore := a.storage.SC()
-	if stateStore == nil || initialHeight == 1 {
-		return nil
-	}
 	latest, err := stateStore.GetLatestVersion()
 	if err != nil {
 		return fmt.Errorf("read EVM-only state version: %w", err)
 	}
-	if latest != 0 {
+	switch {
+	case latest == initialHeight-1:
+		return nil
+	case latest != 0:
 		return fmt.Errorf("EVM-only state is already at height %d before InitChain", latest)
 	}
 	if err := stateStore.SetInitialVersion(initialHeight); err != nil {
@@ -159,27 +212,41 @@ func evmOnlyGasLimit(req *abci.RequestInitChain) (uint64, error) {
 }
 
 func (a *evmOnlyApplication) Info() *abci.ResponseInfo {
-	for state := range a.state.Lock() {
+	for state := range a.cursor.Lock() {
 		return &abci.ResponseInfo{
 			Data:             "evmonly",
-			LastBlockHeight:  state.committedHeight,
-			LastBlockAppHash: append([]byte(nil), state.appHash[:]...),
+			LastBlockHeight:  state.committed.height,
+			LastBlockAppHash: append([]byte(nil), state.committed.appHash[:]...),
 		}
 	}
 	panic("unreachable")
 }
 
+// InitLastHeader seeds the committed block time on the router's restart path.
+// The cursor carries height, hashes and gas limit but not Time, so without this
+// EvmCall would answer with TIMESTAMP 0 until the next Commit.
+func (a *evmOnlyApplication) InitLastHeader(lastHeader *tmproto.Header) {
+	if lastHeader == nil || lastHeader.Time.Unix() < 0 {
+		return
+	}
+	for state := range a.cursor.Lock() {
+		state.lastBlockTime = uint64(lastHeader.Time.Unix()) // nolint:gosec // guarded non-negative above
+	}
+}
+
 func (a *evmOnlyApplication) LastBlockHeight() int64 {
-	for state := range a.state.Lock() {
-		return state.committedHeight
+	for state := range a.cursor.Lock() {
+		return state.committed.height
 	}
 	panic("unreachable")
 }
 
-// EvmGasLimit returns the gas limit configured during InitChain.
+// EvmGasLimit returns the gas limit of the most recently committed block.
+// This application never changes it after InitChain, so it is also the gas
+// limit of every earlier committed block.
 func (a *evmOnlyApplication) EvmGasLimit() uint64 {
-	for state := range a.state.Lock() {
-		return state.gasLimit
+	for state := range a.cursor.Lock() {
+		return state.committed.gasLimit
 	}
 	panic("unreachable")
 }
@@ -320,28 +387,33 @@ func evmOnlyPrevRandao(timestamp uint64) common.Hash {
 // committed EVM state and returns the execution result.
 func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
 	var executor *evmonly.Executor
-	var blockCtx evmonly.BlockContext
-	for state := range a.state.Lock() {
-		got, ok := state.executor.Get()
+	for exec := range a.executor.Lock() {
+		got, ok := exec.Get()
 		if !ok {
 			return nil, fmt.Errorf("EVM-only call attempted before InitChain")
 		}
+		executor = got
+	}
+	var blockCtx evmonly.BlockContext
+	for state := range a.cursor.Lock() {
 		if state.pending.IsPresent() {
+			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
 			return nil, fmt.Errorf("EVM-only call attempted before committing the finalized block")
 		}
-		number, ok := utils.SafeCast[uint64](state.committedHeight)
+		number, ok := utils.SafeCast[uint64](state.committed.height)
 		if !ok {
-			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
+			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
 		}
-		executor = got
+		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
+		// FinalizeBlock, and only the current block's hash is tracked at all.
 		blockCtx = evmonly.BlockContext{
 			Number:      number,
 			Time:        state.lastBlockTime,
-			GasLimit:    state.gasLimit,
+			GasLimit:    state.committed.gasLimit,
 			ChainID:     new(big.Int).Set(a.chainID),
 			BaseFee:     evmOnlyBaseFee(),
 			BlobBaseFee: new(big.Int),
-			BlockHash:   state.parentHash,
+			BlockHash:   state.committed.blockHash,
 			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
 		}
 	}
@@ -362,26 +434,24 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		return nil, fmt.Errorf("EVM-only block timestamp is negative: %s", req.Header.Time)
 	}
 	blockHash := common.BytesToHash(req.Hash)
-	for state := range a.state.Lock() {
-		executor, ok := state.executor.Get()
+	for executor := range a.executor.Lock() {
+		executor, ok := executor.Get()
 		if !ok {
 			return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 		}
-		if state.pending.IsPresent() {
-			return nil, fmt.Errorf("EVM-only block %d finalized before committing the previous block", height)
-		}
-		if height != state.nextHeight {
-			return nil, fmt.Errorf("EVM-only block height %d does not match next height %d", height, state.nextHeight)
+		parent, err := a.beginBlock(height)
+		if err != nil {
+			return nil, err
 		}
 		result, err := executor.ExecuteBlock(ctx, evmonly.BlockRequest{
 			Context: evmonly.BlockContext{
 				Number:      number,
 				Time:        timestamp,
-				GasLimit:    state.gasLimit,
+				GasLimit:    parent.gasLimit,
 				ChainID:     new(big.Int).Set(a.chainID),
 				BaseFee:     evmOnlyBaseFee(),
 				BlobBaseFee: new(big.Int),
-				ParentHash:  state.parentHash,
+				ParentHash:  parent.blockHash,
 				BlockHash:   blockHash,
 				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
@@ -389,35 +459,73 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 			Senders: a.takeSenders(req.Txs),
 		})
 		if err != nil {
-			return nil, err
+			return nil, errors.Join(err, a.abandonPending(height))
 		}
 		defer result.Release()
-		appHash, err := hashEVMOnlyResult(state.appHash, number, blockHash, result)
+		pending, err := a.pendingCursor(height)
 		if err != nil {
 			return nil, err
 		}
-		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
-		state.pendingBlockTime = timestamp
 		return &abci.ResponseFinalizeBlock{
-			AppHash:   append([]byte(nil), appHash[:]...),
+			AppHash:   append([]byte(nil), pending.appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
 		}, nil
 	}
 	panic("unreachable")
 }
 
+// beginBlock checks height is the next block to finalize and returns the
+// committed cursor it builds on.
+func (a *evmOnlyApplication) beginBlock(height int64) (evmOnlyCursor, error) {
+	for state := range a.cursor.Lock() {
+		if state.pending.IsPresent() {
+			return evmOnlyCursor{}, fmt.Errorf("EVM-only block %d finalized before committing the previous block", height)
+		}
+		if next := state.committed.height + 1; height != next {
+			return evmOnlyCursor{}, fmt.Errorf("EVM-only block height %d does not match next height %d", height, next)
+		}
+		return state.committed, nil
+	}
+	panic("unreachable")
+}
+
+// abandonPending drops the cursor staged by a failed block unless the store
+// already holds that block's version, in which case the cursor is durable and
+// stays pending for Commit.
+func (a *evmOnlyApplication) abandonPending(height int64) error {
+	latest, err := a.storage.SC().GetLatestVersion()
+	if err != nil {
+		return fmt.Errorf("read EVM-only state version: %w", err)
+	}
+	if latest >= height {
+		return nil
+	}
+	for state := range a.cursor.Lock() {
+		state.pending = utils.None[evmOnlyCursor]()
+	}
+	return nil
+}
+
+func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) {
+	for state := range a.cursor.Lock() {
+		pending, ok := state.pending.Get()
+		if !ok || pending.height != height {
+			return evmOnlyCursor{}, fmt.Errorf("EVM-only block %d committed without staging its cursor", height)
+		}
+		return pending, nil
+	}
+	panic("unreachable")
+}
+
 func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
-	for state := range a.state.Lock() {
+	for state := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok {
 			return nil, fmt.Errorf("EVM-only Commit called without a finalized block")
 		}
-		state.committedHeight = pending.height
-		state.nextHeight = pending.height + 1
-		state.appHash = pending.appHash
-		state.parentHash = pending.blockHash
+		state.committed = pending
 		state.lastBlockTime = state.pendingBlockTime
-		state.pending = utils.None[evmOnlyPending]()
+		state.pending = utils.None[evmOnlyCursor]()
 		return &abci.ResponseCommit{}, nil
 	}
 	panic("unreachable")

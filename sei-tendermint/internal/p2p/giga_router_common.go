@@ -407,9 +407,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// call InitChain ourselves. It sets up the app's deliverState
 		// against which the first FinalizeBlock below runs.
 		//
-		// Re-entering on restart (crashed after InitChain, before first
-		// Commit) is safe — nothing was committed, so it behaves as a
-		// fresh init.
+		// Re-entering on restart (crashed after InitChain, before the first
+		// block became durable) is safe — nothing was committed, so it
+		// behaves as a fresh init. An app whose storage already holds
+		// blocks must report them here and refuse InitChain, since blocks
+		// may be durable before Commit acknowledged them.
 		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
