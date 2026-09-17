@@ -34,7 +34,7 @@ func TestGetLogsRangeTooWide(t *testing.T) {
 }
 
 func TestGetLogIndex(t *testing.T) {
-	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	cw20 := "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m" // hardcoded
 	tx0 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 0)
 	tx1Bz := signAndEncodeTx(depositErc20(1), erc20DeployerMnemonics)
 	tx2Bz := signAndEncodeTx(sendErc20(2), erc20DeployerMnemonics)

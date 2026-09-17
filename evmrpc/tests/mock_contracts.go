@@ -104,7 +104,7 @@ func mixedLogTesterInitializer() func(ctx sdk.Context, a *app.App) {
 	return func(ctx sdk.Context, a *app.App) {
 		contractData := GetBin("MixedLogTester")
 		parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI("MixedLogTester"))))
-		args, _ := parsedABI.Pack("", "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau")
+		args, _ := parsedABI.Pack("", "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 		evmAddr := getAddrWithMnemonic(mixedLogTesterDeployerMnemonics)
 		seiAddr := getSeiAddrWithMnemonic(mixedLogTesterDeployerMnemonics)
 		tx := ethtypes.NewContractCreation(0, common.Big0, 5000000, common.Big0, append(contractData, args...))
@@ -123,7 +123,7 @@ func mixedLogTesterInitializer() func(ctx sdk.Context, a *app.App) {
 		r, _ := a.EvmKeeper.GetTransientReceipt(ctx, tx.Hash(), 0)
 
 		_ = a.EvmKeeper.SetERC20CW20Pointer(ctx,
-			"sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau",
+			"sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
 			common.HexToAddress(r.ContractAddress))
 	}
 }
