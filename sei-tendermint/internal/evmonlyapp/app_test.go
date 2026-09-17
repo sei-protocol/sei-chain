@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -478,4 +479,47 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 
 	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
+}
+
+// TestHashRawTxsMatchesKeccak256Hash pins the parallel hasher to the function it
+// replaced. takeSenders looks up entries CheckTx wrote under tx.Hash(), so a hash
+// that differs by one byte silently loses every sender and makes the executor
+// recover them all again.
+func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
+	for _, count := range []int{0, 1, 2, 17, 1848} {
+		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
+			txs := make([][]byte, count)
+			for i := range txs {
+				txs[i] = []byte(fmt.Sprintf("raw transaction %d with a body of some length", i))
+			}
+			hashes := hashRawTxs(txs)
+			require.Equal(t, count, len(hashes))
+			for i, raw := range txs {
+				require.Equal(t, crypto.Keccak256Hash(raw), hashes[i], "tx %d", i)
+			}
+		})
+	}
+}
+
+func BenchmarkHashRawTxs(b *testing.B) {
+	const blockTxs = 1848
+	txs := make([][]byte, blockTxs)
+	for i := range txs {
+		txs[i] = make([]byte, 140) // a funded-transfer tx is about this size on the wire
+		binary.BigEndian.PutUint64(txs[i], uint64(i))
+	}
+	b.Run("parallel", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			hashRawTxs(txs)
+		}
+	})
+	b.Run("serial", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			for _, raw := range txs {
+				_ = crypto.Keccak256Hash(raw)
+			}
+		}
+	})
 }
