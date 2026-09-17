@@ -300,7 +300,7 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 // decoding is needed.
 func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
 	out := make([]utils.Option[common.Address], len(txs))
-	// Hashed before the lock: CheckTx writes this map constantly, so the lock covers only the lookups.
+	// Hashed outside the lock; CheckTx writes this map constantly.
 	hashes := hashRawTxs(txs)
 	for senders := range a.checkedSenders.Lock() {
 		for i, hash := range hashes {
@@ -337,7 +337,6 @@ func hashRawTxs(txs [][]byte) []common.Hash {
 
 // hashRawTxRange hashes txs[start:end] into hashes.
 func hashRawTxRange(txs [][]byte, hashes []common.Hash, start, end int) {
-	// One hasher per range.
 	state := crypto.NewKeccakState()
 	for i := start; i < end; i++ {
 		state.Reset()

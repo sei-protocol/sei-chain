@@ -481,10 +481,7 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
 }
 
-// TestHashRawTxsMatchesKeccak256Hash pins the parallel hasher to the function it
-// replaced. takeSenders looks up entries CheckTx wrote under tx.Hash(), so a hash
-// that differs by one byte silently loses every sender and makes the executor
-// recover them all again.
+// TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
 func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {
 		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
