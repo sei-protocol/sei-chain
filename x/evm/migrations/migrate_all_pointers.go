@@ -1,8 +1,6 @@
 package migrations
 
 import (
-	"encoding/json"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
@@ -150,87 +148,6 @@ func MigrateERCCW1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		}, func(s1, s2 string) {
 			logger.Error("Failed to upgrade pointer at step", "pointer", cwAddr, "from-step", s1, "to-step", s2)
 		})
-	}
-	return nil
-}
-
-func MigrateCWERC20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
-	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerCW20ERC20Prefix...)).ReverseIterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	bz, _ := json.Marshal(map[string]interface{}{})
-	moduleAcct := k.AccountKeeper().GetModuleAddress(types.ModuleName)
-	codeID := k.GetStoredPointerCodeID(ctx, types.PointerType_ERC20)
-	seen := map[string]struct{}{}
-	for ; iter.Valid(); iter.Next() {
-		evmAddr := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
-		if _, ok := seen[evmAddr]; ok {
-			continue
-		}
-		seen[evmAddr] = struct{}{}
-		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
-		if err != nil {
-			logger.Error("error parsing cw-erc20 pointer address", "pointer", string(iter.Value()), "err", err)
-			return err
-		}
-		_, err = k.WasmKeeper().Migrate(ctx, addr, moduleAcct, codeID, bz)
-		if err != nil {
-			logger.Error("error migrating cw-erc20 pointer to code ID", "pointer", addr, "code-id", codeID, "err", err)
-			return err
-		}
-	}
-	return nil
-}
-
-func MigrateCWERC721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
-	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerCW721ERC721Prefix...)).ReverseIterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	bz, _ := json.Marshal(map[string]interface{}{})
-	moduleAcct := k.AccountKeeper().GetModuleAddress(types.ModuleName)
-	codeID := k.GetStoredPointerCodeID(ctx, types.PointerType_ERC721)
-	seen := map[string]struct{}{}
-	for ; iter.Valid(); iter.Next() {
-		evmAddr := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
-		if _, ok := seen[evmAddr]; ok {
-			continue
-		}
-		seen[evmAddr] = struct{}{}
-		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
-		if err != nil {
-			logger.Error("error parsing cw-erc721 pointer address", "pointer", string(iter.Value()), "err", err)
-			return err
-		}
-		_, err = k.WasmKeeper().Migrate(ctx, addr, moduleAcct, codeID, bz)
-		if err != nil {
-			logger.Error("error migrating cw-erc721 pointer to code ID", "pointer", addr, "code-id", codeID, "err", err)
-			return err
-		}
-	}
-	return nil
-}
-
-func MigrateCWERC1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
-	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerCW1155ERC1155Prefix...)).ReverseIterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	bz, _ := json.Marshal(map[string]interface{}{})
-	moduleAcct := k.AccountKeeper().GetModuleAddress(types.ModuleName)
-	codeID := k.GetStoredPointerCodeID(ctx, types.PointerType_ERC1155)
-	seen := map[string]struct{}{}
-	for ; iter.Valid(); iter.Next() {
-		evmAddr := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
-		if _, ok := seen[evmAddr]; ok {
-			continue
-		}
-		seen[evmAddr] = struct{}{}
-		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
-		if err != nil {
-			logger.Error("error parsing cw-erc1155 pointer address", "pointer", string(iter.Value()), "err", err)
-			return err
-		}
-		_, err = k.WasmKeeper().Migrate(ctx, addr, moduleAcct, codeID, bz)
-		if err != nil {
-			logger.Error("error migrating cw-erc1155 pointer to code ID", "pointer", addr, "code-id", codeID, "err", err)
-			return err
-		}
 	}
 	return nil
 }

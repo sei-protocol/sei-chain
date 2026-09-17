@@ -310,17 +310,36 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 	panic("unreachable")
 }
 
+// evmOnlyABCIResults reports a block's executed transactions to consensus, each
+// one an OK result carrying the EVM failure reason, if it had one, in its log.
+//
+// A reverted transaction is a successfully executed one at this layer: it consumed
+// its nonce and gas, and the receipt status carries its failure, which is why every
+// result here is OK. A non-OK code would put the hash in the mempool's failed set,
+// which holds a transaction for a second chance rather than recording it as
+// executed. The log is safe to vary with the failure because the results hash
+// covers only the code, data and gas.
 func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	txResults := make([]*abci.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {
 		gasUsed := utils.Clamp[int64](tx.GasUsed)
 		txResults[i] = &abci.ExecTxResult{
 			Code:      abci.CodeTypeOK,
+			Log:       evmOnlyTxFailureLog(tx),
 			GasWanted: gasUsed,
 			GasUsed:   gasUsed,
 		}
 	}
 	return txResults
+}
+
+// evmOnlyTxFailureLog returns the reason a transaction failed, or the empty string
+// when it succeeded.
+func evmOnlyTxFailureLog(tx evmonly.TxResult) string {
+	if tx.Err == nil {
+		return ""
+	}
+	return tx.Err.Error()
 }
 
 func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Hash, result *evmonly.BlockResult) (common.Hash, error) {

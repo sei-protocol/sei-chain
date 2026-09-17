@@ -11,14 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/ethereum/go-ethereum/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/triedb/pathdb"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
-	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -35,36 +30,6 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 
 	for _, addr := range genState.AddressAssociations {
 		k.SetAddressMapping(ctx, sdk.MustAccAddressFromBech32(addr.SeiAddress), common.HexToAddress(addr.EthAddress))
-	}
-
-	erc20CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc20.GetBin(), nil)
-	if err != nil {
-		logger.Error("error creating CWERC20 pointer code", "err", err)
-	} else {
-		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW20ERC20Prefix).Set(
-			artifactsutils.GetVersionBz(erc20.CurrentVersion),
-			artifactsutils.GetCodeIDBz(erc20CodeID),
-		)
-	}
-
-	erc721CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc721.GetBin(), nil)
-	if err != nil {
-		logger.Error("error creating CWERC721 pointer code", "err", err)
-	} else {
-		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW721ERC721Prefix).Set(
-			artifactsutils.GetVersionBz(erc721.CurrentVersion),
-			artifactsutils.GetCodeIDBz(erc721CodeID),
-		)
-	}
-
-	erc1155CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc1155.GetBin(), nil)
-	if err != nil {
-		logger.Error("error creating CWERC1155 pointer code", "err", err)
-	} else {
-		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW1155ERC1155Prefix).Set(
-			artifactsutils.GetVersionBz(erc1155.CurrentVersion),
-			artifactsutils.GetCodeIDBz(erc1155CodeID),
-		)
 	}
 
 	if k.EthReplayConfig.Enabled && !ethReplayInitialied {
