@@ -594,16 +594,11 @@ func hashEVMOnlyResult(previous common.Hash, height uint64, blockHash common.Has
 	return common.BytesToHash(h.Sum(nil)), nil
 }
 
-// evmOnlyHashBufferSize is large enough that a full block's stream reaches the hash in
-// a handful of writes rather than thousands.
+// evmOnlyHashBufferSize is the buffer between the stream and the hash.
 const evmOnlyHashBufferSize = 32 << 10
 
-// evmOnlyHashWriter carries the app-hash byte stream into a hash.
-//
-// The stream is what validators vote on, so it must not change; this only decides how
-// many Write calls carry it and where the length prefixes come from. A full block used
-// to make about 17,700 writes of a few bytes each, every prefix a fresh allocation.
-// flush has to run before the digest is read.
+// evmOnlyHashWriter carries the app-hash byte stream into a hash. The stream is what
+// validators vote on, so it must not change. flush must run before the digest is read.
 type evmOnlyHashWriter struct {
 	buf     *bufio.Writer
 	scratch [8]byte
@@ -626,8 +621,7 @@ func (w *evmOnlyHashWriter) writeUint64(value uint64) {
 	_, _ = w.buf.Write(w.scratch[:])
 }
 
-// writeSized writes value behind its length, which is what stops two different splits
-// of the same bytes from hashing alike.
+// writeSized writes value behind its length.
 func (w *evmOnlyHashWriter) writeSized(value []byte) {
 	w.writeUint64(uint64(len(value)))
 	_, _ = w.buf.Write(value)
