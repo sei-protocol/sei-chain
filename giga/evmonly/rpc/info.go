@@ -19,9 +19,6 @@ import (
 const maxFeeHistoryBlockCount = 1024
 
 // earliestCommittedHeight is the first height this executor ever commits.
-// eth_feeHistory resolves "earliest" here rather than the literal height 0
-// this go-ethereum fork uses for the sentinel, which this executor never
-// commits and would otherwise report as unavailable.
 const earliestCommittedHeight = ethrpc.BlockNumber(1)
 
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the
@@ -77,11 +74,8 @@ type FeeHistoryResult struct {
 }
 
 // FeeHistory returns gas-used ratios and base fees for the blockCount blocks
-// ending at lastBlock. This application executes every block at a zero base
-// fee, so baseFeePerGas is always zero; when rewardPercentiles is non-empty,
-// reward is filled with this application's fixed admission gas-price floor
-// for every percentile rather than a real per-transaction percentile, since
-// this chain has no congestion-based fee market to derive one from.
+// ending at lastBlock. baseFeePerGas is always zero; reward, when requested,
+// is the same suggested gas price for every percentile.
 func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock ethrpc.BlockNumber, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	if blockCount < 1 {
 		return &FeeHistoryResult{}, nil
@@ -121,9 +115,7 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 	return result, nil
 }
 
-// lastBlockUnavailableError explains why requested (already past the
-// "earliest" remap) failed to resolve to a block: not yet committed, or no
-// longer retained.
+// lastBlockUnavailableError reports why requested did not resolve to a block.
 func (api *infoAPI) lastBlockUnavailableError(requested ethrpc.BlockNumber) error {
 	if requested < 0 {
 		return errors.New("no committed block available for fee history")
@@ -135,12 +127,8 @@ func (api *infoAPI) lastBlockUnavailableError(requested ethrpc.BlockNumber) erro
 }
 
 // walkFeeHistoryRange collects gasUsedRatio, baseFee, and (when requested)
-// reward entries for the blockCount blocks ending at end, oldest first.
-// Heights below 1 are outside the chain and are skipped rather than erroring,
-// so a blockCount larger than the chain's height yields a shorter result.
-// Heights above 1 that the store has since pruned still cost one lookup
-// each: there is no lower-bound accessor yet to skip them outright (same gap
-// tracked in sei-tendermint/internal/rpc/core/blocks.go's autobahnCheckAndGetHeight).
+// reward entries for the blockCount blocks ending at end, oldest first,
+// skipping heights below 1.
 func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, floor *big.Int, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	result := &FeeHistoryResult{GasUsedRatio: []float64{}}
 	start := end - blockCount + 1
@@ -180,9 +168,7 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 	return result, nil
 }
 
-// fixedReward returns count independent copies of the suggested gas price
-// (see suggestedGasPrice), this application's stand-in for a per-percentile
-// priority-fee reward.
+// fixedReward returns count independent copies of the suggested gas price.
 func fixedReward(floor *big.Int, count int) []*hexutil.Big {
 	price := suggestedGasPrice(floor)
 	row := make([]*hexutil.Big, count)
@@ -228,9 +214,6 @@ func (api *infoAPI) lastTxGasUsedRatio(ctx context.Context, block *coretypes.Res
 		return 0, fmt.Errorf("read last transaction receipt for block %d: %w", block.Block.Height, err)
 	}
 	if stored.BlockNumber != uint64(block.Block.Height) { //nolint:gosec // G115: block height is positive.
-		// A resubmitted tx hash can overwrite this receipt with one from a
-		// later block; treat that as no receipt for this height rather than
-		// misreport the later block's gas used.
 		return 0, nil
 	}
 	return float64(stored.CumulativeGasUsed) / float64(gasLimit), nil
