@@ -324,6 +324,16 @@ func (s *CompositeStateStore) GetLatestVersion() int64 {
 	return s.cosmosStore.GetLatestVersion()
 }
 
+// WaitForPendingWrites blocks until both underlying stores have applied every queued changeset.
+func (s *CompositeStateStore) WaitForPendingWrites() {
+	if w, ok := s.cosmosStore.(types.PendingWriteWaiter); ok {
+		w.WaitForPendingWrites()
+	}
+	if w, ok := s.evmStore.(types.PendingWriteWaiter); ok {
+		w.WaitForPendingWrites()
+	}
+}
+
 func (s *CompositeStateStore) GetEarliestVersion() int64 {
 	earliest := s.cosmosStore.GetEarliestVersion()
 	if s.evmStore != nil {
