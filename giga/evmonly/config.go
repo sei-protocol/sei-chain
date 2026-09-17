@@ -29,6 +29,12 @@ type Config struct {
 	// they finish async persistence. Pool exhaustion allocates an unpooled result
 	// instead of blocking block execution.
 	BlockResultPoolSize int
+	// RejectUnappliableTxs records a transaction that fails ApplyMessage's
+	// pre-checks (spent nonce, insufficient funds, block gas exhausted) as a
+	// failed receipt with zero gas and no state change, instead of failing the
+	// block. Off by default, which keeps geth's rule that such a block is invalid.
+	// Unlike DisableNonceCheck, the transaction does not run.
+	RejectUnappliableTxs bool
 }
 
 func DefaultConfig() Config {

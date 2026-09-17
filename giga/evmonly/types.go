@@ -189,4 +189,6 @@ type TxResult struct {
 	EffectiveGasPrice *big.Int
 	Logs              []*ethtypes.Log
 	Err               error
+	// Rejected reports that the transaction never ran: it consumed no gas and changed no state.
+	Rejected bool
 }
