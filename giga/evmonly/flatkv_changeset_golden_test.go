@@ -134,30 +134,3 @@ func TestEncodeFlatKVChangeSetRejectsNegativeBalance(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "balance must fit in an unsigned 256-bit integer")
 }
-
-func BenchmarkEncodeFlatKVChangeSet(b *testing.B) {
-	// ~3,500 pairs, a full block.
-	const accounts = 1167
-	changes := StateChangeSet{}
-	for i := range accounts {
-		addr := common.Address{byte(i), byte(i >> 8), 0x5e}
-		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: big.NewInt(int64(i) * 1e9)})
-		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: uint64(i)})
-		changes.Storage = append(changes.Storage, StorageChange{
-			Address: addr, Key: common.Hash{byte(i)}, Value: common.Hash{byte(i ^ 0xff)},
-		})
-	}
-	cfg := flatkvconfig.DefaultConfig()
-	cfg.DataDir = b.TempDir()
-	store, err := openFlatKVTestStore(b.Context(), cfg)
-	require.NoError(b, err)
-	b.Cleanup(func() { require.NoError(b, store.Close()) })
-	encode := NewFlatKVChangeSetEncoder(store)
-
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := encode(changes); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
