@@ -68,12 +68,14 @@ var (
 const (
 	txExecutionStatusSuccess  = "success"
 	txExecutionStatusReverted = "reverted"
+	txExecutionStatusRejected = "rejected"
 	txExecutionStatusFailed   = "failed"
 )
 
 var txExecutionStatuses = []string{
 	txExecutionStatusSuccess,
 	txExecutionStatusReverted,
+	txExecutionStatusRejected,
 	txExecutionStatusFailed,
 }
 
@@ -99,15 +101,19 @@ func txExecutionStatusAttr(status string) metric.MeasurementOption {
 // txExecutionStatus maps a transaction result onto the bounded status label
 // vocabulary used by giga_evmonly_txs_executed_total.
 func txExecutionStatus(tx TxResult) string {
+	// Checked before the status, because a rejected transaction also carries the
+	// failed status and would otherwise be counted as one that ran and reverted.
+	if tx.Rejected {
+		return txExecutionStatusRejected
+	}
 	switch tx.Status {
 	case ethtypes.ReceiptStatusSuccessful:
 		return txExecutionStatusSuccess
 	case ethtypes.ReceiptStatusFailed:
 		return txExecutionStatusReverted
 	default:
-		// A transaction that produced no receipt aborts the whole block rather than
-		// reaching here, so this bucket catches a status the executor is not
-		// expected to produce.
+		// Every transaction in a block now produces a receipt, so this bucket catches
+		// a status the executor is not expected to produce.
 		return txExecutionStatusFailed
 	}
 }

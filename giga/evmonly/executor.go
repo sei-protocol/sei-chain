@@ -347,13 +347,21 @@ func (e *Executor) executeTx(
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
+	snapshot := stateDB.Snapshot()
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
+	// A state fault is this node's alone, so it still fails the block. It is read
+	// first because reverting below restores the recorded error along with the rest
+	// of the snapshot.
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		if !e.cfg.RejectUnappliableTxs {
+			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		}
+		txResult, receipt := rejectTx(stateDB, snapshot, p, block, txIndexUint, baseFee, err)
+		return txResult, receipt, nil
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
@@ -404,6 +412,50 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+// rejectTx records a transaction the executor cannot apply, as a receipt rather
+// than as a failed block. It runs only under Config.RejectUnappliableTxs.
+//
+// ApplyMessage returns an error only when a transaction cannot run at all: a nonce
+// already spent, a balance short of the gas, a block whose gas is gone. Every node
+// executing the block reaches the same verdict from the same pre-state, because the
+// verdict is a function of the transaction and the state the block opened against.
+//
+// The snapshot is load-bearing. BuyGas debits the sender before initGas claims the
+// block's gas, so a pre-check can fail with the balance already moved; reverting is
+// what keeps the changeset consistent with the zero gas this receipt reports. It
+// also restores the log slice, so a rejected transaction contributes none.
+func rejectTx(
+	stateDB *nativeStateDB,
+	snapshot int,
+	p PreparedTx,
+	block BlockContext,
+	txIndexUint uint,
+	baseFee *big.Int,
+	cause error,
+) (TxResult, *ethtypes.Receipt) {
+	stateDB.RevertToSnapshot(snapshot)
+	tx := p.Tx
+	receipt := &ethtypes.Receipt{
+		Type:              tx.Type(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		TxHash:            tx.Hash(),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
+		BlockHash:         block.BlockHash,
+		BlockNumber:       new(big.Int).SetUint64(block.Number),
+		TransactionIndex:  txIndexUint,
+	}
+	receipt.Bloom = ethtypes.CreateBloom(receipt)
+	return TxResult{
+		Hash:              tx.Hash(),
+		Sender:            p.Sender,
+		To:                tx.To(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		EffectiveGasPrice: new(big.Int).Set(receipt.EffectiveGasPrice),
+		Err:               cause,
+		Rejected:          true,
+	}, receipt
 }
 
 func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {

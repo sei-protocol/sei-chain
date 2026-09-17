@@ -113,11 +113,15 @@ func NewEVMOnlyApplication(
 
 func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	return evmonly.NewExecutor(evmonly.Config{
-		ChainConfig:         a.chainConfig,
-		MinGasPrice:         big.NewInt(evmOnlyMinGasPrice),
-		OCCWorkers:          runtime.GOMAXPROCS(0),
-		ParseWorkers:        runtime.GOMAXPROCS(0),
-		BlockResultPoolSize: 1,
+		ChainConfig:  a.chainConfig,
+		MinGasPrice:  big.NewInt(evmOnlyMinGasPrice),
+		OCCWorkers:   runtime.GOMAXPROCS(0),
+		ParseWorkers: runtime.GOMAXPROCS(0),
+		// Autobahn orders transactions without validating nonces, so a block can carry
+		// one the executor cannot apply. It has to become a receipt: failing the block
+		// halts every validator at that height, and no restart gets past it.
+		RejectUnappliableTxs: true,
+		BlockResultPoolSize:  1,
 	},
 		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
