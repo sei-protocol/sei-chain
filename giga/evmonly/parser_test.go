@@ -1,8 +1,6 @@
 package evmonly
 
 import (
-	"context"
-	"fmt"
 	"math/big"
 	"testing"
 
@@ -159,33 +157,4 @@ func BenchmarkParsePreparedTx(b *testing.B) {
 			}
 		}
 	})
-}
-
-// BenchmarkParseBlockTxs parses a full block with a sender carried for every transaction.
-func BenchmarkParseBlockTxs(b *testing.B) {
-	const blockTxs = 1848
-	chainID := big.NewInt(testChainID)
-	signer := ethtypes.LatestSignerForChainID(chainID)
-	recipient := testAddress(0xc7)
-	key, err := crypto.GenerateKey()
-	require.NoError(b, err)
-	sender := utils.Some(crypto.PubkeyToAddress(key.PublicKey))
-
-	raws := make([][]byte, blockTxs)
-	senders := make([]utils.Option[common.Address], blockTxs)
-	for i := range raws {
-		raws[i] = signLegacyTx(b, key, chainID, uint64(i), &recipient, big.NewInt(1), nil)
-		senders[i] = sender
-	}
-
-	for _, workers := range []int{1, 8, 32} {
-		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
-			b.ReportAllocs()
-			for b.Loop() {
-				if _, err := parseBlockTxs(context.Background(), raws, signer, senders, workers); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
 }
