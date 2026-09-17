@@ -29,18 +29,11 @@ type Config struct {
 	// they finish async persistence. Pool exhaustion allocates an unpooled result
 	// instead of blocking block execution.
 	BlockResultPoolSize int
-	// RejectUnappliableTxs records a transaction that fails its pre-checks as a
-	// failed receipt instead of failing the whole block.
-	//
-	// It is a property of the chain, not of the node. Under Ethereum's rules a block
-	// holding a spent nonce is an invalid block, because the producer validated the
-	// nonce before including it, and the default keeps that behaviour. Autobahn
-	// orders transactions without validating nonces or balances, so on an EVM-only
-	// chain such a block is well formed and unavoidable; failing it panics every
-	// validator at the same height instead.
-	//
-	// Unlike DisableNonceCheck this does not let the transaction run. It consumes no
-	// gas, changes no state, and appears as a rejected receipt.
+	// RejectUnappliableTxs records a transaction that fails ApplyMessage's
+	// pre-checks (spent nonce, insufficient funds, block gas exhausted) as a
+	// failed receipt with zero gas and no state change, instead of failing the
+	// block. Off by default, which keeps geth's rule that such a block is invalid.
+	// Unlike DisableNonceCheck, the transaction does not run.
 	RejectUnappliableTxs bool
 }
 

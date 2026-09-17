@@ -11,83 +11,139 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExecutorRejectsSpentNonceWithoutFailingBlock reproduces the fault that halted
-// giga-testnet-2 at block 296796: one sender's nonce 178 appeared in a block after
-// nonce 178 had already been spent, and the executor answered by failing the block,
-// which panicked every validator at the same height.
-//
-// Autobahn orders transactions without checking nonces, so the chain cannot avoid
-// producing such a block. The transaction has to become a receipt.
+// TestExecutorRejectsSpentNonceWithoutFailingBlock turns a spent nonce into a
+// failed receipt while the rest of the block still executes, on both paths.
 func TestExecutorRejectsSpentNonceWithoutFailingBlock(t *testing.T) {
-	for _, occ := range []bool{false, true} {
-		name := "sequential"
-		if occ {
-			name = "occ"
+	forEachExecutionPath(t, func(t *testing.T, cfg Config) {
+		chainID := big.NewInt(testChainID)
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := testAddress(0xa1)
+
+		state := NewMemoryState()
+		state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
+
+		txs := [][]byte{
+			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(5), nil),
+			signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(9), nil),
+			signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(6), nil),
 		}
-		t.Run(name, func(t *testing.T) {
-			chainID := big.NewInt(testChainID)
-			key, err := crypto.GenerateKey()
-			require.NoError(t, err)
-			sender := crypto.PubkeyToAddress(key.PublicKey)
-			recipient := testAddress(0xa1)
+		executor := NewExecutor(cfg, withTestState(state))
 
-			state := NewMemoryState()
-			state.SetBalance(sender, big.NewInt(testFundedBalanceWei))
-
-			// The block carries nonce 0, then 0 again, then 1. The middle transaction is
-			// unappliable by the time it runs; the third must still execute.
-			txs := [][]byte{
-				signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(5), nil),
-				signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(9), nil),
-				signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(6), nil),
-			}
-			cfg := Config{RejectUnappliableTxs: true}
-			if occ {
-				cfg.ParseWorkers = 4
-			}
-			executor := NewExecutor(cfg, withTestState(state))
-
-			result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-				Context: blockContext(chainID),
-				Txs:     txs,
-			})
-
-			// The block executes. Before the fix this returned an error, which
-			// FinalizeBlock turned into a node panic.
-			require.NoError(t, err)
-			require.Len(t, result.Txs, 3, "every transaction in the block needs a result")
-			require.Len(t, result.Receipts, 3, "every transaction in the block needs a receipt")
-
-			require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[0].Status)
-			require.False(t, result.Txs[0].Rejected)
-
-			rejected := result.Txs[1]
-			require.True(t, rejected.Rejected, "the spent-nonce transaction is rejected")
-			require.Equal(t, ethtypes.ReceiptStatusFailed, rejected.Status)
-			require.Zero(t, rejected.GasUsed, "a rejected transaction consumes no gas")
-			require.ErrorContains(t, rejected.Err, "nonce too low")
-			require.Equal(t, ethtypes.ReceiptStatusFailed, result.Receipts[1].Status)
-			require.Zero(t, result.Receipts[1].GasUsed)
-			require.Empty(t, result.Receipts[1].Logs)
-
-			require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[2].Status,
-				"a rejected transaction must not stop the rest of the block")
-			require.False(t, result.Txs[2].Rejected)
-
-			// Gas accounts for the two that ran and nothing for the one that did not.
-			require.Equal(t, uint64(2*21_000), result.GasUsed)
-
-			// The rejected transaction moved no value and consumed no nonce. Its 9 wei
-			// never leaves the sender; only the 5 and the 6 do.
-			state.ApplyChangeSet(result.ChangeSet)
-			require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
-			require.Equal(t, uint64(2), state.GetNonce(sender))
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     txs,
 		})
-	}
+
+		require.NoError(t, err)
+		require.Len(t, result.Txs, 3)
+		require.Len(t, result.Receipts, 3)
+		requireOCCRan(t, cfg, result)
+
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[0].Status)
+		require.False(t, result.Txs[0].Rejected)
+
+		rejected := result.Txs[1]
+		require.True(t, rejected.Rejected)
+		require.Equal(t, ethtypes.ReceiptStatusFailed, rejected.Status)
+		require.Zero(t, rejected.GasUsed)
+		require.ErrorIs(t, rejected.Err, core.ErrNonceTooLow)
+		require.Equal(t, ethtypes.ReceiptStatusFailed, result.Receipts[1].Status)
+		require.Zero(t, result.Receipts[1].GasUsed)
+		require.Empty(t, result.Receipts[1].Logs)
+
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[2].Status)
+		require.False(t, result.Txs[2].Rejected)
+		require.Equal(t, uint64(2*21_000), result.GasUsed)
+
+		state.ApplyChangeSet(result.ChangeSet)
+		require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
+		require.Equal(t, uint64(2), state.GetNonce(sender))
+	})
 }
 
-// TestExecutorRejectsUnderfundedTxWithoutFailingBlock covers the other pre-check
-// that reaches a block on a chain whose consensus does not price transactions.
+// TestExecutorRejectsTxOverBlockGasWithoutFailingBlock records a transaction
+// that exceeds the remaining block gas while preserving earlier execution.
+func TestExecutorRejectsTxOverBlockGasWithoutFailingBlock(t *testing.T) {
+	forEachExecutionPath(t, func(t *testing.T, cfg Config) {
+		chainID := big.NewInt(testChainID)
+		recipient := testAddress(0xa4)
+		key0, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		key1, err := crypto.GenerateKey()
+		require.NoError(t, err)
+
+		state := NewMemoryState()
+		state.SetBalance(crypto.PubkeyToAddress(key0.PublicKey), big.NewInt(testFundedBalanceWei))
+		state.SetBalance(crypto.PubkeyToAddress(key1.PublicKey), big.NewInt(testFundedBalanceWei))
+
+		blockCtx := blockContext(chainID)
+		blockCtx.GasLimit = 30_000
+		executor := NewExecutor(cfg, withTestState(state))
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+			Context: blockCtx,
+			Txs: [][]byte{
+				signLegacyTxWithGas(t, key0, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
+				signLegacyTxWithGas(t, key1, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
+			},
+		})
+
+		require.NoError(t, err)
+		requireOCCRan(t, cfg, result)
+		require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[0].Status)
+		require.False(t, result.Txs[0].Rejected)
+		require.True(t, result.Txs[1].Rejected)
+		require.ErrorIs(t, result.Txs[1].Err, core.ErrGasLimitReached)
+		require.Equal(t, uint64(21_000), result.GasUsed)
+	})
+}
+
+// TestExecutorRejectionRestoresBlockGasPool ensures a failed pre-check does not
+// consume block gas needed by later transactions.
+func TestExecutorRejectionRestoresBlockGasPool(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	recipient := testAddress(0xa5)
+	key0, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	key1, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	key2, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	state := NewMemoryState()
+	state.SetBalance(crypto.PubkeyToAddress(key0.PublicKey), big.NewInt(testFundedBalanceWei))
+	state.SetBalance(crypto.PubkeyToAddress(key1.PublicKey), big.NewInt(testFundedBalanceWei))
+	state.SetBalance(crypto.PubkeyToAddress(key2.PublicKey), big.NewInt(testFundedBalanceWei))
+
+	data := make([]byte, 100)
+	for i := range data {
+		data[i] = 1
+	}
+	blockCtx := blockContext(chainID)
+	blockCtx.GasLimit = 42_000
+	executor := NewExecutor(Config{RejectUnappliableTxs: true}, withTestState(state))
+	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+		Context: blockCtx,
+		Txs: [][]byte{
+			signLegacyTxWithGas(t, key0, chainID, 0, &recipient, big.NewInt(1), data, 21_000),
+			signLegacyTxWithGas(t, key1, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
+			signLegacyTxWithGas(t, key2, chainID, 0, &recipient, big.NewInt(1), nil, 21_000),
+		},
+	})
+
+	require.NoError(t, err)
+	require.True(t, result.Txs[0].Rejected)
+	require.ErrorIs(t, result.Txs[0].Err, core.ErrIntrinsicGas)
+	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[1].Status)
+	require.False(t, result.Txs[1].Rejected)
+	require.Equal(t, ethtypes.ReceiptStatusSuccessful, result.Txs[2].Status)
+	require.False(t, result.Txs[2].Rejected)
+	require.Equal(t, uint64(42_000), result.GasUsed)
+}
+
+// TestExecutorRejectsUnderfundedTxWithoutFailingBlock turns insufficient funds
+// into a failed receipt while the rest of the block still executes.
 func TestExecutorRejectsUnderfundedTxWithoutFailingBlock(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	poorKey, err := crypto.GenerateKey()
@@ -113,7 +169,7 @@ func TestExecutorRejectsUnderfundedTxWithoutFailingBlock(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, result.Txs[0].Rejected)
-	require.ErrorContains(t, result.Txs[0].Err, "insufficient funds")
+	require.ErrorIs(t, result.Txs[0].Err, core.ErrInsufficientFunds)
 	require.False(t, result.Txs[1].Rejected)
 	require.Equal(t, uint64(21_000), result.GasUsed)
 
@@ -125,9 +181,8 @@ func TestExecutorRejectsUnderfundedTxWithoutFailingBlock(t *testing.T) {
 	require.Equal(t, big.NewInt(4), state.GetBalance(recipient))
 }
 
-// TestRejectedTxCountsAsItsOwnStatus keeps a rejected transaction out of the
-// reverted bucket, so a chain quietly rejecting traffic is visible rather than
-// looking like ordinary contract failure.
+// TestRejectedTxCountsAsItsOwnStatus keeps rejected transactions distinct from
+// ordinary reverted transactions in execution metrics.
 func TestRejectedTxCountsAsItsOwnStatus(t *testing.T) {
 	require.Equal(t, txExecutionStatusRejected,
 		txExecutionStatus(TxResult{Status: ethtypes.ReceiptStatusFailed, Rejected: true}))
@@ -139,10 +194,8 @@ func TestRejectedTxCountsAsItsOwnStatus(t *testing.T) {
 		"the status must be in the vocabulary or it is never reported as zero")
 }
 
-// TestExecutorDefaultStillAbortsOnUnappliableTx keeps geth parity for callers that
-// have it: under Ethereum's rules a block holding a spent nonce is an invalid block,
-// and the executor is also used as a geth-parity execution boundary. Only a caller
-// whose ordering layer skips these checks opts out.
+// TestExecutorDefaultStillAbortsOnUnappliableTx preserves geth's invalid-block
+// behavior when rejected transactions are disabled.
 func TestExecutorDefaultStillAbortsOnUnappliableTx(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
@@ -163,4 +216,31 @@ func TestExecutorDefaultStillAbortsOnUnappliableTx(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, core.ErrNonceTooLow)
 	require.Nil(t, result)
+}
+
+func forEachExecutionPath(t *testing.T, run func(t *testing.T, cfg Config)) {
+	t.Helper()
+	for _, occ := range []bool{false, true} {
+		name := "sequential"
+		if occ {
+			name = "occ"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := Config{RejectUnappliableTxs: true}
+			if occ {
+				cfg.OCCWorkers = 4
+			}
+			run(t, cfg)
+		})
+	}
+}
+
+func requireOCCRan(t *testing.T, cfg Config, result *BlockResult) {
+	t.Helper()
+	if cfg.OCCWorkers == 0 {
+		return
+	}
+	require.True(t, result.OCCStats.Attempted)
+	require.False(t, result.OCCStats.Fallback)
+	require.Empty(t, result.OCCStats.FallbackReason)
 }

@@ -101,8 +101,7 @@ func txExecutionStatusAttr(status string) metric.MeasurementOption {
 // txExecutionStatus maps a transaction result onto the bounded status label
 // vocabulary used by giga_evmonly_txs_executed_total.
 func txExecutionStatus(tx TxResult) string {
-	// Checked before the status, because a rejected transaction also carries the
-	// failed status and would otherwise be counted as one that ran and reverted.
+	// A rejected transaction also carries the failed status.
 	if tx.Rejected {
 		return txExecutionStatusRejected
 	}
@@ -112,8 +111,7 @@ func txExecutionStatus(tx TxResult) string {
 	case ethtypes.ReceiptStatusFailed:
 		return txExecutionStatusReverted
 	default:
-		// Every transaction in a block now produces a receipt, so this bucket catches
-		// a status the executor is not expected to produce.
+		// Catches a status the executor is not expected to produce.
 		return txExecutionStatusFailed
 	}
 }

@@ -348,11 +348,11 @@ func (e *Executor) executeTx(
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
 	snapshot := stateDB.Snapshot()
+	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
+	poolGas := gasPool.Gas()
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
-	// A state fault is this node's alone, so it still fails the block. It is read
-	// first because reverting below restores the recorded error along with the rest
-	// of the snapshot.
+	// Read before any revert: RevertToSnapshot restores the recorded error too.
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
@@ -360,7 +360,10 @@ func (e *Executor) executeTx(
 		if !e.cfg.RejectUnappliableTxs {
 			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
 		}
-		txResult, receipt := rejectTx(stateDB, snapshot, p, block, txIndexUint, baseFee, err)
+		stateDB.RevertToSnapshot(snapshot)
+		stateDB.clearSnapshots()
+		gasPool.SetGas(poolGas)
+		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
 		return txResult, receipt, nil
 	}
 	stateDB.clearSnapshots()
@@ -414,28 +417,15 @@ func (e *Executor) executeTx(
 	return txResult, receipt, nil
 }
 
-// rejectTx records a transaction the executor cannot apply, as a receipt rather
-// than as a failed block. It runs only under Config.RejectUnappliableTxs.
-//
-// ApplyMessage returns an error only when a transaction cannot run at all: a nonce
-// already spent, a balance short of the gas, a block whose gas is gone. Every node
-// executing the block reaches the same verdict from the same pre-state, because the
-// verdict is a function of the transaction and the state the block opened against.
-//
-// The snapshot is load-bearing. BuyGas debits the sender before initGas claims the
-// block's gas, so a pre-check can fail with the balance already moved; reverting is
-// what keeps the changeset consistent with the zero gas this receipt reports. It
-// also restores the log slice, so a rejected transaction contributes none.
-func rejectTx(
-	stateDB *nativeStateDB,
-	snapshot int,
+// rejectedTx builds the failed, zero-gas receipt and result for a transaction the
+// executor did not run.
+func rejectedTx(
 	p PreparedTx,
 	block BlockContext,
 	txIndexUint uint,
 	baseFee *big.Int,
 	cause error,
 ) (TxResult, *ethtypes.Receipt) {
-	stateDB.RevertToSnapshot(snapshot)
 	tx := p.Tx
 	receipt := &ethtypes.Receipt{
 		Type:              tx.Type(),
