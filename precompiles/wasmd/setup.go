@@ -5,44 +5,12 @@ package wasmd
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
-	wasmdv552 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v552"
-	wasmdv555 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v555"
-	wasmdv562 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v562"
-	wasmdv575 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v575"
-	wasmdv580 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v580"
-	wasmdv600 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v600"
-	wasmdv601 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v601"
-	wasmdv603 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v603"
-	wasmdv605 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v605"
-	wasmdv606 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v606"
-	wasmdv610 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v610"
-	wasmdv614 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v614"
-	wasmdv620 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v620"
-	wasmdv630 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v630"
-	wasmdv640 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v640"
-	wasmdv65 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v65"
 	wasmdv66 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v66"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(wasmdv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(wasmdv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(wasmdv562.NewPrecompile(keepers)),
-		"v5.7.5":      check(wasmdv575.NewPrecompile(keepers)),
-		"v5.8.0":      check(wasmdv580.NewPrecompile(keepers)),
-		"v6.0.0":      check(wasmdv600.NewPrecompile(keepers)),
-		"v6.0.1":      check(wasmdv601.NewPrecompile(keepers)),
-		"v6.0.3":      check(wasmdv603.NewPrecompile(keepers)),
-		"v6.0.5":      check(wasmdv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(wasmdv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(wasmdv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(wasmdv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(wasmdv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(wasmdv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(wasmdv640.NewPrecompile(keepers)),
-		"v6.5":        check(wasmdv65.NewPrecompile(keepers)),
 		"v6.6":        check(wasmdv66.NewPrecompile(keepers)),
 	}
 }

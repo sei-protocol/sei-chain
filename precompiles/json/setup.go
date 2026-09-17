@@ -4,18 +4,6 @@ package json
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	jsonv552 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v552"
-	jsonv555 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v555"
-	jsonv562 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v562"
-	jsonv603 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v603"
-	jsonv605 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v605"
-	jsonv606 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v606"
-	jsonv610 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v610"
-	jsonv614 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v614"
-	jsonv620 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v620"
-	jsonv630 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v630"
-	jsonv640 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v640"
-	jsonv65 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v65"
 	jsonv66 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v66"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
@@ -23,18 +11,6 @@ import (
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(jsonv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(jsonv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(jsonv562.NewPrecompile(keepers)),
-		"v6.0.3":      check(jsonv603.NewPrecompile(keepers)),
-		"v6.0.5":      check(jsonv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(jsonv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(jsonv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(jsonv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(jsonv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(jsonv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(jsonv640.NewPrecompile(keepers)),
-		"v6.5":        check(jsonv65.NewPrecompile(keepers)),
 		"v6.6":        check(jsonv66.NewPrecompile(keepers)),
 	}
 }
