@@ -166,7 +166,7 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		if result.OldestBlock == nil {
 			result.OldestBlock = (*hexutil.Big)(big.NewInt(height))
 		}
-		ratio, err := api.lastTxGasUsedRatio(ctx, block, gasLimit)
+		ratio, err := api.blockGasUsedRatio(ctx, block, gasLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -217,27 +217,15 @@ func validateRewardPercentiles(percentiles []float64) error {
 	return nil
 }
 
-// lastTxGasUsedRatio returns block's gas-used ratio, read from its last
-// transaction's receipt. Returns 0 both for an empty block and for one whose
-// last receipt is missing or stale; the two are indistinguishable here.
-func (api *infoAPI) lastTxGasUsedRatio(ctx context.Context, block *coretypes.ResultBlock, gasLimit uint64) (float64, error) {
-	txs := block.Block.Txs
-	if len(txs) == 0 || gasLimit == 0 {
+// blockGasUsedRatio returns block's gas-used ratio, or zero when its gas limit
+// is zero or no receipt belongs to the block.
+func (api *infoAPI) blockGasUsedRatio(ctx context.Context, block *coretypes.ResultBlock, gasLimit uint64) (float64, error) {
+	if gasLimit == 0 {
 		return 0, nil
 	}
-	lastTx, err := decodeBlockTx(txs[len(txs)-1], block.Block.Height, len(txs)-1)
+	gasUsed, err := blockGasUsed(ctx, api.store, block)
 	if err != nil {
 		return 0, err
 	}
-	stored, err := api.store.GetReceipt(receiptContext(ctx), lastTx.Hash())
-	if errors.Is(err, receiptpkg.ErrNotFound) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("read last transaction receipt for block %d: %w", block.Block.Height, err)
-	}
-	if stored.BlockNumber != uint64(block.Block.Height) { //nolint:gosec // G115: block height is positive.
-		return 0, nil
-	}
-	return float64(stored.CumulativeGasUsed) / float64(gasLimit), nil
+	return float64(gasUsed) / float64(gasLimit), nil
 }
