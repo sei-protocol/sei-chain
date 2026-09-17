@@ -368,13 +368,28 @@ func (s *littReceiptStore) queueWrite(write receiptWrite) error {
 	return nil
 }
 
-// applyReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
-// litt first, so an indexed block always has its values written.
+// applyReceipts writes a block's receipt bodies, log index and version marker, and reports what it
+// committed. The write itself is writeReceipts; this wrapper is where the count is taken, so a
+// failed write is not counted as one.
 func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord) error {
+<<<<<<< HEAD
 	if height < 0 {
 		return fmt.Errorf("receipt block height must not be negative: %d", height)
 	}
 
+=======
+	if err := s.writeReceipts(height, receipts); err != nil {
+		return err
+	}
+	// The async writer has no request context of its own, so the measurement is unattributed.
+	RecordReceiptsWritten(context.Background(), receipts)
+	return nil
+}
+
+// writeReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
+// litt first, so an indexed block always has its values written.
+func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord) error {
+>>>>>>> main
 	blockNumbers, receiptsByBlock := groupReceiptRecordsByBlock(receipts)
 	if len(blockNumbers) == 0 {
 		// A block that produced no receipts is still written, as a part with no receipts in it.
