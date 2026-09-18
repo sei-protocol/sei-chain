@@ -107,6 +107,16 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, priorAppHash, *blockCtx.Random, "tracing=%v", tracing)
 	}
+
+	// The marker is proof the height ran the legacy semantics on any chain
+	// that crossed v6.8, including devnets and upgradetest chains whose IDs
+	// are not in the pre-v6.8 network set.
+	blockCtx, err = k.GetVMBlockContext(ctx.WithBlockHeight(50), 0)
+	require.NoError(t, err)
+	require.Equal(t, legacy, *blockCtx.Random)
+	blockCtx, err = k.GetVMBlockContext(ctx.WithBlockHeight(150), 0)
+	require.NoError(t, err)
+	require.Equal(t, priorAppHash, *blockCtx.Random)
 }
 
 func TestGetHashFn(t *testing.T) {

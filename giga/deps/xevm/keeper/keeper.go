@@ -314,17 +314,22 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 // prevRandaoIsLegacyTimestamp reports whether ctx's height used the pre-v6.8
 // timestamp-derived PREVRANDAO.
 func (k *Keeper) prevRandaoIsLegacyTimestamp(ctx sdk.Context) bool {
-	// Only the networks that existed before v6.8 can have legacy heights.
-	switch ctx.ChainID() {
-	case Pacific1ChainID, "atlantic-2", "arctic-1":
-	default:
-		return false
-	}
-	// The done marker is read at ctx's height, so this answers for every
+	// The marker records the height v6.8 activated, so every height below it
+	// ran the timestamp semantics whatever the chain is. It answers for every
 	// caller: live execution and sync replay below the upgrade height, plus
 	// traces and historical calls, which never set a tracing flag.
 	gasFreeCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
-	return !k.upgradeKeeper.IsUpgradeActiveAtHeight(gasFreeCtx, "v6.8", ctx.BlockHeight())
+	if doneHeight := k.upgradeKeeper.GetDoneHeight(gasFreeCtx, "v6.8"); doneHeight > 0 {
+		return ctx.BlockHeight() < doneHeight
+	}
+	// No marker: either a height preceding the plan's scheduling on a chain
+	// that crossed v6.8, or a chain launched at v6.8+. Only the networks that
+	// existed before v6.8 can have legacy heights.
+	switch ctx.ChainID() {
+	case Pacific1ChainID, "atlantic-2", "arctic-1":
+		return true
+	}
+	return false
 }
 
 // returns a function that provides block header hash based on block number

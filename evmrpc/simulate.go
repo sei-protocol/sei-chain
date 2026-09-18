@@ -801,7 +801,11 @@ func releaseOnContextPanic(release func(), recovered any) error {
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	if blockCtx == nil {
-		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
+		// Derive from the context the queried state was opened with, not the
+		// head: at a historical height that is what carries the block's
+		// number, time and app hash.
+		sdkCtx := state.GetDBImpl(stateDB).Ctx()
+		blockCtx, _ = b.keeper.GetVMBlockContext(sdkCtx.WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
