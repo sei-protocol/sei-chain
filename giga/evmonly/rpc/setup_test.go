@@ -4,6 +4,8 @@ import (
 	"context"
 	"math/big"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/params"
@@ -28,12 +30,12 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
-	subscribeHeads   func(context.Context) (HeadSubscription, error)
+	executedHeights  func() (utils.AtomicRecv[atypes.GlobalBlockNumber], error)
 	transactionCount func(common.Address) uint64
 }
 
-func (b *testBackend) SubscribeNewHeads(ctx context.Context) (HeadSubscription, error) {
-	return b.subscribeHeads(ctx)
+func (b *testBackend) ExecutedHeights() (utils.AtomicRecv[atypes.GlobalBlockNumber], error) {
+	return b.executedHeights()
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {

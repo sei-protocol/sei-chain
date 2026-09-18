@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -17,36 +19,23 @@ import (
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
-
-// chanHeads is a HeadSubscription fed from a channel.
-type chanHeads struct {
-	heights chan int64
-}
-
-func (h *chanHeads) Next(ctx context.Context) (int64, error) {
-	select {
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	case height := <-h.heights:
-		return height, nil
-	}
-}
 
 func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, _, _, filledStore := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
 	store := evmonly.NewMemoryReceiptStore()
-	heads := &chanHeads{heights: make(chan int64, 8)}
+	executed := utils.NewAtomicSend(atypes.GlobalBlockNumber(6))
 	subscribed := make(chan struct{}, 1)
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
 	})
-	backend.subscribeHeads = func(context.Context) (HeadSubscription, error) {
+	backend.executedHeights = func() (utils.AtomicRecv[atypes.GlobalBlockNumber], error) {
 		subscribed <- struct{}{}
-		return heads, nil
+		return executed.Subscribe(), nil
 	}
 	handler, err := newHandler(backend, store)
 	require.NoError(t, err)
@@ -63,7 +52,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	<-subscribed
 
 	copyReceipts(t, filledStore, store, block)
-	heads.heights <- 7
+	executed.Store(7)
 
 	select {
 	case header := <-headers:

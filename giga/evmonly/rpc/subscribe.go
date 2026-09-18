@@ -4,22 +4,14 @@ import (
 	"context"
 	"errors"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
-
-// HeadSubscription yields the heights of committed blocks in order, one per
-// block, without gaps. Next returns an error only when ctx ends.
-type HeadSubscription interface {
-	Next(context.Context) (int64, error)
-}
-
-// HeadSource publishes committed block heights.
-type HeadSource interface {
-	SubscribeNewHeads(context.Context) (HeadSubscription, error)
-}
 
 type subscribeAPI struct {
 	backend Backend
@@ -27,24 +19,29 @@ type subscribeAPI struct {
 }
 
 // NewHeads serves eth_subscribe("newHeads"), pushing one Ethereum header per
-// committed block.
+// block executed after the subscription is created.
 func (api *subscribeAPI) NewHeads(ctx context.Context) (*ethrpc.Subscription, error) {
 	notifier, ok := ethrpc.NotifierFromContext(ctx)
 	if !ok {
 		return nil, ethrpc.ErrNotificationsUnsupported
 	}
-	heads, err := api.backend.SubscribeNewHeads(ctx)
+	executed, err := api.backend.ExecutedHeights()
 	if err != nil {
 		return nil, err
 	}
 	rpcSub := notifier.CreateSubscription()
 	// The request ctx is canceled as soon as eth_subscribe returns; the stream
 	// lives until rpcSub.Err() closes instead.
-	go api.streamHeads(context.WithoutCancel(ctx), notifier, rpcSub, heads)
+	go api.streamHeads(context.WithoutCancel(ctx), notifier, rpcSub, executed)
 	return rpcSub, nil
 }
 
-func (api *subscribeAPI) streamHeads(ctx context.Context, notifier *ethrpc.Notifier, rpcSub *ethrpc.Subscription, heads HeadSubscription) {
+func (api *subscribeAPI) streamHeads(
+	ctx context.Context,
+	notifier *ethrpc.Notifier,
+	rpcSub *ethrpc.Subscription,
+	executed utils.AtomicRecv[atypes.GlobalBlockNumber],
+) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
@@ -53,17 +50,16 @@ func (api *subscribeAPI) streamHeads(ctx context.Context, notifier *ethrpc.Notif
 		<-rpcSub.Err()
 		cancel()
 	}()
-	for {
-		height, err := heads.Next(ctx)
-		if err != nil {
+	for next := executed.Load() + 1; ; next++ {
+		if _, err := executed.Wait(ctx, func(n atypes.GlobalBlockNumber) bool { return n >= next }); err != nil {
 			return
 		}
-		header, err := api.header(ctx, height)
+		header, err := api.header(ctx, utils.Clamp[int64](next))
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			logger.Error("newHeads: skipping block", "height", height, "err", err)
+			logger.Error("newHeads: skipping block", "height", next, "err", err)
 			continue
 		}
 		if err := notifier.Notify(rpcSub.ID, header); err != nil {

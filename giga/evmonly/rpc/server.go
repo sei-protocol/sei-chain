@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"time"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/params"
@@ -45,13 +47,13 @@ var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 // EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
 // is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {
-	HeadSource
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmBaseFee() (*big.Int, error)
 	EvmBlockNumber() uint64
+	ExecutedHeights() (utils.AtomicRecv[atypes.GlobalBlockNumber], error)
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
