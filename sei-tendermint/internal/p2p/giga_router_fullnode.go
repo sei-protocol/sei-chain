@@ -38,7 +38,7 @@ func NewGigaFullnodeRouter(cfg *GigaRouterCommonConfig, key NodeSecretKey, dataS
 			app:                cfg.App,
 			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			executed:           utils.NewAtomicSend(atypes.GlobalBlockNumber(0)),
+			executed:           utils.NewAtomicSend(utils.Clamp[atypes.GlobalBlockNumber](cfg.App.LastBlockHeight())),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 	}, nil

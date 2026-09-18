@@ -54,14 +54,6 @@ func (api *subscribeAPI) streamHeads(
 		<-rpcSub.Err()
 		cancel()
 	}()
-	if last == 0 {
-		// Nothing has been executed by this process yet; a zero watch is not the
-		// chain tip, so the stream starts after the first executed height.
-		var err error
-		if last, err = executed.Wait(ctx, func(n atypes.GlobalBlockNumber) bool { return n > 0 }); err != nil {
-			return
-		}
-	}
 	for next := last + 1; ; next++ {
 		if _, err := executed.Wait(ctx, func(n atypes.GlobalBlockNumber) bool { return n >= next }); err != nil {
 			return
