@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"time"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/params"
@@ -40,7 +42,8 @@ var wsAllowedOrigins = []string{"*"}
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
 // Backend submits transactions, reads committed EVM state and finalized
-// blocks, and returns the RPC client for an Autobahn shard owner.
+// blocks, publishes new block heights, and returns the RPC client for an
+// Autobahn shard owner.
 // EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
 // is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {
@@ -50,6 +53,7 @@ type Backend interface {
 	EvmBalance(common.Address) uint256.Int
 	EvmBaseFee() (*big.Int, error)
 	EvmBlockNumber() uint64
+	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
@@ -131,6 +135,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	}
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore}); err != nil {
+		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
 	}
 	return rpcServer, nil
 }

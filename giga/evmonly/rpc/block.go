@@ -136,9 +136,39 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		return nil, err
 	}
 
-	result := map[string]any{
-		"number":           (*hexutil.Big)(big.NewInt(number)),
-		"hash":             blockHash,
+	result := headerFields(block, blockUnix, gasLimit, baseFee, gasUsed)
+	result["size"] = hexutil.Uint64(block.Block.Size()) //nolint:gosec // G115: block size is positive.
+	result["uncles"] = []common.Hash{}                  // inapplicable to Sei
+	result["transactions"] = transactions
+	if fullTx {
+		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
+	}
+	return result, nil
+}
+
+// encodeHeader renders block's header in the shape go-ethereum's types.Header
+// decodes.
+func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
+	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
+	if !ok {
+		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
+	}
+	gasLimit, err := backend.EvmGasLimit()
+	if err != nil {
+		return nil, err
+	}
+	baseFee, err := backend.EvmBaseFee()
+	if err != nil {
+		return nil, err
+	}
+	return headerFields(block, blockUnix, gasLimit, baseFee, gasUsed), nil
+}
+
+// headerFields returns the Ethereum JSON header fields of block.
+func headerFields(block *coretypes.ResultBlock, blockUnix, gasLimit uint64, baseFee *big.Int, gasUsed uint64) map[string]any {
+	return map[string]any{
+		"number":           (*hexutil.Big)(big.NewInt(block.Block.Height)),
+		"hash":             common.BytesToHash(block.BlockID.Hash),
 		"parentHash":       common.BytesToHash(block.Block.LastBlockID.Hash),
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
@@ -154,15 +184,8 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 		"milliTimestamp":   hexutil.Uint64(block.Block.Time.UnixMilli()), //nolint:gosec // G115: block timestamps are positive.
 		"transactionsRoot": common.BytesToHash(block.Block.DataHash),
 		"receiptsRoot":     common.BytesToHash(block.Block.LastResultsHash),
-		"size":             hexutil.Uint64(block.Block.Size()), //nolint:gosec // G115: block size is positive.
-		"uncles":           []common.Hash{},                    // inapplicable to Sei
-		"transactions":     transactions,
 		"baseFeePerGas":    (*hexutil.Big)(baseFee),
 	}
-	if fullTx {
-		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
-	}
-	return result, nil
 }
 
 // receiptFor returns hash's stored receipt, or nil with a nil error when no

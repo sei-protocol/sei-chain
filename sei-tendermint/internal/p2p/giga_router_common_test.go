@@ -144,16 +144,21 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	require.NoError(t, db.Flush())
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	state, err := BuildDataState(&GigaRouterCommonConfig{
+	cfg := &GigaRouterCommonConfig{
 		DialInterval:   time.Second,
 		ValidatorAddrs: validatorAddrs,
 		GenDoc:         genDoc,
 		App:            proxy.New(&fixedHeightApp{height: int64(last)}),
-	}, db)
+	}
+	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
 	got, err := state.TryBlock(last)
 	require.NoError(t, err)
 	require.Equal(t, blocks[gr.Len()/2].Header().Hash(), got.Header().Hash())
+
+	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
+	require.NoError(t, err)
+	require.Equal(t, atypes.ExecutedBlock{Number: last}, router.ExecutedBlocks().Load().Latest())
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {
