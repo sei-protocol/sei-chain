@@ -2,53 +2,43 @@ package core
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	evmonlyrpc "github.com/sei-protocol/sei-chain/giga/evmonly/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// headSubscription yields the heights of committed blocks as the event bus
-// publishes their NewBlockHeader events.
+// ErrNewHeadsUnavailable is returned by SubscribeNewHeads on nodes that do not
+// execute blocks through Autobahn.
+var ErrNewHeadsUnavailable = errors.New("newHeads subscriptions require Autobahn execution")
+
+// headSubscription yields every block number executed after the subscription
+// was created, in order, without skipping.
 type headSubscription struct {
-	bus      *eventbus.EventBus
-	clientID string
-	sub      eventbus.Subscription
+	executed utils.AtomicRecv[atypes.GlobalBlockNumber]
+	next     atypes.GlobalBlockNumber
 }
 
-// Next returns the next committed block height, or an error once the
-// subscription has been canceled or fell too far behind the event bus.
+// Next blocks until block s.next has been executed and returns its height.
 func (s *headSubscription) Next(ctx context.Context) (int64, error) {
-	msg, err := s.sub.Next(ctx)
-	if err != nil {
+	n := s.next
+	if _, err := s.executed.Wait(ctx, func(executed atypes.GlobalBlockNumber) bool {
+		return executed >= n
+	}); err != nil {
 		return 0, err
 	}
-	header, ok := msg.Data().(types.EventDataNewBlockHeader)
+	s.next = n + 1
+	return utils.Clamp[int64](n), nil
+}
+
+// SubscribeNewHeads returns a subscription that starts at the first block
+// executed after this call.
+func (env *Environment) SubscribeNewHeads(context.Context) (evmonlyrpc.HeadSubscription, error) {
+	giga, ok := env.gigaRouter().Get()
 	if !ok {
-		return 0, fmt.Errorf("unexpected new-head event payload %T", msg.Data())
+		return nil, ErrNewHeadsUnavailable
 	}
-	return header.Header.Height, nil
-}
-
-// Cancel removes the subscription from the event bus.
-func (s *headSubscription) Cancel() {
-	_ = s.bus.UnsubscribeAll(context.Background(), s.clientID)
-}
-
-// SubscribeNewHeads subscribes clientID to committed block heights. clientID
-// must be unique per subscription.
-func (env *Environment) SubscribeNewHeads(ctx context.Context, clientID string) (evmonlyrpc.HeadSubscription, error) {
-	subCtx, cancel := context.WithTimeout(ctx, SubscribeTimeout)
-	defer cancel()
-	sub, err := env.EventBus.SubscribeWithArgs(subCtx, tmpubsub.SubscribeArgs{
-		ClientID: clientID,
-		Query:    types.EventQueryNewBlockHeader,
-		Limit:    subBufferSize,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &headSubscription{bus: env.EventBus, clientID: clientID, sub: sub}, nil
+	executed := giga.ExecutedHeights()
+	return &headSubscription{executed: executed, next: executed.Load() + 1}, nil
 }

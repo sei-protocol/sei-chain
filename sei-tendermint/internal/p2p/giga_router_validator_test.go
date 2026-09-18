@@ -159,6 +159,15 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		for i, giga := range gigas {
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
+			// Covers GigaRouter.ExecutedHeights — the watch behind
+			// eth_subscribe("newHeads"). It must reach the committed height,
+			// and the block it names must be readable via BlockByNumber.
+			executed, err := giga.ExecutedHeights().Wait(ctx, func(n atypes.GlobalBlockNumber) bool {
+				return int64(n) >= committed
+			})
+			require.NoError(t, err, "router[%v].ExecutedHeights().Wait()", i)
+			_, err = giga.BlockByNumber(ctx, executed)
+			require.NoError(t, err, "router[%v].BlockByNumber(executed=%v)", i, executed)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
 			// Autobahn branch in env.Block to serve /block and evmrpc block
 			// lookups. Fetch the last committed block and verify it carries

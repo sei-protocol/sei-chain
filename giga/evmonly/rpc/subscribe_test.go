@@ -20,15 +20,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-// chanHeads is a HeadSubscription fed from a channel; canceled closes once
-// Cancel is called.
+// chanHeads is a HeadSubscription fed from a channel.
 type chanHeads struct {
-	heights  chan int64
-	canceled chan struct{}
-}
-
-func newChanHeads() *chanHeads {
-	return &chanHeads{heights: make(chan int64, 8), canceled: make(chan struct{})}
+	heights chan int64
 }
 
 func (h *chanHeads) Next(ctx context.Context) (int64, error) {
@@ -40,20 +34,18 @@ func (h *chanHeads) Next(ctx context.Context) (int64, error) {
 	}
 }
 
-func (h *chanHeads) Cancel() { close(h.canceled) }
-
 func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, _, _, filledStore := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
 	store := evmonly.NewMemoryReceiptStore()
-	heads := newChanHeads()
-	var clientID string
+	heads := &chanHeads{heights: make(chan int64, 8)}
+	subscribed := make(chan struct{}, 1)
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
 	})
-	backend.subscribeHeads = func(_ context.Context, id string) (HeadSubscription, error) {
-		clientID = id
+	backend.subscribeHeads = func(context.Context) (HeadSubscription, error) {
+		subscribed <- struct{}{}
 		return heads, nil
 	}
 	handler, err := newHandler(backend, store)
@@ -68,12 +60,10 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	headers := make(chan *ethtypes.Header, 1)
 	sub, err := client.SubscribeNewHead(t.Context(), headers)
 	require.NoError(t, err)
-	require.NotEmpty(t, clientID)
+	<-subscribed
 
-	// Receipts land after the head is published; the header must wait for them.
-	heads.heights <- 7
-	time.Sleep(20 * time.Millisecond)
 	copyReceipts(t, filledStore, store, block)
+	heads.heights <- 7
 
 	select {
 	case header := <-headers:
@@ -86,7 +76,6 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	}
 
 	sub.Unsubscribe()
-	<-heads.canceled
 }
 
 func TestNewHeadsRejectedOverPlainHTTP(t *testing.T) {
