@@ -812,20 +812,9 @@ func TestExecutorPreVMFailuresMatchGeth(t *testing.T) {
 			})
 
 			require.ErrorIs(t, gethErr, tc.want)
+			require.ErrorIs(t, execErr, tc.want)
 			require.Nil(t, gethResult)
-			if errors.Is(tc.want, core.ErrNonceTooLow) {
-				// Autobahn can order a replay from another lane. Preserve geth's
-				// rejection reason without rejecting the rest of the block.
-				require.NoError(t, execErr)
-				defer execResult.Release()
-				require.Len(t, execResult.Txs, 1)
-				require.ErrorIs(t, execResult.Txs[0].Err, tc.want)
-				require.Zero(t, execResult.GasUsed)
-				require.Empty(t, execResult.ChangeSet)
-			} else {
-				require.ErrorIs(t, execErr, tc.want)
-				require.Nil(t, execResult)
-			}
+			require.Nil(t, execResult)
 			require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 		})
 	}

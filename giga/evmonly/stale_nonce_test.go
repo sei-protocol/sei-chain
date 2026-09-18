@@ -26,7 +26,7 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			state.SetNonce(sender, 127)
 			store := NewMemoryStore(state)
 			receipts := NewMemoryReceiptStore()
-			executor := NewExecutor(Config{OCCWorkers: workers}, withTestStores(store, receipts, store.EncodeChangeSet))
+			executor := NewExecutor(Config{OCCWorkers: workers, RejectUnappliableTxs: true}, withTestStores(store, receipts, store.EncodeChangeSet))
 			t.Cleanup(executor.Close)
 
 			// The stale creation also exceeds the block gas limit. Nonce rejection
@@ -48,6 +48,7 @@ func TestExecutorStaleNoncesDoNotAbortBlock(t *testing.T) {
 			require.Equal(t, uint64(42_000), result.GasUsed)
 			for _, i := range []int{0, 2, 4} {
 				require.ErrorIs(t, result.Txs[i].Err, core.ErrNonceTooLow)
+				require.True(t, result.Txs[i].Rejected)
 				require.Zero(t, result.Txs[i].GasUsed)
 				require.Equal(t, ethtypes.ReceiptStatusFailed, result.Receipts[i].Status)
 				require.Empty(t, result.Receipts[i].Logs)

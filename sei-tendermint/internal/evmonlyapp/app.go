@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"runtime"
 	"slices"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -39,6 +40,9 @@ var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 // dropped as their transactions execute; the cap only guards against admitted
 // transactions that never reach a block.
 const checkedSendersCap = 1 << 18
+
+// minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
+const minTxsPerHashWorker = 64
 
 type evmOnlyApplication struct {
 	abci.BaseApplication
@@ -113,11 +117,14 @@ func NewEVMOnlyApplication(
 
 func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 	return evmonly.NewExecutor(evmonly.Config{
-		ChainConfig:         a.chainConfig,
-		MinGasPrice:         big.NewInt(evmOnlyMinGasPrice),
-		OCCWorkers:          runtime.GOMAXPROCS(0),
-		ParseWorkers:        runtime.GOMAXPROCS(0),
-		BlockResultPoolSize: 1,
+		ChainConfig:  a.chainConfig,
+		MinGasPrice:  big.NewInt(evmOnlyMinGasPrice),
+		OCCWorkers:   runtime.GOMAXPROCS(0),
+		ParseWorkers: runtime.GOMAXPROCS(0),
+		// Autobahn orders transactions without validating them, so a block can hold one
+		// the executor cannot apply; failing the block would halt every validator.
+		RejectUnappliableTxs: true,
+		BlockResultPoolSize:  1,
 	},
 		evmonly.WithStorageManager(a.storage, a.changeSetEncoder),
 		evmonly.WithMissingAccountState(evmOnlyFundedState{}),
@@ -296,9 +303,10 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 // decoding is needed.
 func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
 	out := make([]utils.Option[common.Address], len(txs))
+	// Hashed outside the lock; CheckTx writes this map constantly.
+	hashes := hashRawTxs(txs)
 	for senders := range a.checkedSenders.Lock() {
-		for i, raw := range txs {
-			hash := crypto.Keccak256Hash(raw)
+		for i, hash := range hashes {
 			if sender, ok := senders[hash]; ok {
 				out[i] = utils.Some(sender)
 				delete(senders, hash)
@@ -306,6 +314,38 @@ func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Add
 		}
 	}
 	return out
+}
+
+// hashRawTxs returns the keccak of every raw transaction, aligned with txs.
+func hashRawTxs(txs [][]byte) []common.Hash {
+	hashes := make([]common.Hash, len(txs))
+	workers := min(runtime.GOMAXPROCS(0), len(txs))
+	if workers <= 1 || len(txs) <= minTxsPerHashWorker {
+		hashRawTxRange(txs, hashes, 0, len(txs))
+		return hashes
+	}
+	chunk := max((len(txs)+workers-1)/workers, minTxsPerHashWorker)
+	var wg sync.WaitGroup
+	for start := 0; start < len(txs); start += chunk {
+		end := min(start+chunk, len(txs))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			hashRawTxRange(txs, hashes, start, end)
+		}()
+	}
+	wg.Wait()
+	return hashes
+}
+
+// hashRawTxRange hashes txs[start:end] into hashes.
+func hashRawTxRange(txs [][]byte, hashes []common.Hash, start, end int) {
+	state := crypto.NewKeccakState()
+	for i := start; i < end; i++ {
+		state.Reset()
+		_, _ = state.Write(txs[i])
+		_, _ = state.Read(hashes[i][:])
+	}
 }
 
 func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.Address, error) {
@@ -534,12 +574,10 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 // evmOnlyABCIResults reports a block's executed transactions to consensus, each
 // one an OK result carrying the EVM failure reason, if it had one, in its log.
 //
-// A reverted transaction is a successfully executed one at this layer: it consumed
-// its nonce and gas, and the receipt status carries its failure, which is why every
-// result here is OK. A non-OK code would put the hash in the mempool's failed set,
-// which holds a transaction for a second chance rather than recording it as
-// executed. The log is safe to vary with the failure because the results hash
-// covers only the code, data and gas.
+// Every result is OK, including a reverted or rejected transaction: the hash is
+// recorded as executed rather than held in the mempool's failed set for a retry,
+// and the receipt status carries the failure. The log may vary with the failure
+// because the results hash covers only the code, data and gas.
 func evmOnlyABCIResults(result *evmonly.BlockResult) []*abci.ExecTxResult {
 	txResults := make([]*abci.ExecTxResult, len(result.Txs))
 	for i, tx := range result.Txs {

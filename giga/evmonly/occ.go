@@ -232,7 +232,7 @@ func (e *Executor) executeTxSpeculative(
 	chainConfig *params.ChainConfig,
 	blockCtx vm.BlockContext,
 	baseFee *big.Int,
-	gasLimit uint64,
+	blockGasLimit uint64,
 ) (occTxExecution, error) {
 	if err := ctx.Err(); err != nil {
 		return occTxExecution{}, err
@@ -243,7 +243,7 @@ func (e *Executor) executeTxSpeculative(
 	stateDB.enableAccessTracking()
 	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
 	stateDB.SetEVM(evm)
-	gasPool := new(core.GasPool).AddGas(gasLimit)
+	gasPool := new(core.GasPool).AddGas(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
 		evm,
 		stateDB,
@@ -255,22 +255,22 @@ func (e *Executor) executeTxSpeculative(
 		baseFee,
 	)
 	readSet, writeSet := stateDB.accessSets()
+	gasLimit := p.Tx.Gas()
+	if txResult.Rejected {
+		// A rejected transaction occupies no block gas, so validation must not charge its declared limit.
+		gasLimit = 0
+	}
 	result := occTxExecution{
 		txResult:                 txResult,
 		receipt:                  receipt,
 		readSet:                  readSet,
 		writeSet:                 writeSet,
 		gasUsed:                  txResult.GasUsed,
-		gasLimit:                 p.Tx.Gas(),
+		gasLimit:                 gasLimit,
 		commutativeBalanceDeltas: stateDB.commutativeBalanceDeltasBig(),
 	}
 	if err != nil {
 		return result, fmt.Errorf("execute tx %d %s: %w", txIndex, p.Tx.Hash(), err)
-	}
-	// Stale nonces are rejected before reserving gas, including when the block's
-	// remaining gas is below the transaction's declared limit.
-	if errors.Is(txResult.Err, core.ErrNonceTooLow) {
-		result.gasLimit = 0
 	}
 	stateDB.ChangeSetInto(&result.changeSet)
 	return result, nil
