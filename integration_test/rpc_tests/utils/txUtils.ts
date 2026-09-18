@@ -86,7 +86,6 @@ export type TxKind =
     | 'deploy'
     | 'erc20'
     | 'precompile'
-    | 'cw20Pointer'
     | 'outOfGas'
     | 'revertErc20';
 
@@ -116,13 +115,6 @@ export interface RichBlock {
     number: number;
     hash: string;
     txs: SentTx[];
-    /**
-     * Gas used by the co-located pointer-backed CW20 transfer (a pure Cosmos tx). Sei folds
-     * this into the EVM receipts' cumulativeGasUsed (in tx-index order) but excludes it from
-     * block.gasUsed; gas-accounting assertions use it to reconcile the one cumulative jump.
-     * Absent on wasm-disabled chains.
-     */
-    cosmosShellGas?: bigint;
 }
 
 export interface RpcTx {
@@ -284,18 +276,13 @@ const RICH_BLOCK_HISTORY_TAIL = 10;
 const TRANSFER_VALUE = ethers.parseEther('0.001');
 const rand = (): string => ethers.Wallet.createRandom().address;
 
-/** Minimal ERC20 ABI for calling a CW20's EVM pointer. */
-const ERC20_POINTER_IFACE = new ethers.Interface([
-    'function transfer(address to, uint256 amount) returns (bool)',
-]);
-
 /**
  * Broadcast one transaction of every kind, each from its own signer, and wait for
  * them to land in a single block.
  *
  * Whether one broadcast burst lands in one block is a race the client cannot win
  * deterministically: the cluster seals a block every ~200ms while the RPC node
- * simulates, CheckTx-es and gossips each of the ~11 txs, so a proposer regularly
+ * simulates, CheckTx-es and gossips each of the ~10 txs, so a proposer regularly
  * cuts a block in the middle of the burst. The fixture therefore keeps retrying the
  * whole batch until it packs, bounded by a wall-clock budget rather than a fixed
  * attempt count — a run only fails when the chain cannot pack one block within
@@ -309,11 +296,10 @@ const ERC20_POINTER_IFACE = new ethers.Interface([
  * must hold at least 9 funded accounts.
  *
  * When the chain has wasm enabled (runtime.wasm is populated by the bootstrap), the
- * block additionally carries a dual-VM pair for the same CW20 token: an EVM `transfer`
- * through the token's ERC20 pointer (a real EVM tx, returned in `txs`) and a pure
- * Cosmos `MsgExecuteContract` CW20 transfer (NOT returned — it never surfaces over EVM
- * JSON-RPC — but required to co-locate in the same block). The batch retries until both
- * the EVM txs and the Cosmos tx land together.
+ * block additionally carries a pure Cosmos `MsgExecuteContract` CW20 transfer. It is
+ * NOT returned in `txs` — it never surfaces over EVM JSON-RPC — but it is required to
+ * co-locate in the same block, so the EVM views of this block are asserted against a
+ * genuinely mixed-VM block. The batch retries until both sides land together.
  */
 export async function buildRichSeiBlock(
     provider: ethers.JsonRpcProvider,
@@ -326,7 +312,6 @@ export async function buildRichSeiBlock(
     }
 
     const wasm = runtime.wasm;
-    const wasmActor = wasm ? EvmAccount.fromPrivateKey(wasm.actor.privateKey, provider) : undefined;
     // One throw-away recipient for the Cosmos CW20 transfer, reused across retries.
     const cosmosRecipient = wasm ? await generateSeiAddress() : undefined;
     const erc20Iface = new ethers.Interface(abiOf('TestERC20.sol', 'TestERC20'));
@@ -470,22 +455,6 @@ export async function buildRichSeiBlock(
             },
         ];
 
-        if (wasm && wasmActor) {
-            const nActor = await wasmActor.nonce('pending');
-            specs.push({
-                kind: 'cw20Pointer',
-                signer: wasmActor,
-                req: {
-                    type: 2,
-                    to: wasm.cw20Pointer,
-                    data: ERC20_POINTER_IFACE.encodeFunctionData('transfer', [runtime.funded.admin, 1n]),
-                    gasLimit: 1_000_000n,
-                    nonce: nActor,
-                    ...dynFee,
-                },
-            });
-        }
-
         try {
             const preparedCosmos = wasm
                 ? await prepareCw20Transfer(
@@ -564,7 +533,6 @@ export async function buildRichSeiBlock(
                     number: blockNumber,
                     hash: block!.hash!,
                     txs,
-                    cosmosShellGas: wasm && cosmos ? cosmos.gasUsed : undefined,
                 };
             }
             const placement = specs
@@ -918,71 +886,37 @@ function receiptsForBlock(
  * Reconcile the EVM-visible (eth_*) cumulativeGasUsed series of a single block.
  *
  * Receipts must be the eth-visible ones (EVM txs only), pre-mapped to native bigints and
- * sorted by transaction index. `blockGasUsed` is the eth block.gasUsed (which sums ONLY
- * EVM receipt gas). `cosmosShellGas`, when given, is the gas of a co-located pointer-backed
- * CW20 transfer (a pure Cosmos tx): Sei folds that Cosmos-unit gas into the EVM receipts'
- * cumulativeGasUsed in tx-index order, but NOT into block.gasUsed.
- *
- * The series therefore tracks the running Σ of EVM gasUsed exactly, EXCEPT for a single
- * step where the shell receipt sits just before an EVM tx — there cumulativeGasUsed jumps
- * by an extra `cosmosShellGas`. We assert that jump equals the Cosmos tx's gas exactly,
- * that it happens at most once (the rich block has one CW20 tx; it may instead sort last,
- * in which case no jump appears), and that every other step accumulates cleanly.
+ * sorted by transaction index. `blockGasUsed` is the eth block.gasUsed. A Cosmos tx
+ * co-located in the same block burns its own gas but reaches neither the series nor
+ * block.gasUsed, so the series is exactly the running Σ of EVM receipt gasUsed.
  */
 export function assertCumulativeGasSeries(
     ordered: { index: number; gasUsed: bigint; cumulativeGasUsed: bigint }[],
     blockGasUsed: bigint,
-    cosmosShellGas?: bigint,
 ): void {
-    let prevCumulative = 0n;
-    let runningOwn = 0n;
-    let shellOffset = 0n;
-    let jumps = 0;
+    let running = 0n;
     for (const r of ordered) {
         expect(r.gasUsed > 0n, `receipt ${r.index} burned gas`).to.equal(true);
-        runningOwn += r.gasUsed;
-        const expected = runningOwn + shellOffset;
-        if (r.cumulativeGasUsed !== expected) {
-            // The only legitimate perturbation is the shell receipt of the co-located CW20
-            // transfer folded in just before this EVM tx. Pin the jump to that exact gas.
-            const extra = r.cumulativeGasUsed - expected;
-            expect(
-                cosmosShellGas !== undefined,
-                `unexpected cumulativeGasUsed jump of ${extra} at idx ${r.index} with no CW20 shell tx`,
-            ).to.equal(true);
-            expect(extra, `cumulative jump at idx ${r.index} == co-located CW20 shell gas`).to.equal(
-                cosmosShellGas,
-            );
-            shellOffset += extra;
-            jumps++;
-        }
-        expect(r.cumulativeGasUsed > prevCumulative, `cumulativeGasUsed strictly increasing at idx ${r.index}`).to.equal(
-            true,
-        );
-        prevCumulative = r.cumulativeGasUsed;
+        running += r.gasUsed;
+        expect(
+            r.cumulativeGasUsed,
+            `cumulativeGasUsed at idx ${r.index} == Σ gasUsed up to and including it`,
+        ).to.equal(running);
     }
-    expect(jumps, 'at most one CW20 shell receipt perturbs the EVM cumulative series').to.be.at.most(1);
-    
-    expect(
-        prevCumulative,
-        'final cumulativeGasUsed == block.gasUsed + any folded CW20 shell gas',
-    ).to.equal(blockGasUsed + shellOffset);
-    
+    expect(running, 'final cumulativeGasUsed == block.gasUsed').to.equal(blockGasUsed);
 }
 
 /**
  * Verify a Sei block's gas accounting against the EVM-visible (eth_*) receipts.
  *
- * `block.gasUsed` on the eth namespace sums ONLY EVM-transaction receipt gas (evmrpc
- * excludes shell receipts from the block), so `block.gasUsed == Σ eth-visible gasUsed`
- * holds exactly. The cumulativeGasUsed series is reconciled via assertCumulativeGasSeries,
- * which also asserts that a co-located CW20 transfer's gas (`cosmosShellGas`) is exactly
- * what perturbs the series — proving the Cosmos tx's gas does reach EVM cumulativeGasUsed.
+ * `block.gasUsed` on the eth namespace sums ONLY EVM-transaction receipt gas, so
+ * `block.gasUsed == Σ eth-visible gasUsed` holds exactly even for a block that also
+ * carries Cosmos transactions. The cumulativeGasUsed series is reconciled via
+ * assertCumulativeGasSeries.
  */
 export async function assertGasAccounting(
     provider: ethers.JsonRpcProvider,
     block: Pick<RpcBlock, 'transactions' | 'gasUsed'>,
-    cosmosShellGas?: bigint,
 ): Promise<void> {
     const receipts = await receiptsForBlock(provider, block);
     const summed = receipts.reduce((acc, r) => acc + r!.gasUsed, 0n);
@@ -991,7 +925,7 @@ export async function assertGasAccounting(
     const ordered = [...receipts]
         .sort((a, b) => a!.index - b!.index)
         .map(r => ({ index: r!.index, gasUsed: r!.gasUsed, cumulativeGasUsed: r!.cumulativeGasUsed }));
-    assertCumulativeGasSeries(ordered, BigInt(block.gasUsed), cosmosShellGas);
+    assertCumulativeGasSeries(ordered, BigInt(block.gasUsed));
 }
 
 const BASE_TX_GAS = 21_000n;
