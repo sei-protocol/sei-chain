@@ -17,9 +17,6 @@ const (
 	evmOnlyCursorModule = "evmonly"
 	evmOnlyCursorKey    = "cursor"
 	evmOnlyCursorSize   = 8 + common.HashLength + common.HashLength + common.HashLength + 8
-	// evmOnlyCursorLegacySize is the width before the cursor carried prevRandao.
-	// TEMPORARY: remove once no running chain still holds a cursor this wide.
-	evmOnlyCursorLegacySize = evmOnlyCursorSize - common.HashLength
 )
 
 // evmOnlyCursor identifies a block whose state is committed to storage and
@@ -53,7 +50,6 @@ func (c evmOnlyCursor) encode() []byte {
 }
 
 func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
-	raw = migrateLegacyEVMOnlyCursor(raw)
 	if len(raw) != evmOnlyCursorSize {
 		return evmOnlyCursor{}, fmt.Errorf("EVM-only cursor is %d bytes, want %d", len(raw), evmOnlyCursorSize)
 	}
@@ -69,26 +65,6 @@ func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
 		prevRandao: common.BytesToHash(raw[2*common.HashLength : 3*common.HashLength]),
 		gasLimit:   binary.BigEndian.Uint64(raw[3*common.HashLength:]),
 	}, nil
-}
-
-// migrateLegacyEVMOnlyCursor widens a cursor written before prevRandao existed;
-// anything else is returned untouched. Without it a node that committed a block
-// under the older width refuses to start.
-//
-// prevRandao sits ahead of gasLimit, so it is spliced in, not appended: appending
-// would read the gas limit out of the zeroed bytes. Every node fills the same zero
-// for the block it resumes, and the next commit persists the full width.
-//
-// TEMPORARY, with evmOnlyCursorLegacySize.
-func migrateLegacyEVMOnlyCursor(raw []byte) []byte {
-	if len(raw) != evmOnlyCursorLegacySize {
-		return raw
-	}
-	const head = 8 + 2*common.HashLength
-	widened := make([]byte, 0, evmOnlyCursorSize)
-	widened = append(widened, raw[:head]...)
-	widened = append(widened, make([]byte, common.HashLength)...)
-	return append(widened, raw[head:]...)
 }
 
 // loadEVMOnlyCursor reads the cursor of the store's latest version. It is None
