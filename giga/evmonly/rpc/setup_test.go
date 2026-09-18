@@ -28,7 +28,12 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
+	subscribeHeads   func(context.Context, string) (HeadSubscription, error)
 	transactionCount func(common.Address) uint64
+}
+
+func (b *testBackend) SubscribeNewHeads(ctx context.Context, clientID string) (HeadSubscription, error) {
+	return b.subscribeHeads(ctx, clientID)
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {

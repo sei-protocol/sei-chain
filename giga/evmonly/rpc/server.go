@@ -40,10 +40,12 @@ var wsAllowedOrigins = []string{"*"}
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
 // Backend submits transactions, reads committed EVM state and finalized
-// blocks, and returns the RPC client for an Autobahn shard owner.
+// blocks, publishes new block heights, and returns the RPC client for an
+// Autobahn shard owner.
 // EvmProxyEnabled reports whether EvmProxy can ever return a client; when it
 // is false every transaction is broadcast locally without recovering its sender.
 type Backend interface {
+	HeadSource
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	BlockByHash(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error)
 	BroadcastTx(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
@@ -131,6 +133,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	}
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &subscribeAPI{backend: backend, store: receiptStore}); err != nil {
+		return nil, fmt.Errorf("register EVM-only subscription RPC: %w", err)
 	}
 	return rpcServer, nil
 }
