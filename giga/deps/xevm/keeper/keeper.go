@@ -309,25 +309,14 @@ func (k *Keeper) prevRandaoIsLegacyTimestamp(ctx sdk.Context) bool {
 	if !ctx.IsTracing() {
 		return false
 	}
-	gasFreeCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
-	if k.upgradeKeeper.IsUpgradeActiveAtHeight(gasFreeCtx, "v6.8", ctx.BlockHeight()) {
-		return false
-	}
-	// At the upgrade height the done marker is not committed yet and tracing
-	// skips the BeginBlocker that would write it; the pending plan is the
-	// only record of the boundary block.
-	if plan, found := k.upgradeKeeper.GetUpgradePlan(gasFreeCtx); found && plan.Name == "v6.8" {
-		return !plan.ShouldExecute(ctx)
-	}
-	// No v6.8 record at this height: either it precedes the plan's
-	// scheduling on a chain that crossed v6.8, or the chain launched on a
-	// build that already ran the app-hash semantics. Only the networks that
-	// existed before v6.8 can have legacy heights.
+	// Only the networks that existed before v6.8 can have legacy heights.
 	switch ctx.ChainID() {
 	case Pacific1ChainID, "atlantic-2", "arctic-1":
-		return true
+	default:
+		return false
 	}
-	return false
+	gasFreeCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	return !k.upgradeKeeper.IsUpgradeActiveAtHeight(gasFreeCtx, "v6.8", ctx.BlockHeight())
 }
 
 // returns a function that provides block header hash based on block number

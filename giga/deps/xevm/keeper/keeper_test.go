@@ -22,7 +22,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
@@ -81,32 +80,24 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	require.NoError(t, err)
 	legacy := crypto.Keccak256Hash(r)
 	require.NotEqual(t, priorAppHash, legacy)
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithChainID("pacific-1"), 0)
+	pacificCtx := ctx.WithChainID("pacific-1")
+	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithIsTracing(true), 0)
 	require.NoError(t, err)
 	require.Equal(t, legacy, *blockCtx.Random)
 
 	// A chain launched at v6.8+ has no v6.8 record; it never ran the legacy
-	// semantics even though neither marker nor plan is present.
+	// semantics.
 	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true), 0)
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
 
-	// The pending plan marks the upgrade height; no done marker exists yet.
-	err = k.UpgradeKeeper().ScheduleUpgrade(ctx, upgradetypes.Plan{Name: "v6.8", Height: 100})
-	require.NoError(t, err)
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(99), 0)
-	require.NoError(t, err)
-	require.Equal(t, legacy, *blockCtx.Random)
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(100), 0)
-	require.NoError(t, err)
-	require.Equal(t, priorAppHash, *blockCtx.Random)
-
-	// The done height is compared against the traced height.
+	// On a chain that crossed v6.8 the done height decides: before it the
+	// legacy hash, at or after it the app hash.
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(100), "v6.8")
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(50), 0)
+	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithIsTracing(true).WithBlockHeight(50), 0)
 	require.NoError(t, err)
 	require.Equal(t, legacy, *blockCtx.Random)
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true).WithBlockHeight(150), 0)
+	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithIsTracing(true).WithBlockHeight(150), 0)
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
 }
