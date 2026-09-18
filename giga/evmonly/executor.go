@@ -15,9 +15,14 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"go.opentelemetry.io/otel"
 )
+
+// executorMeterName is the OTel meter this package's instruments are created on.
+const executorMeterName = "evmonly_executor"
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
@@ -32,8 +37,24 @@ type Executor struct {
 	changeSetEncoder NamedChangeSetEncoder
 	// Optional: nil commits only the state encoder's changesets.
 	blockChangeSetEncoder BlockChangeSetEncoder
-	missingState          StateReader
-	closed                atomic.Bool
+	// blockEncoderReadsStore is false only for an encoder registered as
+	// store-independent, which lets encoding overlap the previous commit.
+	blockEncoderReadsStore bool
+	missingState           StateReader
+	closed                 atomic.Bool
+
+	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
+	// serves the executor.
+	blockPhases *seidbmetrics.PhaseTimer
+
+	// The commit running behind the current block, and what it will write. A block reads the latter
+	// through an overlay so it need not wait for the former.
+	pipelineMu      sync.Mutex
+	pipelineDone    chan struct{}
+	pipelineErr     error
+	pipelineChanges *StateChangeSet
+	// The first commit that failed, kept so no caller can miss it.
+	pipelineFailure error
 }
 
 type Option func(*Executor)
@@ -54,9 +75,20 @@ func WithMissingAccountState(state StateReader) Option {
 
 // WithBlockChangeSetEncoder commits the encoder's changesets alongside every
 // block's state changes.
+// WithStoreIndependentBlockChangeSetEncoder registers an encoder that reads only
+// the block context and result. Encoding then overlaps the previous block's
+// commit. An encoder that touches the store must use WithBlockChangeSetEncoder.
+func WithStoreIndependentBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
+	return func(e *Executor) {
+		e.blockChangeSetEncoder = encoder
+		e.blockEncoderReadsStore = false
+	}
+}
+
 func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 	return func(e *Executor) {
 		e.blockChangeSetEncoder = encoder
+		e.blockEncoderReadsStore = true
 	}
 }
 
@@ -64,8 +96,9 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:        cfg.WithDefaults(),
-		resultPool: newBlockResultPool(cfg.BlockResultPoolSize),
+		cfg:         cfg.WithDefaults(),
+		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -81,6 +114,9 @@ func (e *Executor) Close() {
 		return
 	}
 	e.closed.Store(true)
+	// Land the commit running behind the last block before the pool it may need goes away. The
+	// failure is kept rather than reported, for the next AwaitCommits to return.
+	_ = e.awaitPipelineCommit()
 	if e.occPool != nil {
 		e.occPool.Close()
 	}
@@ -97,12 +133,45 @@ func (e *Executor) ResultPoolStats() BlockResultPoolStats {
 	return e.resultPool.stats()
 }
 
+// waitingForBlockPhase names time an executor loop spends blocked with nothing to run. It is part
+// of the phase totals so they account for the loop's whole wall time.
+const waitingForBlockPhase = "waiting_for_block"
+
+// MarkWaitingForBlock records that the caller's loop is about to block waiting for a block to
+// arrive. The next ExecutePreparedBlock ends the phase.
+//
+// Without it the phase totals only cover time inside a block, and so describe a share of the work
+// rather than a share of the clock.
+//
+// An executor keeps one phase timer, and that timer is not safe for concurrent use: calling this
+// from any goroutine other than the one that drives ExecutePreparedBlock is a data race, not just
+// a muddled measurement.
+func (e *Executor) MarkWaitingForBlock() {
+	if e == nil {
+		return
+	}
+	e.blockPhases.SetPhase(waitingForBlockPhase)
+}
+
+// ExecuteBlock prepares and executes a block, and returns once its state is committed.
+//
+// It is the synchronous entry point. A caller feeding blocks continuously should prepare and
+// execute in separate stages instead, where ExecutePreparedBlock leaves the commit running behind
+// the next block rather than waiting for it here.
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
 	prepared, err := e.PrepareBlock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return e.ExecutePreparedBlock(ctx, prepared)
+	result, err := e.ExecutePreparedBlock(ctx, prepared)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.AwaitCommits(); err != nil {
+		result.Release()
+		return nil, err
+	}
+	return result, nil
 }
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
@@ -133,6 +202,7 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 		return nil, err
 	}
 	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
+	recordTxExecutionStats(ctx, result.Txs)
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err
@@ -277,13 +347,24 @@ func (e *Executor) executeTx(
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
+	snapshot := stateDB.Snapshot()
+	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
+	poolGas := gasPool.Gas()
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
+	// Read before any revert: RevertToSnapshot restores the recorded error too.
 	if stateErr := stateDB.Error(); stateErr != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
 	}
 	if err != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		if !e.cfg.RejectUnappliableTxs {
+			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
+		}
+		stateDB.RevertToSnapshot(snapshot)
+		stateDB.clearSnapshots()
+		gasPool.SetGas(poolGas)
+		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
+		return txResult, receipt, nil
 	}
 	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
@@ -334,6 +415,37 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+// rejectedTx builds the failed, zero-gas receipt and result for a transaction the
+// executor did not run.
+func rejectedTx(
+	p PreparedTx,
+	block BlockContext,
+	txIndexUint uint,
+	baseFee *big.Int,
+	cause error,
+) (TxResult, *ethtypes.Receipt) {
+	tx := p.Tx
+	receipt := &ethtypes.Receipt{
+		Type:              tx.Type(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		TxHash:            tx.Hash(),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
+		BlockHash:         block.BlockHash,
+		BlockNumber:       new(big.Int).SetUint64(block.Number),
+		TransactionIndex:  txIndexUint,
+	}
+	receipt.Bloom = ethtypes.CreateBloom(receipt)
+	return TxResult{
+		Hash:              tx.Hash(),
+		Sender:            p.Sender,
+		To:                tx.To(),
+		Status:            ethtypes.ReceiptStatusFailed,
+		EffectiveGasPrice: new(big.Int).Set(receipt.EffectiveGasPrice),
+		Err:               cause,
+		Rejected:          true,
+	}, receipt
 }
 
 func transactionToPreparedMessage(p PreparedTx, baseFee *big.Int) *core.Message {

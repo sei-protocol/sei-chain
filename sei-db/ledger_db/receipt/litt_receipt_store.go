@@ -40,7 +40,8 @@ import (
 // index. A block is written as one or more litt "parts" (block + part index ->
 // the part's receipts concatenated); a block normally has one part, but legacy
 // receipt migration can flush a block across several SetReceipts calls, each
-// appending a new immutable part.
+// appending a new immutable part. A block that produced no receipts writes one
+// empty part, so every block the store accepted has a key of its own.
 //
 // The pebble index holds the tag keys (litt_tag_index.go) plus version
 // metadata (m:latest / m:earliest).
@@ -367,12 +368,33 @@ func (s *littReceiptStore) queueWrite(write receiptWrite) error {
 	return nil
 }
 
-// applyReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
-// litt first, so an indexed block always has its values written.
+// applyReceipts writes a block's receipt bodies, log index and version marker, and reports what it
+// committed. The write itself is writeReceipts; this wrapper is where the count is taken, so a
+// failed write is not counted as one.
 func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord) error {
+	if err := s.writeReceipts(height, receipts); err != nil {
+		return err
+	}
+	// The async writer has no request context of its own, so the measurement is unattributed.
+	RecordReceiptsWritten(context.Background(), receipts)
+	return nil
+}
+
+// writeReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
+// litt first, so an indexed block always has its values written.
+func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord) error {
+	if height < 0 {
+		return fmt.Errorf("receipt block height must not be negative: %d", height)
+	}
+
 	blockNumbers, receiptsByBlock := groupReceiptRecordsByBlock(receipts)
 	if len(blockNumbers) == 0 {
-		return s.SetLatestVersion(height)
+		// A block that produced no receipts is still written, as a part with no receipts in it.
+		// The part key is what a walk positions at.
+		blockNumbers = []uint64{uint64(height)} //nolint:gosec // height is non-negative
+	}
+	if err := s.requireNoSkippedBlock(blockNumbers); err != nil {
+		return err
 	}
 
 	// Closes the stage in flight, so the gap until the next write is charged to neither.
@@ -457,6 +479,29 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 
 	s.writePhases.SetPhase("stage_tag_keys")
 	return s.stageTagKeys(batch, blockNumber, records)
+}
+
+// requireNoSkippedBlock refuses a write that would leave a block unrecorded between the store's
+// head and this write. A walk positions at a block's part key, so a block that never reached the
+// store makes a walk starting there restart from the oldest receipt. blockNumbers must be sorted
+// ascending.
+func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
+	head := s.latestVersion.Load()
+	if head <= 0 {
+		// Nothing is recorded yet, so this write establishes where the store's history begins.
+		return nil
+	}
+	next := uint64(head) + 1 //nolint:gosec // head is positive
+	for _, blockNumber := range blockNumbers {
+		if blockNumber > next {
+			return fmt.Errorf("receipt write for block %d skips block %d; the store's head is %d",
+				blockNumber, next, head)
+		}
+		if blockNumber >= next {
+			next = blockNumber + 1
+		}
+	}
+	return nil
 }
 
 // nextPartIndex returns the number of parts already written for the block,

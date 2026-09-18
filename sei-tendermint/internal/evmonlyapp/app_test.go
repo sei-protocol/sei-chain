@@ -3,6 +3,8 @@ package evmonlyapp
 import (
 	"crypto/ecdsa"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -297,6 +299,39 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 // A restarted node must resume from the height and app hash its storage holds,
 // and continue executing without an InitChain. The reference app runs the same
 // blocks without restarting, so the resumed chain has to match it hash for hash.
+// The cursor does not carry the block time, so a resumed app would answer
+// EvmCall with TIMESTAMP 0 until the next Commit. The router seeds it through
+// InitLastHeader on its restart path.
+func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	const blocks = 3
+	home := t.TempDir()
+	storage := openEVMOnlyTestStorage(t, home)
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+	require.NoError(t, err)
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	var last *abci.RequestFinalizeBlock
+	for height := range int64(blocks) {
+		last = evmOnlyTestBlock(height+1, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height))) //nolint:gosec // G115: test heights are positive.
+		finalizeAndCommitEVMOnlyTestBlock(t, app, last)
+	}
+
+	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+
+	resumed, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	for state := range resumed.cursor.Lock() {
+		require.Zero(t, state.lastBlockTime, "a resumed app has no block time before InitLastHeader")
+	}
+	resumed.InitLastHeader(last.Header)
+	for state := range resumed.cursor.Lock() {
+		require.Equal(t, uint64(last.Header.Time.Unix()), state.lastBlockTime) //nolint:gosec // G115: test times are positive.
+	}
+}
+
 func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -431,6 +466,22 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEVMOnlyABCIResultsCarryRevertReasonWithoutFailingTheTx(t *testing.T) {
+	result := &evmonly.BlockResult{
+		Txs: []evmonly.TxResult{
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusSuccessful},
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusFailed, Err: errors.New("execution reverted")},
+		},
+	}
+
+	txResults := evmOnlyABCIResults(result)
+
+	require.Equal(t, abci.CodeTypeOK, txResults[0].Code)
+	require.Empty(t, txResults[0].Log)
+	require.Equal(t, abci.CodeTypeOK, txResults[1].Code, "a revert must not mark the tx for a mempool retry")
+	require.Equal(t, "execution reverted", txResults[1].Log)
+}
+
 func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {
 	configured := []abci.ValidatorUpdate{{Power: 7}}
 	app := newEVMOnlyTestApp(t, configured)
@@ -457,4 +508,21 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
 
 	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
+}
+
+// TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
+func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
+	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {
+		t.Run(fmt.Sprintf("count=%d", count), func(t *testing.T) {
+			txs := make([][]byte, count)
+			for i := range txs {
+				txs[i] = []byte(fmt.Sprintf("raw transaction %d with a body of some length", i))
+			}
+			hashes := hashRawTxs(txs)
+			require.Equal(t, count, len(hashes))
+			for i, raw := range txs {
+				require.Equal(t, crypto.Keccak256Hash(raw), hashes[i], "tx %d", i)
+			}
+		})
+	}
 }
