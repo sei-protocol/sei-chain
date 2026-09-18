@@ -233,6 +233,14 @@ func TestGetCustomPrecompiles(t *testing.T) {
 		tagToHeight[tag] = int64(height)
 	}
 
+	earliestVersions := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(int64(baseHeight - 1)))
+	hasEarliestVersion := false
+	for _, version := range earliestVersions {
+		require.NotEmpty(t, version)
+		hasEarliestVersion = hasEarliestVersion || version == "v6.6"
+	}
+	require.True(t, hasEarliestVersion)
+
 	for precompile, tags := range precompileTags {
 		for _, tag := range tags {
 			ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(tagToHeight[tag] + 1))

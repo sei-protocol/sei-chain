@@ -68,9 +68,67 @@ func TestTransactionExecuteSkipsReadsWhenDisabled(t *testing.T) {
 	require.NoError(t, txn.Execute(db, []byte("fee"), nil))
 	require.Zero(t, stateDB.view.readCalls)
 
-	// The write the transaction made is in the batch, so it is served without reaching the view.
-	_, found := db.Get([]byte("src"))
-	require.True(t, found)
+	// Execute performs no writes at all: a transaction's writes are recorded by the block builder when
+	// the block is generated, so there is nothing left for this to do but read.
+	require.Empty(t, db.pendingWrites)
+}
+
+// TestBlockCarriesItsWritesToTheDB covers the handoff the finalize path depends on: writes accumulate
+// in the Database, the builder harvests them into a block, and the block yields the changeset with
+// nothing left to convert on the commit thread.
+func TestBlockCarriesItsWritesToTheDB(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultCryptoSimConfig()
+	db, err := NewDatabase(cfg, &readTrackingStateDB{view: &readTrackingView{}}, nil, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Put([]byte("src"), []byte("src-balance")))
+	require.NoError(t, db.Put([]byte("dst"), []byte("dst-balance")))
+
+	// A key written twice in one block collapses to its last write, which is what keeps the changeset
+	// the size of the key set rather than the write count.
+	require.NoError(t, db.Put([]byte("src"), []byte("src-balance-again")))
+
+	harvested := db.HarvestWrites()
+	require.Len(t, harvested, 2)
+	require.Empty(t, db.pendingWrites, "harvest must leave a fresh map behind")
+
+	blk := NewBlock(cfg, nil, 0, cfg.TransactionsPerBlock)
+	blk.SetWrites(harvested)
+
+	require.Len(t, blk.Changeset(), 2)
+	require.Equal(t, len(blk.Changeset())+counterKeysPerBlock, cap(blk.Changeset()),
+		"the changeset reserves room for the counter keys FinalizeBlock appends")
+
+	values := make([][]byte, 0, len(blk.Changeset()))
+	for _, pair := range blk.Changeset() {
+		values = append(values, pair.Value)
+	}
+	require.Contains(t, values, []byte("src-balance-again"), "the last write for a key is the one kept")
+	require.NotContains(t, values, []byte("src-balance"))
+}
+
+// TestDatabaseReadsAlwaysReachTheDB pins the property the benchmark's fidelity depends on: no read is
+// ever served from memory, not even one whose key this block writes.
+//
+// The regression it guards against is real and shipped once: Get consulted the block's pending writes
+// first, and because a transaction reads the same keys it writes, that excluded most of a block's reads
+// from the measurement entirely.
+func TestDatabaseReadsAlwaysReachTheDB(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultCryptoSimConfig()
+	stateDB := &readTrackingStateDB{view: &readTrackingView{}}
+	db, err := NewDatabase(cfg, stateDB, nil, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Put([]byte("written"), []byte("value")))
+
+	value, found := db.Get([]byte("written"))
+	require.Nil(t, value)
+	require.False(t, found, "the view serves no reads, so a read that reached it cannot have found a value")
+	require.Equal(t, 1, stateDB.view.readCalls, "the read must have reached the view")
 }
 
 func TestDefaultCryptoSimConfigDisablesTransactionReadsByDefaultFalse(t *testing.T) {

@@ -401,7 +401,8 @@ func (g *GigaSim) finalizeSetupBlock() error {
 	if err := g.blocks.writeBlock(number, payload); err != nil {
 		return err
 	}
-	if err := g.persistExecutionResults(number, nil, 0, g.accounts.Counters()); err != nil {
+	writes := g.state.drainSetupWrites(g.accounts.Counters())
+	if err := g.persistExecutionResults(number, nil, 0, writes); err != nil {
 		return err
 	}
 	g.accounts.ReportEndOfBlock()
@@ -472,7 +473,9 @@ func (g *GigaSim) halt() {
 func (g *GigaSim) executeAndRecord(block *simulatedBlock) error {
 	g.executeBlock(block)
 
-	if err := g.persistExecutionResults(block.number, block.receiptRecords, block.receiptBytes, block.counters); err != nil {
+	if err := g.persistExecutionResults(
+		block.number, block.receiptRecords, block.receiptBytes, block.writes,
+	); err != nil {
 		return err
 	}
 
@@ -516,7 +519,7 @@ func (g *GigaSim) persistExecutionResults(
 	number int64,
 	records []receipt.ReceiptRecord,
 	receiptBytes int64,
-	counters identifierCounters,
+	writes blockWrites,
 ) error {
 	if g.receipts != nil {
 		g.lifecycle.SetPhase("write_receipts")
@@ -524,7 +527,7 @@ func (g *GigaSim) persistExecutionResults(
 			return err
 		}
 	}
-	return g.state.commitBlock(number, counters)
+	return g.state.commitBlock(number, writes)
 }
 
 // awaitGenerator stops block production and drains the staging queue, reporting the error that ended

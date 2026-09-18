@@ -10,6 +10,9 @@ import (
 // ErrAssociateDeprecated is returned by the MsgAssociate handler.
 var ErrAssociateDeprecated = sdkerrors.Register(ModuleName, 2, "MsgAssociate is deprecated")
 
+// ErrRegisterPointerDeprecated is returned by the MsgRegisterPointer handler.
+var ErrRegisterPointerDeprecated = sdkerrors.Register(ModuleName, 3, "MsgRegisterPointer is deprecated")
+
 type AssociationMissingErr struct {
 	Address string
 }
