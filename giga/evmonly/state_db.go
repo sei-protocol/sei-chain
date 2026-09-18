@@ -200,8 +200,7 @@ func (s *nativeStateDB) ChangeSetInto(changes *StateChangeSet) {
 		acct := s.accounts[addr]
 		base := s.baseAccount(addr)
 
-		_, hasCommutativeDelta := s.commutativeBalanceDeltas[addr]
-		if !acct.Balance.Eq(base.Balance) || hasCommutativeDelta {
+		if !acct.Balance.Eq(base.Balance) {
 			changes.Balances = append(changes.Balances, BalanceChange{
 				Address: addr,
 				Balance: acct.Balance.ToBig(),
