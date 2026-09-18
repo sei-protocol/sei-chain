@@ -57,9 +57,9 @@ type gigaRouterCommon struct {
 	// anchor is data.Anchor() cached at construction: the AppQC/CommitQC covering
 	// the lowest row data.State still holds.
 	anchor utils.AtomicRecv[utils.Option[data.Anchor]]
-	// executed is the number of the last block executeBlock committed to the
-	// app; 0 until the first block of this process lifetime commits.
-	executed utils.AtomicSend[atypes.GlobalBlockNumber]
+	// executed is the last block executeBlock committed to the app, seeded with
+	// the app's height at construction.
+	executed utils.AtomicSend[atypes.ExecutedBlock]
 
 	// inboundFullnodeCount tracks inbound connections currently served the
 	// block-sync subset. Optimistic Add(1) + compare against cap;
@@ -117,8 +117,8 @@ func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
 	return r.app.LastBlockHeight()
 }
 
-// ExecutedHeights publishes the number of each block as executeBlock commits it.
-func (r *gigaRouterCommon) ExecutedHeights() utils.AtomicRecv[atypes.GlobalBlockNumber] {
+// ExecutedBlocks publishes each block as executeBlock commits it.
+func (r *gigaRouterCommon) ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlock] {
 	return r.executed.Subscribe()
 }
 
@@ -282,8 +282,9 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
-	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
-	r.executed.Store(b.GlobalNumber)
+	gasUsed := finalizeBlockGasUsed(resp)
+	r.data.PushGasUsed(gasUsed)
+	r.executed.Store(atypes.ExecutedBlock{Number: b.GlobalNumber, GasUsed: utils.Clamp[uint64](gasUsed)})
 	return commitResp, nil
 }
 

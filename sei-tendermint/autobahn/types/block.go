@@ -24,6 +24,13 @@ type BlockNumber uint64
 // GlobalBlockNumber is the number of a block in the global chain.
 type GlobalBlockNumber uint64
 
+// ExecutedBlock is a block committed to the app together with the gas its
+// transactions used.
+type ExecutedBlock struct {
+	Number  GlobalBlockNumber
+	GasUsed uint64
+}
+
 // BlockWithNumber pairs a block with its GlobalBlockNumber. It is used as the
 // payload of the utils.Option returned by ReadBlockByHash so that the block
 // number is only present when the block itself is present.

@@ -147,8 +147,8 @@ func (api *blockAPI) encodeBlock(ctx context.Context, block *coretypes.ResultBlo
 }
 
 // encodeHeader renders block's header in the shape go-ethereum's types.Header
-// decodes, with gasUsed read from the receipt store.
-func encodeHeader(ctx context.Context, backend Backend, store receiptpkg.ReceiptStore, block *coretypes.ResultBlock) (map[string]any, error) {
+// decodes.
+func encodeHeader(backend Backend, block *coretypes.ResultBlock, gasUsed uint64) (map[string]any, error) {
 	blockUnix, ok := utils.SafeCast[uint64](block.Block.Time.Unix())
 	if !ok {
 		return nil, fmt.Errorf("block %d time is negative: %s", block.Block.Height, block.Block.Time)
@@ -158,10 +158,6 @@ func encodeHeader(ctx context.Context, backend Backend, store receiptpkg.Receipt
 		return nil, err
 	}
 	baseFee, err := backend.EvmBaseFee()
-	if err != nil {
-		return nil, err
-	}
-	gasUsed, err := blockGasUsed(ctx, store, block)
 	if err != nil {
 		return nil, err
 	}

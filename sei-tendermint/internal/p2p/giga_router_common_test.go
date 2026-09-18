@@ -158,7 +158,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 
 	router, err := NewGigaFullnodeRouter(cfg, makeKey(rng), state)
 	require.NoError(t, err)
-	require.Equal(t, last, router.ExecutedHeights().Load())
+	require.Equal(t, atypes.ExecutedBlock{Number: last}, router.ExecutedBlocks().Load())
 }
 
 func TestGigaRouterCommon_ValidatorsAtGlobalHeight(t *testing.T) {

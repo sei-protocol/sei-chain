@@ -30,12 +30,12 @@ type testBackend struct {
 	minGasPrice      func() (*big.Int, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
-	executedHeights  func() (utils.AtomicRecv[atypes.GlobalBlockNumber], error)
+	executedBlocks   func() (utils.AtomicRecv[atypes.ExecutedBlock], error)
 	transactionCount func(common.Address) uint64
 }
 
-func (b *testBackend) ExecutedHeights() (utils.AtomicRecv[atypes.GlobalBlockNumber], error) {
-	return b.executedHeights()
+func (b *testBackend) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlock], error) {
+	return b.executedBlocks()
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {

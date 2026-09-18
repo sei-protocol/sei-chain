@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"net/http/httptest"
 	"strings"
@@ -23,21 +24,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
+// TestNewHeadsSubscriptionStreamsHeadersOverWebsocket delivers a head whose
+// gasUsed comes from the commit itself: the receipt store is left empty.
 func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
-	block, _, _, filledStore := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
-	store := evmonly.NewMemoryReceiptStore()
-	executed := utils.NewAtomicSend(atypes.GlobalBlockNumber(6))
+	block, _, _, _ := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
+	executed := utils.NewAtomicSend(atypes.ExecutedBlock{Number: 6})
 	subscribed := make(chan struct{}, 1)
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
 	})
-	backend.executedHeights = func() (utils.AtomicRecv[atypes.GlobalBlockNumber], error) {
+	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlock], error) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(websocketHandler(handler))
@@ -51,8 +53,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	require.NoError(t, err)
 	<-subscribed
 
-	copyReceipts(t, filledStore, store, block)
-	executed.Store(7)
+	executed.Store(atypes.ExecutedBlock{Number: 7, GasUsed: 43_500})
 
 	select {
 	case header := <-headers:
@@ -62,6 +63,62 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 		require.Equal(t, uint64(1_700_000_000), header.Time)
 	case err := <-sub.Err():
 		t.Fatalf("subscription failed: %v", err)
+	}
+
+	sub.Unsubscribe()
+}
+
+// TestNewHeadsReadsReceiptsForBlockTheWatchPassed covers a subscriber that
+// observes the watch only after it moved two blocks: the passed block's gasUsed
+// is read from the receipt store, the current one's from the commit.
+func TestNewHeadsReadsReceiptsForBlockTheWatchPassed(t *testing.T) {
+	block7, _, _, filledStore := multiTxBlock(t, 7, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
+	block8, _, _, _ := multiTxBlock(t, 8, common.HexToHash("0xabce"), time.Unix(1_700_000_001, 0))
+	store := evmonly.NewMemoryReceiptStore()
+	copyReceipts(t, filledStore, store, block7)
+	executed := utils.NewAtomicSend(atypes.ExecutedBlock{Number: 6})
+	subscribed := make(chan struct{}, 1)
+	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		switch *req.Height {
+		case 7:
+			return block7, nil
+		case 8:
+			return block8, nil
+		}
+		return nil, fmt.Errorf("unexpected height %d", *req.Height)
+	})
+	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlock], error) {
+		subscribed <- struct{}{}
+		return executed.Subscribe(), nil
+	}
+	handler, err := newHandler(backend, store)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(websocketHandler(handler))
+	t.Cleanup(server.Close)
+	client, err := ethclient.DialContext(t.Context(), "ws"+strings.TrimPrefix(server.URL, "http"))
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	headers := make(chan *ethtypes.Header, 2)
+	sub, err := client.SubscribeNewHead(t.Context(), headers)
+	require.NoError(t, err)
+	<-subscribed
+
+	executed.Store(atypes.ExecutedBlock{Number: 8, GasUsed: 21_000})
+
+	want := []struct {
+		number  int64
+		gasUsed uint64
+	}{{7, 43_500}, {8, 21_000}}
+	for _, w := range want {
+		select {
+		case header := <-headers:
+			require.Equal(t, big.NewInt(w.number), header.Number)
+			require.Equal(t, w.gasUsed, header.GasUsed)
+		case err := <-sub.Err():
+			t.Fatalf("subscription failed: %v", err)
+		}
 	}
 
 	sub.Unsubscribe()
