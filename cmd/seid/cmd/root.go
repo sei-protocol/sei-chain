@@ -43,6 +43,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 	"github.com/sei-protocol/sei-chain/tools"
+	"github.com/sei-protocol/sei-chain/utils/jemalloc"
 	"github.com/sei-protocol/seilog"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -276,6 +277,10 @@ func newApp(
 	// compute time required as a proportion of block gas used for a wasm contract that performs a lot of compute
 	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
+
+	if jemalloc.Enabled {
+		logger.Info("C heap served by jemalloc", "version", jemalloc.Version())
+	}
 
 	app := app.New(
 		db,

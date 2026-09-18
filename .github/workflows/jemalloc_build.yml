@@ -1,0 +1,62 @@
+name: jemalloc Build Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release/**
+  merge_group:
+    branches:
+      - main
+      - release/**
+  push:
+    branches:
+      - main
+      - release/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  jemalloc-build:
+    name: Compile and smoke-test with jemalloc
+    runs-on: ubuntu-latest
+    steps:
+      # See: https://github.com/actions/checkout/releases/tag/v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.1'
+
+      - name: Cache jemalloc
+        id: cache-jemalloc
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/libjemalloc.*
+            /usr/local/include/jemalloc
+          key: jemalloc-5.4.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build jemalloc from source
+        if: steps.cache-jemalloc.outputs.cache-hit != 'true'
+        run: make build-jemalloc-lib
+
+      - name: Register jemalloc library path
+        run: |
+          echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/jemalloc.conf
+          sudo ldconfig
+
+      - name: Build seid with jemalloc
+        run: make build-jemalloc
+
+      - name: Verify the binary links and runs against jemalloc
+        run: |
+          ldd ./build/seid | grep -F libjemalloc
+          ./build/seid version --long | grep -F jemalloc
+          # jemalloc rejects an unknown MALLOC_CONF key on its stderr at process
+          # start, which only happens if it is the allocator actually loaded.
+          MALLOC_CONF=sei_not_a_real_option:1 ./build/seid version 2>&1 | grep -F '<jemalloc>: Invalid conf pair'
+
+      - name: Run the allocator test with jemalloc linked
+        run: go test -tags jemalloc -v ./utils/jemalloc/...

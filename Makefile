@@ -108,6 +108,40 @@ install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
 
 ###############################################################################
+###                          jemalloc C allocator                           ###
+###############################################################################
+# Opt-in: serve every cgo allocation (Pebble block cache and memtables, zstd,
+# libwasmvm) from jemalloc instead of the platform malloc. The Go heap is not
+# affected. Requires jemalloc headers and library on the cgo search path;
+# `make build-jemalloc-lib` installs the pinned release under /usr/local.
+JEMALLOC_VERSION ?= 5.4.0
+JEMALLOC_SHA256 ?= 200776fac271093e7c2f21edd6d62657ecd2be578d9328633f2a86bfa6ef4f1d
+JEMALLOC_TARBALL = jemalloc-$(JEMALLOC_VERSION).tar.bz2
+JEMALLOC_URL = https://github.com/jemalloc/jemalloc/releases/download/$(JEMALLOC_VERSION)/$(JEMALLOC_TARBALL)
+
+build-jemalloc-lib:
+	@echo "Building jemalloc $(JEMALLOC_VERSION)..."
+	rm -rf build/jemalloc && mkdir -p build/jemalloc
+	curl -fsSL -o build/jemalloc/$(JEMALLOC_TARBALL) $(JEMALLOC_URL)
+	echo "$(JEMALLOC_SHA256)  build/jemalloc/$(JEMALLOC_TARBALL)" | sha256sum -c -
+	tar -xjf build/jemalloc/$(JEMALLOC_TARBALL) -C build/jemalloc
+	cd build/jemalloc/jemalloc-$(JEMALLOC_VERSION) && \
+		./configure --prefix=/usr/local && \
+		make -j"$$(nproc)" && \
+		sudo make install
+	@echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/jemalloc.conf
+	@sudo ldconfig
+.PHONY: build-jemalloc-lib
+
+build-jemalloc: go.sum
+	$(MAKE) build BUILD_TAGS="$(BUILD_TAGS) jemalloc"
+.PHONY: build-jemalloc
+
+install-jemalloc: go.sum
+	$(MAKE) install BUILD_TAGS="$(BUILD_TAGS) jemalloc"
+.PHONY: install-jemalloc
+
+###############################################################################
 ###                       RocksDB Backend Support                           ###
 ###############################################################################
 # Prerequisites:
