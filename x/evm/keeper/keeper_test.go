@@ -83,25 +83,30 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	legacy := crypto.Keccak256Hash(r)
 	require.NotEqual(t, priorAppHash, legacy)
 	pacificCtx := ctx.WithChainID("pacific-1")
-	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithIsTracing(true), 0)
+	blockCtx, err = k.GetVMBlockContext(pacificCtx, 0)
 	require.NoError(t, err)
 	require.Equal(t, legacy, *blockCtx.Random)
 
 	// A chain launched at v6.8+ has no v6.8 record; it never ran the legacy
 	// semantics.
-	blockCtx, err = k.GetVMBlockContext(ctx.WithIsTracing(true), 0)
+	blockCtx, err = k.GetVMBlockContext(ctx, 0)
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
 
 	// On a chain that crossed v6.8 the done height decides: before it the
-	// legacy hash, at or after it the app hash.
+	// legacy hash, at or after it the app hash. The era is a property of the
+	// height alone, so historical calls and traces agree with execution.
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(100), "v6.8")
-	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithIsTracing(true).WithBlockHeight(50), 0)
-	require.NoError(t, err)
-	require.Equal(t, legacy, *blockCtx.Random)
-	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithIsTracing(true).WithBlockHeight(150), 0)
-	require.NoError(t, err)
-	require.Equal(t, priorAppHash, *blockCtx.Random)
+	for _, tracing := range []bool{false, true} {
+		legacyCtx := pacificCtx.WithIsTracing(tracing).WithBlockHeight(50)
+		blockCtx, err = k.GetVMBlockContext(legacyCtx, 0)
+		require.NoError(t, err)
+		require.Equal(t, legacy, *blockCtx.Random, "tracing=%v", tracing)
+		postCtx := pacificCtx.WithIsTracing(tracing).WithBlockHeight(150)
+		blockCtx, err = k.GetVMBlockContext(postCtx, 0)
+		require.NoError(t, err)
+		require.Equal(t, priorAppHash, *blockCtx.Random, "tracing=%v", tracing)
+	}
 }
 
 func TestGetHashFn(t *testing.T) {
