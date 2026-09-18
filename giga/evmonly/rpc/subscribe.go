@@ -30,9 +30,12 @@ func (api *subscribeAPI) NewHeads(ctx context.Context) (*ethrpc.Subscription, er
 		return nil, err
 	}
 	rpcSub := notifier.CreateSubscription()
+	// The cursor is taken before the stream goroutine starts so a block committed
+	// in between is not skipped.
+	last := executed.Load()
 	// The request ctx is canceled as soon as eth_subscribe returns; the stream
 	// lives until rpcSub.Err() closes instead.
-	go api.streamHeads(context.WithoutCancel(ctx), notifier, rpcSub, executed)
+	go api.streamHeads(context.WithoutCancel(ctx), notifier, rpcSub, executed, last)
 	return rpcSub, nil
 }
 
@@ -41,6 +44,7 @@ func (api *subscribeAPI) streamHeads(
 	notifier *ethrpc.Notifier,
 	rpcSub *ethrpc.Subscription,
 	executed utils.AtomicRecv[atypes.GlobalBlockNumber],
+	last atypes.GlobalBlockNumber,
 ) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -50,7 +54,15 @@ func (api *subscribeAPI) streamHeads(
 		<-rpcSub.Err()
 		cancel()
 	}()
-	for next := executed.Load() + 1; ; next++ {
+	if last == 0 {
+		// Nothing has been executed by this process yet; a zero watch is not the
+		// chain tip, so the stream starts after the first executed height.
+		var err error
+		if last, err = executed.Wait(ctx, func(n atypes.GlobalBlockNumber) bool { return n > 0 }); err != nil {
+			return
+		}
+	}
+	for next := last + 1; ; next++ {
 		if _, err := executed.Wait(ctx, func(n atypes.GlobalBlockNumber) bool { return n >= next }); err != nil {
 			return
 		}

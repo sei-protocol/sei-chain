@@ -409,6 +409,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
+	r.executed.Store(last)
 	next := last + 1
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
