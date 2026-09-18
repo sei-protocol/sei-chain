@@ -46,6 +46,40 @@ func TestReadReceiptConfigEnable(t *testing.T) {
 	require.False(t, cfg.Enable)
 }
 
+func TestReadReceiptConfigRewardPercentiles(t *testing.T) {
+	// Unset leaves it empty; the littidx backend applies receipt.DefaultRewardPercentiles itself.
+	cfg, err := ReadReceiptConfig(mapAppOpts{})
+	require.NoError(t, err)
+	require.Empty(t, cfg.RewardPercentiles)
+
+	// A TOML float array decodes (via Viper) as []interface{} of float64.
+	cfg, err = ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-reward-percentiles": []interface{}{0.0, 50.0, 100.0},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []float64{0, 50, 100}, cfg.RewardPercentiles)
+}
+
+func TestReadReceiptConfigRewardPercentilesRejectsOutOfRange(t *testing.T) {
+	_, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-reward-percentiles": []interface{}{-1.0, 50.0},
+	})
+	require.ErrorContains(t, err, "between 0 and 100")
+}
+
+func TestReadReceiptConfigRewardPercentilesRejectsDuplicates(t *testing.T) {
+	_, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-reward-percentiles": []interface{}{50.0, 50.0},
+	})
+	require.ErrorContains(t, err, "duplicate")
+}
+
+func TestReceiptStoreConfigRewardPercentilesTOML(t *testing.T) {
+	require.Equal(t, "[]", ReceiptStoreConfig{}.RewardPercentilesTOML())
+	require.Equal(t, "[0, 50, 100]",
+		ReceiptStoreConfig{RewardPercentiles: []float64{0, 50, 100}}.RewardPercentilesTOML())
+}
+
 func TestReadReceiptConfigLogFilterParallelism(t *testing.T) {
 	// Defaults when unset.
 	cfg, err := ReadReceiptConfig(mapAppOpts{})

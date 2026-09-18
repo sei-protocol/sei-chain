@@ -420,7 +420,7 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord)
 func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord) error {
 	blockNumbers, receiptsByBlock := groupReceiptRecordsByBlock(receipts)
 	if len(blockNumbers) == 0 {
-		return s.SetLatestVersion(height)
+		return s.writeEmptyBlockStats(height)
 	}
 
 	// Closes the stage in flight, so the gap until the next write is charged to neither.
@@ -448,6 +448,33 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord)
 		return err
 	}
 	s.latestVersion.Store(newLatest)
+	return nil
+}
+
+// writeEmptyBlockStats records a zero-value BlockStats for a block that produced no receipts, so
+// GetBlockStats still answers it (zero gasUsedRatio, zero reward) instead of reporting
+// ErrBlockStatsNotSupported: an empty block is a real, committed block. height at or below the
+// current head is a no-op, matching SetLatestVersion's own guard (covers height 0, e.g. genesis).
+func (s *littReceiptStore) writeEmptyBlockStats(height int64) error {
+	if height <= s.latestVersion.Load() {
+		return nil
+	}
+	defer s.writePhases.Reset()
+	batch := s.index.NewBatch()
+	defer func() { _ = batch.Close() }()
+
+	blockNumber := uint64(height) //nolint:gosec // height > latestVersion >= 0, guarded above
+	if err := batch.Set(blockStatsKey(blockNumber), encodeBlockStats(BlockStats{})); err != nil {
+		return err
+	}
+	if err := batch.Set(receiptLatestVersionKey, encodeBlockNumber(blockNumber)); err != nil {
+		return err
+	}
+	s.writePhases.SetPhase("commit_index")
+	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
+		return err
+	}
+	s.latestVersion.Store(height)
 	return nil
 }
 

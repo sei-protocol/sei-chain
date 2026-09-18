@@ -17,9 +17,11 @@ import (
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
 
-// earliestCommittedHeight assumes genesis InitialHeight is 1, true of every genesis this executor
-// is deployed with today. A chain configured with a higher InitialHeight would need its real value
-// here instead; nothing currently exposes it after restart.
+// earliestCommittedHeight is what "earliest" resolves to for eth_feeHistory. It is a fixed
+// contract of this RPC surface, not a read of the running chain's actual genesis: every giga
+// deployment today starts at height 1, and InitChain's InitialHeight isn't recoverable after a
+// restart to check that assumption at runtime. A chain genesis'd above height 1 would have
+// "earliest" resolve to a height that never existed.
 const earliestCommittedHeight = int64(1)
 
 // gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the
@@ -71,11 +73,10 @@ func emptyFeeHistoryResult() *FeeHistoryResult {
 }
 
 // FeeHistory returns gas-used ratios and base fees for the blockCount blocks ending at lastBlock.
-// baseFeePerGas is always zero, matching this application's fixed base fee. reward, for a height
-// whose stored aggregate stats (see receipt.BlockStats) cover every requested percentile, comes
-// from that aggregate; otherwise it falls back to the same suggested price for every percentile —
-// a real per-transaction reward needs a receipt per transaction across the range, which this
-// executor's receipt store has no bulk read for.
+// baseFeePerGas is always zero, matching this application's fixed base fee. reward is per
+// percentile: the stored aggregate (see receipt.BlockStats) when that percentile was recorded for
+// the height, the suggested gas price otherwise — a real per-transaction reward needs a receipt
+// per transaction across the range, which this executor's receipt store has no bulk read for.
 func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock ethrpc.BlockNumber, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	if blockCount < 1 {
 		return emptyFeeHistoryResult(), nil
@@ -179,27 +180,28 @@ func gasUsedRatio(totalGasUsed, gasLimit uint64) float64 {
 	return float64(ratioInt) / 10000.0
 }
 
-// rewardRow answers rewardPercentiles for stats: the stored percentiles when every one requested
-// was recorded, otherwise fixedReward's fixed-price simplification for the whole row — giga has
-// no bulk receipt read to fall back to a real per-tx computation the way the mainline RPC can.
+// rewardRow answers rewardPercentiles for stats, per percentile: the stored value when present,
+// the suggested gas price as a placeholder when a percentile wasn't precomputed, or zero for
+// every percentile when the block has no reward-eligible tx at all.
 func (api *infoAPI) rewardRow(stats receiptpkg.BlockStats, floor *big.Int, rewardPercentiles []float64) []*hexutil.Big {
 	row := make([]*hexutil.Big, len(rewardPercentiles))
+	if len(stats.RewardPercentiles) == 0 {
+		// No reward-eligible tx at all (including an empty block): every percentile is zero,
+		for i := range row {
+			row[i] = (*hexutil.Big)(new(big.Int))
+		}
+		return row
+	}
+	guess := suggestedGasPrice(floor)
 	for i, p := range rewardPercentiles {
 		reward, ok := stats.RewardAt(p)
 		if !ok {
-			return fixedReward(floor, len(rewardPercentiles))
+			// This percentile wasn't precomputed, but others in the same row may have been — a
+			// miss on one must not discard the real values this block does have.
+			row[i] = (*hexutil.Big)(new(big.Int).Set(guess))
+			continue
 		}
 		row[i] = (*hexutil.Big)(new(big.Int).SetUint64(reward))
-	}
-	return row
-}
-
-// fixedReward returns count independent copies of the suggested gas price.
-func fixedReward(floor *big.Int, count int) []*hexutil.Big {
-	price := suggestedGasPrice(floor)
-	row := make([]*hexutil.Big, count)
-	for i := range row {
-		row[i] = (*hexutil.Big)(new(big.Int).Set(price))
 	}
 	return row
 }

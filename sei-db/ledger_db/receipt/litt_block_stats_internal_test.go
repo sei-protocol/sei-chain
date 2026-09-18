@@ -81,3 +81,37 @@ func TestLittGetBlockStatsCorruptDataFallsBack(t *testing.T) {
 	_, err := s.GetBlockStats(newTestCtxAtHeight(1), 1)
 	require.ErrorIs(t, err, ErrBlockStatsNotSupported)
 }
+
+// TestLittGetBlockStatsForEmptyBlockIsZeroNotUnsupported is the case an executed block with no
+// transactions must still answer: a real block that happens to be empty, not a missing one.
+func TestLittGetBlockStatsForEmptyBlockIsZeroNotUnsupported(t *testing.T) {
+	s, cleanup := setupLittCtxStore(t)
+	defer cleanup()
+
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1), nil))
+	requireReceiptVersion(t, s, 1)
+
+	stats, err := s.GetBlockStats(newTestCtxAtHeight(1), 1)
+	require.NoError(t, err)
+	require.Zero(t, stats.TotalGasUsed)
+	require.Zero(t, stats.TxCount)
+	require.Empty(t, stats.RewardPercentiles)
+}
+
+// TestLittWriteEmptyBlockStatsNeverRewritesAnAlreadyCommittedBlock guards against a later,
+// out-of-order empty write clobbering a block's already-recorded real stats.
+func TestLittWriteEmptyBlockStatsNeverRewritesAnAlreadyCommittedBlock(t *testing.T) {
+	s, cleanup := setupLittCtxStore(t)
+	defer cleanup()
+
+	txHash, r := littCtxTestReceipt(1, 0, [20]byte{}, [32]byte{}, 0)
+	r.GasUsed = 10
+	require.NoError(t, s.SetReceipts(newTestCtxAtHeight(1), []ReceiptRecord{{TxHash: txHash, Receipt: r}}))
+	requireReceiptVersion(t, s, 1)
+
+	require.NoError(t, s.writeEmptyBlockStats(1))
+
+	stats, err := s.GetBlockStats(newTestCtxAtHeight(1), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(10), stats.TotalGasUsed, "an empty-block write at or below the head must not overwrite real stats")
+}

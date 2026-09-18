@@ -102,10 +102,10 @@ type ReceiptStoreConfig struct {
 	LogFilterParallelism int `mapstructure:"log-filter-parallelism"`
 
 	// RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles computed and
-	// stored per block, letting eth_gasPrice/eth_feeHistory answer exactly these percentiles from
-	// a single point query. A request for a percentile outside this list falls back to iterating
-	// the block's receipts. Changing this only affects blocks written after the change; a block
-	// written under an older list is read exactly as it was written, never migrated.
+	// stored per block, letting a reward query for exactly one of these percentiles answer from a
+	// single point query instead of a per-caller fallback. Changing this only affects blocks
+	// written after the change; a block written under an older list is read exactly as it was
+	// written, never migrated. Each entry must be in [0, 100], with no duplicates.
 	// Applies only to the littidx backend. Empty defaults to receipt.DefaultRewardPercentiles.
 	RewardPercentiles []float64 `mapstructure:"rs-reward-percentiles"`
 }
@@ -190,6 +190,9 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		if err != nil {
 			return cfg, fmt.Errorf("invalid %q: %w", flagRSRewardPercentiles, err)
 		}
+		if err := validateRewardPercentiles(rewardPercentiles); err != nil {
+			return cfg, fmt.Errorf("invalid %q: %w", flagRSRewardPercentiles, err)
+		}
 		cfg.RewardPercentiles = rewardPercentiles
 	}
 	return cfg, nil
@@ -210,4 +213,36 @@ func toFloat64SliceE(v interface{}) ([]float64, error) {
 		out[i] = f
 	}
 	return out, nil
+}
+
+// validateRewardPercentiles rejects a percentile outside [0, 100], a duplicate, or a list long
+// enough to strain the uint16 count encodeBlockStats writes per block.
+func validateRewardPercentiles(percentiles []float64) error {
+	if len(percentiles) > 100 {
+		return fmt.Errorf("too many reward percentiles: %d, must be 100 or fewer", len(percentiles))
+	}
+	seen := make(map[float64]struct{}, len(percentiles))
+	for _, p := range percentiles {
+		if p < 0 || p > 100 {
+			return fmt.Errorf("reward percentile %v must be between 0 and 100", p)
+		}
+		if _, dup := seen[p]; dup {
+			return fmt.Errorf("duplicate reward percentile %v", p)
+		}
+		seen[p] = struct{}{}
+	}
+	return nil
+}
+
+// RewardPercentilesTOML renders RewardPercentiles as a TOML float array literal (e.g.
+// "[0, 10, 25]"), or "[]" when unset.
+func (c ReceiptStoreConfig) RewardPercentilesTOML() string {
+	if len(c.RewardPercentiles) == 0 {
+		return "[]"
+	}
+	parts := make([]string, len(c.RewardPercentiles))
+	for i, p := range c.RewardPercentiles {
+		parts[i] = strconv.FormatFloat(p, 'g', -1, 64)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }

@@ -8,11 +8,18 @@ import (
 	"sort"
 )
 
+const (
+	blockStatsKeyPrefix = 's'
+	// percentileFixedPointLen and rewardLen size one encoded RewardPercentile entry.
+	percentileFixedPointLen = 4
+	rewardLen               = 8
+)
+
 // DefaultRewardPercentiles is applied when ReceiptStoreConfig.RewardPercentiles is empty, and by
 // MemoryReceiptStore (which has no config). It covers the percentile sets real eth_feeHistory
-// callers ask for: MetaMask ([50]), ethers/alloy/Nethereum-style ([50,90]), adaptive pricing
-// ([25,50,75,90]), and explorer/dashboard views ([25,50,75]).
-var DefaultRewardPercentiles = []float64{0, 10, 25, 50, 75, 90, 100}
+// callers ask for: MetaMask ([50]), older MetaMask ([20,30,50]), ethers/alloy-style ([20,50,90]),
+// adaptive pricing ([25,50,75,90]), and explorer/dashboard views ([25,50,75]).
+var DefaultRewardPercentiles = []float64{0, 10, 20, 25, 30, 50, 75, 90, 100}
 
 // RewardPercentile is one gas-weighted reward percentile computed at block-write time.
 type RewardPercentile struct {
@@ -57,10 +64,9 @@ type rewardEntry struct {
 
 // ComputeBlockStats aggregates one block's receipts: every record contributes to TotalGasUsed and
 // TxCount, and records with a non-nil Reward contribute to the gas-weighted percentile walk —
-// sort ascending by reward, then walk cumulative gas used against each percentile's threshold,
-// mirroring evmrpc's CalculatePercentiles exactly so the write-time and per-tx-fallback paths
-// can't silently diverge (see the cross-check test between the two). Exported so every writer of
-// ReceiptStore.SetReceipts — the litt backend and MemoryReceiptStore alike — computes it the same way.
+// sort ascending by reward, then walk cumulative gas used against each percentile's threshold.
+// Exported so every writer of ReceiptStore.SetReceipts — the litt backend and MemoryReceiptStore
+// alike — computes it the same way.
 func ComputeBlockStats(records []ReceiptRecord, percentiles []float64) BlockStats {
 	var stats BlockStats
 	entries := make([]rewardEntry, 0, len(records))
@@ -100,13 +106,6 @@ func ComputeBlockStats(records []ReceiptRecord, percentiles []float64) BlockStat
 	}
 	return stats
 }
-
-const (
-	blockStatsKeyPrefix = 's'
-	// percentileFixedPointLen and rewardLen size one encoded RewardPercentile entry.
-	percentileFixedPointLen = 4
-	rewardLen               = 8
-)
 
 // blockStatsKey identifies blockNumber's stats entry in the pebble index, distinct from the 'm:'
 // metadata keys and the 't' tag-index keys sharing that store.

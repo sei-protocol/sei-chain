@@ -145,6 +145,14 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	for blockNumber, blockRecords := range byBlock {
 		s.blockStats[blockNumber] = receipt.ComputeBlockStats(blockRecords, receipt.DefaultRewardPercentiles)
 	}
+	if len(byBlock) == 0 && ctx.BlockHeight() > 0 {
+		// An empty block still executed; record it as a real, zero-stat block rather than leaving
+		// it unrecorded, which GetBlockStats would otherwise report as ErrBlockStatsNotSupported.
+		blockNumber := uint64(ctx.BlockHeight()) //nolint:gosec // guarded non-negative above
+		if _, exists := s.blockStats[blockNumber]; !exists {
+			s.blockStats[blockNumber] = receipt.BlockStats{}
+		}
+	}
 	s.mu.Unlock()
 	receipt.RecordReceiptsWritten(ctx.Context(), stored)
 	return nil
@@ -176,6 +184,11 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 			delete(s.blocks[previous.blockNumber], record.TxHash)
 			if len(s.blocks[previous.blockNumber]) == 0 {
 				delete(s.blocks, previous.blockNumber)
+				// The block this receipt moved away from (e.g. a nonce-mismatch retry included at
+				// a later height) is now empty, not missing: its stats must read as a real,
+				// zero-stat block rather than the stale ones computed when the receipt still
+				// belonged to it.
+				s.blockStats[previous.blockNumber] = receipt.BlockStats{}
 			}
 		}
 		blockNumber := record.Receipt.BlockNumber

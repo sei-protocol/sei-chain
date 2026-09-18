@@ -111,15 +111,52 @@ func TestFeeHistoryRewardFromStoredPercentiles(t *testing.T) {
 
 func TestFeeHistoryFallsBackToFixedRewardForAnUnstoredPercentile(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	setBlockReceipt(t, store, 1, 10, 999) // reward value is irrelevant to the fallback row
+	setBlockReceipt(t, store, 1, 10, 999) // reward value is irrelevant to the fallback slot
 	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so the whole row falls back to the fixed
-	// suggested price rather than mixing a real value with a guess.
+	// 33 is not in receipt.DefaultRewardPercentiles, so its slot falls back to the fixed
+	// suggested price.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
 	require.Equal(t, []*big.Int{big.NewInt(1_100_000_000)}, toBigInts(result.Reward[0]))
+}
+
+// TestFeeHistoryPerPercentileFallbackKeepsStoredValuesForOthers guards the fix for a real review
+// finding: a miss on one requested percentile must not discard the real stored values for the
+// others in the same row.
+func TestFeeHistoryPerPercentileFallbackKeepsStoredValuesForOthers(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 10}, Reward: big.NewInt(100)},
+		{TxHash: [32]byte{2}, Receipt: &evmtypes.Receipt{TxHashHex: "0x2", BlockNumber: 1, GasUsed: 10}, Reward: big.NewInt(300)},
+	}))
+	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+
+	// 0 and 100 are stored (min/max); 33 is not.
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{0, 33, 100})
+	require.NoError(t, err)
+	require.Len(t, result.Reward, 1)
+	require.Equal(t,
+		[]*big.Int{big.NewInt(100), big.NewInt(1_100_000_000), big.NewInt(300)},
+		toBigInts(result.Reward[0]))
+}
+
+// TestFeeHistoryEmptyBlockReturnsZeros is the case an executed block with no transactions must
+// still answer correctly: zero gasUsedRatio and zero reward for every requested percentile
+// (go-ethereum's eth_feeHistory: "all zeroes are returned if the block is empty"), not an error
+// and not the guessed price.
+func TestFeeHistoryEmptyBlockReturnsZeros(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(1), nil))
+	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{25, 50, 75})
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(1), result.OldestBlock.ToInt())
+	require.Equal(t, []float64{0}, result.GasUsedRatio)
+	require.Len(t, result.Reward, 1)
+	require.Equal(t, []*big.Int{big.NewInt(0), big.NewInt(0), big.NewInt(0)}, toBigInts(result.Reward[0]))
 }
 
 func toBigInts(row []*hexutil.Big) []*big.Int {
