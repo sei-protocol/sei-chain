@@ -201,7 +201,8 @@ func (s *CommitStore) getAccountData(keyBytes []byte) (*vtype.AccountData, error
 	if len(keyBytes) != ktype.AddressLen {
 		return nil, fmt.Errorf("accountDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	physKey := ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes)
+	var buf [physKeyBufLen]byte
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], ktype.EVMKeyAccount, keyBytes)
 	raw, found, err := s.accountStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("accountDB read of key %x: %w", physKey, err)
@@ -213,7 +214,8 @@ func (s *CommitStore) getStorageData(keyBytes []byte) (*vtype.StorageData, error
 	if len(keyBytes) != ktype.AddressLen+ktype.SlotLen {
 		return nil, fmt.Errorf("storageDB: expected key length %d, got %d", ktype.AddressLen+ktype.SlotLen, len(keyBytes))
 	}
-	physKey := ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes)
+	var buf [physKeyBufLen]byte
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], keys.EVMKeyStorage, keyBytes)
 	raw, found, err := s.storageStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("storageDB read of key %x: %w", physKey, err)
@@ -236,7 +238,8 @@ func (s *CommitStore) getCodeData(keyBytes []byte) (*vtype.CodeData, error) {
 	if len(keyBytes) != ktype.AddressLen {
 		return nil, fmt.Errorf("codeDB: expected key length %d, got %d", ktype.AddressLen, len(keyBytes))
 	}
-	physKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes)
+	var buf [physKeyBufLen]byte
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], keys.EVMKeyCode, keyBytes)
 	raw, found, err := s.codeStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("codeDB read of key %x: %w", physKey, err)
@@ -256,7 +259,8 @@ func (s *CommitStore) getCodeValue(key []byte) ([]byte, error) {
 }
 
 func (s *CommitStore) getMiscData(moduleName string, keyBytes []byte) (*vtype.MiscData, error) {
-	physKey := ktype.ModulePhysicalKey(moduleName, keyBytes)
+	var buf [physKeyBufLen]byte
+	physKey := ktype.AppendModulePhysicalKey(buf[:0], moduleName, keyBytes)
 	raw, found, err := s.miscStore.Get(physKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("miscDB read of key %x: %w", physKey, err)

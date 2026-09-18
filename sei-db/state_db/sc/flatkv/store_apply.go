@@ -328,6 +328,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 		return m
 	}
 
+	var keyBuf []byte
 	for _, cs := range changeSets {
 		if cs == nil || len(cs.Changeset.Pairs) == 0 {
 			continue
@@ -342,10 +343,11 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 
 				var physKey string
 				if kind == keys.EVMKeyMisc {
-					physKey = string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
+					keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], keys.EVMStoreKey, pair.Key)
 				} else {
-					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
+					keyBuf = ktype.AppendEVMPhysicalKey(keyBuf[:0], kind, keyBytes)
 				}
+				physKey = string(keyBuf)
 
 				kindMap := getOrCreate(kind, len(cs.Changeset.Pairs))
 				if pair.Delete {
@@ -367,7 +369,8 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 			}
 			miscMap := getOrCreate(keys.EVMKeyMisc, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
-				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
+				keyBuf = ktype.AppendModulePhysicalKey(keyBuf[:0], cs.Name, pair.Key)
+				physKey := string(keyBuf)
 				if pair.Delete {
 					miscMap[physKey] = nil
 				} else {
