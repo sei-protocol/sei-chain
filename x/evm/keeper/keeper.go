@@ -335,7 +335,15 @@ func (k *Keeper) prevRandaoIsLegacyTimestamp(ctx sdk.Context) bool {
 	if plan, found := k.upgradeKeeper.GetUpgradePlan(gasFreeCtx); found && plan.Name == "v6.8" {
 		return !plan.ShouldExecute(ctx)
 	}
-	return true
+	// No v6.8 record at this height: either it precedes the plan's
+	// scheduling on a chain that crossed v6.8, or the chain launched on a
+	// build that already ran the app-hash semantics. Only the networks that
+	// existed before v6.8 can have legacy heights.
+	switch ctx.ChainID() {
+	case Pacific1ChainID, "atlantic-2", "arctic-1":
+		return true
+	}
+	return false
 }
 
 // returns a function that provides block header hash based on block number

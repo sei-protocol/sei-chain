@@ -359,6 +359,14 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
 		sdkCtx = b.ctxProvider(tmBlock.Block.Height)
+		// The queried block's AppHash is what it executed with; the provider
+		// ctx carries the latest committed header's. Autobahn /block headers
+		// are sparse and leave AppHash empty, so only override when present.
+		if len(tmBlock.Block.AppHash) > 0 {
+			sdkHeader := sdkCtx.BlockHeader()
+			sdkHeader.AppHash = tmBlock.Block.AppHash
+			sdkCtx = sdkCtx.WithBlockHeader(sdkHeader)
+		}
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
 				return nil, nil, err

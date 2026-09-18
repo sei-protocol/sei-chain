@@ -215,7 +215,7 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault, appHash []byte) (*abci.ResponseCommit, []byte, error) {
 	app := r.app
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -225,7 +225,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 		key, err := crypto.PubKeyFromProto(proposer.PubKey)
 		if err != nil {
-			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			return nil, nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
 	}
@@ -243,13 +243,14 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 			ChainID: r.cfg.GenDoc.ChainID,
 			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
 			Time:    b.Timestamp,
+			AppHash: appHash,
 			// WARNING: the reward distribution has corner cases where it forgets the proposer,
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
+		return nil, nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 
 	// Commit this height's app hash to the equivocation guard before persisting app state, so the
@@ -258,22 +259,22 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
 	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
 	if err := commitAppHashToVault(ctx, hashVault, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("app.Commit(): %w", err)
+		return nil, nil, fmt.Errorf("app.Commit(): %w", err)
 	}
 	weights, err := committeeWeights(app.GetValidators())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
-		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+		return nil, nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
-	return commitResp, nil
+	return commitResp, resp.AppHash, nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.
@@ -399,6 +400,9 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
 	next := last + 1
+	// appHash is the app hash the next executed block's header carries: the
+	// InitChain hash for a fresh chain, else the last committed block's.
+	appHash := info.LastBlockAppHash
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
 		// node.go: shouldHandshake = !stateSync && !gigaEnabled), so we
@@ -408,9 +412,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		// Re-entering on restart (crashed after InitChain, before first
 		// Commit) is safe — nothing was committed, so it behaves as a
 		// fresh init.
-		if _, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain()); err != nil {
+		initResp, err := app.InitChain(r.cfg.GenDoc.ToRequestInitChain())
+		if err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
+		appHash = initResp.AppHash
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
 		if !ok {
@@ -433,6 +439,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			ChainID: r.cfg.GenDoc.ChainID,
 			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
 			Time:    b.Timestamp,
+			AppHash: info.LastBlockAppHash,
 			// TODO: for consistency we should also set proposerAddress here,
 			// but this is a placeholder solution so maybe we don't care.
 		}).ToProto())
@@ -461,10 +468,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
-		commitResp, err := r.executeBlock(ctx, b, hashVault)
+		commitResp, nextAppHash, err := r.executeBlock(ctx, b, hashVault, appHash)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
+		appHash = nextAppHash
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
