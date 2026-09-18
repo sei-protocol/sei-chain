@@ -315,9 +315,16 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 // timestamp-derived PREVRANDAO.
 func (k *Keeper) prevRandaoIsLegacyTimestamp(ctx sdk.Context) bool {
 	// The marker records the height v6.8 activated, so every height below it
-	// ran the timestamp semantics whatever the chain is. It answers for every
-	// caller: live execution and sync replay below the upgrade height, plus
-	// traces and historical calls, which never set a tracing flag.
+	// ran the timestamp semantics whatever the chain is. This covers live
+	// execution, sync replay below the upgrade height, traces and historical
+	// calls alike, none of which need a tracing flag.
+	//
+	// The marker is read from whatever store ctx was opened against, and the
+	// trace path opens it one height early (initializeBlock builds its base
+	// ctx at blockNumber-1). At the upgrade height itself the marker is
+	// written during that block's own BeginBlock, which the trace harness
+	// does not replay, so tracing exactly that block replays the legacy value
+	// while it executed with the app hash. Accepted one-block window.
 	gasFreeCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
 	if doneHeight := k.upgradeKeeper.GetDoneHeight(gasFreeCtx, "v6.8"); doneHeight > 0 {
 		return ctx.BlockHeight() < doneHeight

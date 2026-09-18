@@ -115,26 +115,36 @@ func TestInitializeBlockUsesTracedBlockAppHash(t *testing.T) {
 	require.Equal(t, []byte(tracedAppHash), []byte(sdkCtx.BlockHeader().AppHash))
 }
 
-func TestInitializeBlockKeepsBaseAppHashWhenBlockHeaderIsSparse(t *testing.T) {
+// TestInitializeBlockGigaHeightTracesWithHeadAppHash pins the Autobahn
+// limitation documented at the guard in initializeBlock: translateGlobalBlock
+// leaves AppHash empty, so a historical giga height traces with head's app
+// hash rather than the one it executed with. Zeroing it instead would be
+// worse — PREVRANDAO would read 0x00..00 — but neither value is faithful.
+// Recovering the executed hash means reading the commit hash at height-1.
+func TestInitializeBlockGigaHeightTracesWithHeadAppHash(t *testing.T) {
 	orig := runTraceBeginBlock
 	t.Cleanup(func() { runTraceBeginBlock = orig })
 	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {
 	}
 
-	baseAppHash := bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000010"))
+	headAppHash := bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000010"))
 
-	// Autobahn's translateGlobalBlock populates only ChainID/Height/Time, so
-	// AppHash arrives empty. Overwriting with it would zero PREVRANDAO.
 	backend, block := newInitializeBlockTestBackend(t)
+	// Autobahn's translateGlobalBlock populates only ChainID/Height/Time.
 	require.Empty(t, backend.tmClient.(*fakeTMClient).blocksByHeight[8].Block.AppHash)
 
-	baseCtx := sdk.Context{}.WithBlockHeader(tmproto.Header{AppHash: baseAppHash})
+	// The base ctx is opened at the traced height but keeps the check (head)
+	// header, so its AppHash is head's — see App.RPCContextProvider.
+	baseCtx := sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 5000, AppHash: headAppHash})
 	sdkCtx, _, release, err := backend.initializeBlock(t.Context(), block, func(int64) (sdk.Context, func()) {
 		return baseCtx, func() {}
 	})
 	require.NoError(t, err)
 	defer release()
-	require.Equal(t, []byte(baseAppHash), []byte(sdkCtx.BlockHeader().AppHash))
+	require.Equal(t, int64(8), sdkCtx.BlockHeight())
+	require.Equal(t, []byte(headAppHash), []byte(sdkCtx.BlockHeader().AppHash),
+		"documented limitation: giga traces carry head's app hash, not height 8's")
+	require.NotEmpty(t, sdkCtx.BlockHeader().AppHash, "must not zero PREVRANDAO")
 }
 
 func newInitializeBlockTestBackend(t *testing.T) (*Backend, *ethtypes.Block) {

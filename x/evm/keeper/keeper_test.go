@@ -117,6 +117,17 @@ func TestGetVMBlockContextPrevRandaoIsPriorAppHash(t *testing.T) {
 	blockCtx, err = k.GetVMBlockContext(ctx.WithBlockHeight(150), 0)
 	require.NoError(t, err)
 	require.Equal(t, priorAppHash, *blockCtx.Random)
+
+	// Exactly at the done height the marker is present in this store, so the
+	// block takes the app hash. A trace of that block opens the store one
+	// height early, before the marker is written, and replays the legacy
+	// value instead — the accepted one-block window.
+	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithBlockHeight(100), 0)
+	require.NoError(t, err)
+	require.Equal(t, priorAppHash, *blockCtx.Random)
+	blockCtx, err = k.GetVMBlockContext(pacificCtx.WithBlockHeight(99), 0)
+	require.NoError(t, err)
+	require.Equal(t, legacy, *blockCtx.Random)
 }
 
 func TestGetHashFn(t *testing.T) {

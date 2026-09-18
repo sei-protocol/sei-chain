@@ -744,6 +744,13 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 	}()
 	// The traced block's AppHash is what it executed with; the base ctx's is
 	// latest. Autobahn block headers are sparse, so a missing hash keeps it.
+	//
+	// Known limitation: translateGlobalBlock never sets AppHash, so every
+	// Autobahn height below head traces PREVRANDAO with head's app hash
+	// instead of the one the block executed with. The Autobahn AppProposal
+	// records only range-final hashes, so it cannot serve per-height values;
+	// the executed hash is the multistore commit hash at blockNumber-1, which
+	// this path does not read yet.
 	header := baseCtx.BlockHeader()
 	if len(tmBlock.Block.AppHash) > 0 {
 		header.AppHash = tmBlock.Block.AppHash
