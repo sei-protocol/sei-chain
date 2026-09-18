@@ -174,7 +174,10 @@ func prepareApplication(
 	}
 	app, err := wrapApplication(conf, app, storage, committee)
 	if err != nil {
-		return nil, storage, err
+		if manager, ok := storage.Get(); ok {
+			err = errors.Join(err, manager.Close())
+		}
+		return nil, noStorage, err
 	}
 	return app, storage, nil
 }
@@ -187,7 +190,11 @@ func wrapApplication(
 	storage utils.Option[*bootstrap.GigaStorageManager],
 	committee *config.AutobahnFileConfig,
 ) (abci.Application, error) {
-	if manager, ok := storage.Get(); ok && conf.EVMOnly {
+	if conf.EVMOnly {
+		manager, ok := storage.Get()
+		if !ok {
+			return nil, fmt.Errorf("evm-only requires Autobahn storage")
+		}
 		validators, err := evmOnlyValidatorUpdates(committee)
 		if err != nil {
 			return nil, fmt.Errorf("load EVM-only validator set: %w", err)

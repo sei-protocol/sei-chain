@@ -346,7 +346,7 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 	}
 	require.NoError(t, preparePersistentStateDir(t.TempDir(), cfg))
 	_, ok := cfg.PersistentStateDir.Get()
-	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
+	require.False(t, ok, "Some(\"\") must be cleared to None")
 }
 
 func TestValidateNodeSetupConfigRejectsAutobahnSeed(t *testing.T) {
@@ -374,6 +374,15 @@ func TestPrepareApplicationAutobahnOpensStorage(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 	require.Equal(t, app, prepared)
 	require.NotNil(t, manager.BlockStore())
+}
+
+func TestPrepareApplicationEVMOnlyRequiresStorage(t *testing.T) {
+	_, storage, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig: config.BaseConfig{EVMOnly: true},
+	}, abci.BaseApplication{})
+	require.Error(t, err)
+	_, ok := storage.Get()
+	require.False(t, ok)
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this

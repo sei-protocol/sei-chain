@@ -357,9 +357,8 @@ func buildGigaRouter(
 
 // preparePersistentStateDir resolves a relative PersistentStateDir against
 // the node's --home dir (mirrors config.go's rootify) and creates it if absent.
-// Some("") is treated as None (in-memory / disabled): JSON unmarshals a literal
-// empty string as present, which would otherwise Join to rootDir and silently
-// enable durable BlockStore + HashVault.
+// Some("") is treated as None: JSON unmarshals a literal empty string as present,
+// which would otherwise Join to rootDir.
 func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
 	dir, ok := c.PersistentStateDir.Get()
 	if !ok || dir == "" {

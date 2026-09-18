@@ -34,6 +34,9 @@ Output is written to the file specified by --output.`,
 				return fmt.Errorf("--output flag is required")
 			}
 			persistentStateDir, _ := cmd.Flags().GetString("persistent-state-dir")
+			if persistentStateDir == "" {
+				return fmt.Errorf("persistent-state-dir is required")
+			}
 			blockDBRetention, _ := cmd.Flags().GetString("blockdb-retention")
 			blockDBGCPeriod, _ := cmd.Flags().GetString("blockdb-gc-period")
 
@@ -93,12 +96,9 @@ Output is written to the file specified by --output.`,
 			}
 			// The flag defaults to "data/autobahn" so persistence is on without
 			// operator action. node/setup.go rootifies the relative path against
-			// cfg.RootDir at load time. Passing --persistent-state-dir= (empty)
-			// disables persistence and runs both consensus and data layers
-			// in-memory only.
-			if persistentStateDir != "" {
-				cfg.PersistentStateDir = utils.Some(persistentStateDir)
-			}
+			// cfg.RootDir at load time. An empty --persistent-state-dir is refused:
+			// Autobahn nodes require on-disk Giga storage.
+			cfg.PersistentStateDir = utils.Some(persistentStateDir)
 			blockDB, err := buildGenBlockDBConfig(blockDBRetention, blockDBGCPeriod)
 			if err != nil {
 				return err
@@ -117,7 +117,7 @@ Output is written to the file specified by --output.`,
 		},
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
-	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus state and BlockDB across restarts; relative paths are resolved against the node's --home dir; pass --persistent-state-dir= (empty) to disable persistence and run in-memory only (memblock)")
+	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus state and BlockDB across restarts; relative paths are resolved against the node's --home dir")
 	// Default 30s: this helper is used by docker/local clusters, not production
 	// node bring-up. Pass --blockdb-retention= (empty) to omit block_db and keep
 	// littblock's production default (24h).
