@@ -39,6 +39,8 @@ func TestEVMOnlyCursorDecodeRejectsMalformed(t *testing.T) {
 		"empty":                nil,
 		"truncated":            valid[:evmOnlyCursorSize-1],
 		"oversized":            append(append([]byte(nil), valid...), 0),
+		"under legacy width":   make([]byte, evmOnlyCursorLegacySize-1),
+		"over legacy width":    make([]byte, evmOnlyCursorLegacySize+1),
 		"height exceeds int64": negativeHeight,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -46,4 +48,39 @@ func TestEVMOnlyCursorDecodeRejectsMalformed(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// encodeLegacyEVMOnlyCursor writes a cursor the way the binary did before
+// prevRandao existed: height, appHash, blockHash, gasLimit, with no prevRandao.
+func encodeLegacyEVMOnlyCursor(height int64, appHash, blockHash common.Hash, gasLimit uint64) []byte {
+	buf := make([]byte, 0, evmOnlyCursorLegacySize)
+	buf = binary.BigEndian.AppendUint64(buf, uint64(height)) //nolint:gosec // test input is non-negative.
+	buf = append(buf, appHash[:]...)
+	buf = append(buf, blockHash[:]...)
+	return binary.BigEndian.AppendUint64(buf, gasLimit)
+}
+
+// TestEVMOnlyCursorDecodesLegacyWidth covers a node upgrading across the commit
+// that widened the cursor. Its on-disk cursor is the older width, and without the
+// migration the node refuses to start rather than resuming.
+func TestEVMOnlyCursorDecodesLegacyWidth(t *testing.T) {
+	appHash := common.HexToHash("0xaa11")
+	blockHash := common.HexToHash("0xbb22")
+	const height = int64(296796)
+	const gasLimit = uint64(0x0102030405060708)
+
+	raw := encodeLegacyEVMOnlyCursor(height, appHash, blockHash, gasLimit)
+	require.Equal(t, evmOnlyCursorLegacySize, len(raw))
+
+	cursor, err := decodeEVMOnlyCursor(raw)
+	require.NoError(t, err)
+	require.Equal(t, height, cursor.height)
+	require.Equal(t, appHash, cursor.appHash)
+	require.Equal(t, blockHash, cursor.blockHash)
+	// The field the older width did not carry reads zero, identically on every node.
+	require.Equal(t, common.Hash{}, cursor.prevRandao)
+	// prevRandao is spliced in ahead of the gas limit rather than appended. Appending
+	// would take the gas limit from the zeroed bytes and read this value as prevRandao,
+	// so this assertion is what separates the two.
+	require.Equal(t, gasLimit, cursor.gasLimit)
 }
