@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -296,15 +297,17 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 			"txCount", len(fBlockRes.TxResults),
 		)
 		// Log per-tx deterministic fields (Code, Data, GasWanted, GasUsed) for debugging
-		for i, txRes := range fBlockRes.TxResults {
-			logger.Debug("TxResult for LastResultsHash",
-				"height", block.Height,
-				"txIndex", i,
-				"code", txRes.Code,
-				"gasWanted", txRes.GasWanted,
-				"gasUsed", txRes.GasUsed,
-				"dataLen", len(txRes.Data),
-			)
+		if logger.Enabled(ctx, slog.LevelDebug) {
+			for i, txRes := range fBlockRes.TxResults {
+				logger.Debug("TxResult for LastResultsHash",
+					"height", block.Height,
+					"txIndex", i,
+					"code", txRes.Code,
+					"gasWanted", txRes.GasWanted,
+					"gasUsed", txRes.GasUsed,
+					"dataLen", len(txRes.Data),
+				)
+			}
 		}
 	}
 
