@@ -115,6 +115,28 @@ func TestInitializeBlockUsesTracedBlockAppHash(t *testing.T) {
 	require.Equal(t, []byte(tracedAppHash), []byte(sdkCtx.BlockHeader().AppHash))
 }
 
+func TestInitializeBlockKeepsBaseAppHashWhenBlockHeaderIsSparse(t *testing.T) {
+	orig := runTraceBeginBlock
+	t.Cleanup(func() { runTraceBeginBlock = orig })
+	runTraceBeginBlock = func(sdk.Context, int64, []abci.VoteInfo, []abci.Misbehavior, legacyabci.BeginBlockKeepers) {
+	}
+
+	baseAppHash := bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000010"))
+
+	// Autobahn's translateGlobalBlock populates only ChainID/Height/Time, so
+	// AppHash arrives empty. Overwriting with it would zero PREVRANDAO.
+	backend, block := newInitializeBlockTestBackend(t)
+	require.Empty(t, backend.tmClient.(*fakeTMClient).blocksByHeight[8].Block.AppHash)
+
+	baseCtx := sdk.Context{}.WithBlockHeader(tmproto.Header{AppHash: baseAppHash})
+	sdkCtx, _, release, err := backend.initializeBlock(t.Context(), block, func(int64) (sdk.Context, func()) {
+		return baseCtx, func() {}
+	})
+	require.NoError(t, err)
+	defer release()
+	require.Equal(t, []byte(baseAppHash), []byte(sdkCtx.BlockHeader().AppHash))
+}
+
 func newInitializeBlockTestBackend(t *testing.T) (*Backend, *ethtypes.Block) {
 	t.Helper()
 	tm := &fakeTMClient{
