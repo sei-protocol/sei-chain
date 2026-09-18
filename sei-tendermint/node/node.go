@@ -769,11 +769,15 @@ func (n *nodeImpl) OnStop() {
 }
 
 // closeGigaStorage closes the manager-owned storage or standalone Autobahn
-// block store at most once.
+// block store at most once. The application's in-flight block commits are
+// landed first, so the stores are not closed under a write.
 func (n *nodeImpl) closeGigaStorage() error {
 	var err error
 	n.gigaStorageCloseOnce.Do(func() {
 		if manager, ok := n.gigaStorageManager.Get(); ok {
+			if settleErr := n.rpcEnv.App.AwaitCommits(); settleErr != nil {
+				logger.Error("failed to settle block commits before closing Giga storage", "err", settleErr)
+			}
 			if err = manager.Close(); err != nil {
 				logger.Error("failed to close Giga storage manager", "err", err)
 			}
