@@ -20,7 +20,8 @@ import (
 // Capitalized methods are the surface the shard calls; readCache is unexported, so they are not exports.
 //
 // Method postfixes state the lock contract: RLocked and WLocked require the caller to hold the read or
-// write lock, Unlocked requires the caller to hold neither, and a bare name has no lock dependency.
+// write lock, and Unlocked requires the caller to hold neither. A bare name touches no guarded state,
+// or is external surface whose caller has no access to the lock.
 type readCache struct {
 	// Cancelled when the manager shuts down; interrupts blocked waits on in-flight reads.
 	ctx context.Context

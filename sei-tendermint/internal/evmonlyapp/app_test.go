@@ -1,6 +1,7 @@
 package evmonlyapp
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -61,6 +63,20 @@ func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.App
 	return NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 }
 
+// waitForReceiptVersion blocks until the receipt store has published height. The store applies
+// writes in the background, so a receipt is readable once LatestVersion reaches its block rather
+// than once SetReceipts returns.
+func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int64) {
+	t.Helper()
+	for store.LatestVersion() < height {
+		select {
+		case <-t.Context().Done():
+			t.Fatalf("receipt store still at version %d before %d: %v", store.LatestVersion(), height, t.Context().Err())
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, sender := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
@@ -97,11 +113,13 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	gotBalance = app.EvmBalance(sender, nil)
 	require.Equal(t, wantBalance, gotBalance.ToBig())
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
+	receiptDB := app.(*evmOnlyApplication).storage.ReceiptDB()
+	waitForReceiptVersion(t, receiptDB, 1)
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
-	receipt, err := app.(*evmOnlyApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
+	gotReceipt, err := receiptDB.GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
-	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
-	require.Equal(t, uint64(1), receipt.BlockNumber)
+	require.Equal(t, tx.Hash().Hex(), gotReceipt.TxHashHex)
+	require.Equal(t, uint64(1), gotReceipt.BlockNumber)
 }
 
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
@@ -111,6 +129,64 @@ func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
 
 	require.True(t, response.IsErr())
+}
+
+// A zero priority fee is valid EIP-1559, and admitting on tx.GasPrice() — the
+// fee cap on a dynamic-fee tx — let one through that the executor then refused.
+// An executor refusal is a node panic rather than a failed receipt, so this has
+// to be caught here.
+func TestEVMOnlyApplicationRefusesATxTheExecutorWouldRefuse(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	// Fee cap far above the minimum, tip cap zero. At a zero base fee the
+	// effective gas price is the tip, so block validity refuses it.
+	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     0,
+		GasTipCap: new(big.Int),
+		GasFeeCap: big.NewInt(100 * evmOnlyMinGasPrice),
+		Gas:       21_000,
+		To:        &recipient,
+		Value:     big.NewInt(1),
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+
+	response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+
+	require.True(t, response.IsErr())
+}
+
+// A tip that clears the minimum still has to be admitted, or the fix has
+// rejected every dynamic-fee transaction rather than the inexecutable ones.
+func TestEVMOnlyApplicationAdmitsADynamicFeeTxThatClearsTheMinimum(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	recipient := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     0,
+		GasTipCap: big.NewInt(evmOnlyMinGasPrice),
+		GasFeeCap: big.NewInt(100 * evmOnlyMinGasPrice),
+		Gas:       21_000,
+		To:        &recipient,
+		Value:     big.NewInt(1),
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+
+	response := app.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw})
+
+	require.True(t, response.IsOK())
 }
 
 func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
@@ -146,6 +222,22 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	})
 
 	require.Error(t, err)
+}
+
+func TestEVMOnlyABCIResultsCarryRevertReasonWithoutFailingTheTx(t *testing.T) {
+	result := &evmonly.BlockResult{
+		Txs: []evmonly.TxResult{
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusSuccessful},
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusFailed, Err: errors.New("execution reverted")},
+		},
+	}
+
+	txResults := evmOnlyABCIResults(result)
+
+	require.Equal(t, abci.CodeTypeOK, txResults[0].Code)
+	require.Empty(t, txResults[0].Log)
+	require.Equal(t, abci.CodeTypeOK, txResults[1].Code, "a revert must not mark the tx for a mempool retry")
+	require.Equal(t, "execution reverted", txResults[1].Log)
 }
 
 func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {

@@ -241,11 +241,41 @@ immutable and shared across account snapshots, and code hashes are cached per
 loaded account.
 
 `OCCStats` reports whether optimistic execution was attempted, how many reruns
-and validation attempts were needed, and aggregated conflict samples.
-`Fallback` is reserved for cases where the executor gives up on the optimistic
-path, such as max-incarnation exhaustion or a concurrent `Close()` closing the
-shared OCC worker pool after OCC was selected; ordinary conflicts should be
-resolved by per-transaction reruns instead.
+and validation attempts were needed, the deepest incarnation any single
+transaction reached (`MaxIncarnation`, where `RerunCount` counts reruns across
+the whole block), and aggregated conflict samples. `Fallback` is reserved for
+cases where the executor gives up on the optimistic path, such as
+max-incarnation exhaustion or a concurrent `Close()` closing the shared OCC
+worker pool after OCC was selected; ordinary conflicts should be resolved by
+per-transaction reruns instead.
+
+`ExecutePreparedBlock` also emits those stats on the global OpenTelemetry meter,
+so OCC behavior is visible without reading `BlockResult`. The node binds the
+meter provider with a `sei_chain` Prometheus namespace, so each name below is
+scraped with that prefix:
+
+- `giga_occ_blocks_total{outcome}` — one sample per block. `parallel` and
+  `fallback` are the blocks that tried optimistic execution, `sequential` those
+  that had transactions but were ineligible (a single transaction,
+  `OCCWorkers <= 1`, or registered custom precompiles), and `empty` those with
+  no transactions. Splitting the last two keeps
+  `parallel / (parallel + fallback + sequential)` a statement about OCC rather
+  than about block rate.
+- `giga_occ_fallbacks_total{reason}` — blocks that abandoned the optimistic path,
+  by fallback reason.
+- `giga_occ_reruns_total` — transaction reruns scheduled by validation.
+- `giga_occ_conflicts_total{access,kind}` — validation conflicts.
+- `giga_occ_rerun_depth` — `MaxIncarnation` per optimistically executed block,
+  bucketed one per reachable incarnation.
+
+Every label vocabulary is closed in `metrics.go`: an outcome, reason, access, or
+state kind the emitter does not know collapses to `unknown` rather than adding a
+series. Conflict addresses and slots are deliberately not labels — they are
+per-contract and per-slot, so they would make the series unbounded, and they
+stay in `OCCStats.ConflictSamples` for logs and spans. Conflict samples are
+summed onto the access-by-kind series before being emitted, so the telemetry
+work per block is bounded by the label space rather than by the number of
+conflicting state keys.
 
 ## Current limitations
 

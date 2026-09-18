@@ -4,18 +4,6 @@ package gov
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	govv552 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v552"
-	govv555 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v555"
-	govv562 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v562"
-	govv580 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v580"
-	govv605 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v605"
-	govv606 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v606"
-	govv610 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v610"
-	govv614 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v614"
-	govv620 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v620"
-	govv630 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v630"
-	govv640 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v640"
-	govv65 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v65"
 	govv66 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v66"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
@@ -23,18 +11,6 @@ import (
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(govv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(govv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(govv562.NewPrecompile(keepers)),
-		"v5.8.0":      check(govv580.NewPrecompile(keepers)),
-		"v6.0.5":      check(govv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(govv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(govv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(govv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(govv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(govv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(govv640.NewPrecompile(keepers)),
-		"v6.5":        check(govv65.NewPrecompile(keepers)),
 		"v6.6":        check(govv66.NewPrecompile(keepers)),
 	}
 }

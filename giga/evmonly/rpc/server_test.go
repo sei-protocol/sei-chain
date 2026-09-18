@@ -11,6 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
@@ -21,6 +22,7 @@ import (
 type testBackend struct {
 	broadcast func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
 	block     func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
+	balance   func(common.Address) uint256.Int
 	proxy     utils.Option[*ethrpc.Client]
 }
 
@@ -30,6 +32,10 @@ func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBro
 
 func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 	return b.block(ctx, req)
+}
+
+func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
+	return b.balance(address)
 }
 
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {

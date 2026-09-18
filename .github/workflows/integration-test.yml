@@ -28,15 +28,12 @@ defaults:
 env:
   # Non-cone sparse-checkout pattern shared by every job that needs the source
   # tree: everything except the darwin/aarch64 wasmvm archives, which CI
-  # (linux/amd64 only) never links and which make up ~500 MB of the tree.
+  # (linux/amd64 only) never links and which make up ~190 MB of the tree.
   SPARSE_CHECKOUT: |
     /*
     !/sei-wasmvm/internal/api/*darwin*
     !/sei-wasmvm/internal/api/*aarch64*
     !/sei-wasmvm/internal/api/*.dylib
-    !/sei-wasmd/x/wasm/artifacts/*/api/*darwin*
-    !/sei-wasmd/x/wasm/artifacts/*/api/*aarch64*
-    !/sei-wasmd/x/wasm/artifacts/*/api/*.dylib
 
 jobs:
   # Generate the integration-test matrix from integration-test-matrix.json.

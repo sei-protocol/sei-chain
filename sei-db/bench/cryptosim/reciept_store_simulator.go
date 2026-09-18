@@ -251,10 +251,6 @@ func (r *RecieptStoreSimulator) processBlock(blk *block) {
 	for _, entry := range ringEntries {
 		r.txRing.Push(entry.txHash, blockNumber, entry.contractAddress)
 	}
-
-	if err := r.store.SetLatestVersion(int64(blockNumber)); err != nil { //nolint:gosec
-		fmt.Printf("failed to update latest version for block %d: %v\n", blockNumber, err)
-	}
 }
 
 // startReceiptReaders launches dedicated goroutines for receipt-by-hash lookups.
