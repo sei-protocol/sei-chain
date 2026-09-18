@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+	"golang.org/x/net/netutil"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -26,10 +27,14 @@ const (
 	listenAddress   = "0.0.0.0:8545"
 	wsListenAddress = "0.0.0.0:8546"
 	shutdownWait    = 5 * time.Second
+	// maxWSConns bounds concurrently open WebSocket connections; each one is
+	// hijacked and held with its own goroutine until the peer disconnects.
+	maxWSConns = 2000
 )
 
-// wsAllowedOrigins accepts WebSocket upgrades from any Origin header, matching
-// the HTTP listener, which performs no origin check.
+// wsAllowedOrigins accepts WebSocket upgrades from any Origin header. WebSocket
+// is exempt from the browser same-origin policy, so this is the only origin
+// gate on the listener.
 var wsAllowedOrigins = []string{"*"}
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
@@ -89,7 +94,7 @@ func Start(backend Backend, receiptStore receipt.ReceiptStore) (*Server, error) 
 			Handler:           rpcServer,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-		wsListener: wsListener,
+		wsListener: netutil.LimitListener(wsListener, maxWSConns),
 		ws: &http.Server{
 			Handler:           websocketHandler(rpcServer),
 			ReadHeaderTimeout: 5 * time.Second,
