@@ -38,12 +38,14 @@ func (api *subscribeAPI) NewHeads(ctx context.Context) (*ethrpc.Subscription, er
 		return nil, err
 	}
 	rpcSub := notifier.CreateSubscription()
-	go api.streamHeads(notifier, rpcSub, heads)
+	// The request ctx is canceled as soon as eth_subscribe returns; the stream
+	// lives until rpcSub.Err() closes instead.
+	go api.streamHeads(context.WithoutCancel(ctx), notifier, rpcSub, heads)
 	return rpcSub, nil
 }
 
-func (api *subscribeAPI) streamHeads(notifier *ethrpc.Notifier, rpcSub *ethrpc.Subscription, heads HeadSubscription) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (api *subscribeAPI) streamHeads(ctx context.Context, notifier *ethrpc.Notifier, rpcSub *ethrpc.Subscription, heads HeadSubscription) {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
 		// Err closes on eth_unsubscribe and when the connection drops; that is
