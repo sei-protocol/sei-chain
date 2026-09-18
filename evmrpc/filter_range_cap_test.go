@@ -98,6 +98,10 @@ func (s *rangeCapReceiptStore) SetReceipts(_ sdk.Context, records []receipt.Rece
 	return nil
 }
 
+func (s *rangeCapReceiptStore) GetBlockStats(sdk.Context, uint64) (receipt.BlockStats, error) {
+	return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+}
+
 func (s *rangeCapReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *receipt.LogBudget) ([]*ethtypes.Log, error) {
 	s.mu.Lock()
 	candidates := append([]*ethtypes.Log(nil), s.candidates...)

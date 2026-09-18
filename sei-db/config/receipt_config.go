@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cast"
@@ -22,6 +23,7 @@ const (
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
 	flagRSReadWriteMetrics     = "receipt-store.enable-read-write-metrics"
 	flagRSLogFilterParallelism = "receipt-store.log-filter-parallelism"
+	flagRSRewardPercentiles    = "receipt-store.rs-reward-percentiles"
 )
 
 // DefaultReceiptLogFilterParallelism is the default per-query block fan-out for
@@ -98,6 +100,14 @@ type ReceiptStoreConfig struct {
 	// Applies only to the littidx backend. <= 0 falls back to the default.
 	// defaults to 16
 	LogFilterParallelism int `mapstructure:"log-filter-parallelism"`
+
+	// RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles computed and
+	// stored per block, letting eth_gasPrice/eth_feeHistory answer exactly these percentiles from
+	// a single point query. A request for a percentile outside this list falls back to iterating
+	// the block's receipts. Changing this only affects blocks written after the change; a block
+	// written under an older list is read exactly as it was written, never migrated.
+	// Applies only to the littidx backend. Empty defaults to receipt.DefaultRewardPercentiles.
+	RewardPercentiles []float64 `mapstructure:"rs-reward-percentiles"`
 }
 
 // DefaultReceiptStoreConfig returns the default ReceiptStoreConfig.
@@ -175,5 +185,29 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		}
 		cfg.LogFilterParallelism = logFilterParallelism
 	}
+	if v := opts.Get(flagRSRewardPercentiles); v != nil {
+		rewardPercentiles, err := toFloat64SliceE(v)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid %q: %w", flagRSRewardPercentiles, err)
+		}
+		cfg.RewardPercentiles = rewardPercentiles
+	}
 	return cfg, nil
+}
+
+// toFloat64SliceE parses a config value (a TOML/Viper array, however it decoded) into a []float64.
+func toFloat64SliceE(v interface{}) ([]float64, error) {
+	raw, err := cast.ToStringSliceE(v)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float64, len(raw))
+	for i, s := range raw {
+		f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if err != nil {
+			return nil, fmt.Errorf("element %q: %w", s, err)
+		}
+		out[i] = f
+	}
+	return out, nil
 }

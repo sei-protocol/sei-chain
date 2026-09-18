@@ -238,6 +238,20 @@ func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint25
 	return *new(uint256.Int).SetBytes(balance[:])
 }
 
+// EvmGasLimit returns the gas limit of the most recently committed block.
+func (a *evmOnlyApplication) EvmGasLimit() uint64 {
+	for state := range a.state.Lock() {
+		return state.gasLimit
+	}
+	return 0
+}
+
+// EvmMinGasPrice returns the minimum effective gas price this application admits a transaction
+// at. Admission and eth_gasPrice's suggestion both price against it, so they cannot diverge.
+func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
+	return big.NewInt(evmOnlyMinGasPrice)
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {

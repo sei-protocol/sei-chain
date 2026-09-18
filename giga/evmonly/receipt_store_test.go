@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -88,6 +89,46 @@ func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(4), store.EarliestVersion())
 	require.Equal(t, uint64(2), store.GetRollbackFloor(2))
+}
+
+func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	hash1, hash2 := common.Hash{1}, common.Hash{2}
+	records := []receipt.ReceiptRecord{
+		{TxHash: hash1, Receipt: &evmtypes.Receipt{TxHashHex: hash1.Hex(), BlockNumber: 5, GasUsed: 10}, Reward: big.NewInt(100)},
+		{TxHash: hash2, Receipt: &evmtypes.Receipt{TxHashHex: hash2.Hex(), BlockNumber: 5, GasUsed: 20}, Reward: big.NewInt(300)},
+	}
+	receiptCtx := newReceiptContext(t.Context(), 5)
+	require.NoError(t, store.SetReceipts(receiptCtx, records))
+
+	stats, err := store.GetBlockStats(receiptCtx, 5)
+	require.NoError(t, err)
+	require.Equal(t, uint64(30), stats.TotalGasUsed)
+	require.Equal(t, uint32(2), stats.TxCount)
+	min, ok := stats.RewardAt(0)
+	require.True(t, ok)
+	require.Equal(t, uint64(100), min)
+
+	_, err = store.GetBlockStats(receiptCtx, 6)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
+}
+
+func TestMemoryReceiptStorePruneHistoryRemovesBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	oldHash, newHash := common.Hash{1}, common.Hash{2}
+	records := []receipt.ReceiptRecord{
+		{TxHash: oldHash, Receipt: &evmtypes.Receipt{TxHashHex: oldHash.Hex(), BlockNumber: 3, GasUsed: 1}},
+		{TxHash: newHash, Receipt: &evmtypes.Receipt{TxHashHex: newHash.Hex(), BlockNumber: 4, GasUsed: 2}},
+	}
+	receiptCtx := newReceiptContext(t.Context(), 4)
+	require.NoError(t, store.SetReceipts(receiptCtx, records))
+	require.NoError(t, store.PruneHistory(4))
+
+	_, err := store.GetBlockStats(receiptCtx, 3)
+	require.ErrorIs(t, err, receipt.ErrNotFound)
+	stats, err := store.GetBlockStats(receiptCtx, 4)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), stats.TotalGasUsed)
 }
 
 func TestMemoryReceiptStoreHonorsCanceledContext(t *testing.T) {

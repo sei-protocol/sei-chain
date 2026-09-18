@@ -20,10 +20,12 @@ import (
 )
 
 type testBackend struct {
-	broadcast func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
-	block     func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
-	balance   func(common.Address) uint256.Int
-	proxy     utils.Option[*ethrpc.Client]
+	broadcast   func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
+	block       func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
+	balance     func(common.Address) uint256.Int
+	proxy       utils.Option[*ethrpc.Client]
+	gasLimit    func() (uint64, error)
+	minGasPrice func() (*big.Int, error)
 }
 
 func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
@@ -40,6 +42,14 @@ func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
 
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 	return b.proxy
+}
+
+func (b *testBackend) EvmGasLimit() (uint64, error) {
+	return b.gasLimit()
+}
+
+func (b *testBackend) EvmMinGasPrice() (*big.Int, error) {
+	return b.minGasPrice()
 }
 
 func TestSendRawTransaction(t *testing.T) {
