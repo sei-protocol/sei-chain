@@ -496,8 +496,10 @@ func TestEncodeBlockRejectsUndecodableTransactions(t *testing.T) {
 func TestEncodeBlockReceiptReadError(t *testing.T) {
 	_, raw := testSignedTransaction(t)
 	want := errors.New("receipt db closed")
+	memory := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, memory.SetLatestVersion(4))
 	store := stubReceiptStore{
-		ReceiptStore: evmonly.NewMemoryReceiptStore(),
+		ReceiptStore: memory,
 		get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
 			return nil, want
 		},
@@ -519,7 +521,7 @@ func TestEncodeBlockReceiptReadError(t *testing.T) {
 		// Verify: wrapped receipt error.
 		require.Nil(t, got)
 		require.ErrorIs(t, err, want)
-		require.ErrorContains(t, err, "read last transaction receipt for block 4")
+		require.ErrorContains(t, err, "read transaction receipt at block 4 index 0")
 	})
 
 	t.Run("full tx", func(t *testing.T) {

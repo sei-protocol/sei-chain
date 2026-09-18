@@ -131,8 +131,9 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 			latestVersion = blockVersion
 		}
 		stored = append(stored, receipt.ReceiptRecord{
-			TxHash:  record.TxHash,
-			Receipt: cloneStoredReceipt(record.Receipt),
+			TxHash:       record.TxHash,
+			Receipt:      cloneStoredReceipt(record.Receipt),
+			KeepExisting: record.KeepExisting,
 		})
 		byBlock[record.Receipt.BlockNumber] = append(byBlock[record.Receipt.BlockNumber], record)
 	}
@@ -178,6 +179,13 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := receiptContextError(ctx); err != nil {
+		return err
+	}
+	stored, err := receipt.FilterExistingReceipts(stored, func(hash common.Hash) (bool, error) {
+		_, found := s.byTxHash[hash]
+		return found, nil
+	})
+	if err != nil {
 		return err
 	}
 	for _, record := range stored {

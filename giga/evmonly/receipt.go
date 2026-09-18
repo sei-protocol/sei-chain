@@ -2,10 +2,12 @@ package evmonly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -62,7 +64,10 @@ func receiptRecords(blockNumber uint64, result *BlockResult) ([]receipt.ReceiptR
 		if ethReceipt.EffectiveGasPrice != nil {
 			reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
 		}
-		records[i] = receipt.ReceiptRecord{TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward}
+		records[i] = receipt.ReceiptRecord{
+			TxHash: ethReceipt.TxHash, Receipt: stored, Reward: reward,
+			KeepExisting: errors.Is(txResult.Err, core.ErrNonceTooLow),
+		}
 	}
 	return records, nil
 }
