@@ -71,8 +71,8 @@ type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
 	LastCommittedBlockNumber() int64
-	// ExecutedBlocks publishes each block as it is committed to the app.
-	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlock]
+	// ExecutedBlocks publishes the recently committed blocks as they are committed to the app.
+	ExecutedBlocks() utils.AtomicRecv[atypes.ExecutedBlocks]
 	MaxGasEstimatedPerBlock() uint64
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)

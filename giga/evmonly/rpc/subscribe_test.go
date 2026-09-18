@@ -15,11 +15,9 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -29,13 +27,13 @@ import (
 func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	blockHash := common.HexToHash("0xabcd")
 	block, _, _, _ := multiTxBlock(t, 7, blockHash, time.Unix(1_700_000_000, 0))
-	executed := utils.NewAtomicSend(atypes.ExecutedBlock{Number: 6})
+	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
 	subscribed := make(chan struct{}, 1)
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		require.Equal(t, coretypes.Int64(7), *req.Height)
 		return block, nil
 	})
-	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlock], error) {
+	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
 	}
@@ -53,7 +51,7 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	require.NoError(t, err)
 	<-subscribed
 
-	executed.Store(atypes.ExecutedBlock{Number: 7, GasUsed: 43_500})
+	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Number: 7, GasUsed: 43_500}))
 
 	select {
 	case header := <-headers:
@@ -68,15 +66,13 @@ func TestNewHeadsSubscriptionStreamsHeadersOverWebsocket(t *testing.T) {
 	sub.Unsubscribe()
 }
 
-// TestNewHeadsReadsReceiptsForBlockTheWatchPassed covers a subscriber that
-// observes the watch only after it moved two blocks: the passed block's gasUsed
-// is read from the receipt store, the current one's from the commit.
-func TestNewHeadsReadsReceiptsForBlockTheWatchPassed(t *testing.T) {
-	block7, _, _, filledStore := multiTxBlock(t, 7, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
+// TestNewHeadsCatchesUpFromExecutedWindow covers a subscriber that observes the
+// watch only after it moved two blocks: both heads carry the gasUsed their
+// commits recorded, with no receipts written.
+func TestNewHeadsCatchesUpFromExecutedWindow(t *testing.T) {
+	block7, _, _, _ := multiTxBlock(t, 7, common.HexToHash("0xabcd"), time.Unix(1_700_000_000, 0))
 	block8, _, _, _ := multiTxBlock(t, 8, common.HexToHash("0xabce"), time.Unix(1_700_000_001, 0))
-	store := evmonly.NewMemoryReceiptStore()
-	copyReceipts(t, filledStore, store, block7)
-	executed := utils.NewAtomicSend(atypes.ExecutedBlock{Number: 6})
+	executed := utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: 6}))
 	subscribed := make(chan struct{}, 1)
 	backend := fixedGasLimitBackend(t, 35_000_000, func(_ context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		switch *req.Height {
@@ -87,11 +83,11 @@ func TestNewHeadsReadsReceiptsForBlockTheWatchPassed(t *testing.T) {
 		}
 		return nil, fmt.Errorf("unexpected height %d", *req.Height)
 	})
-	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlock], error) {
+	backend.executedBlocks = func() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 		subscribed <- struct{}{}
 		return executed.Subscribe(), nil
 	}
-	handler, err := newHandler(backend, store)
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(websocketHandler(handler))
@@ -105,7 +101,7 @@ func TestNewHeadsReadsReceiptsForBlockTheWatchPassed(t *testing.T) {
 	require.NoError(t, err)
 	<-subscribed
 
-	executed.Store(atypes.ExecutedBlock{Number: 8, GasUsed: 21_000})
+	executed.Store(executed.Load().Push(atypes.ExecutedBlock{Number: 7, GasUsed: 43_500}).Push(atypes.ExecutedBlock{Number: 8, GasUsed: 21_000}))
 
 	want := []struct {
 		number  int64
@@ -137,19 +133,4 @@ func TestNewHeadsRejectedOverPlainHTTP(t *testing.T) {
 
 	_, err = client.EthSubscribe(t.Context(), make(chan map[string]any), "newHeads")
 	require.ErrorIs(t, err, ethrpc.ErrNotificationsUnsupported)
-}
-
-// copyReceipts writes block's receipts from src into dst.
-func copyReceipts(t *testing.T, src, dst receipt.ReceiptStore, block *coretypes.ResultBlock) {
-	t.Helper()
-	ctx := sdk.Context{}.WithContext(t.Context()).WithBlockHeight(block.Block.Height)
-	records := make([]receipt.ReceiptRecord, 0, len(block.Block.Txs))
-	for i, raw := range block.Block.Txs {
-		tx, err := decodeBlockTx(raw, block.Block.Height, i)
-		require.NoError(t, err)
-		stored, err := src.GetReceipt(ctx, tx.Hash())
-		require.NoError(t, err)
-		records = append(records, receipt.ReceiptRecord{TxHash: tx.Hash(), Receipt: stored})
-	}
-	require.NoError(t, dst.SetReceipts(ctx, records))
 }

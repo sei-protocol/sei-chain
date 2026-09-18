@@ -12,10 +12,10 @@ import (
 var ErrNewHeadsUnavailable = errors.New("newHeads subscriptions require Autobahn execution")
 
 // ExecutedBlocks returns the Giga router's executed-block watch.
-func (env *Environment) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlock], error) {
+func (env *Environment) ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error) {
 	giga, ok := env.gigaRouter().Get()
 	if !ok {
-		return utils.AtomicRecv[atypes.ExecutedBlock]{}, ErrNewHeadsUnavailable
+		return utils.AtomicRecv[atypes.ExecutedBlocks]{}, ErrNewHeadsUnavailable
 	}
 	return giga.ExecutedBlocks(), nil
 }

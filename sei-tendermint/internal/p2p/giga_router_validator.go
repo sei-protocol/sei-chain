@@ -80,7 +80,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey, dataSta
 			selfAddr:           utils.Some(selfAddr),
 			liveAddrs:          utils.NewRWMutex(map[atypes.PublicKey]GigaNodeAddr{}),
 			liveAddrVersion:    utils.NewAtomicSend(uint64(0)),
-			executed:           utils.NewAtomicSend(atypes.ExecutedBlock{Number: utils.Clamp[atypes.GlobalBlockNumber](cfg.App.LastBlockHeight())}),
+			executed:           utils.NewAtomicSend(atypes.NewExecutedBlocks(atypes.ExecutedBlock{Number: utils.Clamp[atypes.GlobalBlockNumber](cfg.App.LastBlockHeight())})),
 			inboundFullnodeCap: int64(cfg.MaxInboundFullnodePeers),
 		},
 		consensus:    consensusState,

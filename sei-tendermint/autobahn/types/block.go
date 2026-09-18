@@ -31,6 +31,53 @@ type ExecutedBlock struct {
 	GasUsed uint64
 }
 
+// ExecutedBlocksWindow is the number of committed blocks ExecutedBlocks retains.
+const ExecutedBlocksWindow = 128
+
+// ExecutedBlocks is an immutable window of the most recently committed blocks,
+// consecutive by number and newest last. The zero value holds no blocks.
+type ExecutedBlocks struct {
+	blocks []ExecutedBlock
+}
+
+// NewExecutedBlocks returns a window holding only b.
+func NewExecutedBlocks(b ExecutedBlock) ExecutedBlocks {
+	return ExecutedBlocks{blocks: []ExecutedBlock{b}}
+}
+
+// Push returns a copy of w with b appended, dropping the oldest block once the
+// window exceeds ExecutedBlocksWindow.
+func (w ExecutedBlocks) Push(b ExecutedBlock) ExecutedBlocks {
+	start := 0
+	if len(w.blocks) >= ExecutedBlocksWindow {
+		start = len(w.blocks) - ExecutedBlocksWindow + 1
+	}
+	blocks := make([]ExecutedBlock, 0, len(w.blocks)-start+1)
+	blocks = append(blocks, w.blocks[start:]...)
+	return ExecutedBlocks{blocks: append(blocks, b)}
+}
+
+// Latest returns the newest block in the window, or the zero ExecutedBlock if
+// the window is empty.
+func (w ExecutedBlocks) Latest() ExecutedBlock {
+	if len(w.blocks) == 0 {
+		return ExecutedBlock{}
+	}
+	return w.blocks[len(w.blocks)-1]
+}
+
+// Get returns the block numbered n if the window still holds it.
+func (w ExecutedBlocks) Get(n GlobalBlockNumber) (ExecutedBlock, bool) {
+	if len(w.blocks) == 0 {
+		return ExecutedBlock{}, false
+	}
+	first := w.blocks[0].Number
+	if n < first || n > w.Latest().Number {
+		return ExecutedBlock{}, false
+	}
+	return w.blocks[n-first], true
+}
+
 // BlockWithNumber pairs a block with its GlobalBlockNumber. It is used as the
 // payload of the utils.Option returned by ReadBlockByHash so that the block
 // number is only present when the block itself is present.

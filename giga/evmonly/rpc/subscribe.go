@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
@@ -31,7 +32,7 @@ func (api *subscribeAPI) NewHeads(ctx context.Context) (*ethrpc.Subscription, er
 	rpcSub := notifier.CreateSubscription()
 	// The cursor is taken before the stream goroutine starts so a block committed
 	// in between is not skipped.
-	last := executed.Load().Number
+	last := executed.Load().Latest().Number
 	// The request ctx is canceled as soon as eth_subscribe returns; the stream
 	// lives until rpcSub.Err() closes instead.
 	go api.streamHeads(context.WithoutCancel(ctx), notifier, rpcSub, executed, last)
@@ -42,9 +43,16 @@ func (api *subscribeAPI) streamHeads(
 	ctx context.Context,
 	notifier *ethrpc.Notifier,
 	rpcSub *ethrpc.Subscription,
-	executed utils.AtomicRecv[atypes.ExecutedBlock],
+	executed utils.AtomicRecv[atypes.ExecutedBlocks],
 	last atypes.GlobalBlockNumber,
 ) {
+	// Unlike request handlers, this goroutine is outside go-ethereum's per-call
+	// recovery, so a panic here must end the subscription rather than the node.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("newHeads: stream panicked", "subscription", rpcSub.ID, "panic", r)
+		}
+	}()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
@@ -54,11 +62,11 @@ func (api *subscribeAPI) streamHeads(
 		cancel()
 	}()
 	for next := last + 1; ; next++ {
-		committed, err := executed.Wait(ctx, func(b atypes.ExecutedBlock) bool { return b.Number >= next })
+		window, err := executed.Wait(ctx, func(w atypes.ExecutedBlocks) bool { return w.Latest().Number >= next })
 		if err != nil {
 			return
 		}
-		header, err := api.header(ctx, next, committed)
+		header, err := api.header(ctx, next, window)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
@@ -72,20 +80,25 @@ func (api *subscribeAPI) streamHeads(
 	}
 }
 
-// header renders the header of the block at height. gasUsed comes from the
-// commit that published height; when the watch has moved past it, the receipt
-// store is read instead, and yields zero if the receipts have not landed yet.
-func (api *subscribeAPI) header(ctx context.Context, height atypes.GlobalBlockNumber, committed atypes.ExecutedBlock) (map[string]any, error) {
+// header renders the header of the block at height. gasUsed is the total the
+// commit recorded while window still holds height; for an older height the
+// receipt store is read instead, yielding zero until its receipts land.
+func (api *subscribeAPI) header(ctx context.Context, height atypes.GlobalBlockNumber, window atypes.ExecutedBlocks) (map[string]any, error) {
 	h := coretypes.Int64(utils.Clamp[int64](height))
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &h})
 	if err != nil {
 		return nil, err
 	}
-	gasUsed := committed.GasUsed
-	if committed.Number != height {
-		if gasUsed, err = blockGasUsed(ctx, api.store, block); err != nil {
+	if block == nil || block.Block == nil {
+		return nil, fmt.Errorf("block %d not found", height)
+	}
+	committed, ok := window.Get(height)
+	if !ok {
+		gasUsed, err := blockGasUsed(ctx, api.store, block)
+		if err != nil {
 			return nil, err
 		}
+		committed.GasUsed = gasUsed
 	}
-	return encodeHeader(api.backend, block, gasUsed)
+	return encodeHeader(api.backend, block, committed.GasUsed)
 }

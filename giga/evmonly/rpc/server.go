@@ -53,7 +53,7 @@ type Backend interface {
 	EvmBalance(common.Address) uint256.Int
 	EvmBaseFee() (*big.Int, error)
 	EvmBlockNumber() uint64
-	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlock], error)
+	ExecutedBlocks() (utils.AtomicRecv[atypes.ExecutedBlocks], error)
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
