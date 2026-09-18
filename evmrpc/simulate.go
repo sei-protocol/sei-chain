@@ -742,9 +742,12 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 			tmBlock = nil
 		}
 	}()
-	// The traced block's AppHash is what it executed with; the base ctx's is latest.
+	// The traced block's AppHash is what it executed with; the base ctx's is
+	// latest. Autobahn block headers are sparse, so a missing hash keeps it.
 	header := baseCtx.BlockHeader()
-	header.AppHash = tmBlock.Block.AppHash
+	if len(tmBlock.Block.AppHash) > 0 {
+		header.AppHash = tmBlock.Block.AppHash
+	}
 	sdkCtx = baseCtx.WithBlockHeader(header).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	if ctx != nil {
 		// The RPC/trace deadline must be on the SDK context so KVStore
