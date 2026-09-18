@@ -2,9 +2,11 @@ package evmonly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
@@ -67,7 +69,10 @@ func encodeReceiptRecord(blockNumber uint64, result *BlockResult, i int, records
 		if txResult.Err != nil {
 			stored.VmError = txResult.Err.Error()
 		}
-		records[i] = receipt.ReceiptRecord{TxHash: ethReceipt.TxHash, Receipt: stored}
+		records[i] = receipt.ReceiptRecord{
+			TxHash: ethReceipt.TxHash, Receipt: stored,
+			KeepExisting: errors.Is(txResult.Err, core.ErrNonceTooLow),
+		}
 	}
 	return nil
 }

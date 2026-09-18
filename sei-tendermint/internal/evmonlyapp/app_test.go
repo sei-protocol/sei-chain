@@ -510,6 +510,31 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
 }
 
+func TestEVMOnlyApplicationCommitsBlockWithStaleNonce(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	first := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 0)
+	next := signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, 1)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, first))
+
+	response, err := app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2, first, next, next))
+	require.NoError(t, err)
+	require.Len(t, response.TxResults, 3)
+	for _, i := range []int{0, 2} {
+		require.Equal(t, uint32(abci.CodeTypeOK), response.TxResults[i].Code)
+		require.Equal(t, int64(0), response.TxResults[i].GasUsed)
+		require.True(t, response.TxResults[i].Log != "")
+	}
+	require.Equal(t, int64(21_000), response.TxResults[1].GasUsed)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, int64(2), app.LastBlockHeight())
+	require.Equal(t, uint64(2), app.EvmNonce(sender))
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
+}
+
 // TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
 func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {

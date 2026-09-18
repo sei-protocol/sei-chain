@@ -1268,29 +1268,6 @@ func TestExecutorValidationFailuresAbortBlock(t *testing.T) {
 		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
 	})
 
-	t.Run("nonce too low", func(t *testing.T) {
-		key, err := crypto.GenerateKey()
-		require.NoError(t, err)
-		sender := crypto.PubkeyToAddress(key.PublicKey)
-
-		state := NewMemoryState()
-		state.SetBalance(sender, big.NewInt(1_000_000_000_000_000))
-		state.SetNonce(sender, 1)
-		rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
-		executor := NewExecutor(Config{}, withTestState(state))
-
-		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
-			Context: blockContext(chainID),
-			Txs:     [][]byte{rawTx},
-		})
-
-		require.Error(t, err)
-		require.True(t, errors.Is(err, core.ErrNonceTooLow))
-		require.Nil(t, result)
-		require.Equal(t, uint64(1), state.GetNonce(sender))
-		require.Equal(t, big.NewInt(0), state.GetBalance(recipient))
-	})
-
 	t.Run("insufficient balance", func(t *testing.T) {
 		key, err := crypto.GenerateKey()
 		require.NoError(t, err)

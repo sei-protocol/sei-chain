@@ -513,3 +513,52 @@ func TestLittIdxFilterLogsParallelOrder(t *testing.T) {
 		require.NoError(t, store.Close())
 	}
 }
+
+func TestLittIdxDuplicateHashPreservesExecutedReceipt(t *testing.T) {
+	store, ctx := setupLittIdxSync(t)
+	addr := common.HexToAddress("0xabc")
+	original := litReceipt(1, 0, addr, common.HexToHash("0xdead"))
+	original.Receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
+	other := litReceipt(1, 1, addr, common.HexToHash("0xdead"))
+	stale := litReceipt(1, 2, addr)
+	stale.TxHash = original.TxHash
+	stale.Receipt.TxHashHex = original.TxHash.Hex()
+	stale.Receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
+	stale.Receipt.GasUsed = 0
+	stale.Receipt.Logs = nil
+	stale.Receipt.VmError = "nonce too low"
+	require.NoError(t, store.SetReceipts(ctx, []receipt.ReceiptRecord{stale, other, original}))
+
+	got, err := store.GetReceipt(ctx, original.TxHash)
+	require.NoError(t, err)
+	require.Equal(t, original.Receipt, got)
+	got, err = store.GetReceipt(ctx, other.TxHash)
+	require.NoError(t, err)
+	require.Equal(t, other.Receipt, got)
+
+	logs, err := store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{common.HexToHash("0xdead")}},
+	}, nil)
+	require.NoError(t, err)
+	require.Len(t, logs, 2)
+	require.Equal(t, original.TxHash, logs[0].TxHash)
+	require.Equal(t, uint(0), logs[0].TxIndex)
+	require.Equal(t, []byte{0xde, 0xad}, logs[0].Data)
+	require.Equal(t, other.TxHash, logs[1].TxHash)
+
+	it, err := store.IterateReceipts(1)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, it.Close()) }()
+	for _, record := range []receipt.ReceiptRecord{original, other} {
+		ok, err := it.Next()
+		require.NoError(t, err)
+		require.True(t, ok)
+		got, err := it.Receipt()
+		require.NoError(t, err)
+		require.Equal(t, record.Receipt, got)
+	}
+	ok, err := it.Next()
+	require.NoError(t, err)
+	require.False(t, ok)
+}

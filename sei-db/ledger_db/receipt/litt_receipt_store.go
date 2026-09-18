@@ -67,6 +67,7 @@ import (
 // Writes are applied in the background, so a receipt is not necessarily readable when SetReceipts
 // returns. LatestVersion is the watermark of what has been applied; Close waits for the queue.
 type littReceiptStore struct {
+	writeMu  sync.Mutex
 	values   litt.DB
 	receipts litt.Table
 	index    dbtypes.KeyValueDB
@@ -383,6 +384,8 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord)
 // writeReceipts writes a block's receipt bodies, log index and version marker. The bodies go to
 // litt first, so an indexed block always has its values written.
 func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	if height < 0 {
 		return fmt.Errorf("receipt block height must not be negative: %d", height)
 	}
@@ -431,6 +434,14 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord)
 // part slot, so a normal block writes part 0 and legacy migration appends.
 func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
 	sortRecordsByTxIndex(records)
+	// Check physical keys on the writer, including receipts below the retention
+	// floor that LittDB has not collected yet. Reusing those keys is also unsafe.
+	records, err := FilterExistingReceipts(records, func(hash common.Hash) (bool, error) {
+		return s.receipts.Exists(hash[:])
+	})
+	if err != nil {
+		return err
+	}
 
 	s.writePhases.SetPhase("probe_part_index")
 	partIndex, err := s.nextPartIndex(blockNumber)
@@ -447,6 +458,7 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 	s.writePhases.SetPhase("encode_values")
 	value := make([]byte, 0)
 	secondaryKeys := make([]*litttypes.SecondaryKey, 0, len(records))
+	indexedHashes := make(map[common.Hash]struct{}, len(records))
 	for _, record := range records {
 		body, err := marshaledReceipt(record)
 		if err != nil {
@@ -462,6 +474,13 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		})
 		partOffset := uint32(len(value)) //nolint:gosec // block regions fit within uint32
 		value = append(value, bz...)
+
+		// LittDB requires unique keys within one Put. Keep the first occurrence
+		// so a later stale duplicate cannot hide its executed receipt and logs.
+		if _, exists := indexedHashes[record.TxHash]; exists {
+			continue
+		}
+		indexedHashes[record.TxHash] = struct{}{}
 
 		txHash := make([]byte, common.HashLength)
 		copy(txHash, record.TxHash[:])
