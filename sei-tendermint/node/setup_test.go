@@ -14,6 +14,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -348,35 +349,31 @@ func TestPreparePersistentStateDir_EmptyStringIsNone(t *testing.T) {
 	require.False(t, ok, "Some(\"\") must be cleared to None for in-memory mode")
 }
 
-func TestSelectAutobahnBlockStoreOwnership(t *testing.T) {
-	commonConfig := &p2p.GigaRouterCommonConfig{}
-	blockDBConfig := config.AutobahnBlockDBConfig{}
-
-	t.Run("manager-owned", func(t *testing.T) {
-		managed, err := openBlockStore(commonConfig, blockDBConfig)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, managed.Close()) })
-
-		selected, owned, err := selectAutobahnBlockStore(
-			commonConfig,
-			blockDBConfig,
-			utils.Some[atypes.BlockStore](managed),
-		)
-		require.NoError(t, err)
-		require.Equal(t, managed, selected)
-		require.Nil(t, owned)
+func TestValidateNodeSetupConfigRejectsAutobahnSeed(t *testing.T) {
+	err := validateNodeSetupConfig(&config.Config{
+		BaseConfig: config.BaseConfig{
+			Mode: config.ModeSeed,
+		},
+		AutobahnConfigFile: "/tmp/autobahn.json",
 	})
 
-	t.Run("standalone", func(t *testing.T) {
-		selected, owned, err := selectAutobahnBlockStore(
-			commonConfig,
-			blockDBConfig,
-			utils.None[atypes.BlockStore](),
-		)
-		require.NoError(t, err)
-		require.Equal(t, selected, owned)
-		require.NoError(t, owned.Close())
-	})
+	require.ErrorIs(t, err, errAutobahnSeed)
+}
+
+func TestPrepareApplicationAutobahnOpensStorage(t *testing.T) {
+	app := abci.BaseApplication{}
+	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
+	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
+
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+		AutobahnConfigFile: autobahnConfigFile,
+	}, app)
+	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.Equal(t, app, prepared)
+	require.NotNil(t, manager.BlockStore())
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this

@@ -41,6 +41,15 @@ func defaultGigaConfig(t *testing.T) *GigaStorageConfig {
 	return cfg
 }
 
+func TestAutobahnStorageConfig(t *testing.T) {
+	storageConfig, err := AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	require.NotNil(t, storageConfig.FlatKVConfig)
+	require.False(t, storageConfig.SSConfig.Enable)
+	require.True(t, storageConfig.ReceiptDBConfig.Enable)
+	require.NotNil(t, storageConfig.BlockDBConfig)
+}
+
 func TestTheDefaultConfigValidates(t *testing.T) {
 	require.NoError(t, defaultGigaConfig(t).Validate())
 }
