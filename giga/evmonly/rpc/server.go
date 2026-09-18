@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+	"golang.org/x/net/netutil"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -22,7 +23,17 @@ import (
 	"github.com/sei-protocol/seilog"
 )
 
-const shutdownWait = 5 * time.Second
+const (
+	shutdownWait = 5 * time.Second
+	// maxWSConns bounds concurrently open WebSocket connections; each one is
+	// hijacked and held with its own goroutine until the peer disconnects.
+	maxWSConns = 2000
+)
+
+// wsAllowedOrigins accepts WebSocket upgrades from any Origin header. WebSocket
+// is exempt from the browser same-origin policy, so this is the only origin
+// gate on the listener.
+var wsAllowedOrigins = []string{"*"}
 
 var logger = seilog.NewLogger("giga", "evmonly", "rpc")
 
@@ -53,16 +64,18 @@ type Backend interface {
 	EvmTransactionCount(common.Address) uint64
 }
 
-// Server serves the EVM-only JSON-RPC API.
+// Server serves the EVM-only JSON-RPC API over HTTP and over WebSocket.
 type Server struct {
-	listener net.Listener
-	http     *http.Server
-	rpc      *ethrpc.Server
+	listener   net.Listener
+	http       *http.Server
+	wsListener net.Listener
+	ws         *http.Server
+	rpc        *ethrpc.Server
 }
 
-// Start binds the EVM-only JSON-RPC listener on the given port, on all interfaces, and returns
-// its server.
-func Start(backend Backend, receiptStore receipt.ReceiptStore, port int) (*Server, error) {
+// Start binds the EVM-only JSON-RPC HTTP listener on port and WebSocket listener on wsPort, on
+// all interfaces, and returns their server.
+func Start(backend Backend, receiptStore receipt.ReceiptStore, port int, wsPort int) (*Server, error) {
 	rpcServer, err := newHandler(backend, receiptStore)
 	if err != nil {
 		return nil, err
@@ -73,14 +86,32 @@ func Start(backend Backend, receiptStore receipt.ReceiptStore, port int) (*Serve
 		rpcServer.Stop()
 		return nil, fmt.Errorf("listen for EVM-only RPC on %s: %w", listenAddress, err)
 	}
+	wsListenAddress := fmt.Sprintf("0.0.0.0:%d", wsPort)
+	wsListener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", wsListenAddress)
+	if err != nil {
+		_ = listener.Close()
+		rpcServer.Stop()
+		return nil, fmt.Errorf("listen for EVM-only WebSocket RPC on %s: %w", wsListenAddress, err)
+	}
 	return &Server{
 		listener: listener,
 		http: &http.Server{
 			Handler:           rpcServer,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
+		wsListener: netutil.LimitListener(wsListener, maxWSConns),
+		ws: &http.Server{
+			Handler:           websocketHandler(rpcServer),
+			ReadHeaderTimeout: 5 * time.Second,
+		},
 		rpc: rpcServer,
 	}, nil
+}
+
+// websocketHandler upgrades incoming connections to WebSocket and serves the
+// same JSON-RPC methods as the HTTP listener over them.
+func websocketHandler(rpcServer *ethrpc.Server) http.Handler {
+	return rpcServer.WebsocketHandler(wsAllowedOrigins)
 }
 
 func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Server, error) {
@@ -115,10 +146,14 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	return rpcServer, nil
 }
 
-// Serve handles requests until the server stops or ctx is canceled.
+// Serve handles HTTP and WebSocket requests until either listener stops or
+// ctx is canceled.
 func (s *Server) Serve(ctx context.Context) error {
-	logger.Info("Starting Autobahn EVM-only RPC server", "laddr", s.listener.Addr())
-	err := s.http.Serve(s.listener)
+	logger.Info("Starting Autobahn EVM-only RPC server", "laddr", s.listener.Addr(), "ws_laddr", s.wsListener.Addr())
+	errs := make(chan error, 2)
+	go func() { errs <- s.http.Serve(s.listener) }()
+	go func() { errs <- s.ws.Serve(s.wsListener) }()
+	err := <-errs
 	if errors.Is(err, http.ErrServerClosed) && ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -134,5 +169,9 @@ func (s *Server) Stop() {
 		logger.Error("EVM-only RPC graceful shutdown failed", "err", err)
 		_ = s.http.Close()
 	}
+	// Shutdown does not wait for hijacked WebSocket connections; rpc.Stop above
+	// has already closed them, so Close only releases the listener.
+	_ = s.ws.Close()
 	_ = s.listener.Close()
+	_ = s.wsListener.Close()
 }
