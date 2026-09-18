@@ -138,6 +138,22 @@ func TestEVMOnlyApplicationEvmCallDoesNotMutateCommittedState(t *testing.T) {
 	require.Equal(t, common.Hash{}, after.GetStorage(contractAddr, slot))
 }
 
+func TestEVMOnlyApplicationEvmCallReproducesExecutedPrevRandao(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+	prior := finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+
+	// PREVRANDAO; PUSH1 0; MSTORE; PUSH1 32; PUSH1 0; RETURN — returns the opcode's value.
+	runtime := common.FromHex("0x4460005260206000f3")
+	deployRaw, sender, contractAddr := signedEVMOnlyCreateTx(t, evmOnlyTestChainID, initCode(runtime), 300_000)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2, deployRaw))
+
+	result, err := evmApp.EvmCall(t.Context(), callMessage(sender, &contractAddr))
+	require.NoError(t, err)
+	require.False(t, result.Failed())
+	require.Equal(t, prior, result.ReturnData)
+}
+
 func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	evmApp := app.(*evmOnlyApplication)

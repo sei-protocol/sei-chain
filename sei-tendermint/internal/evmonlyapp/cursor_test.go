@@ -12,17 +12,19 @@ import (
 
 func TestEVMOnlyCursorRoundTrip(t *testing.T) {
 	cursor := evmOnlyCursor{
-		height:    0x0102030405060708,
-		appHash:   common.HexToHash("0xaa"),
-		blockHash: common.HexToHash("0xbb"),
-		gasLimit:  0x1112131415161718,
+		height:     0x0102030405060708,
+		appHash:    common.HexToHash("0xaa"),
+		blockHash:  common.HexToHash("0xbb"),
+		prevRandao: common.HexToHash("0xcc"),
+		gasLimit:   0x1112131415161718,
 	}
 	raw := cursor.encode()
 	require.Equal(t, evmOnlyCursorSize, len(raw))
 	require.Equal(t, uint64(cursor.height), binary.BigEndian.Uint64(raw[:8])) //nolint:gosec // G115: fixture height is non-negative.
 	require.Equal(t, cursor.appHash, common.BytesToHash(raw[8:40]))
 	require.Equal(t, cursor.blockHash, common.BytesToHash(raw[40:72]))
-	require.Equal(t, cursor.gasLimit, binary.BigEndian.Uint64(raw[72:]))
+	require.Equal(t, cursor.prevRandao, common.BytesToHash(raw[72:104]))
+	require.Equal(t, cursor.gasLimit, binary.BigEndian.Uint64(raw[104:]))
 
 	decoded, err := decodeEVMOnlyCursor(raw)
 	require.NoError(t, err)

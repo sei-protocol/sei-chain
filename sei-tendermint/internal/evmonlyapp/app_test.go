@@ -423,6 +423,35 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	require.Equal(t, int64(5), app.LastBlockHeight())
 }
 
+func TestEVMOnlyApplicationFeedsPrevRandaoThePriorAppHash(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	prior := finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1))
+
+	// PREVRANDAO; PUSH1 0; SSTORE — the creation stores the opcode's value in slot 0.
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(evmOnlyMinGasPrice),
+		Gas:      100_000,
+		Value:    new(big.Int),
+		Data:     common.FromHex("0x44600055"),
+	})
+	chainID := new(big.Int).SetUint64(evmOnlyTestChainID)
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(2, raw))
+
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	contract := crypto.CreateAddress(sender, 0)
+	snapshot := app.(*evmOnlyApplication).storage.StateDB().OpenView()
+	defer snapshot.Close()
+	require.Equal(t, common.BytesToHash(prior), snapshot.GetStorage(evmOnlyStoreAddress(contract), common.Hash{}))
+}
+
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 

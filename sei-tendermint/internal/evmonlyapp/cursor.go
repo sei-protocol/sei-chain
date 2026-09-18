@@ -16,7 +16,7 @@ import (
 const (
 	evmOnlyCursorModule = "evmonly"
 	evmOnlyCursorKey    = "cursor"
-	evmOnlyCursorSize   = 8 + common.HashLength + common.HashLength + 8
+	evmOnlyCursorSize   = 8 + common.HashLength + common.HashLength + common.HashLength + 8
 )
 
 // evmOnlyCursor identifies a block whose state is committed to storage and
@@ -25,7 +25,9 @@ type evmOnlyCursor struct {
 	height    int64
 	appHash   common.Hash
 	blockHash common.Hash
-	gasLimit  uint64
+	// prevRandao is the PREVRANDAO this block executed with; EvmCall replays it.
+	prevRandao common.Hash
+	gasLimit   uint64
 }
 
 func (c evmOnlyCursor) changeSet() *proto.NamedChangeSet {
@@ -43,6 +45,7 @@ func (c evmOnlyCursor) encode() []byte {
 	buf = binary.BigEndian.AppendUint64(buf, uint64(c.height)) //nolint:gosec // G115: height is non-negative.
 	buf = append(buf, c.appHash[:]...)
 	buf = append(buf, c.blockHash[:]...)
+	buf = append(buf, c.prevRandao[:]...)
 	return binary.BigEndian.AppendUint64(buf, c.gasLimit)
 }
 
@@ -56,10 +59,11 @@ func decodeEVMOnlyCursor(raw []byte) (evmOnlyCursor, error) {
 	}
 	raw = raw[8:]
 	return evmOnlyCursor{
-		height:    height,
-		appHash:   common.BytesToHash(raw[:common.HashLength]),
-		blockHash: common.BytesToHash(raw[common.HashLength : 2*common.HashLength]),
-		gasLimit:  binary.BigEndian.Uint64(raw[2*common.HashLength:]),
+		height:     height,
+		appHash:    common.BytesToHash(raw[:common.HashLength]),
+		blockHash:  common.BytesToHash(raw[common.HashLength : 2*common.HashLength]),
+		prevRandao: common.BytesToHash(raw[2*common.HashLength : 3*common.HashLength]),
+		gasLimit:   binary.BigEndian.Uint64(raw[3*common.HashLength:]),
 	}, nil
 }
 
