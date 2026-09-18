@@ -80,10 +80,9 @@ type AutobahnFileConfig struct {
 	// Useful for loadtesting (to compare enabled/disabled performance).
 	// Defaults to true.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
-	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
-	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
-	// (see AutobahnBlockDBConfig for field semantics). Ignored when
-	// PersistentStateDir is absent (memblock). Omitted from JSON when empty.
+	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig.
+	// Zero value ⇒ littblock.DefaultConfig unchanged (see AutobahnBlockDBConfig
+	// for field semantics). Omitted from JSON when empty.
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
 }
 

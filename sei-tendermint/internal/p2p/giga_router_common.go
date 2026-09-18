@@ -75,10 +75,8 @@ func (r *gigaRouterCommon) fillInboundHandshake(spec handshakeSpec) (handshakeSp
 // BuildDataState validates the common config, constructs the committee, and
 // returns an initialised data.State backed by blockStore.
 //
-// The caller owns blockStore: close it after giga.Run returns, or immediately if
-// construction of the GigaRouter fails. data.State never closes it. nodeImpl
-// opens BlockStore in setup and closes after Run via SpawnCritical; tests that call
-// BuildDataState directly must open and Close blockStore themselves.
+// Whoever opened blockStore must close it after giga.Run returns, or immediately
+// if construction of the GigaRouter fails. data.State never closes it.
 func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (*data.State, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
