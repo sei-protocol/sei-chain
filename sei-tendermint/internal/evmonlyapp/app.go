@@ -472,6 +472,12 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 		}
 		executor = got
 	}
+	// Settle before reading the cursor: a commit that lands during the wait
+	// belongs to a block the cursor read below either reports as pending or
+	// already counts as committed, so the context and the view stay paired.
+	if err := executor.AwaitCommits(); err != nil {
+		return nil, err
+	}
 	var blockCtx evmonly.BlockContext
 	for state := range a.cursor.Lock() {
 		if state.pending.IsPresent() {
@@ -494,9 +500,6 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 			BlockHash:   state.committed.blockHash,
 			PrevRandao:  state.committed.prevRandao,
 		}
-	}
-	if err := executor.AwaitCommits(); err != nil {
-		return nil, err
 	}
 	return executor.Call(ctx, blockCtx, msg)
 }
