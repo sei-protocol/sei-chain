@@ -459,20 +459,34 @@ func (a *evmOnlyApplication) callBlockContext() (evmonly.BlockContext, error) {
 	panic("unreachable")
 }
 
-func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
+// latestAccount returns address's balance and nonce after the last finalized block, read through
+// the executor's in-flight commit rather than waiting for it. Before InitChain, or once a commit
+// has failed, it reads the settled store instead.
+func (a *evmOnlyApplication) latestAccount(address common.Address) evmonly.LatestAccount {
+	if executor, ok := a.settler.Load().Get(); ok {
+		if account, err := executor.ReadLatestAccount(address); err == nil {
+			return account
+		}
+	}
 	snapshot := a.openSettledView()
 	defer snapshot.Close()
-	return snapshot.GetNonce(evmOnlyStoreAddress(address))
+	storeAddress := evmOnlyStoreAddress(address)
+	if !snapshot.AccountExists(storeAddress) {
+		return evmonly.LatestAccount{Balance: new(big.Int).Set(evmOnlyBaseBalance)}
+	}
+	balance := snapshot.GetBalance(storeAddress)
+	return evmonly.LatestAccount{
+		Balance: new(big.Int).SetBytes(balance[:]),
+		Nonce:   snapshot.GetNonce(storeAddress),
+	}
+}
+
+func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
+	return a.latestAccount(address).Nonce
 }
 
 func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint256.Int {
-	snapshot := a.openSettledView()
-	defer snapshot.Close()
-	if !snapshot.AccountExists(evmOnlyStoreAddress(address)) {
-		return *uint256.MustFromBig(evmOnlyBaseBalance)
-	}
-	balance := snapshot.GetBalance(evmOnlyStoreAddress(address))
-	return *new(uint256.Int).SetBytes(balance[:])
+	return *uint256.MustFromBig(a.latestAccount(address).Balance)
 }
 
 func (a *evmOnlyApplication) EvmChainID() uint64 {
