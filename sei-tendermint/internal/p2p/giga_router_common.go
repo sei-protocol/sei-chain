@@ -290,10 +290,12 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, has
 	// before the hash is proposed for AppQC voting via PushAppHash below). On restart the block is
 	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
 	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseVaultCommit)
 	if err := commitAppHashToVault(ctx, hashVault, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, err
 	}
 
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
@@ -302,6 +304,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, has
 	if err != nil {
 		return nil, err
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhasePushAppHash)
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
@@ -529,10 +532,12 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			if !ok {
 				return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
 			}
+			gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
 			if err := r.data.PruneBefore(pruneBefore); err != nil {
 				return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
 			}
 			// Align the vault's retention with the data layer's prune boundary.
+			gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
 			if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
 				// A canceled context just means we're shutting down between a successful executeBlock
 				// and this prune; that's benign, not a prune failure, so don't alarm operators.
@@ -543,6 +548,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 					logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
 				}
 			}
+			gigametrics.EndStoragePhase()
 		}
 	})
 }
