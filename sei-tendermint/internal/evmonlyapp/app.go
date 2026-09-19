@@ -65,6 +65,9 @@ const (
 // parseWorkers returns the number of workers PrepareBlock decodes the next block
 // on. It runs alongside the current block's OCC speculation, which holds a worker
 // per processor, so it takes a quarter of them rather than contending for all.
+// The same pool decodes a block FinalizeBlock finds unprepared, where nothing
+// competes for the processors; that path is rare enough that the slower decode
+// is accepted over a second pool.
 func parseWorkers(procs int) int {
 	return max(minParseWorkers, procs/parseWorkersShare)
 }
