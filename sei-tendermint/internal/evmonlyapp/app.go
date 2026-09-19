@@ -509,6 +509,9 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 	// before settling and confirmed unchanged after, so the store holds the
 	// advertised block and no later one has been committed to the cursor.
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		blockCtx, err := a.callBlockContext()
 		if err != nil {
 			return nil, err
