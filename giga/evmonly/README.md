@@ -211,10 +211,21 @@ are not enabled, the executor attempts optimistic parallel execution. Initial
 incarnations are split into execution ranges and run through the shared OCC
 worker pool against the base state. Worker fan-out is clamped to the amount of
 available work, so small blocks do not spawn idle workers and can still split
-down to one transaction per range. Validation then walks transaction order,
-comparing each incarnation's recorded balance, nonce, code, account, and
-`(address, slot)` storage reads/writes against writes accepted after that
-incarnation's source prefix.
+down to one transaction per range. Validation then accepts transactions in
+block order, comparing each incarnation's recorded balance, nonce, code,
+account, and `(address, slot)` storage reads/writes against writes recorded
+between that incarnation's source prefix and its own index.
+
+Acceptance is the serial barrier, but the work behind it is spread across the
+pool: every incarnation's writes are indexed by transaction index up front, a
+parallel pass checks the pending run of transactions against that index and
+reports the first one the frontier would not accept, the accepted run is folded
+into the prefix shard by shard (shards are contiguous address ranges), and the
+frontier handles only the reported transaction on the calling goroutine. Each
+incarnation records the set of shards it touched, so a worker skips whole
+results that hold nothing of its own. The merge emits the changeset one shard at
+a time on the pool and concatenates the shards in order, which is canonical
+address order; a prefix with few keys is merged on the calling goroutine instead.
 
 - transactions with no dependency on newly accepted prior writes are retained
   and accepted in block order without rerunning
