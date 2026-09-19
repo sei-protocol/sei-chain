@@ -55,6 +55,20 @@ const checkedSendersCap = 1 << 18
 // minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
 const minTxsPerHashWorker = 64
 
+// parseWorkersShare is the fraction of GOMAXPROCS PrepareBlock decodes and
+// recovers senders on; minParseWorkers is its floor on small hosts.
+const (
+	parseWorkersShare = 4
+	minParseWorkers   = 2
+)
+
+// parseWorkers returns the number of workers PrepareBlock decodes the next block
+// on. It runs alongside the current block's OCC speculation, which holds a worker
+// per processor, so it takes a quarter of them rather than contending for all.
+func parseWorkers(procs int) int {
+	return max(minParseWorkers, procs/parseWorkersShare)
+}
+
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
@@ -89,6 +103,9 @@ type evmOnlyApplication struct {
 	prepared utils.Mutex[*utils.Option[preparedBlock]]
 	// preparedBlocks counts finalized blocks by whether prepared held them.
 	preparedBlocks otelmetric.Int64Counter
+	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
+	// called from the single block fetcher, so one timer serves the app.
+	preparePhases *seidbmetrics.PhaseTimer
 }
 
 // preparedBlock is the stateless part of a FinalizeBlock request, computed before the
@@ -152,6 +169,7 @@ func NewEVMOnlyApplication(
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), "evmonly_finalize"),
 		prepared:         utils.NewMutex(new(utils.Option[preparedBlock])),
 		preparedBlocks:   newPreparedBlocksCounter(otel.Meter(finalizeMeterName)),
+		preparePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), "evmonly_prepare"),
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
 		checkedSenders:   utils.NewMutex(map[common.Hash]common.Address{}),
@@ -196,7 +214,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		ChainConfig:  a.chainConfig,
 		MinGasPrice:  big.NewInt(evmOnlyMinGasPrice),
 		OCCWorkers:   runtime.GOMAXPROCS(0),
-		ParseWorkers: runtime.GOMAXPROCS(0),
+		ParseWorkers: parseWorkers(runtime.GOMAXPROCS(0)),
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
@@ -648,6 +666,8 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	}
 	// Only Number and Time reach the decoded transactions (through the signer); the
 	// parent-derived fields are filled in by FinalizeBlock.
+	a.preparePhases.SetPhase("parse")
+	defer a.preparePhases.Reset()
 	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
 			Number:      block.number,

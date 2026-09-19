@@ -841,6 +841,13 @@ func TestEVMOnlyApplicationReportsAnUndecodableBlockFromFinalizeBlock(t *testing
 	require.Error(t, unpreparedErr)
 }
 
+func TestParseWorkersTakesAShareOfTheProcessorsWithAFloor(t *testing.T) {
+	require.Equal(t, minParseWorkers, parseWorkers(1))
+	require.Equal(t, minParseWorkers, parseWorkers(4))
+	require.Equal(t, 2, parseWorkers(11))
+	require.Equal(t, 8, parseWorkers(32))
+}
+
 // Preparing before InitChain is a no-op rather than a failure.
 func TestEVMOnlyApplicationPrepareBlockBeforeInitChainIsANoOp(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
