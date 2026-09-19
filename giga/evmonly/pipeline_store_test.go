@@ -169,6 +169,98 @@ func TestRetiringACommitWhileOpeningAViewKeepsThePreviousBlocksState(t *testing.
 	require.Contains(t, second.ChangeSet.Balances, BalanceChange{Address: last, Balance: big.NewInt(1_000)})
 }
 
+// The store's view never advances, so the account state a block produced is only reachable through
+// the pending overlay until AwaitCommits. A latest-account read must report it without settling.
+func TestReadLatestAccountSeesTheBlockWhoseCommitIsInFlight(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	defer executor.Close()
+
+	before, err := executor.ReadLatestAccount(sender)
+	require.NoError(t, err)
+	require.Equal(t, LatestAccount{Balance: big.NewInt(testFundedBalanceWei)}, before)
+
+	result := executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	require.Equal(t, uint64(1), result.Txs[0].Status)
+
+	got, err := executor.ReadLatestAccount(sender)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), got.Nonce)
+	require.Equal(t, -1, got.Balance.Cmp(big.NewInt(testFundedBalanceWei)), "gas and value must be deducted")
+	paid, err := executor.ReadLatestAccount(recipient)
+	require.NoError(t, err)
+	require.Equal(t, LatestAccount{Balance: big.NewInt(7)}, paid)
+
+	require.NoError(t, executor.AwaitCommits())
+}
+
+// A commit that failed leaves the store behind the run, so a latest-account read reports the
+// failure rather than state that omits the failed block.
+func TestReadLatestAccountReportsAFailedCommit(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot, commitErr: errTestCommitFailed}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	require.ErrorIs(t, executor.AwaitCommits(), errTestCommitFailed)
+
+	_, err = executor.ReadLatestAccount(sender)
+	require.ErrorIs(t, err, errTestCommitFailed)
+}
+
+// A block that lands its commit and starts the next one between a reader's pending read and its
+// view must not leave the reader replaying the older block over the newer state; the read starts
+// over instead.
+func TestReadLatestAccountRestartsWhenABlockLandsUnderIt(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &retiringOnOpenStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+
+	// The reader has block 41 in hand as pending; block 42 lands underneath while its view opens.
+	opens := 0
+	store.retire = func() {
+		opens++
+		if opens == 1 {
+			store.retire = nil
+			executePipelinedBlock(t, executor, chainID, 42,
+				signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(7), nil))
+		}
+	}
+	got, err := executor.ReadLatestAccount(sender)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), got.Nonce, "the read must reflect block 42, not replay block 41 over it")
+	require.NoError(t, executor.AwaitCommits())
+}
+
 // executePipelinedBlock runs one block through the pipelined path, which returns before the block's
 // commit has landed.
 func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, number uint64, txs ...[]byte) *BlockResult {

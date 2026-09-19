@@ -209,6 +209,52 @@ func (e *Executor) pipelinePending() *StateChangeSet {
 	return e.pipelineChanges
 }
 
+// LatestAccount is the balance and nonce of an account after the last block this executor ran.
+type LatestAccount struct {
+	Balance *big.Int
+	Nonce   uint64
+}
+
+// ReadLatestAccount returns addr's balance and nonce after the last block this executor ran,
+// without waiting for that block's commit to land. It reports the first failed commit instead of
+// state that lacks the failed block.
+func (e *Executor) ReadLatestAccount(addr common.Address) (LatestAccount, error) {
+	if e.stateStore == nil {
+		return LatestAccount{}, errMissingStateStore
+	}
+	for {
+		e.pipelineMu.Lock()
+		pending, failure := e.pipelineChanges, e.pipelineFailure
+		e.pipelineMu.Unlock()
+		if failure != nil {
+			return LatestAccount{}, failure
+		}
+		snapshot := e.stateStore.OpenView()
+		if snapshot == nil {
+			return LatestAccount{}, errors.New("giga store returned a nil snapshot")
+		}
+		account, ok := e.readLatestAccount(snapshot, pending, addr)
+		snapshot.Close()
+		if ok {
+			return account, nil
+		}
+	}
+}
+
+// readLatestAccount reads addr through pending laid over snapshot. It reports false when a later
+// block started its commit between the pending read and the view, since the view may then hold that
+// block's writes and pending would replay older values over them; the caller reads again.
+func (e *Executor) readLatestAccount(snapshot gigatypes.EVMStateView, pending *StateChangeSet, addr common.Address) (LatestAccount, bool) {
+	e.pipelineMu.Lock()
+	moved := e.pipelineChanges != pending && e.pipelineChanges != nil
+	e.pipelineMu.Unlock()
+	if moved {
+		return LatestAccount{}, false
+	}
+	reader := newPendingOverlay(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState}, pending)
+	return LatestAccount{Balance: reader.GetBalance(addr), Nonce: reader.GetNonce(addr)}, true
+}
+
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
 // failed. After it returns the store holds every block this executor has run, so the next view
 // opens on a known height and needs no overlay.
