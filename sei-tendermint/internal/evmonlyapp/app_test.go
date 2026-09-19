@@ -25,6 +25,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -802,7 +803,8 @@ func TestEVMOnlyApplicationExecutesAPreparedBlockLikeAnUnpreparedOne(t *testing.
 }
 
 // A prepared block is only used for the block it was prepared for: one with the
-// same height but another hash is decoded again, and the stale one is dropped.
+// same height but another hash is decoded again, and the prepared one is kept
+// for its own block.
 func TestEVMOnlyApplicationIgnoresAPreparedBlockForAnotherHash(t *testing.T) {
 	prepared := newInitializedEVMOnlyTestApp(t)
 	preparedApp, ok := prepared.(*evmOnlyApplication)
@@ -820,7 +822,7 @@ func TestEVMOnlyApplicationIgnoresAPreparedBlockForAnotherHash(t *testing.T) {
 	unpreparedHash := finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block)
 	require.Equal(t, unpreparedHash, preparedHash)
 	_, ok = preparedApp.takePrepared(1, common.BytesToHash(otherBlock.Hash))
-	require.False(t, ok)
+	require.True(t, ok)
 }
 
 // A block PrepareBlock cannot decode is reported by FinalizeBlock, the same as
@@ -846,4 +848,51 @@ func TestEVMOnlyApplicationPrepareBlockBeforeInitChainIsANoOp(t *testing.T) {
 	require.True(t, ok)
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
 	require.NoError(t, evmOnlyApp.PrepareBlock(t.Context(), evmOnlyTestBlock(1, raw)))
+}
+
+// PrepareBlock for the next block runs while FinalizeBlock runs the current one,
+// and both blocks come out as if they had been finalized alone.
+func TestEVMOnlyApplicationPreparesTheNextBlockWhileFinalizingTheCurrentOne(t *testing.T) {
+	prepared := newInitializedEVMOnlyTestApp(t)
+	preparedApp, ok := prepared.(*evmOnlyApplication)
+	require.True(t, ok)
+	unprepared := newInitializedEVMOnlyTestApp(t)
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	var blocks []*abci.RequestFinalizeBlock
+	for height := range int64(4) {
+		var txs [][]byte
+		for i := range 8 {
+			txs = append(txs, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height)*8+uint64(i))) //nolint:gosec // G115: small test counters.
+		}
+		blocks = append(blocks, evmOnlyTestBlock(height+1, txs...))
+	}
+
+	hashes := make([][]byte, len(blocks))
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		for i, block := range blocks {
+			var next *abci.RequestFinalizeBlock
+			if i+1 < len(blocks) {
+				next = blocks[i+1]
+			}
+			resp, err := scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*abci.ResponseFinalizeBlock, error) {
+				if next != nil {
+					s.Spawn(func() error { return preparedApp.PrepareBlock(ctx, next) })
+				}
+				return prepared.FinalizeBlock(ctx, block)
+			})
+			if err != nil {
+				return err
+			}
+			if _, err := prepared.Commit(ctx); err != nil {
+				return err
+			}
+			hashes[i] = resp.AppHash
+		}
+		return nil
+	}))
+	for i, block := range blocks {
+		require.Equal(t, finalizeAndCommitEVMOnlyTestBlock(t, unprepared, block), hashes[i])
+	}
 }

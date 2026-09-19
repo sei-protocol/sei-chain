@@ -379,6 +379,20 @@ func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Addr
 // raw transaction is the keccak of its bytes for every transaction type, so no
 // decoding is needed.
 func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
+	return a.checkedSendersOf(txs, true)
+}
+
+// peekSenders is takeSenders without forgetting the entries.
+func (a *evmOnlyApplication) peekSenders(txs [][]byte) []utils.Option[common.Address] {
+	return a.checkedSendersOf(txs, false)
+}
+
+// forgetSenders drops the CheckTx-recovered senders of txs.
+func (a *evmOnlyApplication) forgetSenders(txs [][]byte) {
+	a.checkedSendersOf(txs, true)
+}
+
+func (a *evmOnlyApplication) checkedSendersOf(txs [][]byte, forget bool) []utils.Option[common.Address] {
 	out := make([]utils.Option[common.Address], len(txs))
 	// Hashed outside the lock; CheckTx writes this map constantly.
 	hashes := hashRawTxs(txs)
@@ -386,7 +400,9 @@ func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Add
 		for i, hash := range hashes {
 			if sender, ok := senders[hash]; ok {
 				out[i] = utils.Some(sender)
-				delete(senders, hash)
+				if forget {
+					delete(senders, hash)
+				}
 			}
 		}
 	}
@@ -617,7 +633,8 @@ func parseFinalizeRequest(req *abci.RequestFinalizeBlock) (finalizeRequest, erro
 // FinalizeBlock is called for it, so that work runs while the previous block
 // executes. It may run concurrently with FinalizeBlock. Only the most recent
 // prepared block is kept, and FinalizeBlock uses it only for the same height and
-// hash, so preparing the wrong block costs nothing but the work. Anything that
+// hash, so preparing the wrong block costs nothing but the work: the senders
+// CheckTx cached stay cached until a prepared block is consumed. Anything that
 // would fail the block is left for FinalizeBlock to report; the only error
 // returned is ctx ending.
 func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.RequestFinalizeBlock) error {
@@ -641,7 +658,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 			BlobBaseFee: new(big.Int),
 		},
 		Txs:     req.Txs,
-		Senders: a.takeSenders(req.Txs),
+		Senders: a.peekSenders(req.Txs),
 	})
 	if err != nil {
 		return ctx.Err()
@@ -656,17 +673,18 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	return nil
 }
 
-// takePrepared removes the prepared block and returns its transactions if it is
-// the given block.
+// takePrepared returns the prepared transactions of the given block and removes
+// them. A prepared block for another block is left in place.
 func (a *evmOnlyApplication) takePrepared(height int64, hash common.Hash) ([]evmonly.PreparedTx, bool) {
 	for slot := range a.prepared.Lock() {
 		prepared, ok := slot.Get()
-		*slot = utils.None[preparedBlock]()
-		if ok && prepared.height == height && prepared.hash == hash {
-			return prepared.txs, true
+		if !ok || prepared.height != height || prepared.hash != hash {
+			return nil, false
 		}
+		*slot = utils.None[preparedBlock]()
+		return prepared.txs, true
 	}
-	return nil, false
+	panic("unreachable")
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -713,6 +731,8 @@ func (a *evmOnlyApplication) finalizeBlockLocked(
 	a.preparedBlocks.Add(ctx, 1, otelmetric.WithAttributes(attribute.Bool("prepared", hit)))
 	var result *evmonly.BlockResult
 	if hit {
+		a.finalizePhases.SetPhase("take_senders")
+		a.forgetSenders(req.Txs)
 		a.finalizePhases.SetPhase("execute")
 		result, err = executor.ExecutePreparedBlock(ctx, evmonly.PreparedBlock{Context: blockCtx, Txs: prepared})
 	} else {

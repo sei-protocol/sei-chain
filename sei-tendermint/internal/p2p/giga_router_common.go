@@ -224,21 +224,10 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-// finalizeRequest builds the FinalizeBlock request for a global block.
-func (r *gigaRouterCommon) finalizeRequest(b *atypes.GlobalBlock) (*abci.RequestFinalizeBlock, error) {
-	app := r.app
+// finalizeRequest builds the FinalizeBlock request for a global block, except
+// for the header's ProposerAddress, which depends on the committed state.
+func (r *gigaRouterCommon) finalizeRequest(b *atypes.GlobalBlock) *abci.RequestFinalizeBlock {
 	hash := b.Header.Hash()
-	var proposerAddress types.Address
-	if vals := app.GetValidators(); len(vals) > 0 {
-		// Deterministically select a proposer from the app's validator committee.
-		// We need it so that app does not emit error logs.
-		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-		key, err := crypto.PubKeyFromProto(proposer.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
-		}
-		proposerAddress = key.Address()
-	}
 	return &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
@@ -251,11 +240,25 @@ func (r *gigaRouterCommon) finalizeRequest(b *atypes.GlobalBlock) (*abci.Request
 			ChainID: r.cfg.GenDoc.ChainID,
 			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
 			Time:    b.Timestamp,
-			// WARNING: the reward distribution has corner cases where it forgets the proposer,
-			// because reward is distributed with a delay. This is not our problem here though.
-			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	}, nil
+	}
+}
+
+// proposerAddress returns the proposer of the next block, selected from the
+// app's current validator committee.
+func (r *gigaRouterCommon) proposerAddress() (types.Address, error) {
+	vals := r.app.GetValidators()
+	if len(vals) == 0 {
+		return nil, nil
+	}
+	// Deterministically select a proposer from the app's validator committee.
+	// We need it so that app does not emit error logs.
+	proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+	key, err := crypto.PubKeyFromProto(proposer.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+	}
+	return key.Address(), nil
 }
 
 // fetchedBlock is a global block with the FinalizeBlock request built for it.
@@ -267,6 +270,14 @@ type fetchedBlock struct {
 func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
 	app := r.app
 	b := f.block
+	// Read from the app's state on the execute loop, after the previous block's Commit.
+	// WARNING: the reward distribution has corner cases where it forgets the proposer,
+	// because reward is distributed with a delay. This is not our problem here though.
+	proposer, err := r.proposerAddress()
+	if err != nil {
+		return nil, err
+	}
+	f.req.Header.ProposerAddress = proposer
 	resp, err := app.FinalizeBlock(ctx, f.req)
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
@@ -493,10 +504,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 				if err != nil {
 					return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 				}
-				req, err := r.finalizeRequest(b)
-				if err != nil {
-					return err
-				}
+				req := r.finalizeRequest(b)
 				if err := app.PrepareBlock(ctx, req); err != nil {
 					return fmt.Errorf("app.PrepareBlock(%v): %w", n, err)
 				}
