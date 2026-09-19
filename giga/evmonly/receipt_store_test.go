@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -67,8 +68,19 @@ func TestMemoryReceiptStoreMovesReceiptsAndRecordsEmptyBlocks(t *testing.T) {
 	require.NotContains(t, store.blocks, uint64(7))
 	require.Equal(t, int64(8), store.LatestVersion())
 
+	// Block 7 lost its only receipt to the move: its stats must read as a real, empty block, not
+	// the stale ones computed while the receipt still belonged to it.
+	stats7, err := store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.NoError(t, err)
+	require.Zero(t, stats7.TxCount)
+
 	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 9), nil))
 	require.Equal(t, int64(9), store.LatestVersion())
+
+	// Block 9 executed no receipts but is still a real, committed block.
+	stats9, err := store.GetBlockStats(newReceiptContext(t.Context(), 9), 9)
+	require.NoError(t, err)
+	require.Zero(t, stats9.TxCount)
 }
 
 func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
@@ -88,6 +100,70 @@ func TestMemoryReceiptStorePrunesHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(4), store.EarliestVersion())
 	require.Equal(t, uint64(2), store.GetRollbackFloor(2))
+}
+
+func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	hash1, hash2 := common.Hash{1}, common.Hash{2}
+	records := []receipt.ReceiptRecord{
+		{TxHash: hash1, Receipt: &evmtypes.Receipt{TxHashHex: hash1.Hex(), BlockNumber: 5, GasUsed: 10}, Reward: big.NewInt(100)},
+		{TxHash: hash2, Receipt: &evmtypes.Receipt{TxHashHex: hash2.Hex(), BlockNumber: 5, GasUsed: 20}, Reward: big.NewInt(300)},
+	}
+	receiptCtx := newReceiptContext(t.Context(), 5)
+	require.NoError(t, store.SetReceipts(receiptCtx, records))
+
+	stats, err := store.GetBlockStats(receiptCtx, 5)
+	require.NoError(t, err)
+	require.Equal(t, uint64(30), stats.TotalGasUsed)
+	require.Equal(t, uint32(2), stats.TxCount)
+	min, ok := stats.RewardAt(0)
+	require.True(t, ok)
+	require.Equal(t, uint64(100), min)
+
+	_, err = store.GetBlockStats(receiptCtx, 6)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
+}
+
+// TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove guards a real review finding: a receipt
+// moving to a later height (e.g. a nonce-mismatch retry) must invalidate the vacated block's
+// cached stats even when that block still holds other receipts — the earlier fix only handled the
+// case where the move emptied the block out entirely.
+func TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	hashA, hashB := common.Hash{1}, common.Hash{2}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{
+		{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 7, GasUsed: 10}},
+		{TxHash: hashB, Receipt: &evmtypes.Receipt{TxHashHex: hashB.Hex(), BlockNumber: 7, GasUsed: 20}},
+	}))
+	_, err := store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.NoError(t, err, "sanity: block 7 has stats before the move")
+
+	// hashA is re-included at block 8; block 7 still holds hashB, so it is not empty.
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8),
+		[]receipt.ReceiptRecord{{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 8, GasUsed: 10}}}))
+
+	require.Contains(t, store.blocks, uint64(7), "block 7 still holds hashB")
+	_, err = store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported,
+		"block 7's stats must be invalidated, not left reporting both receipts")
+}
+
+func TestMemoryReceiptStorePruneHistoryRemovesBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	oldHash, newHash := common.Hash{1}, common.Hash{2}
+	records := []receipt.ReceiptRecord{
+		{TxHash: oldHash, Receipt: &evmtypes.Receipt{TxHashHex: oldHash.Hex(), BlockNumber: 3, GasUsed: 1}},
+		{TxHash: newHash, Receipt: &evmtypes.Receipt{TxHashHex: newHash.Hex(), BlockNumber: 4, GasUsed: 2}},
+	}
+	receiptCtx := newReceiptContext(t.Context(), 4)
+	require.NoError(t, store.SetReceipts(receiptCtx, records))
+	require.NoError(t, store.PruneHistory(4))
+
+	_, err := store.GetBlockStats(receiptCtx, 3)
+	require.ErrorIs(t, err, receipt.ErrNotFound)
+	stats, err := store.GetBlockStats(receiptCtx, 4)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), stats.TotalGasUsed)
 }
 
 func TestMemoryReceiptStoreHonorsCanceledContext(t *testing.T) {

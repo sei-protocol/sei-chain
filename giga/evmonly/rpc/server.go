@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"time"
@@ -37,6 +38,11 @@ type Backend interface {
 	Block(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
 	EvmBalance(common.Address) uint256.Int
 	EvmProxy(common.Address) utils.Option[*ethrpc.Client]
+	// EvmGasLimit returns the gas limit of the most recently committed block.
+	EvmGasLimit() (uint64, error)
+	// EvmMinGasPrice returns the minimum effective gas price this application admits a
+	// transaction at.
+	EvmMinGasPrice() (*big.Int, error)
 }
 
 type sendAPI struct {
@@ -121,6 +127,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	}
 	if err := rpcServer.RegisterName("eth", &balanceAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only balance RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &infoAPI{backend: backend, store: receiptStore}); err != nil {
+		return nil, fmt.Errorf("register EVM-only info RPC: %w", err)
 	}
 	return rpcServer, nil
 }

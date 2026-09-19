@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"time"
 
@@ -30,6 +31,18 @@ func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Cli
 // EvmBalance returns the address balance from the current committed EVM state.
 func (env *Environment) EvmBalance(address common.Address) uint256.Int {
 	return env.App.EvmBalance(address, nil)
+}
+
+// EvmGasLimit returns the gas limit of the wrapped application's most
+// recently committed block.
+func (env *Environment) EvmGasLimit() (uint64, error) {
+	return env.App.EvmGasLimit()
+}
+
+// EvmMinGasPrice returns the minimum effective gas price the wrapped
+// application admits a transaction at.
+func (env *Environment) EvmMinGasPrice() (*big.Int, error) {
+	return env.App.EvmMinGasPrice()
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {

@@ -334,6 +334,12 @@ func TestLittIdxMultiPart(t *testing.T) {
 	logs, err := store.FilterLogs(ctx, 4, 4, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
+
+	// Neither part's SetReceipts call saw the whole block, so no aggregate it wrote is trustworthy;
+	// the second part's write must delete the first's rather than leave a stats entry that reports
+	// only one of the block's two transactions.
+	_, err = store.GetBlockStats(ctx, 4)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
 }
 
 // TestLittIdxLegacyFallback covers GetReceipt falling back to the legacy KV
