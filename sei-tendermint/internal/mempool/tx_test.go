@@ -837,10 +837,11 @@ func TestTxStore_InsertFetchesFirstSeenAccountOutsideTheLock(t *testing.T) {
 	cold := common.BytesToAddress(utils.GenBytes(rng, 20))
 	warm := common.BytesToAddress(utils.GenBytes(rng, 20))
 
-	// warm is known to the store before any fetch is gated.
+	// warm is known to the store before any fetch is gated; its fetch does not count.
 	release.Store(true)
 	require.NoError(t, txStore.Insert(evmTxForTest(rng, warm, 0)))
 	release.Store(false)
+	app.inFlight.Store(0)
 
 	coldTx := evmTxForTest(rng, cold, 0)
 	warmTx := evmTxForTest(rng, warm, 1)

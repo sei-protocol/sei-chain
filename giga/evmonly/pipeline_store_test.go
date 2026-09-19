@@ -261,6 +261,43 @@ func TestReadLatestAccountRestartsWhenABlockLandsUnderIt(t *testing.T) {
 	require.NoError(t, executor.AwaitCommits())
 }
 
+// A reader whose pending block is retired, and then followed by further blocks that land, between
+// its pending read and its view must not replay that retired block over the newer state, even though
+// nothing is pending any more by the time it looks again.
+func TestReadLatestAccountRestartsWhenItsPendingBlockRetiresUnderIt(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &retiringOnOpenStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+
+	// The reader has block 41 in hand as pending; while its view opens, block 42 runs and both
+	// blocks land, leaving nothing pending and a store view that already holds them.
+	opens := 0
+	store.retire = func() {
+		opens++
+		if opens == 1 {
+			store.retire = nil
+			executePipelinedBlock(t, executor, chainID, 42,
+				signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(7), nil))
+			require.NoError(t, executor.AwaitCommits())
+			snapshot.nonces[sender] = 2
+		}
+	}
+	got, err := executor.ReadLatestAccount(sender)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), got.Nonce, "the read must not replay retired block 41 over the landed state")
+}
+
 // executePipelinedBlock runs one block through the pipelined path, which returns before the block's
 // commit has landed.
 func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, number uint64, txs ...[]byte) *BlockResult {

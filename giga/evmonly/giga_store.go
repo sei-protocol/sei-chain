@@ -97,7 +97,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = newPendingOverlay(source, pending)
+	source = pending.overlay(source)
 
 	e.blockPhases.SetPhase("execute")
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -203,7 +203,7 @@ func (e *Executor) AwaitCommits() error {
 
 // pipelinePending returns the changes of a block whose commit has not been waited on yet, or nil
 // when the store is caught up.
-func (e *Executor) pipelinePending() *StateChangeSet {
+func (e *Executor) pipelinePending() *pendingChanges {
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
 	return e.pipelineChanges
@@ -224,7 +224,7 @@ func (e *Executor) ReadLatestAccount(addr common.Address) (LatestAccount, error)
 	}
 	for {
 		e.pipelineMu.Lock()
-		pending, failure := e.pipelineChanges, e.pipelineFailure
+		pending, generation, failure := e.pipelineChanges, e.pipelineGeneration, e.pipelineFailure
 		e.pipelineMu.Unlock()
 		if failure != nil {
 			return LatestAccount{}, failure
@@ -233,7 +233,7 @@ func (e *Executor) ReadLatestAccount(addr common.Address) (LatestAccount, error)
 		if snapshot == nil {
 			return LatestAccount{}, errors.New("giga store returned a nil snapshot")
 		}
-		account, ok := e.readLatestAccount(snapshot, pending, addr)
+		account, ok := e.readLatestAccount(snapshot, pending, generation, addr)
 		snapshot.Close()
 		if ok {
 			return account, nil
@@ -241,17 +241,22 @@ func (e *Executor) ReadLatestAccount(addr common.Address) (LatestAccount, error)
 	}
 }
 
-// readLatestAccount reads addr through pending laid over snapshot. It reports false when a later
-// block started its commit between the pending read and the view, since the view may then hold that
-// block's writes and pending would replay older values over them; the caller reads again.
-func (e *Executor) readLatestAccount(snapshot gigatypes.EVMStateView, pending *StateChangeSet, addr common.Address) (LatestAccount, bool) {
+// readLatestAccount reads addr through pending laid over snapshot. It reports false when another
+// commit started after generation was read, since the view may then hold a later block's writes and
+// pending would replay older values over them; the caller reads again.
+func (e *Executor) readLatestAccount(snapshot gigatypes.EVMStateView, pending *pendingChanges, generation uint64, addr common.Address) (LatestAccount, bool) {
 	e.pipelineMu.Lock()
-	moved := e.pipelineChanges != pending && e.pipelineChanges != nil
+	moved := e.pipelineGeneration != generation
 	e.pipelineMu.Unlock()
 	if moved {
 		return LatestAccount{}, false
 	}
-	reader := newPendingOverlay(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState}, pending)
+	reader := pending.overlay(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
+	if rowReader, ok := reader.(accountSnapshotReader); ok {
+		if row, ok := rowReader.ReadAccount(addr); ok {
+			return LatestAccount{Balance: row.Balance, Nonce: row.Nonce}, true
+		}
+	}
 	return LatestAccount{Balance: reader.GetBalance(addr), Nonce: reader.GetNonce(addr)}, true
 }
 
@@ -296,7 +301,7 @@ func (e *Executor) awaitPipelineCommit() error {
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	pending := changes.clone()
+	pending := newPendingChanges(changes.clone())
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
 	if failure := e.pipelineFailure; failure != nil {
@@ -304,6 +309,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		return failure
 	}
 	e.pipelineChanges = pending
+	e.pipelineGeneration++
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
