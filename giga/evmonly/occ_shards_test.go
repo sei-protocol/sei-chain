@@ -98,10 +98,36 @@ func TestFirstUnacceptedResultReturnsTheLowestRejection(t *testing.T) {
 		require.Equal(t, rejected, stop)
 	}
 
-	results[0].err = nil
+	results[0].err = errOCCMaxIncarnation
 	stop, err = firstUnacceptedResult(context.Background(), pool, results, writes, math.MaxUint64, 0, to, cumulative)
 	require.NoError(t, err)
-	require.Equal(t, 1, stop, "the lowest rejection wins even when higher ones are found first")
+	require.Equal(t, 0, stop, "a rejection at from itself stops the pass before it accepts anything")
+}
+
+func TestSerialBackoffDoublesWhileParallelPassesAcceptTooLittle(t *testing.T) {
+	const n = 10_000
+	var backoff serialBackoff
+	require.True(t, backoff.parallelPassDue(0))
+	require.Equal(t, 1, backoff.serialEnd(0, n), "without a stretch the serial frontier takes one result")
+
+	backoff.record(0, 0)
+	require.False(t, backoff.parallelPassDue(occMinParallelValidation-1))
+	require.True(t, backoff.parallelPassDue(occMinParallelValidation))
+	require.Equal(t, occMinParallelValidation, backoff.serialEnd(0, n))
+
+	next := occMinParallelValidation
+	backoff.record(next, 1)
+	require.Equal(t, next+2*occMinParallelValidation, backoff.serialEnd(next, n))
+	next = backoff.serialEnd(next, n)
+	backoff.record(next, 1)
+	require.Equal(t, next+4*occMinParallelValidation, backoff.serialEnd(next, n))
+	require.Equal(t, 100, backoff.serialEnd(next, 100), "the stretch never runs past the block")
+
+	next = backoff.serialEnd(next, n)
+	backoff.record(next, occMinParallelValidation)
+	require.True(t, backoff.parallelPassDue(next))
+	backoff.record(next, 0)
+	require.Equal(t, next+occMinParallelValidation, backoff.serialEnd(next, n), "a pass that accepts enough resets the stretch")
 }
 
 func TestFirstUnacceptedResultRejectsGasAndConflicts(t *testing.T) {

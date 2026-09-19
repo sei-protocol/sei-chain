@@ -306,15 +306,9 @@ func (e *Executor) validateBlockSTM(
 	if err := state.writes.indexResults(ctx, pool, results); err != nil {
 		return nil, nil, validation, err
 	}
-	// The frontier alternates between a parallel pass, which accepts every result up to the first
-	// one that needs attention, and the serial frontier, which handles that one. A block whose
-	// transactions depend on each other one after another would make each parallel pass accept
-	// nothing, so after such a pass the serial frontier keeps going for a stretch that doubles each
-	// time it happens again.
-	serialUntil := 0
-	serialStretch := occMinParallelValidation
+	var backoff serialBackoff
 	for state.nextToValidate < len(results) {
-		if state.nextToValidate >= serialUntil {
+		if backoff.parallelPassDue(state.nextToValidate) {
 			accepted, err := e.acceptValidatedPrefix(ctx, runner, pool, results, state, &validation)
 			if err != nil {
 				return nil, nil, validation, err
@@ -322,14 +316,9 @@ func (e *Executor) validateBlockSTM(
 			if state.nextToValidate == len(results) {
 				break
 			}
-			if accepted < occMinParallelValidation {
-				serialUntil = state.nextToValidate + serialStretch
-				serialStretch *= 2
-			} else {
-				serialStretch = occMinParallelValidation
-			}
+			backoff.record(state.nextToValidate, accepted)
 		}
-		end := min(len(results), max(serialUntil, state.nextToValidate+1))
+		end := backoff.serialEnd(state.nextToValidate, len(results))
 		rerun, err := validateBlockSTMFrontier(ctx, runner, results, state, &validation, end)
 		if err != nil {
 			return nil, nil, validation, err
@@ -346,6 +335,39 @@ func (e *Executor) validateBlockSTM(
 		state.writes.addCommutativeBalanceDeltasAt(rerun.txIndex, results[rerun.txIndex].commutativeBalanceDeltas)
 	}
 	return results, state.prefix, validation, nil
+}
+
+// serialBackoff decides how far the serial frontier runs before the next parallel pass.
+//
+// The frontier alternates between a parallel pass, which accepts every result up to the first one
+// that needs attention, and the serial frontier, which handles that one. A block whose transactions
+// depend on each other one after another makes every parallel pass accept nothing, so after a pass
+// that accepts too little to pay for itself the serial frontier keeps going for a stretch that
+// doubles each time it happens again, and resets once a pass accepts enough.
+type serialBackoff struct {
+	until   int
+	stretch int
+}
+
+// parallelPassDue reports whether the frontier at nextToValidate has left the serial stretch.
+func (b *serialBackoff) parallelPassDue(nextToValidate int) bool {
+	return nextToValidate >= b.until
+}
+
+// record sets the serial stretch that follows a parallel pass which accepted accepted results.
+func (b *serialBackoff) record(nextToValidate int, accepted int) {
+	if accepted >= occMinParallelValidation {
+		b.stretch = 0
+		return
+	}
+	b.stretch = max(2*b.stretch, occMinParallelValidation)
+	b.until = nextToValidate + b.stretch
+}
+
+// serialEnd returns the index the serial frontier runs up to, at least one past nextToValidate and
+// never past n.
+func (b *serialBackoff) serialEnd(nextToValidate int, n int) int {
+	return min(n, max(b.until, nextToValidate+1))
 }
 
 // validateBlockSTMFrontier accepts results in block order on the calling goroutine until it reaches
