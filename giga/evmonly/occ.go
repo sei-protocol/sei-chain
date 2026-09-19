@@ -26,6 +26,7 @@ type occTxExecution struct {
 	gasUsed                  uint64
 	gasLimit                 uint64
 	commutativeBalanceDeltas map[common.Address]*big.Int
+	shards                   occShardSet
 	incarnation              int
 	sourcePrefix             int
 	err                      error
@@ -198,6 +199,7 @@ func (r occSpeculativeRunner) executeTaskInto(ctx context.Context, task occExecu
 	}
 	result.incarnation = task.incarnation
 	result.sourcePrefix = task.sourcePrefix
+	result.shards = result.touchedShards()
 	results[task.txIndex] = result
 	return nil
 }
@@ -721,9 +723,9 @@ func (s *blockSTMState) apply(result occTxExecution) {
 
 // applyOwned folds the parts of one accepted result whose addresses fall in the shards owns
 // reports true for. Two callers with disjoint ownership can run concurrently.
-func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardOwnership) {
+func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 	for _, change := range result.changeSet.Balances {
-		if !owns(occShardOf(change.Address)) {
+		if !owns.has(occShardOf(change.Address)) {
 			continue
 		}
 		shard := s.shard(change.Address)
@@ -738,12 +740,12 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardOwnership
 		shard.balances[change.Address] = cloneBig(change.Balance)
 	}
 	for _, change := range result.changeSet.Nonces {
-		if owns(occShardOf(change.Address)) {
+		if owns.has(occShardOf(change.Address)) {
 			s.shard(change.Address).nonces[change.Address] = change.Nonce
 		}
 	}
 	for _, change := range result.changeSet.Code {
-		if !owns(occShardOf(change.Address)) {
+		if !owns.has(occShardOf(change.Address)) {
 			continue
 		}
 		if change.Delete {
@@ -753,7 +755,7 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardOwnership
 		}
 	}
 	for _, addr := range result.changeSet.StorageClears {
-		if !owns(occShardOf(addr)) {
+		if !owns.has(occShardOf(addr)) {
 			continue
 		}
 		shard := s.shard(addr)
@@ -765,7 +767,7 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardOwnership
 		}
 	}
 	for _, change := range result.changeSet.Storage {
-		if owns(occShardOf(change.Address)) {
+		if owns.has(occShardOf(change.Address)) {
 			s.shard(change.Address).storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
 		}
 	}
@@ -971,9 +973,9 @@ func (i *stateAccessIndex) addAllAt(txIndex int, set map[stateAccessKey]struct{}
 	i.addSpan(txIndexSpan{first: txIndex, last: txIndex}, set, occAllShards)
 }
 
-func (i *stateAccessIndex) addSpan(span txIndexSpan, set map[stateAccessKey]struct{}, owns occShardOwnership) {
+func (i *stateAccessIndex) addSpan(span txIndexSpan, set map[stateAccessKey]struct{}, owns occShardSet) {
 	for key := range set {
-		if !owns(occShardOf(key.address)) {
+		if !owns.has(occShardOf(key.address)) {
 			continue
 		}
 		shard := i.shard(key.address)
@@ -994,9 +996,9 @@ func (i *stateAccessIndex) addCommutativeBalanceDeltasAt(txIndex int, deltas map
 	i.addCommutativeBalanceDeltas(txIndex, deltas, occAllShards)
 }
 
-func (i *stateAccessIndex) addCommutativeBalanceDeltas(txIndex int, deltas map[common.Address]*big.Int, owns occShardOwnership) {
+func (i *stateAccessIndex) addCommutativeBalanceDeltas(txIndex int, deltas map[common.Address]*big.Int, owns occShardSet) {
 	for addr, delta := range deltas {
-		if delta == nil || delta.Sign() == 0 || !owns(occShardOf(addr)) {
+		if delta == nil || delta.Sign() == 0 || !owns.has(occShardOf(addr)) {
 			continue
 		}
 		recordSpan(i.shard(addr).commutativeBalance, addr, txIndexSpan{first: txIndex, last: txIndex})

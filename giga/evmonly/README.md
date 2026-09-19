@@ -221,9 +221,11 @@ pool: every incarnation's writes are indexed by transaction index up front, a
 parallel pass checks the pending run of transactions against that index and
 reports the first one the frontier would not accept, the accepted run is folded
 into the prefix shard by shard (shards are contiguous address ranges), and the
-frontier handles only the reported transaction on the calling goroutine. The
-merge emits the changeset one shard at a time on the pool and concatenates the
-shards in order, which is canonical address order.
+frontier handles only the reported transaction on the calling goroutine. Each
+incarnation records the set of shards it touched, so a worker skips whole
+results that hold nothing of its own. The merge emits the changeset one shard at
+a time on the pool and concatenates the shards in order, which is canonical
+address order; a prefix with few keys is merged on the calling goroutine instead.
 
 - transactions with no dependency on newly accepted prior writes are retained
   and accepted in block order without rerunning

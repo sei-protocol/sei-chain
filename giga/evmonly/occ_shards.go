@@ -3,6 +3,7 @@ package evmonly
 import (
 	"context"
 	"math"
+	"sync"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -17,21 +18,65 @@ const occStateShards = 64
 // below it, waking the pool costs more than validating on the calling goroutine.
 const occMinParallelValidation = 64
 
+// occMinParallelMergeKeys is the fewest accepted keys a parallel merge is worth running for; below
+// it, the merge runs on the calling goroutine and appends straight into the pooled changeset.
+const occMinParallelMergeKeys = 256
+
 // occCancellationCheckInterval is how many items a worker handles between context checks.
 const occCancellationCheckInterval = 64
 
-// occShardOwnership tells a worker which shards it may write to.
-type occShardOwnership func(shard int) bool
+// occShardSet is a set of shards, one bit per shard.
+type occShardSet uint64
+
+var _ = [1]struct{}{}[occStateShards-64] // occShardSet has exactly one bit per shard.
+
+const occAllShards = occShardSet(math.MaxUint64)
 
 func occShardOf(addr common.Address) int {
 	return int(addr[0]) * occStateShards / 256
 }
 
-func occAllShards(int) bool { return true }
+func (s occShardSet) has(shard int) bool { return s&(1<<shard) != 0 }
+
+func (s occShardSet) with(shard int) occShardSet { return s | 1<<shard }
+
+func (s occShardSet) intersects(other occShardSet) bool { return s&other != 0 }
 
 // occShardsOwnedBy assigns the shards round-robin across the pool's workers.
-func occShardsOwnedBy(workerID int, workers int) occShardOwnership {
-	return func(shard int) bool { return shard%workers == workerID }
+func occShardsOwnedBy(workerID int, workers int) occShardSet {
+	var owned occShardSet
+	for shard := workerID; shard < occStateShards; shard += workers {
+		owned = owned.with(shard)
+	}
+	return owned
+}
+
+// touchedShards returns the shards of every address the result wrote, credited, or changed, so a
+// worker can skip the result outright when none of them is its own.
+func (r occTxExecution) touchedShards() occShardSet {
+	var touched occShardSet
+	for key := range r.writeSet {
+		touched = touched.with(occShardOf(key.address))
+	}
+	for addr := range r.commutativeBalanceDeltas {
+		touched = touched.with(occShardOf(addr))
+	}
+	for _, change := range r.changeSet.Balances {
+		touched = touched.with(occShardOf(change.Address))
+	}
+	for _, change := range r.changeSet.Nonces {
+		touched = touched.with(occShardOf(change.Address))
+	}
+	for _, change := range r.changeSet.Code {
+		touched = touched.with(occShardOf(change.Address))
+	}
+	for _, addr := range r.changeSet.StorageClears {
+		touched = touched.with(occShardOf(addr))
+	}
+	for _, change := range r.changeSet.Storage {
+		touched = touched.with(occShardOf(change.Address))
+	}
+	return touched
 }
 
 // indexResults records every result's writes, each worker filling the shards it owns.
@@ -50,6 +95,9 @@ func (i *stateAccessIndex) indexResults(ctx context.Context, pool *occWorkerPool
 				if err := workerCtx.Err(); err != nil {
 					return err
 				}
+			}
+			if !result.shards.intersects(owns) {
+				continue
 			}
 			i.addSpan(txIndexSpan{first: txIndex, last: txIndex}, result.writeSet, owns)
 			i.addCommutativeBalanceDeltas(txIndex, result.commutativeBalanceDeltas, owns)
@@ -183,27 +231,37 @@ func (s *blockSTMState) applyRange(ctx context.Context, pool *occWorkerPool, res
 					return err
 				}
 			}
-			s.applyOwned(result, owns)
+			if result.shards.intersects(owns) {
+				s.applyOwned(result, owns)
+			}
 		}
 		return nil
 	})
 }
 
+// occChangeSetFragments holds one changeset per shard for a parallel merge to fill.
+type occChangeSetFragments [occStateShards]StateChangeSet
+
+// occFragmentPool recycles fragment arrays so their capacity survives across blocks.
+var occFragmentPool = sync.Pool{New: func() any { return new(occChangeSetFragments) }}
+
 // changeSetIntoParallel writes the block's net state changes, in canonical order, computing each
 // shard's part on the pool. The shards' base-state reads are what the merge mostly spends its time
 // on, and they are independent of each other.
 func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWorkerPool, changes *StateChangeSet) error {
-	if pool == nil {
+	if pool == nil || s.keyCount() < occMinParallelMergeKeys {
 		s.ChangeSetInto(changes)
 		return ctx.Err()
 	}
 	changes.resetForReuse()
-	var fragments [occStateShards]StateChangeSet
+	fragments := occFragmentPool.Get().(*occChangeSetFragments)
+	defer occFragmentPool.Put(fragments)
 	err := pool.Run(ctx, occStateShards, func(workerCtx context.Context, workerID int, workers int) error {
 		for shard := workerID; shard < occStateShards; shard += workers {
 			if err := workerCtx.Err(); err != nil {
 				return err
 			}
+			fragments[shard].resetForReuse()
 			s.shards[shard].changeSetInto(s.source, &fragments[shard])
 		}
 		return nil
@@ -220,4 +278,14 @@ func (s *blockSTMState) changeSetIntoParallel(ctx context.Context, pool *occWork
 		changes.Storage = append(changes.Storage, fragment.Storage...)
 	}
 	return nil
+}
+
+// keyCount returns how many keys the accepted prefix holds across all shards.
+func (s *blockSTMState) keyCount() int {
+	count := 0
+	for i := range s.shards {
+		shard := &s.shards[i]
+		count += len(shard.balances) + len(shard.nonces) + len(shard.code) + len(shard.storageClears) + len(shard.storage)
+	}
+	return count
 }
