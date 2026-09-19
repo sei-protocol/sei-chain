@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -70,6 +71,9 @@ type evmOnlyApplication struct {
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
 	checkedSenders utils.Mutex[map[common.Hash]common.Address]
+	// settleFailureLogged is set once a failed commit has been logged by a
+	// committed-state reader; the failure is latched, so it is logged once.
+	settleFailureLogged atomic.Bool
 }
 
 // evmOnlyCursorState is the execution position: the block whose state is
@@ -415,14 +419,42 @@ func evmOnlyStoreAddress(address common.Address) gigatypes.Address {
 }
 
 // openSettledView opens a store view that holds every block finalized so far.
-// A failed commit is logged rather than returned: the view is still a
+// A failed commit is logged once rather than returned: the view is still a
 // consistent version, and the failure halts the node through the next
 // FinalizeBlock.
 func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
-	if err := a.AwaitCommits(); err != nil {
+	if err := a.AwaitCommits(); err != nil && !a.settleFailureLogged.Swap(true) {
 		logger.Error("EVM-only committed state is behind a failed block commit", "err", err)
 	}
 	return a.storage.StateDB().OpenView()
+}
+
+// callBlockContext returns the block context of the committed block, and
+// refuses while a finalized block awaits Commit.
+func (a *evmOnlyApplication) callBlockContext() (evmonly.BlockContext, error) {
+	for state := range a.cursor.Lock() {
+		if state.pending.IsPresent() {
+			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
+			return evmonly.BlockContext{}, fmt.Errorf("EVM-only call attempted before committing the finalized block")
+		}
+		number, ok := utils.SafeCast[uint64](state.committed.height)
+		if !ok {
+			return evmonly.BlockContext{}, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
+		}
+		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
+		// FinalizeBlock, and only the current block's hash is tracked at all.
+		return evmonly.BlockContext{
+			Number:      number,
+			Time:        state.lastBlockTime,
+			GasLimit:    state.committed.gasLimit,
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     evmOnlyBaseFee(),
+			BlobBaseFee: new(big.Int),
+			BlockHash:   state.committed.blockHash,
+			PrevRandao:  state.committed.prevRandao,
+		}, nil
+	}
+	panic("unreachable")
 }
 
 func (a *evmOnlyApplication) EvmNonce(address common.Address) uint64 {
@@ -472,36 +504,26 @@ func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) 
 		}
 		executor = got
 	}
-	// Settle before reading the cursor: a commit that lands during the wait
-	// belongs to a block the cursor read below either reports as pending or
-	// already counts as committed, so the context and the view stay paired.
-	if err := executor.AwaitCommits(); err != nil {
-		return nil, err
-	}
-	var blockCtx evmonly.BlockContext
-	for state := range a.cursor.Lock() {
-		if state.pending.IsPresent() {
-			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
-			return nil, fmt.Errorf("EVM-only call attempted before committing the finalized block")
+	// The committed block's write may still be in flight, and a block may be
+	// finalized and committed while it is waited for. The context is taken
+	// before settling and confirmed unchanged after, so the store holds the
+	// advertised block and no later one has been committed to the cursor.
+	for {
+		blockCtx, err := a.callBlockContext()
+		if err != nil {
+			return nil, err
 		}
-		number, ok := utils.SafeCast[uint64](state.committed.height)
-		if !ok {
-			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committed.height)
+		if err := executor.AwaitCommits(); err != nil {
+			return nil, err
 		}
-		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
-		// FinalizeBlock, and only the current block's hash is tracked at all.
-		blockCtx = evmonly.BlockContext{
-			Number:      number,
-			Time:        state.lastBlockTime,
-			GasLimit:    state.committed.gasLimit,
-			ChainID:     new(big.Int).Set(a.chainID),
-			BaseFee:     evmOnlyBaseFee(),
-			BlobBaseFee: new(big.Int),
-			BlockHash:   state.committed.blockHash,
-			PrevRandao:  state.committed.prevRandao,
+		settled, err := a.callBlockContext()
+		if err != nil {
+			return nil, err
+		}
+		if settled.Number == blockCtx.Number {
+			return executor.Call(ctx, blockCtx, msg)
 		}
 	}
-	return executor.Call(ctx, blockCtx, msg)
 }
 
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {

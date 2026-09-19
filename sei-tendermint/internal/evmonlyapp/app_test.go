@@ -389,9 +389,10 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 	require.Equal(t, int64(blocks+1), app.LastBlockHeight())
 }
 
-// State is committed by FinalizeBlock, so a crash before Commit leaves the
-// finalized block durable. The restarted node must report it rather than
-// execute it a second time.
+// FinalizeBlock starts the block's state commit, and a shutdown settles it, so
+// stopping after FinalizeBlock but before Commit leaves the finalized block
+// durable. The restarted node must report it rather than execute it a second
+// time.
 func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
