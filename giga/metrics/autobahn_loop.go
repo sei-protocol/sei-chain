@@ -29,6 +29,9 @@ const (
 	StoragePhaseAppCommit = "app_commit"
 	// StoragePhasePushAppHash is publishing the app hash to the data layer.
 	StoragePhasePushAppHash = "push_app_hash"
+	// StoragePhaseBookkeeping is the loop's own work between those calls: committee weights, gas
+	// accounting and the executed-block window.
+	StoragePhaseBookkeeping = "bookkeeping"
 	// StoragePhasePruneData is pruning the data layer below the app's retain height.
 	StoragePhasePruneData = "prune_data"
 	// StoragePhasePruneVault is pruning the hash vault to the same boundary.

@@ -300,6 +300,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, has
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	weights, err := committeeWeights(app.GetValidators())
 	if err != nil {
 		return nil, err
@@ -308,6 +309,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, has
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	gasUsed := finalizeBlockGasUsed(resp)
 	r.data.PushGasUsed(gasUsed)
 	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{Number: b.GlobalNumber, GasUsed: utils.Clamp[uint64](gasUsed)}))
