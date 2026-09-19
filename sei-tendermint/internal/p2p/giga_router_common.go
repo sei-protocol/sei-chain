@@ -224,7 +224,8 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+// finalizeRequest builds the FinalizeBlock request for a global block.
+func (r *gigaRouterCommon) finalizeRequest(b *atypes.GlobalBlock) (*abci.RequestFinalizeBlock, error) {
 	app := r.app
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -238,8 +239,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		}
 		proposerAddress = key.Address()
 	}
-
-	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+	return &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
 		DecidedLastCommit: abci.CommitInfo{},
@@ -255,7 +255,19 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 			// because reward is distributed with a delay. This is not our problem here though.
 			ProposerAddress: proposerAddress,
 		}).ToProto(),
-	})
+	}, nil
+}
+
+// fetchedBlock is a global block with the FinalizeBlock request built for it.
+type fetchedBlock struct {
+	block *atypes.GlobalBlock
+	req   *abci.RequestFinalizeBlock
+}
+
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, f fetchedBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+	app := r.app
+	b := f.block
+	resp, err := app.FinalizeBlock(ctx, f.req)
 	if err != nil {
 		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
@@ -470,36 +482,61 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}
 
-	for n := next; ; n += 1 {
-		gigametrics.SetPhase(gigametrics.PhaseConsensus)
-		b, err := r.data.GlobalBlock(ctx, n)
-		if err != nil {
-			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
-		}
-		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		commitResp, err := r.executeBlock(ctx, b, hashVault)
-		if err != nil {
-			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
-		}
-		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
-		if !ok {
-			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
-		}
-		if err := r.data.PruneBefore(pruneBefore); err != nil {
-			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
-		}
-		// Align the vault's retention with the data layer's prune boundary.
-		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
-			// A canceled context just means we're shutting down between a successful executeBlock
-			// and this prune; that's benign, not a prune failure, so don't alarm operators.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				logger.Info("hashvault prune aborted by context cancellation during shutdown",
-					"prune_before", pruneBefore, "err", err)
-			} else {
-				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// Blocks are fetched and prepared one ahead of execution: the unbuffered
+		// channel lets the fetcher hold block n+1, already prepared, while the
+		// loop below executes block n.
+		blocks := make(chan fetchedBlock)
+		s.Spawn(func() error {
+			for n := next; ; n += 1 {
+				b, err := r.data.GlobalBlock(ctx, n)
+				if err != nil {
+					return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+				}
+				req, err := r.finalizeRequest(b)
+				if err != nil {
+					return err
+				}
+				if err := app.PrepareBlock(ctx, req); err != nil {
+					return fmt.Errorf("app.PrepareBlock(%v): %w", n, err)
+				}
+				if err := utils.Send(ctx, blocks, fetchedBlock{block: b, req: req}); err != nil {
+					return err
+				}
+			}
+		})
+		for {
+			gigametrics.SetPhase(gigametrics.PhaseConsensus)
+			f, err := utils.Recv(ctx, blocks)
+			if err != nil {
+				return err
+			}
+			n := f.block.GlobalNumber
+			gigametrics.SetPhase(gigametrics.PhaseExecution)
+			commitResp, err := r.executeBlock(ctx, f, hashVault)
+			if err != nil {
+				return fmt.Errorf("r.executeBlock(%v): %w", n, err)
+			}
+			pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
+			if !ok {
+				return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
+			}
+			if err := r.data.PruneBefore(pruneBefore); err != nil {
+				return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
+			}
+			// Align the vault's retention with the data layer's prune boundary.
+			if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
+				// A canceled context just means we're shutting down between a successful executeBlock
+				// and this prune; that's benign, not a prune failure, so don't alarm operators.
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					logger.Info("hashvault prune aborted by context cancellation during shutdown",
+						"prune_before", pruneBefore, "err", err)
+				} else {
+					logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
+				}
 			}
 		}
-	}
+	})
 }
 
 // dialAndRunConn dials a peer, handshakes as a SeiGiga connection,
