@@ -224,7 +224,7 @@ func (e *Executor) ReadLatestAccount(addr common.Address) (LatestAccount, error)
 	}
 	for {
 		e.pipelineMu.Lock()
-		pending, generation, failure := e.pipelineChanges, e.pipelineGeneration, e.pipelineFailure
+		pending, generation, failure := e.pipelineChanges, e.pipelineGeneration, e.pipelineFailureLocked()
 		e.pipelineMu.Unlock()
 		if failure != nil {
 			return LatestAccount{}, failure
@@ -254,10 +254,26 @@ func (e *Executor) readLatestAccount(snapshot gigatypes.EVMStateView, pending *p
 	reader := pending.overlay(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
 	if rowReader, ok := reader.(accountSnapshotReader); ok {
 		if row, ok := rowReader.ReadAccount(addr); ok {
-			return LatestAccount{Balance: row.Balance, Nonce: row.Nonce}, true
+			balance := row.Balance
+			if balance == nil {
+				balance = new(big.Int)
+			}
+			return LatestAccount{Balance: balance, Nonce: row.Nonce}, true
 		}
 	}
 	return LatestAccount{Balance: reader.GetBalance(addr), Nonce: reader.GetNonce(addr)}, true
+}
+
+// pipelineFailureLocked returns the first failed commit, whether or not a waiter has retired it yet.
+// Callers hold pipelineMu.
+func (e *Executor) pipelineFailureLocked() error {
+	if e.pipelineFailure != nil {
+		return e.pipelineFailure
+	}
+	if e.pipelineErr != nil {
+		return fmt.Errorf("commit state changes: %w", e.pipelineErr)
+	}
+	return nil
 }
 
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that

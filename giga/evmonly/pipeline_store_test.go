@@ -226,6 +226,32 @@ func TestReadLatestAccountReportsAFailedCommit(t *testing.T) {
 	require.ErrorIs(t, err, errTestCommitFailed)
 }
 
+// A failed commit is reported as soon as the commit has returned, before any waiter has retired it.
+func TestReadLatestAccountReportsAFailedCommitNobodyHasAwaited(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot, commitErr: errTestCommitFailed}
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	executor.pipelineMu.Lock()
+	done := executor.pipelineDone
+	executor.pipelineMu.Unlock()
+	require.NotNil(t, done)
+	<-done
+
+	_, err = executor.ReadLatestAccount(sender)
+	require.ErrorIs(t, err, errTestCommitFailed)
+}
+
 // A block that lands its commit and starts the next one between a reader's pending read and its
 // view must not leave the reader replaying the older block over the newer state; the read starts
 // over instead.
