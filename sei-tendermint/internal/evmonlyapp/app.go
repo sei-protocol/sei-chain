@@ -575,44 +575,57 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if !ok {
 			return nil, fmt.Errorf("EVM-only block finalized before InitChain")
 		}
-		parent, err := a.beginBlock(height)
-		if err != nil {
-			return nil, err
-		}
-		// Closes the stage in flight, so the gap until the next block is charged to neither.
-		defer a.finalizePhases.Reset()
-		a.finalizePhases.SetPhase("take_senders")
-		senders := a.takeSenders(req.Txs)
-		result, err := executeBlockPipelined(ctx, executor, a.finalizePhases, evmonly.BlockRequest{
-			Context: evmonly.BlockContext{
-				Number:      number,
-				Time:        timestamp,
-				GasLimit:    parent.gasLimit,
-				ChainID:     new(big.Int).Set(a.chainID),
-				BaseFee:     evmOnlyBaseFee(),
-				BlobBaseFee: new(big.Int),
-				ParentHash:  parent.blockHash,
-				BlockHash:   blockHash,
-				PrevRandao:  parent.appHash,
-			},
-			Txs:     req.Txs,
-			Senders: senders,
-		})
-		if err != nil {
-			return nil, errors.Join(err, a.abandonPending(executor, height))
-		}
-		defer result.Release()
-		pending, err := a.pendingCursor(height)
-		if err != nil {
-			return nil, err
-		}
-		a.finalizePhases.SetPhase("tx_results")
-		return &abci.ResponseFinalizeBlock{
-			AppHash:   append([]byte(nil), pending.appHash[:]...),
-			TxResults: evmOnlyABCIResults(result),
-		}, nil
+		return a.finalizeBlockLocked(ctx, executor, req, number, timestamp, blockHash)
 	}
 	panic("unreachable")
+}
+
+// finalizeBlockLocked runs a block on the executor and stages its cursor.
+// The caller holds executor for the whole call.
+func (a *evmOnlyApplication) finalizeBlockLocked(
+	ctx context.Context,
+	executor *evmonly.Executor,
+	req *abci.RequestFinalizeBlock,
+	number, timestamp uint64,
+	blockHash common.Hash,
+) (*abci.ResponseFinalizeBlock, error) {
+	height := req.Header.Height
+	parent, err := a.beginBlock(height)
+	if err != nil {
+		return nil, err
+	}
+	// Closes the stage in flight, so the gap until the next block is charged to neither.
+	defer a.finalizePhases.Reset()
+	a.finalizePhases.SetPhase("take_senders")
+	senders := a.takeSenders(req.Txs)
+	result, err := executeBlockPipelined(ctx, executor, a.finalizePhases, evmonly.BlockRequest{
+		Context: evmonly.BlockContext{
+			Number:      number,
+			Time:        timestamp,
+			GasLimit:    parent.gasLimit,
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     evmOnlyBaseFee(),
+			BlobBaseFee: new(big.Int),
+			ParentHash:  parent.blockHash,
+			BlockHash:   blockHash,
+			PrevRandao:  parent.appHash,
+		},
+		Txs:     req.Txs,
+		Senders: senders,
+	})
+	if err != nil {
+		return nil, errors.Join(err, a.abandonPending(executor, height))
+	}
+	defer result.Release()
+	pending, err := a.pendingCursor(height)
+	if err != nil {
+		return nil, err
+	}
+	a.finalizePhases.SetPhase("tx_results")
+	return &abci.ResponseFinalizeBlock{
+		AppHash:   append([]byte(nil), pending.appHash[:]...),
+		TxResults: evmOnlyABCIResults(result),
+	}, nil
 }
 
 // executeBlockPipelined executes the block and returns once its state commit
