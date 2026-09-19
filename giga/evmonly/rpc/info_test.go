@@ -34,7 +34,36 @@ func setBlockReceipt(t *testing.T, store receipt.ReceiptStore, blockNumber, gasU
 }
 
 func TestGasPriceScalesFloorUp(t *testing.T) {
-	api := &infoAPI{backend: testInfoBackend(0, 1_000_000_000)}
+	// No latest block at all: congestionReward has nothing to escalate from, so GasPrice falls
+	// back to the fixed margin over the admission floor.
+	api := &infoAPI{backend: testInfoBackend(0, 1_000_000_000), store: evmonly.NewMemoryReceiptStore()}
+	price, err := api.GasPrice(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(1_100_000_000), price.ToInt())
+}
+
+func TestGasPriceEscalatesWithCongestion(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	// gasLimit 1000, TotalGasUsed 900 -> gasUsedRatio 0.9, in the >=0.8 tier -> p90.
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(500)},
+	}))
+	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+
+	price, err := api.GasPrice(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(500), price.ToInt())
+}
+
+func TestGasPriceFallsBackWhenTheTierPercentileIsntStored(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	// A congested block (ratio 0.9 -> p90 tier) with no reward-eligible tx, so no percentile was
+	// ever computed for it: GasPrice must fall back rather than guess at a different percentile.
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}},
+	}))
+	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(1_100_000_000), price.ToInt())
@@ -94,6 +123,25 @@ func TestFeeHistorySkipsHeightsWithoutStats(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt(), "the earliest height with stats, not the earliest requested")
 	require.Equal(t, []float64{0.01}, result.GasUsedRatio)
+}
+
+// TestFeeHistoryRestartsAfterAnInteriorHole guards a real review finding: skipping an interior
+// height with no stats in place, after rows have already been emitted, would silently misattribute
+// every later row to the wrong height (eth_feeHistory's row i is block oldestBlock+i). The fix
+// restarts the accumulation so the result is a contiguous run ending at end.
+func TestFeeHistoryRestartsAfterAnInteriorHole(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	setBlockReceipt(t, store, 1, 10, 100)
+	setBlockReceipt(t, store, 2, 20, 100)
+	// Block 3 is never written: an interior hole between 2 and 4.
+	setBlockReceipt(t, store, 4, 40, 100)
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+
+	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(4), result.OldestBlock.ToInt(),
+		"the run must restart after the hole, not report block 4's data as block 3's")
+	require.Equal(t, []float64{0.04}, result.GasUsedRatio)
 }
 
 func TestFeeHistoryRewardFromStoredPercentiles(t *testing.T) {

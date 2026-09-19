@@ -37,15 +37,60 @@ type infoAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
-// GasPrice returns a suggested gas price above this application's admission
-// floor, so a transaction priced at the suggestion is not sitting on the
-// rejection boundary.
-func (api *infoAPI) GasPrice(_ context.Context) (*hexutil.Big, error) {
+// gasPriceCongestionTiers maps the latest block's gasUsedRatio to the reward percentile GasPrice
+// escalates toward under load, in descending order of minRatio: a fuller block suggests a price
+// closer to what its higher-paying transactions actually paid, rather than a flat margin over the
+// admission floor.
+var gasPriceCongestionTiers = []struct {
+	minRatio   float64
+	percentile float64
+}{
+	{minRatio: 0.8, percentile: 90},
+	{minRatio: 0.5, percentile: 75},
+	{minRatio: 0, percentile: 25},
+}
+
+// GasPrice returns a suggested gas price: the latest block's gasUsedRatio picks a reward
+// percentile from gasPriceCongestionTiers, escalating the suggestion as the chain gets busier.
+// It falls back to a fixed margin over the admission floor when there is no latest block yet, its
+// gas limit is unknown, or the tier's percentile was never precomputed for it.
+func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 	floor, err := api.backend.EvmMinGasPrice()
 	if err != nil {
 		return nil, err
 	}
+	if reward, ok := api.congestionReward(ctx); ok {
+		return (*hexutil.Big)(reward), nil
+	}
 	return (*hexutil.Big)(suggestedGasPrice(floor)), nil
+}
+
+// congestionReward answers GasPrice's escalated suggestion from the latest block's stored stats.
+func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
+	current := api.store.LatestVersion()
+	if current <= 0 {
+		return nil, false
+	}
+	gasLimit, err := api.backend.EvmGasLimit()
+	if err != nil || gasLimit == 0 {
+		return nil, false
+	}
+	stats, err := api.store.GetBlockStats(receiptContext(ctx), uint64(current)) //nolint:gosec // G115: current is positive here.
+	if err != nil {
+		return nil, false
+	}
+	ratio := gasUsedRatio(stats.TotalGasUsed, gasLimit)
+	for _, tier := range gasPriceCongestionTiers {
+		if ratio < tier.minRatio {
+			continue
+		}
+		reward, ok := stats.RewardAt(tier.percentile)
+		if !ok {
+			return nil, false
+		}
+		return new(big.Int).SetUint64(reward), true
+	}
+	return nil, false
 }
 
 // suggestedGasPrice scales floor up by the gas-price suggestion margin,
@@ -146,6 +191,14 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		stats, err := api.store.GetBlockStats(receiptContext(ctx), uint64(height)) //nolint:gosec // G115: height is positive here.
 		if err != nil {
 			if errors.Is(err, receiptpkg.ErrNotFound) || errors.Is(err, receiptpkg.ErrBlockStatsNotSupported) {
+				if result.OldestBlock != nil {
+					// A hole after rows have already been emitted would otherwise misattribute
+					// every later row to the wrong height — eth_feeHistory's row i describes block
+					// oldestBlock+i, and skipping in place shifts that mapping silently. Restart
+					// the accumulation instead, so the returned range stays a contiguous run
+					// ending at end.
+					result = &FeeHistoryResult{GasUsedRatio: []float64{}}
+				}
 				continue
 			}
 			return nil, fmt.Errorf("read block stats for block %d: %w", height, err)

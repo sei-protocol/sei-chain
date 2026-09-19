@@ -189,6 +189,13 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 				// zero-stat block rather than the stale ones computed when the receipt still
 				// belonged to it.
 				s.blockStats[previous.blockNumber] = receipt.BlockStats{}
+			} else {
+				// The block still has other receipts, but its composition changed: the cached
+				// stats no longer reflect what's left, and recomputing them would need each
+				// remaining receipt's Reward, which s.blocks does not retain. Invalidate rather
+				// than serve a now-wrong TotalGasUsed/TxCount or a percentile set covering a
+				// transaction that no longer belongs to this block.
+				delete(s.blockStats, previous.blockNumber)
 			}
 		}
 		blockNumber := record.Receipt.BlockNumber

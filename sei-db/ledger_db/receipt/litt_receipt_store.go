@@ -536,6 +536,14 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 	}
 
 	s.writePhases.SetPhase("stage_block_stats")
+	if partIndex > 0 {
+		// A block written across multiple parts (legacy migration) has no single call whose
+		// records are the whole block, so no call can compute an accurate aggregate — write one
+		// from only this part's records and it would silently misreport the block forever after.
+		// Delete whatever an earlier part wrote instead: GetBlockStats' ErrBlockStatsNotSupported
+		// fallback already covers exactly this case.
+		return batch.Delete(blockStatsKey(blockNumber))
+	}
 	stats := ComputeBlockStats(records, s.rewardPercentiles)
 	return batch.Set(blockStatsKey(blockNumber), encodeBlockStats(stats))
 }

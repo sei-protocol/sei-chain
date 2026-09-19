@@ -124,6 +124,30 @@ func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
 	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
 }
 
+// TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove guards a real review finding: a receipt
+// moving to a later height (e.g. a nonce-mismatch retry) must invalidate the vacated block's
+// cached stats even when that block still holds other receipts — the earlier fix only handled the
+// case where the move emptied the block out entirely.
+func TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	hashA, hashB := common.Hash{1}, common.Hash{2}
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 7), []receipt.ReceiptRecord{
+		{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 7, GasUsed: 10}},
+		{TxHash: hashB, Receipt: &evmtypes.Receipt{TxHashHex: hashB.Hex(), BlockNumber: 7, GasUsed: 20}},
+	}))
+	_, err := store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.NoError(t, err, "sanity: block 7 has stats before the move")
+
+	// hashA is re-included at block 8; block 7 still holds hashB, so it is not empty.
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 8),
+		[]receipt.ReceiptRecord{{TxHash: hashA, Receipt: &evmtypes.Receipt{TxHashHex: hashA.Hex(), BlockNumber: 8, GasUsed: 10}}}))
+
+	require.Contains(t, store.blocks, uint64(7), "block 7 still holds hashB")
+	_, err = store.GetBlockStats(newReceiptContext(t.Context(), 7), 7)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported,
+		"block 7's stats must be invalidated, not left reporting both receipts")
+}
+
 func TestMemoryReceiptStorePruneHistoryRemovesBlockStats(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	oldHash, newHash := common.Hash{1}, common.Hash{2}
