@@ -11,12 +11,15 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -579,6 +582,53 @@ func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
 	latest, err := settler.storage.SC().GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(4), latest)
+}
+
+// unwritableEVMChangeSetEncoder encodes every block with an EVM pair the store
+// refuses to apply, so the block executes and encodes cleanly and its commit is
+// the first thing that fails.
+func unwritableEVMChangeSetEncoder(evmonly.StateChangeSet) ([]*proto.NamedChangeSet, error) {
+	return []*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nil, Value: []byte{1}}}},
+	}}, nil
+}
+
+// A block's commit lands behind FinalizeBlock: the block whose commit fails is
+// still finalized and committed, and the failure surfaces from the next
+// FinalizeBlock, from read-only calls, and from settling the store, while the
+// store itself stays at the last version that landed.
+func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
+	storage := openEVMOnlyTestStorage(t, t.TempDir())
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+	_, err = app.InitChain(evmOnlyTestInitChain())
+	require.NoError(t, err)
+	settler, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+
+	// Block 1 is unwritable, yet it finalizes and commits: the write has not
+	// been waited for. The synchronous path would fail here.
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
+	require.Equal(t, int64(1), app.LastBlockHeight())
+
+	// The failed write is reported by the next block, and stays reported.
+	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2))
+	require.Error(t, err)
+	require.Error(t, settler.AwaitCommits())
+	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(big.Int), Value: new(big.Int)})
+	require.Error(t, err)
+
+	// The block that failed to finalize left nothing staged, and the store never
+	// moved past genesis.
+	_, err = app.Commit(t.Context())
+	require.Error(t, err)
+	require.Equal(t, int64(1), app.LastBlockHeight())
+	latest, err := storage.SC().GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), latest)
 }
 
 // TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.

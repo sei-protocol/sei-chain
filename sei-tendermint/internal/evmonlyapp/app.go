@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/seilog"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
@@ -29,6 +30,8 @@ import (
 )
 
 const evmOnlyMinGasPrice = 1_000_000_000
+
+var logger = seilog.NewLogger("tendermint", "internal", "evmonlyapp")
 
 // evmOnlyBaseFee is the base fee this application executes every block at.
 // Admission and block validity both price against it, so they cannot diverge.
@@ -53,7 +56,8 @@ type evmOnlyApplication struct {
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
 	// executor is held for the whole of a block's execution, so it serializes
-	// FinalizeBlock, InitChain and EvmCall against each other.
+	// FinalizeBlock and InitChain against each other. EvmCall only takes it to
+	// read the executor out; the call itself runs unlocked.
 	executor utils.Mutex[*utils.Option[*evmonly.Executor]]
 	// settler publishes the same executor to readers of committed state that
 	// must not wait for a block to finish executing; they settle its
@@ -411,10 +415,13 @@ func evmOnlyStoreAddress(address common.Address) gigatypes.Address {
 }
 
 // openSettledView opens a store view that holds every block finalized so far.
-// A failed commit is not reported here: it halts the node through the next
-// FinalizeBlock, and the view is still a consistent version.
+// A failed commit is logged rather than returned: the view is still a
+// consistent version, and the failure halts the node through the next
+// FinalizeBlock.
 func (a *evmOnlyApplication) openSettledView() gigatypes.StateView {
-	_ = a.AwaitCommits()
+	if err := a.AwaitCommits(); err != nil {
+		logger.Error("EVM-only committed state is behind a failed block commit", "err", err)
+	}
 	return a.storage.StateDB().OpenView()
 }
 
