@@ -822,12 +822,19 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 	panic("unreachable")
 }
 
-// Commit acknowledges the finalized block as the one the chain builds on. The
-// block's state commit may still be landing in the store: it is not waited for
-// here, since that would put the write back on the block loop. A commit that
-// fails halts the node through the next FinalizeBlock, and a restart resumes
-// from the store's own version.
+// Commit acknowledges the finalized block as the one the chain builds on, once
+// its receipts are readable: the height this advances is what RPC serves as
+// latest, and a block it serves has its receipts. The block's state commit may
+// still be landing in the store: it is not waited for here, since that would
+// put the write back on the block loop. A commit that fails halts the node here
+// or through the next FinalizeBlock, and a restart resumes from the store's own
+// version.
 func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
+	if executor, ok := a.settler.Load().Get(); ok {
+		if err := executor.AwaitReceipts(); err != nil {
+			return nil, err
+		}
+	}
 	for state := range a.cursor.Lock() {
 		pending, ok := state.pending.Get()
 		if !ok {

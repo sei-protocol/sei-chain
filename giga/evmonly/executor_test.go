@@ -174,19 +174,21 @@ func TestExecutorReturnsReceiptStoreError(t *testing.T) {
 
 	require.ErrorIs(t, err, storeErr)
 	require.Nil(t, result)
-	require.Empty(t, sink.results)
+	// Receipts are written behind the block, so the sink has already seen the result.
+	require.Len(t, sink.results, 1)
+	sink.releases[0]()
 	require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
 	view := stateStore.OpenView()
 	require.Zero(t, view.GetBlockHeight())
 	view.Close()
 
+	// A failed write is latched: the executor refuses further blocks rather than run ahead of a
+	// store that is missing a block.
 	receiptStore.err = nil
 	result, err = executor.ExecuteBlock(t.Context(), request)
-	require.NoError(t, err)
-	require.NotNil(t, result)
+	require.ErrorIs(t, err, storeErr)
+	require.Nil(t, result)
 	require.Len(t, sink.results, 1)
-	result.Release()
-	sink.releases[0]()
 }
 
 func TestExecutorPooledResultRelease(t *testing.T) {

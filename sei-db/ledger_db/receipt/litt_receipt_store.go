@@ -89,7 +89,7 @@ type littReceiptStore struct {
 
 	// Receipt writes waiting to be applied, and the meter for time spent waiting on a full queue. A
 	// whole write is queued, so the depth is the receipt write's own. Nil means writes apply inline.
-	writes chan receiptWrite
+	writes chan *receiptWrite
 
 	// Orders admitting a write against shutting the writer down, so none is accepted into a queue
 	// that will not be drained. queueWrite holds it shared; Close takes it exclusively.
@@ -99,12 +99,16 @@ type littReceiptStore struct {
 	writeQueue   *seidbmetrics.QueueMeter
 	writeErr     atomic.Pointer[error]
 	stopSampling context.CancelFunc
+	// The last write admitted to the queue, for WaitForPendingWrites to wait on.
+	lastQueued atomic.Pointer[receiptWrite]
 }
 
-// receiptWrite is one block's receipts, waiting to be applied.
+// receiptWrite is one block's receipts, waiting to be applied. landed is closed once the writer is
+// done with it, whether or not the write succeeded.
 type receiptWrite struct {
 	height   int64
 	receipts []ReceiptRecord
+	landed   chan struct{}
 }
 
 // writeQueueSampleIntervalSeconds is how often the write queue's depth is read. Sampling on a timer
@@ -243,7 +247,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	receiptMeter := otel.Meter("seidb_receipt")
 	s.writePhases = seidbmetrics.NewPhaseTimer(receiptMeter, "receipt_store_write")
 	if cfg.AsyncWriteBuffer > 0 {
-		s.writes = make(chan receiptWrite, cfg.AsyncWriteBuffer)
+		s.writes = make(chan *receiptWrite, cfg.AsyncWriteBuffer)
 		s.writeQueue = seidbmetrics.NewQueueMeter(receiptMeter, "receipt_write")
 		s.startWriter()
 
@@ -349,7 +353,16 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 	if err := s.writeFailure(); err != nil {
 		return err
 	}
-	return s.queueWrite(receiptWrite{height: ctx.BlockHeight(), receipts: receipts})
+	return s.queueWrite(&receiptWrite{height: ctx.BlockHeight(), receipts: receipts, landed: make(chan struct{})})
+}
+
+// WaitForPendingWrites blocks until every write queued before the call has been applied, so a
+// receipt SetReceipts accepted is readable when this returns. It returns at once when writes apply
+// inline.
+func (s *littReceiptStore) WaitForPendingWrites() {
+	if write := s.lastQueued.Load(); write != nil {
+		<-write.landed
+	}
 }
 
 // ErrStoreClosed is returned by a write the store can no longer apply, the writer having stopped.
@@ -357,7 +370,7 @@ var ErrStoreClosed = errors.New("receipt store is closed")
 
 // queueWrite hands a write to the writer, waiting for room when the queue is full and refusing once
 // the store is closing.
-func (s *littReceiptStore) queueWrite(write receiptWrite) error {
+func (s *littReceiptStore) queueWrite(write *receiptWrite) error {
 	// Held across the send, not merely to read the flag: Close takes it exclusively before stopping
 	// the writer, so a write admitted here always reaches a writer that is still running.
 	s.admission.RLock()
@@ -365,6 +378,7 @@ func (s *littReceiptStore) queueWrite(write receiptWrite) error {
 	if s.closing {
 		return ErrStoreClosed
 	}
+	s.lastQueued.Store(write)
 	seidbmetrics.Send(s.writeQueue, s.writes, write)
 	return nil
 }
@@ -579,7 +593,8 @@ func (s *littReceiptStore) startWriter() {
 // applyWrite performs one queued write, keeping the first failure for its callers to collect.
 // Nothing is applied after a failure: a later block carries its own version marker and would publish
 // a head above one whose receipts were never written.
-func (s *littReceiptStore) applyWrite(write receiptWrite) {
+func (s *littReceiptStore) applyWrite(write *receiptWrite) {
+	defer close(write.landed)
 	if s.writeFailure() != nil {
 		return
 	}

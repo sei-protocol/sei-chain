@@ -46,13 +46,20 @@ type Executor struct {
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
 	blockPhases *seidbmetrics.PhaseTimer
+	// Breaks the background persistence of a block into its stages. One block is persisted at a
+	// time, so one timer serves it.
+	pipelinePhases *seidbmetrics.PhaseTimer
 
 	// The commit running behind the current block, and what it will write. A block reads the latter
 	// through an overlay so it need not wait for the former.
-	pipelineMu      sync.Mutex
-	pipelineDone    chan struct{}
-	pipelineErr     error
-	pipelineChanges *pendingChanges
+	pipelineMu sync.Mutex
+	// Closed once the block is fully persisted.
+	pipelineDone chan struct{}
+	pipelineErr  error
+	// The most recent block's receipt write; kept after the block retires so a waiter that arrives
+	// late still finds its answer.
+	pipelineReceipts *receiptWrite
+	pipelineChanges  *pendingChanges
 	// Counts commits started, so a reader can tell that a block landed between two of its steps.
 	pipelineGeneration uint64
 	// The first commit that failed, kept so no caller can miss it.
@@ -98,9 +105,10 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:         cfg.WithDefaults(),
-		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
+		cfg:            cfg.WithDefaults(),
+		resultPool:     newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases:    seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
+		pipelinePhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_pipeline"),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)

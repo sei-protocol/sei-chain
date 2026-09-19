@@ -336,3 +336,112 @@ func executePipelinedBlock(t *testing.T, executor *Executor, chainID *big.Int, n
 	require.NoError(t, err)
 	return result
 }
+
+// errTestReceiptWriteFailed is the failure a test receipt store reports from SetReceipts.
+var errTestReceiptWriteFailed = errors.New("receipt write failed")
+
+// gatedCommitStore holds every state commit until the test releases it, so receipts can be
+// observed landing while the state commit is still in flight.
+type gatedCommitStore struct {
+	*recordingGigaStore
+	release chan struct{}
+}
+
+func (s *gatedCommitStore) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
+	<-s.release
+	return s.recordingGigaStore.CommitStateChanges(blockNum, changeset)
+}
+
+// A block's receipts are readable once AwaitReceipts returns, whether or not its state commit has
+// landed: that is what lets the RPC head advance behind receipts alone.
+func TestAwaitReceiptsReturnsBeforeTheStateCommitLands(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &gatedCommitStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}, release: make(chan struct{})}
+	receipts := NewMemoryReceiptStore()
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, receipts, noopChangeSetEncoder))
+	defer executor.Close()
+
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	result := executePipelinedBlock(t, executor, chainID, 41, rawTx)
+	txHash := result.Txs[0].Hash
+	result.Release()
+
+	require.NoError(t, executor.AwaitReceipts())
+	stored, err := receipts.GetReceipt(newReceiptContext(t.Context(), 41), txHash)
+	require.NoError(t, err)
+	require.Equal(t, uint64(41), stored.BlockNumber)
+	require.Empty(t, store.commits, "the state commit is still held")
+	// The result is needed only until its receipts are encoded, so the pool has it back while
+	// the commit is still running.
+	require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+
+	close(store.release)
+	require.NoError(t, executor.AwaitCommits())
+	require.Equal(t, []int64{41}, store.commitBlock)
+}
+
+// A receipt write that fails is a failed block: the state commit is not attempted and both waiters
+// report it.
+func TestFailedReceiptWriteFailsTheBlockBeforeItsStateCommit(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	executor := NewExecutor(Config{}, withTestStores(store, &failingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), err: errTestReceiptWriteFailed}, noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+
+	require.ErrorIs(t, executor.AwaitReceipts(), errTestReceiptWriteFailed)
+	require.ErrorIs(t, executor.AwaitCommits(), errTestReceiptWriteFailed)
+	require.Empty(t, store.commits, "state must not be committed for a block whose receipts were not")
+}
+
+// The state encoder runs after the block result may have been reused, so it must be handed the
+// block's own changes and nothing else.
+func TestBackgroundEncoderSeesTheBlocksOwnChanges(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	var encoded []StateChangeSet
+	encoder := func(changes StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		encoded = append(encoded, changes)
+		return noopChangeSetEncoder(changes)
+	}
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, NewMemoryReceiptStore(), encoder))
+	defer executor.Close()
+
+	first := executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	want := *first.ChangeSet.clone()
+	first.Release()
+	require.NoError(t, executor.AwaitReceipts())
+	// Takes the pooled result back while block 41's encoder may still be running.
+	second := executePipelinedBlock(t, executor, chainID, 42,
+		signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(9), nil))
+	second.Release()
+
+	require.NoError(t, executor.AwaitCommits())
+	require.Len(t, encoded, 2)
+	require.Equal(t, want, encoded[0])
+	require.Equal(t, []int64{41, 42}, store.commitBlock)
+}
