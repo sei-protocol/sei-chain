@@ -99,7 +99,9 @@ type littReceiptStore struct {
 	writeQueue   *seidbmetrics.QueueMeter
 	writeErr     atomic.Pointer[error]
 	stopSampling context.CancelFunc
-	// The last write admitted to the queue, for WaitForPendingWrites to wait on.
+	// The last write admitted to the queue, for WaitForPendingWrites to wait on. queueMu orders
+	// publishing it with the send, so the marker is never a write that is still behind another.
+	queueMu    sync.Mutex
 	lastQueued atomic.Pointer[receiptWrite]
 }
 
@@ -378,6 +380,8 @@ func (s *littReceiptStore) queueWrite(write *receiptWrite) error {
 	if s.closing {
 		return ErrStoreClosed
 	}
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
 	s.lastQueued.Store(write)
 	seidbmetrics.Send(s.writeQueue, s.writes, write)
 	return nil

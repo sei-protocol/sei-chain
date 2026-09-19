@@ -8,6 +8,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -407,6 +409,41 @@ func TestFailedReceiptWriteFailsTheBlockBeforeItsStateCommit(t *testing.T) {
 
 	require.ErrorIs(t, executor.AwaitReceipts(), errTestReceiptWriteFailed)
 	require.ErrorIs(t, executor.AwaitCommits(), errTestReceiptWriteFailed)
+	require.Empty(t, store.commits, "state must not be committed for a block whose receipts were not")
+}
+
+// droppingReceiptStore accepts every write and applies none of them, the way a queued store behaves
+// once an earlier write has failed: it takes the block, waits out its queue, and its version never
+// reaches it.
+type droppingReceiptStore struct {
+	*MemoryReceiptStore
+}
+
+func (s *droppingReceiptStore) SetReceipts(sdk.Context, []receipt.ReceiptRecord) error { return nil }
+
+func (s *droppingReceiptStore) WaitForPendingWrites() {}
+
+// A write the store accepted but never applied is this block's failure, not the next one's.
+func TestReceiptWriteThatNeverLandsFailsTheBlock(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	receipts := &droppingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore()}
+	executor := NewExecutor(Config{}, withTestStores(store, receipts, noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+
+	err = executor.AwaitReceipts()
+	require.ErrorContains(t, err, "receipts for block 41 did not land")
+	require.ErrorIs(t, executor.AwaitCommits(), err)
 	require.Empty(t, store.commits, "state must not be committed for a block whose receipts were not")
 }
 
