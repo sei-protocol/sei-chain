@@ -14,11 +14,14 @@ import (
 	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -697,5 +700,41 @@ func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 				require.Equal(t, crypto.Keccak256Hash(raw), hashes[i], "tx %d", i)
 			}
 		})
+	}
+}
+
+// Every FinalizeBlock stage is charged to a phase, so the timer's total is the
+// time the block loop spent inside the application.
+func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmOnlyApp, ok := app.(*evmOnlyApplication)
+	require.True(t, ok)
+	reader := sdkmetric.NewManualReader()
+	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(finalizeMeterName)
+	evmOnlyApp.finalizePhases = seidbmetrics.NewPhaseTimer(meter, "evmonly_finalize")
+
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	phases := map[string]struct{}{}
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != "evmonly_finalize_phase_duration_seconds_total" {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[float64])
+			require.True(t, ok)
+			for _, point := range sum.DataPoints {
+				phase, ok := point.Attributes.Value("phase")
+				require.True(t, ok)
+				phases[phase.AsString()] = struct{}{}
+			}
+		}
+	}
+	for _, want := range []string{"take_senders", "prepare", "execute", "tx_results"} {
+		_, ok := phases[want]
+		require.True(t, ok, "phase %q not recorded", want)
 	}
 }

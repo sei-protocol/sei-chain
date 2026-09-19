@@ -23,9 +23,11 @@ import (
 	"github.com/holiman/uint256"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -76,7 +78,15 @@ type evmOnlyApplication struct {
 	// settleFailureLogged is set once a failed commit has been logged by a
 	// committed-state reader; the failure is latched, so it is logged once.
 	settleFailureLogged atomic.Bool
+	// finalizePhases breaks FinalizeBlock into its stages around the executor.
+	// FinalizeBlock is serialized by executor, so one timer serves the app; it
+	// is only touched with that lock held.
+	finalizePhases *seidbmetrics.PhaseTimer
 }
+
+// finalizeMeterName is the OTel meter FinalizeBlock's phase timer records to,
+// as evmonly_finalize_phase_duration_seconds_total.
+const finalizeMeterName = "evmonly_app"
 
 // evmOnlyCursorState is the execution position: the block whose state is
 // committed to storage and the block finalized but not yet acknowledged by
@@ -113,6 +123,7 @@ func NewEVMOnlyApplication(
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		executor:         utils.NewMutex(new(utils.Option[*evmonly.Executor])),
+		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), "evmonly_finalize"),
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
 		checkedSenders:   utils.NewMutex(map[common.Hash]common.Address{}),
@@ -568,7 +579,11 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if err != nil {
 			return nil, err
 		}
-		result, err := executeBlockPipelined(ctx, executor, evmonly.BlockRequest{
+		// Closes the stage in flight, so the gap until the next block is charged to neither.
+		defer a.finalizePhases.Reset()
+		a.finalizePhases.SetPhase("take_senders")
+		senders := a.takeSenders(req.Txs)
+		result, err := executeBlockPipelined(ctx, executor, a.finalizePhases, evmonly.BlockRequest{
 			Context: evmonly.BlockContext{
 				Number:      number,
 				Time:        timestamp,
@@ -581,7 +596,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				PrevRandao:  parent.appHash,
 			},
 			Txs:     req.Txs,
-			Senders: a.takeSenders(req.Txs),
+			Senders: senders,
 		})
 		if err != nil {
 			return nil, errors.Join(err, a.abandonPending(executor, height))
@@ -591,6 +606,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 		if err != nil {
 			return nil, err
 		}
+		a.finalizePhases.SetPhase("tx_results")
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), pending.appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -604,11 +620,16 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 // The executor lands the previous block's commit before starting this one and
 // reads its changes through an overlay in the meantime, so committed-state
 // readers settle through AwaitCommits rather than this returning.
-func executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+//
+// Preparation (decoding and recovering the senders CheckTx did not) and execution are
+// timed as separate phases; the executor's own timer breaks execution down further.
+func executeBlockPipelined(ctx context.Context, executor *evmonly.Executor, phases *seidbmetrics.PhaseTimer, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+	phases.SetPhase("prepare")
 	prepared, err := executor.PrepareBlock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	phases.SetPhase("execute")
 	return executor.ExecutePreparedBlock(ctx, prepared)
 }
 
