@@ -126,6 +126,9 @@ type txStoreInner struct {
 	byEvmHash map[common.Hash]*WrappedTx
 	byNonce   map[evmAddrNonce]*WrappedTx
 	accounts  map[common.Address]*evmAccount
+	// Incremented whenever accounts is reset, so account state fetched outside the lock is only
+	// installed against the height it was fetched for.
+	accountsEpoch uint64
 
 	softLimit txCounter
 	hardLimit txCounter
@@ -203,6 +206,7 @@ func (s *txStore) Clear() {
 		inner.byEvmHash = map[common.Hash]*WrappedTx{}
 		inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 		inner.accounts = map[common.Address]*evmAccount{}
+		inner.accountsEpoch++
 		inner.state.Store(txStoreState{})
 		s.readyTxs.Clear()
 	}
@@ -362,7 +366,8 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, recordAdded bool) 
 		// Fetch the evm account state.
 		account, ok := inner.accounts[evm.address]
 		if !ok {
-			// TODO(gprusak): consider whether we should move these queries out of the mutex.
+			// Insert prefetches the account outside the mutex; this only runs when that prefetch
+			// was discarded, or for txs reinserted by compact.
 			b := s.app.EvmBalance(evm.address, evm.seiAddress)
 			n := s.app.EvmNonce(evm.address)
 			account = &evmAccount{b, n, n}
@@ -506,10 +511,53 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 	return res
 }
 
+// prefetchedAccount is evm account state fetched from the app outside the store lock, tagged with
+// the accounts epoch it is valid for.
+type prefetchedAccount struct {
+	address common.Address
+	epoch   uint64
+	account *evmAccount
+}
+
+// prefetchAccount fetches the evm account state of wtx's sender without holding the store lock, when
+// the store does not know the account yet. Reading the app can wait on the state store, and doing
+// so under the lock would stall every other mempool operation.
+func (s *txStore) prefetchAccount(wtx *WrappedTx) utils.Option[prefetchedAccount] {
+	evm, ok := wtx.evm.Get()
+	if !ok {
+		return utils.None[prefetchedAccount]()
+	}
+	var epoch uint64
+	for inner := range s.inner.RLock() {
+		if _, ok := inner.accounts[evm.address]; ok {
+			return utils.None[prefetchedAccount]()
+		}
+		epoch = inner.accountsEpoch
+	}
+	b := s.app.EvmBalance(evm.address, evm.seiAddress)
+	n := s.app.EvmNonce(evm.address)
+	return utils.Some(prefetchedAccount{address: evm.address, epoch: epoch, account: &evmAccount{b, n, n}})
+}
+
+// installPrefetched adds a prefetched account to inner unless the accounts were reset since it was
+// fetched or another inserter got there first.
+func installPrefetched(inner *txStoreInner, prefetched utils.Option[prefetchedAccount]) {
+	p, ok := prefetched.Get()
+	if !ok || p.epoch != inner.accountsEpoch {
+		return
+	}
+	if _, ok := inner.accounts[p.address]; ok {
+		return
+	}
+	inner.accounts[p.address] = p.account
+}
+
 // Inserts a new transaction to txStore.
 // txStore takes ownership of wtx.
 func (s *txStore) Insert(wtx *WrappedTx) error {
+	prefetched := s.prefetchAccount(wtx)
 	for inner := range s.inner.Lock() {
+		installPrefetched(inner, prefetched)
 		if err := s.insert(inner, wtx, true); err != nil {
 			return err
 		}
@@ -538,6 +586,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 	if clearAccounts {
 		inner.accounts = map[common.Address]*evmAccount{}
+		inner.accountsEpoch++
 	}
 	for _, account := range inner.accounts {
 		account.nextNonce = account.firstNonce
