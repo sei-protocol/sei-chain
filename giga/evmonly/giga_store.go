@@ -92,7 +92,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		snapshot:     snapshot,
 		missingState: e.missingState,
 	}
-	source = pending.overlay(source)
+	source = newPendingOverlay(source, pending)
 
 	e.blockPhases.SetPhase("execute")
 	result, err := e.executePreparedBlock(ctx, req, source)
@@ -201,77 +201,10 @@ func (e *Executor) AwaitCommits() error {
 
 // pipelinePending returns the changes of a block whose commit has not been waited on yet, or nil
 // when the store is caught up.
-func (e *Executor) pipelinePending() *pendingChanges {
+func (e *Executor) pipelinePending() *StateChangeSet {
 	e.pipelineMu.Lock()
 	defer e.pipelineMu.Unlock()
 	return e.pipelineChanges
-}
-
-// LatestAccount is the balance and nonce of an account after the last block this executor ran.
-type LatestAccount struct {
-	Balance *big.Int
-	Nonce   uint64
-}
-
-// ReadLatestAccount returns addr's balance and nonce after the last block this executor ran,
-// without waiting for that block's commit to land. It reports the first failed commit instead of
-// state that lacks the failed block.
-func (e *Executor) ReadLatestAccount(addr common.Address) (LatestAccount, error) {
-	if e.stateStore == nil {
-		return LatestAccount{}, errMissingStateStore
-	}
-	for {
-		e.pipelineMu.Lock()
-		pending, generation, failure := e.pipelineChanges, e.pipelineGeneration, e.pipelineFailureLocked()
-		e.pipelineMu.Unlock()
-		if failure != nil {
-			return LatestAccount{}, failure
-		}
-		snapshot := e.stateStore.OpenView()
-		if snapshot == nil {
-			return LatestAccount{}, errors.New("giga store returned a nil snapshot")
-		}
-		account, ok := e.readLatestAccount(snapshot, pending, generation, addr)
-		snapshot.Close()
-		if ok {
-			return account, nil
-		}
-	}
-}
-
-// readLatestAccount reads addr through pending laid over snapshot. It reports false when another
-// commit started after generation was read, since the view may then hold a later block's writes and
-// pending would replay older values over them; the caller reads again.
-func (e *Executor) readLatestAccount(snapshot gigatypes.EVMStateView, pending *pendingChanges, generation uint64, addr common.Address) (LatestAccount, bool) {
-	e.pipelineMu.Lock()
-	moved := e.pipelineGeneration != generation
-	e.pipelineMu.Unlock()
-	if moved {
-		return LatestAccount{}, false
-	}
-	reader := pending.overlay(gigaSnapshotStateReader{snapshot: snapshot, missingState: e.missingState})
-	if rowReader, ok := reader.(accountSnapshotReader); ok {
-		if row, ok := rowReader.ReadAccount(addr); ok {
-			balance := row.Balance
-			if balance == nil {
-				balance = new(big.Int)
-			}
-			return LatestAccount{Balance: balance, Nonce: row.Nonce}, true
-		}
-	}
-	return LatestAccount{Balance: reader.GetBalance(addr), Nonce: reader.GetNonce(addr)}, true
-}
-
-// pipelineFailureLocked returns the first failed commit, whether or not a waiter has retired it yet.
-// Callers hold pipelineMu.
-func (e *Executor) pipelineFailureLocked() error {
-	if e.pipelineFailure != nil {
-		return e.pipelineFailure
-	}
-	if e.pipelineErr != nil {
-		return fmt.Errorf("commit state changes: %w", e.pipelineErr)
-	}
-	return nil
 }
 
 // awaitPipelineCommit blocks until the in-flight commit has landed, reporting the first commit that
@@ -315,7 +248,7 @@ func (e *Executor) awaitPipelineCommit() error {
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
 func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
-	pending := newPendingChanges(changes.clone())
+	pending := changes.clone()
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
 	if failure := e.pipelineFailure; failure != nil {
@@ -323,7 +256,6 @@ func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.Na
 		return failure
 	}
 	e.pipelineChanges = pending
-	e.pipelineGeneration++
 	e.pipelineDone = done
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
