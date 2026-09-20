@@ -841,6 +841,23 @@ func TestEVMOnlyApplicationReportsAnUndecodableBlockFromFinalizeBlock(t *testing
 	require.Error(t, unpreparedErr)
 }
 
+func TestPrepareBudgetIsAShareOfTheTypicalExecution(t *testing.T) {
+	require.Equal(t, time.Duration(0), prepareBudget(0))
+	require.Equal(t, 10*time.Millisecond, prepareBudget(20*time.Millisecond))
+}
+
+func TestExecuteEstimateSmoothsOverBlocks(t *testing.T) {
+	// The first block sets the estimate; later ones move it a step.
+	estimate := nextExecuteEstimate(0, 20*time.Millisecond)
+	require.Equal(t, 20*time.Millisecond, estimate)
+	// A single short block barely dents the budget rather than zeroing it.
+	estimate = nextExecuteEstimate(estimate, time.Millisecond)
+	require.Equal(t, 17625*time.Microsecond, estimate)
+	require.Equal(t, 8812500*time.Nanosecond, prepareBudget(estimate))
+	estimate = nextExecuteEstimate(estimate, 40*time.Millisecond)
+	require.Equal(t, 20421875*time.Nanosecond, estimate)
+}
+
 // Preparing before InitChain is a no-op rather than a failure.
 func TestEVMOnlyApplicationPrepareBlockBeforeInitChainIsANoOp(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
