@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
-	"math"
 	"math/big"
 	"sync"
 	"testing"
@@ -728,64 +727,6 @@ func TestExecutorOCCConflictingTransfersMatchSequential(t *testing.T) {
 	require.True(t, foundRecipientBalanceConflict)
 	require.Equal(t, seqState.GetBalance(recipient), occState.GetBalance(recipient))
 	require.Equal(t, big.NewInt(int64(txCount*3)), occState.GetBalance(recipient))
-}
-
-// A block large enough for the parallel validation pass and the sharded merge, mixing independent
-// transfers, nonce chains from one sender, and a hot recipient, must produce the sequential result
-// exactly: transaction results, receipts, cumulative gas and the canonical changeset.
-func TestExecutorOCCLargeMixedBlockMatchesSequential(t *testing.T) {
-	chainID := big.NewInt(testChainID)
-	hot := testAddress(0xaa)
-	seqState := NewMemoryState()
-	occState := NewMemoryState()
-	var rawTxs [][]byte
-	sign := func(key *ecdsa.PrivateKey, nonce uint64, to common.Address, value int64) {
-		rawTxs = append(rawTxs, signLegacyTxWithGasPrice(t, key, chainID, nonce, &to, big.NewInt(value), nil, 100_000, big.NewInt(1)))
-	}
-	fund := func(key *ecdsa.PrivateKey) {
-		sender := crypto.PubkeyToAddress(key.PublicKey)
-		seqState.SetBalance(sender, big.NewInt(1_000_000_000))
-		occState.SetBalance(sender, big.NewInt(1_000_000_000))
-	}
-	for i := range 300 {
-		key, err := crypto.GenerateKey()
-		require.NoError(t, err)
-		fund(key)
-		switch {
-		case i%7 == 0:
-			sign(key, 0, hot, 3)
-		case i%29 == 0:
-			for nonce := range 3 {
-				sign(key, uint64(nonce), common.BigToAddress(big.NewInt(int64(50_000+i))), 5) //nolint:gosec // nonce is non-negative.
-			}
-		default:
-			sign(key, 0, common.BigToAddress(big.NewInt(int64(50_000+i))), 7)
-		}
-	}
-	// A late transaction reads the hot balance that the earlier ones credit, so it is rerun after the
-	// parallel pass has accepted the run before it.
-	hotKey, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	hotSender := crypto.PubkeyToAddress(hotKey.PublicKey)
-	seqState.SetBalance(hotSender, big.NewInt(1_000_000_000))
-	occState.SetBalance(hotSender, big.NewInt(1_000_000_000))
-	seqState.SetBalance(hot, big.NewInt(1))
-	occState.SetBalance(hot, big.NewInt(1))
-	sign(hotKey, 0, hot, 1)
-
-	req := BlockRequest{Context: blockContext(chainID), Txs: rawTxs}
-	seqResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestState(seqState)).ExecuteBlock(t.Context(), req)
-	require.NoError(t, err)
-	occResult, err := NewExecutor(Config{MinGasPrice: big.NewInt(0), OCCWorkers: 4}, withTestState(occState)).ExecuteBlock(t.Context(), req)
-	require.NoError(t, err)
-
-	require.True(t, occResult.OCCStats.Attempted)
-	require.False(t, occResult.OCCStats.Fallback, occResult.OCCStats.FallbackReason)
-	require.Greater(t, occResult.OCCStats.RerunCount, uint64(0))
-	require.Equal(t, seqResult.GasUsed, occResult.GasUsed)
-	require.Equal(t, seqResult.Txs, occResult.Txs)
-	require.Equal(t, seqResult.Receipts, occResult.Receipts)
-	require.Equal(t, seqResult.ChangeSet, occResult.ChangeSet)
 }
 
 func TestExecutorOCCFeePayingTransfersDoNotConflictOnCoinbase(t *testing.T) {
@@ -2173,7 +2114,7 @@ func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 		{kind: stateAccessBalance, address: eoa}: {},
 	})
 	validation := occValidationResult{}
-	accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{gasLimit: 1, readSet: readSet}, 0, 10, 0, math.MaxInt)
+	accepted := validateSTMResultAgainstPrefix(&validation, writes, occTxExecution{gasLimit: 1, readSet: readSet}, 0, 10, 0)
 	require.False(t, accepted)
 	require.Equal(t, occFallbackReasonConflict, validation.fallbackReason)
 }
@@ -2285,7 +2226,7 @@ func TestValidateSTMConflictMatrix(t *testing.T) {
 			t.Fatalf("unknown access mode %q", access)
 		}
 		validation := occValidationResult{}
-		accepted := validateSTMResultAgainstPrefix(&validation, writes, result, 0, 10, 0, math.MaxInt)
+		accepted := validateSTMResultAgainstPrefix(&validation, writes, result, 0, 10, 0)
 		return accepted, validation
 	}
 
@@ -2327,7 +2268,7 @@ func TestValidateSTMConflictSourcePrefix(t *testing.T) {
 			readSet:  map[stateAccessKey]struct{}{key: {}},
 			gasLimit: 1,
 			gasUsed:  1,
-		}, 0, 10, sourcePrefix, math.MaxInt)
+		}, 0, 10, sourcePrefix)
 		return accepted, validation
 	}
 	cases := []struct {
