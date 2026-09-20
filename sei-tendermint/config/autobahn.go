@@ -87,8 +87,15 @@ type AutobahnFileConfig struct {
 	// Defaults to true.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
 	// Whether an EVM-only node keeps a receipt store. A node without one
-	// serves no receipts or logs over EVM RPC and its Commit does not wait
-	// for receipts to land; RPC-serving nodes keep it on.
+	// serves blocks over EVM RPC but no receipts or logs: receipt and
+	// transaction lookups fail with "this node does not store receipts",
+	// and receipt-derived block fields (a block's gasUsed, eth_feeHistory's
+	// gasUsedRatio) read as zero. Its Commit does not wait for receipts to
+	// land; RPC-serving nodes keep it on.
+	// Turning it off on a node whose receipt directory already holds blocks
+	// is refused at startup until that directory is removed, so that
+	// turning it back on later starts from an empty store rather than
+	// rolling state back to the stale receipt head.
 	// Ignored when PersistentStateDir is absent. Defaults to true.
 	EnableReceiptStore utils.Option[bool] `json:"enable_receipt_store,omitzero"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig

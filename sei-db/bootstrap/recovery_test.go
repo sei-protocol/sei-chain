@@ -746,3 +746,38 @@ func TestOpenDBWithoutRecoveryOnAFreshHome(t *testing.T) {
 	require.Zero(t, manager.SS().GetLatestVersion())
 	require.Zero(t, manager.ReceiptDB().LatestVersion())
 }
+
+// Receipts disabled on a node whose receipt directory holds blocks is refused rather than run: left out
+// of recovery, that store would fall behind, and enabling receipts again later would converge every
+// other store back onto its stale head. Clearing the directory is what makes the disable stick, and a
+// re-enable after that is the empty-store case.
+func TestDisablingReceiptsOverAStoreHoldingBlocksIsRefused(t *testing.T) {
+	cfg, err := config.DefaultGigaStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	manager, err := NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	commitBlocks(t, manager, 3)
+	writeReceipts(t, manager, 3)
+	require.NoError(t, manager.Close())
+
+	cfg.ReceiptDBConfig.Enable = false
+	_, err = NewGigaStorageManager(t.Context(), cfg)
+	require.ErrorIs(t, err, ErrDisabledReceiptStoreHoldsBlocks)
+	require.ErrorContains(t, err, cfg.ReceiptDBConfig.DBDirectory)
+
+	require.NoError(t, os.RemoveAll(cfg.ReceiptDBConfig.DBDirectory))
+	manager, err = NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	require.Nil(t, manager.ReceiptDB())
+	require.NoError(t, manager.StateDB().CommitStateChanges(4, evmBlock(4, 4)))
+	require.NoError(t, manager.Close())
+
+	cfg.ReceiptDBConfig.Enable = true
+	manager, err = NewGigaStorageManager(t.Context(), cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, manager.Close()) }()
+	version, err := manager.SC().GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(4), version, "re-enabling receipts over an empty store must not roll state back")
+	require.Zero(t, manager.ReceiptDB().LatestVersion())
+}

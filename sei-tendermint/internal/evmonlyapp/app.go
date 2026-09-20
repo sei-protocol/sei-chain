@@ -868,7 +868,8 @@ func (a *evmOnlyApplication) pendingCursor(height int64) (evmOnlyCursor, error) 
 
 // Commit acknowledges the finalized block as the one the chain builds on, once
 // its receipts are readable: the height this advances is what RPC serves as
-// latest, and a block it serves has its receipts. The block's state commit may
+// latest, and on a node with a receipt store a block it serves has its
+// receipts. A node without one has nothing to wait for. The block's state commit may
 // still be landing in the store: it is not waited for here, since that would
 // put the write back on the block loop. A commit that fails halts the node here
 // or through the next FinalizeBlock, and a restart resumes from the store's own
