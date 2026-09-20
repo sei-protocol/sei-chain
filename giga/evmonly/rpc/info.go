@@ -163,7 +163,9 @@ func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error
 		}
 		return current, nil
 	case ethrpc.EarliestBlockNumber:
-		return earliestCommittedHeight, nil
+		// EarliestVersion is 0 until something has pruned the store, in which case
+		// earliestCommittedHeight (this deployment's genesis) is the true earliest.
+		return max(earliestCommittedHeight, api.store.EarliestVersion()), nil
 	default:
 		if lastBlock < 0 {
 			return 0, fmt.Errorf("requested last block %d is not available", lastBlock)
@@ -180,6 +182,10 @@ func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error
 // recorded stats (pruned, or a block this store never wrote stats for).
 func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, floor *big.Int, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	result := &FeeHistoryResult{GasUsedRatio: []float64{}}
+	// lastGoodResult is the most recent contiguous run completed before a hole. If a hole is the
+	// last thing the loop sees (nothing after it has stats either), this is returned instead of
+	// discarding a real, usable prefix just because it doesn't reach end.
+	var lastGoodResult *FeeHistoryResult
 	start := end - blockCount + 1
 	for height := start; height <= end; height++ {
 		if err := ctx.Err(); err != nil {
@@ -195,8 +201,8 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 					// A hole after rows have already been emitted would otherwise misattribute
 					// every later row to the wrong height — eth_feeHistory's row i describes block
 					// oldestBlock+i, and skipping in place shifts that mapping silently. Restart
-					// the accumulation instead, so the returned range stays a contiguous run
-					// ending at end.
+					// the accumulation instead, so the returned range stays a contiguous run.
+					lastGoodResult = result
 					result = &FeeHistoryResult{GasUsedRatio: []float64{}}
 				}
 				continue
@@ -213,9 +219,16 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		}
 	}
 	if result.OldestBlock == nil {
-		// end resolved successfully just before this call; only a store eviction racing that
-		// resolution reaches here.
-		return nil, fmt.Errorf("block %d is no longer available", end)
+		// The run since the last hole (if any) never got started either: fall back to the
+		// contiguous run that preceded it rather than discarding a usable prefix that just
+		// doesn't happen to reach end.
+		if lastGoodResult != nil {
+			result = lastGoodResult
+		} else {
+			// end resolved successfully just before this call; only a store eviction racing that
+			// resolution reaches here.
+			return nil, fmt.Errorf("block %d is no longer available", end)
+		}
 	}
 	// baseFeePerGas carries one more entry than gasUsedRatio: the projected fee for the block
 	// after end. Always zero here.

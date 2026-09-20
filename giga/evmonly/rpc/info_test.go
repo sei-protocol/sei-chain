@@ -125,6 +125,38 @@ func TestFeeHistorySkipsHeightsWithoutStats(t *testing.T) {
 	require.Equal(t, []float64{0.01}, result.GasUsedRatio)
 }
 
+// TestFeeHistoryEarliestRespectsThePruneFloor guards a real review finding: "earliest" resolved
+// to a hardcoded height 1 regardless of retention, so a range ending at "earliest" on a node that
+// had pruned its early history would error instead of resolving to the oldest block still held.
+func TestFeeHistoryEarliestRespectsThePruneFloor(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	for h := uint64(1); h <= 5; h++ {
+		setBlockReceipt(t, store, h, 10, 100)
+	}
+	require.NoError(t, store.PruneHistory(3)) // blocks 1-2 pruned; 3 is the oldest retained
+
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.EarliestBlockNumber, nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
+}
+
+// TestFeeHistoryFallsBackToLastGoodRunOnATrailingHole guards a real review finding: the
+// interior-hole restart above discards its accumulated rows on any hole, including one that
+// extends through end — which left a real, usable prefix un-returned in favor of an error.
+func TestFeeHistoryFallsBackToLastGoodRunOnATrailingHole(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	setBlockReceipt(t, store, 1, 10, 100)
+	setBlockReceipt(t, store, 2, 20, 100)
+	setBlockReceipt(t, store, 5, 50, 100) // pushes LatestVersion to 5; blocks 3-4 are holes through end
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+
+	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
+	require.NoError(t, err, "a trailing hole through end must fall back to the prefix, not error")
+	require.Equal(t, big.NewInt(1), result.OldestBlock.ToInt())
+	require.Equal(t, []float64{0.01, 0.02}, result.GasUsedRatio)
+}
+
 // TestFeeHistoryRestartsAfterAnInteriorHole guards a real review finding: skipping an interior
 // height with no stats in place, after rows have already been emitted, would silently misattribute
 // every later row to the wrong height (eth_feeHistory's row i is block oldestBlock+i). The fix
