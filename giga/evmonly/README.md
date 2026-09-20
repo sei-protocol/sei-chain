@@ -96,9 +96,13 @@ receipt-store failures release the block result and return an error without
 invoking `ResultSink`. Ethereum receipts are converted into
 `receipt.ReceiptRecord` values and persisted through the shared
 `receipt.ReceiptStore` interface before the height-advancing state commit,
-including for empty blocks. A receipt failure leaves state unchanged so the
-block can be retried. A state failure can leave receipts behind, but retrying
-the block overwrites them. `ResultSink` runs only after both stores succeed.
+including for empty blocks. A store with an async write queue only accepts the
+write here: the receipts land behind the block, so a reader that follows the
+state head can briefly miss the newest block's receipts, and recovery replays
+the tail a crash leaves unwritten. A receipt failure leaves state unchanged so
+the block can be retried. A state failure can leave receipts behind, but
+retrying the block overwrites them. `ResultSink` runs only after both stores
+accept the block.
 
 `ExecuteBlock` advances the state store's version itself, independently of any
 ABCI `Commit`, so what the store holds after a restart is decided by the
