@@ -315,8 +315,8 @@ func (e *Executor) awaitPipelineCommit() error {
 }
 
 // startReceiptWrite persists the block's receipts in the background, after the previous block's
-// have landed, and returns the write to wait on. The block result is held until its receipts are
-// encoded.
+// have landed, and returns the write to wait on. The block result is held until the write has
+// landed.
 //
 // The write is recorded as the executor's newest, so AwaitReceipts finds it whether or not the
 // block's commit is started afterwards.
@@ -376,7 +376,7 @@ func (e *Executor) startPipelineCommit(blockNumber int64, result *BlockResult, r
 		defer e.pipelinePhases.Reset()
 		// A block whose receipts were lost is a failed block: its state is not committed, so the
 		// store never holds a block whose receipts cannot be read.
-		e.pipelinePhases.SetPhase("await_receipts")
+		e.pipelinePhases.SetPhase("await_receipt_write")
 		<-receipts.done
 		if receipts.err != nil {
 			e.pipelineMu.Lock()

@@ -481,6 +481,42 @@ func TestFailedReceiptWriteFailsTheBlockBeforeItsStateCommit(t *testing.T) {
 	require.Empty(t, store.commits, "state must not be committed for a block whose receipts were not")
 }
 
+// The block after a failed receipt write fails too, before its own receipts are attempted: a store
+// whose version has moved past a block whose receipts it never got would claim them as written.
+func TestReceiptWriteAfterAFailedOneIsNotAttempted(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	receipts := &failingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), err: errTestReceiptWriteFailed}
+	executor := NewExecutor(Config{}, withTestStores(store, receipts, noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	require.ErrorIs(t, executor.AwaitReceipts(), errTestReceiptWriteFailed)
+
+	// The store would accept block 42's receipts now; the executor must not offer them.
+	receipts.err = nil
+	blockCtx := blockContext(chainID)
+	blockCtx.Number = 42
+	rawTx := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(9), nil)
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockCtx, Txs: [][]byte{rawTx}})
+	require.NoError(t, err)
+	_, err = executor.ExecutePreparedBlock(t.Context(), prepared)
+	require.ErrorIs(t, err, errTestReceiptWriteFailed)
+
+	require.ErrorIs(t, executor.AwaitReceipts(), errTestReceiptWriteFailed)
+	_, err = receipts.GetReceipt(newReceiptContext(t.Context(), 42), decodeTx(t, rawTx).Hash())
+	require.ErrorIs(t, err, receipt.ErrNotFound, "block 42's receipts must not land over the hole at 41")
+	require.Empty(t, store.commits)
+}
+
 // droppingReceiptStore accepts every write and applies none of them, the way a queued store behaves
 // once an earlier write has failed: it takes the block, waits out its queue, and its version never
 // reaches it.
