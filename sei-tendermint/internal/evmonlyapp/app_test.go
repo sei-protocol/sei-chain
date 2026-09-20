@@ -1,7 +1,6 @@
 package evmonlyapp
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"encoding/binary"
 	"errors"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -20,9 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -81,45 +77,30 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
 	t.Helper()
 	storage := openEVMOnlyTestStorage(t, t.TempDir())
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
 	require.NoError(t, err)
-	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
 	return app
-}
-
-// closeEVMOnlyTestApp closes storage the way the node does: after the
-// application has landed every block commit it started.
-func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager) {
-	t.Helper()
-	settler, ok := app.(*evmOnlyApplication)
-	require.True(t, ok)
-	require.NoError(t, settler.AwaitCommits())
-	require.NoError(t, storage.Close())
 }
 
 func openEVMOnlyTestStorage(t *testing.T, home string) *bootstrap.GigaStorageManager {
 	t.Helper()
 	storageConfig, err := evmonly.NewValidatorStorageConfig(home, true)
 	require.NoError(t, err)
-	// The store outlives the test body: the last block's commit is still landing
-	// when it ends, and closeEVMOnlyTestApp settles it from a cleanup, which
-	// runs after t.Context() is cancelled.
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	storage, err := bootstrap.NewGigaStorageManager(ctx, storageConfig)
+	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
 	require.NoError(t, err)
 	return storage
 }
 
 // reopenEVMOnlyTestApp closes storage and constructs a fresh application over
 // the same home, the way a restarted process does.
-func reopenEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.GigaStorageManager, home string) (abci.Application, *bootstrap.GigaStorageManager) {
+func reopenEVMOnlyTestApp(t *testing.T, storage *bootstrap.GigaStorageManager, home string) (abci.Application, *bootstrap.GigaStorageManager) {
 	t.Helper()
-	closeEVMOnlyTestApp(t, app, storage)
+	require.NoError(t, storage.Close())
 	reopened := openEVMOnlyTestStorage(t, home)
-	reopenedApp, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()))
+	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, reopened, evmonly.NewFlatKVChangeSetEncoder(reopened.SC()))
 	require.NoError(t, err)
-	return reopenedApp, reopened
+	return app, reopened
 }
 
 func evmOnlyTestBlock(height int64, txs ...[]byte) *abci.RequestFinalizeBlock {
@@ -186,8 +167,8 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 
 	// Receipt writes are queued behind the block; closing the storage drains
 	// them, so the reopened store is where the receipt is guaranteed to be.
-	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
-	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	_, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
 	receipt, err := storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
@@ -340,8 +321,8 @@ func TestEVMOnlyApplicationInitLastHeaderSeedsBlockTime(t *testing.T) {
 		finalizeAndCommitEVMOnlyTestBlock(t, app, last)
 	}
 
-	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
-	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	resumed, ok := app.(*evmOnlyApplication)
 	require.True(t, ok)
@@ -379,8 +360,8 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 		require.Equal(t, wantHashes[height], finalizeAndCommitEVMOnlyTestBlock(t, app, block(height+1)))
 	}
 
-	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
-	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	info := app.Info()
 	require.Equal(t, int64(blocks), info.LastBlockHeight)
@@ -392,10 +373,9 @@ func TestEVMOnlyApplicationResumesFromStorageAfterRestart(t *testing.T) {
 	require.Equal(t, int64(blocks+1), app.LastBlockHeight())
 }
 
-// FinalizeBlock starts the block's state commit, and a shutdown settles it, so
-// stopping after FinalizeBlock but before Commit leaves the finalized block
-// durable. The restarted node must report it rather than execute it a second
-// time.
+// State is committed by FinalizeBlock, so a crash before Commit leaves the
+// finalized block durable. The restarted node must report it rather than
+// execute it a second time.
 func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -413,8 +393,8 @@ func TestEVMOnlyApplicationResumesFromBlockFinalizedButNotCommitted(t *testing.T
 	finalized, err := app.FinalizeBlock(t.Context(), block(2))
 	require.NoError(t, err)
 
-	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
-	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	info := app.Info()
 	require.Equal(t, int64(2), info.LastBlockHeight)
@@ -435,8 +415,8 @@ func TestEVMOnlyApplicationRepeatsInitChainAfterSeedingOnly(t *testing.T) {
 	_, err = app.InitChain(init)
 	require.NoError(t, err)
 
-	app, storage = reopenEVMOnlyTestApp(t, app, storage, home)
-	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
+	app, storage = reopenEVMOnlyTestApp(t, storage, home)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 
 	require.Equal(t, int64(0), app.Info().LastBlockHeight)
 	_, err = app.InitChain(init)
@@ -470,7 +450,7 @@ func TestEVMOnlyApplicationFeedsPrevRandaoThePriorAppHash(t *testing.T) {
 
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	contract := crypto.CreateAddress(sender, 0)
-	snapshot := app.(*evmOnlyApplication).openSettledView()
+	snapshot := app.(*evmOnlyApplication).storage.StateDB().OpenView()
 	defer snapshot.Close()
 	require.Equal(t, common.BytesToHash(prior), snapshot.GetStorage(evmOnlyStoreAddress(contract), common.Hash{}))
 }
@@ -558,83 +538,6 @@ func TestEVMOnlyApplicationCommitsBlockWithStaleNonce(t *testing.T) {
 	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(3))
 }
 
-// A block's state lands in the store behind FinalizeBlock. Readers of committed
-// state see it before Commit, and the next block builds on it whether or not
-// the store has caught up.
-func TestEVMOnlyApplicationReadsSettleBehindFinalizeBlock(t *testing.T) {
-	app := newInitializedEVMOnlyTestApp(t)
-	key, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	sender := crypto.PubkeyToAddress(key.PublicKey)
-	block := func(height int64) *abci.RequestFinalizeBlock {
-		return evmOnlyTestBlock(height, signedEVMOnlyTestTxFrom(t, key, evmOnlyTestChainID, uint64(height-1))) //nolint:gosec // G115: test heights are positive.
-	}
-
-	for height := range int64(4) {
-		_, err := app.FinalizeBlock(t.Context(), block(height+1))
-		require.NoError(t, err)
-		require.Equal(t, uint64(height+1), app.EvmNonce(sender)) //nolint:gosec // G115: test heights are positive.
-		require.Equal(t, height, app.LastBlockHeight())
-		_, err = app.Commit(t.Context())
-		require.NoError(t, err)
-		require.Equal(t, height+1, app.LastBlockHeight())
-	}
-
-	settler, ok := app.(*evmOnlyApplication)
-	require.True(t, ok)
-	require.NoError(t, settler.AwaitCommits())
-	latest, err := settler.storage.SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(4), latest)
-}
-
-// unwritableEVMChangeSetEncoder encodes every block with an EVM pair the store
-// refuses to apply, so the block executes and encodes cleanly and its commit is
-// the first thing that fails.
-func unwritableEVMChangeSetEncoder(evmonly.StateChangeSet) ([]*proto.NamedChangeSet, error) {
-	return []*proto.NamedChangeSet{{
-		Name:      keys.EVMStoreKey,
-		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: nil, Value: []byte{1}}}},
-	}}, nil
-}
-
-// A block's commit lands behind FinalizeBlock: the block whose commit fails is
-// still finalized and committed, and the failure surfaces from the next
-// FinalizeBlock, from read-only calls, and from settling the store, while the
-// store itself stays at the last version that landed.
-func TestEVMOnlyApplicationSurfacesAFailedCommitFromTheNextBlock(t *testing.T) {
-	storage := openEVMOnlyTestStorage(t, t.TempDir())
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, unwritableEVMChangeSetEncoder)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, storage.Close()) })
-	_, err = app.InitChain(evmOnlyTestInitChain())
-	require.NoError(t, err)
-	settler, ok := app.(*evmOnlyApplication)
-	require.True(t, ok)
-
-	// Block 1 is unwritable, yet it finalizes and commits: the write has not
-	// been waited for. The synchronous path would fail here.
-	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
-	finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(1, raw))
-	require.Equal(t, int64(1), app.LastBlockHeight())
-
-	// The failed write is reported by the next block, and stays reported.
-	_, err = app.FinalizeBlock(t.Context(), evmOnlyTestBlock(2))
-	require.Error(t, err)
-	require.Error(t, settler.AwaitCommits())
-	_, err = settler.EvmCall(t.Context(), &ethcore.Message{GasLimit: 21_000, GasPrice: new(big.Int), Value: new(big.Int)})
-	require.Error(t, err)
-
-	// The block that failed to finalize left nothing staged, and the store never
-	// moved past genesis.
-	_, err = app.Commit(t.Context())
-	require.Error(t, err)
-	require.Equal(t, int64(1), app.LastBlockHeight())
-	latest, err := storage.SC().GetLatestVersion()
-	require.NoError(t, err)
-	require.Equal(t, int64(0), latest)
-}
-
 // TestHashRawTxsMatchesKeccak256Hash pins hashRawTxs to crypto.Keccak256Hash, which keys the sender cache.
 func TestHashRawTxsMatchesKeccak256Hash(t *testing.T) {
 	for _, count := range []int{0, 1, 2, 17, 64, 65, 200, 1848} {
@@ -682,7 +585,7 @@ func TestEVMOnlyApplicationTimesEveryFinalizeBlockPhase(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"take_senders", "prepare", "execute", "tx_results"} {
+	for _, want := range []string{"take_senders", "execute", "tx_results"} {
 		_, ok := phases[want]
 		require.True(t, ok, "phase %q not recorded", want)
 	}
