@@ -110,6 +110,10 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		return nil, err
 	}
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
+	// The receipts need nothing but the result, so their write starts here and runs under the rest
+	// of the block's tail and the caller's, instead of after it.
+	e.blockPhases.SetPhase("start_receipts")
+	receipts := e.startReceiptWrite(ctx, blockNumber, result)
 	// One commit is in flight at a time, so the previous one lands before this block starts its
 	// own. It has had this block's whole execution to run, so it rarely still holds. A block encoder
 	// that reads the store needs it landed before it runs; one that reads only the result overlaps
@@ -150,7 +154,7 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		}
 	}
 	e.blockPhases.SetPhase("start_commit")
-	if err := e.startPipelineCommit(ctx, blockNumber, result, extra); err != nil {
+	if err := e.startPipelineCommit(blockNumber, result, receipts, extra); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
@@ -310,17 +314,51 @@ func (e *Executor) awaitPipelineCommit() error {
 	return e.pipelineFailure
 }
 
-// startPipelineCommit persists the block in the background, receipts first and then the encoded
-// state changes, and records what it changed, so the next block reads those changes through an
-// overlay rather than waiting for the write. The block result is held until its receipts are
-// encoded; the state changes are encoded from a copy that outlives it.
+// startReceiptWrite persists the block's receipts in the background, after the previous block's
+// have landed, and returns the write to wait on. The block result is held until its receipts are
+// encoded.
+//
+// The write is recorded as the executor's newest, so AwaitReceipts finds it whether or not the
+// block's commit is started afterwards.
+func (e *Executor) startReceiptWrite(ctx context.Context, blockNumber int64, result *BlockResult) *receiptWrite {
+	receipts := &receiptWrite{done: make(chan struct{})}
+	e.pipelineMu.Lock()
+	previous := e.pipelineReceipts
+	e.pipelineReceipts = receipts
+	e.pipelineMu.Unlock()
+
+	// The write finishes even if the request that ran the block is cancelled: Close waits for it,
+	// and a failure is reported through the pipeline rather than by dropping the block.
+	bgCtx := context.WithoutCancel(ctx)
+	releaseResult := result.retain()
+	go func() {
+		defer close(receipts.done)
+		defer releaseResult()
+		// Receipts land in block order, so the store's version means every block up to it. The
+		// previous write owns the phase timer until it is done.
+		if previous != nil {
+			<-previous.done
+			if previous.err != nil {
+				receipts.err = fmt.Errorf("receipts for block %d not written after an earlier failure: %w", blockNumber, previous.err)
+				return
+			}
+		}
+		defer e.receiptPhases.Reset()
+		receipts.err = e.persistReceipts(bgCtx, blockNumber, result)
+	}()
+	return receipts
+}
+
+// startPipelineCommit commits the block's encoded state changes in the background once its
+// receipts have landed, and records what it changed, so the next block reads those changes through
+// an overlay rather than waiting for the write. The state changes are encoded from a copy that
+// outlives the block result.
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
-func (e *Executor) startPipelineCommit(ctx context.Context, blockNumber int64, result *BlockResult, extra []*proto.NamedChangeSet) error {
+func (e *Executor) startPipelineCommit(blockNumber int64, result *BlockResult, receipts *receiptWrite, extra []*proto.NamedChangeSet) error {
 	changes := result.ChangeSet.clone()
 	pending := newPendingChanges(changes)
-	receipts := &receiptWrite{done: make(chan struct{})}
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
 	if failure := e.pipelineFailure; failure != nil {
@@ -330,20 +368,16 @@ func (e *Executor) startPipelineCommit(ctx context.Context, blockNumber int64, r
 	e.pipelineChanges = pending
 	e.pipelineGeneration++
 	e.pipelineDone = done
-	e.pipelineReceipts = receipts
 	e.pipelineErr = nil
 	e.pipelineMu.Unlock()
 
-	// The write finishes even if the request that ran the block is cancelled: Close waits for it,
-	// and a failure is reported through the pipeline rather than by dropping the block.
-	bgCtx := context.WithoutCancel(ctx)
-	releaseResult := result.retain()
 	go func() {
 		defer close(done)
 		defer e.pipelinePhases.Reset()
-		receipts.err = e.persistReceipts(bgCtx, blockNumber, result)
-		releaseResult()
-		close(receipts.done)
+		// A block whose receipts were lost is a failed block: its state is not committed, so the
+		// store never holds a block whose receipts cannot be read.
+		e.pipelinePhases.SetPhase("await_receipts")
+		<-receipts.done
 		if receipts.err != nil {
 			e.pipelineMu.Lock()
 			e.pipelineErr = receipts.err
@@ -361,19 +395,19 @@ func (e *Executor) startPipelineCommit(ctx context.Context, blockNumber int64, r
 // persistReceipts encodes the block's receipts and writes them to the receipt store, returning once
 // they are readable there.
 func (e *Executor) persistReceipts(ctx context.Context, blockNumber int64, result *BlockResult) error {
-	e.pipelinePhases.SetPhase("encode_receipts")
+	e.receiptPhases.SetPhase("encode_receipts")
 	records, err := e.receiptRecordsParallel(ctx, uint64(blockNumber), result) //nolint:gosec // G115: non-negative, checked by the caller.
 	if err != nil {
 		return fmt.Errorf("encode receipts for block %d: %w", blockNumber, err)
 	}
-	e.pipelinePhases.SetPhase("write_receipts")
+	e.receiptPhases.SetPhase("write_receipts")
 	if err := e.receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
 		return fmt.Errorf("store receipts for block %d: %w", blockNumber, err)
 	}
 	// A store that applies writes from its own queue reports the landing through its version;
 	// a write it dropped after accepting shows up as a version short of this block.
 	if waiter, ok := e.receiptStore.(seidbtypes.PendingWriteWaiter); ok {
-		e.pipelinePhases.SetPhase("await_receipts")
+		e.receiptPhases.SetPhase("await_store")
 		waiter.WaitForPendingWrites()
 		if latest := e.receiptStore.LatestVersion(); latest < blockNumber {
 			return fmt.Errorf("receipts for block %d did not land: receipt store is at block %d", blockNumber, latest)

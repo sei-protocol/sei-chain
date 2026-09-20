@@ -94,13 +94,15 @@ writes run behind the block, one block at a time in block order; `ResultSink`
 runs on the block loop once that work has been handed off, so it may see a
 result whose writes have not landed yet. Ethereum receipts are converted into
 `receipt.ReceiptRecord` values and persisted through the shared
-`receipt.ReceiptStore` interface before the height-advancing state commit,
-including for empty blocks; `AwaitReceipts` blocks until the newest block's
-receipts are readable. A failure in either write latches: `AwaitReceipts`
-reports a receipt failure, the next block's execution reports a state failure,
-and the executor accepts no further blocks. A receipt failure leaves state
-unchanged; a state failure can leave receipts behind, which re-executing the
-block after a restart overwrites.
+`receipt.ReceiptStore` interface, including for empty blocks. That write starts
+as soon as execution returns, before the block encoder runs and the previous
+commit is waited on, and the block's height-advancing state commit waits for it
+to land; `AwaitReceipts` blocks until the newest block's receipts are readable.
+A failure in either write latches: `AwaitReceipts` reports a receipt failure,
+the next block's execution reports a state failure, and the executor accepts
+no further blocks. A receipt failure leaves state unchanged; a state failure,
+or a block that fails after its receipts were handed off, can leave receipts
+behind, which re-executing the block after a restart overwrites.
 
 `ExecuteBlock` advances the state store's version itself, independently of any
 ABCI `Commit`, so what the store holds after a restart is decided by the
