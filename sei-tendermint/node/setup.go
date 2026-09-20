@@ -460,7 +460,7 @@ func openEVMOnlyStorageManager(
 	if !ok {
 		return nil, fmt.Errorf("EVM-only execution requires Autobahn persistent_state_dir")
 	}
-	storageConfig, err := evmonly.NewValidatorStorageConfig(directory)
+	storageConfig, err := evmonly.NewValidatorStorageConfig(directory, fc.GetEnableReceiptStore())
 	if err != nil {
 		return nil, fmt.Errorf("build EVM-only storage config: %w", err)
 	}

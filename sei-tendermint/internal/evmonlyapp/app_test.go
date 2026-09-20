@@ -100,7 +100,7 @@ func closeEVMOnlyTestApp(t *testing.T, app abci.Application, storage *bootstrap.
 
 func openEVMOnlyTestStorage(t *testing.T, home string) *bootstrap.GigaStorageManager {
 	t.Helper()
-	storageConfig, err := evmonly.NewValidatorStorageConfig(home)
+	storageConfig, err := evmonly.NewValidatorStorageConfig(home, true)
 	require.NoError(t, err)
 	// The store outlives the test body: the last block's commit is still landing
 	// when it ends, and closeEVMOnlyTestApp settles it from a cleanup, which

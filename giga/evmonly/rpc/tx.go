@@ -85,6 +85,9 @@ func (api *txAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*
 // returns a nil receipt with a nil error when hash is unknown or its block is
 // not yet finalized.
 func (api *txAPI) lookupFinalizedTx(ctx context.Context, hash common.Hash) (*evmtypes.Receipt, *coretypes.ResultBlock, error) {
+	if api.store == nil {
+		return nil, nil, ErrNoReceiptStore
+	}
 	stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
 	if errors.Is(err, receiptpkg.ErrNotFound) {
 		return nil, nil, nil

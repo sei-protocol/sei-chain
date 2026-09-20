@@ -420,7 +420,36 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 	require.Nil(t, missing)
 }
 
-func TestHandlerRequiresReceiptStore(t *testing.T) {
-	_, err := newHandler(&testBackend{}, nil)
-	require.EqualError(t, err, "EVM-only RPC requires a receipt store")
+// A node without a receipt store still serves blocks; receipt-backed lookups say so
+// rather than answering null, which a client would read as "not mined".
+func TestHandlerWithoutReceiptStore(t *testing.T) {
+	blockHash := common.HexToHash("0xabcd")
+	block, tx1, _, _ := multiTxBlock(t, 9, blockHash, time.Unix(1_700_000_000, 0))
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return block, nil
+	})
+	backend.proxy = utils.None[*ethrpc.Client]()
+	handler, err := newHandler(backend, nil)
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var byNumber map[string]any
+	require.NoError(t, client.CallContext(t.Context(), &byNumber, "eth_getBlockByNumber", "latest", true))
+	require.Equal(t, "0x9", byNumber["number"])
+	require.Equal(t, "0x0", byNumber["gasUsed"])
+	txs, ok := byNumber["transactions"].([]any)
+	require.True(t, ok)
+	require.Len(t, txs, 2)
+
+	var receipt map[string]any
+	err = client.CallContext(t.Context(), &receipt, "eth_getTransactionReceipt", tx1.Hash())
+	require.EqualError(t, err, ErrNoReceiptStore.Error())
+	var byHash map[string]any
+	err = client.CallContext(t.Context(), &byHash, "eth_getTransactionByHash", tx1.Hash())
+	require.EqualError(t, err, ErrNoReceiptStore.Error())
 }

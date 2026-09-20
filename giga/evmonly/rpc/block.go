@@ -188,9 +188,15 @@ func headerFields(block *coretypes.ResultBlock, blockUnix, gasLimit uint64, base
 	}
 }
 
+// ErrNoReceiptStore is returned by receipt lookups on a node that keeps no receipts.
+var ErrNoReceiptStore = errors.New("this node does not store receipts")
+
 // receiptFor returns hash's stored receipt, or nil with a nil error when no
-// receipt is stored for it.
+// receipt is stored for it, including on a node without a receipt store.
 func receiptFor(ctx context.Context, store receiptpkg.ReceiptStore, hash common.Hash) (*evmtypes.Receipt, error) {
+	if store == nil {
+		return nil, nil
+	}
 	stored, err := store.GetReceipt(receiptContext(ctx), hash)
 	if errors.Is(err, receiptpkg.ErrNotFound) {
 		return nil, nil

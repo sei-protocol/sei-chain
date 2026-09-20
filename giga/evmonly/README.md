@@ -76,7 +76,10 @@ The executor is always store-backed. `WithStorageManager(...)` selects the
 `bootstrap.GigaStorageManager` that provides both `giga.StateDB` and the ledger
 receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
 Unit tests can supply those dependencies independently. Execution fails closed
-if either store or the encoder is missing.
+if the state store or the encoder is missing. The receipt store is optional: a
+node configured without one (`enable_receipt_store = false`, meant for
+validators that serve no receipt reads) skips receipt persistence entirely and
+`AwaitReceipts` returns at once.
 For each block the executor opens a current `giga.StateView`, executes against
 its EVM-native read methods, converts the resulting `StateChangeSet`, and calls
 `CommitStateChanges`. Execution and commit on an executor are serialized so

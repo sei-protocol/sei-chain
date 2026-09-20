@@ -19,7 +19,6 @@ const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var (
 	errMissingStateStore            = errors.New("executor requires a state store")
-	errMissingReceiptStore          = errors.New("executor requires a receipt store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
 	errBlockEncoderUsedEVMStoreKey  = errors.New("block changeset encoder may not write the EVM state changeset")
 )
@@ -49,9 +48,6 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	stateStore := e.stateStore
 	if stateStore == nil {
 		return nil, errMissingStateStore
-	}
-	if e.receiptStore == nil {
-		return nil, errMissingReceiptStore
 	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
@@ -168,7 +164,8 @@ type receiptWrite struct {
 }
 
 // AwaitReceipts blocks until the receipts of the last block this executor ran are in the receipt
-// store, and reports the write's failure if it had one.
+// store, and reports the write's failure if it had one. It returns at once on an executor without
+// a receipt store, which keeps none.
 //
 // Receipts are written in the background behind ExecutePreparedBlock. A caller that publishes a
 // block to readers who expect its receipts has to wait here first. Unlike AwaitCommits it does not
@@ -316,12 +313,16 @@ func (e *Executor) awaitPipelineCommit() error {
 
 // startReceiptWrite persists the block's receipts in the background, after the previous block's
 // have landed, and returns the write to wait on. The block result is held until the write has
-// landed.
+// landed. An executor without a receipt store keeps none, so its write is done on return.
 //
 // The write is recorded as the executor's newest, so AwaitReceipts finds it whether or not the
 // block's commit is started afterwards.
 func (e *Executor) startReceiptWrite(ctx context.Context, blockNumber int64, result *BlockResult) *receiptWrite {
 	receipts := &receiptWrite{done: make(chan struct{})}
+	if e.receiptStore == nil {
+		close(receipts.done)
+		return receipts
+	}
 	e.pipelineMu.Lock()
 	previous := e.pipelineReceipts
 	e.pipelineReceipts = receipts

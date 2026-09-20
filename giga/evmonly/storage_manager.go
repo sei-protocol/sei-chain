@@ -8,14 +8,15 @@ import (
 )
 
 // NewValidatorStorageConfig returns the disk-backed storage configuration for
-// an EVM-only validator. It enables FlatKV, receipt, and block persistence.
-func NewValidatorStorageConfig(homePath string) (*seidbconfig.GigaStorageConfig, error) {
+// an EVM-only validator. It enables FlatKV and block persistence, and receipt
+// persistence when receipts is set.
+func NewValidatorStorageConfig(homePath string, receipts bool) (*seidbconfig.GigaStorageConfig, error) {
 	storageConfig, err := seidbconfig.DefaultGigaStorageConfig(homePath)
 	if err != nil {
 		return nil, err
 	}
 	storageConfig.WithValidatorMode()
-	storageConfig.ReceiptDBConfig.Enable = true
+	storageConfig.ReceiptDBConfig.Enable = receipts
 	return storageConfig, nil
 }
 
