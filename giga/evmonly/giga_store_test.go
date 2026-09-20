@@ -328,7 +328,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Equal(t, 1, snapshot.closeCount)
 	})
 
-	t.Run("context canceled during encoding still persists the executed block", func(t *testing.T) {
+	t.Run("context canceled during encoding", func(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
 		ctx, cancel := context.WithCancel(t.Context())
@@ -339,10 +339,9 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 		result, err := executor.ExecuteBlock(ctx, BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		result.Release()
-		require.Len(t, store.commits, 1)
+		require.ErrorIs(t, err, context.Canceled)
+		require.Nil(t, result)
+		require.Empty(t, store.commits)
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
 	})

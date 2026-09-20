@@ -78,34 +78,31 @@ receipt store, plus the `NamedChangeSetEncoder` for its state implementation.
 Unit tests can supply those dependencies independently. Execution fails closed
 if the state store or the encoder is missing. The receipt store is optional: a
 node configured without one (`enable_receipt_store = false`, meant for
-validators that serve no receipt reads) skips receipt persistence entirely and
-`AwaitReceipts` returns at once.
+validators that serve no receipt reads) skips receipt persistence entirely.
 For each block the executor opens a current `giga.StateView`, executes against
 its EVM-native read methods, converts the resulting `StateChangeSet`, and calls
 `CommitStateChanges`. Execution and commit on an executor are serialized so
 blocks cannot share a stale snapshot or overlap commits; callers must still
-submit block heights in order. The snapshot is closed once execution returns;
-the commit reads from the changeset, not the snapshot. An empty block still
-commits an encoded empty changeset so the store can advance its height.
-Stateless preparation can continue concurrently with store-backed execution.
+submit block heights in order. The snapshot stays open through the commit and
+is always closed afterward. An empty block still commits an encoded empty
+changeset so the store can advance its height. Stateless preparation can
+continue concurrently with store-backed execution.
 
 The encoder is explicit because `giga.StateDB` defines the protobuf commit
 transport but does not define an on-disk key layout. In particular, an encoder
 must preserve `StorageClears` as prefix clears rather than silently dropping
-persisted slots that were not read during execution. Encoding and both store
-writes run behind the block, one block at a time in block order; `ResultSink`
-runs on the block loop once that work has been handed off, so it may see a
-result whose writes have not landed yet. Ethereum receipts are converted into
+persisted slots that were not read during execution. Encoding, state commit, or
+receipt-store failures release the block result and return an error without
+invoking `ResultSink`. Ethereum receipts are converted into
 `receipt.ReceiptRecord` values and persisted through the shared
-`receipt.ReceiptStore` interface, including for empty blocks. That write starts
-as soon as execution returns, before the block encoder runs and the previous
-commit is waited on, and the block's height-advancing state commit waits for it
-to land; `AwaitReceipts` blocks until the newest block's receipts are readable.
-A failure in either write latches: `AwaitReceipts` reports a receipt failure,
-the next block's execution reports a state failure, and the executor accepts
-no further blocks. A receipt failure leaves state unchanged; a state failure,
-or a block that fails after its receipts were handed off, can leave receipts
-behind, which re-executing the block after a restart overwrites.
+`receipt.ReceiptStore` interface before the height-advancing state commit,
+including for empty blocks. A store with an async write queue only accepts the
+write here: the receipts land behind the block, so a reader that follows the
+state head can briefly miss the newest block's receipts, and recovery replays
+the tail a crash leaves unwritten. A receipt failure leaves state unchanged so
+the block can be retried. A state failure can leave receipts behind, but
+retrying the block overwrites them. `ResultSink` runs only after both stores
+accept the block.
 
 `ExecuteBlock` advances the state store's version itself, independently of any
 ABCI `Commit`, so what the store holds after a restart is decided by the
