@@ -128,7 +128,7 @@ func TestWriteAfterCloseIsRefusedWithAFullQueue(t *testing.T) {
 
 	// Leftovers with no writer behind them: the send has nowhere to go and nobody to take it.
 	for len(s.writes) < cap(s.writes) {
-		s.writes <- receiptWrite{height: 1}
+		s.writes <- &receiptWrite{height: 1, landed: make(chan struct{})}
 	}
 
 	txHash, rcpt := littCtxTestReceipt(1, 0, common.HexToAddress("0xfa41"), common.HexToHash("0xfa42"), 1)

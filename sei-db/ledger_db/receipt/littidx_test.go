@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -127,6 +128,41 @@ func TestLittIdxWriteBufferBoundsLag(t *testing.T) {
 
 	require.Eventually(t, func() bool { return store.LatestVersion() == blocks },
 		5*time.Second, time.Millisecond)
+}
+
+// TestLittIdxWaitForPendingWritesLandsEveryQueuedBlock pins that once WaitForPendingWrites returns,
+// every write SetReceipts accepted before it is readable, whichever way the writer was scheduled.
+func TestLittIdxWaitForPendingWritesLandsEveryQueuedBlock(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey).WithBlockHeight(1)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "littidx"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+	cfg.AsyncWriteBuffer = 4
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	waiter, ok := store.(seidbtypes.PendingWriteWaiter)
+	require.True(t, ok, "the queued receipt store must let a caller wait for its writes")
+
+	// Nothing queued yet: returns at once.
+	waiter.WaitForPendingWrites()
+
+	addr := common.HexToAddress("0xabc")
+	const blocks = 6
+	for block := uint64(1); block <= blocks; block++ {
+		record := litReceipt(block, 0, addr, common.HexToHash("0xdead"))
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), //nolint:gosec // small test heights
+			[]receipt.ReceiptRecord{record}))
+		waiter.WaitForPendingWrites()
+		require.Equal(t, int64(block), store.LatestVersion())                          //nolint:gosec // small test heights
+		got, err := store.GetReceipt(ctx.WithBlockHeight(int64(block)), record.TxHash) //nolint:gosec // small test heights
+		require.NoError(t, err)
+		require.Equal(t, block, got.BlockNumber)
+	}
 }
 
 func setupLittIdx(t *testing.T, dir string) (receipt.ReceiptStore, sdk.Context) {

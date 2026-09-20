@@ -273,6 +273,14 @@ func (s *receiptStore) LatestVersion() int64 {
 	return s.db.GetLatestVersion()
 }
 
+// WaitForPendingWrites blocks until every write the state store has queued is applied. It returns
+// at once when the store applies writes inline.
+func (s *receiptStore) WaitForPendingWrites() {
+	if waiter, ok := s.db.(seidbtypes.PendingWriteWaiter); ok {
+		waiter.WaitForPendingWrites()
+	}
+}
+
 func (s *receiptStore) SetLatestVersion(version int64) error {
 	return s.db.SetLatestVersion(version)
 }
