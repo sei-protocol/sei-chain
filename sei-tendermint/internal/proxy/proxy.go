@@ -62,41 +62,6 @@ func (app *Proxy) EvmChainID() uint64 {
 	return app.app.EvmChainID()
 }
 
-// commitSettler is implemented by applications whose block state commits land
-// behind FinalizeBlock.
-type commitSettler interface {
-	AwaitCommits() error
-}
-
-// AwaitCommits blocks until every block the wrapped application has finalized
-// is in its store, and reports the first commit that failed. It returns nil for
-// an application that commits synchronously.
-func (app *Proxy) AwaitCommits() error {
-	defer addTimeSample(Global.MethodTimingAt("await_commits", "sync"))()
-	settler, ok := app.app.(commitSettler)
-	if !ok {
-		return nil
-	}
-	return settler.AwaitCommits()
-}
-
-// blockPreparer is implemented by applications that can do the stateless part of
-// FinalizeBlock for a block before it is called.
-type blockPreparer interface {
-	PrepareBlock(context.Context, *types.RequestFinalizeBlock) error
-}
-
-// PrepareBlock lets the wrapped application decode a block ahead of its
-// FinalizeBlock. It is a no-op for an application that does not prepare blocks.
-func (app *Proxy) PrepareBlock(ctx context.Context, req *types.RequestFinalizeBlock) error {
-	defer addTimeSample(Global.MethodTimingAt("prepare_block", "sync"))()
-	preparer, ok := app.app.(blockPreparer)
-	if !ok {
-		return nil
-	}
-	return preparer.PrepareBlock(ctx, req)
-}
-
 // evmCaller is implemented by applications that can run a read-only EVM call
 // against their current state.
 type evmCaller interface {

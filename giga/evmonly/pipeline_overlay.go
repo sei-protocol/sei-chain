@@ -18,12 +18,7 @@ import (
 // a returned balance or code in place would corrupt the pending state for every other reader.
 type pendingOverlay struct {
 	base StateReader
-	*pendingChanges
-}
 
-// pendingChanges is a StateChangeSet indexed by address and slot, built once per block so every
-// reader that lays it over a view shares the index.
-type pendingChanges struct {
 	balances map[common.Address]*big.Int
 	nonces   map[common.Address]uint64
 	code     map[common.Address][]byte
@@ -33,26 +28,14 @@ type pendingChanges struct {
 	cleared map[common.Address]struct{}
 }
 
-// newPendingOverlay lays changes over base. It returns base unchanged when there is nothing to
+// newPendingOverlay indexes changes for lookup. It returns base unchanged when there is nothing to
 // overlay, so a caller pays nothing for the first block or after a commit has caught up.
 func newPendingOverlay(base StateReader, changes *StateChangeSet) StateReader {
-	return newPendingChanges(changes).overlay(base)
-}
-
-// overlay returns base with the pending changes laid over it, or base itself when there are none.
-func (c *pendingChanges) overlay(base StateReader) StateReader {
-	if c == nil {
+	if changes == nil || changes.isEmpty() {
 		return base
 	}
-	return &pendingOverlay{base: base, pendingChanges: c}
-}
-
-// newPendingChanges indexes changes for lookup, or returns nil when they would change nothing.
-func newPendingChanges(changes *StateChangeSet) *pendingChanges {
-	if changes == nil || changes.isEmpty() {
-		return nil
-	}
-	o := &pendingChanges{
+	o := &pendingOverlay{
+		base:     base,
 		balances: make(map[common.Address]*big.Int, len(changes.Balances)),
 		nonces:   make(map[common.Address]uint64, len(changes.Nonces)),
 		code:     make(map[common.Address][]byte, len(changes.Code)),

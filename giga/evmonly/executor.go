@@ -52,9 +52,7 @@ type Executor struct {
 	pipelineMu      sync.Mutex
 	pipelineDone    chan struct{}
 	pipelineErr     error
-	pipelineChanges *pendingChanges
-	// Counts commits started, so a reader can tell that a block landed between two of its steps.
-	pipelineGeneration uint64
+	pipelineChanges *StateChangeSet
 	// The first commit that failed, kept so no caller can miss it.
 	pipelineFailure error
 }

@@ -1,7 +1,6 @@
 package evmonly
 
 import (
-	"bytes"
 	"math/big"
 	"sync/atomic"
 	"testing"
@@ -88,36 +87,48 @@ func TestSnapshotReaderFetchesCodeOnlyWhenTheAccountHasSome(t *testing.T) {
 	require.Equal(t, []byte{0x60, 0x00}, account.Code)
 }
 
-// The merge compares balance, nonce and code against the same row, and resolves that row once per
-// touched account across the pool's workers.
-func TestParallelMergeResolvesEveryTouchedAccountOnce(t *testing.T) {
+// The merge reads every account it is about to compare against through the pool, then the serial
+// comparison finds them already resolved.
+func TestPrefetchResolvesEveryTouchedAccountOnce(t *testing.T) {
 	snapshot := newMemoryGigaSnapshot(7)
-	addrs := make([]common.Address, 0, 512)
-	for i := range 512 {
-		addr := common.BigToAddress(new(big.Int).Lsh(big.NewInt(int64(i)+1), 150))
+	addrs := make([]common.Address, 0, minPrefetchedAccounts+8)
+	for i := range minPrefetchedAccounts + 8 {
+		addr := common.BigToAddress(big.NewInt(int64(i) + 1))
 		snapshot.setBalance(addr, big.NewInt(int64(i)+1))
-		snapshot.nonces[addr] = uint64(i) //nolint:gosec // i is non-negative.
 		addrs = append(addrs, addr)
 	}
 	reading := &accountReadingSnapshot{memoryGigaSnapshot: snapshot}
 
 	state := newBlockSTMState(gigaSnapshotStateReader{snapshot: reading})
 	for i, addr := range addrs {
-		state.shard(addr).balances[addr] = big.NewInt(int64(i) + 100)
-		state.shard(addr).nonces[addr] = uint64(i) + 1 //nolint:gosec // i is non-negative.
+		state.balances[addr] = big.NewInt(int64(i) + 100)
 	}
-	pool := newOCCWorkerPool(4)
-	defer pool.Close()
+	state.prefetchBaseAccounts(t.Context(), newOCCWorkerPool(4))
 
-	var changes StateChangeSet
-	require.NoError(t, state.changeSetIntoParallel(t.Context(), pool, &changes))
-
-	require.Equal(t, int64(len(addrs)), reading.reads.Load(), "each row must be read once")
-	require.Equal(t, state.ChangeSet(), changes, "the parallel merge must match the serial one")
-	require.Equal(t, int64(2*len(addrs)), reading.reads.Load(), "the serial merge reads each row once too")
-	require.Len(t, changes.Balances, len(addrs))
-	require.Len(t, changes.Nonces, len(addrs))
-	for i := 1; i < len(changes.Balances); i++ {
-		require.Negative(t, bytes.Compare(changes.Balances[i-1].Address[:], changes.Balances[i].Address[:]))
+	require.Len(t, state.prefetched, len(addrs))
+	for i, addr := range addrs {
+		require.Equal(t, big.NewInt(int64(i)+1), state.prefetched[addr].Balance)
 	}
+
+	// The comparison that follows reads the prefetched rows rather than the view.
+	before := reading.reads.Load()
+	base := newBaseAccounts(state.source, state.prefetched)
+	for _, addr := range addrs {
+		base.balance(addr)
+	}
+	require.Equal(t, before, reading.reads.Load(), "the merge must not re-read what was prefetched")
+}
+
+// Below the threshold the pool costs more than the reads it saves, so the merge reads them itself.
+func TestPrefetchIsSkippedForASmallBlock(t *testing.T) {
+	snapshot := newMemoryGigaSnapshot(7)
+	addr := testAddress(0xd4)
+	snapshot.setBalance(addr, big.NewInt(5))
+	reading := &accountReadingSnapshot{memoryGigaSnapshot: snapshot}
+
+	state := newBlockSTMState(gigaSnapshotStateReader{snapshot: reading})
+	state.balances[addr] = big.NewInt(6)
+	state.prefetchBaseAccounts(t.Context(), newOCCWorkerPool(4))
+
+	require.Nil(t, state.prefetched)
 }

@@ -1,7 +1,6 @@
 package mempool
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -13,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -790,112 +788,4 @@ func TestTxStore_InsertCompactionKeepsReadyListInSync(t *testing.T) {
 		}
 		require.ElementsMatch(t, toTxs(expected), listed)
 	}
-}
-
-// gatedNonceApp is an evmNonceApp whose nonce reads block until released, so a test can hold an
-// account fetch in flight and observe what the store does meanwhile.
-type gatedNonceApp struct {
-	*evmNonceApp
-	inFlight utils.AtomicSend[int]
-	release  utils.AtomicRecv[bool]
-}
-
-// EvmNonce reads the nonce first and only then blocks, so the value it returns is the one that
-// was current when the fetch began.
-func (a *gatedNonceApp) EvmNonce(addr common.Address) uint64 {
-	nonce := a.evmNonceApp.EvmNonce(addr)
-	a.inFlight.Store(a.inFlight.Load() + 1)
-	if _, err := a.release.Wait(context.Background(), func(v bool) bool { return v }); err != nil {
-		panic(err)
-	}
-	return nonce
-}
-
-func evmTxForTest(rng utils.Rng, address common.Address, nonce uint64) *WrappedTx {
-	return &WrappedTx{
-		hashedTx:     newHashedTx(utils.GenBytes(rng, 32)),
-		timestamp:    time.Now(),
-		priority:     1,
-		gasWanted:    1,
-		estimatedGas: 1,
-		evm: utils.Some(evmTx{
-			address:    address,
-			seiAddress: address.Bytes(),
-			hash:       genEvmHash(rng),
-			nonce:      nonce,
-		}),
-	}
-}
-
-// Fetching a first-seen account from the app must not hold the store lock: other inserts and
-// reads proceed while the fetch is in flight.
-func TestTxStore_InsertFetchesFirstSeenAccountOutsideTheLock(t *testing.T) {
-	rng := utils.TestRng()
-	release := utils.NewAtomicSend(false)
-	app := &gatedNonceApp{evmNonceApp: newEVMNonceApp(), inFlight: utils.NewAtomicSend(0), release: release.Subscribe()}
-	txStore := NewTxStore(TestConfig(), proxy.New(app))
-	cold := common.BytesToAddress(utils.GenBytes(rng, 20))
-	warm := common.BytesToAddress(utils.GenBytes(rng, 20))
-
-	// warm is known to the store before any fetch is gated; its fetch does not count.
-	release.Store(true)
-	require.NoError(t, txStore.Insert(evmTxForTest(rng, warm, 0)))
-	release.Store(false)
-	app.inFlight.Store(0)
-
-	coldTx := evmTxForTest(rng, cold, 0)
-	warmTx := evmTxForTest(rng, warm, 1)
-	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error { return txStore.Insert(coldTx) })
-		inFlight := app.inFlight.Subscribe()
-		if _, err := inFlight.Wait(ctx, func(n int) bool { return n == 1 }); err != nil {
-			return err
-		}
-		// Both a read and a write of the store complete while the cold fetch is blocked.
-		if got := txStore.NextNonce(warm); got != 1 {
-			return fmt.Errorf("NextNonce(warm) = %d, want 1", got)
-		}
-		if err := txStore.Insert(warmTx); err != nil {
-			return err
-		}
-		release.Store(true)
-		return nil
-	}))
-	_, ok := txStore.ByHash(coldTx.Hash())
-	require.True(t, ok)
-	_, ok = txStore.ByHash(warmTx.Hash())
-	require.True(t, ok)
-}
-
-// Account state fetched before an Update belongs to the previous height and must not be installed
-// after it: the insert is judged against the account nonce of the new height.
-func TestTxStore_InsertDiscardsAccountFetchedBeforeUpdate(t *testing.T) {
-	rng := utils.TestRng()
-	release := utils.NewAtomicSend(false)
-	app := &gatedNonceApp{evmNonceApp: newEVMNonceApp(), inFlight: utils.NewAtomicSend(0), release: release.Subscribe()}
-	txStore := NewTxStore(TestConfig(), proxy.New(app))
-	sender := common.BytesToAddress(utils.GenBytes(rng, 20))
-
-	staleTx := evmTxForTest(rng, sender, 0)
-	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error { return txStore.Insert(staleTx) })
-		inFlight := app.inFlight.Subscribe()
-		if _, err := inFlight.Wait(ctx, func(n int) bool { return n == 1 }); err != nil {
-			return err
-		}
-		// Nonce 0 is mined while the fetch that read it as pending is still in flight.
-		app.markMined(sender)
-		txStore.Update(updateSpec{
-			Now:           time.Now(),
-			Height:        1,
-			TxResults:     map[types.TxHash]bool{},
-			Constraints:   NopTxConstraints(),
-			NewPriorities: map[types.TxHash]int64{},
-		})
-		release.Store(true)
-		return nil
-	})
-	require.ErrorIs(t, err, errOldNonce)
-	_, ok := txStore.ByHash(staleTx.Hash())
-	require.False(t, ok)
 }

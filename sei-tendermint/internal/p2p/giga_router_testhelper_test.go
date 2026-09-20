@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -151,39 +150,6 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 		}, nil
 	}
 	panic("unreachable")
-}
-
-// CheckBlocks verifies the FinalizeBlock requests the router delivered: heights
-// are contiguous from InitialHeight and every header names a current validator
-// as proposer.
-func (s *testAppState) CheckBlocks() error {
-	init, ok := s.Init.Get()
-	if !ok {
-		return fmt.Errorf("app not initialized")
-	}
-	for i, b := range s.Blocks {
-		if want := init.InitialHeight + int64(i); b.Header.Height != want {
-			return fmt.Errorf("blocks[%v].Height = %v, want %v", i, b.Header.Height, want)
-		}
-		if err := checkProposer(b.Header.ProposerAddress, s.Validators); err != nil {
-			return fmt.Errorf("blocks[%v]: %w", i, err)
-		}
-	}
-	return nil
-}
-
-// checkProposer verifies that the proposer is one of the given validators.
-func checkProposer(proposer types.Address, vals []abci.ValidatorUpdate) error {
-	for _, val := range vals {
-		key, err := crypto.PubKeyFromProto(val.PubKey)
-		if err != nil {
-			return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
-		}
-		if bytes.Equal(key.Address(), proposer) {
-			return nil
-		}
-	}
-	return fmt.Errorf("proposer %X is not a current validator", proposer)
 }
 
 func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
