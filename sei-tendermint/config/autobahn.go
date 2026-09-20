@@ -86,6 +86,11 @@ type AutobahnFileConfig struct {
 	// Useful for loadtesting (to compare enabled/disabled performance).
 	// Defaults to true.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
+	// Whether an EVM-only node keeps a receipt store. A node without one
+	// serves no receipts or logs over EVM RPC and its Commit does not wait
+	// for receipts to land; RPC-serving nodes keep it on.
+	// Ignored when PersistentStateDir is absent. Defaults to true.
+	EnableReceiptStore utils.Option[bool] `json:"enable_receipt_store,omitzero"`
 	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
 	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
 	// (see AutobahnBlockDBConfig for field semantics). Ignored when
@@ -98,6 +103,10 @@ const AutobahnEVMOnlyChainID uint64 = 713715
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
+}
+
+func (c *AutobahnFileConfig) GetEnableReceiptStore() bool {
+	return c.EnableReceiptStore.Or(true)
 }
 
 // DefaultMaxInboundFullnodePeers is the built-in cap used when

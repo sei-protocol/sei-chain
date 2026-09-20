@@ -19,7 +19,6 @@ const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var (
 	errMissingStateStore            = errors.New("executor requires a state store")
-	errMissingReceiptStore          = errors.New("executor requires a receipt store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
 	errBlockEncoderUsedEVMStoreKey  = errors.New("block changeset encoder may not write the EVM state changeset")
 )
@@ -49,9 +48,6 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	stateStore := e.stateStore
 	if stateStore == nil {
 		return nil, errMissingStateStore
-	}
-	if e.receiptStore == nil {
-		return nil, errMissingReceiptStore
 	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
@@ -164,7 +160,8 @@ type receiptWrite struct {
 }
 
 // AwaitReceipts blocks until the receipts of the last block this executor ran are in the receipt
-// store, and reports the write's failure if it had one.
+// store, and reports the write's failure if it had one. It returns at once on an executor without
+// a receipt store, which keeps none.
 //
 // Receipts are written in the background behind ExecutePreparedBlock. A caller that publishes a
 // block to readers who expect its receipts has to wait here first. Unlike AwaitCommits it does not
@@ -313,7 +310,8 @@ func (e *Executor) awaitPipelineCommit() error {
 // startPipelineCommit persists the block in the background, receipts first and then the encoded
 // state changes, and records what it changed, so the next block reads those changes through an
 // overlay rather than waiting for the write. The block result is held until its receipts are
-// encoded; the state changes are encoded from a copy that outlives it.
+// encoded; the state changes are encoded from a copy that outlives it. An executor without a
+// receipt store commits only the state changes.
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
@@ -341,7 +339,9 @@ func (e *Executor) startPipelineCommit(ctx context.Context, blockNumber int64, r
 	go func() {
 		defer close(done)
 		defer e.pipelinePhases.Reset()
-		receipts.err = e.persistReceipts(bgCtx, blockNumber, result)
+		if e.receiptStore != nil {
+			receipts.err = e.persistReceipts(bgCtx, blockNumber, result)
+		}
 		releaseResult()
 		close(receipts.done)
 		if receipts.err != nil {

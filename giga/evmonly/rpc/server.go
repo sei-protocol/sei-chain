@@ -113,10 +113,10 @@ func websocketHandler(rpcServer *ethrpc.Server) http.Handler {
 	return rpcServer.WebsocketHandler(wsAllowedOrigins)
 }
 
+// newHandler registers the eth namespace. receiptStore may be nil on a node that keeps no
+// receipts: transactions and blocks are then served without receipt-derived fields, and
+// receipt lookups report ErrNoReceiptStore.
 func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Server, error) {
-	if receiptStore == nil {
-		return nil, errors.New("EVM-only RPC requires a receipt store")
-	}
 	rpcServer := ethrpc.NewServer()
 	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only send RPC: %w", err)

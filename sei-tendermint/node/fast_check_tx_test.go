@@ -14,6 +14,7 @@ import (
 	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -116,6 +117,27 @@ func TestPrepareApplicationEVMOnly(t *testing.T) {
 	require.Len(t, validators, 1)
 	require.Equal(t, int64(1), validators[0].Power)
 	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
+}
+
+func TestPrepareApplicationEVMOnlyWithoutReceiptStore(t *testing.T) {
+	validator := makeValidator([]byte("evm-only-validator"), []byte("evm-only-node"), "localhost:26660")
+	fc := defaultFileConfig(t, []config.AutobahnValidator{validator})
+	fc.EnableReceiptStore = utils.Some(false)
+	autobahnConfigFile := writeAutobahnConfig(t, fc)
+
+	_, storage, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig: config.BaseConfig{
+			EVMOnly: true,
+			MockApp: true,
+		},
+		AutobahnConfigFile: autobahnConfigFile,
+	}, abci.BaseApplication{})
+	require.NoError(t, err)
+	manager, ok := storage.Get()
+	require.True(t, ok)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.NotNil(t, manager.StateDB())
+	require.Nil(t, manager.ReceiptDB())
 }
 
 func TestPrepareApplicationEVMOnlyRequiresReadableAutobahnConfig(t *testing.T) {

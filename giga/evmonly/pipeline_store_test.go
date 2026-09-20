@@ -389,6 +389,35 @@ func TestAwaitReceiptsReturnsBeforeTheStateCommitLands(t *testing.T) {
 	require.Equal(t, []int64{41}, store.commitBlock)
 }
 
+// An executor without a receipt store commits state only: AwaitReceipts has nothing to wait on
+// and the result goes back to the pool as soon as the block returns.
+func TestNoReceiptStoreCommitsStateWithoutWaitingOnReceipts(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &gatedCommitStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}, release: make(chan struct{})}
+	executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, nil, noopChangeSetEncoder))
+	defer executor.Close()
+
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	result := executePipelinedBlock(t, executor, chainID, 41, rawTx)
+	require.Equal(t, uint64(1), result.Receipts[0].Status, "receipts are still produced for the block result")
+	result.Release()
+
+	require.NoError(t, executor.AwaitReceipts())
+	require.Empty(t, store.commits, "the state commit is still held")
+	require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+
+	close(store.release)
+	require.NoError(t, executor.AwaitCommits())
+	require.Equal(t, []int64{41}, store.commitBlock)
+}
+
 // A receipt write that fails is a failed block: the state commit is not attempted and both waiters
 // report it.
 func TestFailedReceiptWriteFailsTheBlockBeforeItsStateCommit(t *testing.T) {

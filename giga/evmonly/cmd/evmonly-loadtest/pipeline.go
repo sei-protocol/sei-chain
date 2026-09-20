@@ -147,7 +147,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 		err = errors.Join(err, cleanupStorage())
 	}()
 	fmt.Printf("storage directory: %s\n", storageDirectory)
-	storageConfig, err := evmonly.NewValidatorStorageConfig(storageDirectory)
+	storageConfig, err := evmonly.NewValidatorStorageConfig(storageDirectory, true)
 	if err != nil {
 		return fmt.Errorf("configure storage manager: %w", err)
 	}
