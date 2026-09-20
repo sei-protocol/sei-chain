@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // executorMeterName is the OTel meter this package's instruments are created on.
@@ -52,7 +53,8 @@ type Executor struct {
 	// committed at a time, so one timer serves it.
 	pipelinePhases *seidbmetrics.PhaseTimer
 	// Breaks the background receipt write into its stages. Receipt writes run one at a time, in
-	// block order, but overlap the state commit, so they have a timer of their own.
+	// block order, but overlap the state commit, so they have a timer of their own on the same
+	// metric, told apart by a stage label.
 	receiptPhases *seidbmetrics.PhaseTimer
 
 	// The commit running behind the current block, and what it will write. A block reads the latter
@@ -109,12 +111,13 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // NewExecutor constructs an EVM-only executor. Call Close to disable future OCC
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
+	pipelineTimers := seidbmetrics.NewPhaseTimerFactory(otel.Meter(executorMeterName), "evmonly_pipeline")
 	e := &Executor{
 		cfg:            cfg.WithDefaults(),
 		resultPool:     newBlockResultPool(cfg.BlockResultPoolSize),
 		blockPhases:    seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
-		pipelinePhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_pipeline"),
-		receiptPhases:  seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_pipeline"),
+		pipelinePhases: pipelineTimers.Build(attribute.String("stage", "state")),
+		receiptPhases:  pipelineTimers.Build(attribute.String("stage", "receipts")),
 	}
 	e.parseSizer = newParseSizer(e.cfg.ParseWorkers)
 	if e.cfg.OCCWorkers > 1 {

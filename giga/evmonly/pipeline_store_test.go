@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
@@ -549,4 +550,65 @@ func TestBackgroundEncoderSeesTheBlocksOwnChanges(t *testing.T) {
 	require.Len(t, encoded, 2)
 	require.Equal(t, want, encoded[0])
 	require.Equal(t, []int64{41, 42}, store.commitBlock)
+}
+
+// errTestEncoderFailed is the failure a test block encoder reports.
+var errTestEncoderFailed = errors.New("block encoder failed")
+
+// gatedReceiptStore holds every receipt write until release is closed.
+type gatedReceiptStore struct {
+	*MemoryReceiptStore
+	release chan struct{}
+}
+
+func (s *gatedReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+	<-s.release
+	return s.MemoryReceiptStore.SetReceipts(ctx, records)
+}
+
+// A block that fails on the loop after its receipts were handed off has no state commit for Close to
+// drain, so Close waits for the receipt write itself and the receipts are readable once it returns.
+func TestCloseWaitsForTheReceiptsOfABlockThatFailedAfterHandingThemOff(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	receipts := &gatedReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), release: make(chan struct{})}
+	blockEncoder := func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error) {
+		return nil, errTestEncoderFailed
+	}
+	executor := NewExecutor(Config{},
+		withTestStores(store, receipts, noopChangeSetEncoder),
+		WithBlockChangeSetEncoder(blockEncoder))
+
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	blockCtx := blockContext(chainID)
+	blockCtx.Number = 41
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockCtx, Txs: [][]byte{rawTx}})
+	require.NoError(t, err)
+	_, err = executor.ExecutePreparedBlock(t.Context(), prepared)
+	require.ErrorIs(t, err, errTestEncoderFailed)
+
+	closed := make(chan struct{})
+	go func() {
+		executor.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while the receipt write was still held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(receipts.release)
+	<-closed
+	stored, err := receipts.GetReceipt(newReceiptContext(t.Context(), 41), decodeTx(t, rawTx).Hash())
+	require.NoError(t, err)
+	require.Equal(t, uint64(41), stored.BlockNumber)
+	require.Empty(t, store.commits, "a block that failed on the loop commits no state")
 }
