@@ -188,8 +188,8 @@ func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (Prepared
 // PrepareBlockWithin decodes the block's transactions and recovers their senders
 // on as few parse workers as the decode is expected to fit in budget on, leaving
 // the rest of the processors to whatever runs alongside. A budget of 0 uses every
-// parse worker. The expectation comes from the decodes before this one, so the
-// first block on an executor is decoded on every worker.
+// parse worker and does not inform the expectation, which comes from the budgeted
+// decodes before this one; the first of those is decoded on every worker.
 func (e *Executor) PrepareBlockWithin(ctx context.Context, req BlockRequest, budget time.Duration) (PreparedBlock, error) {
 	chainConfig := e.chainConfig(req.Context)
 	if err := validateBlockContext(chainConfig, req.Context); err != nil {
@@ -205,7 +205,9 @@ func (e *Executor) PrepareBlockWithin(ctx context.Context, req BlockRequest, bud
 	if err != nil {
 		return PreparedBlock{}, err
 	}
-	e.parseSizer.observe(len(req.Txs), workers, time.Since(start))
+	if budget > 0 {
+		e.parseSizer.observe(len(req.Txs), workers, time.Since(start))
+	}
 	return PreparedBlock{
 		Context: req.Context,
 		Txs:     parsed,

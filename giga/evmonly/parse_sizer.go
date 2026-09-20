@@ -5,18 +5,22 @@ import (
 	"time"
 )
 
-// perTxCostWeight is the denominator of the exponential moving average of the
-// per-transaction decode cost; each block moves the estimate 1/perTxCostWeight
-// of the way to what it measured.
-const perTxCostWeight = 8
+// perTxCostDecay is the denominator of the exponential moving average the
+// per-transaction decode cost falls by; a block that measures below the estimate
+// moves it 1/perTxCostDecay of the way down. A block that measures above it
+// replaces it outright: a decode sized too small holds up the block that needs it,
+// one sized too large only spends processors.
+const perTxCostDecay = 8
 
 // parseSizer picks how many workers decode a block from the block's size, the
 // time available to decode it, and a running estimate of the per-transaction
 // decode cost measured on the blocks before it.
 type parseSizer struct {
 	maxWorkers int
-	// perTx is the estimated processor time to decode one transaction, in
-	// nanoseconds. 0 until the first block has been measured.
+	// perTx is the estimated worker time to decode one transaction, in
+	// nanoseconds: the wall time of a decode times the workers it ran on, per
+	// transaction, so it includes the share of the processors those workers
+	// were given. 0 until the first block has been measured.
 	perTx atomic.Int64
 }
 
@@ -40,7 +44,9 @@ func (s *parseSizer) workers(txs int, budget time.Duration) int {
 }
 
 // observe folds a decode of txs transactions on workers workers that took
-// elapsed into the per-transaction cost estimate.
+// elapsed into the per-transaction cost estimate: a costlier decode than
+// estimated raises the estimate to what it measured, a cheaper one lowers it
+// gradually.
 func (s *parseSizer) observe(txs, workers int, elapsed time.Duration) {
 	if txs <= 0 || workers <= 0 || elapsed <= 0 {
 		return
@@ -49,8 +55,8 @@ func (s *parseSizer) observe(txs, workers int, elapsed time.Duration) {
 	for {
 		current := s.perTx.Load()
 		next := measured
-		if current > 0 {
-			next = current + (measured-current)/perTxCostWeight
+		if current > measured {
+			next = current - (current-measured)/perTxCostDecay
 		}
 		if s.perTx.CompareAndSwap(current, next) {
 			return

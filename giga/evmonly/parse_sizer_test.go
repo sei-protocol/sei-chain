@@ -41,12 +41,15 @@ func TestParseSizerFollowsTheMeasuredCost(t *testing.T) {
 	sizer := newParseSizer(64)
 	sizer.observe(1000, 1, 10*time.Millisecond)
 	require.Equal(t, int64(10*time.Microsecond), sizer.perTx.Load())
-	// The estimate moves a step towards each new measurement rather than jumping.
+	// A costlier decode raises the estimate to what it measured at once.
 	sizer.observe(1000, 1, 90*time.Millisecond)
-	require.Equal(t, int64(20*time.Microsecond), sizer.perTx.Load())
+	require.Equal(t, int64(90*time.Microsecond), sizer.perTx.Load())
+	// A cheaper one lowers it a step at a time.
+	sizer.observe(1000, 1, 10*time.Millisecond)
+	require.Equal(t, int64(80*time.Microsecond), sizer.perTx.Load())
 	// Zero-sized observations are ignored.
 	sizer.observe(0, 1, time.Millisecond)
 	sizer.observe(1000, 0, time.Millisecond)
 	sizer.observe(1000, 1, 0)
-	require.Equal(t, int64(20*time.Microsecond), sizer.perTx.Load())
+	require.Equal(t, int64(80*time.Microsecond), sizer.perTx.Load())
 }
