@@ -89,6 +89,9 @@ type evmOnlyApplication struct {
 	prepared utils.Mutex[*utils.Option[preparedBlock]]
 	// preparedBlocks counts finalized blocks by whether prepared held them.
 	preparedBlocks otelmetric.Int64Counter
+	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
+	// called from the single block fetcher, so one timer serves the app.
+	preparePhases *seidbmetrics.PhaseTimer
 }
 
 // preparedBlock is the stateless part of a FinalizeBlock request, computed before the
@@ -152,6 +155,7 @@ func NewEVMOnlyApplication(
 		finalizePhases:   seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), "evmonly_finalize"),
 		prepared:         utils.NewMutex(new(utils.Option[preparedBlock])),
 		preparedBlocks:   newPreparedBlocksCounter(otel.Meter(finalizeMeterName)),
+		preparePhases:    seidbmetrics.NewPhaseTimer(otel.Meter(finalizeMeterName), "evmonly_prepare"),
 		settler:          utils.NewAtomicSend(utils.None[*evmonly.Executor]()),
 		cursor:           utils.NewMutex(&evmOnlyCursorState{}),
 		checkedSenders:   utils.NewMutex(map[common.Hash]common.Address{}),
@@ -648,6 +652,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	}
 	// Only Number and Time reach the decoded transactions (through the signer); the
 	// parent-derived fields are filled in by FinalizeBlock.
+	a.preparePhases.SetPhase("parse")
 	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
 			Number:      block.number,
@@ -660,6 +665,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		Txs:     req.Txs,
 		Senders: a.peekSenders(req.Txs),
 	})
+	a.preparePhases.Reset()
 	if err != nil {
 		return ctx.Err()
 	}
