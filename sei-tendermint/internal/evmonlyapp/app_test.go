@@ -841,11 +841,9 @@ func TestEVMOnlyApplicationReportsAnUndecodableBlockFromFinalizeBlock(t *testing
 	require.Error(t, unpreparedErr)
 }
 
-func TestParseWorkersTakesAShareOfTheProcessorsWithAFloor(t *testing.T) {
-	require.Equal(t, minParseWorkers, parseWorkers(1))
-	require.Equal(t, minParseWorkers, parseWorkers(4))
-	require.Equal(t, 2, parseWorkers(11))
-	require.Equal(t, 8, parseWorkers(32))
+func TestPrepareBudgetIsAShareOfTheLastExecution(t *testing.T) {
+	require.Equal(t, time.Duration(0), prepareBudget(0))
+	require.Equal(t, 10*time.Millisecond, prepareBudget(20*time.Millisecond))
 }
 
 // Preparing before InitChain is a no-op rather than a failure.

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -55,21 +56,19 @@ const checkedSendersCap = 1 << 18
 // minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
 const minTxsPerHashWorker = 64
 
-// parseWorkersShare is the fraction of GOMAXPROCS PrepareBlock decodes and
-// recovers senders on; minParseWorkers is its floor on small hosts.
-const (
-	parseWorkersShare = 4
-	minParseWorkers   = 2
-)
+// prepareBudgetShare is the fraction of the previous block's execution time
+// PrepareBlock is given to decode the next block in. Decoding runs alongside the
+// current block's OCC speculation, which holds a worker per processor, so it is
+// sized to finish within that block on as few processors as it can rather than
+// contending for all of them; the share leaves room for the block being shorter
+// than the last.
+const prepareBudgetShare = 2
 
-// parseWorkers returns the number of workers PrepareBlock decodes the next block
-// on. It runs alongside the current block's OCC speculation, which holds a worker
-// per processor, so it takes a quarter of them rather than contending for all.
-// The same pool decodes a block FinalizeBlock finds unprepared, where nothing
-// competes for the processors; that path is rare enough that the slower decode
-// is accepted over a second pool.
-func parseWorkers(procs int) int {
-	return max(minParseWorkers, procs/parseWorkersShare)
+// prepareBudget returns how long PrepareBlock has to decode the next block given
+// how long the previous block took to execute. 0 when no block has executed yet,
+// which decodes on every worker.
+func prepareBudget(lastExecute time.Duration) time.Duration {
+	return lastExecute / prepareBudgetShare
 }
 
 type evmOnlyApplication struct {
@@ -109,6 +108,9 @@ type evmOnlyApplication struct {
 	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
 	// called from the single block fetcher, so one timer serves the app.
 	preparePhases *seidbmetrics.PhaseTimer
+	// lastExecute is how long the most recent FinalizeBlock spent executing, in
+	// nanoseconds; PrepareBlock's decode budget is derived from it.
+	lastExecute atomic.Int64
 }
 
 // preparedBlock is the stateless part of a FinalizeBlock request, computed before the
@@ -217,7 +219,7 @@ func (a *evmOnlyApplication) newExecutor() *evmonly.Executor {
 		ChainConfig:  a.chainConfig,
 		MinGasPrice:  big.NewInt(evmOnlyMinGasPrice),
 		OCCWorkers:   runtime.GOMAXPROCS(0),
-		ParseWorkers: parseWorkers(runtime.GOMAXPROCS(0)),
+		ParseWorkers: runtime.GOMAXPROCS(0),
 		// Autobahn orders transactions without validating them, so a block can hold one
 		// the executor cannot apply; failing the block would halt every validator.
 		RejectUnappliableTxs: true,
@@ -671,7 +673,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	// parent-derived fields are filled in by FinalizeBlock.
 	a.preparePhases.SetPhase("parse")
 	defer a.preparePhases.Reset()
-	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
+	prepared, err := executor.PrepareBlockWithin(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
 			Number:      block.number,
 			Time:        block.timestamp,
@@ -682,7 +684,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		},
 		Txs:     req.Txs,
 		Senders: a.peekSenders(req.Txs),
-	})
+	}, prepareBudget(time.Duration(a.lastExecute.Load())))
 	if err != nil {
 		return ctx.Err()
 	}
@@ -757,7 +759,9 @@ func (a *evmOnlyApplication) finalizeBlockLocked(
 		a.finalizePhases.SetPhase("take_senders")
 		a.forgetSenders(req.Txs)
 		a.finalizePhases.SetPhase("execute")
+		start := time.Now()
 		result, err = executor.ExecutePreparedBlock(ctx, evmonly.PreparedBlock{Context: blockCtx, Txs: prepared})
+		a.lastExecute.Store(int64(time.Since(start)))
 	} else {
 		a.finalizePhases.SetPhase("take_senders")
 		senders := a.takeSenders(req.Txs)
