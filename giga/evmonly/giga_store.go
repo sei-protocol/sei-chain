@@ -10,7 +10,6 @@ import (
 
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
@@ -26,12 +25,17 @@ var (
 var _ StateReader = gigaSnapshotStateReader{}
 
 // NamedChangeSetEncoder converts an executor-native state result into the
-// on-disk changesets understood by a giga store. It is called in the background,
-// after the previous block's commit has landed and before this block's starts, on a
-// copy of the block's changes that it must treat as immutable.
+// on-disk changesets understood by a giga store. It is called synchronously
+// while the block's read snapshot is still open. It must treat the input as
+// immutable and must not retain references to it after returning.
 //
-// It may read the store, which then holds every earlier block and none of this one; expanding a
-// storage clear does so.
+// What it returns must not alias the input either. The commit runs in the background, outliving
+// the block result and its return to the pool, so an aliasing pair would be rewritten underneath
+// the write by the next block.
+//
+// It must read only the changeset it is given. Encoding overlaps the previous block's commit, so
+// an encoder that reads the store would see a store mid-write. Expanding a storage clear is the
+// one exception, and the executor waits for that commit before encoding a block that has one.
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
 // BlockChangeSetEncoder contributes named changesets that are committed in the
@@ -106,28 +110,23 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 		return nil, err
 	}
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-	// The receipts need nothing but the result, so their write starts here and runs under the rest
-	// of the block's tail and the caller's, instead of after it.
-	e.blockPhases.SetPhase("start_receipts")
-	receipts := e.startReceiptWrite(ctx, blockNumber, result)
-	// One commit is in flight at a time, so the previous one lands before this block starts its
-	// own. It has had this block's whole execution to run, so it rarely still holds. A block encoder
-	// that reads the store needs it landed before it runs; one that reads only the result overlaps
-	// it. The state encoder runs in the background after this wait either way, so a storage clear
-	// it expands against the store sees every earlier block and none of this one.
-	settleBeforeBlockEncoder := e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore
-	if settleBeforeBlockEncoder {
+	// Encoding that reads the store has to see a store holding every earlier block and none of
+	// this one, so the previous commit lands first. Encoding that reads only this block's own
+	// changes runs while that commit is still going, and waits below instead.
+	settleBeforeEncoding := e.encodingReadsTheStore(&result.ChangeSet)
+	if settleBeforeEncoding {
 		e.blockPhases.SetPhase("await_commit")
 		if err := e.awaitPipelineCommit(); err != nil {
 			return nil, err
 		}
 	}
-	// The block encoder stays on the loop: what it stages is what the caller reports for the block,
-	// so it has to have run when this returns.
-	var extra []*proto.NamedChangeSet
+	e.blockPhases.SetPhase("encode_changesets")
+	changesets, err := e.changeSetEncoder(result.ChangeSet)
+	if err != nil {
+		return nil, fmt.Errorf("encode state changes for block %d: %w", req.Context.Number, err)
+	}
 	if e.blockChangeSetEncoder != nil {
-		e.blockPhases.SetPhase("encode_block_changesets")
-		extra, err = e.blockChangeSetEncoder(req.Context, result)
+		extra, err := e.blockChangeSetEncoder(req.Context, result)
 		if err != nil {
 			return nil, fmt.Errorf("encode block changes for block %d: %w", req.Context.Number, err)
 		}
@@ -139,49 +138,48 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 					cs.Name, req.Context.Number, errBlockEncoderUsedEVMStoreKey)
 			}
 		}
+		changesets = append(changesets, extra...)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !settleBeforeBlockEncoder {
+	// An executor without a receipt store keeps none.
+	if e.receiptStore != nil {
+		e.blockPhases.SetPhase("encode_receipts")
+		records, err := e.receiptRecordsParallel(ctx, req.Context.Number, result)
+		if err != nil {
+			return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+		}
+		e.blockPhases.SetPhase("write_receipts")
+		if err := e.receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+			return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+		}
+	}
+	// One commit is in flight at a time, so the previous one lands before this block starts its
+	// own. It has had this block's whole execution to run, so it rarely still holds.
+	if !settleBeforeEncoding {
 		e.blockPhases.SetPhase("await_commit")
 		if err := e.awaitPipelineCommit(); err != nil {
 			return nil, err
 		}
 	}
-	e.blockPhases.SetPhase("start_commit")
-	if err := e.startPipelineCommit(blockNumber, result, receipts, extra); err != nil {
+	e.blockPhases.SetPhase("commit_state")
+	if err := e.startPipelineCommit(blockNumber, changesets, &result.ChangeSet); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
 	return result, nil
 }
 
-// receiptWrite is one block's background receipt write: done is closed once err is set.
-type receiptWrite struct {
-	done chan struct{}
-	err  error
-}
-
-// AwaitReceipts blocks until the receipts of the last block this executor ran are in the receipt
-// store, and reports the write's failure if it had one. It returns at once on an executor without
-// a receipt store, which keeps none.
+// encodingReadsTheStore reports whether encoding this block's changesets reads the store as well as
+// the block's own changes, which decides whether encoding may overlap the previous block's commit.
 //
-// Receipts are written in the background behind ExecutePreparedBlock. A caller that publishes a
-// block to readers who expect its receipts has to wait here first. Unlike AwaitCommits it does not
-// wait for the block's state commit, which keeps landing behind the next block.
-func (e *Executor) AwaitReceipts() error {
-	if e == nil {
-		return nil
-	}
-	e.pipelineMu.Lock()
-	write := e.pipelineReceipts
-	e.pipelineMu.Unlock()
-	if write == nil {
-		return nil
-	}
-	<-write.done
-	return write.err
+// Expanding a storage clear iterates the live store to find the slots to delete, so a block that
+// clears one must not be encoded against a store mid-commit. A block encoder is caller-supplied and
+// free to read whatever it likes, so one is assumed to read the store unless it was registered as
+// store-independent: assuming otherwise would surrender the receipt-stage slack on every block.
+func (e *Executor) encodingReadsTheStore(changes *StateChangeSet) bool {
+	return len(changes.StorageClears) > 0 || (e.blockChangeSetEncoder != nil && e.blockEncoderReadsStore)
 }
 
 // AwaitCommits blocks until every block this executor has run is committed, and reports the first
@@ -271,7 +269,7 @@ func (e *Executor) pipelineFailureLocked() error {
 		return e.pipelineFailure
 	}
 	if e.pipelineErr != nil {
-		return fmt.Errorf("persist block: %w", e.pipelineErr)
+		return fmt.Errorf("commit state changes: %w", e.pipelineErr)
 	}
 	return nil
 }
@@ -298,7 +296,7 @@ func (e *Executor) awaitPipelineCommit() error {
 		// Only the waiters on this commit retire it; a later one owns its own state.
 		if e.pipelineDone == done {
 			if e.pipelineErr != nil && e.pipelineFailure == nil {
-				e.pipelineFailure = fmt.Errorf("persist block: %w", e.pipelineErr)
+				e.pipelineFailure = fmt.Errorf("commit state changes: %w", e.pipelineErr)
 			}
 			e.pipelineDone = nil
 			e.pipelineChanges = nil
@@ -311,55 +309,13 @@ func (e *Executor) awaitPipelineCommit() error {
 	return e.pipelineFailure
 }
 
-// startReceiptWrite persists the block's receipts in the background, after the previous block's
-// have landed, and returns the write to wait on. The block result is held until the write has
-// landed. An executor without a receipt store keeps none, so its write is done on return.
-//
-// The write is recorded as the executor's newest, so AwaitReceipts finds it whether or not the
-// block's commit is started afterwards.
-func (e *Executor) startReceiptWrite(ctx context.Context, blockNumber int64, result *BlockResult) *receiptWrite {
-	receipts := &receiptWrite{done: make(chan struct{})}
-	if e.receiptStore == nil {
-		close(receipts.done)
-		return receipts
-	}
-	e.pipelineMu.Lock()
-	previous := e.pipelineReceipts
-	e.pipelineReceipts = receipts
-	e.pipelineMu.Unlock()
-
-	// The write finishes even if the request that ran the block is cancelled: Close waits for it,
-	// and a failure is reported through the pipeline rather than by dropping the block.
-	bgCtx := context.WithoutCancel(ctx)
-	releaseResult := result.retain()
-	go func() {
-		defer close(receipts.done)
-		defer releaseResult()
-		// Receipts land in block order, so the store's version means every block up to it. The
-		// previous write owns the phase timer until it is done.
-		if previous != nil {
-			<-previous.done
-			if previous.err != nil {
-				receipts.err = fmt.Errorf("receipts for block %d not written after an earlier failure: %w", blockNumber, previous.err)
-				return
-			}
-		}
-		defer e.receiptPhases.Reset()
-		receipts.err = e.persistReceipts(bgCtx, blockNumber, result)
-	}()
-	return receipts
-}
-
-// startPipelineCommit commits the block's encoded state changes in the background once its
-// receipts have landed, and records what it changed, so the next block reads those changes through
-// an overlay rather than waiting for the write. The state changes are encoded from a copy that
-// outlives the block result.
+// startPipelineCommit writes the block in the background and records what it changed, so the next
+// block reads those changes through an overlay rather than waiting for the write.
 //
 // Commits stay ordered because only one is ever in flight: awaitPipelineCommit lands the previous
 // one before this is called.
-func (e *Executor) startPipelineCommit(blockNumber int64, result *BlockResult, receipts *receiptWrite, extra []*proto.NamedChangeSet) error {
-	changes := result.ChangeSet.clone()
-	pending := newPendingChanges(changes)
+func (e *Executor) startPipelineCommit(blockNumber int64, changesets []*proto.NamedChangeSet, changes *StateChangeSet) error {
+	pending := newPendingChanges(changes.clone())
 	done := make(chan struct{})
 	e.pipelineMu.Lock()
 	if failure := e.pipelineFailure; failure != nil {
@@ -373,65 +329,13 @@ func (e *Executor) startPipelineCommit(blockNumber int64, result *BlockResult, r
 	e.pipelineMu.Unlock()
 
 	go func() {
-		defer close(done)
-		defer e.pipelinePhases.Reset()
-		// A block whose receipts were lost is a failed block: its state is not committed, so the
-		// store never holds a block whose receipts cannot be read.
-		e.pipelinePhases.SetPhase("await_receipt_write")
-		<-receipts.done
-		if receipts.err != nil {
-			e.pipelineMu.Lock()
-			e.pipelineErr = receipts.err
-			e.pipelineMu.Unlock()
-			return
-		}
-		err := e.commitStateChanges(blockNumber, changes, extra)
+		err := e.stateStore.CommitStateChanges(blockNumber, changesets)
 		e.pipelineMu.Lock()
 		e.pipelineErr = err
 		e.pipelineMu.Unlock()
+		close(done)
 	}()
 	return nil
-}
-
-// persistReceipts encodes the block's receipts and writes them to the receipt store, returning once
-// they are readable there.
-func (e *Executor) persistReceipts(ctx context.Context, blockNumber int64, result *BlockResult) error {
-	e.receiptPhases.SetPhase("encode_receipts")
-	records, err := e.receiptRecordsParallel(ctx, uint64(blockNumber), result) //nolint:gosec // G115: non-negative, checked by the caller.
-	if err != nil {
-		return fmt.Errorf("encode receipts for block %d: %w", blockNumber, err)
-	}
-	e.receiptPhases.SetPhase("write_receipts")
-	if err := e.receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
-		return fmt.Errorf("store receipts for block %d: %w", blockNumber, err)
-	}
-	// A store that applies writes from its own queue reports the landing through its version;
-	// a write it dropped after accepting shows up as a version short of this block.
-	if waiter, ok := e.receiptStore.(seidbtypes.PendingWriteWaiter); ok {
-		e.receiptPhases.SetPhase("await_store")
-		waiter.WaitForPendingWrites()
-		if latest := e.receiptStore.LatestVersion(); latest < blockNumber {
-			return fmt.Errorf("receipts for block %d did not land: receipt store is at block %d", blockNumber, latest)
-		}
-	}
-	return nil
-}
-
-// commitStateChanges encodes the block's state changes, appends the block encoder's, and commits
-// them to the state store.
-func (e *Executor) commitStateChanges(blockNumber int64, changes *StateChangeSet, extra []*proto.NamedChangeSet) error {
-	e.pipelinePhases.SetPhase("encode_changesets")
-	var stateChanges StateChangeSet
-	if changes != nil {
-		stateChanges = *changes
-	}
-	changesets, err := e.changeSetEncoder(stateChanges)
-	if err != nil {
-		return fmt.Errorf("encode state changes for block %d: %w", blockNumber, err)
-	}
-	changesets = append(changesets, extra...)
-	e.pipelinePhases.SetPhase("commit_state")
-	return e.stateStore.CommitStateChanges(blockNumber, changesets)
 }
 
 type gigaSnapshotStateReader struct {

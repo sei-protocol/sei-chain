@@ -196,30 +196,6 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	require.Equal(t, uint64(1), receipt.BlockNumber)
 }
 
-// The height Commit advances is what RPC serves as latest, so the block's receipts are readable
-// from the store the moment Commit returns, without waiting for anything else to land.
-func TestEVMOnlyApplicationCommitReturnsWithTheBlocksReceiptsReadable(t *testing.T) {
-	storage := openEVMOnlyTestStorage(t, t.TempDir())
-	app, err := NewEVMOnlyApplication(evmOnlyTestChainID, nil, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
-	require.NoError(t, err)
-	t.Cleanup(func() { closeEVMOnlyTestApp(t, app, storage) })
-	_, err = app.InitChain(evmOnlyTestInitChain())
-	require.NoError(t, err)
-
-	for height := int64(1); height <= 3; height++ {
-		raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
-		finalizeAndCommitEVMOnlyTestBlock(t, app, evmOnlyTestBlock(height, raw))
-		require.Equal(t, height, app.LastBlockHeight())
-
-		var tx ethtypes.Transaction
-		require.NoError(t, tx.UnmarshalBinary(raw))
-		receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: height}, false).WithContext(t.Context())
-		receipt, err := storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
-		require.NoError(t, err)
-		require.Equal(t, uint64(height), receipt.BlockNumber) //nolint:gosec // G115: test heights are positive.
-	}
-}
-
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID+1, 0)

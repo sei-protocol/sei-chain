@@ -19,7 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // executorMeterName is the OTel meter this package's instruments are created on.
@@ -47,24 +46,13 @@ type Executor struct {
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
 	blockPhases *seidbmetrics.PhaseTimer
-	// Breaks the background persistence of a block's state into its stages. One block is
-	// committed at a time, so one timer serves it.
-	pipelinePhases *seidbmetrics.PhaseTimer
-	// Breaks the background receipt write into its stages. Receipt writes run one at a time, in
-	// block order, but overlap the state commit, so they have a timer of their own on the same
-	// metric, told apart by a stage label.
-	receiptPhases *seidbmetrics.PhaseTimer
 
 	// The commit running behind the current block, and what it will write. A block reads the latter
 	// through an overlay so it need not wait for the former.
-	pipelineMu sync.Mutex
-	// Closed once the block is fully persisted.
-	pipelineDone chan struct{}
-	pipelineErr  error
-	// The most recent block's receipt write; kept after the block retires so a waiter that arrives
-	// late still finds its answer.
-	pipelineReceipts *receiptWrite
-	pipelineChanges  *pendingChanges
+	pipelineMu      sync.Mutex
+	pipelineDone    chan struct{}
+	pipelineErr     error
+	pipelineChanges *pendingChanges
 	// Counts commits started, so a reader can tell that a block landed between two of its steps.
 	pipelineGeneration uint64
 	// The first commit that failed, kept so no caller can miss it.
@@ -109,13 +97,10 @@ func WithBlockChangeSetEncoder(encoder BlockChangeSetEncoder) Option {
 // NewExecutor constructs an EVM-only executor. Call Close to disable future OCC
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
-	pipelineTimers := seidbmetrics.NewPhaseTimerFactory(otel.Meter(executorMeterName), "evmonly_pipeline")
 	e := &Executor{
-		cfg:            cfg.WithDefaults(),
-		resultPool:     newBlockResultPool(cfg.BlockResultPoolSize),
-		blockPhases:    seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
-		pipelinePhases: pipelineTimers.Build(attribute.String("stage", "state")),
-		receiptPhases:  pipelineTimers.Build(attribute.String("stage", "receipts")),
+		cfg:         cfg.WithDefaults(),
+		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -132,10 +117,8 @@ func (e *Executor) Close() {
 	}
 	e.closed.Store(true)
 	// Land the commit running behind the last block before the pool it may need goes away. The
-	// failure is kept rather than reported, for the next AwaitCommits to return. The receipt write
-	// is waited on separately: a block that failed after starting it has no commit to land.
+	// failure is kept rather than reported, for the next AwaitCommits to return.
 	_ = e.awaitPipelineCommit()
-	_ = e.AwaitReceipts()
 	if e.occPool != nil {
 		e.occPool.Close()
 	}
