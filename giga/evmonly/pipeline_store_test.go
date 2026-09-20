@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
@@ -389,6 +390,74 @@ func TestAwaitReceiptsReturnsBeforeTheStateCommitLands(t *testing.T) {
 	require.Equal(t, []int64{41}, store.commitBlock)
 }
 
+// signallingReceiptStore reports each block whose receipts it was handed on written.
+type signallingReceiptStore struct {
+	*MemoryReceiptStore
+	written chan int64
+}
+
+func (s *signallingReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+	if err := s.MemoryReceiptStore.SetReceipts(ctx, records); err != nil {
+		return err
+	}
+	s.written <- ctx.BlockHeight()
+	return nil
+}
+
+// A block's receipts are written while the loop is still waiting on the previous block's commit,
+// rather than after it: the write needs only the result.
+func TestReceiptWriteStartsBeforeThePreviousCommitLands(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &gatedCommitStore{recordingGigaStore: &recordingGigaStore{snapshot: snapshot}, release: make(chan struct{})}
+	receipts := &signallingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), written: make(chan int64, 2)}
+	// A store-reading block encoder makes the loop wait for the previous commit before it runs.
+	blockEncoder := func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error) { return nil, nil }
+	executor := NewExecutor(Config{},
+		withTestStores(store, receipts, noopChangeSetEncoder),
+		WithBlockChangeSetEncoder(blockEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)).Release()
+	require.NoError(t, executor.AwaitReceipts())
+	require.Equal(t, int64(41), <-receipts.written)
+
+	// Block 42 blocks on the loop until 41's commit is released.
+	blockCtx := blockContext(chainID)
+	blockCtx.Number = 42
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockCtx,
+		Txs: [][]byte{signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(9), nil)}})
+	require.NoError(t, err)
+	executed := make(chan error, 1)
+	go func() {
+		result, err := executor.ExecutePreparedBlock(t.Context(), prepared)
+		if err == nil {
+			result.Release()
+		}
+		executed <- err
+	}()
+
+	require.Equal(t, int64(42), <-receipts.written, "block 42's receipts are written while its loop waits")
+	require.Empty(t, store.commits, "the previous commit is still held")
+	select {
+	case err := <-executed:
+		t.Fatalf("block 42 returned before the previous commit landed: %v", err)
+	default:
+	}
+
+	close(store.release)
+	require.NoError(t, <-executed)
+	require.NoError(t, executor.AwaitCommits())
+	require.Equal(t, []int64{41, 42}, store.commitBlock)
+}
+
 // A receipt write that fails is a failed block: the state commit is not attempted and both waiters
 // report it.
 func TestFailedReceiptWriteFailsTheBlockBeforeItsStateCommit(t *testing.T) {
@@ -410,6 +479,42 @@ func TestFailedReceiptWriteFailsTheBlockBeforeItsStateCommit(t *testing.T) {
 	require.ErrorIs(t, executor.AwaitReceipts(), errTestReceiptWriteFailed)
 	require.ErrorIs(t, executor.AwaitCommits(), errTestReceiptWriteFailed)
 	require.Empty(t, store.commits, "state must not be committed for a block whose receipts were not")
+}
+
+// The block after a failed receipt write fails too, before its own receipts are attempted: a store
+// whose version has moved past a block whose receipts it never got would claim them as written.
+func TestReceiptWriteAfterAFailedOneIsNotAttempted(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	receipts := &failingReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), err: errTestReceiptWriteFailed}
+	executor := NewExecutor(Config{}, withTestStores(store, receipts, noopChangeSetEncoder))
+	defer executor.Close()
+
+	executePipelinedBlock(t, executor, chainID, 41,
+		signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil))
+	require.ErrorIs(t, executor.AwaitReceipts(), errTestReceiptWriteFailed)
+
+	// The store would accept block 42's receipts now; the executor must not offer them.
+	receipts.err = nil
+	blockCtx := blockContext(chainID)
+	blockCtx.Number = 42
+	rawTx := signLegacyTx(t, key, chainID, 1, &recipient, big.NewInt(9), nil)
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockCtx, Txs: [][]byte{rawTx}})
+	require.NoError(t, err)
+	_, err = executor.ExecutePreparedBlock(t.Context(), prepared)
+	require.ErrorIs(t, err, errTestReceiptWriteFailed)
+
+	require.ErrorIs(t, executor.AwaitReceipts(), errTestReceiptWriteFailed)
+	_, err = receipts.GetReceipt(newReceiptContext(t.Context(), 42), decodeTx(t, rawTx).Hash())
+	require.ErrorIs(t, err, receipt.ErrNotFound, "block 42's receipts must not land over the hole at 41")
+	require.Empty(t, store.commits)
 }
 
 // droppingReceiptStore accepts every write and applies none of them, the way a queued store behaves
@@ -481,4 +586,65 @@ func TestBackgroundEncoderSeesTheBlocksOwnChanges(t *testing.T) {
 	require.Len(t, encoded, 2)
 	require.Equal(t, want, encoded[0])
 	require.Equal(t, []int64{41, 42}, store.commitBlock)
+}
+
+// errTestEncoderFailed is the failure a test block encoder reports.
+var errTestEncoderFailed = errors.New("block encoder failed")
+
+// gatedReceiptStore holds every receipt write until release is closed.
+type gatedReceiptStore struct {
+	*MemoryReceiptStore
+	release chan struct{}
+}
+
+func (s *gatedReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.ReceiptRecord) error {
+	<-s.release
+	return s.MemoryReceiptStore.SetReceipts(ctx, records)
+}
+
+// A block that fails on the loop after its receipts were handed off has no state commit for Close to
+// drain, so Close waits for the receipt write itself and the receipts are readable once it returns.
+func TestCloseWaitsForTheReceiptsOfABlockThatFailedAfterHandingThemOff(t *testing.T) {
+	chainID := big.NewInt(testChainID)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := testAddress(0xa9)
+
+	snapshot := newMemoryGigaSnapshot(40)
+	snapshot.setBalance(sender, big.NewInt(testFundedBalanceWei))
+	store := &recordingGigaStore{snapshot: snapshot}
+	receipts := &gatedReceiptStore{MemoryReceiptStore: NewMemoryReceiptStore(), release: make(chan struct{})}
+	blockEncoder := func(BlockContext, *BlockResult) ([]*proto.NamedChangeSet, error) {
+		return nil, errTestEncoderFailed
+	}
+	executor := NewExecutor(Config{},
+		withTestStores(store, receipts, noopChangeSetEncoder),
+		WithBlockChangeSetEncoder(blockEncoder))
+
+	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
+	blockCtx := blockContext(chainID)
+	blockCtx.Number = 41
+	prepared, err := executor.PrepareBlock(t.Context(), BlockRequest{Context: blockCtx, Txs: [][]byte{rawTx}})
+	require.NoError(t, err)
+	_, err = executor.ExecutePreparedBlock(t.Context(), prepared)
+	require.ErrorIs(t, err, errTestEncoderFailed)
+
+	closed := make(chan struct{})
+	go func() {
+		executor.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while the receipt write was still held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(receipts.release)
+	<-closed
+	stored, err := receipts.GetReceipt(newReceiptContext(t.Context(), 41), decodeTx(t, rawTx).Hash())
+	require.NoError(t, err)
+	require.Equal(t, uint64(41), stored.BlockNumber)
+	require.Empty(t, store.commits, "a block that failed on the loop commits no state")
 }
