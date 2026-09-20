@@ -13,7 +13,6 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -56,36 +55,6 @@ const checkedSendersCap = 1 << 18
 // minTxsPerHashWorker is the minimum transaction count assigned to a hash worker.
 const minTxsPerHashWorker = 64
 
-// prepareBudgetShare is the fraction of the typical block execution time
-// PrepareBlock is given to decode the next block in. Decoding runs alongside the
-// current block's OCC speculation, which holds a worker per processor, so it is
-// sized to finish within that block on as few processors as it can rather than
-// contending for all of them; the share leaves room for the block being shorter
-// than typical.
-const prepareBudgetShare = 2
-
-// executeEstimateDecay is the denominator of the exponential moving average of
-// block execution time; each block moves the estimate 1/executeEstimateDecay of
-// the way to what it took, so a single short block does not hand the next decode
-// every processor.
-const executeEstimateDecay = 8
-
-// prepareBudget returns how long PrepareBlock has to decode the next block given
-// the typical block execution time. 0 when no block has executed yet, which
-// decodes on every worker.
-func prepareBudget(executeEstimate time.Duration) time.Duration {
-	return executeEstimate / prepareBudgetShare
-}
-
-// nextExecuteEstimate folds the execution time of a block into the estimate of the
-// typical one.
-func nextExecuteEstimate(current, executed time.Duration) time.Duration {
-	if current <= 0 {
-		return executed
-	}
-	return current + (executed-current)/executeEstimateDecay
-}
-
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
@@ -123,11 +92,6 @@ type evmOnlyApplication struct {
 	// preparePhases times PrepareBlock's decode of the next block. PrepareBlock is
 	// called from the single block fetcher, so one timer serves the app.
 	preparePhases *seidbmetrics.PhaseTimer
-	// executeEstimate is the typical time a prepared FinalizeBlock spends executing,
-	// in nanoseconds, averaged over the recent ones; PrepareBlock's decode budget is
-	// derived from it. Only prepared blocks contribute: an unprepared one includes
-	// its own decode.
-	executeEstimate atomic.Int64
 }
 
 // preparedBlock is the stateless part of a FinalizeBlock request, computed before the
@@ -689,7 +653,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 	// Only Number and Time reach the decoded transactions (through the signer); the
 	// parent-derived fields are filled in by FinalizeBlock.
 	a.preparePhases.SetPhase("parse")
-	prepared, err := executor.PrepareBlockWithin(ctx, evmonly.BlockRequest{
+	prepared, err := executor.PrepareBlock(ctx, evmonly.BlockRequest{
 		Context: evmonly.BlockContext{
 			Number:      block.number,
 			Time:        block.timestamp,
@@ -700,7 +664,7 @@ func (a *evmOnlyApplication) PrepareBlock(ctx context.Context, req *abci.Request
 		},
 		Txs:     req.Txs,
 		Senders: a.peekSenders(req.Txs),
-	}, prepareBudget(time.Duration(a.executeEstimate.Load())))
+	})
 	a.preparePhases.Reset()
 	if err != nil {
 		return ctx.Err()
@@ -776,9 +740,7 @@ func (a *evmOnlyApplication) finalizeBlockLocked(
 		a.finalizePhases.SetPhase("take_senders")
 		a.forgetSenders(req.Txs)
 		a.finalizePhases.SetPhase("execute")
-		start := time.Now()
 		result, err = executor.ExecutePreparedBlock(ctx, evmonly.PreparedBlock{Context: blockCtx, Txs: prepared})
-		a.executeEstimate.Store(int64(nextExecuteEstimate(time.Duration(a.executeEstimate.Load()), time.Since(start))))
 	} else {
 		a.finalizePhases.SetPhase("take_senders")
 		senders := a.takeSenders(req.Txs)
