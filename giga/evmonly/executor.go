@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -30,7 +29,6 @@ type Executor struct {
 	cfg              Config
 	resultSink       ResultSink
 	occPool          *occWorkerPool
-	parseSizer       *parseSizer
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
 	storeMu          sync.Mutex
@@ -112,7 +110,6 @@ func NewExecutor(cfg Config, opts ...Option) *Executor {
 		blockPhases:    seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
 		pipelinePhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_pipeline"),
 	}
-	e.parseSizer = newParseSizer(e.cfg.ParseWorkers)
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
 	}
@@ -187,18 +184,7 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 	return result, nil
 }
 
-// PrepareBlock decodes the block's transactions and recovers their senders on
-// every parse worker.
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
-	return e.PrepareBlockWithin(ctx, req, 0)
-}
-
-// PrepareBlockWithin decodes the block's transactions and recovers their senders
-// on as few parse workers as the decode is expected to fit in budget on, leaving
-// the rest of the processors to whatever runs alongside. A budget of 0 uses every
-// parse worker and does not inform the expectation, which comes from the budgeted
-// decodes before this one; the first of those is decoded on every worker.
-func (e *Executor) PrepareBlockWithin(ctx context.Context, req BlockRequest, budget time.Duration) (PreparedBlock, error) {
 	chainConfig := e.chainConfig(req.Context)
 	if err := validateBlockContext(chainConfig, req.Context); err != nil {
 		return PreparedBlock{}, err
@@ -207,14 +193,9 @@ func (e *Executor) PrepareBlockWithin(ctx context.Context, req BlockRequest, bud
 	if len(req.Senders) != 0 && len(req.Senders) != len(req.Txs) {
 		return PreparedBlock{}, fmt.Errorf("block request has %d senders for %d txs", len(req.Senders), len(req.Txs))
 	}
-	workers := e.parseSizer.workers(len(req.Txs), budget)
-	start := time.Now()
-	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, workers)
+	parsed, err := parseBlockTxs(ctx, req.Txs, signer, req.Senders, e.cfg.ParseWorkers)
 	if err != nil {
 		return PreparedBlock{}, err
-	}
-	if budget > 0 {
-		e.parseSizer.observe(len(req.Txs), workers, time.Since(start))
 	}
 	return PreparedBlock{
 		Context: req.Context,
