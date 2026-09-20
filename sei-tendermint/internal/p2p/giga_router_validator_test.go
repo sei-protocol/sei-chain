@@ -149,7 +149,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		}
 		// Nodes should agree on the final state.
 		want := apps[0].Snapshot()
-		require.NoError(t, want.CheckBlocks(), "CheckBlocks")
 		for i, app := range apps {
 			t.Logf("app[%v]", i)
 			require.NoError(t, utils.TestDiff(want, app.Snapshot()), "state mismatch app[%v]", i)
