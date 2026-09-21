@@ -81,10 +81,11 @@ func (env *blockExecEnv) plainTransferCandidate(msg *core.Message) bool {
 // then gas purchase, nonce increment, value movement, gas return and fee
 // payment through the same StateDB calls.
 //
-// It returns applied=false, with the state, gas pool and access sets untouched,
-// when the recipient turns out to hold code; the caller then runs
-// core.ApplyMessage. An error is returned before any state is modified, so the
-// caller needs no snapshot.
+// It returns applied=false, with the state and gas pool untouched, when the
+// recipient turns out to hold code; the caller then runs core.ApplyMessage,
+// which re-reads the same keys the pre-checks recorded in the access set. An
+// error is returned before any state is modified, so the caller needs no
+// snapshot.
 func (env *blockExecEnv) applyPlainTransfer(
 	stateDB *nativeStateDB,
 	gasPool *core.GasPool,
@@ -185,11 +186,11 @@ func (env *blockExecEnv) applyPlainTransfer(
 		return nil, false, nil
 	}
 
-	// State transition. Nothing above has written.
-	stateDB.SubBalance(msg.From, mgvalU256, tracing.BalanceDecreaseGasBuy)
+	// State transition. Nothing above has written, and nothing below can fail.
 	if err := gasPool.SubGas(msg.GasLimit); err != nil {
 		return nil, true, err
 	}
+	stateDB.SubBalance(msg.From, mgvalU256, tracing.BalanceDecreaseGasBuy)
 	gasRemaining := msg.GasLimit - intrinsic
 	stateDB.SetNonce(msg.From, stateDB.GetNonce(msg.From)+1, tracing.NonceChangeEoACall)
 
