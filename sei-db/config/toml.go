@@ -195,6 +195,8 @@ rs-enable = {{ .ReceiptStore.Enable }}
 
 # Backend defines the receipt store backend.
 # Supported backends: pebble (aka pebbledb)
+# The littidx backend is opened by Giga through its own storage config and is
+# refused here.
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 
