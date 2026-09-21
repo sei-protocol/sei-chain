@@ -389,6 +389,8 @@ func (inner *txStoreInner) cacheMetadata(wtx *WrappedTx, evm *evmTx) {
 
 // advanceReady marks the account's txs ready in nonce order, starting at nextNonce,
 // until it hits a nonce gap or a tx the account cannot afford.
+// It only reclassifies txs already held in the store: state is size bookkeeping of
+// held txs, not a capacity check, which callers do against the limits separately.
 // The tx in skipAccepted is not reported as a newly accepted pending tx.
 func (s *txStore) advanceReady(inner *txStoreInner, addr common.Address, account *evmAccount, state *txStoreState, skipAccepted utils.Option[*WrappedTx]) {
 	an := evmAddrNonce{Address: addr}
@@ -625,10 +627,10 @@ func (s *txStore) refresh(inner *txStoreInner) {
 	state := txStoreState{}
 	inner.accounts = map[common.Address]*evmAccount{}
 	for txHash, wtx := range inner.byHash {
-		state.total.Inc(wtx.Size())
 		evm, ok := wtx.evm.Get()
 		if !ok {
 			// Non-evm txs are automatically ready
+			state.total.Inc(wtx.Size())
 			state.ready.Inc(wtx.Size())
 			continue
 		}
@@ -636,7 +638,6 @@ func (s *txStore) refresh(inner *txStoreInner) {
 		if evm.nonce < account.firstNonce {
 			inner.cache.Push(txHash, utils.None[cacheEvm]())
 			recordPendingNonceRejected()
-			state.total.Dec(wtx.Size())
 			delete(inner.byHash, txHash)
 			delete(inner.byEvmHash, evm.hash)
 			delete(inner.byNonce, evmAddrNonce{evm.address, evm.nonce})
@@ -647,6 +648,7 @@ func (s *txStore) refresh(inner *txStoreInner) {
 			}
 			continue
 		}
+		state.total.Inc(wtx.Size())
 		inner.cacheMetadata(wtx, &evm)
 	}
 	for addr, account := range inner.accounts {
