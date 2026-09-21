@@ -298,7 +298,10 @@ The public EVM JSON-RPC surface intentionally contains only:
 
 - `eth_sendRawTransaction`, used by `sei-load` and `cast publish`;
 - `eth_getTransactionReceipt`, for finalized receipts;
-- `eth_getBalance`, for the current committed EVM balance.
+- `eth_getBalance`, for the current committed EVM balance;
+- `eth_getTransactionCount`, for the current committed nonce;
+- `eth_blockNumber`, for the current committed block height;
+- `eth_chainId`, for the configured EVM chain ID.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -329,12 +332,9 @@ cast receipt \
   0xYOUR_TRANSACTION_HASH
 ```
 
-Without `--async`, `cast receipt` polls until the receipt exists. While it is
-waiting, current Foundry versions may also poll `eth_blockNumber` and print a
-method-not-found error, although the command still returns the receipt after
-finalization. Add `--async` for a one-shot lookup that fails immediately when
-the hash is not found. Confirmation counting is not available without
-`eth_blockNumber`; the endpoint itself only returns finalized receipts.
+Without `--async`, `cast receipt` polls until the receipt exists, now also
+polling `eth_blockNumber` for confirmation counting. Add `--async` for a
+one-shot lookup that fails immediately when the hash is not found.
 
 For a repeatable end-to-end check, create a new throwaway key, sign completely
 offline, publish the raw transaction, and fetch its receipt:
@@ -363,13 +363,38 @@ This works because every new address receives the test-only initial balance
 and has nonce zero. Use a new key each time so the explicit nonce remains
 correct.
 
+### Fetch the nonce, block height, and chain ID with `cast`
+
+`cast nonce`, `cast block-number`, and `cast chain-id` all work against the
+EVM-only RPC:
+
+```sh
+cast nonce --rpc-url http://127.0.0.1:8545 0xYOUR_ADDRESS
+cast block-number --rpc-url http://127.0.0.1:8545
+cast chain-id --rpc-url http://127.0.0.1:8545
+```
+
+`eth_getTransactionCount` accepts the `latest`, `safe`, `finalized`, and
+`pending` block tags, but all four resolve to the current committed nonce.
+`pending` is accepted so standard tooling that requests it (`cast send`,
+ethers, viem) keeps working, not because instant finality makes committed and
+pending equivalent: instant finality removes reorg risk, not the
+broadcast-to-commit window `pending` exists to cover. Two transactions sent
+back-to-back from the same key before the first commits are therefore
+assigned the same nonce, and the second is rejected; callers issuing rapid
+sequential sends must track the next nonce themselves rather than relying on
+`pending`. An explicit height, an explicit hash, or `earliest` returns an
+error: historical state is not available from this RPC. `eth_blockNumber` and
+`eth_chainId` take no block selector and always return the current height and
+the network's configured EVM chain ID.
+
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. There is no
 `eth_getTransactionByHash` or block API to discover a `sei-load` transfer hash,
 and `sei-load` does not currently print every submitted hash. There are also no
-chain ID, nonce, fee-estimation, gas-estimation, call, log, or WebSocket
-subscription methods. Commands that depend on those queries cannot operate
-normally; raw transactions must provide chain ID, nonce, gas limit, and gas
-price offline as in the example above.
+fee-estimation, gas-estimation, call, log, or WebSocket subscription methods.
+Commands that depend on those queries cannot operate normally; raw
+transactions must provide gas limit and gas price offline as in the example
+above.
 
 ## Tear down
 

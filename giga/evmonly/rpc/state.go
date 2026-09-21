@@ -11,12 +11,12 @@ import (
 
 var errHistoricalStateUnsupported = errors.New("historical state is not supported by EVM-only RPC")
 
-type balanceAPI struct {
+type stateAPI struct {
 	backend Backend
 }
 
 // GetBalance returns the address balance from the current committed EVM state.
-func (api *balanceAPI) GetBalance(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Big, error) {
+func (api *stateAPI) GetBalance(_ context.Context, address common.Address, block ethrpc.BlockNumberOrHash) (*hexutil.Big, error) {
 	if err := requireCurrentState(block); err != nil {
 		return nil, err
 	}

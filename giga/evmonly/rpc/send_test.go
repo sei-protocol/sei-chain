@@ -11,36 +11,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
-
-type testBackend struct {
-	broadcast func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error)
-	block     func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error)
-	balance   func(common.Address) uint256.Int
-	proxy     utils.Option[*ethrpc.Client]
-}
-
-func (b *testBackend) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	return b.broadcast(ctx, req)
-}
-
-func (b *testBackend) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-	return b.block(ctx, req)
-}
-
-func (b *testBackend) EvmBalance(address common.Address) uint256.Int {
-	return b.balance(address)
-}
-
-func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
-	return b.proxy
-}
 
 func TestSendRawTransaction(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
@@ -66,9 +42,9 @@ func TestSendRawTransaction(t *testing.T) {
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, raw, broadcastRaw)
 
-	var chainID hexutil.Big
-	err = client.CallContext(t.Context(), &chainID, "eth_chainId")
-	require.ErrorContains(t, err, "method eth_chainId does not exist")
+	var callResult hexutil.Bytes
+	err = client.CallContext(t.Context(), &callResult, "eth_call")
+	require.ErrorContains(t, err, "method eth_call does not exist")
 	err = client.CallContext(t.Context(), nil, "status")
 	require.ErrorContains(t, err, "method status does not exist")
 }
