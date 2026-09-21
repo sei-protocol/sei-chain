@@ -130,10 +130,12 @@ async function fundAddress(addr, amount="1000000000000000000000") {
     // visible to admission, so a tx from addr sent right after the receipt
     // can be checked against the pre-funding balance and rejected with
     // "insufficient funds". Wait for the balance itself to move.
-    const before = await ethers.provider.getBalance(addr)
+    // Compared as strings so the check holds under both ethers v6 (bigint)
+    // and the v5 BigNumber the dapp tests get from this helper.
+    const before = (await ethers.provider.getBalance(addr)).toString()
     const evmTxHash = await evmSend(addr, adminKeyName, amount)
     await waitForCondition(
-        async () => (await ethers.provider.getBalance(addr)) !== before,
+        async () => (await ethers.provider.getBalance(addr)).toString() !== before,
         `${addr} EVM balance to change from ${before}`,
     )
     return evmTxHash
