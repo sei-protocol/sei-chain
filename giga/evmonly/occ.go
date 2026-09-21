@@ -746,10 +746,7 @@ func (s *blockSTMState) apply(result occTxExecution) {
 // applyOwned folds the parts of one accepted result whose addresses fall in the shards owns
 // reports true for. Two callers with disjoint ownership can run concurrently.
 func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
-	for _, change := range result.changeSet.Balances {
-		if !owns.has(occShardOf(change.Address)) {
-			continue
-		}
+	for change := range ownedChanges(owns, result.changeSet.Balances, BalanceChange.addr) {
 		shard := s.shard(change.Address)
 		delta := result.commutativeBalanceDeltas[change.Address]
 		_, normalWrite := result.writeSet[stateAccessKey{kind: stateAccessBalance, address: change.Address}]
@@ -761,25 +758,17 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 		}
 		shard.balances[change.Address] = cloneBig(change.Balance)
 	}
-	for _, change := range result.changeSet.Nonces {
-		if owns.has(occShardOf(change.Address)) {
-			s.shard(change.Address).nonces[change.Address] = change.Nonce
-		}
+	for change := range ownedChanges(owns, result.changeSet.Nonces, NonceChange.addr) {
+		s.shard(change.Address).nonces[change.Address] = change.Nonce
 	}
-	for _, change := range result.changeSet.Code {
-		if !owns.has(occShardOf(change.Address)) {
-			continue
-		}
+	for change := range ownedChanges(owns, result.changeSet.Code, CodeChange.addr) {
 		if change.Delete {
 			s.shard(change.Address).code[change.Address] = nil
 		} else {
 			s.shard(change.Address).code[change.Address] = cloneBytes(change.Code)
 		}
 	}
-	for _, addr := range result.changeSet.StorageClears {
-		if !owns.has(occShardOf(addr)) {
-			continue
-		}
+	for addr := range ownedChanges(owns, result.changeSet.StorageClears, sameAddress) {
 		shard := s.shard(addr)
 		shard.storageClears[addr] = struct{}{}
 		for key := range shard.storage {
@@ -788,12 +777,16 @@ func (s *blockSTMState) applyOwned(result occTxExecution, owns occShardSet) {
 			}
 		}
 	}
-	for _, change := range result.changeSet.Storage {
-		if owns.has(occShardOf(change.Address)) {
-			s.shard(change.Address).storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
-		}
+	for change := range ownedChanges(owns, result.changeSet.Storage, StorageChange.addr) {
+		s.shard(change.Address).storage[storageChangeKey{address: change.Address, key: change.Key}] = change.Value
 	}
 }
+
+func (c BalanceChange) addr() common.Address      { return c.Address }
+func (c NonceChange) addr() common.Address        { return c.Address }
+func (c CodeChange) addr() common.Address         { return c.Address }
+func (c StorageChange) addr() common.Address      { return c.Address }
+func sameAddress(a common.Address) common.Address { return a }
 
 func (s *blockSTMState) ChangeSet() StateChangeSet {
 	var changes StateChangeSet

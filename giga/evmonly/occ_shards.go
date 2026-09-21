@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"iter"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -39,6 +40,17 @@ func occShardOf(addr common.Address) int {
 func (s occShardSet) has(shard int) bool { return s&(1<<shard) != 0 }
 
 func (s occShardSet) with(shard int) occShardSet { return s | 1<<shard }
+
+// ownedChanges yields the items whose address, as reported by addrOf, falls in a shard of owns.
+func ownedChanges[T any](owns occShardSet, items []T, addrOf func(T) common.Address) iter.Seq[T] {
+	return func(yield func(T) bool) {
+		for _, item := range items {
+			if owns.has(occShardOf(addrOf(item))) && !yield(item) {
+				return
+			}
+		}
+	}
+}
 
 func (s occShardSet) intersects(other occShardSet) bool { return s&other != 0 }
 
