@@ -25,7 +25,9 @@ var (
 		0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1, 0.25, 0.5, 1, 10,
 	)
 
-	// blockGasWantedBuckets covers the 0–50 M gas range (current MaxGasWanted cap)
+	// blockGasWantedBuckets covers the 0–50 M gas range (current MaxGasWanted cap).
+	// The per-block gas wanted and gas used histograms share it: a transaction's gas
+	// used is bounded by its gas wanted, so the same cap bounds both block totals.
 	blockGasWantedBuckets = metric.WithExplicitBucketBoundaries(
 		10e3, 25e3, 50e3, 100e3, 250e3, 500e3,
 		1e6, 2.5e6, 5e6, 10e6, 12.5e6, 25e6, 50e6,
@@ -66,6 +68,7 @@ var (
 		// Per-block gas utilisation
 		blockGasWanted      metric.Int64Histogram
 		blockGasWantedRatio metric.Float64Histogram
+		blockGasUsed        metric.Int64Histogram
 
 		// Light invariance check
 		invarianceDuration      metric.Float64Histogram
@@ -178,6 +181,16 @@ var (
 			metric.WithDescription("Per-block ratio of total gas wanted to MaxGasWanted consensus parameter"),
 			metric.WithUnit("1"),
 			blockGasWantedRatioBuckets,
+		)),
+
+		blockGasUsed: must(meter.Int64Histogram(
+			"app_block_gas_used",
+			metric.WithDescription("Per-block total gas used across all transactions. Recorded on "+
+				"FinalizeBlock, so unlike app_block_gas_wanted (recorded on ProcessProposal) it has "+
+				"samples during block/state sync with no matching gas_wanted sample -- do not divide "+
+				"the two without accounting for that"),
+			metric.WithUnit("{gas}"),
+			blockGasWantedBuckets,
 		)),
 
 		invarianceDuration: must(meter.Float64Histogram(
