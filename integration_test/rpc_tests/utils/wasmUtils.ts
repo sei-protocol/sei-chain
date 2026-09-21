@@ -12,8 +12,6 @@ import {
     SEI_HD_PATH,
     DOCKER_NODE,
     SEID_ENV,
-    DOCKER_KEY_PASSWORD,
-    DOCKER_EVM_RPC,
     CW20_WASM_PATH,
     CW20_WASM_SHA256,
     WASM_FEE,
@@ -109,33 +107,6 @@ export async function deployCw20(
         { admin: address },
     );
     return { codeId: uploaded.codeId, address: instantiated.contractAddress };
-}
-
-/** Query the CW20's ERC20 pointer; returns '' until it is registered on-chain. */
-async function queryCw20Pointer(cw20Address: string): Promise<string> {
-    const { stdout } = await exec(
-        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && seid query evm pointer CW20 ${cw20Address} -o json'`,
-    );
-    const res = JSON.parse(stdout);
-    return res.exists && res.pointer ? res.pointer : '';
-}
-
-/**
- * Register an ERC20 pointer for a CW20 via the in-container `admin` key and return the
- * pointer's `0x…` EVM address. `register-evm-pointer` broadcasts in sync mode (modern
- * seid no longer blocks until commit), so we poll the pointer query until it appears
- * rather than reading it once right after broadcast.
- */
-export async function registerCw20Pointer(cw20Address: string): Promise<string> {
-    await exec(
-        `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | ` +
-            `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${DOCKER_EVM_RPC} ` +
-            `--from admin -y --gas-limit 4900000 --fees 800000usei -b sync'`,
-    );
-    return waitUntil<string>(
-        async () => (await queryCw20Pointer(cw20Address)) || null,
-        { timeoutMs: 60_000, intervalMs: 1_000, label: `CW20 pointer for ${cw20Address}` },
-    );
 }
 
 export interface Cw20ExecResult {
