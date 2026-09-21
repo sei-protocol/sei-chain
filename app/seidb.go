@@ -133,12 +133,10 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 		scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(v)
 	}
 
-	// sc-write-mode-enable-auto (default true) decides whether the node may run
-	// in auto. An ABSENT key keeps the default (true): nodes provisioned by
-	// older binaries carry an explicit sc-write-mode = "memiavl_only" but no
-	// sc-write-mode-enable-auto key, and must still resolve to auto so a
-	// governance-driven migration can start without an app.toml edit. Only an
-	// explicit key flips it.
+	// sc-write-mode-enable-auto decides whether the node may run in auto. An
+	// absent key keeps this build's in-code default: true for a stock build and
+	// false for a mock_chain_validation reserve build. Only an explicit key
+	// overrides that default.
 	if v := appOpts.Get(FlagSCWriteModeEnableAuto); v != nil {
 		scConfig.WriteModeEnableAuto = cast.ToBool(v)
 	}
