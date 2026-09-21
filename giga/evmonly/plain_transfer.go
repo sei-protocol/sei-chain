@@ -200,10 +200,10 @@ func (env *blockExecEnv) applyPlainTransfer(
 			// Calling a non-existing account, don't do anything.
 		} else {
 			stateDB.CreateAccount(to)
-			core.Transfer(stateDB, msg.From, to, value)
+			env.blockCtx.Transfer(stateDB, msg.From, to, value)
 		}
 	} else {
-		core.Transfer(stateDB, msg.From, to, value)
+		env.blockCtx.Transfer(stateDB, msg.From, to, value)
 	}
 
 	// Refund, floor and gas return (calcRefund, EIP-7623, returnGas).

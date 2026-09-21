@@ -411,10 +411,6 @@ func (e *Executor) executeTx(
 	return txResult, receipt, nil
 }
 
-// applyMessage transitions the state by msg: through the plain-transfer path when
-// msg is a value transfer to a codeless account, through core.ApplyMessage
-// otherwise. On error the state and gas pool are as they were before the call,
-// except for a StateDB fault, which is returned as is.
 // stateDBFault is a fault the StateDB recorded while a transaction was applied.
 // It aborts the block rather than the transaction: the partial writes of the
 // transaction that hit it are not rolled back, so no receipt may be built for it.
