@@ -182,7 +182,7 @@ func (env *blockExecEnv) applyPlainTransfer(
 
 	// The recipient must hold no code; a delegation designator counts as code.
 	to := *msg.To
-	if len(stateDB.GetCode(to)) != 0 {
+	if stateDB.GetCodeSize(to) != 0 {
 		return nil, false, nil
 	}
 
