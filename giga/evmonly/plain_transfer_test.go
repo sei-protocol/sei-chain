@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // plainTransferScenario is one block whose execution is compared between the
@@ -22,6 +23,7 @@ type plainTransferScenario struct {
 	name     string
 	cfg      Config
 	setup    func(t *testing.T, ctx *BlockContext) (*MemoryState, [][]byte)
+	opts     []Option
 	wantFast uint64
 	wantErr  error
 }
@@ -254,6 +256,19 @@ func plainTransferScenarios(t *testing.T) []plainTransferScenario {
 			wantFast: 1,
 		},
 		{
+			name: "state fault aborts the block instead of rejecting the transaction",
+			cfg:  Config{RejectUnappliableTxs: true},
+			// The sender is absent from the store, so its balance comes from the
+			// missing-account state, which reports one that exceeds 256 bits.
+			opts: []Option{WithMissingAccountState(&overflowingBalanceState{MemoryState: NewMemoryState()})},
+			setup: func(t *testing.T, _ *BlockContext) (*MemoryState, [][]byte) {
+				key, err := crypto.GenerateKey()
+				require.NoError(t, err)
+				return NewMemoryState(), [][]byte{legacy(t, key, 0, &recipient, big.NewInt(1), 100_000, 1)}
+			},
+			wantErr: errStateBalanceOverflow,
+		},
+		{
 			name: "chained transfers in one block",
 			setup: func(t *testing.T, _ *BlockContext) (*MemoryState, [][]byte) {
 				state := NewMemoryState()
@@ -391,14 +406,26 @@ func runPlainTransferBlock(t *testing.T, sc plainTransferScenario, occWorkers in
 		}
 		cfg.OCCWorkers = occWorkers
 		cfg.DisablePlainTransferFastPath = disable
-		executor := NewExecutor(cfg, withTestState(state))
+		reader := bindTestExecutionMetrics(t)
+		executor := NewExecutor(cfg, append([]Option{withTestState(state)}, sc.opts...)...)
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: ctx, Txs: rawTxs})
-		return result, executor.PlainTransfers(), err
+		return result, plainTransfersRecorded(t, reader), err
 	}
 	fast, fastCount, fastErr = run(false)
 	slow, slowCount, slowErr := run(true)
 	require.Zero(t, slowCount, "ApplyMessage run must not take the fast path")
 	return fast, slow, fastCount, fastErr, slowErr
+}
+
+// plainTransfersRecorded returns the giga_evmonly_plain_transfers_total count
+// collected so far; a block that failed records nothing.
+func plainTransfersRecorded(t *testing.T, reader *sdkmetric.ManualReader) uint64 {
+	t.Helper()
+	collected := collectOCCMetrics(t, reader)
+	if _, ok := collected["giga_evmonly_plain_transfers_total"]; !ok {
+		return 0
+	}
+	return uint64(requireCounter(t, collected, "giga_evmonly_plain_transfers_total")) //nolint:gosec // counter is non-negative
 }
 
 func requirePlainTransferParity(t *testing.T, sc plainTransferScenario, fast, slow *BlockResult, fastErr, slowErr error) {

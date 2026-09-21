@@ -2,6 +2,7 @@ package evmonly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -198,12 +199,14 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err := validateBlockContext(e.chainConfig(req.Context), req.Context); err != nil {
 		return nil, err
 	}
+	e.plainTransfers.Store(0)
 	result, err := e.executePreparedBlockWithStore(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
 	recordTxExecutionStats(ctx, result.Txs)
+	recordPlainTransfers(ctx, e.plainTransfers.Load())
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err
@@ -347,6 +350,10 @@ func (e *Executor) executeTx(
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
 	execResult, err := e.applyMessage(evm, stateDB, gasPool, msg)
+	var fault stateDBFault
+	if errors.As(err, &fault) {
+		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: fault.err}, nil, fault.err
+	}
 	if err != nil {
 		if !e.cfg.RejectUnappliableTxs {
 			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
@@ -408,12 +415,24 @@ func (e *Executor) executeTx(
 // msg is a value transfer to a codeless account, through core.ApplyMessage
 // otherwise. On error the state and gas pool are as they were before the call,
 // except for a StateDB fault, which is returned as is.
+// stateDBFault is a fault the StateDB recorded while a transaction was applied.
+// It aborts the block rather than the transaction: the partial writes of the
+// transaction that hit it are not rolled back, so no receipt may be built for it.
+type stateDBFault struct{ err error }
+
+func (f stateDBFault) Error() string { return f.err.Error() }
+func (f stateDBFault) Unwrap() error { return f.err }
+
+// applyMessage runs msg against stateDB, through the plain-transfer path when
+// msg qualifies and through core.ApplyMessage otherwise. A transaction-level
+// error leaves the state and gas pool as they were before the call; a
+// stateDBFault does not.
 func (e *Executor) applyMessage(evm *txEVM, stateDB *nativeStateDB, gasPool *core.GasPool, msg *core.Message) (*core.ExecutionResult, error) {
 	if !e.cfg.DisablePlainTransferFastPath && evm.env.plainTransferCandidate(msg) {
 		execResult, applied, err := evm.env.applyPlainTransfer(stateDB, gasPool, msg)
 		if applied {
 			if stateErr := stateDB.Error(); stateErr != nil {
-				return nil, stateErr
+				return nil, stateDBFault{err: stateErr}
 			}
 			if err == nil {
 				e.plainTransfers.Add(1)
@@ -429,7 +448,7 @@ func (e *Executor) applyMessage(evm *txEVM, stateDB *nativeStateDB, gasPool *cor
 	execResult, err := core.ApplyMessage(vmEVM, msg, gasPool)
 	// Read before any revert: RevertToSnapshot restores the recorded error too.
 	if stateErr := stateDB.Error(); stateErr != nil {
-		return nil, stateErr
+		return nil, stateDBFault{err: stateErr}
 	}
 	if err != nil {
 		stateDB.RevertToSnapshot(snapshot)
@@ -439,12 +458,6 @@ func (e *Executor) applyMessage(evm *txEVM, stateDB *nativeStateDB, gasPool *cor
 	}
 	stateDB.clearSnapshots()
 	return execResult, nil
-}
-
-// PlainTransfers returns how many transactions this executor has applied through
-// the plain-transfer path, speculative executions included.
-func (e *Executor) PlainTransfers() uint64 {
-	return e.plainTransfers.Load()
 }
 
 // rejectedTx builds the failed, zero-gas receipt and result for a transaction the
