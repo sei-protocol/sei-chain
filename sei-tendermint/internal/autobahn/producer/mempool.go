@@ -19,6 +19,10 @@ var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
 var errMempoolFull = errors.New("mempool is full")
 
+// errPendingFull is returned when Config.MaxPendingInserts inserts are already pending. It
+// matches errMempoolFull under errors.Is so callers treat both as mempool-full.
+var errPendingFull = fmt.Errorf("%w: too many pending inserts", errMempoolFull)
+
 var ErrNotProducing = errors.New("not producing")
 
 type blockSpec struct {
@@ -330,6 +334,8 @@ func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
 	switch {
 	case errors.Is(err, errTooLarge):
 		return metrics.ResultTooLarge
+	case errors.Is(err, errPendingFull):
+		return metrics.ResultPendingFull
 	case errors.Is(err, errMempoolFull):
 		return metrics.ResultFull
 	case errors.Is(err, ErrNotProducing):
@@ -355,14 +361,14 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 }
 
 // boundedInsertTx runs doInsertTx, holding one of cfg.MaxPendingInserts in-flight slots for
-// the duration of a TryInsertTx call. Returns errMempoolFull when no slot is free.
+// the duration of a TryInsertTx call. Returns errPendingFull when no slot is free.
 func (s *State) boundedInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
 	if waitIfFull {
 		return s.doInsertTx(ctx, tx, waitIfFull)
 	}
 	release, ok := s.tryInsertSem.TryAcquire()
 	if !ok {
-		return nil, errMempoolFull
+		return nil, errPendingFull
 	}
 	defer release()
 	return s.doInsertTx(ctx, tx, waitIfFull)
@@ -464,7 +470,7 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 					t.admitted.Store(false)
 				} else {
 					if uint64(len(m.waiters)) >= s.cfg.maxPendingInserts() {
-						return nil, errMempoolFull
+						return nil, errPendingFull
 					}
 					ticket = utils.Some(mp.enqueue(m))
 				}

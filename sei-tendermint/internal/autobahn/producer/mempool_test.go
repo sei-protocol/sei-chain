@@ -930,6 +930,7 @@ func TestInsertResult(t *testing.T) {
 		{rejected, nil, metrics.ResultRejected},
 		{nil, errTooLarge, metrics.ResultTooLarge},
 		{nil, errMempoolFull, metrics.ResultFull},
+		{nil, errPendingFull, metrics.ResultPendingFull},
 		{nil, ErrNotProducing, metrics.ResultNotProducing},
 		{nil, fmt.Errorf("%w: got 1, want 2", errBadNonce), metrics.ResultBadNonce},
 		{nil, context.Canceled, metrics.ResultError},

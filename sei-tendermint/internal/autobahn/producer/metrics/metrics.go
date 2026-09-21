@@ -53,6 +53,7 @@ var (
 	ResultRejected     = Result{Global.insertsAt("rejected")}
 	ResultTooLarge     = Result{Global.insertsAt("too_large")}
 	ResultFull         = Result{Global.insertsAt("full")}
+	ResultPendingFull  = Result{Global.insertsAt("pending_full")}
 	ResultNotProducing = Result{Global.insertsAt("not_producing")}
 	ResultBadNonce     = Result{Global.insertsAt("bad_nonce")}
 	ResultError        = Result{Global.insertsAt("error")}
