@@ -2,7 +2,6 @@ package evm_test
 
 import (
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
@@ -13,9 +12,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
@@ -25,15 +23,13 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
-
-//go:embed pointer_abi.json
-var f embed.FS
 
 func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
@@ -73,22 +69,30 @@ func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
 	require.Nil(t, k.BankKeeper().AddCoins(ctx, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))), true))
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
-	to := common.HexToAddress(pointer.PointerAddress)
-	abi := pcommon.MustGetABI(f, "pointer_abi.json")
-	data, err := abi.Pack("addCW721Pointer", cw2981Addr.String())
+	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		_, err := k.UpsertERCCW721Pointer(ctx, e, cw2981Addr.String(), utils.ERCMetadata{Name: "test", Symbol: "TEST"})
+		return err
+	}, func(string, string) {}))
+	pointerAddr, _, exists := k.GetERC721CW721Pointer(ctx, cw2981Addr.String())
+	require.True(t, exists)
+	require.NotEmpty(t, pointerAddr)
+	// call pointer to get royalty info
+	cw721abi, err := cw721.Cw721MetaData.GetAbi()
 	require.Nil(t, err)
-	txData := ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(100000000000),
-		Gas:      6000000,
-		To:       &to,
-		Data:     data,
-	}
+	data, err := cw721abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
+	require.Nil(t, err)
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	txData := ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(100000000000),
+		Gas:      300000,
+		To:       &pointerAddr,
+		Data:     data,
+	}
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	typedTx, err := ethtx.NewLegacyTx(tx)
@@ -101,34 +105,6 @@ func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(0), res.Code)
-	pointerAddr, _, exists := k.GetERC721CW721Pointer(ctx, cw2981Addr.String())
-	require.True(t, exists)
-	require.NotEmpty(t, pointerAddr)
-	// call pointer to get royalty info
-	cw721abi, err := cw721.Cw721MetaData.GetAbi()
-	require.Nil(t, err)
-	data, err = cw721abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
-	require.Nil(t, err)
-	txData = ethtypes.LegacyTx{
-		Nonce:    1,
-		GasPrice: big.NewInt(100000000000),
-		Gas:      300000,
-		To:       &pointerAddr,
-		Data:     data,
-	}
-	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
-	require.Nil(t, err)
-	typedTx, err = ethtx.NewLegacyTx(tx)
-	require.Nil(t, err)
-	msg, err = types.NewMsgEVMTransaction(typedTx)
-	require.Nil(t, err)
-	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	txBuilder.SetMsgs(msg)
-	cosmosTx = txBuilder.GetTx()
-	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
-	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	typedTxData := sdk.TxMsgData{}
 	require.Nil(t, typedTxData.Unmarshal(res.Data))
@@ -183,22 +159,30 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 	require.Nil(t, k.BankKeeper().AddCoins(ctx, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))), true))
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
-	to := common.HexToAddress(pointer.PointerAddress)
-	abi := pcommon.MustGetABI(f, "pointer_abi.json")
-	data, err := abi.Pack("addCW1155Pointer", cw2981Addr.String())
+	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		_, err := k.UpsertERCCW1155Pointer(ctx, e, cw2981Addr.String(), utils.ERCMetadata{Name: "test", Symbol: "TEST"})
+		return err
+	}, func(string, string) {}))
+	pointerAddr, _, exists := k.GetERC1155CW1155Pointer(ctx, cw2981Addr.String())
+	require.True(t, exists)
+	require.NotEmpty(t, pointerAddr)
+	// call pointer to get royalty info
+	cw1155abi, err := cw1155.Cw1155MetaData.GetAbi()
 	require.Nil(t, err)
-	txData := ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(1000000000),
-		Gas:      6000000,
-		To:       &to,
-		Data:     data,
-	}
+	data, err := cw1155abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
+	require.Nil(t, err)
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	txData := ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(1000000000),
+		Gas:      300000,
+		To:       &pointerAddr,
+		Data:     data,
+	}
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	typedTx, err := ethtx.NewLegacyTx(tx)
@@ -211,34 +195,6 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
 	require.Nil(t, err)
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(0), res.Code)
-	pointerAddr, _, exists := k.GetERC1155CW1155Pointer(ctx, cw2981Addr.String())
-	require.True(t, exists)
-	require.NotEmpty(t, pointerAddr)
-	// call pointer to get royalty info
-	cw1155abi, err := cw1155.Cw1155MetaData.GetAbi()
-	require.Nil(t, err)
-	data, err = cw1155abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
-	require.Nil(t, err)
-	txData = ethtypes.LegacyTx{
-		Nonce:    1,
-		GasPrice: big.NewInt(1000000000),
-		Gas:      300000,
-		To:       &pointerAddr,
-		Data:     data,
-	}
-	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
-	require.Nil(t, err)
-	typedTx, err = ethtx.NewLegacyTx(tx)
-	require.Nil(t, err)
-	msg, err = types.NewMsgEVMTransaction(typedTx)
-	require.Nil(t, err)
-	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	txBuilder.SetMsgs(msg)
-	cosmosTx = txBuilder.GetTx()
-	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
-	require.Nil(t, err)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	typedTxData := sdk.TxMsgData{}
 	require.Nil(t, typedTxData.Unmarshal(res.Data))

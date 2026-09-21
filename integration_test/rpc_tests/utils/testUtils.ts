@@ -49,14 +49,12 @@ export interface RuntimeState {
     };
 
     /**
-     * CW20 + its EVM (ERC20) pointer, populated only when wasm is enabled on the chain.
+     * The CW20 dual-VM fixture token, populated only when wasm is enabled on the chain.
      * Absent on wasm-disabled chains, so consumers must treat it as optional and skip the
-     * dual-VM / pointer paths when it is undefined.
+     * dual-VM paths when it is undefined.
      */
     wasm?: {
         cw20: string;
-        cw20Pointer: string;
-        actor: { address: string; privateKey: string };
     };
 
     /** EVM addresses pre-funded with a small balance, ready for use by tests. */
