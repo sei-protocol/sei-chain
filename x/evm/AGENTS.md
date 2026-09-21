@@ -101,24 +101,38 @@ Fee "surplus" — the difference between what the user paid and what the protoco
 
 ## Pointer Contracts (CW ↔ ERC Interoperability)
 
-Pointer contracts enable tokens on one VM to be accessed from the other VM. This is the primary interoperability mechanism between CosmWasm and EVM.
+Pointer contracts let tokens on one VM be accessed from the other. **Both directions are
+retired: no pointer of any kind can be created.** Pointers registered before the
+retirement remain live and readable, and everything below describes that surviving
+surface.
 
-**EVM pointers for CW/native tokens:**
-- Native Cosmos denoms get an ERC20 representation.
-- CW20 tokens get an ERC20 pointer.
-- CW721 NFTs get an ERC721 pointer.
-- CW1155 multi-tokens get an ERC1155 pointer.
+**EVM pointers for CW/native tokens** — an ERC20 for a native Cosmos denom, an ERC20 for
+a CW20, an ERC721 for a CW721, an ERC1155 for a CW1155. The pointer precompile at
+`0x…100b` stays registered with its ABI so its four `add*` selectors still decode, but
+every call reverts with `ErrPointerPrecompileRetired`; unregistering the address would
+instead let the call succeed against empty code. `AddERCNativePointerProposalV2`, the last
+governance route that could create one, is retired with the other seven pointer proposals
+(see below).
 
-**CW wrappers for ERC tokens:** retired. ERC20/721/1155 tokens could once be given a
-CosmWasm wrapper through `MsgRegisterPointer`, which instantiated a wasm contract. That
-handler now returns `ErrRegisterPointerDeprecated` and the wrapper wasm is no longer
-shipped. Wrappers registered before the retirement remain live and readable: their
-registry entries, versions, and queries are unchanged, and `AssociateContractAddress`
-still gives one an EVM address.
+**CW wrappers for ERC tokens** — a CosmWasm wrapper for an ERC20/721/1155, once created
+through `MsgRegisterPointer`. That handler now returns `ErrRegisterPointerDeprecated` and
+the wrapper wasm is no longer shipped. `AssociateContractAddress` still gives a wrapper an
+EVM address.
 
-Pointers are versioned and can be upgraded. A reverse registry allows looking up the original token from its pointer address.
+**Pointer governance proposals** are decode-only. The eight `Add*Pointer*Proposal` types
+stay registered in the interface registry and keep the `evm` gov route, because gov never
+prunes a proposal after its vote ends: dropping the registration would fail the `Any`
+unpack inside `MustUnmarshalProposal`, and dropping the route would panic a proposal
+still in the voting queue. Submission and execution both refuse with
+`ErrPointerProposalDeprecated`.
 
-Pre-compiled bytecode for the EVM pointer contracts is embedded in the binary under `artifacts/`.
+Pointers are versioned, and a reverse registry looks up the original token from its
+pointer address. Both still work; the version can no longer be advanced, since doing so
+required redeploying the pointer.
+
+`Keeper.UpsertERC*Pointer` and the pointer bytecode under `artifacts/` are retained
+because `precompiles/pointer/legacy/*` needs them to replay historical pointer creation
+under `debug_trace*`. They are not reachable from any live entry point.
 
 ---
 

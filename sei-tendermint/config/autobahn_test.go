@@ -42,6 +42,8 @@ func validAutobahnFileConfig() AutobahnFileConfig {
 		BlockInterval:  utils.Duration(time.Second),
 		ViewTimeout:    utils.Duration(time.Second),
 		DialInterval:   utils.Duration(time.Second),
+
+		PersistentStateDir: "autobahn",
 	}
 }
 

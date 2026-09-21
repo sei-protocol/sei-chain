@@ -145,10 +145,11 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	state, err := BuildDataState(&GigaRouterCommonConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: validatorAddrs,
-		GenDoc:         genDoc,
-		App:            proxy.New(&fixedHeightApp{height: int64(last)}),
+		DialInterval:       time.Second,
+		ValidatorAddrs:     validatorAddrs,
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
 	}, db)
 	require.NoError(t, err)
 	got, err := state.TryBlock(last)
@@ -240,10 +241,11 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	state, err := BuildDataState(&GigaRouterCommonConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: addrs,
-		GenDoc:         genDoc,
-		App:            proxy.New(&fixedHeightApp{height: 1}),
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(&fixedHeightApp{height: 1}),
 	}, db)
 	require.NoError(t, err)
 	return &gigaRouterCommon{

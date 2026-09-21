@@ -169,18 +169,6 @@ func TestValidateNodeSetupConfigAllowsEVMOnlyWithAutobahn(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestValidateNodeSetupConfigRejectsEVMOnlySeed(t *testing.T) {
-	err := validateNodeSetupConfig(&config.Config{
-		BaseConfig: config.BaseConfig{
-			Mode:    config.ModeSeed,
-			EVMOnly: true,
-		},
-		AutobahnConfigFile: "/tmp/autobahn.json",
-	})
-
-	require.ErrorIs(t, err, errEVMOnlySeed)
-}
-
 type checkTxCountingApp struct {
 	abci.BaseApplication
 	called bool

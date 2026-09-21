@@ -84,7 +84,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
 				ValidatorAddrs:     addrs,
-				PersistentStateDir: utils.Some(dir),
+				PersistentStateDir: dir,
 				App:                proxyApp,
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
@@ -255,7 +255,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.Some(dir),
+		PersistentStateDir: dir,
 		App:                proxy.New(newTestApp()),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,

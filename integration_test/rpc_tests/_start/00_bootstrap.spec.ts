@@ -19,22 +19,17 @@ import { AdminMnemonic, Endpoints } from '../config/endpoints';
 import { gethRpc, isReachable, seiRpc } from '../utils/chainUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import { deployContract, deployTestErc20 } from '../utils/evmUtils';
-import { fundEvm, fundFromUnlocked, fundManyEvm, gethUnlockedAccount } from '../utils/evmUtils';
+import { fundFromUnlocked, fundManyEvm, gethUnlockedAccount } from '../utils/evmUtils';
 import { fundAdminOnSei, generateMnemonic, seiAddressFromMnemonic } from '../utils/cosmosUtils';
-import {
-    isWasmEnabled,
-    deployCw20,
-    registerCw20Pointer,
-    Cw20InitMsg,
-} from '../utils/wasmUtils';
+import { isWasmEnabled, deployCw20, Cw20InitMsg } from '../utils/wasmUtils';
 import { writeRuntimeState, RuntimeState } from '../utils/testUtils';
 import { waitUntil } from '../utils/chainUtils';
 
 const POOL_SIZE = 96;
 const POOL_FUND_WEI = ethers.parseEther('5');
 const ADMIN_MINT = ethers.parseEther('1000000');
-// CW20 base units minted to every pool/admin/actor address (decimals 6). Big enough
-// that the rich-block pointer transfer and the admin cw20 transfer never run dry.
+// CW20 base units minted to the admin (decimals 6). Big enough that the suite's
+// cw20 transfers never run dry.
 const CW20_DECIMALS = 6;
 const CW20_MINT = '1000000000000';
 // Geth --dev pre-funds its dev account with 10^49 ETH, so we can seed the mirror
@@ -199,49 +194,29 @@ describe('new_rpc_tests bootstrap', function () {
         };
     });
 
-    it('deploys a CW20 + ERC20 pointer when wasm is enabled', async function () {
+    it('deploys a CW20 when wasm is enabled', async function () {
         // Pure-cosmos chains (no wasm) simply skip the dual-VM fixtures; runtime.wasm
-        // stays undefined and buildRichSeiBlock omits the pointer / cw20 transfer.
+        // stays undefined and buildRichSeiBlock omits the co-located cw20 transfer.
         if (!(await isWasmEnabled())) {
             this.skip();
             return;
         }
 
-        // A dedicated actor signs the rich-block pointer transfer. Keeping it off the
-        // shared pool means adding this fixture never shifts any spec's claimPool slice.
-        const actor = EvmAccount.random(seiRpc());
-        await fundEvm(admin, actor.address, POOL_FUND_WEI);
-        // Associate the actor up front (a 0-value self-send reveals its pubkey) so the
-        // CW20 pointer resolves it to the same sei address we mint to below.
-        await fundEvm(actor, actor.address, 0n);
-
-        // Mint to the admin (cosmos cw20 transfer sender), the actor (pointer transfer
-        // sender) and every pool account so any pool key the suite associates already
-        // holds a CW20 balance under its pubkey-derived sei address.
+        // Every CW20 transfer the suite makes is signed by the admin mnemonic, so the
+        // admin is the only holder that needs an opening balance.
         const adminSei = await seiAddressFromMnemonic(adminMnemonic);
-        const holders = [adminSei, actor.seiAddress(), ...pool.map(p => p.seiAddress())];
         const initMsg: Cw20InitMsg = {
             name: 'RpcTests CW20',
             symbol: 'RPCW',
             decimals: CW20_DECIMALS,
-            initial_balances: holders.map(address => ({ address, amount: CW20_MINT })),
+            initial_balances: [{ address: adminSei, amount: CW20_MINT }],
             mint: { minter: adminSei },
         };
 
         const { address: cw20 } = await deployCw20(initMsg, adminMnemonic);
-        const cw20Pointer = await registerCw20Pointer(cw20);
-
-        state.wasm = {
-            cw20,
-            cw20Pointer,
-            actor: {
-                address: actor.address,
-                privateKey: (actor.wallet as ethers.Wallet | ethers.HDNodeWallet).privateKey,
-            },
-        };
+        state.wasm = { cw20 };
 
         expect(cw20, 'CW20 contract address').to.match(/^sei1[0-9a-z]+$/);
-        expect(cw20Pointer, 'CW20 ERC20 pointer address').to.match(/^0x[0-9a-fA-F]{40}$/);
     });
 
     it('records the post-deploy block height and writes runtime/runtime.json', async () => {

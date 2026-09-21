@@ -147,15 +147,6 @@ describe('eth_getCode', function () {
             const code = await sei.send('eth_getCode', [STAKING_PRECOMPILE, 'latest']);
             expect(code, 'stateful precompiles carry no EVM code').to.equal('0x');
         });
-
-        it('a CW20 ERC20 pointer exposes non-empty pointer bytecode', async function () {
-            if (!runtime.wasm?.cw20Pointer) {
-                this.skip();
-            }
-            const code = await sei.send('eth_getCode', [runtime.wasm!.cw20Pointer, 'latest']);
-            expect(code, 'pointer code is canonical hex data').to.match(HEX_DATA);
-            expect(code.length, 'pointer is backed by real EVM bytecode').to.be.greaterThan(2);
-        });
     });
 
     describe('EIP-7702 delegated accounts', () => {

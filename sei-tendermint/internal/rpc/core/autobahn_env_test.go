@@ -51,10 +51,11 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Cleanup(func() { require.NoError(t, blockStore.Close()) })
 	app := proxy.New(&abci.BaseApplication{})
 	commonCfg := p2p.GigaRouterCommonConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: addrs,
-		App:            app,
-		GenDoc:         genDoc,
+		DialInterval:       time.Second,
+		ValidatorAddrs:     addrs,
+		PersistentStateDir: t.TempDir(),
+		App:                app,
+		GenDoc:             genDoc,
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)
 	require.NoError(t, err)
