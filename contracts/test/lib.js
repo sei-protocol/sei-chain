@@ -126,7 +126,17 @@ async function getCosmosTx(provider, evmTxHash) {
 }
 
 async function fundAddress(addr, amount="1000000000000000000000") {
-    return await evmSend(addr, adminKeyName, amount)
+    // Under Autobahn the receipt can be served before the block's state is
+    // visible to admission, so a tx from addr sent right after the receipt
+    // can be checked against the pre-funding balance and rejected with
+    // "insufficient funds". Wait for the balance itself to move.
+    const before = await ethers.provider.getBalance(addr)
+    const evmTxHash = await evmSend(addr, adminKeyName, amount)
+    await waitForCondition(
+        async () => (await ethers.provider.getBalance(addr)) !== before,
+        `${addr} EVM balance to change from ${before}`,
+    )
+    return evmTxHash
 }
 
 async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
