@@ -44,6 +44,8 @@ type nativeStateDB struct {
 	snapshots                []nativeSnapshot
 	readSet                  map[stateAccessKey]struct{}
 	writeSet                 map[stateAccessKey]struct{}
+	lastReadSetSize          int
+	lastWriteSetSize         int
 
 	txHash      common.Hash
 	txIndex     int
@@ -730,19 +732,24 @@ func (s *nativeStateDB) SetEVM(evm *vm.EVM) {
 
 func (s *nativeStateDB) enableAccessTracking() {
 	if s.readSet == nil {
-		s.readSet = map[stateAccessKey]struct{}{}
+		s.readSet = make(map[stateAccessKey]struct{}, s.lastReadSetSize)
 	} else {
 		clear(s.readSet)
 	}
 	if s.writeSet == nil {
-		s.writeSet = map[stateAccessKey]struct{}{}
+		s.writeSet = make(map[stateAccessKey]struct{}, s.lastWriteSetSize)
 	} else {
 		clear(s.writeSet)
 	}
 }
 
-func (s *nativeStateDB) accessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
-	return cloneAccessSet(s.readSet), cloneAccessSet(s.writeSet)
+// takeAccessSets hands the read and write sets to the caller and stops tracking;
+// enableAccessTracking must be called again before further accesses are recorded.
+func (s *nativeStateDB) takeAccessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
+	readSet, writeSet := s.readSet, s.writeSet
+	s.lastReadSetSize, s.lastWriteSetSize = len(readSet), len(writeSet)
+	s.readSet, s.writeSet = nil, nil
+	return readSet, writeSet
 }
 
 func (s *nativeStateDB) markRead(key stateAccessKey) {
