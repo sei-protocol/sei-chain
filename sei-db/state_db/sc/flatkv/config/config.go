@@ -122,16 +122,6 @@ type Config struct {
 	// LtHashes. The number of workers in this pool is equal to LtHashThreadsPerCore * runtime.NumCPU(),
 	// clamped to at least 1.
 	LtHashThreadsPerCore float64
-
-	// Controls the number of workers in the dedicated pool that orders each sealed block's writes by key
-	// before the flush consumes them. The worker count is SortThreadsPerCore * runtime.NumCPU(), clamped
-	// to at least 1.
-	//
-	// A block is sealed long before it is flushed, so this pool exists to keep the ordering off the flush
-	// thread rather than to finish any one block quickly. Its queue is deliberately far larger than its
-	// worker count: submitting happens on the commit path, and throttling commits is
-	// MaxUnflushedVersions' job alone.
-	SortThreadsPerCore float64
 }
 
 // defaultStoreConfig returns the view manager defaults for one database, named for the database's
@@ -163,7 +153,6 @@ func DefaultConfig() *Config {
 		MiscPoolThreadsPerCore:    4.0,
 		MiscConstantThreadCount:   0,
 		LtHashThreadsPerCore:      1.0,
-		SortThreadsPerCore:        0.25,
 		HashEngineConfig:          *lthash.DefaultConfig(),
 		FinalizationQueueSize:     64,
 	}
@@ -228,9 +217,6 @@ func (c *Config) Validate() error {
 	}
 	if c.LtHashThreadsPerCore < 0 {
 		return fmt.Errorf("lthash threads per core must not be negative")
-	}
-	if c.SortThreadsPerCore < 0 {
-		return fmt.Errorf("sort threads per core must not be negative")
 	}
 
 	return nil

@@ -81,14 +81,6 @@ func TestValidateNegativeMiscConstantThreadCount(t *testing.T) {
 	require.Contains(t, err.Error(), "misc constant thread count")
 }
 
-func TestValidateNegativeSortThreadsPerCore(t *testing.T) {
-	cfg := validBaseConfig()
-	cfg.SortThreadsPerCore = -1.0
-	err := cfg.Validate()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "sort threads per core")
-}
-
 func TestDefaultConfigValidExceptDataDir(t *testing.T) {
 	cfg := DefaultConfig()
 	err := cfg.Validate()

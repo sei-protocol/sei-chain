@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -1853,7 +1854,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	acctCfg := pebbledb.DefaultConfig()
 	acctCfg.DataDir = workingAccount
 	acctCfg.EnableMetrics = false
-	db, err := pebbledb.Open(context.Background(), &acctCfg)
+	db, err := pebbledb.Open(context.Background(), &acctCfg, threading.NewAdHocPool())
 	require.NoError(t, err)
 	require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
@@ -1863,7 +1864,7 @@ func TestLocalMetaCorruption(t *testing.T) {
 	acctCfg2 := pebbledb.DefaultConfig()
 	acctCfg2.DataDir = snapAccount
 	acctCfg2.EnableMetrics = false
-	db2, err := pebbledb.Open(context.Background(), &acctCfg2)
+	db2, err := pebbledb.Open(context.Background(), &acctCfg2, threading.NewAdHocPool())
 	require.NoError(t, err)
 	require.NoError(t, db2.Set(ktype.MetaVersionKey, []byte{0xDE, 0xAD, 0xFF}, types.WriteOptions{Sync: true}))
 	require.NoError(t, db2.Close())
@@ -1905,7 +1906,7 @@ func TestWALSegmentCorruption(t *testing.T) {
 	metaCfg := pebbledb.DefaultConfig()
 	metaCfg.DataDir = workingAccount
 	metaCfg.EnableMetrics = false
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
+	mdb, err := pebbledb.Open(context.Background(), &metaCfg, threading.NewAdHocPool())
 	require.NoError(t, err)
 	require.NoError(t, mdb.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, mdb.Close())
@@ -2037,7 +2038,7 @@ func TestAccountRowDeleteSurvivesWALReplay(t *testing.T) {
 	// Simulate a torn commit: rewind accountDB's version record to v1 so catchup must replay v2
 	metaCfg := pebbledb.DefaultTestConfig(t)
 	metaCfg.DataDir = filepath.Join(dbDir, "working", accountDBDir)
-	mdb, err := pebbledb.Open(context.Background(), &metaCfg)
+	mdb, err := pebbledb.Open(context.Background(), &metaCfg, threading.NewAdHocPool())
 	require.NoError(t, err)
 	versionBuf := make([]byte, 8)
 	versionBuf[7] = 1 // version = 1

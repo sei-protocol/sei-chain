@@ -55,6 +55,12 @@ type PebbleDBConfig struct {
 	// too low and writers stall on flush latency rather than on any real limit, which is charged to the
 	// memtable_write_stall phase of pebble_commit_phase_duration.
 	MemTableStopWritesThreshold int `mapstructure:"mem-table-stop-writes-threshold"`
+
+	// How many committed batches may be awaiting their write before Commit blocks.
+	//
+	// This is the pipeline's whole slack: a committer that outruns the writer is admitted this far
+	// ahead before it has to wait, which is what keeps ordering work overlapped with writing.
+	CommitQueueSize int `mapstructure:"commit-queue-size"`
 }
 
 // Default configuration for the PebbleDB database.
@@ -66,6 +72,7 @@ func DefaultConfig() PebbleDBConfig {
 		MaxConcurrentCompactions:    max(4, runtime.NumCPU()/4),
 		MemTableSize:                uint64(64 * unit.MB),
 		MemTableStopWritesThreshold: 16,
+		CommitQueueSize:             16,
 	}
 }
 
@@ -89,6 +96,9 @@ func (c *PebbleDBConfig) Validate() error {
 	if c.MemTableStopWritesThreshold < 2 {
 		return fmt.Errorf("mem table stop writes threshold must be at least 2, got %d",
 			c.MemTableStopWritesThreshold)
+	}
+	if c.CommitQueueSize < 1 {
+		return fmt.Errorf("commit queue size must be at least 1, got %d", c.CommitQueueSize)
 	}
 	return nil
 }

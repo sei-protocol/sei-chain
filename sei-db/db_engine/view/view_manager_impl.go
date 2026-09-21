@@ -39,9 +39,6 @@ type viewManager struct {
 	// A pool for miscellaneous operations that are neither computationally intensive nor IO bound.
 	miscPool threading.Pool
 
-	// A pool for ordering each sealed version's writes by key, ahead of the flush that consumes them.
-	sortPool threading.Pool
-
 	// The underlying key-value database.
 	db types.KeyValueDB
 
@@ -164,15 +161,6 @@ func NewViewManager(
 	// readPool results, so sharing one fixed-size pool can deadlock under load. Pass distinct
 	// pools, or an elastic pool.
 	miscPool threading.Pool,
-	// A work pool for ordering each sealed version's writes by key.
-	//
-	// Must not be readPool or miscPool: a sort job blocks awaiting the folds that resolve on those
-	// pools. Its queue must be large enough never to fill in practice, because Commit submits to it,
-	// and backpressure on commits belongs to MaxUnflushedVersions alone. The count of outstanding jobs
-	// is not bounded by that setting either, because a version held by an outside reservation stops
-	// being counted as unflushed (see scanForFlushEligibilityLocked) while its successors keep being
-	// sealed.
-	sortPool threading.Pool,
 ) (ViewManager, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid view manager config: %w", err)
@@ -198,7 +186,6 @@ func NewViewManager(
 		shardManager: shardManager,
 		readPool:     readPool,
 		miscPool:     miscPool,
-		sortPool:     sortPool,
 		db:           db,
 		versionMap:   make(map[uint64]*viewReferenceCounter),
 		// Versions start at 1 (not 0) so a version-1 lookup never underflows.
@@ -434,30 +421,13 @@ func (c *viewManager) Commit() (View, error) {
 	// Reset the phase on every exit so error returns don't leave the timer stuck on a phase.
 	defer c.metrics.setViewPhase("")
 
-	view, sealedVersion, err := c.commitLocked()
-	if err != nil {
-		return nil, err
-	}
-
-	// Deliberately after the lock is released. Submitting can block when the sort pool's queue is full,
-	// and the queue drains only as the flush consumes results — which needs versionLock. Blocking here
-	// while holding it would deadlock against the very work that would unblock it.
-	c.metrics.setViewPhase("submit_diff_sort")
-	c.materializeDiffAtVersion(sealedVersion)
-
-	return view, nil
-}
-
-// commitLocked performs the version bookkeeping and shard seal for a new view, returning the view and the
-// version it sealed. It takes and releases the versionLock.
-func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 	c.versionLock.Lock()
 	defer c.versionLock.Unlock()
 
 	// A bricked manager does no more work. Free to check here: versionLock, which guards fatalErr,
 	// is already held.
 	if c.fatalErr != nil {
-		return nil, 0, fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
+		return nil, fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
 	}
 
 	// Every shard must still be in service. A shard taken out of service (the manager was closed or
@@ -468,7 +438,7 @@ func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 		err := s.cache.ErrIfOutOfServiceRLocked()
 		s.lock.RUnlock()
 		if err != nil {
-			return nil, 0, fmt.Errorf("cannot create view, shard %d: %w", i, err)
+			return nil, fmt.Errorf("cannot create view, shard %d: %w", i, err)
 		}
 	}
 
@@ -476,21 +446,19 @@ func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 
 	err := c.lifecycleBackpressureLocked()
 	if err != nil {
-		return nil, 0, fmt.Errorf("cannot create view: %w", err)
+		return nil, fmt.Errorf("cannot create view: %w", err)
 	}
 
-	sealedVersion = c.currentVersion
-
 	currentVersionRefCounter := &viewReferenceCounter{
-		version:        sealedVersion,
+		version:        c.currentVersion,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
 	}
 
-	c.versionMap[sealedVersion] = currentVersionRefCounter
+	c.versionMap[c.currentVersion] = currentVersionRefCounter
 
 	view := &viewImpl{
-		version:       sealedVersion,
+		version:       c.currentVersion,
 		parentManager: c,
 	}
 
@@ -506,7 +474,7 @@ func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 			// the failure must be latched rather than leaving the manager callable.
 			err = fmt.Errorf("failed to maintain the read cache of shard %d: %w", i, err)
 			c.brickLocked(err)
-			return nil, 0, err
+			return nil, err
 		}
 		if shardVersion != c.currentVersion {
 			// Should be impossible. The manager is now inconsistent (some shards committed, some
@@ -515,11 +483,11 @@ func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 			err := fmt.Errorf("shard (%d) has a different version than the manager (%d)",
 				shardVersion, c.currentVersion)
 			c.brickLocked(err)
-			return nil, 0, err
+			return nil, err
 		}
 	}
 
-	return view, sealedVersion, nil
+	return view, nil
 }
 
 // This method blocks if the lifecycle runner is not keeping up. It is assumed that the caller already holds the
@@ -736,23 +704,26 @@ func (c *viewManager) FinalizeView(version uint64, writes []*proto.KVPair) error
 	return nil
 }
 
-// ForEachDiffAtVersion visits every write at a sealed version, waiting for it to be materialized if that
-// has not happened yet. Shard by shard, so the keys arrive ordered within a shard but not across them: no
-// consumer of a whole version's diff depends on a global order, and merging the shards to provide one
-// would cost the caller a comparison per key for nothing.
-func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string, value []byte) error) error {
-	for i, shard := range c.shards {
-		diff, err := shard.SortedDiff(version)
+// Get the diff at a given version.
+func (c *viewManager) GetDiffAtVersion(version uint64) (map[string][]byte, error) {
+	diff := make(map[string][]byte)
+
+	for _, shard := range c.shards {
+		shardDiff, err := shard.GetDiffsForVersions(version, version+1)
 		if err != nil {
-			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, version, err)
+			return nil, fmt.Errorf("failed to get diff from shard: %w", err)
 		}
-		for _, entry := range diff {
-			if err := visit(entry.key, entry.value); err != nil {
-				return err
-			}
+
+		if len(shardDiff) != 1 {
+			return nil, fmt.Errorf("expected 1 diff, got %d", len(shardDiff))
+		}
+
+		for key, value := range shardDiff[0] {
+			diff[key] = value
 		}
 	}
-	return nil
+
+	return diff, nil
 }
 
 func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
@@ -1032,8 +1003,18 @@ func (c *viewManager) determineVersionsToRetireLocked() (
 	return firstVersion, lastVersion
 }
 
-// flushViews writes the versions in [firstVersion, lastVersion) to the underlying DB in batches, each
-// version's own writes ordered by key and followed by its finalization writes, and marks them flushed.
+// pendingFlush is a batch handed to the database, paired with the number of versions it carries, so
+// that those versions are marked flushed only once the write has landed.
+type pendingFlush struct {
+	// Reports when the batch has been written.
+	handle types.CommitHandle
+
+	// How many versions the batch carries.
+	versionCount uint64
+}
+
+// flushViews collects diffs for [firstVersion, lastVersion) from all shards,
+// writes them to the underlying DB in batches, then drops the versions from the shards.
 func (c *viewManager) flushViews(
 	// The first version to flush (inclusive).
 	firstVersion uint64,
@@ -1043,89 +1024,87 @@ func (c *viewManager) flushViews(
 	versionWrites map[uint64][]*proto.KVPair,
 ) error {
 
-	// Write diffs to the DB in batches, oldest version first.
-	var batch types.Batch
-	defer func() {
-		if batch != nil {
-			_ = batch.Close()
-		}
-	}()
-	versionsInBatch := uint64(0)
+	// Collect diffs from all shards.
+	diffsByVersion := make(map[uint64]map[string][]byte)
 	for version := firstVersion; version < lastVersion; version++ {
-		versionsInBatch++
-		if batch == nil {
-			// Never sized up front: pebble hands back a pooled batch still carrying the buffer its last
-			// use grew, and asking for a capacity replaces that buffer with a fresh allocation instead.
-			batch = c.db.NewBatch()
-		}
-
-		// Ordered by key on the sort pool when the version was sealed, so this is a merge of finished
-		// runs rather than a sort. One version at a time and never merged across versions: pebble
-		// resolves two writes to one key by sequence number, which it assigns in batch order, so a key
-		// written in several of a batch's versions must reach it oldest first.
-		shardDiffs, err := c.materializeSortedDiffs(version)
+		diffsByVersion[version] = make(map[string][]byte)
+	}
+	for _, shard := range c.shards {
+		shardDiffs, err := shard.GetDiffsForVersions(firstVersion, lastVersion)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get diffs for shard: %w", err)
 		}
-		err = forEachMergedEntry(shardDiffs, func(entry diffEntry) error {
-			if entry.value == nil {
-				return batch.DeleteString(entry.key)
+		for diffIndex, diff := range shardDiffs {
+			// diffIndex is bounded by the version count, so this conversion is safe.
+			version := firstVersion + uint64(diffIndex) //nolint:gosec
+			for key, value := range diff {
+				diffsByVersion[version][key] = value
 			}
-			return batch.SetString(entry.key, entry.value)
-		})
-		if err != nil {
-			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
 		}
+	}
 
-		// The caller's metadata goes in the same batch as its block's data, so the two land atomically,
-		// and last, so that a metadata key colliding with a data key still wins. It cannot be part of the
-		// merge above: that runs over diffs ordered when the version was sealed, and FinalizeView
-		// supplies these writes later. A Delete pair becomes a tombstone, and a pair carrying an empty
-		// value is normalized to a non-nil empty slice to keep the two distinguishable.
+	// Fold each version's finalization writes into its diff, so that the caller's metadata is written
+	// to the DB atomically with its block's data. A nil value in the diff map is a tombstone, so a
+	// Delete pair maps to nil and a pair carrying an empty value is normalized to a non-nil empty
+	// slice to keep the two distinguishable.
+	for version := firstVersion; version < lastVersion; version++ {
 		for _, pair := range versionWrites[version] {
 			if pair.Delete {
-				if err := batch.Delete(pair.Key); err != nil {
-					return fmt.Errorf("flush failed to delete metadata key: %w", err)
-				}
+				diffsByVersion[version][string(pair.Key)] = nil
 				continue
 			}
 			value := pair.Value
 			if value == nil {
 				value = []byte{}
 			}
-			if err := batch.Set(pair.Key, value); err != nil {
-				return fmt.Errorf("flush failed to set metadata key: %w", err)
-			}
+			diffsByVersion[version][string(pair.Key)] = value
+		}
+	}
+
+	// Write diffs to the DB in batches, oldest version first.
+	var batch types.Batch
+	versionsInBatch := uint64(0)
+	var pending []pendingFlush
+	for version := firstVersion; version < lastVersion; version++ {
+		versionsInBatch++
+		if batch == nil {
+			batch = c.db.NewBatch()
+		}
+		// One version per call, in version order: a later write to a key overrides an earlier one in
+		// the same batch, so a key written in several of a batch's versions has to reach it oldest
+		// first.
+		if err := batch.SetAll(diffsByVersion[version]); err != nil {
+			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
 		}
 
 		// Len is non-negative, so the conversion is safe.
 		if uint64(batch.Len()) >= c.config.TargetBytesPerFlush { //nolint:gosec
-			commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
-			closeErr := batch.Close()
+			handle, err := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
 			batch = nil
-			if commitErr != nil {
-				return fmt.Errorf("flush failed to commit batch: %w", commitErr)
+			if err != nil {
+				return fmt.Errorf("flush failed to commit batch: %w", err)
 			}
-			if closeErr != nil {
-				return fmt.Errorf("flush failed to close batch: %w", closeErr)
-			}
-			if err := c.recordFlushedVersions(versionsInBatch); err != nil {
-				return fmt.Errorf("flush failed to record flushed versions: %w", err)
-			}
+			pending = append(pending, pendingFlush{handle: handle, versionCount: versionsInBatch})
 			versionsInBatch = 0
 		}
 	}
 	if batch != nil {
-		commitErr := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
-		closeErr := batch.Close()
+		handle, err := batch.Commit(types.WriteOptions{Sync: c.config.FlushSync})
 		batch = nil
-		if commitErr != nil {
-			return fmt.Errorf("flush failed to commit batch: %w", commitErr)
+		if err != nil {
+			return fmt.Errorf("flush failed to commit batch: %w", err)
 		}
-		if closeErr != nil {
-			return fmt.Errorf("flush failed to close batch: %w", closeErr)
+		pending = append(pending, pendingFlush{handle: handle, versionCount: versionsInBatch})
+	}
+
+	// Awaited only now, so that each batch is written while the next is still being filled. A version
+	// is not flushed until its batch lands: retirement is gated on that, and retiring a version whose
+	// write is still in flight would drop it from memory before it could be read back from disk.
+	for _, flush := range pending {
+		if err := flush.handle.Wait(); err != nil {
+			return fmt.Errorf("flush failed to write batch: %w", err)
 		}
-		if err := c.recordFlushedVersions(versionsInBatch); err != nil {
+		if err := c.recordFlushedVersions(flush.versionCount); err != nil {
 			return fmt.Errorf("flush failed to record flushed versions: %w", err)
 		}
 	}

@@ -54,7 +54,7 @@ func TestNewViewManagerRejectsInvalidConfig(t *testing.T) {
 	c.ShardCount = 3 // invalid: not a power of two
 	pool := threading.NewAdHocPool()
 	defer pool.Close()
-	_, err := NewViewManager(c, newTestDB(nil), pool, pool, pool)
+	_, err := NewViewManager(c, newTestDB(nil), pool, pool)
 	require.Error(t, err)
 }
 

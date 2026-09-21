@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -396,7 +397,7 @@ func stripSnapshotMeta(t *testing.T, flatkvDir string, dbDir string) {
 	cfg := pebbledb.DefaultConfig()
 	cfg.DataDir = filepath.Join(snapDir, dbDir)
 	cfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &cfg)
+	db, err := pebbledb.Open(t.Context(), &cfg, threading.NewAdHocPool())
 	require.NoError(t, err)
 	opts := dbtypes.WriteOptions{Sync: true}
 	require.NoError(t, db.Delete(ktype.MetaVersionKey, opts))
@@ -410,7 +411,6 @@ func stripSnapshotMeta(t *testing.T, flatkvDir string, dbDir string) {
 func TestWriteLocalMetaRejectsNilHash(t *testing.T) {
 	db := setupTestDB(t)
 	batch := db.NewBatch()
-	defer func() { _ = batch.Close() }()
 
 	err := writeLocalMetaToBatch(batch, 7, nil, nil, nil)
 	require.Error(t, err)

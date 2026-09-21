@@ -39,7 +39,9 @@ func GetLatestBlock(cfg dbconfig.ReceiptStoreConfig) (block uint64, err error) {
 
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = indexDir
-	index, err := pebbledb.Open(context.Background(), &indexCfg)
+	cpuPool := newIndexCPUPool()
+	defer cpuPool.Close()
+	index, err := pebbledb.Open(context.Background(), &indexCfg, cpuPool)
 	if err != nil {
 		return 0, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
@@ -112,7 +114,9 @@ func PruneAfter(cfg dbconfig.ReceiptStoreConfig, highestBlockToKeep uint64) (err
 
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, littIndexDirName)
-	index, err := pebbledb.Open(context.Background(), &indexCfg)
+	cpuPool := newIndexCPUPool()
+	defer cpuPool.Close()
+	index, err := pebbledb.Open(context.Background(), &indexCfg, cpuPool)
 	if err != nil {
 		return fmt.Errorf("failed to open receipt log index: %w", err)
 	}

@@ -33,11 +33,16 @@ type failingBatch struct {
 	index *failingIndex
 }
 
-func (b *failingBatch) Commit(opts dbtypes.WriteOptions) error {
+// failedCommit is the handle a held-then-failed commit hands back.
+type failedCommit struct{}
+
+func (failedCommit) Wait() error { return errIndexCommit }
+
+func (b *failingBatch) Commit(opts dbtypes.WriteOptions) (dbtypes.CommitHandle, error) {
 	if b.index.failing.Load() {
 		b.index.enteredOnce.Do(func() { close(b.index.entered) })
 		<-b.index.release
-		return errIndexCommit
+		return failedCommit{}, nil
 	}
 	return b.Batch.Commit(opts)
 }

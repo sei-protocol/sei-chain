@@ -166,41 +166,41 @@ func gatherChangesFromAllStores(current *sview.StoreView, previous *sview.StoreV
 
 // Gather the changes from a specific store.
 func gatherChangesFromStore(current view.View, previous view.View) (DatabaseMutations, error) {
-	// One pass over the view's writes. The key is copied because a mutation outlives the walk, while
-	// the value is the view's own and stays valid until the view retires, which is after hashing.
-	var mutations []KeyMutation
-	err := current.ForEachDiff(func(key string, value []byte) error {
-		if strings.HasPrefix(key, ktype.MetaKeyPrefix) {
-			return nil
-		}
-		mutations = append(mutations, KeyMutation{
-			Key:    []byte(key),
-			Value:  value,
-			Delete: value == nil,
-		})
-		return nil
-	})
+	diff, err := current.GetDiff()
 	if err != nil {
 		return DatabaseMutations{}, fmt.Errorf("%s read diff: %w", current.Name(), err)
 	}
-	if len(mutations) == 0 {
+	if len(diff) == 0 {
 		return DatabaseMutations{DBName: current.Name()}, nil
 	}
-	if previous == nil {
-		return DatabaseMutations{DBName: current.Name(), Mutations: mutations}, nil
+
+	changedKeys := make([][]byte, 0, len(diff))
+	for key := range diff {
+		if strings.HasPrefix(key, ktype.MetaKeyPrefix) {
+			continue
+		}
+		changedKeys = append(changedKeys, []byte(key))
+	}
+	if len(changedKeys) == 0 {
+		return DatabaseMutations{DBName: current.Name()}, nil
 	}
 
-	// Aliases the keys already held by the mutations rather than copying them again.
-	changedKeys := make([][]byte, 0, len(mutations))
-	for i := range mutations {
-		changedKeys = append(changedKeys, mutations[i].Key)
+	var old map[string][]byte
+	if previous != nil {
+		if old, err = previous.BatchGet(changedKeys); err != nil {
+			return DatabaseMutations{}, fmt.Errorf("%s read previous values: %w", current.Name(), err)
+		}
 	}
-	old, err := previous.BatchGet(changedKeys)
-	if err != nil {
-		return DatabaseMutations{}, fmt.Errorf("%s read previous values: %w", current.Name(), err)
+
+	out := make([]KeyMutation, 0, len(changedKeys))
+	for _, key := range changedKeys {
+		value := diff[string(key)]
+		out = append(out, KeyMutation{
+			Key:       key,
+			Value:     value,
+			LastValue: old[string(key)],
+			Delete:    value == nil,
+		})
 	}
-	for i := range mutations {
-		mutations[i].LastValue = old[string(mutations[i].Key)]
-	}
-	return DatabaseMutations{DBName: current.Name(), Mutations: mutations}, nil
+	return DatabaseMutations{DBName: current.Name(), Mutations: out}, nil
 }

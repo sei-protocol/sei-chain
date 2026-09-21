@@ -14,6 +14,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -23,15 +24,20 @@ type pebbleDB struct {
 	metricsCancel    context.CancelFunc
 	operationMetrics *OperationMetrics
 	commitMetrics    *CommitMetrics
+	pipeline         *writePipeline
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
 
 // Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB.
-// ctx is unused: metrics collection is stopped by Close, not by cancellation.
+//
+// ctx is the parent of the write pipeline's own context, so cancelling it releases writes in
+// flight; Close does not depend on it, cancelling the pipeline itself. cpuPool runs the database's
+// work that is CPU bound and does no IO.
 func Open(
 	ctx context.Context,
 	config *PebbleDBConfig,
+	cpuPool threading.Pool,
 ) (_ types.KeyValueDB, err error) {
 
 	if err := config.Validate(); err != nil {
@@ -99,11 +105,17 @@ func Open(
 		metricsCancel = NewPebbleMetrics(db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
 	}
 
+	name := filepath.Base(config.DataDir)
+	operationMetrics := NewOperationMetrics(config.EnableReadWriteMetrics, name)
+	commitMetrics := NewCommitMetrics(config.EnableMetrics, name)
+
 	return &pebbleDB{
 		db:               db,
 		metricsCancel:    metricsCancel,
-		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
-		commitMetrics:    NewCommitMetrics(config.EnableMetrics, filepath.Base(config.DataDir)),
+		operationMetrics: operationMetrics,
+		commitMetrics:    commitMetrics,
+		pipeline: newWritePipeline(ctx, db, cpuPool, config.CommitQueueSize,
+			operationMetrics, commitMetrics),
 	}, nil
 }
 
@@ -142,21 +154,29 @@ func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) error {
 	return nil
 }
 
+// Set goes through the write pipeline as a batch of one, so that it is ordered against the batches
+// already in flight rather than racing past them. A batch per key is not a fast way to write, and
+// does not need to be: production writes arrive as batches.
 func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
-	err := p.db.Set(key, value, toPebbleWriteOpts(opts))
-	if err != nil {
+	batch := p.NewBatch()
+	if err := batch.Set(key, value); err != nil {
 		return fmt.Errorf("failed to set value in database: %w", err)
 	}
-	p.operationMetrics.AddWrite(1)
+	if err := types.CommitAndWait(batch, opts); err != nil {
+		return fmt.Errorf("failed to set value in database: %w", err)
+	}
 	return nil
 }
 
+// Delete goes through the write pipeline for the same reason as Set().
 func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
-	err := p.db.Delete(key, toPebbleWriteOpts(opts))
-	if err != nil {
+	batch := p.NewBatch()
+	if err := batch.Delete(key); err != nil {
 		return fmt.Errorf("failed to delete value in database: %w", err)
 	}
-	p.operationMetrics.AddWrite(1)
+	if err := types.CommitAndWait(batch, opts); err != nil {
+		return fmt.Errorf("failed to delete value in database: %w", err)
+	}
 	return nil
 }
 
@@ -197,6 +217,7 @@ func (p *pebbleDB) Checkpoint(destDir string) error {
 	if p.db == nil {
 		return errors.New("pebbleDB: checkpoint on closed database")
 	}
+
 	return p.db.Checkpoint(destDir, pebble.WithFlushedWAL())
 }
 
@@ -212,6 +233,11 @@ func (p *pebbleDB) Close() error {
 		p.metricsCancel()
 		p.metricsCancel = nil
 	}
+
+	// Ahead of the database, so that no write is still in flight against it. The pipeline is kept
+	// rather than nilled: a closed pipeline refuses a commit with an error, where a nil one would
+	// leave a concurrent NewBatch dereferencing it.
+	p.pipeline.Close()
 
 	db := p.db
 	p.db = nil

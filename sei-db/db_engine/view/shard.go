@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 
@@ -39,14 +38,10 @@ type shard struct {
 	// Data at various versions. This is for data that has not yet been flushed down into the DB.
 	versionedData map[string] /* key */ *structures.Deque[versionedValue] /* values at various versions */
 
-	// The values set in each version not yet materialized: the current version, and any sealed version
-	// whose folds are still resolving. A key set more than once in a version keeps only its last value.
-	// Reading one key at a version through versionedData is far cheaper than scanning this map for it.
+	// For each version, contains the values set in that version.  If a value is set more than once
+	// in a version, only the last value is stored. Although possible to find the value at a specifc
+	// version by iterating over this map, it is much more efficient to use the versionedData map.
 	versionDiffs map[uint64] /* version */ map[string] /* key */ []byte /* value */
-
-	// One handle per sealed version, carrying that version's writes once they are ordered by key.
-	// Registered at the seal, and empty until the version is materialized.
-	sealedDiffs map[uint64] /* version */ *sealedDiff
 
 	// The read-through DB cache backing this shard. A passive component sharing this shard's
 	// lock: its RLocked and WLocked methods require the lock held, while its Resolve methods and background
@@ -85,20 +80,6 @@ type shard struct {
 	// so it has to stop the whole manager rather than only this shard — the same response the read
 	// cache gives a failed database read.
 	reportFoldFailure func(error)
-}
-
-// diffEntry is one write from a version's diff. A nil value is a tombstone, matching the convention the
-// version diff maps use. The key stays the string the diff map held, so freezing copies no bytes.
-type diffEntry struct {
-	key   string
-	value []byte
-}
-
-// sealedDiff is a sealed version's writes ordered by key. entries is valid only once done is closed;
-// before that the version's writes are still in versionDiffs.
-type sealedDiff struct {
-	entries []diffEntry
-	done    chan struct{}
 }
 
 // A single value at a specific version.
@@ -171,7 +152,6 @@ func NewShard(
 	s := &shard{
 		versionedData:  make(map[string]*structures.Deque[versionedValue]),
 		versionDiffs:   versionDiffs,
-		sealedDiffs:    make(map[uint64]*sealedDiff),
 		currentVersion: 1, // important: versions start at 1, not 0, to allow (version - 1) without underflow
 		oldestVersion:  1,
 		versionLatches: make(map[uint64]*versionLatch),
@@ -932,13 +912,9 @@ func (s *shard) Delete(key []byte) error {
 func (s *shard) Commit() (uint64, error) {
 	s.lock.Lock()
 
-	sealedVersion := s.currentVersion
 	newVersion := s.currentVersion + 1
 	s.currentVersion = newVersion
 
-	// Registered at the seal rather than at the materialize, so that a consumer asking for a sealed
-	// version's diff always finds a handle to wait on, however far ahead of it they arrive.
-	s.sealedDiffs[sealedVersion] = &sealedDiff{done: make(chan struct{})}
 	s.versionDiffs[newVersion] = make(map[string][]byte)
 
 	// Sealing a version is the once-per-block moment the read cache does its eviction, so that no read
@@ -954,96 +930,50 @@ func (s *shard) Commit() (uint64, error) {
 	return newVersion, nil
 }
 
-// MaterializeSortedDiff turns a sealed version's writes into entries ordered by key, replacing the map
-// they were accumulated in, and publishes them to everything waiting on that version. It returns once
-// they are published, and does nothing for a version already materialized.
-//
-// This is the single place a sealed diff is produced: the flush, hashing, and retirement all read the
-// result rather than the map.
-func (s *shard) MaterializeSortedDiff(version uint64) error {
-	// A sealed version keeps being written to while its folds resolve, so it can be materialized only
-	// once its latch has opened.
-	if err := s.awaitVersionFoldsUnlocked(version); err != nil {
-		return fmt.Errorf("await version %d before materializing its diff: %w", version, err)
+// Get the diffs for a range of versions [firstVersion, lastVersion). The returned data should not be mutated
+// in any way, but is otherwise thread safe to read.
+func (s *shard) GetDiffsForVersions(
+	// The first version to include (inclusive).
+	firstVersion uint64,
+	// The last version to include (exclusive).
+	lastVersion uint64,
+) ([]map[string][]byte, error) {
+
+	if firstVersion > lastVersion {
+		return nil, fmt.Errorf("firstVersion (%d) must be less than or equal to lastVersion (%d)",
+			firstVersion, lastVersion)
 	}
 
-	handle, diff, err := s.claimDiffToMaterialize(version)
-	if err != nil {
-		return err
-	}
-	if diff == nil {
-		// Claimed by another caller. Waited on rather than returned from, so that this reports what it
-		// promises: when it returns, the version's diff is published, whoever ordered it.
-		_, err := s.SortedDiff(version)
-		return err
-	}
-
-	// Ordered outside the lock. The map is private to this call once claimed — it has left
-	// versionDiffs and the latch guarantees no writer remains — so the only work the lock covers is
-	// publishing the result.
-	entries := make([]diffEntry, 0, len(diff))
-	for key, value := range diff {
-		entries = append(entries, diffEntry{key: key, value: value})
-	}
-	// Ordering is what makes the diff cheap for pebble to absorb: its memtable is a skiplist that caches
-	// the splice it last inserted at, which map order defeated. Bytewise, to match pebble's default
-	// comparer, since that is what decides whether it ascends as far as the memtable is concerned.
-	slices.SortFunc(entries, func(a diffEntry, b diffEntry) int {
-		return strings.Compare(a.key, b.key)
-	})
-
-	s.lock.Lock()
-	handle.entries = entries
-	s.lock.Unlock()
-	close(handle.done)
-
-	return nil
-}
-
-// claimDiffToMaterialize takes a sealed version's diff map out of the shard for the caller to order,
-// returning the handle to publish the result on. A nil map means the version needs no freezing because
-// another caller has already claimed it.
-func (s *shard) claimDiffToMaterialize(version uint64) (*sealedDiff, map[string][]byte, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	if version >= s.currentVersion {
-		return nil, nil, fmt.Errorf("version (%d) must be less than the current version (%d) to be "+
-			"materialized", version, s.currentVersion)
-	}
-	handle, sealed := s.sealedDiffs[version]
-	if !sealed {
-		return nil, nil, fmt.Errorf("version (%d) is no longer tracked and cannot be materialized", version)
+	// Awaited before the lock is taken, not after: a sealed version's diff keeps being written to
+	// while its folds resolve, so it is frozen only once its latch has opened. This is the single
+	// place the diff consumers — hashing, flushing, and the retirement that follows a flush — reach
+	// a version's values, which is why the wait belongs here rather than at each of them.
+	for version := firstVersion; version < lastVersion; version++ {
+		if err := s.awaitVersionFoldsUnlocked(version); err != nil {
+			return nil, fmt.Errorf("await version %d before reading its diff: %w", version, err)
+		}
 	}
 
-	diff, unmaterialized := s.versionDiffs[version]
-	if !unmaterialized {
-		return handle, nil, nil
-	}
-	delete(s.versionDiffs, version)
-	return handle, diff, nil
-}
-
-// SortedDiff returns a sealed version's writes ordered by key, waiting for them to be materialized if
-// that has not happened yet. The returned entries must not be mutated, but are otherwise thread safe to read.
-func (s *shard) SortedDiff(version uint64) ([]diffEntry, error) {
-	s.lock.RLock()
-	handle, sealed := s.sealedDiffs[version]
-	s.lock.RUnlock()
-	if !sealed {
-		return nil, fmt.Errorf("version (%d) is not a sealed version of this shard", version)
-	}
-
-	select {
-	case <-handle.done:
-	case <-s.ctx.Done():
-		return nil, fmt.Errorf("view manager shut down while awaiting the diff at version %d: %w",
-			version, s.shutdownError())
-	}
-
+	// A read lock suffices, and it matters: sort jobs for different versions call this concurrently.
+	// Nothing here mutates the shard, and the maps handed back are frozen — a version whose latch has
+	// opened gains no further writes.
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return handle.entries, nil
+
+	if firstVersion < s.oldestVersion {
+		return nil, fmt.Errorf("firstVersion (%d) must be greater than or equal to the oldest version (%d)",
+			firstVersion, s.oldestVersion)
+	}
+	if lastVersion > s.currentVersion {
+		return nil, fmt.Errorf("lastVersion (%d) must be less than or equal to the current version (%d)",
+			lastVersion, s.currentVersion)
+	}
+
+	diffs := make([]map[string][]byte, 0, lastVersion-firstVersion)
+	for v := firstVersion; v < lastVersion; v++ {
+		diffs = append(diffs, s.versionDiffs[v])
+	}
+	return diffs, nil
 }
 
 // MaterializeCurrentOverrides returns the in-memory overrides in this shard at the current version
@@ -1128,15 +1058,6 @@ func (s *shard) DropVersions(
 			firstVersion, lastVersion)
 	}
 
-	// Retirement reads the diffs, so it materializes the versions it is about to drop rather than
-	// trusting that a flush already did. An already materialized version makes this a no-op, which is
-	// the production case; it cannot happen under the lock below, because materializing waits for folds.
-	for version := firstVersion; version < lastVersion; version++ {
-		if err := s.MaterializeSortedDiff(version); err != nil {
-			return fmt.Errorf("materialize version %d before retiring it: %w", version, err)
-		}
-	}
-
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -1160,52 +1081,45 @@ func (s *shard) DropVersions(
 		}
 	}
 
-	// Gather the diffs oldest version first. The cache insert below replays them in that order, so a
-	// key written in several retiring versions ends up holding the newest of those values — which is
-	// what combining them into one map used to do.
-	diffs := make([][]diffEntry, 0, lastVersion-firstVersion)
-	for version := firstVersion; version < lastVersion; version++ {
-		handle, sealed := s.sealedDiffs[version]
-		if !sealed {
-			return fmt.Errorf("version %d is not a sealed version and cannot be retired", version)
-		}
-		select {
-		case <-handle.done:
-		default:
-			// The materialize above covers this, so reaching it means the lifecycle is broken. Carrying on
-			// would retire keys whose values never reached the read cache: an unmaterialized version's diff
-			// is empty, and an empty diff is indistinguishable from a version that wrote nothing.
-			return fmt.Errorf("version %d was not materialized and cannot be retired", version)
-		}
-		diffs = append(diffs, handle.entries)
-		delete(s.sealedDiffs, version)
-	}
-
-	// Clean up the versioned data map. A key written in more than one retiring version is visited
-	// once per diff, and the trim is idempotent, so the repeat costs a lookup and finds nothing to do.
-	for _, diff := range diffs {
-		for _, entry := range diff {
-			deque, tracked := s.versionedData[entry.key]
-			if !tracked {
-				continue
-			}
-			for !deque.IsEmpty() {
-				next := deque.PeekFront()
-				if next.version >= lastVersion {
-					break
-				}
-				deque.PopFront()
-			}
-			if deque.IsEmpty() {
-				delete(s.versionedData, entry.key)
+	// Combine the data from all versions being dropped.
+	var combinedData map[string][]byte
+	if firstVersion == lastVersion-1 {
+		// single version
+		combinedData = s.versionDiffs[firstVersion]
+	} else {
+		// range of versions
+		combinedData = make(map[string][]byte)
+		for version := firstVersion; version < lastVersion; version++ {
+			for k, value := range s.versionDiffs[version] {
+				combinedData[k] = value
 			}
 		}
 	}
 
-	// Push the retired data down into the read cache, still under the same lock grab, so
+	// Drop the version diffs that we will no longer need.
+	for v := firstVersion; v < lastVersion; v++ {
+		delete(s.versionDiffs, v)
+	}
+
+	// Clean up the versioned data map.
+	for k := range combinedData {
+		deque := s.versionedData[k]
+		for !deque.IsEmpty() {
+			next := deque.PeekFront()
+			if next.version >= lastVersion {
+				break
+			}
+			deque.PopFront()
+		}
+		if deque.IsEmpty() {
+			delete(s.versionedData, k)
+		}
+	}
+
+	// Push the combined data down into the read cache, still under the same lock grab, so
 	// readers never observe an intermediate state between the deque cleanup and the cache
 	// insert.
-	retireErr := s.cache.PutRetiredWLocked(diffs)
+	retireErr := s.cache.PutRetiredWLocked(combinedData)
 
 	// Advanced even when the insert reported a failure: the keys have already moved into the cache, so
 	// leaving oldestVersion behind would describe a migration that did not happen.

@@ -156,7 +156,8 @@ func TestBatchUpdateChainsFoldsAcrossVersions(t *testing.T) {
 	// Each sealed version's diff must carry that version's own folded value, since the diff is what
 	// hashing and flushing read.
 	for i, want := range [][]byte{[]byte("a1"), []byte("a12"), []byte("a123")} {
-		diff := collectDiff(t, held[i])
+		diff, err := held[i].GetDiff()
+		require.NoError(t, err)
 		require.Equal(t, want, diff["k"], "version %d's diff", i+1)
 	}
 }
@@ -177,7 +178,8 @@ func TestBatchUpdateFoldCanDelete(t *testing.T) {
 	require.NoError(t, sealed.Finalize(hashWrites(testHash)))
 	defer func() { require.NoError(t, sealed.Release()) }()
 
-	diff := collectDiff(t, sealed)
+	diff, err := sealed.GetDiff()
+	require.NoError(t, err)
 	value, present := diff["k"]
 	require.True(t, present, "a delete must appear in the diff")
 	require.Nil(t, value, "a delete is carried as a nil value")

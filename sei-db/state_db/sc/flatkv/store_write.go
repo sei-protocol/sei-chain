@@ -341,14 +341,11 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 		batch := db.NewBatch()
 		err := writeLocalMetaToBatch(batch, version, s.loadedHashes.PerDB[dir], moduleHashes, moduleStats)
 		if err != nil {
-			_ = batch.Close()
 			return fmt.Errorf("%s local meta: %w", dir, err)
 		}
-		if err := batch.Commit(syncOpt); err != nil {
-			_ = batch.Close()
+		if err := types.CommitAndWait(batch, syncOpt); err != nil {
 			return fmt.Errorf("%s commit: %w", dir, err)
 		}
-		_ = batch.Close()
 		s.localMeta[dir] = &LocalMeta{
 			CommittedVersion: version,
 			LtHash:           s.loadedHashes.PerDB[dir].Clone(),

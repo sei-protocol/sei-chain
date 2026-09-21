@@ -96,11 +96,6 @@ func newDBWorker(
 // buffer reaches importBatchSize. If done fires, the worker abandons
 // remaining work and exits immediately.
 func (w *dbWorker) run(done <-chan struct{}) error {
-	defer func() {
-		if w.batch != nil {
-			_ = w.batch.Close()
-		}
-	}()
 	for {
 		select {
 		case kv, ok := <-w.ch:
@@ -166,7 +161,7 @@ func (w *dbWorker) flush() (err error) {
 	w.ltHash = lthash.SumModuleHashes(w.moduleLtHash)
 
 	syncOpt := seidbtypes.WriteOptions{Sync: false}
-	if err := w.batch.Commit(syncOpt); err != nil {
+	if err := seidbtypes.CommitAndWait(w.batch, syncOpt); err != nil {
 		return fmt.Errorf("%s commit: %w", w.dir, err)
 	}
 

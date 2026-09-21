@@ -217,7 +217,7 @@ func TestCloseLeavesNoManagerGoroutines(t *testing.T) {
 		cfg.MetricsScrapeIntervalSeconds = 0.001
 		db := newTestDB(map[string][]byte{"seeded": []byte("v")})
 		pool := threading.NewAdHocPool()
-		manager, err := NewViewManager(cfg, db, pool, pool, pool)
+		manager, err := NewViewManager(cfg, db, pool, pool)
 		require.NoError(t, err)
 
 		require.NoError(t, manager.Set([]byte("k"), []byte("v")))
@@ -292,8 +292,7 @@ func TestCloseAwaitsFoldBeforeItSchedulesItsRead(t *testing.T) {
 	db := newTestDB(map[string][]byte{"a": []byte("old"), "b": []byte("old")})
 	readPool := threading.NewAdHocPool()
 	miscPool := threading.NewAdHocPool()
-	sortPool := threading.NewAdHocPool()
-	manager, err := NewViewManager(newTestConfig(1, 4096), db, readPool, miscPool, sortPool)
+	manager, err := NewViewManager(newTestConfig(1, 4096), db, readPool, miscPool)
 	require.NoError(t, err)
 
 	// The first batch parks mid-fold, holding the value the second batch folds onto.
@@ -326,7 +325,6 @@ func TestCloseAwaitsFoldBeforeItSchedulesItsRead(t *testing.T) {
 	// Closing the pools is what would panic on a fold that outlived Close.
 	readPool.Close()
 	miscPool.Close()
-	sortPool.Close()
 	require.NoError(t, db.Close())
 	require.Zero(t, db.getsAfterClose.Load(), "a fold read the database after it was closed")
 }

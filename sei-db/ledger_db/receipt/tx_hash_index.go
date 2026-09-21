@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
@@ -80,11 +81,21 @@ func decodeBlockNumber(b []byte) uint64 {
 // PebbleTxHashIndex is the first concrete implementation of TxHashIndex,
 // backed by the shared sei-db Pebble KV wrapper.
 type PebbleTxHashIndex struct {
-	db        dbtypes.KeyValueDB
+	db dbtypes.KeyValueDB
+
+	// The pool db runs its CPU-bound work on.
+	cpuPool threading.Pool
+
 	closeOnce sync.Once
 }
 
 var _ TxHashIndex = (*PebbleTxHashIndex)(nil)
+
+// newIndexCPUPool returns the CPU pool a receipt index hands its database. A goroutine per task,
+// there being one batch per block to work on.
+func newIndexCPUPool() threading.Pool {
+	return threading.NewAdHocPool()
+}
 
 // NewPebbleTxHashIndex opens (or creates) a Pebble-backed tx hash index
 // in the given directory.
@@ -94,11 +105,13 @@ func NewPebbleTxHashIndex(dir string) (*PebbleTxHashIndex, error) {
 	}
 	cfg := pebbledb.DefaultConfig()
 	cfg.DataDir = dir
-	db, err := pebbledb.Open(context.Background(), &cfg)
+	cpuPool := newIndexCPUPool()
+	db, err := pebbledb.Open(context.Background(), &cfg, cpuPool)
 	if err != nil {
+		cpuPool.Close()
 		return nil, fmt.Errorf("failed to open tx hash index pebble db: %w", err)
 	}
-	return &PebbleTxHashIndex{db: db}, nil
+	return &PebbleTxHashIndex{db: db, cpuPool: cpuPool}, nil
 }
 
 func (idx *PebbleTxHashIndex) GetBlockNumber(_ context.Context, txHash common.Hash) (uint64, bool, error) {
@@ -115,16 +128,11 @@ func (idx *PebbleTxHashIndex) GetBlockNumber(_ context.Context, txHash common.Ha
 	return decodeBlockNumber(val), true, nil
 }
 
-func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, txHashes []common.Hash) (err error) {
+func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, txHashes []common.Hash) error {
 	if len(txHashes) == 0 {
 		return nil
 	}
 	batch := idx.db.NewBatch()
-	defer func() {
-		if closeErr := batch.Close(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
 
 	blockVal := encodeBlockNumber(blockNumber)
 	for _, txHash := range txHashes {
@@ -137,7 +145,7 @@ func (idx *PebbleTxHashIndex) IndexBlock(_ context.Context, blockNumber uint64, 
 	}
 	// Avoid Sync on every block: fsync per commit would add large latency;
 	// Pebble still appends to the WAL without forcing a full sync each time.
-	return batch.Commit(dbtypes.WriteOptions{})
+	return dbtypes.CommitAndWait(batch, dbtypes.WriteOptions{})
 }
 
 func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64) (err error) {
@@ -158,11 +166,6 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 	}()
 
 	batch := idx.db.NewBatch()
-	defer func() {
-		if closeErr := batch.Close(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
 
 	const maxBatchSize = 10000
 	count := 0
@@ -192,10 +195,11 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 		}
 		count++
 		if count >= maxBatchSize {
-			if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
+			if err := dbtypes.CommitAndWait(batch, dbtypes.WriteOptions{}); err != nil {
 				return err
 			}
-			batch.Reset()
+			// A committed batch is spent, so the deletions still to come need a fresh one.
+			batch = idx.db.NewBatch()
 			count = 0
 		}
 	}
@@ -203,7 +207,7 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 		return err
 	}
 	if count > 0 {
-		return batch.Commit(dbtypes.WriteOptions{})
+		return dbtypes.CommitAndWait(batch, dbtypes.WriteOptions{})
 	}
 	return nil
 }
@@ -212,6 +216,7 @@ func (idx *PebbleTxHashIndex) Close() error {
 	var err error
 	idx.closeOnce.Do(func() {
 		err = idx.db.Close()
+		idx.cpuPool.Close()
 	})
 	return err
 }

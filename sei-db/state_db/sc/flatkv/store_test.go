@@ -10,6 +10,7 @@ import (
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -1293,8 +1294,7 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	require.NoError(t, writeLocalMetaToBatch(
 		batch, 4, savedAccountLtHash,
 		maintained.PerModule[accountDBDir], maintained.PerModuleStats[accountDBDir]))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
+	require.NoError(t, types.CommitAndWait(batch, types.WriteOptions{Sync: true}))
 
 	require.NoError(t, s.Close())
 
@@ -1350,8 +1350,7 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	require.NoError(t, writeLocalMetaToBatch(
 		batch, 3, savedStorageLtHash,
 		maintained.PerModule[storageDBDir], maintained.PerModuleStats[storageDBDir]))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
+	require.NoError(t, types.CommitAndWait(batch, types.WriteOptions{Sync: true}))
 
 	require.NoError(t, s.Close())
 
@@ -1581,12 +1580,11 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	// directories on its own copy of the config, so ask for the same resolution to reach the files it
 	// opened rather than reading a path back off cfg.
 	resolved := resolveConfig(cfg)
-	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig)
+	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig, threading.NewAdHocPool())
 	require.NoError(t, err)
 	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
+	require.NoError(t, types.CommitAndWait(batch, types.WriteOptions{Sync: true}))
 	require.NoError(t, corrupt.Close())
 
 	// Reopen without a WAL. With one, replay would rewrite this account from block 1's changeset and
@@ -1764,8 +1762,7 @@ func TestCrashRecoveryCorruptLtHashBlobInPerDBMeta(t *testing.T) {
 	// touches the database after this point.
 	batch := s.rawDBFor(accountDBDir).NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaLtHashKey, []byte{0x01, 0x02, 0x03}))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
+	require.NoError(t, types.CommitAndWait(batch, types.WriteOptions{Sync: true}))
 
 	require.NoError(t, s.Close())
 
@@ -1805,8 +1802,7 @@ func TestCrashRecoveryVersionRecordOverflow(t *testing.T) {
 	requireFlushedToDisk(t, s)
 	batch := s.rawDBFor(accountDBDir).NewBatch()
 	require.NoError(t, batch.Set(ktype.MetaVersionKey, overflowBytes))
-	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
-	_ = batch.Close()
+	require.NoError(t, types.CommitAndWait(batch, types.WriteOptions{Sync: true}))
 
 	require.NoError(t, s.Close())
 

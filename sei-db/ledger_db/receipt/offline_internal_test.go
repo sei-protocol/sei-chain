@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -47,7 +48,7 @@ func overwriteMeta(t *testing.T, dir string, key []byte, value []byte) {
 	t.Helper()
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = filepath.Join(dir, littIndexDirName)
-	index, err := pebbledb.Open(context.Background(), &indexCfg)
+	index, err := pebbledb.Open(context.Background(), &indexCfg, threading.NewAdHocPool())
 	require.NoError(t, err)
 	require.NoError(t, index.Set(key, value, dbtypes.WriteOptions{}))
 	require.NoError(t, index.Close())
