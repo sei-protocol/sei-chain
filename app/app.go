@@ -1758,20 +1758,10 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
-// committedStateFlusher is implemented by commit multistores whose backends
-// persist commits asynchronously.
-type committedStateFlusher interface {
-	Flush() error
-}
-
-// flushCommittedStateForUpgradeExit makes the last committed block durable in
-// every backend before the process exits for an upgrade.
+// flushCommittedStateForUpgradeExit waits for the last committed block to reach
+// every backend's log before the process exits for an upgrade.
 func (app *App) flushCommittedStateForUpgradeExit() {
-	flusher, ok := app.CommitMultiStore().(committedStateFlusher)
-	if !ok {
-		return
-	}
-	if err := flusher.Flush(); err != nil {
+	if err := app.rootStore.Flush(); err != nil {
 		logger.Error("failed to flush commit store before upgrade exit", "err", err)
 	}
 }

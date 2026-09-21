@@ -477,28 +477,32 @@ func (db *DB) checkAsyncTasks() error {
 }
 
 // waitForPendingWALWrites blocks until the changelog WAL holds every version
-// committed so far. In real world, block execution should be slower than tree
-// updates, so this should not block for long.
+// committed so far.
 func (db *DB) waitForPendingWALWrites() error {
 	for {
 		committedVersion, err := db.CommittedVersion()
 		if err != nil {
 			return fmt.Errorf("get committed version failed: %w", err)
 		}
-		if db.lastCommitInfo.Version == committedVersion {
+		// The WAL is ahead of the tree when the tree was loaded at a historical version.
+		if committedVersion >= db.lastCommitInfo.Version {
 			return nil
 		}
+		// Block execution is slower than tree updates, so the writer is expected to catch up quickly.
 		time.Sleep(time.Nanosecond)
 	}
 }
 
-// Flush blocks until every version committed so far is durable in the
-// changelog WAL.
+// Flush blocks until every version committed so far has been written to the
+// changelog WAL. A read-only DB has nothing pending and returns immediately.
 func (db *DB) Flush() error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 	if db.closed {
 		return errors.New("db is closed")
+	}
+	if db.readOnly || db.streamHandler == nil {
+		return nil
 	}
 	return db.waitForPendingWALWrites()
 }

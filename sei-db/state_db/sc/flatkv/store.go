@@ -1338,6 +1338,12 @@ func (s *CommitStore) RegisterHashListener(listener gigatypes.HashListener) (lth
 	return s.hashListeners.register(listener, s.currentHash()), nil
 }
 
+// Flush returns immediately: Commit writes and flushes the block WAL before it returns, so nothing is
+// ever pending.
+func (s *CommitStore) Flush() error {
+	return nil
+}
+
 // FlushHashes blocks until every block committed so far has been hashed and its hash handed to every
 // registered listener.
 func (s *CommitStore) FlushHashes() error {

@@ -319,7 +319,9 @@ func (rs *Store) flush() error {
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
 
-// Flush blocks until every committed version is durable in the commit store.
+// Flush blocks until every committed version has been written to the commit
+// store's logs. Unrelated to flush, which pushes pending changesets into the
+// commit store.
 func (rs *Store) Flush() error {
 	return rs.scStore.Flush()
 }
