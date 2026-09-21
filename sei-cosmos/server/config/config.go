@@ -459,11 +459,11 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		}
 		scWriteMode = parsed
 	}
-	// sc-write-mode-enable-auto (default true) forces the node into auto and
-	// ignores the explicit sc-write-mode. An absent key keeps the default so
-	// older configs (explicit memiavl_only, no auto key) still resolve to auto,
-	// mirroring app/seidb.go. Set it to false to honor the explicit sc-write-mode
-	// as a deliberate pin (see config.ApplyWriteModeAuto).
+	// sc-write-mode-enable-auto forces the node into auto and ignores the
+	// explicit sc-write-mode. An absent key keeps this build's in-code default:
+	// true for a stock build and false for a mock_chain_validation reserve
+	// build. Set it to false to honor the explicit sc-write-mode as a deliberate
+	// pin (see config.ApplyWriteModeAuto).
 	scWriteModeEnableAuto := config.DefaultStateCommitConfig().WriteModeEnableAuto
 	if v.IsSet("state-commit.sc-write-mode-enable-auto") {
 		scWriteModeEnableAuto = v.GetBool("state-commit.sc-write-mode-enable-auto")
