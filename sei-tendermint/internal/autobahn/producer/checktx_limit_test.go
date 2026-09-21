@@ -164,10 +164,50 @@ func TestInsertTx_CancelledCheckTxWaiterReleasesPermit(t *testing.T) {
 	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
 }
 
-// An absent limit resolves to at least one permit so inserts proceed.
+// Once MaxPendingInserts TryInsertTx calls are in flight, further TryInsertTx calls fail
+// immediately with errMempoolFull instead of queueing for a CheckTx permit, and the bound
+// is released as they complete.
+func TestTryInsertTx_InFlightBounded(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newGatedApp()
+	cfg := app.Cfg()
+	cfg.MaxConcurrentCheckTx = utils.Some[uint64](1)
+	cfg.MaxPendingInserts = 1
+	env := newTestEnv(rng, cfg, app.Proxy())
+	env.alignLocalMempool()
+
+	newTx := func() []byte {
+		addr, nonce := app.NewAccount(rng)
+		return env.genTx(rng, addr, nonce).encode()
+	}
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		holder := newTx()
+		s.Spawn(func() error {
+			_, err := env.state.TryInsertTx(ctx, holder)
+			return err
+		})
+		// holder occupies the only in-flight slot, blocked in CheckTx.
+		if err := app.waitInflight(ctx, 1); err != nil {
+			return err
+		}
+		if _, err := env.state.TryInsertTx(ctx, newTx()); !errors.Is(err, errMempoolFull) {
+			return fmt.Errorf("TryInsertTx over the bound: got %v, want errMempoolFull", err)
+		}
+		app.openGate()
+		return nil
+	}))
+	_, err := env.state.TryInsertTx(ctx, newTx())
+	require.NoError(t, err)
+	require.Equal(t, 2, len(env.state.UnconfirmedTxs()))
+}
+
+// An absent or zero limit resolves to at least one permit so inserts proceed.
 func TestConfig_MaxConcurrentCheckTxDefault(t *testing.T) {
 	cfg := &Config{}
 	require.True(t, cfg.maxConcurrentCheckTx() >= 1)
+	require.Equal(t, max(1, runtime.GOMAXPROCS(0)/2), cfg.maxConcurrentCheckTx())
+	cfg.MaxConcurrentCheckTx = utils.Some[uint64](0)
 	require.Equal(t, max(1, runtime.GOMAXPROCS(0)/2), cfg.maxConcurrentCheckTx())
 	cfg.MaxConcurrentCheckTx = utils.Some[uint64](7)
 	require.Equal(t, 7, cfg.maxConcurrentCheckTx())

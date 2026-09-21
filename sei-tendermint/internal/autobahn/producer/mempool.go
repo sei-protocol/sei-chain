@@ -227,7 +227,8 @@ func (s *State) pruneMempool(mp *mempool, n types.BlockNumber) {
 	}
 }
 
-// TryInsertTx inserts tx to the mempool. Returns error if mempool is full.
+// TryInsertTx inserts tx to the mempool. Returns errMempoolFull if the mempool is full or
+// Config.MaxPendingInserts TryInsertTx calls are already in flight.
 func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, false)
 }
@@ -348,9 +349,23 @@ func insertResult(resp *abci.ResponseCheckTx, err error) metrics.Result {
 // NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
 // It has to be added after testnet launch.
 func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
-	resp, err := s.doInsertTx(ctx, tx, waitIfFull)
+	resp, err := s.boundedInsertTx(ctx, tx, waitIfFull)
 	insertResult(resp, err).Observe()
 	return resp, err
+}
+
+// boundedInsertTx runs doInsertTx, holding one of cfg.MaxPendingInserts in-flight slots for
+// the duration of a TryInsertTx call. Returns errMempoolFull when no slot is free.
+func (s *State) boundedInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
+	if waitIfFull {
+		return s.doInsertTx(ctx, tx, waitIfFull)
+	}
+	release, ok := s.tryInsertSem.TryAcquire()
+	if !ok {
+		return nil, errMempoolFull
+	}
+	defer release()
+	return s.doInsertTx(ctx, tx, waitIfFull)
 }
 
 func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
@@ -468,9 +483,9 @@ func (s *State) doInsertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) 
 }
 
 // appendTx adds an admitted tx to the next lane block, sealing the current one first when the
-// tx would exceed one of its limits. Must be called with the mempool locked and not full.
-// appendTx admits tx into the next block. appNonce is the sender's app nonce pre-read
-// outside the lock while the lane's first block was first; see preReadEvmNonce.
+// tx would exceed one of its limits. appNonce is the sender's app nonce pre-read outside the
+// lock, valid only while m.first is unchanged since the read; see preReadEvmNonce.
+// Must be called with the mempool locked and not full.
 func (s *State) appendTx(m *mempoolInner, ctrl *utils.WatchCtrl, tx tmtypes.Tx, resp *abci.ResponseCheckTxV2, gasWanted, gasEstimated uint64, appNonce utils.Option[uint64], first types.BlockNumber) error {
 	if resp.IsEVM {
 		addr := resp.EVMSenderAddress
