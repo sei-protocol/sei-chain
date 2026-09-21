@@ -213,13 +213,7 @@ type View interface {
 	// recoverable.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// ForEachDiff visits every key-value mutation contained in this view, relative to the previous
-	// view, stopping at the first error visit reports and returning it. It covers only this view's
-	// writes (a delete arriving as a nil value); to reconstruct earlier state, read from earlier
-	// views.
-	//
-	// Keys arrive ordered within a shard and not across shards, and neither the keys nor the values
-	// may be retained: they belong to the view until it retires.
+	// ForEachDiff visits every key-value mutation contained in this view.
 	ForEachDiff(visit func(key string, value []byte) error) error
 
 	// Reserve increments this view's reservation count. While the count is greater than zero,

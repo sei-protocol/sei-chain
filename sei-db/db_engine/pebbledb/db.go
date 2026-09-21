@@ -41,6 +41,10 @@ func Open(
 	pebbleCache := pebble.NewCache(config.BlockCacheSize)
 	defer pebbleCache.Unref()
 
+	// Copied into a local because pebble calls CompactionConcurrencyRange for the DB's whole
+	// lifetime: closing over config would leave the bound reading the caller's struct.
+	maxCompactions := config.MaxConcurrentCompactions
+
 	popts := &pebble.Options{
 		Cache:    pebbleCache,
 		Comparer: pebble.DefaultComparer,
@@ -59,7 +63,7 @@ func Open(
 		// Pebble defaults this to a single compaction, which a sustained write load outruns: L0 gains
 		// sublevels faster than one compaction drains them, and every point lookup then pays to search
 		// all of them. See MaxConcurrentCompactions.
-		CompactionConcurrencyRange: func() (lower int, upper int) { return 1, config.MaxConcurrentCompactions },
+		CompactionConcurrencyRange: func() (lower int, upper int) { return 1, maxCompactions },
 	}
 
 	// Configure L0 with explicit settings
