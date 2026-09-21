@@ -89,8 +89,6 @@ func RecordBankNewAccount(ctx context.Context) {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
-	// TODO(PLT-353): remove once bank_new_account verified
-	telemetry.IncrCounter(1, "new", "account")
 	bankNewAccountCounter.Add(ctx, 1)
 }
 

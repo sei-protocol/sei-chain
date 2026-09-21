@@ -6,7 +6,6 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -57,7 +56,5 @@ func recordNewAccounts(ctx context.Context, count int64) {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
-	// TODO(PLT-353): remove once bank_new_account verified
-	telemetry.IncrCounter(float32(count), "new", "account")
 	bankMetrics.newAccount.Add(ctx, count)
 }
