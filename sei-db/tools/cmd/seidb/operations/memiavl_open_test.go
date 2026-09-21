@@ -59,7 +59,7 @@ func writeMemiavlNonces(t *testing.T, homeDir string, count uint64) {
 			Name:      keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(0xA1), nonce)}},
 		}}))
-		_, err := store.Commit(store.Version() + 1)
+		_, err := store.Commit()
 		require.NoError(t, err)
 	}
 	require.NoError(t, store.Close())
