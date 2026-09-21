@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -315,6 +317,12 @@ func (env *Environment) EvmBlockNumber() uint64 {
 // EvmChainID returns the EVM chain ID this node is configured for.
 func (env *Environment) EvmChainID() uint64 {
 	return env.App.EvmChainID()
+}
+
+// EvmCall executes msg as a read-only call against the current committed EVM
+// state, without creating a transaction or persisting any state change.
+func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	return env.App.EvmCall(ctx, msg)
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't

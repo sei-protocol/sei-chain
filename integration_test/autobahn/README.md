@@ -301,7 +301,8 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getBalance`, for the current committed EVM balance;
 - `eth_getTransactionCount`, for the current committed nonce;
 - `eth_blockNumber`, for the current committed block height;
-- `eth_chainId`, for the configured EVM chain ID.
+- `eth_chainId`, for the configured EVM chain ID;
+- `eth_call`, for a read-only message call against current committed state.
 
 All other `eth_*` methods currently return JSON-RPC method-not-found. A lookup
 for a pending or unknown hash returns `null`.
@@ -388,10 +389,39 @@ error: historical state is not available from this RPC. `eth_blockNumber` and
 `eth_chainId` take no block selector and always return the current height and
 the network's configured EVM chain ID.
 
+### Make a read-only call with `cast call`
+
+`cast call` executes a message against current committed state without
+sending a transaction, so it works for any `view`/`pure` contract function,
+such as an ERC20 `balanceOf`:
+
+```sh
+cast call \
+  --rpc-url http://127.0.0.1:8545 \
+  0xYOUR_CONTRACT_ADDRESS \
+  "balanceOf(address)(uint256)" \
+  0xYOUR_ADDRESS
+```
+
+`eth_call` accepts the same `latest`/`safe`/`finalized`/`pending` block tags as
+`eth_getBalance` and `eth_getTransactionCount`; an explicit height, an explicit
+hash, or `earliest` returns the same historical-state error. A caller-omitted
+gas limit defaults to a fixed cap rather than the block gas limit, and an
+explicit limit above that cap is silently lowered to it. A reverted call
+returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
+go-ethereum's own `eth_call` behavior.
+
+Block context for a call is a mix of real and best-effort values: `Number` and
+`GasLimit` are the actual current committed values, but `Coinbase` is always
+the zero address (this application never sets one, even for committed
+blocks) and `blockhash(current-1)` and further back are unavailable (only the
+current block's own hash is tracked outside of block execution). A view
+function that depends on either reads a placeholder rather than a real value.
+
 The remaining `cast` gaps are RPC gaps, not receipt-decoding gaps. There is no
 `eth_getTransactionByHash` or block API to discover a `sei-load` transfer hash,
 and `sei-load` does not currently print every submitted hash. There are also no
-fee-estimation, gas-estimation, call, log, or WebSocket subscription methods.
+fee-estimation, gas-estimation, log, or WebSocket subscription methods.
 Commands that depend on those queries cannot operate normally; raw
 transactions must provide gas limit and gas price offline as in the example
 above.

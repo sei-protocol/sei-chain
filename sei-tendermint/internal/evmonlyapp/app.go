@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -49,6 +50,12 @@ type evmOnlyState struct {
 	appHash         common.Hash
 	parentHash      common.Hash
 	pending         utils.Option[evmOnlyPending]
+	// lastBlockTime is the Time of the most recently committed block, used by
+	// EvmCall to reproduce that block's execution context for a read-only call.
+	lastBlockTime uint64
+	// pendingBlockTime is the Time of the block staged in pending; Commit
+	// promotes it to lastBlockTime.
+	pendingBlockTime uint64
 }
 
 type evmOnlyPending struct {
@@ -242,6 +249,46 @@ func (a *evmOnlyApplication) EvmChainID() uint64 {
 	return a.chainID.Uint64()
 }
 
+// evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
+func evmOnlyPrevRandao(timestamp uint64) common.Hash {
+	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
+}
+
+// EvmCall executes msg as a read-only call against the most recently
+// committed EVM state and returns the execution result.
+func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	var executor *evmonly.Executor
+	var blockCtx evmonly.BlockContext
+	for state := range a.state.Lock() {
+		got, ok := state.executor.Get()
+		if !ok {
+			return nil, fmt.Errorf("EVM-only call attempted before InitChain")
+		}
+		if state.pending.IsPresent() {
+			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
+			return nil, fmt.Errorf("EVM-only call attempted before committing the finalized block")
+		}
+		number, ok := utils.SafeCast[uint64](state.committedHeight)
+		if !ok {
+			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
+		}
+		executor = got
+		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
+		// FinalizeBlock, and only the current block's hash is tracked at all.
+		blockCtx = evmonly.BlockContext{
+			Number:      number,
+			Time:        state.lastBlockTime,
+			GasLimit:    state.gasLimit,
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     evmOnlyBaseFee(),
+			BlobBaseFee: new(big.Int),
+			BlockHash:   state.parentHash,
+			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
+		}
+	}
+	return executor.Call(ctx, blockCtx, msg)
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
@@ -277,7 +324,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlobBaseFee: new(big.Int),
 				ParentHash:  state.parentHash,
 				BlockHash:   blockHash,
-				PrevRandao:  crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp)),
+				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
 			Txs: req.Txs,
 		})
@@ -290,6 +337,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 			return nil, err
 		}
 		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
+		state.pendingBlockTime = timestamp
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -308,6 +356,7 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.nextHeight = pending.height + 1
 		state.appHash = pending.appHash
 		state.parentHash = pending.blockHash
+		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyPending]()
 		return &abci.ResponseCommit{}, nil
 	}
