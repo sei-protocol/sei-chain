@@ -122,17 +122,14 @@ func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 
 // GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
 func (v *flatKVStateView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
-	buf := physKeyBufs.Get().(*[physKeyBufLen]byte)
-	defer physKeyBufs.Put(buf)
-	physKey := ktype.AppendEVMPhysicalKey(buf[:0], keys.EVMKeyStorage, addr[:])
-	physKey = append(physKey, key[:]...)
-	raw, found := v.readRow(v.blockView.StorageView(), physKey)
+	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, addr[:], key[:])
 	if !found {
 		return gigatypes.Hash{}
 	}
 	storage, err := vtype.ParseStorageRow(raw)
 	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v", physKey, v.blockView.BlockHeight(), err))
+		panic(fmt.Sprintf("flatkv: parse storage %x/%x at height %d: %v",
+			addr, key, v.blockView.BlockHeight(), err))
 	}
 	if storage.IsDelete() {
 		return gigatypes.Hash{}
@@ -236,13 +233,18 @@ func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, boo
 	return value, value != nil
 }
 
-// readEVMRow returns the bytes stored under the EVM physical key for kind and keyBytes, without
-// deserializing them. The key is built in a pooled scratch buffer that is returned to the pool once
-// the read completes, so no caller may keep a reference to it.
-func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, keyBytes []byte) ([]byte, bool) {
+// readEVMRow returns the bytes stored under an EVM physical key for kind and key parts.
+func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, keyParts ...[]byte) ([]byte, bool) {
 	buf := physKeyBufs.Get().(*[physKeyBufLen]byte)
-	defer physKeyBufs.Put(buf)
-	return v.readRow(dbView, ktype.AppendEVMPhysicalKey(buf[:0], kind, keyBytes))
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], kind, keyParts[0])
+	for _, keyPart := range keyParts[1:] {
+		physKey = append(physKey, keyPart...)
+	}
+	value, found := v.readRow(dbView, physKey)
+	// Not deferred: readRow panics when the manager shuts down while a read worker may still hold
+	// physKey, and a buffer that may still be read must not go back to the pool.
+	physKeyBufs.Put(buf)
+	return value, found
 }
 
 // readRow returns the bytes stored under physKey, without deserializing them.
