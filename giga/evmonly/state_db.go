@@ -741,9 +741,9 @@ func (s *nativeStateDB) enableAccessTracking() {
 	}
 }
 
-// accessSets hands the read and write sets to the caller and stops tracking;
+// takeAccessSets hands the read and write sets to the caller and stops tracking;
 // enableAccessTracking must be called again before further accesses are recorded.
-func (s *nativeStateDB) accessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
+func (s *nativeStateDB) takeAccessSets() (map[stateAccessKey]struct{}, map[stateAccessKey]struct{}) {
 	readSet, writeSet := s.readSet, s.writeSet
 	s.readSet, s.writeSet = nil, nil
 	return readSet, writeSet
