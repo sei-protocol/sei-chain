@@ -100,9 +100,11 @@ func signerAccepts(signer ethtypes.Signer, tx *ethtypes.Transaction) bool {
 	if !tx.Protected() || tx.ChainId().Cmp(signer.ChainID()) != 0 {
 		return false
 	}
-	// SignatureValues rejects types the signer's forks do not enable without
-	// touching the signature, so a zero one probes support cheaply.
-	_, _, _, err := signer.SignatureValues(tx, make([]byte, crypto.SignatureLength))
+	// SignatureValues rejects types the signer's forks do not enable before it
+	// looks at the signature, so a zero one probes support without recovery.
+	var probe [crypto.SignatureLength]byte
+	r, _, _, err := signer.SignatureValues(tx, probe[:])
+	_ = r
 	return !errors.Is(err, ethtypes.ErrTxTypeNotSupported)
 }
 
