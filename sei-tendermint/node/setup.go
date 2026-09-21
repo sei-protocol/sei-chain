@@ -316,9 +316,11 @@ func buildGigaRouter(
 		if err != nil {
 			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 		}
-		if err := preparePersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig); err != nil {
+		stateDir, err := resolvePersistentStateDir(cfg.RootDir, valCfg.PersistentStateDir)
+		if err != nil {
 			return nil, err
 		}
+		valCfg.PersistentStateDir = stateDir
 		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 		// enable/disable decision through as plain config.
 		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -337,9 +339,11 @@ func buildGigaRouter(
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
-	if err := preparePersistentStateDir(cfg.RootDir, fnCfg); err != nil {
+	stateDir, err := resolvePersistentStateDir(cfg.RootDir, fnCfg.PersistentStateDir)
+	if err != nil {
 		return nil, err
 	}
+	fnCfg.PersistentStateDir = stateDir
 	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
 	// enable/disable decision through as plain config.
 	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
@@ -355,24 +359,20 @@ func buildGigaRouter(
 	return giga, nil
 }
 
-// preparePersistentStateDir resolves a relative PersistentStateDir against
-// the node's --home dir (mirrors config.go's rootify) and creates it if absent.
-// Some("") is treated as None: JSON unmarshals a literal empty string as present,
-// which would otherwise Join to rootDir.
-func preparePersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) error {
-	dir, ok := c.PersistentStateDir.Get()
-	if !ok || dir == "" {
-		c.PersistentStateDir = utils.None[string]()
-		return nil
+// resolvePersistentStateDir resolves a relative persistent state dir against the
+// node's --home dir (mirrors config.go's rootify) and creates it if absent. An
+// empty dir is an error: Autobahn has no in-memory storage mode.
+func resolvePersistentStateDir(rootDir, dir string) (string, error) {
+	if dir == "" {
+		return "", errors.New("autobahn requires persistent_state_dir")
 	}
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(rootDir, dir)
-		c.PersistentStateDir = utils.Some(dir)
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating persistent state dir %q: %w", dir, err)
+		return "", fmt.Errorf("creating persistent state dir %q: %w", dir, err)
 	}
-	return nil
+	return dir, nil
 }
 
 // openAutobahnStorageManager opens the Giga storage set in Autobahn's
@@ -382,13 +382,9 @@ func openAutobahnStorageManager(
 	rootDir string,
 	fc *config.AutobahnFileConfig,
 ) (*bootstrap.GigaStorageManager, error) {
-	commonCfg := &p2p.GigaRouterCommonConfig{PersistentStateDir: fc.PersistentStateDir}
-	if err := preparePersistentStateDir(rootDir, commonCfg); err != nil {
+	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
+	if err != nil {
 		return nil, err
-	}
-	directory, ok := commonCfg.PersistentStateDir.Get()
-	if !ok {
-		return nil, fmt.Errorf("autobahn requires persistent_state_dir")
 	}
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(directory)
 	if err != nil {

@@ -87,6 +87,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if cfg.MaxInboundFullnodePeers < 0 || cfg.MaxInboundFullnodePeers > maxInboundFullnodePeers {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.MaxInboundFullnodePeers = %v, want 0..%v", cfg.MaxInboundFullnodePeers, maxInboundFullnodePeers)
 	}
+	if cfg.PersistentStateDir == "" {
+		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
+	}
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
 	genesisWeights := map[atypes.PublicKey]uint64{}
 	for k := range cfg.ValidatorAddrs {
@@ -96,7 +99,7 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	if err != nil {
 		return nil, fmt.Errorf("genesis committee: %w", err)
 	}
-	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime, cfg.PersistentStateDir)
+	registry, err := epoch.NewRegistry(genesisCommittee, firstBlock, cfg.GenDoc.GenesisTime, utils.Some(cfg.PersistentStateDir))
 	if err != nil {
 		return nil, fmt.Errorf("epoch.NewRegistry(): %w", err)
 	}
@@ -312,8 +315,8 @@ func finalizeBlockGasUsed(resp *abci.ResponseFinalizeBlock) int64 {
 
 // buildHashVault constructs the app-hash equivocation guard runExecute owns. By default it
 // returns a durable Pebble-backed vault rooted at <PersistentStateDir>/hashvault, alongside the
-// other Autobahn on-disk state. It returns a no-op vault (no protection) when PersistentStateDir
-// is unset or when the operator explicitly sets HashVaultDisabledUnsafe — both logged loudly.
+// other Autobahn on-disk state. It returns a no-op vault (no protection) when the operator
+// explicitly sets HashVaultDisabledUnsafe, logged loudly.
 func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault.HashVault, error) {
 	if cfg.HashVaultDisabledUnsafe {
 		logger.Error("################################################################")
@@ -324,18 +327,8 @@ func buildHashVault(ctx context.Context, cfg *GigaRouterCommonConfig) (hashvault
 		logger.Error("################################################################")
 		return hashvault.NewNoopHashVault(), nil
 	}
-	dir, ok := cfg.PersistentStateDir.Get()
-	if !ok {
-		logger.Error("################################################################")
-		logger.Error("# HASHVAULT DISABLED (PersistentStateDir not set).             #")
-		logger.Error("# This node has NO app-hash equivocation protection and is     #")
-		logger.Error("# running in an UNSAFE configuration. Set persistent_state_dir #")
-		logger.Error("# in the node config to enable protection.                     #")
-		logger.Error("################################################################")
-		return hashvault.NewNoopHashVault(), nil
-	}
 	hvCfg := hashvault.DefaultHashVaultConfig()
-	hvCfg.DataDir = filepath.Join(dir, "hashvault")
+	hvCfg.DataDir = filepath.Join(cfg.PersistentStateDir, "hashvault")
 	return hashvault.NewPebbleHashVault(ctx, hvCfg)
 }
 

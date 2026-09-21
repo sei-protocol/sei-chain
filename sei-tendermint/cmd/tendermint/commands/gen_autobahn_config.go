@@ -92,13 +92,10 @@ Output is written to the file specified by --output.`,
 				AllowEmptyBlocks: false,
 				BlockInterval:    utils.Duration(400 * time.Millisecond),
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
-				DialInterval:     utils.Duration(10 * time.Second),
+				// node/setup.go rootifies a relative path against cfg.RootDir at load time.
+				PersistentStateDir: persistentStateDir,
+				DialInterval:       utils.Duration(10 * time.Second),
 			}
-			// The flag defaults to "data/autobahn" so persistence is on without
-			// operator action. node/setup.go rootifies the relative path against
-			// cfg.RootDir at load time. An empty --persistent-state-dir is refused:
-			// Autobahn nodes require on-disk Giga storage.
-			cfg.PersistentStateDir = utils.Some(persistentStateDir)
 			blockDB, err := buildGenBlockDBConfig(blockDBRetention, blockDBGCPeriod)
 			if err != nil {
 				return err
