@@ -1650,7 +1650,6 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 
 	// Write v2 to the WAL manually (like Commit step 1) without committing to the DBs.
 	require.NoError(t, s.wal.Write(2, s.pendingChangeSets))
-	require.NoError(t, s.wal.SignalEndOfBlock())
 	require.NoError(t, s.wal.Flush())
 
 	// Do NOT seal the block on the stores. Reset in-memory state to v1 to simulate a crash.
