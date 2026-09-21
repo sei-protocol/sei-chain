@@ -13,8 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -41,8 +39,7 @@ type occTxRange struct {
 type occSpeculativeRunner struct {
 	executor      *Executor
 	req           PreparedBlock
-	chainConfig   *params.ChainConfig
-	blockCtx      vm.BlockContext
+	env           *blockExecEnv
 	baseFee       *big.Int
 	blockGasLimit uint64
 }
@@ -51,8 +48,7 @@ func newOCCSpeculativeRunner(e *Executor, req PreparedBlock) occSpeculativeRunne
 	return occSpeculativeRunner{
 		executor:      e,
 		req:           req,
-		chainConfig:   e.chainConfig(req.Context),
-		blockCtx:      buildBlockContext(req.Context),
+		env:           e.newBlockExecEnv(req.Context, nil),
 		baseFee:       cloneOptionalBig(req.Context.BaseFee),
 		blockGasLimit: req.Context.GasLimit,
 	}
@@ -122,8 +118,7 @@ func (r occSpeculativeRunner) executeTx(
 		r.req,
 		txIndex,
 		txIndexUint,
-		r.chainConfig,
-		r.blockCtx,
+		r.env,
 		r.baseFee,
 		gasLimit,
 	)
@@ -229,8 +224,7 @@ func (e *Executor) executeTxSpeculative(
 	req PreparedBlock,
 	txIndex int,
 	txIndexUint uint,
-	chainConfig *params.ChainConfig,
-	blockCtx vm.BlockContext,
+	env *blockExecEnv,
 	baseFee *big.Int,
 	blockGasLimit uint64,
 ) (occTxExecution, error) {
@@ -241,8 +235,7 @@ func (e *Executor) executeTxSpeculative(
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
 	stateDB.enableAccessTracking()
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, nil)
-	stateDB.SetEVM(evm)
+	evm := newTxEVM(env, stateDB)
 	gasPool := new(core.GasPool).AddGas(blockGasLimit)
 	txResult, receipt, err := e.executeTx(
 		evm,
