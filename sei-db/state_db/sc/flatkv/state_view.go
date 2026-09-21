@@ -122,16 +122,14 @@ func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 
 // GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
 func (v *flatKVStateView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
-	var buf [physKeyBufLen]byte
-	physKey := ktype.AppendEVMPhysicalKey(buf[:0], keys.EVMKeyStorage, addr[:])
-	physKey = append(physKey, key[:]...)
-	raw, found := v.readRow(v.blockView.StorageView(), physKey)
+	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, addr[:], key[:])
 	if !found {
 		return gigatypes.Hash{}
 	}
 	storage, err := vtype.ParseStorageRow(raw)
 	if err != nil {
-		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v", physKey, v.blockView.BlockHeight(), err))
+		panic(fmt.Sprintf("flatkv: parse storage %x/%x at height %d: %v",
+			addr, key, v.blockView.BlockHeight(), err))
 	}
 	if storage.IsDelete() {
 		return gigatypes.Hash{}
@@ -157,12 +155,13 @@ func (v *flatKVStateView) GetCodeSize(addr gigatypes.Address) int {
 // physKeyBufLen holds the longest EVM physical key: "evm/" + kind byte + address + slot.
 const physKeyBufLen = len(keys.EVMStoreKey) + 2 + ktype.AddressLen + ktype.SlotLen
 
+// physKeyBufs holds scratch buffers for building physical keys that live only for one read.
+var physKeyBufs = sync.Pool{New: func() any { return new([physKeyBufLen]byte) }}
+
 // accountRow returns addr's account row, or false when no account exists in this block. The row
 // aliases store memory and is valid until the view is closed.
 func (v *flatKVStateView) accountRow(addr gigatypes.Address) (vtype.AccountRow, bool) {
-	var buf [physKeyBufLen]byte
-	physKey := ktype.AppendEVMPhysicalKey(buf[:0], ktype.EVMKeyAccount, addr[:])
-	raw, found := v.readRow(v.blockView.AccountView(), physKey)
+	raw, found := v.readEVMRow(v.blockView.AccountView(), ktype.EVMKeyAccount, addr[:])
 	if !found {
 		return vtype.AccountRow{}, false
 	}
@@ -179,7 +178,7 @@ func (v *flatKVStateView) accountRow(addr gigatypes.Address) (vtype.AccountRow, 
 // accountData returns the account row for the 20-byte address in keyBytes, or nil when no account
 // exists in this block.
 func (v *flatKVStateView) accountData(keyBytes []byte) *vtype.AccountData {
-	raw, found := v.readRow(v.blockView.AccountView(), ktype.EVMPhysicalKey(ktype.EVMKeyAccount, keyBytes))
+	raw, found := v.readEVMRow(v.blockView.AccountView(), ktype.EVMKeyAccount, keyBytes)
 	account, err := parseRow(raw, found, vtype.DeserializeAccountData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse account %x at height %d: %v",
@@ -193,7 +192,7 @@ func (v *flatKVStateView) accountData(keyBytes []byte) *vtype.AccountData {
 
 // storageData returns the storage row for the addr||slot in keyBytes, or nil when the slot is unset.
 func (v *flatKVStateView) storageData(keyBytes []byte) *vtype.StorageData {
-	raw, found := v.readRow(v.blockView.StorageView(), ktype.EVMPhysicalKey(keys.EVMKeyStorage, keyBytes))
+	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, keyBytes)
 	storage, err := parseRow(raw, found, vtype.DeserializeStorageData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse storage %x at height %d: %v",
@@ -207,7 +206,7 @@ func (v *flatKVStateView) storageData(keyBytes []byte) *vtype.StorageData {
 
 // codeData returns the code row for the 20-byte address in keyBytes, or nil when it has no code.
 func (v *flatKVStateView) codeData(keyBytes []byte) *vtype.CodeData {
-	raw, found := v.readRow(v.blockView.CodeView(), ktype.EVMPhysicalKey(keys.EVMKeyCode, keyBytes))
+	raw, found := v.readEVMRow(v.blockView.CodeView(), keys.EVMKeyCode, keyBytes)
 	code, err := parseRow(raw, found, vtype.DeserializeCodeData)
 	if err != nil {
 		panic(fmt.Sprintf("flatkv: parse code for %x at height %d: %v",
@@ -232,6 +231,20 @@ func (v *flatKVStateView) miscValue(module string, keyBytes []byte) ([]byte, boo
 	}
 	value := misc.GetValue()
 	return value, value != nil
+}
+
+// readEVMRow returns the bytes stored under an EVM physical key for kind and key parts.
+func (v *flatKVStateView) readEVMRow(dbView view.View, kind keys.EVMKeyKind, keyParts ...[]byte) ([]byte, bool) {
+	buf := physKeyBufs.Get().(*[physKeyBufLen]byte)
+	physKey := ktype.AppendEVMPhysicalKey(buf[:0], kind, keyParts[0])
+	for _, keyPart := range keyParts[1:] {
+		physKey = append(physKey, keyPart...)
+	}
+	value, found := v.readRow(dbView, physKey)
+	// Not deferred: readRow panics when the manager shuts down while a read worker may still hold
+	// physKey, and a buffer that may still be read must not go back to the pool.
+	physKeyBufs.Put(buf)
+	return value, found
 }
 
 // readRow returns the bytes stored under physKey, without deserializing them.

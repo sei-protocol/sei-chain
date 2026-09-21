@@ -68,3 +68,104 @@ func BenchmarkStateViewGetCode(b *testing.B) {
 		v.GetCode(addr)
 	}
 }
+
+func BenchmarkStateViewGetNonce(b *testing.B) {
+	v, addr := benchView(b)
+	require.Equal(b, uint64(7), v.GetNonce(addr))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v.GetNonce(addr)
+	}
+}
+
+func BenchmarkStateViewAccountExists(b *testing.B) {
+	v, addr := benchView(b)
+	require.True(b, v.AccountExists(addr))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v.AccountExists(addr)
+	}
+}
+
+func BenchmarkStateViewGetCodeHash(b *testing.B) {
+	v, addr := benchView(b)
+	require.Equal(b, gigatypes.EmptyCodeHash, v.GetCodeHash(addr))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v.GetCodeHash(addr)
+	}
+}
+
+func BenchmarkStateViewGetCodeSize(b *testing.B) {
+	v, addr := benchView(b)
+	require.Equal(b, 8*1024, v.GetCodeSize(addr))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v.GetCodeSize(addr)
+	}
+}
+
+func BenchmarkStateViewGetStorageMiss(b *testing.B) {
+	v, addr := benchView(b)
+	slot := gigatypes.Hash(slotN(2))
+	require.Equal(b, gigatypes.Hash{}, v.GetStorage(addr, slot))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v.GetStorage(addr, slot)
+	}
+}
+
+func BenchmarkStateViewGetLogical(b *testing.B) {
+	v, addr := benchView(b)
+	slot := gigatypes.Hash(slotN(1))
+	storageKey := append(append([]byte(nil), addr[:]...), slot[:]...)
+
+	b.Run("nonce", func(b *testing.B) {
+		key := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+		_, found := v.Get(keys.EVMStoreKey, key)
+		require.True(b, found)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			v.Get(keys.EVMStoreKey, key)
+		}
+	})
+
+	b.Run("balance", func(b *testing.B) {
+		key := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+		_, found := v.Get(keys.EVMStoreKey, key)
+		require.True(b, found)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			v.Get(keys.EVMStoreKey, key)
+		}
+	})
+
+	b.Run("storage", func(b *testing.B) {
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, storageKey)
+		_, found := v.Get(keys.EVMStoreKey, key)
+		require.True(b, found)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			v.Get(keys.EVMStoreKey, key)
+		}
+	})
+
+	b.Run("code", func(b *testing.B) {
+		key := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+		_, found := v.Get(keys.EVMStoreKey, key)
+		require.True(b, found)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			v.Get(keys.EVMStoreKey, key)
+		}
+	})
+}
