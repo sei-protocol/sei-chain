@@ -74,7 +74,6 @@ func newFakeStateWAL(t *testing.T, f *fakeWAL) StateWAL {
 func requireBricked(t *testing.T, w StateWAL) {
 	t.Helper()
 	require.ErrorIs(t, w.Write(999, nil), errInjected)
-	require.ErrorIs(t, w.SignalEndOfBlock(), errInjected)
 	require.ErrorIs(t, w.Flush(), errInjected)
 	_, _, _, err := w.GetStoredRange()
 	require.ErrorIs(t, err, errInjected)
@@ -90,8 +89,7 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 		f := &fakeWAL{}
 		w := newFakeStateWAL(t, f)
 		f.appendErr = errInjected
-		require.NoError(t, w.Write(1, nil))
-		require.ErrorIs(t, w.SignalEndOfBlock(), errInjected)
+		require.ErrorIs(t, w.Write(1, nil), errInjected)
 		requireBricked(t, w)
 	})
 
@@ -131,14 +129,13 @@ func TestFatalErrorsBrickWAL(t *testing.T) {
 }
 
 // TestAppendFailureDoesNotSilentlyAdvance verifies the Bugbot scenario: when the append for a block fails,
-// the block is not silently finalized. The WAL is bricked, so a write to the next block is rejected rather
-// than skipping the lost block.
+// the write head is not advanced past it. The WAL is bricked, so a write to the next block is rejected
+// rather than skipping the lost block.
 func TestAppendFailureDoesNotSilentlyAdvance(t *testing.T) {
 	f := &fakeWAL{appendErr: errInjected}
 	w := newFakeStateWAL(t, f)
 
-	require.NoError(t, w.Write(1, nil))
-	require.ErrorIs(t, w.SignalEndOfBlock(), errInjected)
+	require.ErrorIs(t, w.Write(1, nil), errInjected)
 
 	require.ErrorIs(t, w.Write(2, nil), errInjected)
 	require.Empty(t, f.appended)

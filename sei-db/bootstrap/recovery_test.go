@@ -73,7 +73,6 @@ func writeReceipts(t *testing.T, manager *GigaStorageManager, through uint64) {
 func writeWALOnly(t *testing.T, wal statewal.StateWAL, block uint64, changesets []*proto.NamedChangeSet) {
 	t.Helper()
 	require.NoError(t, wal.Write(block, changesets))
-	require.NoError(t, wal.SignalEndOfBlock())
 	require.NoError(t, wal.Flush())
 }
 

@@ -19,20 +19,11 @@ import (
 // plain key round-trips without EVM key encoding getting in the way of what is being tested.
 const testModule = "bank"
 
-// Names recorded in the WAL call log, one per call the fan-out is expected to make.
-const (
-	walWriteCall      = "wal.Write"
-	walEndOfBlockCall = "wal.SignalEndOfBlock"
-)
-
 // fakeStateWAL stands in for the state WAL so a test can watch what StateDB writes to it, and fail it
 // on demand. It embeds StateWAL without implementing it, so any method StateDB is not expected to call
 // panics on the nil interface rather than answering with a zero value.
 type fakeStateWAL struct {
 	statewal.StateWAL
-
-	// Calls made, in order.
-	calls []string
 
 	// Block numbers passed to Write, in call order.
 	writtenBlocks []uint64
@@ -42,21 +33,12 @@ type fakeStateWAL struct {
 
 	// The error Write returns.
 	writeErr error
-
-	// The error SignalEndOfBlock returns.
-	endOfBlockErr error
 }
 
 func (w *fakeStateWAL) Write(blockNumber uint64, cs []*proto.NamedChangeSet) error {
-	w.calls = append(w.calls, walWriteCall)
 	w.writtenBlocks = append(w.writtenBlocks, blockNumber)
 	w.writtenChangesets = append(w.writtenChangesets, cs)
 	return w.writeErr
-}
-
-func (w *fakeStateWAL) SignalEndOfBlock() error {
-	w.calls = append(w.calls, walEndOfBlockCall)
-	return w.endOfBlockErr
 }
 
 // newTestStateDB builds a StateDB over a fake WAL and a real FlatKV store. The store is constructed
@@ -130,17 +112,6 @@ func TestCommitStateChangesReachesTheEVMStateStore(t *testing.T) {
 	require.Equal(t, value, got)
 }
 
-// The WAL yields a block to readers only once it has been told the block is over, and discards an
-// un-ended one on Close. A commit that writes without ending leaves nothing anyone can read back.
-func TestCommitStateChangesEndsTheBlockInTheWAL(t *testing.T) {
-	stateDB, wal, _ := newTestStateDB(t)
-
-	require.NoError(t, stateDB.CommitStateChanges(1, changeset("key", "value")))
-
-	require.Equal(t, []string{walWriteCall, walEndOfBlockCall}, wal.calls,
-		"a block must be ended in the WAL after it is written")
-}
-
 // A block that could not be written to every layer is not committed. The caller has to learn that from
 // the error, rather than from a later read finding the layers disagree.
 func TestCommitStateChangesStopsWhenTheWALWriteFails(t *testing.T) {
@@ -153,20 +124,6 @@ func TestCommitStateChangesStopsWhenTheWALWriteFails(t *testing.T) {
 	require.ErrorContains(t, err, "wal is bricked")
 	require.Equal(t, int64(0), liveStateDB.Version(),
 		"the live state DB must not commit once the WAL has refused the block")
-}
-
-// A block the WAL was never told had ended is one it will not yield to a reader, so the fan-out did
-// not complete and must not be reported as though it had.
-func TestCommitStateChangesStopsWhenEndingTheBlockFails(t *testing.T) {
-	stateDB, wal, liveStateDB := newTestStateDB(t)
-	wal.endOfBlockErr = errors.New("wal is bricked")
-
-	err := stateDB.CommitStateChanges(1, changeset("key", "value"))
-
-	require.ErrorContains(t, err, "end block 1 in state WAL")
-	require.ErrorContains(t, err, "wal is bricked")
-	require.Equal(t, int64(0), liveStateDB.Version(),
-		"the live state DB must not commit once the block could not be ended")
 }
 
 // The live state DB refusing a block is not something the caller can be left to discover later. The
@@ -190,7 +147,7 @@ func TestCommitStateChangesRefusesANegativeBlockNumber(t *testing.T) {
 	err := stateDB.CommitStateChanges(-1, changeset("key", "value"))
 
 	require.ErrorContains(t, err, "block number must not be negative")
-	require.Empty(t, wal.calls, "a refused block must reach neither the WAL nor the live state DB")
+	require.Empty(t, wal.writtenBlocks, "a refused block must reach neither the WAL nor the live state DB")
 	require.Equal(t, int64(0), liveStateDB.Version())
 }
 
