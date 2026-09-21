@@ -328,7 +328,7 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]
 		return m
 	}
 
-	var keyBuf []byte
+	keyBuf := make([]byte, 0, physKeyBufLen)
 	for _, cs := range changeSets {
 		if cs == nil || len(cs.Changeset.Pairs) == 0 {
 			continue
