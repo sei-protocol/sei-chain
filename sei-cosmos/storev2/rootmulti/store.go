@@ -319,6 +319,11 @@ func (rs *Store) flush() error {
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
 
+// Flush blocks until every committed version is durable in the commit store.
+func (rs *Store) Flush() error {
+	return rs.scStore.Flush()
+}
+
 func (rs *Store) Close() error {
 	err := rs.scStore.Close()
 	if rs.ssStore != nil {

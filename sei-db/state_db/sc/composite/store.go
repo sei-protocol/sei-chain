@@ -1589,6 +1589,19 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 	return NewImporter(memIAVLImporter, flatKVImporter, flatKVFactory), nil
 }
 
+// Flush blocks until every committed version is durable in each backend.
+// FlatKV persists its block WAL synchronously in Commit, so only MemIAVL's
+// asynchronously written changelog needs waiting on.
+func (cs *CompositeCommitStore) Flush() error {
+	if cs.memIAVL == nil {
+		return nil
+	}
+	if err := cs.memIAVL.Flush(); err != nil {
+		return fmt.Errorf("failed to flush cosmos: %w", err)
+	}
+	return nil
+}
+
 // Close closes all backends
 func (cs *CompositeCommitStore) Close() error {
 	var errs []error

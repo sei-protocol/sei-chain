@@ -174,6 +174,10 @@ type Committer interface {
 	// batch, on the consensus goroutine.
 	SetMigrationBatchSize(batchSize int) error
 
+	// Flush blocks until every version committed so far is durable on disk.
+	// Backends that already persist synchronously in Commit return immediately.
+	Flush() error
+
 	// Closer releases all backing resources (open files, background
 	// goroutines, locks). After Close the Committer must not be used.
 	io.Closer

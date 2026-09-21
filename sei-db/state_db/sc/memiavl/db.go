@@ -476,6 +476,33 @@ func (db *DB) checkAsyncTasks() error {
 	return db.checkBackgroundSnapshotRewrite()
 }
 
+// waitForPendingWALWrites blocks until the changelog WAL holds every version
+// committed so far. In real world, block execution should be slower than tree
+// updates, so this should not block for long.
+func (db *DB) waitForPendingWALWrites() error {
+	for {
+		committedVersion, err := db.CommittedVersion()
+		if err != nil {
+			return fmt.Errorf("get committed version failed: %w", err)
+		}
+		if db.lastCommitInfo.Version == committedVersion {
+			return nil
+		}
+		time.Sleep(time.Nanosecond)
+	}
+}
+
+// Flush blocks until every version committed so far is durable in the
+// changelog WAL.
+func (db *DB) Flush() error {
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+	if db.closed {
+		return errors.New("db is closed")
+	}
+	return db.waitForPendingWALWrites()
+}
+
 // CommittedVersion returns the current version of the MultiTree.
 func (db *DB) CommittedVersion() (int64, error) {
 	lastOffset, err := db.GetWAL().LastOffset()
@@ -513,17 +540,9 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 			otelMetrics.NumSnapshotRewriteAttempts.Add(context.Background(), 1, metric.WithAttributes(attribute.String("success", "true")))
 		}
 
-		// wait for potential pending writes to finish, to make sure we catch up to latest state.
-		// in real world, block execution should be slower than tree updates, so this should not block for long.
-		for {
-			committedVersion, err := db.CommittedVersion()
-			if err != nil {
-				return fmt.Errorf("get committed version failed: %w", err)
-			}
-			if db.lastCommitInfo.Version == committedVersion {
-				break
-			}
-			time.Sleep(time.Nanosecond)
+		// make sure the new tree catches up to the latest state.
+		if err := db.waitForPendingWALWrites(); err != nil {
+			return err
 		}
 
 		// catchup the remaining entries in rlog
