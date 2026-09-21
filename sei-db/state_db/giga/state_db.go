@@ -351,9 +351,6 @@ func (s *StateDB) CommitStateChanges(blockNum int64, changeset []*proto.NamedCha
 	if err := s.wal.Write(uint64(blockNum), changeset); err != nil {
 		return fmt.Errorf("write block %d to state WAL: %w", blockNum, err)
 	}
-	if err := s.wal.SignalEndOfBlock(); err != nil {
-		return fmt.Errorf("end block %d in state WAL: %w", blockNum, err)
-	}
 
 	s.commitPhases.SetPhase("commit_sc")
 	if err := s.sc.CommitStateChanges(blockNum, changeset); err != nil {
