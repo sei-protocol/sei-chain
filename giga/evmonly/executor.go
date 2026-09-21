@@ -42,6 +42,7 @@ type Executor struct {
 	blockEncoderReadsStore bool
 	missingState           StateReader
 	closed                 atomic.Bool
+	plainTransfers         atomic.Uint64
 
 	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
 	// serves the executor.
@@ -272,13 +273,11 @@ func (e *Executor) releaseStateDB(stateDB *nativeStateDB) {
 }
 
 func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock, source StateReader) (*BlockResult, error) {
-	chainConfig := e.chainConfig(req.Context)
+	env := e.newBlockExecEnv(req.Context, customPrecompileMap(e.cfg.CustomPrecompiles))
 
 	stateDB := e.acquireStateDB(source)
 	defer e.releaseStateDB(stateDB)
-	blockCtx := buildBlockContext(req.Context)
-	evm := vm.NewEVM(blockCtx, stateDB, chainConfig, vm.Config{}, customPrecompileMap(e.cfg.CustomPrecompiles))
-	stateDB.SetEVM(evm)
+	evm := newTxEVM(env, stateDB)
 
 	gasPool := new(core.GasPool).AddGas(req.Context.GasLimit)
 	baseFee := cloneOptionalBig(req.Context.BaseFee)
@@ -319,7 +318,7 @@ func (e *Executor) executeBlockSequential(ctx context.Context, req PreparedBlock
 }
 
 func (e *Executor) executeTx(
-	evm *vm.EVM,
+	evm *txEVM,
 	stateDB *nativeStateDB,
 	gasPool *core.GasPool,
 	block BlockContext,
@@ -347,26 +346,14 @@ func (e *Executor) executeTx(
 
 	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
-	snapshot := stateDB.Snapshot()
-	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
-	poolGas := gasPool.Gas()
-	evm.SetTxContext(core.NewEVMTxContext(msg))
-	execResult, err := core.ApplyMessage(evm, msg, gasPool)
-	// Read before any revert: RevertToSnapshot restores the recorded error too.
-	if stateErr := stateDB.Error(); stateErr != nil {
-		return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: stateErr}, nil, stateErr
-	}
+	execResult, err := e.applyMessage(evm, stateDB, gasPool, msg)
 	if err != nil {
 		if !e.cfg.RejectUnappliableTxs {
 			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: err}, nil, err
 		}
-		stateDB.RevertToSnapshot(snapshot)
-		stateDB.clearSnapshots()
-		gasPool.SetGas(poolGas)
 		txResult, receipt := rejectedTx(p, block, txIndexUint, baseFee, err)
 		return txResult, receipt, nil
 	}
-	stateDB.clearSnapshots()
 	stateDB.Finalise(true)
 
 	txLogs := append([]*ethtypes.Log(nil), stateDB.logs[logStart:]...)
@@ -415,6 +402,49 @@ func (e *Executor) executeTx(
 		Err:               execResult.Err,
 	}
 	return txResult, receipt, nil
+}
+
+// applyMessage transitions the state by msg: through the plain-transfer path when
+// msg is a value transfer to a codeless account, through core.ApplyMessage
+// otherwise. On error the state and gas pool are as they were before the call,
+// except for a StateDB fault, which is returned as is.
+func (e *Executor) applyMessage(evm *txEVM, stateDB *nativeStateDB, gasPool *core.GasPool, msg *core.Message) (*core.ExecutionResult, error) {
+	if !e.cfg.DisablePlainTransferFastPath && evm.env.plainTransferCandidate(msg) {
+		execResult, applied, err := evm.env.applyPlainTransfer(stateDB, gasPool, msg)
+		if applied {
+			if stateErr := stateDB.Error(); stateErr != nil {
+				return nil, stateErr
+			}
+			if err == nil {
+				e.plainTransfers.Add(1)
+			}
+			return execResult, err
+		}
+	}
+	snapshot := stateDB.Snapshot()
+	// ApplyMessage debits the pool in buyGas before later pre-checks can fail.
+	poolGas := gasPool.Gas()
+	vmEVM := evm.get()
+	vmEVM.SetTxContext(core.NewEVMTxContext(msg))
+	execResult, err := core.ApplyMessage(vmEVM, msg, gasPool)
+	// Read before any revert: RevertToSnapshot restores the recorded error too.
+	if stateErr := stateDB.Error(); stateErr != nil {
+		return nil, stateErr
+	}
+	if err != nil {
+		stateDB.RevertToSnapshot(snapshot)
+		stateDB.clearSnapshots()
+		gasPool.SetGas(poolGas)
+		return nil, err
+	}
+	stateDB.clearSnapshots()
+	return execResult, nil
+}
+
+// PlainTransfers returns how many transactions this executor has applied through
+// the plain-transfer path, speculative executions included.
+func (e *Executor) PlainTransfers() uint64 {
+	return e.plainTransfers.Load()
 }
 
 // rejectedTx builds the failed, zero-gas receipt and result for a transaction the

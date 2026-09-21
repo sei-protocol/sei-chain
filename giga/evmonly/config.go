@@ -35,6 +35,9 @@ type Config struct {
 	// block. Off by default, which keeps geth's rule that such a block is invalid.
 	// Unlike DisableNonceCheck, the transaction does not run.
 	RejectUnappliableTxs bool
+	// DisablePlainTransferFastPath runs every transaction through core.ApplyMessage,
+	// including value transfers to codeless accounts, which otherwise skip the EVM.
+	DisablePlainTransferFastPath bool
 }
 
 func DefaultConfig() Config {
