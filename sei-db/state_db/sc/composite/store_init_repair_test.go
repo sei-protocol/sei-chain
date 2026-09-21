@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -110,7 +109,7 @@ func stampSeedRecords(t *testing.T, flatkvDir string, version int64, dbDirs ...s
 		pcfg := pebbledb.DefaultConfig()
 		pcfg.DataDir = filepath.Join(flatkvDir, "working", dbDir)
 		pcfg.EnableMetrics = false
-		db, err := pebbledb.Open(t.Context(), &pcfg, threading.NewAdHocPool())
+		db, err := pebbledb.Open(t.Context(), &pcfg)
 		require.NoError(t, err)
 		opts := dbtypes.WriteOptions{Sync: true}
 		require.NoError(t, db.Set(ktype.MetaVersionKey, versionBytes, opts))

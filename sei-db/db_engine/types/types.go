@@ -2,7 +2,6 @@ package types
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -90,51 +89,28 @@ type KeyValueDB interface {
 }
 
 // Batch is a set of modifications to apply atomically (business-agnostic).
-//
-// Keys and values handed to a batch are retained until its commit completes, so a caller that reuses
-// a buffer must not refill it before then.
-//
-// A batch may be committed once. Set, Delete, SetAll and Commit report an error once it has been,
-// rather than quietly starting a second batch.
-//
-// Using a batch after its database has been closed is illegal. Doing so is defined only not to
-// deadlock and not to panic: the batch goes unapplied, and nothing further is promised about which
-// call reports it.
 type Batch interface {
 	Set(key, value []byte) error
 	Delete(key []byte) error
 
-	// SetAll applies every entry in writes, a nil value meaning a delete.
-	SetAll(writes map[string][]byte) error
+	// SetString sets the value for the given key, which the implementation must not retain: a
+	// string key lets the caller pass a map key straight through without converting it to bytes.
+	SetString(key string, value []byte) error
 
-	// Commit hands the batch to the engine and returns a handle reporting when it has been applied.
-	// The batch is applied atomically: after a crash it is either fully present or fully absent.
+	// DeleteString deletes the value for the given key, which the implementation must not retain.
+	DeleteString(key string) error
+
+	// Commit applies the batch atomically: after a crash it is either fully present or fully absent.
 	// Sequential commits on the same DB become durable in commit order — a crash may lose a suffix of
 	// commits, never an earlier commit while retaining a later one.
-	//
-	// The batch is applied after Commit returns, so a caller that needs the writes readable, or needs
-	// to know whether they landed, waits on the handle. The batch is spent afterwards.
-	Commit(opts WriteOptions) (CommitHandle, error)
+	Commit(opts WriteOptions) error
 
 	// Len returns the current encoded size of the batch in bytes — NOT the number of buffered
 	// operations. Callers (e.g. the snapshot engine's flush batching) size batches by bytes;
 	// implementations must preserve this unit.
 	Len() int
-}
-
-// CommitHandle reports the outcome of a batch commit the engine has taken over but not yet applied.
-type CommitHandle interface {
-	// Wait blocks until the batch has been applied, reporting what applying it produced.
-	Wait() error
-}
-
-// CommitAndWait commits the batch and blocks until it has been applied.
-func CommitAndWait(batch Batch, opts WriteOptions) error {
-	handle, err := batch.Commit(opts)
-	if err != nil {
-		return fmt.Errorf("failed to commit batch: %w", err)
-	}
-	return handle.Wait()
+	Reset()
+	io.Closer
 }
 
 // Checkpointable is an optional capability for DB engines that support

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
@@ -135,7 +134,7 @@ func makeChangeSet(key, value []byte, delete bool) *proto.NamedChangeSet {
 func setupTestDB(t *testing.T) types.KeyValueDB {
 	t.Helper()
 	cfg := pebbledb.DefaultTestConfig(t)
-	db, err := pebbledb.Open(t.Context(), &cfg, threading.NewAdHocPool())
+	db, err := pebbledb.Open(t.Context(), &cfg)
 	require.NoError(t, err)
 	return db
 }

@@ -176,6 +176,28 @@ func TestTargetBytesPerFlushSplitsIntoMultipleCommits(t *testing.T) {
 		"a multi-version flush should split into multiple commits at the TargetBytesPerFlush boundary")
 }
 
+// Every batch the flusher creates must be closed after commit: the types.Batch contract requires
+// Close even on success (pebble batches leak memory otherwise). Regression test: the flusher used
+// to commit batches without ever closing them.
+func TestFlushClosesEveryBatch(t *testing.T) {
+	db := newTestDB(nil)
+	cfg := newTestConfig(1, 1<<20)
+	cfg.TargetBytesPerFlush = 64 // force multiple batches across the flushed versions
+	cfg.MaxUnflushedVersions = 64
+	manager := newTestManagerWithConfig(t, cfg, db)
+
+	const versions = 5
+	for i := 0; i < versions; i++ {
+		require.NoError(t, manager.Set([]byte{byte('a' + i)}, []byte("v")))
+		commitFinalizeRelease(t, manager)
+	}
+	awaitRetired(t, manager, versions) // last version retired => everything flushed
+
+	require.Greater(t, db.batchesCreated.Load(), int64(1), "expected the flush to span multiple batches")
+	require.Equal(t, db.batchesCreated.Load(), db.batchesClosed.Load(),
+		"every created batch must be closed exactly once")
+}
+
 func TestReserveAfterRetirementFails(t *testing.T) {
 	manager, _ := newTestManager(t, nil, 1, 1<<20)
 	require.NoError(t, manager.Set([]byte("k"), []byte("v")))

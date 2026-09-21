@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -21,7 +20,7 @@ func withTestConfig(t *testing.T, fn func(t *testing.T, cfg PebbleDBConfig)) {
 
 func openDB(t *testing.T, cfg *PebbleDBConfig) types.KeyValueDB {
 	t.Helper()
-	db, err := Open(t.Context(), cfg, threading.NewAdHocPool())
+	db, err := Open(t.Context(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
@@ -29,7 +28,7 @@ func openDB(t *testing.T, cfg *PebbleDBConfig) types.KeyValueDB {
 
 func openUncachedPebbleDB(t *testing.T, cfg *PebbleDBConfig) *pebbleDB {
 	t.Helper()
-	db, err := Open(t.Context(), cfg, threading.NewAdHocPool())
+	db, err := Open(t.Context(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	pdb, ok := db.(*pebbleDB)
@@ -69,9 +68,11 @@ func TestBatchAtomicWrite(t *testing.T) {
 		db := openDB(t, &cfg)
 
 		b := db.NewBatch()
+		t.Cleanup(func() { require.NoError(t, b.Close()) })
+
 		require.NoError(t, b.Set([]byte("a"), []byte("1")))
 		require.NoError(t, b.Set([]byte("b"), []byte("2")))
-		require.NoError(t, types.CommitAndWait(b, types.WriteOptions{Sync: false}))
+		require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
 
 		for _, tc := range []struct{ k, v string }{{"a", "1"}, {"b", "2"}} {
 			got, err := db.Get([]byte(tc.k))
@@ -107,21 +108,26 @@ func TestGetReturnsCopy(t *testing.T) {
 	require.Equal(t, "v", string(got2), "stored value should remain unchanged")
 }
 
-func TestBatchLenAndDelete(t *testing.T) {
+func TestBatchLenResetDelete(t *testing.T) {
 	withTestConfig(t, func(t *testing.T, cfg PebbleDBConfig) {
 		db := openDB(t, &cfg)
 
 		require.NoError(t, db.Set([]byte("to-delete"), []byte("val"), types.WriteOptions{Sync: false}))
 
 		b := db.NewBatch()
+		t.Cleanup(func() { require.NoError(t, b.Close()) })
+
 		initialLen := b.Len()
 
 		require.NoError(t, b.Set([]byte("a"), []byte("1")))
 		require.NoError(t, b.Delete([]byte("to-delete")))
 		require.Greater(t, b.Len(), initialLen)
 
+		b.Reset()
+		require.Equal(t, initialLen, b.Len())
+
 		require.NoError(t, b.Set([]byte("b"), []byte("2")))
-		require.NoError(t, types.CommitAndWait(b, types.WriteOptions{Sync: false}))
+		require.NoError(t, b.Commit(types.WriteOptions{Sync: false}))
 
 		got, err := db.Get([]byte("b"))
 		require.NoError(t, err)
@@ -211,7 +217,7 @@ func TestIteratorSeekLTAndValue(t *testing.T) {
 
 func TestCloseIsIdempotent(t *testing.T) {
 	cfg := DefaultTestConfig(t)
-	db, err := Open(t.Context(), &cfg, threading.NewAdHocPool())
+	db, err := Open(t.Context(), &cfg)
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())

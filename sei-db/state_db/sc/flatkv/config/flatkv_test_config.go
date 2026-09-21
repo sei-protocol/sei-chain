@@ -46,6 +46,7 @@ func DefaultTestConfig(t *testing.T) *Config {
 		ReaderPoolQueueSize:    1024,
 		MiscPoolThreadsPerCore: 4.0,
 		LtHashThreadsPerCore:   1.0,
+		SortThreadsPerCore:     0.25,
 		HashEngineConfig:       *lthash.DefaultConfig(),
 		FinalizationQueueSize:  64,
 	}

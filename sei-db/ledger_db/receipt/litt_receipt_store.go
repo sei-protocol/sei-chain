@@ -18,7 +18,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
@@ -70,10 +69,7 @@ type littReceiptStore struct {
 	values   litt.DB
 	receipts litt.Table
 	index    dbtypes.KeyValueDB
-
-	// The pool index runs its CPU-bound work on.
-	indexCPUPool threading.Pool
-	storeKey     sdk.StoreKey
+	storeKey sdk.StoreKey
 
 	latestVersion   atomic.Int64
 	earliestVersion atomic.Int64
@@ -235,11 +231,9 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 
 	indexCfg := pebbledb.DefaultConfig()
 	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, littIndexDirName)
-	s.indexCPUPool = newIndexCPUPool()
-	index, err := pebbledb.Open(context.Background(), &indexCfg, s.indexCPUPool)
+	index, err := pebbledb.Open(context.Background(), &indexCfg)
 	if err != nil {
 		_ = values.Close()
-		s.indexCPUPool.Close()
 		return nil, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
 	s.index = index
@@ -385,6 +379,7 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord)
 	defer s.writePhases.Reset()
 
 	batch := s.index.NewBatch()
+	defer func() { _ = batch.Close() }()
 
 	for _, blockNumber := range blockNumbers {
 		if err := s.writeBlock(batch, blockNumber, receiptsByBlock[blockNumber]); err != nil {
@@ -401,7 +396,7 @@ func (s *littReceiptStore) applyReceipts(height int64, receipts []ReceiptRecord)
 		}
 	}
 	s.writePhases.SetPhase("commit_index")
-	if err := dbtypes.CommitAndWait(batch, dbtypes.WriteOptions{}); err != nil {
+	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
 		return err
 	}
 	s.latestVersion.Store(newLatest)
@@ -580,7 +575,6 @@ func (s *littReceiptStore) Close() error {
 		if valuesErr := s.values.Close(); err == nil {
 			err = valuesErr
 		}
-		defer s.indexCPUPool.Close()
 		if indexErr := s.index.Close(); err == nil {
 			err = indexErr
 		}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -46,6 +45,14 @@ type testDB struct {
 	// Incremented when a Get reaches the store after Close. Lets tests assert that nothing read the
 	// database once it was released.
 	getsAfterClose atomic.Int64
+	// Batch lifecycle counters: batchesCreated increments in NewBatch, batchesClosed on a
+	// batch's first Close. Lets tests assert every created batch is released (types.Batch
+	// requires Close even after a successful Commit).
+	batchesCreated atomic.Int64
+	batchesClosed  atomic.Int64
+	// The ops of every committed batch, oldest batch first, in the order the flush appended them.
+	// Recorded because the store is a map and cannot show the order keys arrived in. Guarded by mu.
+	committedOps [][]testBatchOp
 }
 
 func newTestDB(seed map[string][]byte) *testDB {
@@ -148,6 +155,7 @@ func (d *testDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 }
 
 func (d *testDB) NewBatch() types.Batch {
+	d.batchesCreated.Add(1)
 	return &testBatch{db: d}
 }
 
@@ -159,6 +167,13 @@ func (d *testDB) Close() error {
 }
 
 func (d *testDB) isClosed() bool { return d.closed.Load() }
+
+// committedBatches returns the ops of every batch committed so far, oldest batch first.
+func (d *testDB) committedBatches() [][]testBatchOp {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return append([][]testBatchOp(nil), d.committedOps...)
+}
 
 func (d *testDB) has(key string) bool {
 	d.mu.RLock()
@@ -198,72 +213,41 @@ type testBatchOp struct {
 }
 
 type testBatch struct {
-	db        *testDB
-	ops       []testBatchOp
-	committed bool
+	db     *testDB
+	ops    []testBatchOp
+	closed bool
 }
 
-// errTestBatchCommitted mirrors what a real batch reports when it is used after being committed.
-var errTestBatchCommitted = errors.New("batch has already been committed")
-
 func (b *testBatch) Set(key, value []byte) error {
-	if b.committed {
-		return errTestBatchCommitted
-	}
 	b.ops = append(b.ops, testBatchOp{key: cloneBytes(key), value: cloneBytes(value)})
 	return nil
 }
 
 func (b *testBatch) Delete(key []byte) error {
-	if b.committed {
-		return errTestBatchCommitted
-	}
 	b.ops = append(b.ops, testBatchOp{key: cloneBytes(key), delete: true})
 	return nil
 }
 
-func (b *testBatch) SetAll(writes map[string][]byte) error {
-	if b.committed {
-		return errTestBatchCommitted
-	}
-	for key, value := range writes {
-		if value == nil {
-			if err := b.Delete([]byte(key)); err != nil {
-				return fmt.Errorf("failed to stage a delete: %w", err)
-			}
-			continue
-		}
-		if err := b.Set([]byte(key), value); err != nil {
-			return fmt.Errorf("failed to stage a set: %w", err)
-		}
-	}
-	return nil
+func (b *testBatch) SetString(key string, value []byte) error {
+	return b.Set([]byte(key), value)
 }
 
-// doneCommit is the handle this fake hands back, the write having already been applied.
-type doneCommit struct {
-	err error
+func (b *testBatch) DeleteString(key string) error {
+	return b.Delete([]byte(key))
 }
 
-func (d doneCommit) Wait() error { return d.err }
-
-func (b *testBatch) Commit(_ types.WriteOptions) (types.CommitHandle, error) {
-	if b.committed {
-		return nil, errTestBatchCommitted
-	}
-	b.committed = true
+func (b *testBatch) Commit(_ types.WriteOptions) error {
 	b.db.commitEntered.Add(1)
 	if b.db.commitBlock != nil {
 		<-b.db.commitBlock
 	}
 	if b.db.commitErr != nil {
-		// Reported through the handle rather than from Commit, which is where a real engine reports
-		// what the write produced.
-		return doneCommit{err: b.db.commitErr}, nil
+		return b.db.commitErr
 	}
 	b.db.commitCount.Add(1)
 	b.db.mu.Lock()
 	defer b.db.mu.Unlock()
+	b.db.committedOps = append(b.db.committedOps, append([]testBatchOp(nil), b.ops...))
 	for _, op := range b.ops {
 		if op.delete {
 			delete(b.db.store, string(op.key))
@@ -272,7 +256,7 @@ func (b *testBatch) Commit(_ types.WriteOptions) (types.CommitHandle, error) {
 		}
 	}
 	b.ops = nil
-	return doneCommit{}, nil
+	return nil
 }
 
 // Len mirrors pebble's wire encoding (12-byte header, then per op: a kind byte, uvarint lengths,
@@ -297,6 +281,14 @@ func uvarintLen(x uint64) int {
 		n++
 	}
 	return n
+}
+func (b *testBatch) Reset() { b.ops = nil }
+func (b *testBatch) Close() error {
+	if !b.closed {
+		b.closed = true
+		b.db.batchesClosed.Add(1)
+	}
+	return nil
 }
 
 // --- manager construction helpers ---
@@ -329,7 +321,7 @@ func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) 
 func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testDB) ViewManager {
 	t.Helper()
 	pool := threading.NewAdHocPool()
-	manager, err := NewViewManager(config, db, pool, pool)
+	manager, err := NewViewManager(config, db, pool, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = manager.Close()
@@ -367,6 +359,18 @@ const testHashKey = "_meta/hash"
 // what a real consumer emits.
 func hashWrites(hash []byte) []*proto.KVPair {
 	return []*proto.KVPair{{Key: []byte(testHashKey), Value: hash}}
+}
+
+// collectDiff gathers a view's writes into a map, for tests that assert on the whole set rather than on
+// the order it arrives in.
+func collectDiff(t *testing.T, view View) map[string][]byte {
+	t.Helper()
+	diff := make(map[string][]byte)
+	require.NoError(t, view.ForEachDiff(func(key string, value []byte) error {
+		diff[key] = value
+		return nil
+	}))
+	return diff
 }
 
 func finalizeAndRelease(t *testing.T, view View) {

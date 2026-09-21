@@ -10,7 +10,6 @@ import (
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -826,11 +825,12 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 	// directories on its own copy of the config, so ask for the same resolution to reach the files it
 	// opened rather than reading a path back off cfg.
 	resolved := resolveConfig(cfg)
-	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig, threading.NewAdHocPool())
+	corrupt, err := pebbledb.Open(t.Context(), &resolved.AccountDBConfig)
 	require.NoError(t, err)
 	batch := corrupt.NewBatch()
 	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
-	require.NoError(t, dbtypes.CommitAndWait(batch, dbtypes.WriteOptions{Sync: true}))
+	require.NoError(t, batch.Commit(dbtypes.WriteOptions{Sync: true}))
+	_ = batch.Close()
 	require.NoError(t, corrupt.Close())
 
 	s, err := NewCommitStore(t.Context(), cfg, nil)

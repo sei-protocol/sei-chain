@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -644,7 +643,7 @@ func TestPerDBLtHashLevelsUpStoresAtDifferentHeights(t *testing.T) {
 	require.Equal(t, resolved.StorageDBConfig.DataDir, storageCfg.DataDir,
 		"the forged skew must target the directory the store opens, or this test proves nothing")
 	storageCfg.EnableMetrics = false
-	db, err := pebbledb.Open(t.Context(), &storageCfg, threading.NewAdHocPool())
+	db, err := pebbledb.Open(t.Context(), &storageCfg)
 	require.NoError(t, err)
 	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
