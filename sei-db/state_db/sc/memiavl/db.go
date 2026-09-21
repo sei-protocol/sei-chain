@@ -476,25 +476,36 @@ func (db *DB) checkAsyncTasks() error {
 	return db.checkBackgroundSnapshotRewrite()
 }
 
+// walHoldsCommittedVersions reports whether the changelog WAL holds every
+// version committed so far.
+func (db *DB) walHoldsCommittedVersions() (bool, error) {
+	committedVersion, err := db.CommittedVersion()
+	if err != nil {
+		return false, fmt.Errorf("get committed version failed: %w", err)
+	}
+	// The WAL is ahead of the tree when the tree was loaded at a historical version.
+	return committedVersion >= db.lastCommitInfo.Version, nil
+}
+
 // waitForPendingWALWrites blocks until the changelog WAL holds every version
 // committed so far.
 func (db *DB) waitForPendingWALWrites() error {
 	for {
-		committedVersion, err := db.CommittedVersion()
-		if err != nil {
-			return fmt.Errorf("get committed version failed: %w", err)
-		}
-		// The WAL is ahead of the tree when the tree was loaded at a historical version.
-		if committedVersion >= db.lastCommitInfo.Version {
-			return nil
+		done, err := db.walHoldsCommittedVersions()
+		if err != nil || done {
+			return err
 		}
 		// Block execution is slower than tree updates, so the writer is expected to catch up quickly.
 		time.Sleep(time.Nanosecond)
 	}
 }
 
+// flushTimeout bounds Flush so a wedged WAL writer cannot hold up a process exit.
+const flushTimeout = 10 * time.Second
+
 // Flush blocks until every version committed so far has been written to the
-// changelog WAL. A read-only DB has nothing pending and returns immediately.
+// changelog WAL, or until flushTimeout elapses, in which case it returns an
+// error. A read-only DB has nothing pending and returns immediately.
 func (db *DB) Flush() error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
@@ -504,7 +515,17 @@ func (db *DB) Flush() error {
 	if db.readOnly || db.streamHandler == nil {
 		return nil
 	}
-	return db.waitForPendingWALWrites()
+	deadline := time.Now().Add(flushTimeout)
+	for {
+		done, err := db.walHoldsCommittedVersions()
+		if err != nil || done {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("changelog WAL still behind version %d after %s", db.lastCommitInfo.Version, flushTimeout)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // CommittedVersion returns the current version of the MultiTree.

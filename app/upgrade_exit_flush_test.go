@@ -101,9 +101,8 @@ func TestUpgradeNeededPanicFlushesMemIAVLChangelog(t *testing.T) {
 	var panicked any
 	func() {
 		defer func() { panicked = recover() }()
-		_, err = finalizeEmptyBlock(testApp, planHeight)
+		_, _ = finalizeEmptyBlock(testApp, planHeight)
 	}()
-	require.NoError(t, err)
 	require.Contains(t, fmt.Sprint(panicked), fmt.Sprintf("UPGRADE %q NEEDED at height: %d", planName, planHeight))
 
 	persisted, err := memiavl.GetLatestVersion(utils.GetCosmosSCStorePath(home))
