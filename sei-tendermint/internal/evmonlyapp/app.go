@@ -30,10 +30,40 @@ func evmOnlyBaseFee() *big.Int { return new(big.Int) }
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
-// checkedSendersCap bounds the senders remembered from CheckTx. Entries are
-// dropped as their transactions execute; the cap only guards against admitted
-// transactions that never reach a block.
+// checkedSendersCap bounds the senders remembered from CheckTx per generation.
+// Entries are dropped as their transactions execute; the cap only guards against
+// admitted transactions that never reach a block.
 const checkedSendersCap = 1 << 18
+
+// senderCache remembers the sender recovered for each transaction hash. It keeps
+// two generations: inserts go to fresh, and once fresh reaches the cap it
+// becomes stale and the previous stale generation is forgotten, so the most
+// recent entries always survive a rollover.
+type senderCache struct {
+	fresh, stale map[common.Hash]common.Address
+}
+
+func newSenderCache() senderCache {
+	return senderCache{fresh: map[common.Hash]common.Address{}}
+}
+
+func (c *senderCache) put(hash common.Hash, sender common.Address) {
+	if len(c.fresh) >= checkedSendersCap {
+		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, len(c.fresh))
+	}
+	c.fresh[hash] = sender
+}
+
+// take returns the sender remembered for hash, if any, and forgets it.
+func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
+	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
+		if sender, ok := gen[hash]; ok {
+			delete(gen, hash)
+			return utils.Some(sender)
+		}
+	}
+	return utils.None[common.Address]()
+}
 
 type evmOnlyApplication struct {
 	abci.BaseApplication
@@ -47,7 +77,7 @@ type evmOnlyApplication struct {
 	// checkedSenders maps the hash of every transaction this process admitted
 	// in CheckTx to the sender recovered there, so execution does not recover
 	// it again.
-	checkedSenders utils.Mutex[map[common.Hash]common.Address]
+	checkedSenders utils.Mutex[*senderCache]
 }
 
 type evmOnlyState struct {
@@ -85,7 +115,7 @@ func NewEVMOnlyApplication(
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
-		checkedSenders:   utils.NewMutex(map[common.Hash]common.Address{}),
+		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 	}
 }
 
@@ -201,10 +231,7 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 
 func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {
 	for senders := range a.checkedSenders.Lock() {
-		if len(senders) >= checkedSendersCap {
-			clear(senders)
-		}
-		senders[hash] = sender
+		senders.put(hash, sender)
 	}
 }
 
@@ -216,11 +243,7 @@ func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Add
 	out := make([]utils.Option[common.Address], len(txs))
 	for senders := range a.checkedSenders.Lock() {
 		for i, raw := range txs {
-			hash := crypto.Keccak256Hash(raw)
-			if sender, ok := senders[hash]; ok {
-				out[i] = utils.Some(sender)
-				delete(senders, hash)
-			}
+			out[i] = senders.take(crypto.Keccak256Hash(raw))
 		}
 	}
 	return out

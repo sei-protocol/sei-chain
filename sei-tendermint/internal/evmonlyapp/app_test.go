@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -235,12 +236,12 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	require.True(t, check.IsOK())
 	require.Equal(t, sender, check.EVMSenderAddress)
 	for senders := range checked.checkedSenders.Lock() {
-		require.Equal(t, map[common.Hash]common.Address{decodeEVMOnlyTestTx(t, raw).Hash(): sender}, senders)
+		require.Equal(t, map[common.Hash]common.Address{decodeEVMOnlyTestTx(t, raw).Hash(): sender}, senders.fresh)
 	}
 	checkedResponse, err := checked.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
 	for senders := range checked.checkedSenders.Lock() {
-		require.Empty(t, senders)
+		require.Empty(t, senders.fresh)
 	}
 	uncheckedResponse, err := unchecked.FinalizeBlock(t.Context(), request)
 	require.NoError(t, err)
@@ -250,6 +251,20 @@ func TestEVMOnlyApplicationExecutesCheckedTxLikeUncheckedTx(t *testing.T) {
 	_, err = checked.Commit(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), checked.EvmNonce(sender))
+}
+
+func TestSenderCacheKeepsRecentEntriesAcrossRollover(t *testing.T) {
+	hashOf := func(i int) common.Hash { return common.BigToHash(big.NewInt(int64(i))) }
+	addrOf := func(i int) common.Address { return common.BigToAddress(big.NewInt(int64(i))) }
+	cache := newSenderCache()
+	for i := range 2*checkedSendersCap + 1 {
+		cache.put(hashOf(i), addrOf(i))
+	}
+
+	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(0)))
+	require.Equal(t, utils.Some(addrOf(checkedSendersCap)), cache.take(hashOf(checkedSendersCap)))
+	require.Equal(t, utils.Some(addrOf(2*checkedSendersCap)), cache.take(hashOf(2*checkedSendersCap)))
+	require.Equal(t, utils.None[common.Address](), cache.take(hashOf(checkedSendersCap)))
 }
 
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {

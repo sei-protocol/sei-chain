@@ -2,10 +2,12 @@ package evmonly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -72,8 +74,8 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer, se
 }
 
 // parsePreparedTx decodes raw and resolves its sender. The sender is taken from
-// known when present and the transaction is bound to signer's chain; otherwise
-// it is recovered from the signature.
+// known when present and signer would recover the same address; otherwise it is
+// recovered from the signature.
 func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[common.Address]) (PreparedTx, error) {
 	tx, err := decodeRawTx(raw)
 	if err != nil {
@@ -82,7 +84,7 @@ func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[comm
 	if err := validateSupportedTx(tx); err != nil {
 		return PreparedTx{}, err
 	}
-	if sender, ok := known.Get(); ok && tx.Protected() && tx.ChainId().Cmp(signer.ChainID()) == 0 {
+	if sender, ok := known.Get(); ok && signerAccepts(signer, tx) {
 		return PreparedTx{Tx: tx, Sender: sender}, nil
 	}
 	sender, err := ethtypes.Sender(signer, tx)
@@ -90,6 +92,18 @@ func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[comm
 		return PreparedTx{}, err
 	}
 	return PreparedTx{Tx: tx, Sender: sender}, nil
+}
+
+// signerAccepts reports whether signer recovers senders for tx: the transaction
+// is bound to signer's chain and its type is enabled by signer's fork schedule.
+func signerAccepts(signer ethtypes.Signer, tx *ethtypes.Transaction) bool {
+	if !tx.Protected() || tx.ChainId().Cmp(signer.ChainID()) != 0 {
+		return false
+	}
+	// SignatureValues rejects types the signer's forks do not enable without
+	// touching the signature, so a zero one probes support cheaply.
+	_, _, _, err := signer.SignatureValues(tx, make([]byte, crypto.SignatureLength))
+	return !errors.Is(err, ethtypes.ErrTxTypeNotSupported)
 }
 
 func decodeRawTx(raw []byte) (*ethtypes.Transaction, error) {

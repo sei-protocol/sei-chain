@@ -42,6 +42,13 @@ func TestParsePreparedTxUsesKnownSender(t *testing.T) {
 		_, err := parsePreparedTx(otherRaw, signer, utils.Some(claimed))
 		require.ErrorIs(t, err, ethtypes.ErrInvalidChainId)
 	})
+
+	t.Run("known sender is ignored for a type the signer does not support", func(t *testing.T) {
+		legacyOnly := ethtypes.NewEIP155Signer(chainID)
+		dynamicRaw := signDynamicFeeTx(t, key, chainID, 0, &recipient, big.NewInt(1), nil)
+		_, err := parsePreparedTx(dynamicRaw, legacyOnly, utils.Some(claimed))
+		require.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported)
+	})
 }
 
 func TestParseBlockTxsMixesKnownAndRecoveredSenders(t *testing.T) {
