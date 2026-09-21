@@ -33,6 +33,11 @@ import (
 // littReceiptStore stores receipt bodies in LittDB and supports eth_getLogs
 // via a small pebble tag index (see litt_tag_index.go).
 //
+// Giga opens this store, and only Giga. It requires every write to be contiguous
+// with the head the store opened on — the property Giga establishes by converging
+// its stores onto one height at startup — and refuses a write that skips a block
+// (see requireNoSkippedBlock()).
+//
 // Receipt bytes live in litt's immutable append-only segments — large values
 // never enter LSM compaction, and expired data is reclaimed by dropping whole
 // segments. Each tx hash is a litt secondary key aliasing its receipt's byte
@@ -485,6 +490,9 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 // head and this write. A walk positions at a block's part key, so a block that never reached the
 // store makes a walk starting there restart from the oldest receipt. blockNumbers must be sorted
 // ascending.
+//
+// Contiguity is the caller's to maintain, and Giga's startup convergence is what maintains it, so a
+// refusal here reports a broken invariant rather than a store that has fallen behind the chain.
 func (s *littReceiptStore) requireNoSkippedBlock(blockNumbers []uint64) error {
 	head := s.latestVersion.Load()
 	if head <= 0 {
