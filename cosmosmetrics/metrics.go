@@ -37,7 +37,8 @@ var (
 		walletUnbondings              metric.Float64ObservableGauge
 		walletRedelegations           metric.Float64ObservableGauge
 		walletRewards                 metric.Float64ObservableGauge
-		bankTransferAmount            metric.Float64Gauge
+		bankTransfersTotal            metric.Int64Counter
+		bankTransferAmountTotal       metric.Float64Counter
 	}{
 		paramsMaxValidators: must(meter.Float64ObservableGauge(
 			"cosmos_params_max_validators",
@@ -157,9 +158,13 @@ var (
 			metric.WithDescription("Pending rewards of the wallet by validator and denom"),
 		)),
 
-		bankTransferAmount: must(meter.Float64Gauge(
-			"cosmos_bank_transfer_amount",
-			metric.WithDescription("Bond-denom amount of the last bank transfer at or above the configured threshold, in base units"),
+		bankTransfersTotal: must(meter.Int64Counter(
+			"cosmos_bank_transfers_total",
+			metric.WithDescription("Bond-denom bank transfers at or above the configured threshold"),
+		)),
+		bankTransferAmountTotal: must(meter.Float64Counter(
+			"cosmos_bank_transfer_amount_total",
+			metric.WithDescription("Summed bond-denom amount of bank transfers at or above the configured threshold, in base units"),
 		)),
 	}
 )

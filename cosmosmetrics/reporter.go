@@ -111,7 +111,7 @@ func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc) (*Repor
 		queryCtx:  queryCtx,
 		wallets:   wallets,
 		scale:     math.Pow10(int(cfg.DenomExponent)),
-		transfers: newTransferRecorder(cosmosMetrics.bankTransferAmount, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
+		transfers: newTransferRecorder(cosmosMetrics.bankTransfersTotal, cosmosMetrics.bankTransferAmountTotal, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
 		stop:      func() {},
 	}, nil
 }
@@ -183,8 +183,13 @@ func (r *Reporter) read() (samples []sample, ok bool) {
 		logger.Error("cosmos metrics: no query context", "err", err)
 		return nil, false
 	}
+	if ctx.BlockHeight() == 0 {
+		logger.Debug("cosmos metrics: no committed state yet")
+		return nil, false
+	}
 	b := &builder{}
 	bondDenom := r.keepers.Staking.BondDenom(ctx)
+	r.transfers.setDenom(bondDenom)
 	r.readParams(ctx, b)
 	r.readGeneral(ctx, b, bondDenom)
 	r.readValidators(ctx, b, bondDenom)

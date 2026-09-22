@@ -36,6 +36,7 @@ var testReader = sync.OnceValue(func() *sdkmetric.ManualReader {
 })
 
 type fakeStaking struct {
+	bondDenom  string
 	validators []stakingtypes.Validator
 	calls      int
 }
@@ -47,7 +48,12 @@ func (f *fakeStaking) GetParams(sdk.Context) stakingtypes.Params {
 	p.BondDenom = testDenom
 	return p
 }
-func (f *fakeStaking) BondDenom(sdk.Context) string { return testDenom }
+func (f *fakeStaking) BondDenom(sdk.Context) string {
+	if f.bondDenom != "" {
+		return f.bondDenom
+	}
+	return testDenom
+}
 func (f *fakeStaking) GetAllValidators(sdk.Context) []stakingtypes.Validator {
 	return append([]stakingtypes.Validator(nil), f.validators...)
 }
@@ -129,6 +135,10 @@ func newTestReader(t *testing.T) *sdkmetric.ManualReader {
 	return testReader()
 }
 
+func testQueryCtx() sdk.Context {
+	return sdk.Context{}.WithContext(context.Background()).WithBlockHeight(1)
+}
+
 func newTestReporter(t *testing.T, staking *fakeStaking, distribution fakeDistribution) (*Reporter, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
@@ -145,7 +155,7 @@ func newTestReporter(t *testing.T, staking *fakeStaking, distribution fakeDistri
 		Slashing:     fakeSlashing{},
 		Distribution: distribution,
 		Bank:         fakeBank{},
-	}, func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil })
+	}, func() (sdk.Context, error) { return testQueryCtx(), nil })
 	require.NoError(t, err)
 	return c, logs
 }
@@ -162,6 +172,29 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader) []metricdata.Metrics 
 }
 
 // gaugeValue finds the gauge of name whose attribute set equals attrs.
+func counterValue[N int64 | float64](metrics []metricdata.Metrics, name string, attrs map[string]string) (N, bool) {
+	want := make([]attribute.KeyValue, 0, len(attrs))
+	for k, v := range attrs {
+		want = append(want, attribute.String(k, v))
+	}
+	wantSet := attribute.NewSet(want...)
+	for _, m := range metrics {
+		if m.Name != name {
+			continue
+		}
+		sum, ok := m.Data.(metricdata.Sum[N])
+		if !ok {
+			continue
+		}
+		for _, dp := range sum.DataPoints {
+			if dp.Attributes.Equals(&wantSet) {
+				return dp.Value, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func gaugeValue(metrics []metricdata.Metrics, name string, attrs map[string]string) (float64, bool) {
 	want := make([]attribute.KeyValue, 0, len(attrs))
 	for k, v := range attrs {
@@ -294,18 +327,18 @@ func TestRefreshSurvivesAFailedRead(t *testing.T) {
 	require.Contains(t, logs.String(), "no state", "the missing query context was not logged")
 	require.Len(t, collect(t, reader), before, "a failed read replaced the snapshot")
 
-	c.queryCtx = func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil }
+	c.queryCtx = func() (sdk.Context, error) { return testQueryCtx(), nil }
 	c.keepers.Staking = nil
 	c.refresh()
 	require.Contains(t, logs.String(), "panicked", "the panic was not logged")
 	require.Len(t, collect(t, reader), before, "a panicking read replaced the snapshot")
 }
 
-func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
+func TestObserveTxResultsCountsLargeTransfersOnly(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, _ := newTestReporter(t, staking, fakeDistribution{})
-	c.transfers = newTransferRecorder(cosmosMetrics.bankTransferAmount, "usei", 1_000)
+	c.transfers = newTransferRecorder(cosmosMetrics.bankTransfersTotal, cosmosMetrics.bankTransferAmountTotal, "usei", 1_000)
 
 	transfer := func(amount string) abci.Event {
 		return abci.Event{Type: "transfer", Attributes: []abci.EventAttribute{
@@ -315,20 +348,33 @@ func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 		}}
 	}
 	c.ObserveTxResults(context.Background(), []*abci.ExecTxResult{
-		{Code: 0, Events: []abci.Event{transfer("999usei"), transfer("5000usei,20factory/x/y"), transfer("9000factory/x/y")}},
+		{Code: 0, Events: []abci.Event{transfer("999usei"), transfer("5000usei,20factory/x/y"), transfer("9000factory/x/y"), transfer("30factory/x/usei,2000usei")}},
 		{Code: 1, Events: []abci.Event{transfer("7000usei")}},
 		nil,
 	})
 
 	metrics := collect(t, reader)
-	var points int
-	for _, m := range metrics {
-		if m.Name == "cosmos_bank_transfer_amount" {
-			points += len(m.Data.(metricdata.Gauge[float64]).DataPoints)
-		}
-	}
-	require.Equal(t, 1, points, "transfer data points")
-	got, ok := gaugeValue(metrics, "cosmos_bank_transfer_amount", map[string]string{"denom": "usei"})
-	require.True(t, ok, "the large transfer has no data point")
-	require.Equal(t, 5000.0, got)
+	usei := map[string]string{"denom": "usei"}
+	count, ok := counterValue[int64](metrics, "cosmos_bank_transfers_total", usei)
+	require.True(t, ok, "the large transfers have no count")
+	assert.Equal(t, int64(2), count)
+	amount, ok := counterValue[float64](metrics, "cosmos_bank_transfer_amount_total", usei)
+	require.True(t, ok, "the large transfers have no amount")
+	assert.Equal(t, 7000.0, amount)
+}
+
+func TestObserveTxResultsFollowsBondDenomFromRefresh(t *testing.T) {
+	reader := newTestReader(t)
+	staking := &fakeStaking{bondDenom: "usei2", validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
+	c, _ := newTestReporter(t, staking, fakeDistribution{})
+	c.transfers = newTransferRecorder(cosmosMetrics.bankTransfersTotal, cosmosMetrics.bankTransferAmountTotal, "usei", 1)
+	c.refresh()
+
+	c.ObserveTxResults(context.Background(), []*abci.ExecTxResult{{Code: 0, Events: []abci.Event{
+		{Type: "transfer", Attributes: []abci.EventAttribute{{Key: []byte("amount"), Value: []byte("5usei2")}}},
+	}}})
+
+	count, ok := counterValue[int64](collect(t, reader), "cosmos_bank_transfers_total", map[string]string{"denom": "usei2"})
+	require.True(t, ok, "the transfer in the refreshed bond denom was not counted")
+	assert.Equal(t, int64(1), count)
 }

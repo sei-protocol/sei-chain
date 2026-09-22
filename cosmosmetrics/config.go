@@ -41,8 +41,8 @@ denom_exponent = {{ .CosmosMetrics.DenomExponent }}
 # rewards are reported under cosmos_wallet_*.
 wallet_addresses = [{{ range $i, $a := .CosmosMetrics.WalletAddresses }}{{ if $i }}, {{ end }}"{{ $a }}"{{ end }}]
 
-# Bank transfers of at least this many base units are reported under
-# cosmos_bank_transfer_amount.
+# Bank transfers of at least this many base units are counted in
+# cosmos_bank_transfers_total and cosmos_bank_transfer_amount_total.
 bank_transfer_threshold = {{ .CosmosMetrics.BankTransferThreshold }}
 `
 
@@ -64,8 +64,8 @@ type Config struct {
 	DenomExponent uint32 `mapstructure:"denom_exponent"`
 	// WalletAddresses are the bech32 accounts whose balances, delegations and rewards are reported.
 	WalletAddresses []string `mapstructure:"wallet_addresses"`
-	// BankTransferThreshold is the base-unit amount a transfer must reach to be reported as a
-	// cosmos_bank_transfer_amount sample.
+	// BankTransferThreshold is the base-unit amount a transfer must reach to be counted in
+	// the bank transfer counters.
 	BankTransferThreshold uint64 `mapstructure:"bank_transfer_threshold"`
 }
 

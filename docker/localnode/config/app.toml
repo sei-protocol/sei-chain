@@ -326,6 +326,6 @@ denom_exponent = 6
 # rewards are reported under cosmos_wallet_*.
 wallet_addresses = []
 
-# Bank transfers of at least this many base units are reported under
-# cosmos_bank_transfer_amount.
+# Bank transfers of at least this many base units are counted in
+# cosmos_bank_transfers_total and cosmos_bank_transfer_amount_total.
 bank_transfer_threshold = 1000000000000
