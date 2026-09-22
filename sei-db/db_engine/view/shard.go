@@ -84,6 +84,10 @@ type shard struct {
 	// so it has to stop the whole manager rather than only this shard — the same response the read
 	// cache gives a failed database read.
 	reportFoldFailure func(error)
+
+	// initialVersionsPerKey sizes the value list a key gets when first written. See
+	// ViewManagerConfig.InitialVersionsPerKey.
+	initialVersionsPerKey int
 }
 
 // Write is one key's change: a value to store, or a deletion.
@@ -184,6 +188,8 @@ func NewShard(
 		versionLatches: make(map[uint64]*versionLatch),
 		ctx:            ctx,
 		shutdownError:  shutdownError,
+
+		initialVersionsPerKey: int(config.InitialVersionsPerKey), //nolint:gosec // validated non-zero, and small
 
 		reportFoldFailure: reportFoldFailure,
 	}
@@ -546,7 +552,7 @@ func (s *shard) setWLocked(key string, value []byte) {
 
 	deque, ok := s.versionedData[key]
 	if !ok {
-		deque = structures.NewDeque[versionedValue]()
+		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
 		// Copied, because this map's entries outlive the version that created them and a Go string
 		// can be a window onto a much larger allocation: a caller that cut its keys from one shared
 		// buffer would pin that whole buffer here. Only on first insert — Go keeps a map's existing
@@ -634,7 +640,7 @@ func (s *shard) stagePendingValueWLocked(key string, version uint64, pending *pe
 
 	deque, ok := s.versionedData[key]
 	if !ok {
-		deque = structures.NewDeque[versionedValue]()
+		deque = structures.NewDequeWithCapacity[versionedValue](s.initialVersionsPerKey)
 		// Cloned because this map entry outlives the batch that created it, and Go leaves a map's
 		// original key in place on reassignment. The copy is per key new to this shard, not per write.
 		s.versionedData[strings.Clone(key)] = deque
