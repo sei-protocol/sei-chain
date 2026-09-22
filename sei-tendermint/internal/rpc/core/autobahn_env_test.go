@@ -9,6 +9,8 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -25,6 +27,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+type stubAppHashStore struct{}
+
+func (stubAppHashStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, nil
+}
 
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Helper()
@@ -55,6 +63,7 @@ func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 		ValidatorAddrs:     addrs,
 		PersistentStateDir: t.TempDir(),
 		App:                app,
+		AppHashStore:       stubAppHashStore{},
 		GenDoc:             genDoc,
 	}
 	dataState, err := p2p.BuildDataState(&commonCfg, blockStore)

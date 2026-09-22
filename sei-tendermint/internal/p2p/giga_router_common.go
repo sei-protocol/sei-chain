@@ -2,6 +2,8 @@ package p2p
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/url"
@@ -12,6 +14,7 @@ import (
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	gigametrics "github.com/sei-protocol/sei-chain/giga/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -93,6 +96,9 @@ func BuildDataState(cfg *GigaRouterCommonConfig, blockStore atypes.BlockStore) (
 	}
 	if cfg.PersistentStateDir == "" {
 		return nil, errors.New("GigaRouterCommonConfig.PersistentStateDir is required")
+	}
+	if cfg.AppHashStore == nil {
+		return nil, errors.New("GigaRouterCommonConfig.AppHashStore is required")
 	}
 	firstRoad := atypes.RoadIndex(cfg.GenDoc.InitialHeight)          // nolint:gosec // verified to be positive.
 	firstBlock := atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight) // nolint:gosec // verified to be positive.
@@ -226,7 +232,21 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 	}
 }
 
-func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock, hashVault hashvault.HashVault) (*abci.ResponseCommit, error) {
+// pendingExecution is what this Commit leaves the hash loop, which it can
+// reload neither from the AppHash nor from the data layer: the epoch weights
+// as of this Commit, and RetainHeight. The height and the Autobahn block come
+// from the AppHash callback.
+type pendingExecution struct {
+	weights     map[atypes.PublicKey]uint64
+	pruneBefore atypes.GlobalBlockNumber
+}
+
+// startExecuteBlock finalizes and commits b. AppHash handling stays on the
+// hash loop so state hashing can overlap the next consensus wait.
+func (r *gigaRouterCommon) startExecuteBlock(
+	ctx context.Context,
+	b *atypes.GlobalBlock,
+) (utils.Option[pendingExecution], error) {
 	app := r.app
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -236,7 +256,7 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 		key, err := crypto.PubKeyFromProto(proposer.PubKey)
 		if err != nil {
-			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			return utils.None[pendingExecution](), fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
 	}
@@ -259,40 +279,68 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		}).ToProto(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
+		return utils.None[pendingExecution](), fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
-
 	gigametrics.SetPhase(gigametrics.PhaseStorage)
-
-	// Commit this height's app hash to the equivocation guard before persisting app state, so the
-	// vault always records our commitment to a height before the state it implies is committed (and
-	// before the hash is proposed for AppQC voting via PushAppHash below). On restart the block is
-	// re-executed and the identical hash is re-committed idempotently. A returned error is a benign
-	// shutdown cancellation; genuine faults panic inside the call. See commitAppHashToVault.
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseVaultCommit)
-	if err := commitAppHashToVault(ctx, hashVault, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, err
-	}
+	r.data.PushGasUsed(finalizeBlockGasUsed(resp))
 
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseAppCommit)
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("app.Commit(): %w", err)
+		return utils.None[pendingExecution](), fmt.Errorf("app.Commit(): %w", err)
+	}
+	pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
+	if !ok {
+		return utils.None[pendingExecution](), fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
 	weights, err := committeeWeights(app.GetValidators())
 	if err != nil {
-		return nil, err
+		return utils.None[pendingExecution](), err
+	}
+	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{
+		Number:  b.GlobalNumber,
+		GasUsed: utils.Clamp[uint64](finalizeBlockGasUsed(resp)),
+	}))
+
+	return utils.Some(pendingExecution{
+		weights:     weights,
+		pruneBefore: pruneBefore,
+	}), nil
+}
+
+// finishExecuteBlock records and proposes pending's app hash and advances
+// durable retention only after the hash has been externalized.
+func (r *gigaRouterCommon) finishExecuteBlock(
+	ctx context.Context,
+	hashVault hashvault.HashVault,
+	n atypes.GlobalBlockNumber,
+	pending pendingExecution,
+	appHash atypes.AppHash,
+) error {
+	gigametrics.SetStoragePhase(gigametrics.StoragePhaseVaultCommit)
+	if err := commitAppHashToVault(ctx, hashVault, n, appHash); err != nil {
+		return err
 	}
 	gigametrics.SetStoragePhase(gigametrics.StoragePhasePushAppHash)
-	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash, weights); err != nil {
-		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+	if err := r.data.PushAppHash(ctx, n, appHash, pending.weights); err != nil {
+		return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
 	}
-	gigametrics.SetStoragePhase(gigametrics.StoragePhaseBookkeeping)
-	gasUsed := finalizeBlockGasUsed(resp)
-	r.data.PushGasUsed(gasUsed)
-	r.executed.Store(r.executed.Load().Push(atypes.ExecutedBlock{Number: b.GlobalNumber, GasUsed: utils.Clamp[uint64](gasUsed)}))
-	return commitResp, nil
+	gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
+	if err := r.data.PruneBefore(pending.pruneBefore); err != nil {
+		return fmt.Errorf("r.data.PruneBefore(%v): %w", pending.pruneBefore, err)
+	}
+	gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
+	if err := hashVault.Prune(ctx, uint64(pending.pruneBefore)); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			logger.Info("hashvault prune aborted by context cancellation during shutdown",
+				"prune_before", pending.pruneBefore, "err", err)
+		} else {
+			logger.Error("failed to prune hashvault", "prune_before", pending.pruneBefore, "err", err)
+		}
+	}
+	gigametrics.EndStoragePhase()
+	return nil
 }
 
 // runEvmProxy maintains an EVM RPC client for one committee member.
@@ -386,10 +434,99 @@ func commitAppHashToVault(
 	panic(msg)
 }
 
+type appHashStream struct {
+	hashes <-chan *lthash.BlockHash
+	tip    *lthash.BlockHash
+}
+
+// registerAppHashListener subscribes before execution starts so no committed
+// block can publish a hash before the router is listening.
+func registerAppHashListener(ctx context.Context, store AppHashStore) (appHashStream, error) {
+	// One slot: the store publishes a block's hash from inside the execute
+	// call that commits it, before that block reaches the hash loop.
+	hashes := make(chan *lthash.BlockHash, 1)
+	tip, err := store.RegisterHashListener(
+		func(_ context.Context, blockNum int64, hash *lthash.BlockHash) error {
+			if hash.BlockNumber != blockNum {
+				return fmt.Errorf("state store hashed block %d with callback height %d", hash.BlockNumber, blockNum)
+			}
+			if err := utils.Send(ctx, hashes, hash); err != nil && !errors.Is(err, context.Canceled) {
+				return err
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return appHashStream{}, err
+	}
+	return appHashStream{hashes: hashes, tip: &tip}, nil
+}
+
+// appHashFromState binds a state checksum to the Autobahn block at the height
+// the hash itself reports.
+func appHashFromState(
+	block *atypes.GlobalBlock,
+	stateHash *lthash.BlockHash,
+) (atypes.AppHash, error) {
+	if stateHash.Error != nil {
+		return nil, fmt.Errorf("state store hash for block %d: %w", stateHash.BlockNumber, stateHash.Error)
+	}
+	n, ok := utils.SafeCast[atypes.GlobalBlockNumber](stateHash.BlockNumber)
+	if !ok {
+		return nil, fmt.Errorf("state store block number %d is not a global height", stateHash.BlockNumber)
+	}
+	if block.GlobalNumber != n {
+		return nil, fmt.Errorf(
+			"state store hashed block %d but data layer returned block %d",
+			n, block.GlobalNumber,
+		)
+	}
+	checksum := stateHash.Global.Checksum()
+	blockHash := block.Header.Hash()
+	h := sha256.New()
+	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, uint64(n)))
+	_, _ = h.Write(blockHash[:])
+	_, _ = h.Write(checksum[:])
+	return h.Sum(nil), nil
+}
+
+// recoveredAppHash re-derives the hash of the last committed block from the
+// state store tip, matching the live callback path.
+func recoveredAppHash(
+	block *atypes.GlobalBlock,
+	stateTip *lthash.BlockHash,
+) (atypes.AppHash, error) {
+	return appHashFromState(block, stateTip)
+}
+
+// executeHandoff couples the execute loop to the hash loop: committed carries
+// each block the execute loop has committed, and recorded hands a slot back
+// once that block's AppHash has reached the data layer.
+//
+// The slot is what stops execute from committing a block before its
+// predecessor's AppHash has been recorded. data.State keeps the AppHash of the
+// block closing each CommitQC range and rejects one that skips a range, and a
+// skipped range cannot be repaired on restart: the state store reports the
+// hash of its own tip, never that of an earlier height.
+type executeHandoff struct {
+	committed chan pendingExecution
+	recorded  chan struct{}
+}
+
+// newExecuteHandoff returns a handoff whose slot starts full, so the first
+// block executes without waiting for a predecessor.
+func newExecuteHandoff() executeHandoff {
+	h := executeHandoff{
+		committed: make(chan pendingExecution),
+		recorded:  make(chan struct{}, 1),
+	}
+	h.recorded <- struct{}{}
+	return h
+}
+
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
-	// runExecute is the single block-execution loop spawned by both the validator and fullnode Run
-	// methods, so it owns the equivocation guard for both roles: build it here (set before the first
-	// executeBlock, the only other reader) and close it on exit.
+	// runExecute is spawned by both router roles and owns the guard until both
+	// the ABCI execution loop and the hash-processing loop have stopped.
 	hashVault, err := buildHashVault(ctx, r.cfg)
 	if err != nil {
 		return fmt.Errorf("buildHashVault(): %w", err)
@@ -400,6 +537,78 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		}
 	}()
 
+	appHashes, err := registerAppHashListener(ctx, r.cfg.AppHashStore)
+	if err != nil {
+		return fmt.Errorf("registerAppHashListener(): %w", err)
+	}
+	handoff := newExecuteHandoff()
+	return scope.Run(ctx, func(scopeCtx context.Context, s scope.Scope) error {
+		// Keep the hash loop on runExecute's context so an execute-loop failure
+		// does not cancel a committed block while it is being recorded.
+		s.SpawnNamed("appHashes", func() error {
+			return r.runAppHashes(ctx, hashVault, handoff, appHashes.hashes)
+		})
+		s.SpawnNamed("executeBlocks", func() error {
+			defer close(handoff.committed)
+			return r.executeBlocks(scopeCtx, hashVault, appHashes.tip, handoff)
+		})
+		return nil
+	})
+}
+
+// runAppHashes waits for each committed block's store hash, then records,
+// proposes, and prunes that block before handing the execute loop its slot
+// back. It drains every block handed off before the execute loop closes
+// handoff.committed.
+func (r *gigaRouterCommon) runAppHashes(
+	ctx context.Context,
+	hashVault hashvault.HashVault,
+	handoff executeHandoff,
+	hashes <-chan *lthash.BlockHash,
+) error {
+	for {
+		p, ok, err := utils.RecvOrClosed(ctx, handoff.committed)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		stateHash, err := utils.Recv(ctx, hashes)
+		if err != nil {
+			return err
+		}
+		n, ok := utils.SafeCast[atypes.GlobalBlockNumber](stateHash.BlockNumber)
+		if !ok {
+			return fmt.Errorf("state store block number %d is not a global height", stateHash.BlockNumber)
+		}
+		block, err := r.data.GlobalBlock(ctx, n)
+		if err != nil {
+			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+		}
+		appHash, err := appHashFromState(block, stateHash)
+		if err != nil {
+			return err
+		}
+		if err := r.finishExecuteBlock(ctx, hashVault, n, p, appHash); err != nil {
+			return fmt.Errorf("r.finishExecuteBlock(%v): %w", n, err)
+		}
+		if err := utils.Send(ctx, handoff.recorded, struct{}{}); err != nil {
+			return err
+		}
+	}
+}
+
+// executeBlocks brings the application up to the data-layer tip, then keeps
+// FinalizeBlock and Commit together on this loop, one block at a time: each
+// committed block goes to the hash loop, and the next one waits for its
+// AppHash to be recorded.
+func (r *gigaRouterCommon) executeBlocks(
+	ctx context.Context,
+	hashVault hashvault.HashVault,
+	stateTip *lthash.BlockHash,
+	handoff executeHandoff,
+) error {
 	app := r.app
 
 	info := app.Info()
@@ -447,13 +656,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			// TODO: for consistency we should also set proposerAddress here,
 			// but this is a placeholder solution so maybe we don't care.
 		}).ToProto())
-		// Re-commit the last finalized block's app hash to the equivocation guard before re-proposing it
-		// for AppQC voting (PushAppHash below), mirroring executeBlock's commit-before-PushAppHash
-		// ordering. On a normal restart this idempotently matches the hash recorded when `last` was
-		// first executed; if the committed app state has diverged from what the vault recorded (e.g. an
-		// out-of-band rollback/restore), this halts the node instead of externalizing a conflicting
-		// hash. A returned error is a benign shutdown cancellation; genuine faults panic inside.
-		if err := commitAppHashToVault(ctx, hashVault, last, info.LastBlockAppHash); err != nil {
+		lastAppHash, err := recoveredAppHash(b, stateTip)
+		if err != nil {
+			return err
+		}
+		if err := commitAppHashToVault(ctx, hashVault, last, lastAppHash); err != nil {
 			return err
 		}
 		// Losing a prefix of appHashes on crash is fine: AppQC is reached
@@ -462,7 +669,7 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash, weights); err != nil {
+		if err := r.data.PushAppHash(ctx, last, lastAppHash, weights); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
 	}
@@ -474,31 +681,20 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
 		gigametrics.SetPhase(gigametrics.PhaseExecution)
-		commitResp, err := r.executeBlock(ctx, b, hashVault)
+		// Fetching b above is the consensus wait, and it overlaps the hash
+		// loop; committing n does not, because the AppHash of n-1 has to be
+		// recorded first.
+		if _, err := utils.Recv(ctx, handoff.recorded); err != nil {
+			return err
+		}
+		opt, err := r.startExecuteBlock(ctx, b)
 		if err != nil {
-			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
+			return fmt.Errorf("r.startExecuteBlock(%v): %w", n, err)
 		}
-		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
-		if !ok {
-			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
+		p := opt.OrPanic("successful block execution returned no pending block")
+		if err := utils.Send(ctx, handoff.committed, p); err != nil {
+			return err
 		}
-		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneData)
-		if err := r.data.PruneBefore(pruneBefore); err != nil {
-			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
-		}
-		// Align the vault's retention with the data layer's prune boundary.
-		gigametrics.SetStoragePhase(gigametrics.StoragePhasePruneVault)
-		if err := hashVault.Prune(ctx, uint64(pruneBefore)); err != nil {
-			// A canceled context just means we're shutting down between a successful executeBlock
-			// and this prune; that's benign, not a prune failure, so don't alarm operators.
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				logger.Info("hashvault prune aborted by context cancellation during shutdown",
-					"prune_before", pruneBefore, "err", err)
-			} else {
-				logger.Error("failed to prune hashvault", "prune_before", pruneBefore, "err", err)
-			}
-		}
-		gigametrics.EndStoragePhase()
 	}
 }
 
