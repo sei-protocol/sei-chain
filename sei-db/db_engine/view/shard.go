@@ -189,7 +189,7 @@ func NewShard(
 		ctx:            ctx,
 		shutdownError:  shutdownError,
 
-		initialVersionsPerKey: int(config.InitialVersionsPerKey), //nolint:gosec // validated non-zero, and small
+		initialVersionsPerKey: int(config.InitialVersionsPerKey), //nolint:gosec // validated non-zero
 
 		reportFoldFailure: reportFoldFailure,
 	}
@@ -955,7 +955,10 @@ func (s *shard) Commit() (uint64, error) {
 	// Registered at the seal rather than at the materialize, so that a consumer asking for a sealed
 	// version's diff always finds a handle to wait on, however far ahead of it they arrive.
 	s.sealedDiffs[sealedVersion] = &sealedDiff{done: make(chan struct{})}
-	s.versionDiffs[newVersion] = make(map[string][]byte)
+	// Sized from the version just sealed, so a block's writes land in one allocation instead of
+	// growing the map up from empty. Doubled, so a block that writes somewhat more than the last one
+	// still does not resize.
+	s.versionDiffs[newVersion] = make(map[string][]byte, 2*len(s.versionDiffs[sealedVersion]))
 
 	// Sealing a version is the once-per-block moment the read cache does its eviction, so that no read
 	// has to pay for it.
