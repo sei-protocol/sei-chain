@@ -2,12 +2,10 @@ package p2p
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"maps"
 	"net/url"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -154,15 +152,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		for i, app := range apps {
 			t.Logf("app[%v]", i)
 			require.NoError(t, utils.TestDiff(want, app.Snapshot()), "state mismatch app[%v]", i)
-		}
-		// Verify: each FinalizeBlock header carries the prior block's app hash,
-		// and the first block carries the InitChain hash.
-		for i, app := range apps {
-			wantAppHash := sha256.Sum256(genDoc.AppState)
-			for j, blk := range app.Snapshot().Blocks {
-				require.Equal(t, wantAppHash[:], blk.Header.AppHash, "app[%v].Blocks[%v].Header.AppHash", i, j)
-				wantAppHash = sha256.Sum256(slices.Concat(blk.Hash, wantAppHash[:]))
-			}
 		}
 		// Covers GigaRouter.LastCommittedBlockNumber() — after blocks have
 		// been finalized every node should report a non-zero

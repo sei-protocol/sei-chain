@@ -15,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
@@ -161,59 +160,6 @@ func TestChainConfigReflectsSstoreParam(t *testing.T) {
 	latestCfg := backend.ChainConfig()
 	require.NotNil(t, latestCfg.SeiSstoreSetGasEIP2200)
 	require.Equal(t, uint64(72000), *latestCfg.SeiSstoreSetGasEIP2200)
-}
-
-func TestGetEVMBlockContextFollowsQueriedState(t *testing.T) {
-	testApp := app.Setup(t, false, false, false)
-	baseCtx := testApp.GetContextForDeliverTx([]byte{})
-
-	queriedAppHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
-	headAppHash := common.HexToHash("0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321")
-	require.NotEqual(t, queriedAppHash, headAppHash)
-
-	withAppHash := func(ctx sdk.Context, height int64, appHash common.Hash) sdk.Context {
-		header := ctx.BlockHeader()
-		header.Height = height
-		header.AppHash = appHash.Bytes()
-		return ctx.WithBlockHeader(header).WithBlockHeight(height)
-	}
-	queriedCtx, _ := baseCtx.CacheContext()
-	queriedCtx = withAppHash(queriedCtx, 100, queriedAppHash)
-	headCtx, _ := baseCtx.CacheContext()
-	headCtx = withAppHash(headCtx, 200, headAppHash)
-	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), headCtx.BlockHeight())
-
-	ctxProvider := func(height int64) sdk.Context {
-		if height == queriedCtx.BlockHeight() {
-			return queriedCtx
-		}
-		return headCtx
-	}
-	encodingCfg := app.MakeEncodingConfig()
-	tmClient := &MockClient{}
-	backend := evmrpc.NewBackend(
-		ctxProvider,
-		&testApp.EvmKeeper,
-		legacyabci.BeginBlockKeepers{},
-		func(int64) client.TxConfig { return encodingCfg.TxConfig },
-		tmClient,
-		&SConfig,
-		testApp.BaseApp,
-		testApp.TracerAnteHandler,
-		evmrpc.NewBlockCache(3000),
-		&sync.Mutex{},
-		evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore()),
-	)
-
-	// A nil blockCtx must be derived from the state the call was opened
-	// against, not from the head: PREVRANDAO and BLOCKNUMBER both come from it.
-	statedb := state.NewDBImpl(queriedCtx, &testApp.EvmKeeper, true)
-	to := common.HexToAddress("0x1")
-	msg := &core.Message{To: &to, GasPrice: big.NewInt(0), Value: big.NewInt(0)}
-	header := &ethtypes.Header{Number: big.NewInt(queriedCtx.BlockHeight())}
-	evm := backend.GetEVM(context.Background(), msg, statedb, header, &vm.Config{}, nil)
-	require.Equal(t, queriedAppHash, *evm.Context.Random)
-	require.Equal(t, queriedCtx.BlockHeight(), evm.Context.BlockNumber.Int64())
 }
 
 func TestEstimateGasAfterCalls(t *testing.T) {

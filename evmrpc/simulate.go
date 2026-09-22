@@ -359,14 +359,6 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		header.Time = toUint64(tmBlock.Block.Time.Unix())
 		header.ParentHash = common.BytesToHash(tmBlock.BlockID.Hash)
 		sdkCtx = b.ctxProvider(tmBlock.Block.Height)
-		// The queried block's AppHash is what it executed with; the provider
-		// ctx carries the latest committed header's. Autobahn /block headers
-		// are sparse and leave AppHash empty, so only override when present.
-		if len(tmBlock.Block.AppHash) > 0 {
-			sdkHeader := sdkCtx.BlockHeader()
-			sdkHeader.AppHash = tmBlock.Block.AppHash
-			sdkCtx = sdkCtx.WithBlockHeader(sdkHeader)
-		}
 		if !isLatest {
 			if err := CheckVersion(sdkCtx, b.keeper); err != nil {
 				return nil, nil, err
@@ -742,20 +734,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ct
 			tmBlock = nil
 		}
 	}()
-	// The traced block's AppHash is what it executed with; the base ctx's is
-	// latest. Autobahn block headers are sparse, so a missing hash keeps it.
-	//
-	// Known limitation: translateGlobalBlock never sets AppHash, so every
-	// Autobahn height below head traces PREVRANDAO with head's app hash
-	// instead of the one the block executed with. The Autobahn AppProposal
-	// records only range-final hashes, so it cannot serve per-height values;
-	// the executed hash is the multistore commit hash at blockNumber-1, which
-	// this path does not read yet.
-	header := baseCtx.BlockHeader()
-	if len(tmBlock.Block.AppHash) > 0 {
-		header.AppHash = tmBlock.Block.AppHash
-	}
-	sdkCtx = baseCtx.WithBlockHeader(header).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	sdkCtx = baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	if ctx != nil {
 		// The RPC/trace deadline must be on the SDK context so KVStore
 		// iteration can pass it into the SS MVCC skip loops.
@@ -808,11 +787,7 @@ func releaseOnContextPanic(release func(), recovered any) error {
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	if blockCtx == nil {
-		// Derive from the context the queried state was opened with, not the
-		// head: at a historical height that is what carries the block's
-		// number, time and app hash.
-		sdkCtx := state.GetDBImpl(stateDB).Ctx()
-		blockCtx, _ = b.keeper.GetVMBlockContext(sdkCtx.WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
+		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)

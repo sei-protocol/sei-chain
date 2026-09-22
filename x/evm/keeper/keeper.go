@@ -280,18 +280,12 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		return nil, err
 	}
 
-	// PREVRANDAO is the prior block's app hash, which this block's header
-	// carries; pre-v6.8 blocks derived it from the block timestamp instead.
-	var rh common.Hash
-	if k.prevRandaoIsLegacyTimestamp(ctx) {
-		r, err := ctx.BlockHeader().Time.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		rh = crypto.Keccak256Hash(r)
-	} else {
-		rh = common.BytesToHash(ctx.BlockHeader().AppHash)
+	// Use hash of block timestamp as info for PREVRANDAO
+	r, err := ctx.BlockHeader().Time.MarshalBinary()
+	if err != nil {
+		return nil, err
 	}
+	rh := crypto.Keccak256Hash(r)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
 		if IsPayablePrecompile(&recipient) {
@@ -325,34 +319,6 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		BlobBaseFee: utils.Big1, // Cancun not enabled
 		Random:      &rh,
 	}, nil
-}
-
-// prevRandaoIsLegacyTimestamp reports whether ctx's height used the pre-v6.8
-// timestamp-derived PREVRANDAO.
-func (k *Keeper) prevRandaoIsLegacyTimestamp(ctx sdk.Context) bool {
-	// The marker records the height v6.8 activated, so every height below it
-	// ran the timestamp semantics whatever the chain is. This covers live
-	// execution, sync replay below the upgrade height, traces and historical
-	// calls alike, none of which need a tracing flag.
-	//
-	// The marker is read from whatever store ctx was opened against, and the
-	// trace path opens it one height early (initializeBlock builds its base
-	// ctx at blockNumber-1). At the upgrade height itself the marker is
-	// written during that block's own BeginBlock, which the trace harness
-	// does not replay, so tracing exactly that block replays the legacy value
-	// while it executed with the app hash. Accepted one-block window.
-	gasFreeCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
-	if doneHeight := k.upgradeKeeper.GetDoneHeight(gasFreeCtx, "v6.8"); doneHeight > 0 {
-		return ctx.BlockHeight() < doneHeight
-	}
-	// No marker: either a height preceding the plan's scheduling on a chain
-	// that crossed v6.8, or a chain launched at v6.8+. Only the networks that
-	// existed before v6.8 can have legacy heights.
-	switch ctx.ChainID() {
-	case Pacific1ChainID, "atlantic-2", "arctic-1":
-		return true
-	}
-	return false
 }
 
 // returns a function that provides block header hash based on block number
