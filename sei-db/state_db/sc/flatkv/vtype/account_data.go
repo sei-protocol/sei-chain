@@ -43,6 +43,9 @@ const (
 
 	accountCompactLength = VersionLength + BlockHeightLength + BalanceLength + NonceLength
 	accountDataLength    = VersionLength + BlockHeightLength + BalanceLength + NonceLength + CodeHashLength
+
+	// The account's fields, excluding the version and block height that precede them.
+	accountPayloadLength = BalanceLength + NonceLength + CodeHashLength
 )
 
 var _ VType = (*AccountData)(nil)
@@ -70,10 +73,8 @@ func (a *AccountData) Serialize() []byte {
 	if a == nil {
 		return make([]byte, accountCompactLength)
 	}
-	for i := accountCodeHashStart; i < accountDataLength; i++ {
-		if a.data[i] != 0 {
-			return a.data
-		}
+	if [CodeHashLength]byte(a.data[accountCodeHashStart:accountDataLength]) != [CodeHashLength]byte{} {
+		return a.data
 	}
 	return a.data[:accountCompactLength]
 }
@@ -151,12 +152,7 @@ func (a *AccountData) IsDelete() bool {
 	if a == nil {
 		return true
 	}
-	for i := accountBalanceStart; i < accountDataLength; i++ {
-		if a.data[i] != 0 {
-			return false
-		}
-	}
-	return true
+	return [accountPayloadLength]byte(a.data[accountBalanceStart:accountDataLength]) == [accountPayloadLength]byte{}
 }
 
 // Copy returns a deep copy of this AccountData. The copy has its own backing byte slice.
