@@ -84,7 +84,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				// Aggressive dialing rate to speed up startup.
 				DialInterval:       100 * time.Millisecond,
 				ValidatorAddrs:     addrs,
-				PersistentStateDir: utils.Some(dir),
+				PersistentStateDir: dir,
 				App:                proxyApp,
 				GenDoc:             genDoc,
 				EnableEvmProxy:     true,
@@ -102,6 +102,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					MaxTxsPerSecond:         utils.None[uint64](),
 					BlockInterval:           100 * time.Millisecond,
 					AllowEmptyBlocks:        false,
+					MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 				},
 			}, cfg.nodeKey, dataState)
 			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
@@ -254,7 +255,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	commonCfg := GigaRouterCommonConfig{
 		DialInterval:       time.Second,
 		ValidatorAddrs:     addrs,
-		PersistentStateDir: utils.Some(dir),
+		PersistentStateDir: dir,
 		App:                proxy.New(newTestApp()),
 		GenDoc:             genDoc,
 		EnableEvmProxy:     true,
@@ -272,6 +273,7 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			MaxTxsPerBlock:          1,
 			MaxTxsPerSecond:         utils.None[uint64](),
 			BlockInterval:           time.Second,
+			MaxPendingInserts:       producer.DefaultMaxPendingInserts,
 		},
 	}, nodeKeys[0], dataState)
 	require.NoError(t, err)

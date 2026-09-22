@@ -69,6 +69,11 @@ Ref: https://keepachangelog.com/en/1.0.0/
 * [#3927](https://github.com/sei-protocol/sei-chain/pull/3927) **Legacy Sei JSON-RPC and CLI removal.** Removes `sei_associate`, `sei_getBlockByHash`, `sei_getBlockByHashExcludeTraceFail`, `sei_getBlockTransactionCountByHash`, `sei_getBlockTransactionCountByNumber`, `sei_getEvmTx`, `sei_getFilterChanges`, `sei_getFilterLogs`, `sei_getLogs`, `sei_getTransactionByBlockHashAndIndex`, `sei_getTransactionByBlockNumberAndIndex`, `sei_getTransactionByHash`, `sei_getTransactionCount`, `sei_getTransactionErrorByHash`, `sei_getTransactionReceiptExcludeTraceFail`, `sei_getVMError`, `sei_newBlockFilter`, `sei_newFilter`, `sei_sign`, and `sei_uninstallFilter`. Use standard `eth_*` methods for EVM-originated data and `seid tx evm native-associate <custom-message> -y` for address association. There is no block- or filter-level replacement for discovering Cosmos-originated synthetic logs; clients that know the synthetic transaction hash can enable `sei_getTransactionReceipt`.
 
 sei-chain
+* [#4292](https://github.com/sei-protocol/sei-chain/pull/4292) Backport `release/v6.7`: Flush MemIAVL changelog before exiting on an upgrade panic
+* [#4285](https://github.com/sei-protocol/sei-chain/pull/4285) Backport `release/v6.7`: fix(seidb): refuse a corrupted changelog in digest replay instead of repairing it
+* [#4255](https://github.com/sei-protocol/sei-chain/pull/4255) Backport `release/v6.7`: feat(seidb): Add JSON output to evm-logical-digest and inspect a FlatKV migration in flight
+* [#4116](https://github.com/sei-protocol/sei-chain/pull/4116) Bump version to v6.7.0-rc1 in prep for release
+* [#4113](https://github.com/sei-protocol/sei-chain/pull/4113) Backport `release/v6.7`: Update changelog in prep to cut v6.7
 * [#4095](https://github.com/sei-protocol/sei-chain/pull/4095) Backport `release/v6.7`: fix FlatKV cache memory leak
 * [#4074](https://github.com/sei-protocol/sei-chain/pull/4074) Backport `release/v6.7`: fix(precompiles): disable Wasmd execute_batch
 * [#4063](https://github.com/sei-protocol/sei-chain/pull/4063) Backport `release/v6.7`: Upgrade UCI AI review to latest and allow review of PRs from seidroid

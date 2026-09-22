@@ -22,3 +22,14 @@ func (s *Semaphore) Acquire(ctx context.Context) (release func(), err error) {
 	}
 	return func() { <-s.ch }, nil
 }
+
+// TryAcquire acquires a permit from the semaphore without blocking.
+// Returns false if no permit is available.
+func (s *Semaphore) TryAcquire() (release func(), ok bool) {
+	select {
+	case s.ch <- struct{}{}:
+		return func() { <-s.ch }, true
+	default:
+		return nil, false
+	}
+}
