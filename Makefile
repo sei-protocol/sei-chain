@@ -205,6 +205,11 @@ build-frozen-rpc-router:
 	go build -o ./build/frozen-rpc-router ./cmd/frozen-rpc-router
 .PHONY: build-frozen-rpc-router
 
+build-sei-cosmos-exporter:
+	mkdir -p ./build
+	CGO_ENABLED=0 go build -o ./build/sei-cosmos-exporter ./cmd/sei-cosmos-exporter
+.PHONY: build-sei-cosmos-exporter
+
 build-autobahn-e2e:
 	go build -o ./autobahn-e2e ./cmd/autobahn-e2e
 .PHONY: build-autobahn-e2e
