@@ -728,9 +728,6 @@ func New(
 		if err != nil {
 			panic(fmt.Sprintf("error creating cosmos metrics reporter due to %s", err))
 		}
-		if err := app.cosmosMetrics.Start(); err != nil {
-			panic(fmt.Sprintf("error starting cosmos metrics due to %s", err))
-		}
 	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
@@ -1014,6 +1011,12 @@ func New(
 		panic(err)
 	}
 
+	if app.cosmosMetrics != nil {
+		if err := app.cosmosMetrics.Start(); err != nil {
+			panic(fmt.Sprintf("error starting cosmos metrics due to %s", err))
+		}
+	}
+
 	// Create hard fork manager and register all hard fork upgrade handlers. Note,
 	// when creating the manager, BaseApp must already be instantiated.
 	//
@@ -1034,7 +1037,15 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 	return app.EvmKeeper.FlushTransientReceipts(ctx)
 }
 
-// Close closes all items that needs closing (called by baseapp)
+// Close stops readers of committed state before baseapp closes the stores.
+func (app *App) Close() error {
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.Stop()
+	}
+	return app.BaseApp.Close()
+}
+
+// HandleClose closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
 	var errs []error
 
@@ -1060,10 +1071,6 @@ func (app *App) HandleClose() error {
 	// Stop admin gRPC server
 	if app.adminServer != nil {
 		app.adminServer.GracefulStop()
-	}
-
-	if app.cosmosMetrics != nil {
-		app.cosmosMetrics.Stop()
 	}
 
 	// Note: stateStore (ssStore) is already closed by cms.Close() in BaseApp.Close()
