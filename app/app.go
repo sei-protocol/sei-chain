@@ -1340,7 +1340,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
+			resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txRes, endBlockResp, consensusParamUpdates)
 			if hasHeadNotifier {
 				headNotifier.Stash(req, &resp)
 			}
@@ -1370,7 +1370,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
+	resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txResults, endBlockResp, consensusParamUpdates)
 	if hasHeadNotifier {
 		headNotifier.Stash(req, &resp)
 	}
@@ -2340,6 +2340,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 }
 
 func (app *App) getFinalizeBlockResponse(
+	ctx context.Context,
 	appHash []byte,
 	events []abci.Event,
 	txResults []*abci.ExecTxResult,
@@ -2350,7 +2351,7 @@ func (app *App) getFinalizeBlockResponse(
 		return abci.ResponseFinalizeBlock{}
 	}
 	if app.cosmosMetrics != nil {
-		app.cosmosMetrics.ObserveTxResults(context.Background(), txResults)
+		app.cosmosMetrics.ObserveTxResults(ctx, txResults)
 	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
