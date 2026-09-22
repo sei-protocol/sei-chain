@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"math/big"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -16,6 +17,50 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+func TestBlockNumber(t *testing.T) {
+	backend := &testBackend{blockNumber: func() uint64 { return 42 }}
+	api := &infoAPI{backend: backend}
+	require.Equal(t, hexutil.Uint64(42), api.BlockNumber(t.Context()))
+}
+
+func TestBlockNumberEndToEnd(t *testing.T) {
+	backend := &testBackend{blockNumber: func() uint64 { return 42 }}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var got hexutil.Uint64
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_blockNumber"))
+	require.Equal(t, hexutil.Uint64(42), got)
+}
+
+func TestChainId(t *testing.T) {
+	backend := &testBackend{chainID: func() uint64 { return 713715 }}
+	api := &infoAPI{backend: backend}
+	require.Equal(t, (*hexutil.Big)(big.NewInt(713715)), api.ChainId(t.Context()))
+}
+
+func TestChainIdEndToEnd(t *testing.T) {
+	backend := &testBackend{chainID: func() uint64 { return 713715 }}
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	require.NoError(t, err)
+	t.Cleanup(handler.Stop)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := ethrpc.DialHTTP(server.URL)
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+
+	var got hexutil.Big
+	require.NoError(t, client.CallContext(t.Context(), &got, "eth_chainId"))
+	require.Equal(t, *big.NewInt(713715), big.Int(got))
+}
 
 func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	return &testBackend{
@@ -32,22 +77,6 @@ func emptyBlockBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 		return &coretypes.ResultBlock{Block: &tmtypes.Block{}}, nil
 	}
 	return backend
-}
-
-// fakeHoleStore wraps a real ReceiptStore, answering GetBlockStats with a genuine ErrNotFound for
-// each height in holeHeights regardless of what the wrapped store holds for it. Real pruning can
-// only remove a leading prefix, so this is the only way to construct an interior or trailing
-// ErrNotFound hole to test walkFeeHistoryRange's restart-on-hole logic directly.
-type fakeHoleStore struct {
-	receipt.ReceiptStore
-	holeHeights map[uint64]bool
-}
-
-func (s *fakeHoleStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
-	if s.holeHeights[blockNumber] {
-		return receipt.BlockStats{}, receipt.ErrNotFound
-	}
-	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
 }
 
 // setBlockReceipt writes one block with a single reward-eligible tx, so its stored BlockStats has
@@ -172,7 +201,7 @@ func TestFeeHistoryEarliestRespectsThePruneFloor(t *testing.T) {
 }
 
 // TestFeeHistoryRestartsAfterAGenuineInteriorHole exercises walkFeeHistoryRange's restart-on-hole
-// logic directly, via fakeHoleStore: a real ErrNotFound in the interior of the range (not
+// logic directly, via stubBlockStatsStore: a real ErrNotFound in the interior of the range (not
 // reachable through MemoryReceiptStore's own pruning, which only removes a leading prefix) must
 // restart the accumulation, not misattribute block 4's data to block 3.
 func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
@@ -180,7 +209,7 @@ func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
 	for h := uint64(1); h <= 4; h++ {
 		setBlockReceipt(t, store, h, h*10, 100)
 	}
-	holeStore := &fakeHoleStore{ReceiptStore: store, holeHeights: map[uint64]bool{3: true}}
+	holeStore := stubBlockStatsStore{ReceiptStore: store, holeHeights: map[uint64]bool{3: true}}
 	api := &infoAPI{backend: testInfoBackend(1000, 1), store: holeStore}
 
 	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
@@ -191,14 +220,14 @@ func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
 }
 
 // TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole exercises the lastGoodResult
-// fallback directly, via fakeHoleStore: a real ErrNotFound hole running through end must fall
-// back to the last good contiguous prefix rather than error.
+// fallback directly, via stubBlockStatsStore: a real ErrNotFound hole running through end must
+// fall back to the last good contiguous prefix rather than error.
 func TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	for h := uint64(1); h <= 4; h++ {
 		setBlockReceipt(t, store, h, h*10, 100)
 	}
-	holeStore := &fakeHoleStore{ReceiptStore: store, holeHeights: map[uint64]bool{3: true, 4: true}}
+	holeStore := stubBlockStatsStore{ReceiptStore: store, holeHeights: map[uint64]bool{3: true, 4: true}}
 	api := &infoAPI{backend: testInfoBackend(1000, 1), store: holeStore}
 
 	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
