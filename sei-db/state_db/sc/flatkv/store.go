@@ -810,6 +810,12 @@ func (s *CommitStore) CommittedRootHash() []byte {
 	return checksum[:]
 }
 
+// Flush returns immediately: Commit writes and flushes the block WAL before it returns, so nothing is
+// ever pending.
+func (s *CommitStore) Flush() error {
+	return nil
+}
+
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {
 	if s.readOnly {
 		return nil, errReadOnly
