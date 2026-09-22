@@ -60,6 +60,16 @@ func TestReadReceiptConfigRewardPercentiles(t *testing.T) {
 	require.Equal(t, []float64{0, 50, 100}, cfg.RewardPercentiles)
 }
 
+// TestReadReceiptConfigRewardPercentilesSplitsACommaJoinedEnvValue guards the env-var shape
+// AutomaticEnv actually delivers: one comma-joined string, not a pre-split slice.
+func TestReadReceiptConfigRewardPercentilesSplitsACommaJoinedEnvValue(t *testing.T) {
+	cfg, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-reward-percentiles": "0,50,100",
+	})
+	require.NoError(t, err)
+	require.Equal(t, []float64{0, 50, 100}, cfg.RewardPercentiles)
+}
+
 func TestReadReceiptConfigRewardPercentilesRejectsOutOfRange(t *testing.T) {
 	_, err := ReadReceiptConfig(mapAppOpts{
 		"receipt-store.rs-reward-percentiles": []interface{}{-1.0, 50.0},

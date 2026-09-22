@@ -198,19 +198,26 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 	return cfg, nil
 }
 
-// toFloat64SliceE parses a config value (a TOML/Viper array, however it decoded) into a []float64.
+// toFloat64SliceE parses a config value (a TOML/Viper array, or a comma- or whitespace-separated
+// environment-variable string) into a []float64.
 func toFloat64SliceE(v interface{}) ([]float64, error) {
 	raw, err := cast.ToStringSliceE(v)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]float64, len(raw))
-	for i, s := range raw {
-		f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-		if err != nil {
-			return nil, fmt.Errorf("element %q: %w", s, err)
+	var out []float64
+	for _, s := range raw {
+		for _, element := range strings.Split(s, ",") {
+			element = strings.TrimSpace(element)
+			if element == "" {
+				continue
+			}
+			f, err := strconv.ParseFloat(element, 64)
+			if err != nil {
+				return nil, fmt.Errorf("element %q: %w", element, err)
+			}
+			out = append(out, f)
 		}
-		out[i] = f
 	}
 	return out, nil
 }
