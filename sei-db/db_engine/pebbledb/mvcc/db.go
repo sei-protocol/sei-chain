@@ -698,12 +698,13 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatch(db.storage, version, changesetPairs(changeset), db.descending, db.dbName, db.operationMetrics)
+	b, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return err
 	}
 
 	for _, cs := range changeset {
+		SortChangesetPairs(cs.Changeset.Pairs)
 		for _, kvPair := range cs.Changeset.Pairs {
 			if kvPair.Value == nil {
 				if err := b.Delete(cs.Name, kvPair.Key); err != nil {
@@ -1268,7 +1269,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version, ImportCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
+		batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 		if err != nil {
 			panic(err)
 		}
@@ -1289,7 +1290,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version, ImportCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					panic(err)
 				}
@@ -1374,7 +1375,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 
 func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 
-	batch, err := NewBatch(db.storage, version, DeleteCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
+	batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
@@ -1394,7 +1395,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 					return true
 				}
 				deleteCounter = 0
-				batch, err = NewBatch(db.storage, version, DeleteCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
 					return true
