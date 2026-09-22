@@ -24,6 +24,32 @@ func testInfoBackend(gasLimit uint64, minGasPrice int64) *testBackend {
 	}
 }
 
+// emptyBlockBackend answers Block with a real, empty block for any height: the shape a height
+// with no recorded BlockStats actually has (its receipts, if any, are just as retrievable).
+func emptyBlockBackend(gasLimit uint64, minGasPrice int64) *testBackend {
+	backend := testInfoBackend(gasLimit, minGasPrice)
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{Block: &tmtypes.Block{}}, nil
+	}
+	return backend
+}
+
+// fakeHoleStore wraps a real ReceiptStore, answering GetBlockStats with a genuine ErrNotFound for
+// each height in holeHeights regardless of what the wrapped store holds for it. Real pruning can
+// only remove a leading prefix, so this is the only way to construct an interior or trailing
+// ErrNotFound hole to test walkFeeHistoryRange's restart-on-hole logic directly.
+type fakeHoleStore struct {
+	receipt.ReceiptStore
+	holeHeights map[uint64]bool
+}
+
+func (s *fakeHoleStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
+	if s.holeHeights[blockNumber] {
+		return receipt.BlockStats{}, receipt.ErrNotFound
+	}
+	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
+}
+
 // setBlockReceipt writes one block with a single reward-eligible tx, so its stored BlockStats has
 // GasUsed=gasUsed and every default percentile equal to reward.
 func setBlockReceipt(t *testing.T, store receipt.ReceiptStore, blockNumber, gasUsed uint64, reward int64) {
@@ -117,14 +143,15 @@ func TestFeeHistoryUsesStoredGasUsedRatio(t *testing.T) {
 	require.Nil(t, result.Reward)
 }
 
-func TestFeeHistorySkipsHeightsWithoutStats(t *testing.T) {
+func TestFeeHistorySkipsPrunedHeights(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	setBlockReceipt(t, store, 3, 10, 100) // blocks 1-2 never written
+	setBlockReceipt(t, store, 3, 10, 100)
+	require.NoError(t, store.PruneHistory(3)) // blocks 1-2 pruned; 3 is the oldest retained
 	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
 
 	result, err := api.FeeHistory(t.Context(), 3, ethrpc.BlockNumber(3), nil)
 	require.NoError(t, err)
-	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt(), "the earliest height with stats, not the earliest requested")
+	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt(), "the earliest retained height, not the earliest requested")
 	require.Equal(t, []float64{0.01}, result.GasUsedRatio)
 }
 
@@ -144,15 +171,35 @@ func TestFeeHistoryEarliestRespectsThePruneFloor(t *testing.T) {
 	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
 }
 
-// TestFeeHistoryFallsBackToLastGoodRunOnATrailingHole guards a real review finding: the
-// interior-hole restart above discards its accumulated rows on any hole, including one that
-// extends through end — which left a real, usable prefix un-returned in favor of an error.
-func TestFeeHistoryFallsBackToLastGoodRunOnATrailingHole(t *testing.T) {
+// TestFeeHistoryRestartsAfterAGenuineInteriorHole exercises walkFeeHistoryRange's restart-on-hole
+// logic directly, via fakeHoleStore: a real ErrNotFound in the interior of the range (not
+// reachable through MemoryReceiptStore's own pruning, which only removes a leading prefix) must
+// restart the accumulation, not misattribute block 4's data to block 3.
+func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	setBlockReceipt(t, store, 1, 10, 100)
-	setBlockReceipt(t, store, 2, 20, 100)
-	setBlockReceipt(t, store, 5, 50, 100) // pushes LatestVersion to 5; blocks 3-4 are holes through end
-	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+	for h := uint64(1); h <= 4; h++ {
+		setBlockReceipt(t, store, h, h*10, 100)
+	}
+	holeStore := &fakeHoleStore{ReceiptStore: store, holeHeights: map[uint64]bool{3: true}}
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: holeStore}
+
+	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(4), result.OldestBlock.ToInt(),
+		"the run must restart after the hole, not report block 4's data as block 3's")
+	require.Equal(t, []float64{0.04}, result.GasUsedRatio)
+}
+
+// TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole exercises the lastGoodResult
+// fallback directly, via fakeHoleStore: a real ErrNotFound hole running through end must fall
+// back to the last good contiguous prefix rather than error.
+func TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	for h := uint64(1); h <= 4; h++ {
+		setBlockReceipt(t, store, h, h*10, 100)
+	}
+	holeStore := &fakeHoleStore{ReceiptStore: store, holeHeights: map[uint64]bool{3: true, 4: true}}
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: holeStore}
 
 	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
 	require.NoError(t, err, "a trailing hole through end must fall back to the prefix, not error")
@@ -160,23 +207,56 @@ func TestFeeHistoryFallsBackToLastGoodRunOnATrailingHole(t *testing.T) {
 	require.Equal(t, []float64{0.01, 0.02}, result.GasUsedRatio)
 }
 
-// TestFeeHistoryRestartsAfterAnInteriorHole guards a real review finding: skipping an interior
-// height with no stats in place, after rows have already been emitted, would silently misattribute
-// every later row to the wrong height (eth_feeHistory's row i is block oldestBlock+i). The fix
-// restarts the accumulation so the result is a contiguous run ending at end.
-func TestFeeHistoryRestartsAfterAnInteriorHole(t *testing.T) {
+// TestFeeHistoryRecomputesATrailingUnstatedHeight guards a real bugbot finding: GetBlockStats's
+// ErrBlockStatsNotSupported (no aggregate ever recorded — e.g. the pebble backend, which never
+// writes one) was being treated as an unrecoverable hole, so eth_feeHistory failed outright
+// wherever it occurred. It must instead recompute from that height's receipts.
+func TestFeeHistoryRecomputesATrailingUnstatedHeight(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	setBlockReceipt(t, store, 1, 10, 100)
 	setBlockReceipt(t, store, 2, 20, 100)
-	// Block 3 is never written: an interior hole between 2 and 4.
-	setBlockReceipt(t, store, 4, 40, 100)
-	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
+	setBlockReceipt(t, store, 5, 50, 100) // pushes LatestVersion to 5; blocks 3-4 have no stats
+	api := &infoAPI{backend: emptyBlockBackend(1000, 1), store: store}
 
 	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
 	require.NoError(t, err)
-	require.Equal(t, big.NewInt(4), result.OldestBlock.ToInt(),
-		"the run must restart after the hole, not report block 4's data as block 3's")
-	require.Equal(t, []float64{0.04}, result.GasUsedRatio)
+	require.Equal(t, big.NewInt(1), result.OldestBlock.ToInt())
+	require.Equal(t, []float64{0.01, 0.02, 0, 0}, result.GasUsedRatio)
+}
+
+// TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone guards a recompute path that once
+// dereferenced block.Block unconditionally: a backend answering a nil block, or a nil
+// block.Block, for a height with no cached stats must produce an error, not a nil-pointer panic.
+func TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	setBlockReceipt(t, store, 2, 20, 100) // pushes LatestVersion to 2; block 1 has no BlockStats
+
+	backend := testInfoBackend(1000, 1)
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{Block: nil}, nil
+	}
+	api := &infoAPI{backend: backend, store: store}
+
+	_, err := api.FeeHistory(t.Context(), 1, ethrpc.BlockNumber(1), nil)
+	require.ErrorContains(t, err, "not available")
+}
+
+// TestFeeHistoryRecomputesAnInteriorUnstatedHeight is the same finding for a height in the
+// middle of the range: it must recompute and take its own place in the row, rather than being
+// skipped and misattributing block 4's data to block 3 (eth_feeHistory's row i is block
+// oldestBlock+i).
+func TestFeeHistoryRecomputesAnInteriorUnstatedHeight(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	setBlockReceipt(t, store, 1, 10, 100)
+	setBlockReceipt(t, store, 2, 20, 100)
+	// Block 3 has no BlockStats recorded, unlike its neighbors.
+	setBlockReceipt(t, store, 4, 40, 100)
+	api := &infoAPI{backend: emptyBlockBackend(1000, 1), store: store}
+
+	result, err := api.FeeHistory(t.Context(), 4, ethrpc.BlockNumber(4), nil)
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(1), result.OldestBlock.ToInt())
+	require.Equal(t, []float64{0.01, 0.02, 0, 0.04}, result.GasUsedRatio)
 }
 
 func TestFeeHistoryRewardFromStoredPercentiles(t *testing.T) {
