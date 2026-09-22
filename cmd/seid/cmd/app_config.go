@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/sei-protocol/sei-chain/admin"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
 	srvconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
@@ -35,6 +36,7 @@ type CustomAppConfig struct {
 	EvmQuery        querier.Config                 `mapstructure:"evm_query"`
 	LightInvariance seiapp.LightInvarianceConfig   `mapstructure:"light_invariance"`
 	Admin           admin.Config                   `mapstructure:"admin_server"`
+	CosmosMetrics   cosmosmetrics.Config           `mapstructure:"cosmos_metrics"`
 }
 
 // NewCustomAppConfig creates a CustomAppConfig with the given base config and EVM config
@@ -55,5 +57,6 @@ func NewCustomAppConfig(baseConfig *srvconfig.Config, evmConfig evmrpcconfig.Con
 		EvmQuery:        querier.DefaultConfig,
 		LightInvariance: seiapp.DefaultLightInvarianceConfig,
 		Admin:           admin.DefaultConfig,
+		CosmosMetrics:   cosmosmetrics.DefaultConfig,
 	}
 }
