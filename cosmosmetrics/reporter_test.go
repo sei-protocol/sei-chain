@@ -36,9 +36,10 @@ var testReader = sync.OnceValue(func() *sdkmetric.ManualReader {
 })
 
 type fakeStaking struct {
-	bondDenom  string
-	validators []stakingtypes.Validator
-	calls      int
+	bondDenom     string
+	validators    []stakingtypes.Validator
+	redelegations int
+	calls         int
 }
 
 func (f *fakeStaking) GetParams(sdk.Context) stakingtypes.Params {
@@ -77,8 +78,18 @@ func (f *fakeStaking) GetAllDelegatorDelegations(_ sdk.Context, d sdk.AccAddress
 func (f *fakeStaking) GetUnbondingDelegations(sdk.Context, sdk.AccAddress, uint16) []stakingtypes.UnbondingDelegation {
 	return nil
 }
-func (f *fakeStaking) GetRedelegations(sdk.Context, sdk.AccAddress, uint16) []stakingtypes.Redelegation {
-	return nil
+func (f *fakeStaking) GetRedelegations(_ sdk.Context, d sdk.AccAddress, limit uint16) []stakingtypes.Redelegation {
+	n := min(f.redelegations, int(limit))
+	reds := make([]stakingtypes.Redelegation, n)
+	for i := range reds {
+		reds[i] = stakingtypes.Redelegation{
+			DelegatorAddress:    d.String(),
+			ValidatorSrcAddress: sdk.ValAddress(bytes.Repeat([]byte{byte(i + 1)}, 20)).String(),
+			ValidatorDstAddress: f.validators[0].OperatorAddress,
+			Entries:             []stakingtypes.RedelegationEntry{{InitialBalance: sdk.NewInt(1)}},
+		}
+	}
+	return reds
 }
 
 type fakeSlashing struct{}
@@ -309,6 +320,15 @@ func TestObserveServesTheSnapshotBetweenRefreshes(t *testing.T) {
 	require.Equal(t, 1, staking.calls, "state reads within one refresh interval")
 	c.refresh()
 	require.Equal(t, 2, staking.calls, "state reads after a refresh")
+}
+
+func TestReadLogsTruncatedWalletEntries(t *testing.T) {
+	newTestReader(t)
+	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}, redelegations: maxWalletEntries + 5}
+	c, logs := newTestReporter(t, staking, fakeDistribution{})
+	c.refresh()
+	require.Contains(t, logs.String(), "redelegations truncated", "the truncated read was not logged")
+	require.NotNil(t, c.snapshot.Load(), "a truncated read must still publish a snapshot")
 }
 
 func TestRefreshSurvivesAFailedRead(t *testing.T) {

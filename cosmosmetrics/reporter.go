@@ -277,14 +277,18 @@ func (r *Reporter) readWallets(ctx sdk.Context, b *builder, bondDenom string) {
 			b.decScaled(cosmosMetrics.walletDelegations, validator.TokensFromShares(d.Shares), r.scale,
 				addr, denom, attribute.String("delegated_to", d.ValidatorAddress))
 		}
-		for _, u := range r.keepers.Staking.GetUnbondingDelegations(ctx, acc, maxWalletEntries) {
+		unbondings := r.keepers.Staking.GetUnbondingDelegations(ctx, acc, maxWalletEntries)
+		b.checkTruncated("unbondings", acc, len(unbondings))
+		for _, u := range unbondings {
 			sum := sdk.ZeroInt()
 			for _, e := range u.Entries {
 				sum = sum.Add(e.Balance)
 			}
 			b.int(cosmosMetrics.walletUnbondings, sum, r.scale, addr, denom, attribute.String("unbonded_from", u.ValidatorAddress))
 		}
-		for _, red := range r.keepers.Staking.GetRedelegations(ctx, acc, maxWalletEntries) {
+		redelegations := r.keepers.Staking.GetRedelegations(ctx, acc, maxWalletEntries)
+		b.checkTruncated("redelegations", acc, len(redelegations))
+		for _, red := range redelegations {
 			sum := sdk.ZeroInt()
 			for _, e := range red.Entries {
 				sum = sum.Add(e.InitialBalance)
@@ -323,6 +327,14 @@ func denomAttr(denom string) attribute.KeyValue  { return attribute.String("deno
 type builder struct {
 	samples []sample
 	errs    []error
+}
+
+// checkTruncated records an error when a capped wallet read returned the full cap, since the
+// reported sum may then be missing entries.
+func (b *builder) checkTruncated(kind string, acc sdk.AccAddress, n int) {
+	if n >= maxWalletEntries {
+		b.errs = append(b.errs, fmt.Errorf("wallet %s: %s truncated at %d entries", acc, kind, maxWalletEntries))
+	}
 }
 
 func (b *builder) gauge(inst metric.Float64Observable, value float64, attrs ...attribute.KeyValue) {
