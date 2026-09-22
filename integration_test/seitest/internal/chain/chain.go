@@ -277,10 +277,9 @@ func (c *Chain) startValidator(bringUp, engine context.Context, v *Validator, en
 		return err
 	}
 
-	// An in-memory tendermint DB with the SeiDB stores on the validator's home
-	// dir, no skipped upgrade heights, and custom EVM precompiles off — the
-	// production default for a chain that serves no EVM. The bare true and 1 are
-	// app.New parameters it ignores.
+	// SeiDB stores live on the validator's home dir; no skipped upgrade heights;
+	// EVM precompiles off (production default for a chain serving no EVM). The
+	// bare true and 1 are app.New parameters it ignores.
 	v.app = app.New(
 		dbm.NewMemDB(),
 		c.cfg.LogWriter,
@@ -333,12 +332,11 @@ func (c *Chain) startValidator(bringUp, engine context.Context, v *Validator, en
 // genesisDocFor loads v's genesis doc and sets the validator set CometBFT should
 // start from.
 //
-// The set is empty for N>=2 so every node derives its valset from its own
-// InitChain response; a pre-populated set fails consensus replay. N=1 is the
-// exception: a solo validator must skip block-sync, which happens only when
-// sei-tendermint's onlyValidatorIsUs sees a one-entry valset carrying our
-// consensus key — and it reads that from genesis before InitChain runs, so an
-// empty set there leaves a 0-peer node hung in block-sync forever.
+// Empty for N>=2: each node then derives its valset from its own InitChain
+// response, since a pre-populated set fails consensus replay. N=1 is the
+// exception — sei-tendermint's onlyValidatorIsUs skips block-sync only when it
+// sees a one-entry valset carrying our consensus key in genesis, read before
+// InitChain runs, so an empty set there hangs a 0-peer node forever.
 func (c *Chain) genesisDocFor(v *Validator) (*tmtypes.GenesisDoc, error) {
 	genDoc, err := tmtypes.GenesisDocFromFile(v.tmCfg.GenesisFile())
 	if err != nil {
@@ -379,20 +377,17 @@ func (c *Chain) Close() error {
 	return c.closeErr
 }
 
-// closeValidator stops one validator's consensus before closing its stores, and
-// is a no-op for a field a partial bring-up never populated.
+// closeValidator stops consensus before closing stores, and is a no-op for a
+// field a partial bring-up never populated.
 //
-// Consensus stops first because BaseApp.Close takes the commit lock, so closing
-// stores under a running node waits on — or races — an in-flight commit. Stop is
-// what makes that ordering real: sei-tendermint's BaseService.Stop blocks until
-// the service is fully stopped, so app.Close cannot run against a node that is
-// only part-way down. It is called unconditionally rather than behind
-// IsRunning, which reports false as soon as a shutdown this Close did not start
-// is in flight — and skipping the join there is exactly the race the ordering
-// exists to prevent. Stop and Wait are both no-ops on a node that never started.
+// Stop runs unconditionally, not behind IsRunning: BaseApp.Close takes the
+// commit lock, so it must not run against a node still shutting down, and
+// BaseService.Stop blocks until fully stopped even when a shutdown this Close
+// did not start is already in flight. Stop and Wait are no-ops on a node that
+// never started.
 //
-// Each field is cleared as it is consumed because BaseApp.Close is not itself
-// idempotent: closing an already closed store errors.
+// Each field is cleared as it is consumed because BaseApp.Close errors on an
+// already-closed store.
 func closeValidator(v *Validator) error {
 	var errs []error
 	if v.tmNode != nil {

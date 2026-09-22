@@ -13,14 +13,12 @@ import (
 const adminEnabledKey = "admin_server.admin_enabled"
 
 // appOptions is the servertypes.AppOptions the engine injects into app.New. It
-// pins every listener the app could bind to off and pins the SeiDB flags.
-// Unknown keys return nil, the servertypes.AppOptions "unset, use the default"
-// contract.
+// pins every listener off and pins the SeiDB flags; unknown keys return nil,
+// the servertypes.AppOptions "unset, use the default" contract.
 //
-// The Giga flags are deliberately absent: an unset giga flag selects the
-// production execution engine, which is what a test network should run. Pinning
-// the SeiDB flags explicitly rather than delegating to app.TestAppOpts is what
-// keeps that true — TestAppOpts also carries a giga-OFF default.
+// The Giga flags are deliberately absent so an unset flag selects the
+// production execution engine. app.TestAppOpts carries a giga-OFF default,
+// which is why the SeiDB flags are pinned here instead of delegated to it.
 type appOptions struct {
 	chainID string
 }
