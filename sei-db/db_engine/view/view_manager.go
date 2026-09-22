@@ -55,7 +55,8 @@ type ViewManager interface {
 	// Get returns the value for the given key at the manager's current (mutable) version, or
 	// (nil, false, nil) if not found. On a miss the value is read through from the backing store.
 	//
-	// It is not safe to mutate the key slice after calling this method, nor the returned value slice.
+	// The key is read only for the duration of the call; the caller may reuse the slice once Get
+	// returns. The returned value slice must not be mutated.
 	Get(key []byte, updateLru bool) ([]byte, bool, error)
 
 	// BatchGet reads the given keys against the current (mutable) version and returns a map, keyed by
@@ -195,7 +196,9 @@ type View interface {
 	// Name returns the name of the manager this view was taken from.
 	Name() string
 
-	// Get returns the value for the given key, or (nil, false, nil) if not found.
+	// Get returns the value for the given key, or (nil, false, nil) if not found. The key is read only
+	// for the duration of the call; the caller may reuse the slice once Get returns. The returned value
+	// slice must not be mutated.
 	Get(
 		// The entry to fetch.
 		key []byte,
@@ -213,10 +216,8 @@ type View interface {
 	// recoverable.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// GetDiff returns the set of key-value mutations contained in this view, relative to the
-	// previous view. The result reflects only this view's writes (including deletes,
-	// represented as nil values); to reconstruct earlier state, read from earlier views.
-	GetDiff() (map[string][]byte, error)
+	// ForEachDiff visits every key-value mutation contained in this view.
+	ForEachDiff(visit func(key string, value []byte) error) error
 
 	// Reserve increments this view's reservation count. While the count is greater than zero,
 	// the view is safe to read and its internal data is protected from cleanup. Each Reserve

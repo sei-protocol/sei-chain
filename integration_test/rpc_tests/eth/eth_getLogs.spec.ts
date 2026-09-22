@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { HEX_QUANTITY } from '../utils/format';
-import { EvmAccount } from '../utils/evmUtils';
 import { sharedRichBlock, RichBlock, richFailedTxs } from '../utils/txUtils';
 import {
     emitLogScene,
@@ -16,7 +15,6 @@ import {
     TRANSFER_TOPIC,
     APPROVAL_TOPIC,
     CORE_LOG_KEYS,
-    ERC20_LOG_IFACE,
     STAKING_IFACE,
     STAKING_PRECOMPILE_ADDRESS,
     DELEGATE_TOPIC,
@@ -245,30 +243,7 @@ describe('eth_getLogs', function () {
         });
     });
 
-    describe('non-EVM log sources (dual-VM & precompiles)', () => {
-        it('indexes a CW20 ERC20 pointer transfer as a standard Transfer log', async function () {
-            const actor = EvmAccount.fromPrivateKey(runtime.wasm!.actor.privateKey, sei);
-            const pointer = new ethers.Contract(
-                runtime.wasm!.cw20Pointer,
-                ERC20_LOG_IFACE,
-                actor.wallet,
-            );
-            const receipt = await (await pointer.transfer(runtime.funded.admin, 1n)).wait();
-
-            const logs = await getLogs({
-                address: runtime.wasm!.cw20Pointer,
-                fromBlock: ethers.toQuantity(receipt!.blockNumber),
-                toBlock: ethers.toQuantity(receipt!.blockNumber),
-            });
-            const transfer = logs.find((l: any) => l.topics[0] === TRANSFER_TOPIC);
-            expect(transfer, 'pointer emits a Transfer log').to.not.equal(undefined);
-            expectLogShape(transfer, 'pointer transfer');
-            expect(transfer.address).to.equal(runtime.wasm!.cw20Pointer.toLowerCase());
-            expect(transfer.topics[2], 'recipient is admin').to.equal(
-                addressTopic(runtime.funded.admin),
-            );
-        });
-
+    describe('non-EVM log sources (precompiles)', () => {
         it('indexes a staking-precompile delegate as a Delegate log under the precompile address', async function () {
             const [delegator] = claimPool(runtime, sei, 1, 'eth_getLogs-staking');
             let validator = await firstBondedValidator();

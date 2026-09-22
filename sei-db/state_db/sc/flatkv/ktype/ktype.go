@@ -67,6 +67,14 @@ func ModulePhysicalKey(moduleName string, key []byte) []byte {
 	return result
 }
 
+// AppendModulePhysicalKey appends the physical key ModulePhysicalKey would build for moduleName
+// and key to dst and returns the extended slice.
+func AppendModulePhysicalKey(dst []byte, moduleName string, key []byte) []byte {
+	dst = append(dst, moduleName...)
+	dst = append(dst, '/')
+	return append(dst, key...)
+}
+
 // StripModulePrefix splits a module-prefixed physical key into its module name
 // and original key. Returns an error if no "/" separator is found.
 func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byte, err error) {

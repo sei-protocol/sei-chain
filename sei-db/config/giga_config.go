@@ -74,6 +74,18 @@ func (c *GigaStorageConfig) WithFullNodeMode() *GigaStorageConfig {
 	return c
 }
 
+// AutobahnStorageConfig is the disk-backed Giga layout Autobahn opens: FlatKV,
+// receipts, and BlockDB. SS stays off.
+func AutobahnStorageConfig(homePath string) (*GigaStorageConfig, error) {
+	storageConfig, err := DefaultGigaStorageConfig(homePath)
+	if err != nil {
+		return nil, err
+	}
+	storageConfig.WithValidatorMode()
+	storageConfig.ReceiptDBConfig.Enable = true
+	return storageConfig, nil
+}
+
 func (c *GigaStorageConfig) WithAccountDBCacheSize(sizeInBytes uint64) *GigaStorageConfig {
 	c.FlatKVConfig.AccountStoreConfig.MaxSize = sizeInBytes
 	return c

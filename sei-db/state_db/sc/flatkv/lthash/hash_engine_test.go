@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -38,7 +40,7 @@ var _ view.View = (*pipeView)(nil)
 type pipeView struct {
 	name string
 
-	// diff is what this block changed, as GetDiff reports it. A nil value is a deletion.
+	// diff is what this block changed, as ForEachDiff reports it. A nil value is a deletion.
 	diff map[string][]byte
 
 	// prior is the state BatchGet answers from, i.e. what the keys held before this block.
@@ -54,11 +56,18 @@ type pipeView struct {
 
 func (v *pipeView) Name() string { return v.name }
 
-func (v *pipeView) GetDiff() (map[string][]byte, error) {
+func (v *pipeView) ForEachDiff(visit func(key string, value []byte) error) error {
 	if v.getDiffErr != nil {
-		return nil, v.getDiffErr
+		return v.getDiffErr
 	}
-	return v.diff, nil
+	// Sorted, because a real view walks each shard's run in key order and a test that depended on map
+	// order would be depending on something the production walk never produces.
+	for _, key := range slices.Sorted(maps.Keys(v.diff)) {
+		if err := visit(key, v.diff[key]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (v *pipeView) BatchGet(keys [][]byte) (map[string][]byte, error) {

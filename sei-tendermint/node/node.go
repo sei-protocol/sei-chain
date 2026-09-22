@@ -129,7 +129,6 @@ type nodeImpl struct {
 	router               *p2p.Router
 	giga                 utils.Option[p2p.GigaRouter]
 	gigaStorageManager   utils.Option[*bootstrap.GigaStorageManager]
-	gigaBlockStore       utils.Option[atypes.BlockStore]
 	gigaStorageCloseOnce sync.Once
 	ServiceRestartCh     utils.Option[chan []string]
 	nodeInfo             types.NodeInfo
@@ -295,7 +294,7 @@ func makeNode(
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
-	router, peerCloser, gigaBlockStore, err := createRouter(
+	router, peerCloser, _, err := createRouter(
 		node.NodeInfo,
 		nodeKey,
 		gigaValidatorKey,
@@ -311,7 +310,6 @@ func makeNode(
 	}
 	node.router = router
 	node.giga = router.Giga()
-	node.gigaBlockStore = gigaBlockStore
 	// Giga storage is NOT closed in OnStop: BaseService runs OnStop before
 	// SpawnCritical (giga.Run) finishes, so closing there would race with
 	// still-running persist/execute. Close paths:
@@ -768,20 +766,13 @@ func (n *nodeImpl) OnStop() {
 	}
 }
 
-// closeGigaStorage closes the manager-owned storage or standalone Autobahn
-// block store at most once.
+// closeGigaStorage closes the manager-owned storage at most once.
 func (n *nodeImpl) closeGigaStorage() error {
 	var err error
 	n.gigaStorageCloseOnce.Do(func() {
 		if manager, ok := n.gigaStorageManager.Get(); ok {
 			if err = manager.Close(); err != nil {
 				logger.Error("failed to close Giga storage manager", "err", err)
-			}
-			return
-		}
-		if blockStore, ok := n.gigaBlockStore.Get(); ok {
-			if err = blockStore.Close(); err != nil {
-				logger.Error("failed to close Autobahn BlockStore", "err", err)
 			}
 		}
 	})

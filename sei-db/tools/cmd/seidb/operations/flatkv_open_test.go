@@ -208,7 +208,6 @@ func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
 			Name:      keys.EVMStoreKey,
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addrN(byte(v)), v)}},
 		}}))
-		require.NoError(t, w.SignalEndOfBlock())
 	}
 	require.NoError(t, w.Flush())
 	require.NoError(t, w.Close())
