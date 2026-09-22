@@ -784,7 +784,7 @@ func New(
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
-		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
+		AddRoute(evmtypes.RouterKey, evm.ProposalHandler)
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
@@ -1758,6 +1758,14 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
+// flushCommittedStateForUpgradeExit waits for the last committed block to reach
+// every backend's log before the process exits for an upgrade.
+func (app *App) flushCommittedStateForUpgradeExit() {
+	if err := app.rootStore.Flush(); err != nil {
+		logger.Error("failed to flush commit store before upgrade exit", "err", err)
+	}
+}
+
 // ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
 // those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
 // on the block context.
@@ -1769,6 +1777,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
 			if upgradePanicRe.MatchString(panicMsg) {
 				logger.Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				app.flushCommittedStateForUpgradeExit()
 				panic(r) // Re-panic to trigger upgrade mechanism
 			}
 			stack := string(debug.Stack())

@@ -1,6 +1,7 @@
 package evmonlyapp
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -53,12 +56,26 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 
 func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
 	t.Helper()
-	storageConfig, err := evmonly.NewValidatorStorageConfig(t.TempDir())
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, storage.Close()) })
 	return NewEVMOnlyApplication(evmOnlyTestChainID, validators, storage, evmonly.NewFlatKVChangeSetEncoder(storage.SC()))
+}
+
+// waitForReceiptVersion blocks until the receipt store has published height. The store applies
+// writes in the background, so a receipt is readable once LatestVersion reaches its block rather
+// than once SetReceipts returns.
+func waitForReceiptVersion(t *testing.T, store receipt.ReceiptStore, height int64) {
+	t.Helper()
+	for store.LatestVersion() < height {
+		select {
+		case <-t.Context().Done():
+			t.Fatalf("receipt store still at version %d before %d: %v", store.LatestVersion(), height, t.Context().Err())
+		case <-time.After(time.Millisecond):
+		}
+	}
 }
 
 func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
@@ -97,11 +114,13 @@ func TestEVMOnlyApplicationExecutesRawEthereumBlock(t *testing.T) {
 	gotBalance = app.EvmBalance(sender, nil)
 	require.Equal(t, wantBalance, gotBalance.ToBig())
 	require.Equal(t, response.AppHash, app.Info().LastBlockAppHash)
+	receiptDB := app.(*evmOnlyApplication).storage.ReceiptDB()
+	waitForReceiptVersion(t, receiptDB, 1)
 	receiptCtx := sdk.NewContext(nil, tmproto.Header{Height: 1}, false).WithContext(t.Context())
-	receipt, err := app.(*evmOnlyApplication).storage.ReceiptDB().GetReceipt(receiptCtx, tx.Hash())
+	gotReceipt, err := receiptDB.GetReceipt(receiptCtx, tx.Hash())
 	require.NoError(t, err)
-	require.Equal(t, tx.Hash().Hex(), receipt.TxHashHex)
-	require.Equal(t, uint64(1), receipt.BlockNumber)
+	require.Equal(t, tx.Hash().Hex(), gotReceipt.TxHashHex)
+	require.Equal(t, uint64(1), gotReceipt.BlockNumber)
 }
 
 func TestEVMOnlyApplicationRejectsWrongChain(t *testing.T) {
@@ -204,6 +223,22 @@ func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	})
 
 	require.Error(t, err)
+}
+
+func TestEVMOnlyABCIResultsCarryRevertReasonWithoutFailingTheTx(t *testing.T) {
+	result := &evmonly.BlockResult{
+		Txs: []evmonly.TxResult{
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusSuccessful},
+			{GasUsed: 21_000, Status: ethtypes.ReceiptStatusFailed, Err: errors.New("execution reverted")},
+		},
+	}
+
+	txResults := evmOnlyABCIResults(result)
+
+	require.Equal(t, abci.CodeTypeOK, txResults[0].Code)
+	require.Empty(t, txResults[0].Log)
+	require.Equal(t, abci.CodeTypeOK, txResults[1].Code, "a revert must not mark the tx for a mempool retry")
+	require.Equal(t, "execution reverted", txResults[1].Log)
 }
 
 func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {

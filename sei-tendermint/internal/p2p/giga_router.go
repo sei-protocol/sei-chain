@@ -33,10 +33,10 @@ type GigaRouterCommonConfig struct {
 	DialInterval   time.Duration
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
 	GenDoc         *types.GenesisDoc
-	// PersistentStateDir is the on-disk root for durable state (BlockDB,
-	// hashvault, and the validator's consensus persister in sibling subdirs).
-	// If None, persistence is disabled and the node runs fully in-memory.
-	PersistentStateDir utils.Option[string]
+	// PersistentStateDir is the absolute on-disk root for durable state
+	// (BlockDB, hashvault, epoch snapshots, and the validator's consensus
+	// persister in sibling subdirs). Required and must already exist.
+	PersistentStateDir string
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.

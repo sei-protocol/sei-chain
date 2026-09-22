@@ -4,20 +4,6 @@ package pointer
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
-	pointerv552 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v552"
-	pointerv555 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v555"
-	pointerv562 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v562"
-	pointerv575 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v575"
-	pointerv580 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v580"
-	pointerv600 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v600"
-	pointerv605 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v605"
-	pointerv606 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v606"
-	pointerv610 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v610"
-	pointerv614 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v614"
-	pointerv620 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v620"
-	pointerv630 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v630"
-	pointerv640 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v640"
-	pointerv65 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v65"
 	pointerv66 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v66"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
@@ -25,20 +11,6 @@ import (
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v5.5.2":      check(pointerv552.NewPrecompile(keepers)),
-		"v5.5.5":      check(pointerv555.NewPrecompile(keepers)),
-		"v5.6.2":      check(pointerv562.NewPrecompile(keepers)),
-		"v5.7.5":      check(pointerv575.NewPrecompile(keepers)),
-		"v5.8.0":      check(pointerv580.NewPrecompile(keepers)),
-		"v6.0.0":      check(pointerv600.NewPrecompile(keepers)),
-		"v6.0.5":      check(pointerv605.NewPrecompile(keepers)),
-		"v6.0.6":      check(pointerv606.NewPrecompile(keepers)),
-		"v6.1.0":      check(pointerv610.NewPrecompile(keepers)),
-		"v6.1.4":      check(pointerv614.NewPrecompile(keepers)),
-		"v6.2.0":      check(pointerv620.NewPrecompile(keepers)),
-		"v6.3.0":      check(pointerv630.NewPrecompile(keepers)),
-		"v6.4.0":      check(pointerv640.NewPrecompile(keepers)),
-		"v6.5":        check(pointerv65.NewPrecompile(keepers)),
 		"v6.6":        check(pointerv66.NewPrecompile(keepers)),
 	}
 }

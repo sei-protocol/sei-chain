@@ -66,12 +66,13 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 
 	n0, n1 := testNet.checkNodePair(t, 0, 1)
 	ch := testNet.pexChannels[n0]
+	conn := testNet.peerConn(t, 1, 0)
 	t.Log("Send request too many times.")
 	for range maxPeerRecvBurst + 10 {
 		ch.Send(wrap(&pb.PexRequest{}), n1)
 	}
 	t.Log("n1 should force disconnect.")
-	testNet.listenForPeerDown(t, 1, 0)
+	testNet.listenForPeerDown(t, 1, conn)
 }
 
 func TestReactorSendsResponseWithoutRequest(t *testing.T) {
@@ -85,6 +86,7 @@ func TestReactorSendsResponseWithoutRequest(t *testing.T) {
 	testNet.connectAll(t)
 	testNet.start(ctx, t)
 
+	conn := testNet.peerConn(t, 1, 0)
 	// firstNode sends the secondNode an unrequested response
 	// NOTE: secondNode will send a request by default during startup so we send
 	// two responses to counter that.
@@ -92,7 +94,7 @@ func TestReactorSendsResponseWithoutRequest(t *testing.T) {
 	testNet.sendResponse(t, 0, 1, []int{2})
 
 	// secondNode should evict the firstNode
-	testNet.listenForPeerDown(t, 1, 0)
+	testNet.listenForPeerDown(t, 1, conn)
 }
 
 func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
@@ -106,6 +108,7 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 
 	n0, n1 := testNet.checkNodePair(t, 0, 1)
 	ch := testNet.pexChannels[n0]
+	conn := testNet.peerConn(t, 1, 0)
 
 	t.Log("wait for a request")
 	for {
@@ -130,7 +133,7 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 	ch.Send(wrap(&pb.PexResponse{Addresses: addresses}), n1)
 
 	t.Log("n1 should force disconnect.")
-	testNet.listenForPeerDown(t, 1, 0)
+	testNet.listenForPeerDown(t, 1, conn)
 }
 
 type reactorTestSuite struct {
@@ -276,12 +279,19 @@ func (r *reactorTestSuite) listenForResponse(
 	r.listenFor(ctx, t, to, conditional, assertion, waitPeriod)
 }
 
+// peerConn returns the connection onNode currently holds to withNode. Capture it before triggering a
+// disconnect so listenForPeerDown can observe that connection's teardown even if the peer reconnects.
+func (r *reactorTestSuite) peerConn(t *testing.T, onNode, withNode int) *p2p.ConnV2 {
+	on, with := r.checkNodePair(t, onNode, withNode)
+	return r.network.Node(on).WaitForConnAndGet(t.Context(), with)
+}
+
 func (r *reactorTestSuite) listenForPeerDown(
 	t *testing.T,
-	onNode, withNode int,
+	onNode int,
+	conn *p2p.ConnV2,
 ) {
-	on, with := r.checkNodePair(t, onNode, withNode)
-	require.NoError(t, r.network.Node(on).WaitForConn(t.Context(), with, false))
+	r.network.Node(r.nodes[onNode]).WaitForDisconnect(t.Context(), conn)
 }
 
 func (r *reactorTestSuite) getAddressesFor(nodes []int) []*pb.PexAddress {

@@ -81,7 +81,7 @@ ifeq ($(LINK_STATICALLY),true)
 	# STATIC_EXTRA_LDFLAGS lets the static build inject linker search paths, e.g.
 	# scripts/build-static.sh points it at the pinned pre-gcc-12 libgcc (see
 	# third_party/alpine-gcc10-libgcc/README.md).
-	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static $(STATIC_EXTRA_LDFLAGS)"
+	ldflags += -linkmode=external -extldflags "-static $(STATIC_EXTRA_LDFLAGS)"
 endif
 ldflags += $(LDFLAGS)
 ldflags := $(strip $(ldflags))

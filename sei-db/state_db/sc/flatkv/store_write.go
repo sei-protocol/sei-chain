@@ -78,16 +78,13 @@ func (s *CommitStore) Commit(version int64) (committed int64, err error) {
 	}
 
 	// Step 1: Write the WAL (source of truth) before the DBs, so crash recovery via catchup stays valid.
-	// Write buffers this block's changesets, SignalEndOfBlock seals them as one record, and Flush makes the
-	// record durable. An empty block (no ApplyChangeSets) writes an empty but contiguous record. Skipped
-	// entirely when the WAL is nil — the outer context then owns the WAL pipeline.
+	// Write records this block's changesets and Flush makes the record durable. An empty block (no
+	// ApplyChangeSets) writes an empty but contiguous record. Skipped entirely when the WAL is nil — the
+	// outer context then owns the WAL pipeline.
 	if s.wal != nil {
 		s.phaseTimer.SetPhase("commit_write_wal")
 		if err := s.wal.Write(uint64(version), s.pendingChangeSets); err != nil { //nolint:gosec // version > committed >= 0
 			return version, fmt.Errorf("WAL write: %w", err)
-		}
-		if err := s.wal.SignalEndOfBlock(); err != nil {
-			return version, fmt.Errorf("WAL end of block: %w", err)
 		}
 		if err := s.wal.Flush(); err != nil {
 			return version, fmt.Errorf("WAL flush: %w", err)

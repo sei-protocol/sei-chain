@@ -55,7 +55,8 @@ type ViewManager interface {
 	// Get returns the value for the given key at the manager's current (mutable) version, or
 	// (nil, false, nil) if not found. On a miss the value is read through from the backing store.
 	//
-	// It is not safe to mutate the key slice after calling this method, nor the returned value slice.
+	// The key is read only for the duration of the call; the caller may reuse the slice once Get
+	// returns. The returned value slice must not be mutated.
 	Get(key []byte, updateLru bool) ([]byte, bool, error)
 
 	// BatchGet reads the given keys against the current (mutable) version and returns a map, keyed by
@@ -195,7 +196,9 @@ type View interface {
 	// Name returns the name of the manager this view was taken from.
 	Name() string
 
-	// Get returns the value for the given key, or (nil, false, nil) if not found.
+	// Get returns the value for the given key, or (nil, false, nil) if not found. The key is read only
+	// for the duration of the call; the caller may reuse the slice once Get returns. The returned value
+	// slice must not be mutated.
 	Get(
 		// The entry to fetch.
 		key []byte,

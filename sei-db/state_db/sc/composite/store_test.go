@@ -56,6 +56,7 @@ func (f *failingEVMStore) RegisterHashListener(gigatypes.HashListener) (lthash.B
 	return lthash.BlockHash{}, fmt.Errorf("flatkv unavailable")
 }
 func (f *failingEVMStore) FlushHashes() error                     { return nil }
+func (f *failingEVMStore) Flush() error                           { return nil }
 func (f *failingEVMStore) CommitPendingBlock() error              { return nil }
 func (f *failingEVMStore) Version() int64                         { return 0 }
 func (f *failingEVMStore) PendingVersion() int64                  { return 0 }

@@ -1646,7 +1646,7 @@ func TestStateDBSelfDestructMarksBalanceWrite(t *testing.T) {
 
 	stateDB.SelfDestruct(contract)
 
-	_, writes := stateDB.accessSets()
+	_, writes := stateDB.takeAccessSets()
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessAccount, address: contract})
 	require.Contains(t, writes, stateAccessKey{kind: stateAccessBalance, address: contract})
 }
@@ -2126,7 +2126,7 @@ func TestStateDBGetCodeHashTracksCodelessAccountExistenceReads(t *testing.T) {
 	stateDB.enableAccessTracking()
 
 	require.Equal(t, ethtypes.EmptyCodeHash, stateDB.GetCodeHash(eoa))
-	readSet, _ := stateDB.accessSets()
+	readSet, _ := stateDB.takeAccessSets()
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessCode, address: eoa})
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessBalance, address: eoa})
 	require.Contains(t, readSet, stateAccessKey{kind: stateAccessNonce, address: eoa})

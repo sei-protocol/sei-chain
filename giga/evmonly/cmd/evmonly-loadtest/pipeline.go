@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/cmd/evmonly-loadtest/scenarios"
 	"github.com/sei-protocol/sei-chain/sei-db/bootstrap"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -114,7 +115,7 @@ func runPrebuilt(ctx context.Context, cfg config, state *generatedState, workloa
 		err = errors.Join(err, cleanupStorage())
 	}()
 	fmt.Printf("storage directory: %s\n", storageDirectory)
-	storageConfig, err := evmonly.NewValidatorStorageConfig(storageDirectory)
+	storageConfig, err := seidbconfig.AutobahnStorageConfig(storageDirectory)
 	if err != nil {
 		return fmt.Errorf("configure storage manager: %w", err)
 	}
