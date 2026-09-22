@@ -6,9 +6,9 @@ package config
 // role. This build starts only as a reserve, so it honors the explicit write
 // mode rather than resolving to auto.
 func applyReserveDefaults(cfg StateCommitConfig) StateCommitConfig {
-	// sc-write-mode-enable-auto is never rendered into app.toml, so this in-code
-	// default is what a node resolves against unless an operator adds the key by
-	// hand. At true the explicit sc-write-mode is discarded and the node joins a
+	// New reserve configs render sc-write-mode-enable-auto explicitly. This
+	// in-code default also pins older app.toml files that omit the key. At true
+	// the explicit sc-write-mode is discarded and the node joins a
 	// governance-driven migration on the first block after the batch size rises,
 	// which spends the reserve with nothing to signal that it happened. Flipping
 	// it here makes a reserve correct with no operator configuration at all; an
