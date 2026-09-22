@@ -81,7 +81,6 @@ type Reporter struct {
 	wallets  []sdk.AccAddress
 	scale    float64
 
-	inst     *instruments
 	snapshot atomic.Pointer[[]sample]
 
 	transfers *transferRecorder
@@ -112,7 +111,6 @@ func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc) (*Repor
 		queryCtx:  queryCtx,
 		wallets:   wallets,
 		scale:     math.Pow10(int(cfg.DenomExponent)),
-		inst:      cosmosMetrics,
 		transfers: newTransferRecorder(cosmosMetrics.bankTransferAmount, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
 		stop:      func() {},
 	}, nil
@@ -120,7 +118,7 @@ func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc) (*Repor
 
 // Start registers the observables and begins refreshing the snapshot every RefreshInterval.
 func (r *Reporter) Start() error {
-	reg, err := meter.RegisterCallback(r.observe, r.inst.observables()...)
+	reg, err := meter.RegisterCallback(r.observe, observables()...)
 	if err != nil {
 		return err
 	}
@@ -185,7 +183,7 @@ func (r *Reporter) read() (samples []sample, ok bool) {
 		logger.Error("cosmos metrics: no query context", "err", err)
 		return nil, false
 	}
-	b := &builder{inst: r.inst}
+	b := &builder{}
 	bondDenom := r.keepers.Staking.BondDenom(ctx)
 	r.readParams(ctx, b)
 	r.readGeneral(ctx, b, bondDenom)
@@ -199,32 +197,32 @@ func (r *Reporter) read() (samples []sample, ok bool) {
 
 func (r *Reporter) readParams(ctx sdk.Context, b *builder) {
 	staking := r.keepers.Staking.GetParams(ctx)
-	b.gauge(b.inst.paramsMaxValidators, float64(staking.MaxValidators))
-	b.gauge(b.inst.paramsUnbondingTime, staking.UnbondingTime.Seconds())
+	b.gauge(cosmosMetrics.paramsMaxValidators, float64(staking.MaxValidators))
+	b.gauge(cosmosMetrics.paramsUnbondingTime, staking.UnbondingTime.Seconds())
 
 	slashing := r.keepers.Slashing.GetParams(ctx)
-	b.gauge(b.inst.paramsDowntimeJailDuration, slashing.DowntimeJailDuration.Seconds())
-	b.gauge(b.inst.paramsSignedBlocksWindow, float64(slashing.SignedBlocksWindow))
-	b.dec(b.inst.paramsMinSignedPerWindow, slashing.MinSignedPerWindow)
-	b.dec(b.inst.paramsSlashFractionDoubleSign, slashing.SlashFractionDoubleSign)
-	b.dec(b.inst.paramsSlashFractionDowntime, slashing.SlashFractionDowntime)
+	b.gauge(cosmosMetrics.paramsDowntimeJailDuration, slashing.DowntimeJailDuration.Seconds())
+	b.gauge(cosmosMetrics.paramsSignedBlocksWindow, float64(slashing.SignedBlocksWindow))
+	b.dec(cosmosMetrics.paramsMinSignedPerWindow, slashing.MinSignedPerWindow)
+	b.dec(cosmosMetrics.paramsSlashFractionDoubleSign, slashing.SlashFractionDoubleSign)
+	b.dec(cosmosMetrics.paramsSlashFractionDowntime, slashing.SlashFractionDowntime)
 
 	distr := r.keepers.Distribution.GetParams(ctx)
-	b.dec(b.inst.paramsBaseProposerReward, distr.BaseProposerReward)
-	b.dec(b.inst.paramsBonusProposerReward, distr.BonusProposerReward)
-	b.dec(b.inst.paramsCommunityTax, distr.CommunityTax)
+	b.dec(cosmosMetrics.paramsBaseProposerReward, distr.BaseProposerReward)
+	b.dec(cosmosMetrics.paramsBonusProposerReward, distr.BonusProposerReward)
+	b.dec(cosmosMetrics.paramsCommunityTax, distr.CommunityTax)
 }
 
 func (r *Reporter) readGeneral(ctx sdk.Context, b *builder, bondDenom string) {
 	bonded := r.keepers.Bank.GetBalance(ctx, r.keepers.Staking.GetBondedPool(ctx).GetAddress(), bondDenom)
 	notBonded := r.keepers.Bank.GetBalance(ctx, r.keepers.Staking.GetNotBondedPool(ctx).GetAddress(), bondDenom)
-	b.int(b.inst.generalBondedTokens, bonded.Amount, 1)
-	b.int(b.inst.generalNotBondedTokens, notBonded.Amount, 1)
+	b.int(cosmosMetrics.generalBondedTokens, bonded.Amount, 1)
+	b.int(cosmosMetrics.generalNotBondedTokens, notBonded.Amount, 1)
 	for _, coin := range r.keepers.Distribution.GetFeePoolCommunityCoins(ctx) {
-		b.decScaled(b.inst.generalCommunityPool, coin.Amount, r.scaleFor(coin.Denom, bondDenom), denomAttr(coin.Denom))
+		b.decScaled(cosmosMetrics.generalCommunityPool, coin.Amount, r.scaleFor(coin.Denom, bondDenom), denomAttr(coin.Denom))
 	}
 	supply := r.keepers.Bank.GetSupply(ctx, bondDenom)
-	b.int(b.inst.generalSupplyTotal, supply.Amount, r.scale, denomAttr(bondDenom))
+	b.int(cosmosMetrics.generalSupplyTotal, supply.Amount, r.scale, denomAttr(bondDenom))
 }
 
 func (r *Reporter) readValidators(ctx sdk.Context, b *builder, bondDenom string) {
@@ -235,13 +233,13 @@ func (r *Reporter) readValidators(ctx sdk.Context, b *builder, bondDenom string)
 	for rank, v := range validators {
 		addr, moniker := addressAttr(v.OperatorAddress), attribute.String("moniker", v.Description.Moniker)
 		denom := denomAttr(bondDenom)
-		b.dec(b.inst.validatorsCommission, v.Commission.Rate, addr, moniker)
-		b.gauge(b.inst.validatorsStatus, float64(v.Status), addr, moniker)
-		b.gauge(b.inst.validatorsJailed, boolToFloat(v.Jailed), addr, moniker)
-		b.int(b.inst.validatorsTokens, v.Tokens, r.scale, addr, moniker, denom)
-		b.decScaled(b.inst.validatorsDelegatorShares, v.DelegatorShares, r.scale, addr, moniker, denom)
-		b.int(b.inst.validatorsMinSelfDelegation, v.MinSelfDelegation, r.scale, addr, moniker, denom)
-		b.gauge(b.inst.validatorsRank, float64(rank+1), addr, moniker)
+		b.dec(cosmosMetrics.validatorsCommission, v.Commission.Rate, addr, moniker)
+		b.gauge(cosmosMetrics.validatorsStatus, float64(v.Status), addr, moniker)
+		b.gauge(cosmosMetrics.validatorsJailed, boolToFloat(v.Jailed), addr, moniker)
+		b.int(cosmosMetrics.validatorsTokens, v.Tokens, r.scale, addr, moniker, denom)
+		b.decScaled(cosmosMetrics.validatorsDelegatorShares, v.DelegatorShares, r.scale, addr, moniker, denom)
+		b.int(cosmosMetrics.validatorsMinSelfDelegation, v.MinSelfDelegation, r.scale, addr, moniker, denom)
+		b.gauge(cosmosMetrics.validatorsRank, float64(rank+1), addr, moniker)
 
 		consAddr, err := v.GetConsAddr()
 		if err != nil {
@@ -249,12 +247,12 @@ func (r *Reporter) readValidators(ctx sdk.Context, b *builder, bondDenom string)
 			continue
 		}
 		pubkeyHash := attribute.String("pubkey_hash", strings.ToUpper(hex.EncodeToString(consAddr)))
-		b.gauge(b.inst.validatorsActive, boolToFloat(v.IsBonded()), addr, pubkeyHash, moniker)
+		b.gauge(cosmosMetrics.validatorsActive, boolToFloat(v.IsBonded()), addr, pubkeyHash, moniker)
 		if !v.IsBonded() {
 			continue
 		}
 		if info, found := r.keepers.Slashing.GetValidatorSigningInfo(ctx, consAddr); found {
-			b.gauge(b.inst.validatorsMissedBlocks, float64(info.MissedBlocksCounter), addr, moniker)
+			b.gauge(cosmosMetrics.validatorsMissedBlocks, float64(info.MissedBlocksCounter), addr, moniker)
 		}
 	}
 }
@@ -264,14 +262,14 @@ func (r *Reporter) readWallets(ctx sdk.Context, b *builder, bondDenom string) {
 	for _, acc := range r.wallets {
 		addr := addressAttr(acc.String())
 		balance := r.keepers.Bank.GetBalance(ctx, acc, bondDenom)
-		b.int(b.inst.walletBalance, balance.Amount, r.scale, addr, denom)
+		b.int(cosmosMetrics.walletBalance, balance.Amount, r.scale, addr, denom)
 
 		for _, d := range r.keepers.Staking.GetAllDelegatorDelegations(ctx, acc) {
 			validator, found := r.keepers.Staking.GetValidator(ctx, d.GetValidatorAddr())
 			if !found {
 				continue
 			}
-			b.decScaled(b.inst.walletDelegations, validator.TokensFromShares(d.Shares), r.scale,
+			b.decScaled(cosmosMetrics.walletDelegations, validator.TokensFromShares(d.Shares), r.scale,
 				addr, denom, attribute.String("delegated_to", d.ValidatorAddress))
 		}
 		for _, u := range r.keepers.Staking.GetUnbondingDelegations(ctx, acc, maxWalletEntries) {
@@ -279,14 +277,14 @@ func (r *Reporter) readWallets(ctx sdk.Context, b *builder, bondDenom string) {
 			for _, e := range u.Entries {
 				sum = sum.Add(e.Balance)
 			}
-			b.int(b.inst.walletUnbondings, sum, r.scale, addr, denom, attribute.String("unbonded_from", u.ValidatorAddress))
+			b.int(cosmosMetrics.walletUnbondings, sum, r.scale, addr, denom, attribute.String("unbonded_from", u.ValidatorAddress))
 		}
 		for _, red := range r.keepers.Staking.GetRedelegations(ctx, acc, maxWalletEntries) {
 			sum := sdk.ZeroInt()
 			for _, e := range red.Entries {
 				sum = sum.Add(e.InitialBalance)
 			}
-			b.int(b.inst.walletRedelegations, sum, r.scale, addr, denom,
+			b.int(cosmosMetrics.walletRedelegations, sum, r.scale, addr, denom,
 				attribute.String("redelegated_from", red.ValidatorSrcAddress), attribute.String("redelegated_to", red.ValidatorDstAddress))
 		}
 
@@ -297,7 +295,7 @@ func (r *Reporter) readWallets(ctx sdk.Context, b *builder, bondDenom string) {
 		}
 		for _, rew := range rewards.Rewards {
 			for _, coin := range rew.Reward {
-				b.decScaled(b.inst.walletRewards, coin.Amount, r.scaleFor(coin.Denom, bondDenom),
+				b.decScaled(cosmosMetrics.walletRewards, coin.Amount, r.scaleFor(coin.Denom, bondDenom),
 					addr, denomAttr(coin.Denom), attribute.String("validator_address", rew.ValidatorAddress))
 			}
 		}
@@ -318,7 +316,6 @@ func denomAttr(denom string) attribute.KeyValue  { return attribute.String("deno
 
 // builder accumulates samples and the errors of the ones it could not build.
 type builder struct {
-	inst    *instruments
 	samples []sample
 	errs    []error
 }

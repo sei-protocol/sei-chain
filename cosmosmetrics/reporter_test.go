@@ -305,7 +305,7 @@ func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, _ := newTestReporter(t, staking, fakeDistribution{})
-	c.transfers = newTransferRecorder(c.inst.bankTransferAmount, "usei", 1_000)
+	c.transfers = newTransferRecorder(cosmosMetrics.bankTransferAmount, "usei", 1_000)
 
 	transfer := func(amount string) abci.Event {
 		return abci.Event{Type: "transfer", Attributes: []abci.EventAttribute{
