@@ -288,22 +288,31 @@ func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
 	work := c.partitionIndicesByShard(keys)
 	version := c.currentVersion
 
-	// Staging is synchronous, and it is all this call does on the caller's thread: one lock hold per
-	// shard that reads no database and folds nothing. It is what makes the keys read as their new
-	// values before any fold has run.
+	// Shards partition the keys, so they stage disjoint sets and run concurrently.
 	staged := make([][]stagedFold, len(c.shards))
+	errs := make([]error, len(c.shards))
+	var wg sync.WaitGroup
 	for shardIndex := range work {
 		if len(work[shardIndex]) == 0 {
 			continue
 		}
-		folds, err := c.shards[shardIndex].StageUpdates(keys, work[shardIndex], version)
+		wg.Add(1)
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			staged[shardIndex], errs[shardIndex] =
+				c.shards[shardIndex].StageUpdates(keys, work[shardIndex], version)
+		})
+	}
+	wg.Wait()
+
+	for _, err := range errs {
 		if err != nil {
-			// The shards that already staged are holding values nothing will ever fold, and a reader
-			// would park on one forever. Fail them before reporting.
+			// The shards that did stage are holding values nothing will ever fold, and a reader would
+			// park on one forever. Fail them before reporting. A shard whose own staging failed staged
+			// nothing, so its empty entry is skipped.
 			c.abandonStaged(staged, version, err)
 			return fmt.Errorf("failed to stage update in shard: %w", err)
 		}
-		staged[shardIndex] = folds
 	}
 
 	// Folding happens here, off this thread, and nothing waits for it: whatever reads, hashes or
