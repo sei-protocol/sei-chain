@@ -123,14 +123,14 @@ func TestGetBlockByNumberEarliestReturnsNullBeforeAnyCommittedBlock(t *testing.T
 	require.Nil(t, got)
 }
 
-func TestGetBlockByNumberReturnsNullForAPrunedHeight(t *testing.T) {
+func TestGetBlockByNumberReturnsErrorForAPrunedHeight(t *testing.T) {
 	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return nil, coretypes.WrapErrHeightNotAvailable(1, utils.None[int64]())
 	})
 
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(1), false)
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, coretypes.ErrHeightNotAvailable)
 	require.Nil(t, got)
 }
 
@@ -355,7 +355,7 @@ func TestGetBlockByNumberPropagatesUnexpectedBackendError(t *testing.T) {
 		return nil, want
 	})
 
-	// Test: Block fails with an error other than the pruned/future sentinels.
+	// Test: Block fails with an error other than the zero/negative or future sentinels.
 	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(3), false)
 
 	// Verify: that error is returned as-is, not mapped to null.

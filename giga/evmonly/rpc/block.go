@@ -24,11 +24,8 @@ type blockAPI struct {
 	store   receiptpkg.ReceiptStore
 }
 
-// GetBlockByNumber returns the block identified by number, or nil if number
-// does not resolve to a committed, still-retained block. latest/safe/finalized/pending
-// all resolve to the current committed block; any other height, past or future,
-// is looked up directly, and a height the node has since pruned returns nil rather
-// than an error.
+// GetBlockByNumber returns the block for number, nil for a zero/negative or
+// future height, or an error for a pruned height.
 func (api *blockAPI) GetBlockByNumber(ctx context.Context, number ethrpc.BlockNumber, fullTx bool) (map[string]any, error) {
 	block, err := api.resolveBlockByNumber(ctx, number)
 	if err != nil || block == nil {
@@ -50,8 +47,8 @@ func (api *blockAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 	return api.encodeBlock(ctx, block, fullTx)
 }
 
-// resolveBlockByNumber looks up number, returning a nil block and nil error
-// for any height outside the committed range or since pruned from retention.
+// resolveBlockByNumber returns a nil block for a zero/negative or future
+// height, and coretypes.ErrHeightNotAvailable for a pruned height.
 func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.BlockNumber) (*coretypes.ResultBlock, error) {
 	var height *coretypes.Int64
 	switch number {
@@ -63,8 +60,7 @@ func (api *blockAPI) resolveBlockByNumber(ctx context.Context, number ethrpc.Blo
 	}
 	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: height})
 	if errors.Is(err, coretypes.ErrHeightExceedsChainHead) ||
-		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) ||
-		errors.Is(err, coretypes.ErrHeightNotAvailable) {
+		errors.Is(err, coretypes.ErrZeroOrNegativeHeight) {
 		return nil, nil
 	}
 	if err != nil {
