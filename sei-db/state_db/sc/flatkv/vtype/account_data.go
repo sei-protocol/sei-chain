@@ -43,9 +43,6 @@ const (
 
 	accountCompactLength = VersionLength + BlockHeightLength + BalanceLength + NonceLength
 	accountDataLength    = VersionLength + BlockHeightLength + BalanceLength + NonceLength + CodeHashLength
-
-	// The account's fields, excluding the version and block height that precede them.
-	accountPayloadLength = BalanceLength + NonceLength + CodeHashLength
 )
 
 var _ VType = (*AccountData)(nil)
@@ -56,12 +53,32 @@ var _ VType = (*AccountData)(nil)
 // are not safe to modify without first copying them.
 type AccountData struct {
 	data []byte
+
+	// balanceZero reports whether the balance is all 0s.
+	//
+	// One flag per field rather than a single "row is empty": each setter writes its own field and
+	// cannot see the others, so only a per-field answer has an owner. IsDelete is their conjunction.
+	//
+	// Held here rather than derived on demand because the callers that ask are far from the ones that
+	// write: by then the bytes have left the cache, and reading them back costs around forty times
+	// what checking them at the point of the write does.
+	balanceZero bool
+
+	// nonceZero reports whether the nonce is 0.
+	nonceZero bool
+
+	// codeHashZero reports whether the code hash is all 0s. Serialize reads it to choose the compact
+	// form.
+	codeHashZero bool
 }
 
 // Create a new AccountData initialized to all 0s.
 func NewAccountData() *AccountData {
 	return &AccountData{
-		data: make([]byte, accountDataLength),
+		data:         make([]byte, accountDataLength),
+		balanceZero:  true,
+		nonceZero:    true,
+		codeHashZero: true,
 	}
 }
 
@@ -73,7 +90,7 @@ func (a *AccountData) Serialize() []byte {
 	if a == nil {
 		return make([]byte, accountCompactLength)
 	}
-	if [CodeHashLength]byte(a.data[accountCodeHashStart:accountDataLength]) != [CodeHashLength]byte{} {
+	if !a.codeHashZero {
 		return a.data
 	}
 	return a.data[:accountCompactLength]
@@ -93,11 +110,23 @@ func DeserializeAccountData(data []byte) (*AccountData, error) {
 
 	switch len(data) {
 	case accountDataLength:
-		return &AccountData{data: data}, nil
+		return &AccountData{
+			data:         data,
+			balanceZero:  isZero(data[accountBalanceStart:accountNonceStart]),
+			nonceZero:    isZero(data[accountNonceStart:accountCodeHashStart]),
+			codeHashZero: isZero(data[accountCodeHashStart:accountDataLength]),
+		}, nil
 	case accountCompactLength:
 		full := make([]byte, accountDataLength)
 		copy(full, data)
-		return &AccountData{data: full}, nil
+		// The compact form is exactly the full form with the code hash omitted, so it is zero without
+		// looking.
+		return &AccountData{
+			data:         full,
+			balanceZero:  isZero(full[accountBalanceStart:accountNonceStart]),
+			nonceZero:    isZero(full[accountNonceStart:accountCodeHashStart]),
+			codeHashZero: true,
+		}, nil
 	default:
 		return nil, fmt.Errorf("data length at version %d should be %d or %d, got %d",
 			version, accountCompactLength, accountDataLength, len(data))
@@ -152,7 +181,7 @@ func (a *AccountData) IsDelete() bool {
 	if a == nil {
 		return true
 	}
-	return [accountPayloadLength]byte(a.data[accountBalanceStart:accountDataLength]) == [accountPayloadLength]byte{}
+	return a.balanceZero && a.nonceZero && a.codeHashZero
 }
 
 // Copy returns a deep copy of this AccountData. The copy has its own backing byte slice.
@@ -162,7 +191,12 @@ func (a *AccountData) Copy() *AccountData {
 	}
 	cp := make([]byte, len(a.data))
 	copy(cp, a.data)
-	return &AccountData{data: cp}
+	return &AccountData{
+		data:         cp,
+		balanceZero:  a.balanceZero,
+		nonceZero:    a.nonceZero,
+		codeHashZero: a.codeHashZero,
+	}
 }
 
 // Set the account's block height when this account was last modified/touched. Returns self.
@@ -184,6 +218,7 @@ func (a *AccountData) SetBalance(balance *Balance) *AccountData {
 		balance = &zero
 	}
 	copy(a.data[accountBalanceStart:accountNonceStart], balance[:])
+	a.balanceZero = *balance == Balance{}
 	return a
 }
 
@@ -193,6 +228,7 @@ func (a *AccountData) SetNonce(nonce uint64) *AccountData {
 		a = NewAccountData()
 	}
 	binary.BigEndian.PutUint64(a.data[accountNonceStart:accountCodeHashStart], nonce)
+	a.nonceZero = nonce == 0
 	return a
 }
 
@@ -206,5 +242,6 @@ func (a *AccountData) SetCodeHash(codeHash *CodeHash) *AccountData {
 		codeHash = &zero
 	}
 	copy(a.data[accountCodeHashStart:accountDataLength], codeHash[:])
+	a.codeHashZero = *codeHash == CodeHash{}
 	return a
 }

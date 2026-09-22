@@ -39,12 +39,21 @@ var _ VType = (*StorageData)(nil)
 // are not safe to modify without first copying them.
 type StorageData struct {
 	data []byte
+
+	// valueZero reports whether the value is all 0s, which is what IsDelete answers. Maintained by
+	// SetValue, the only method that writes the value region, and computed once at deserialization.
+	//
+	// Held here rather than derived on demand because the callers that ask are far from the ones that
+	// write: by then the bytes have left the cache, and reading them back costs around forty times
+	// what checking them at the point of the write does.
+	valueZero bool
 }
 
 // Create a new StorageData initialized to all 0s.
 func NewStorageData() *StorageData {
 	return &StorageData{
-		data: make([]byte, storageDataLength),
+		data:      make([]byte, storageDataLength),
+		valueZero: true,
 	}
 }
 
@@ -78,6 +87,7 @@ func DeserializeStorageData(data []byte) (*StorageData, error) {
 			serializationVersion, storageDataLength, len(data))
 	}
 
+	storageData.valueZero = isZero(data[storageValueStart:storageDataLength])
 	return storageData, nil
 }
 
@@ -112,7 +122,7 @@ func (s *StorageData) IsDelete() bool {
 	if s == nil {
 		return true
 	}
-	return [StorageValueLength]byte(s.data[storageValueStart:storageDataLength]) == [StorageValueLength]byte{}
+	return s.valueZero
 }
 
 // Set the block height when this storage slot was last modified/touched. Returns self (or a new StorageData if nil).
@@ -134,5 +144,6 @@ func (s *StorageData) SetValue(value *[32]byte) *StorageData {
 		value = &zero
 	}
 	copy(s.data[storageValueStart:storageDataLength], value[:])
+	s.valueZero = *value == [StorageValueLength]byte{}
 	return s
 }
