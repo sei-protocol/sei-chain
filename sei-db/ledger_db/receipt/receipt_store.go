@@ -51,12 +51,14 @@ func NewTooManyLogBytesError(maxBytes int64) error {
 type ReceiptStore interface {
 	controller.PrunableStore
 
+	// LatestVersion is the highest block whose receipts are queryable. A write may land after
+	// SetReceipts returns, so a reader follows this rather than the height it last wrote.
 	LatestVersion() int64
 	EarliestVersion() int64
-	SetLatestVersion(version int64) error
-	SetEarliestVersion(version int64) error
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
 	GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
+	// SetReceipts writes the block's receipts, carrying the version markers with them. An
+	// implementation may apply the write in the background; LatestVersion reports when it lands.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.
@@ -66,6 +68,26 @@ type ReceiptStore interface {
 	// enforce the matched-log count on the normalized result separately.
 	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error)
 	Close() error
+}
+
+// VersionPinner is implemented by receipt stores whose version markers can be written directly. It
+// is for a caller that put receipts in place by other means and has to state the window they cover.
+type VersionPinner interface {
+	SetLatestVersion(version int64) error
+	SetEarliestVersion(version int64) error
+}
+
+// PinVersions widens store's queryable window to [earliest, latest], reporting a store that cannot
+// be pinned rather than leaving the window unset.
+func PinVersions(store ReceiptStore, earliest, latest int64) error {
+	pinner, ok := store.(VersionPinner)
+	if !ok {
+		return fmt.Errorf("receipt store %T cannot pin versions", store)
+	}
+	if err := pinner.SetLatestVersion(latest); err != nil {
+		return err
+	}
+	return pinner.SetEarliestVersion(earliest)
 }
 
 type ReceiptRecord struct {
@@ -150,15 +172,27 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	}
 
 	backend := normalizeReceiptBackend(config.Backend)
+	if err := requireSupportedBackend(backend); err != nil {
+		return nil, err
+	}
+	if backend == receiptBackendPebble && config.ExternalPruning {
+		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
+		// pruner with nothing in its place.
+		return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q",
+			receiptBackendPebble, receiptBackendLittIdx)
+	}
+
+	// Runs after every config rejection above, and before either backend touches the directory: a config
+	// that is about to be rejected must not leave a recorded type behind that then refuses the corrected
+	// one.
+	if err := recordBackendType(config.DBDirectory, backend); err != nil {
+		return nil, err
+	}
+
 	switch backend {
 	case receiptBackendLittIdx:
 		return newLittReceiptStore(config, storeKey)
 	case receiptBackendPebble:
-		// This backend prunes itself on KeepRecent. Honoring ExternalPruning would stop that
-		// pruner with nothing in its place.
-		if config.ExternalPruning {
-			return nil, fmt.Errorf("receipt store backend %q does not support external pruning; use %q", receiptBackendPebble, receiptBackendLittIdx)
-		}
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory
 		ssConfig.AsyncWriteBuffer = config.AsyncWriteBuffer
@@ -272,7 +306,15 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 		Name:      types.ReceiptStoreKey,
 		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
+	if err := s.applyChangeset(ctx, ncs); err != nil {
+		return err
+	}
+	RecordReceiptsWritten(ctx.Context(), receipts)
+	return nil
+}
 
+// applyChangeset hands a block's receipt changeset to the state store.
+func (s *receiptStore) applyChangeset(ctx sdk.Context, ncs *proto.NamedChangeSet) error {
 	// Genesis and some unit tests execute at block height 0. Async writes
 	// rely on a positive version to avoid regressions in the underlying
 	// state store metadata, so fall back to a synchronous apply in that case.

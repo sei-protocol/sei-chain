@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
 )
 
 var addr = sdk.AccAddress(ed25519.GenPrivKey().PubKey().Address())
@@ -58,4 +59,46 @@ func TestVoteKeys(t *testing.T) {
 	proposalID, voterAddr := SplitKeyDeposit(key)
 	require.Equal(t, int(proposalID), 2)
 	require.Equal(t, addr, voterAddr)
+}
+
+func TestTallyKeys(t *testing.T) {
+	require.Equal(t, append(TallyProgressKeyPrefix, GetProposalIDBytes(2)...), TallyProgressKey(2))
+	require.NotEqual(t, TallyVotesKey(2, true), TallyVotesKey(2, false))
+	require.NotEqual(t, TallyVoteKey(2, true, addr), TallyVoteKey(2, false, addr))
+	require.NotEqual(t, TallyCleanupKey(2, true), TallyCleanupKey(2, false))
+	require.Equal(t, append(append(VoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), address.MustLengthPrefix(addr.Bytes())...), VoteDelegationsKey(2, addr))
+	require.Equal(t, append(append(append(TallyVoteDelegationsKeyPrefix, GetProposalIDBytes(2)...), byte(1)), address.MustLengthPrefix(addr.Bytes())...), TallyVoteDelegationsKey(2, false, addr))
+	require.Equal(t, append(append(VoterProposalsKeyPrefix, address.MustLengthPrefix(addr.Bytes())...), GetProposalIDBytes(2)...), VoterProposalsKey(addr, 2))
+	require.Equal(t, []byte{0x36}, VoteDelegationBackfillCutoffKey)
+	require.Equal(t, append(VoteDelegationBackfillProgressKeyPrefix, GetProposalIDBytes(2)...), VoteDelegationBackfillProgressKey(2))
+	require.Equal(t, append(VoteDelegationUpdatesKeyPrefix, GetProposalIDBytes(3)...), VoteDelegationUpdateKey(3))
+	require.Equal(t, append(append(VoterVoteDelegationUpdatesKeyPrefix, address.MustLengthPrefix(addr.Bytes())...), GetProposalIDBytes(3)...), VoterVoteDelegationUpdateKey(addr, 3))
+	require.Equal(t, append(append(VoteDelegationSnapshotRevisionKeyPrefix, GetProposalIDBytes(2)...), address.MustLengthPrefix(addr.Bytes())...), VoteDelegationSnapshotRevisionKey(2, addr))
+	require.Equal(t, []byte{0x42}, IncrementalTallyEnabledKey)
+	require.Equal(t, append(ModernTallyRoundKeyPrefix, GetProposalIDBytes(2)...), ModernTallyRoundKey(2))
+	require.Equal(
+		t,
+		append(append(TallyValidatorAccumulatorsKeyPrefix, GetProposalIDBytes(2)...), byte(1)),
+		TallyValidatorAccumulatorsKey(2, false),
+	)
+	require.Equal(
+		t,
+		append(TallyValidatorAccumulatorsKey(2, false), address.MustLengthPrefix(addr.Bytes())...),
+		TallyValidatorAccumulatorKey(2, false, sdk.ValAddress(addr)),
+	)
+	require.NotEqual(t, TallyAccumulatorCleanupKey(2, true), TallyAccumulatorCleanupKey(2, false))
+
+	for _, expedited := range []bool{false, true} {
+		proposalID, decodedExpedited := SplitTallyCleanupKey(TallyCleanupKey(2, expedited))
+		require.Equal(t, uint64(2), proposalID)
+		require.Equal(t, expedited, decodedExpedited)
+		proposalID, decodedExpedited = SplitTallyAccumulatorCleanupKey(TallyAccumulatorCleanupKey(2, expedited))
+		require.Equal(t, uint64(2), proposalID)
+		require.Equal(t, expedited, decodedExpedited)
+		require.Equal(
+			t,
+			TallyVoteDelegationsKey(2, expedited, addr),
+			TallyVoteDelegationsKeyFromVoteKey(TallyVoteKey(2, expedited, addr)),
+		)
+	}
 }

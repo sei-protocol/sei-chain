@@ -48,7 +48,7 @@ func (t KeyTable) RegisterType(psp ParamSetPair) KeyTable {
 	rty := reflect.TypeOf(psp.Value)
 
 	// indirect rty if it is a pointer
-	for rty.Kind() == reflect.Ptr {
+	for rty.Kind() == reflect.Pointer {
 		rty = rty.Elem()
 	}
 

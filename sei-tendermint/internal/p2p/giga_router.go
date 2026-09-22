@@ -20,7 +20,7 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
-	EVMRPC   *url.URL
+	EVMRPC   url.URL
 }
 
 func (a GigaNodeAddr) String() string {
@@ -33,10 +33,10 @@ type GigaRouterCommonConfig struct {
 	DialInterval   time.Duration
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
 	GenDoc         *types.GenesisDoc
-	// PersistentStateDir is the on-disk root for durable state (BlockDB,
-	// hashvault, and the validator's consensus persister in sibling subdirs).
-	// If None, persistence is disabled and the node runs fully in-memory.
-	PersistentStateDir utils.Option[string]
+	// PersistentStateDir is the absolute on-disk root for durable state
+	// (BlockDB, hashvault, epoch snapshots, and the validator's consensus
+	// persister in sibling subdirs). Required and must already exist.
+	PersistentStateDir string
 	// App is the ABCI proxy executeBlock drives. NewGigaValidatorRouter
 	// also passes it to producer.NewState so the producer's internal
 	// mempool drives the same proxy.
@@ -65,7 +65,8 @@ type GigaValidatorConfig struct {
 // GigaRouter is the read-path / Run / EvmProxy surface. Implemented by
 // *gigaValidatorRouter and *gigaFullnodeRouter; Mempool returns Some only
 // on validators. RunInboundConn is served by both — non-committee peers
-// get the block-sync subset only.
+// get the block-sync subset only. A fullnode accepts committee peers but
+// has no consensus state to serve them.
 type GigaRouter interface {
 	Run(ctx context.Context) error
 	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
@@ -75,4 +76,6 @@ type GigaRouter interface {
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) utils.Option[*rpc.Client]
 	Mempool() utils.Option[*producer.State]
+	Validators(n atypes.GlobalBlockNumber) ([]*types.Validator, atypes.GlobalBlockNumber, error)
+	fillInboundHandshake(spec handshakeSpec) (handshakeSpec, utils.Option[handshakeOffer])
 }

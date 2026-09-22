@@ -1,0 +1,34 @@
+{
+  "chainId": 713715,
+  "seiChainID": "autobahn-evmonly",
+  "endpoints": [
+    "http://127.0.0.1:8545",
+    "http://127.0.0.1:8547",
+    "http://127.0.0.1:8549",
+    "http://127.0.0.1:8551"
+  ],
+  "accounts": {
+    "count": 5000,
+    "newAccountRate": 0
+  },
+  "scenarios": [
+    {
+      "name": "EVMTransfer",
+      "weight": 1
+    }
+  ],
+  "settings": {
+    "workers": 1,
+    "tps": 250,
+    "statsInterval": "5s",
+    "bufferSize": 1000,
+    "dryRun": false,
+    "debug": false,
+    "trackReceipts": false,
+    "trackBlocks": false,
+    "trackUserLatency": false,
+    "prewarm": false,
+    "rampUp": false,
+    "postSummaryFlushDelay": "1s"
+  }
+}

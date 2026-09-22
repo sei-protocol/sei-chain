@@ -9,13 +9,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 const maxGigaStoreBlockNumber = uint64(1<<63 - 1)
 
 var (
-	errMissingStore                 = errors.New("executor requires a giga store")
+	errMissingStateStore            = errors.New("executor requires a state store")
+	errMissingReceiptStore          = errors.New("executor requires a receipt store")
 	errMissingNamedChangeSetEncoder = errors.New("giga store requires a named changeset encoder")
 )
 
@@ -28,8 +29,13 @@ var _ StateReader = gigaSnapshotStateReader{}
 type NamedChangeSetEncoder func(StateChangeSet) ([]*proto.NamedChangeSet, error)
 
 func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req PreparedBlock) (*BlockResult, error) {
-	if e.store == nil {
-		return nil, errMissingStore
+	stateStore := e.stateStore
+	if stateStore == nil {
+		return nil, errMissingStateStore
+	}
+	receiptStore := e.receiptStore
+	if receiptStore == nil {
+		return nil, errMissingReceiptStore
 	}
 	if e.changeSetEncoder == nil {
 		return nil, errMissingNamedChangeSetEncoder
@@ -48,13 +54,16 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	snapshot := e.store.OpenView()
+	snapshot := stateStore.OpenView()
 	if snapshot == nil {
 		return nil, errors.New("giga store returned a nil snapshot")
 	}
 	defer snapshot.Close()
 
-	result, err := e.executePreparedBlock(ctx, req, gigaSnapshotStateReader{snapshot: snapshot})
+	result, err := e.executePreparedBlock(ctx, req, gigaSnapshotStateReader{
+		snapshot:     snapshot,
+		missingState: e.missingState,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +84,14 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := e.store.CommitStateChanges(blockNumber, changesets); err != nil {
+	records, err := receiptRecords(req.Context.Number, result)
+	if err != nil {
+		return nil, fmt.Errorf("encode receipts for block %d: %w", req.Context.Number, err)
+	}
+	if err := receiptStore.SetReceipts(newReceiptContext(ctx, blockNumber), records); err != nil {
+		return nil, fmt.Errorf("store receipts for block %d: %w", req.Context.Number, err)
+	}
+	if err := stateStore.CommitStateChanges(blockNumber, changesets); err != nil {
 		return nil, fmt.Errorf("commit state changes for block %d: %w", req.Context.Number, err)
 	}
 	ok = true
@@ -83,22 +99,47 @@ func (e *Executor) executePreparedBlockWithStore(ctx context.Context, req Prepar
 }
 
 type gigaSnapshotStateReader struct {
-	snapshot gigastore.EVMStateView
+	snapshot     gigatypes.EVMStateView
+	missingState StateReader
 }
+
+// A non-zero balance, nonce, or code proves the account exists in the snapshot,
+// so the getters below only pay for the AccountExists probe when the field read
+// back zero and a missingState fallback could change the answer.
 
 func (r gigaSnapshotStateReader) GetBalance(addr common.Address) *big.Int {
 	balance := r.snapshot.GetBalance(addr)
+	if balance == (common.Hash{}) && r.useMissingState(addr) {
+		return cloneBig(r.missingState.GetBalance(addr))
+	}
 	return new(big.Int).SetBytes(balance[:])
 }
 
 func (r gigaSnapshotStateReader) GetNonce(addr common.Address) uint64 {
-	return r.snapshot.GetNonce(addr)
+	nonce := r.snapshot.GetNonce(addr)
+	if nonce == 0 && r.useMissingState(addr) {
+		return r.missingState.GetNonce(addr)
+	}
+	return nonce
 }
 
 func (r gigaSnapshotStateReader) GetCode(addr common.Address) []byte {
-	return cloneBytes(r.snapshot.GetCode(addr))
+	code := r.snapshot.GetCode(addr)
+	if len(code) == 0 && r.useMissingState(addr) {
+		return cloneBytes(r.missingState.GetCode(addr))
+	}
+	return cloneBytes(code)
 }
 
 func (r gigaSnapshotStateReader) GetState(addr common.Address, key common.Hash) common.Hash {
+	if r.useMissingState(addr) {
+		return r.missingState.GetState(addr, key)
+	}
 	return r.snapshot.GetStorage(addr, key)
+}
+
+// useMissingState reports whether addr must be served from missingState: a
+// fallback is configured and the snapshot holds no account for addr.
+func (r gigaSnapshotStateReader) useMissingState(addr common.Address) bool {
+	return r.missingState != nil && !r.snapshot.AccountExists(addr)
 }

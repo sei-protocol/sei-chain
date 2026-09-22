@@ -6,13 +6,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
-	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"

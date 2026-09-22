@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
@@ -51,14 +49,6 @@ func DeliverTx(
 	txStart := time.Now()
 	defer func() {
 		legacyAbciMetrics.txDuration.Record(ctx.Context(), time.Since(txStart).Seconds(), otelmetric.WithAttributes(attribute.String("mode", "deliver")))
-		// TODO(PLT-343): remove once tx_duration verified
-		telemetry.MeasureThroughputSinceWithLabels(
-			telemetry.TxCount,
-			[]metrics.Label{
-				telemetry.NewLabel("mode", "deliver"),
-			},
-			txStart,
-		)
 	}()
 	// check for existing parent tracer, and if applicable, use it
 	spanCtx, span := tracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())

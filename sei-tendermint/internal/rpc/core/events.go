@@ -61,8 +61,8 @@ func (env *Environment) Subscribe(ctx context.Context, req *coretypes.RequestSub
 
 	// Capture the current ID, since it can change in the future.
 	subscriptionID := callInfo.RPCRequest.ID
-	go func() {
-		opctx, opcancel := context.WithCancel(context.TODO())
+	go func() { //nolint:gosec // WebSocket subscriptions intentionally outlive the request that created them.
+		opctx, opcancel := context.WithCancel(context.Background())
 		defer opcancel()
 
 		for {

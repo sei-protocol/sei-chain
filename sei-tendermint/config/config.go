@@ -80,9 +80,9 @@ type Config struct {
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
 	// configuration. Leave empty to disable Autobahn. The autobahn role
 	// follows the top-level `mode` field: "validator" runs the validator
-	// path; any other mode runs as a fullnode (loads the committee as a
-	// routing table and pulls blocks from committee members). A warning is
-	// logged at startup if mode disagrees with committee membership.
+	// path; any other mode runs as a fullnode (loads the address book and
+	// pulls blocks from committee members). A warning is logged at startup
+	// if mode disagrees with address-book membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
 	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The vault is
@@ -249,9 +249,9 @@ type BaseConfig struct {
 	// TEST-ONLY
 	MockApp bool `mapstructure:"mock-app"`
 
-	// EVMOnlyInMemory replaces the provided ABCI application with an ephemeral EVM executor.
+	// EVMOnly replaces the provided ABCI application with the disk-backed EVM-only executor.
 	// TEST-ONLY
-	EVMOnlyInMemory bool `mapstructure:"evm-only-in-memory"`
+	EVMOnly bool `mapstructure:"evm-only"`
 
 	// Deprecated: out-of-process ABCI has been removed and this option no longer
 	// has any effect.
@@ -884,8 +884,8 @@ type MempoolConfig struct {
 	// valid again in the future.
 	KeepInvalidTxsInCache bool `mapstructure:"keep-invalid-txs-in-cache"`
 
-	// Maximum size of a single transaction
-	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+	// Maximum size of a single transaction.
+	// XXX: Unused. Admission uses the protocol gossip limit. A different value logs a warning.
 	MaxTxBytes int `mapstructure:"max-tx-bytes"`
 
 	// Maximum size of a batch of transactions to send to a peer

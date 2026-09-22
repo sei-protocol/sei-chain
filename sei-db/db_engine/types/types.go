@@ -208,6 +208,13 @@ type StateStore interface {
 	io.Closer
 }
 
+// BlockCommitter is the live commit path's entry into a state store: one call per committed block,
+// a block that changed nothing included. A store that checkpoints takes its heights from these
+// calls, so every committed version has to arrive here.
+type BlockCommitter interface {
+	CommitBlock(version int64, changesets []*proto.NamedChangeSet) error
+}
+
 // ContextIteratorStore is implemented by StateStores whose iterators can observe
 // a deadline while skipping MVCC versions. Historical traces attach the RPC
 // timeout here so a skip loop does not run for minutes after the caller gave up.

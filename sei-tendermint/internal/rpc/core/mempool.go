@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/holiman/uint256"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -24,6 +25,11 @@ func (env *Environment) EvmProxy(sender common.Address) utils.Option[*ethrpc.Cli
 		return r.EvmProxy(sender)
 	}
 	return utils.None[*ethrpc.Client]()
+}
+
+// EvmBalance returns the address balance from the current committed EVM state.
+func (env *Environment) EvmBalance(address common.Address) uint256.Int {
+	return env.App.EvmBalance(address, nil)
 }
 
 func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
@@ -178,10 +184,10 @@ func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *c
 				"duration", time.Since(startAt),
 				"err", ctx.Err())
 			return &coretypes.ResultBroadcastTxCommit{
-					CheckTx: *r,
-					Hash:    req.Tx.Hash().Bytes(),
-				}, fmt.Errorf("timeout waiting for commit of tx %s (%s)",
-					req.Tx.Hash(), time.Since(startAt))
+				CheckTx: *r,
+				Hash:    req.Tx.Hash().Bytes(),
+			}, fmt.Errorf("timeout waiting for commit of tx %s (%s)",
+				req.Tx.Hash(), time.Since(startAt))
 		case <-timer.C:
 			txres, err := env.Tx(ctx, &coretypes.RequestTx{
 				Hash:  req.Tx.Hash().Bytes(),

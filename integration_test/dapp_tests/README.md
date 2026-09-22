@@ -1,7 +1,7 @@
 # dApp Tests
 
 This directory contains integration tests that simulate simple use cases on the chain by deploying and running common dApp contracts.
-The focus here is mainly on testing common interop scenarios (interactions with associated/unassociated accounts, pointer contracts etc.)
+The focus here is mainly on testing common interop scenarios (interactions with associated/unassociated accounts, EVM and CosmWasm contracts side by side etc.)
 In each test scenario, we deploy the dapp contracts, fund wallets, then go through common end to end scenarios.
 
 ## Setup
@@ -23,12 +23,8 @@ On the test pipelines, the account used is:
 ### Uniswap (EVM DEX)
 This test deploys a small set of UniswapV3 contracts to the EVM and tests swapping and creation of uniswap pools.
 - Test that associated accounts are able to swap erc20 tokens
-- Test that associated accounts are able to swap native tokens via pointer
-- Test that associated accounts are able to swap cw20 tokens via pointer
 - Test that unassociated accounts are able to receive erc20 tokens
-- Test that unassociated accounts are able to receive native tokens via pointer
-- Unassociated EVM accounts are not able to receive cw20 tokens via pointer
-- Test that unassociated accounts can still deploy and supply erc20-erc20pointer liquidity pools.
+- Test that unassociated accounts can still deploy and supply erc20 liquidity pools.
 
 ### Steak (CW Liquid Staking)
 This test deploys a set of WASM liquid staking contracts, then tests bonding and unbonding.
@@ -39,10 +35,3 @@ This test deploys a set of WASM liquid staking contracts, then tests bonding and
 This test deploys a simple NFT Marketplace contract, then tests listing and buying NFTs.
 - Test that associated accounts are able to list and buy erc721 tokens
 - Test that unassociated accounts are able to list and buy erc721 tokens
-- Test that associated accounts are able to buy cw721 tokens via pointers
-- Unassociated EVM accounts are currently unable to own or receive cw721 tokens via pointers
-
-### To Be Added
-The following is a list of testcases/scenarios that we should add to verify completeness
-- CosmWasm DEX tests - test that ERC20 tokens are tradeable via pointer contracts.
-- CosmWasm NFT Marketplace tests - test that ERC721 tokens are tradeable via pointer contracts.

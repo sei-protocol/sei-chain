@@ -56,9 +56,12 @@ func TestSmall(t *testing.T) {
 func TestGCFifo(t *testing.T) {
 	// SetFinalizer doesn't work well with circular structures,
 	// so we construct a trivial non-circular structure to
-	// track.
+	// track. The struct is padded to 16 bytes so it is not served by the
+	// tiny allocator, which packs several pointer-free objects into one
+	// block and only finalizes them once the whole block is unreachable.
 	type value struct {
 		Int int
+		_   int
 	}
 
 	const numElements = 10000
@@ -109,9 +112,12 @@ func TestGCFifo(t *testing.T) {
 func TestGCRandom(t *testing.T) {
 	// SetFinalizer doesn't work well with circular structures,
 	// so we construct a trivial non-circular structure to
-	// track.
+	// track. The struct is padded to 16 bytes so it is not served by the
+	// tiny allocator, which packs several pointer-free objects into one
+	// block and only finalizes them once the whole block is unreachable.
 	type value struct {
 		Int int
+		_   int
 	}
 
 	const numElements = 10000

@@ -52,7 +52,7 @@ func TestRPCParams(t *testing.T) {
 		// id not captured in JSON parsing failures
 		{`{"method": "c", "id": "0", "params": a}`, "invalid character", ""},
 		{`{"method": "c", "id": "0", "params": ["a"]}`, "got 1", `"0"`},
-		{`{"method": "c", "id": "0", "params": ["a", "b"]}`, "invalid number", `"0"`},
+		{`{"method": "c", "id": "0", "params": ["a", "b"]}`, "cannot unmarshal", `"0"`},
 		{`{"method": "c", "id": "0", "params": [1, 1]}`, "of type string", `"0"`},
 
 		// no ID - notification

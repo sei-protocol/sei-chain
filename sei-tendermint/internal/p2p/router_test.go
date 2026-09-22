@@ -23,7 +23,7 @@ import (
 )
 
 func (r *Router) handshakeV2(ctx context.Context, conn tcp.Conn, dialAddr utils.Option[NodeAddress]) (*handshakedConn, types.NodeInfo, error) {
-	hConn, err := handshake(ctx, conn, r.privKey, handshakeSpec{SeiGigaConnection: false})
+	hConn, err := handshake(ctx, conn, r.privKey, handshakeSpec{SeiGigaConnection: false}, utils.None[handshakeOffer]())
 	if err != nil {
 		return nil, types.NodeInfo{}, err
 	}
@@ -124,6 +124,10 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	chDesc2 := ChannelDescriptor[*TestMessage]{ID: 2, MessageType: &TestMessage{}}
 	_, err = OpenChannel(router, chDesc2)
 	require.NoError(t, err)
+
+	t.Logf("Opening a channel outside the wire range should fail.")
+	_, err = OpenChannel(router, makeChDesc(256))
+	require.Error(t, err)
 
 	t.Logf("We should be able to send on the channel, even though there are no peers.")
 	channel.Send(&TestMessage{Value: "foo"}, types.NodeID(strings.Repeat("a", 40)))

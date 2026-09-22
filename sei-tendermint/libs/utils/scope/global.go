@@ -18,7 +18,7 @@ type GlobalHandle[T any] struct {
 // The task does not return an error, because there is no canonical way to handle it.
 // Can be used as an intermediate step when migrating code to use scopes.
 func SpawnGlobal[T any](task func(ctx context.Context) T) *GlobalHandle[T] {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // cancel is retained by GlobalHandle and invoked by Terminate.
 	h := &GlobalHandle[T]{
 		cancel: cancel,
 		done:   make(chan struct{}),

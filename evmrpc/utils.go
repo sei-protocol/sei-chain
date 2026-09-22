@@ -317,10 +317,10 @@ func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
 }
 
 func shouldIncludeSynthetic(namespace string) bool {
-	if namespace != "eth" && namespace != "sei" {
+	if namespace != EthNamespace && namespace != SeiNamespace {
 		panic(fmt.Sprintf("unknown namespace %s", namespace))
 	}
-	return namespace == "sei"
+	return namespace == SeiNamespace
 }
 
 type typedTxHash struct {
@@ -370,6 +370,7 @@ type ParallelRunner struct {
 
 var panicHook atomic.Value
 
+// SetPanicHook sets a handler that replaces default recovered-panic logging.
 func SetPanicHook(h func(interface{})) {
 	panicHook.Store(h)
 }
@@ -399,13 +400,14 @@ func runWithRecovery(f func()) {
 
 func recoverAndLog() {
 	if e := recover(); e != nil {
-		fmt.Printf("Panic recovered: %s\n", e)
-		debug.PrintStack()
 		if v := panicHook.Load(); v != nil {
 			if hook, ok := v.(func(interface{})); ok && hook != nil {
 				hook(e)
+				return
 			}
 		}
+		fmt.Printf("Panic recovered: %s\n", e)
+		debug.PrintStack()
 	}
 }
 

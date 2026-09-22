@@ -89,6 +89,9 @@ func (i *inner) publishNextCommitEpoch(registry *epoch.Registry) {
 	if err != nil {
 		return
 	}
+	if ep.EpochIndex() == i.nextCommitEpoch.Load().EpochIndex() {
+		return
+	}
 	i.nextCommitEpoch.Store(ep)
 }
 
@@ -558,6 +561,22 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 		return inner.blocks[n], nil
 	}
 	return s.blockFromDB(n)
+}
+
+// TryQC returns the FullCommitQC covering global height n without waiting.
+// Returns ErrNotFound if n is not yet covered (n >= nextQC).
+// Returns ErrPruned if BlockStore no longer has an evicted height.
+func (s *State) TryQC(n types.GlobalBlockNumber) (*types.FullCommitQC, error) {
+	for inner := range s.inner.Lock() {
+		if n >= inner.nextQC {
+			return nil, types.ErrNotFound
+		}
+		if n < inner.first {
+			break
+		}
+		return inner.qcs[n].qc, nil
+	}
+	return s.qcFromDB(n)
 }
 
 // NeedBlock reports whether catch-up still needs to fetch height n.

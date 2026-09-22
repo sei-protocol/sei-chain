@@ -11,7 +11,6 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
@@ -270,7 +269,7 @@ func (itr *iterator) Key() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	keyCopy := slices.Clone(key)
+	keyCopy := bytes.Clone(key)
 	return keyCopy[len(itr.prefix):]
 }
 
@@ -284,7 +283,7 @@ func (itr *iterator) Value() []byte {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", itr.source.Key()))
 	}
 
-	return slices.Clone(val)
+	return bytes.Clone(val)
 }
 
 func (itr *iterator) nextForward() {

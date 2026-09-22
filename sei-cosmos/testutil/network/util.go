@@ -102,7 +102,7 @@ func startInProcess(cfg Config, val *Validator) error {
 	}
 
 	if val.AppConfig.GRPC.Enable {
-		grpcSrv, err := servergrpc.StartGRPCServer(val.ClientCtx, app, val.AppConfig.GRPC)
+		grpcSrv, rateLimitRegistry, err := servergrpc.StartGRPCServer(val.ClientCtx, app, val.AppConfig.GRPC)
 		if err != nil {
 			return err
 		}
@@ -110,7 +110,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		val.grpc = grpcSrv
 
 		if val.AppConfig.GRPCWeb.Enable {
-			val.grpcWeb, err = servergrpc.StartGRPCWeb(grpcSrv, *val.AppConfig)
+			val.grpcWeb, err = servergrpc.StartGRPCWeb(grpcSrv, rateLimitRegistry, *val.AppConfig)
 			if err != nil {
 				return err
 			}

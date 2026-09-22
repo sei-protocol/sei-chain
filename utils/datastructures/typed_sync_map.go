@@ -1,20 +1,19 @@
 package datastructures
 
 import (
+	"cmp"
 	"sort"
 	"sync"
-
-	"golang.org/x/exp/constraints"
 )
 
 // A map-like data structure that is guaranteed to be data race free during write
 // operations. It is a typed wrapper over the builtin typeless `sync.Map`. The
 // CRUD interface is exactly the same as those of `sync.Map`.
-type TypedSyncMap[K constraints.Ordered, V any] struct {
+type TypedSyncMap[K cmp.Ordered, V any] struct {
 	internal *sync.Map
 }
 
-func NewTypedSyncMap[K constraints.Ordered, V any]() *TypedSyncMap[K, V] {
+func NewTypedSyncMap[K cmp.Ordered, V any]() *TypedSyncMap[K, V] {
 	return &TypedSyncMap[K, V]{
 		internal: &sync.Map{},
 	}
@@ -89,12 +88,12 @@ func (m *TypedSyncMap[K, V]) DeepApply(toApply func(V)) {
 // nested values directly. For example, to set value `v` for outer key `k1` and inner
 // key `k2`, one can simply call StoreNested(k1, k2, v), without worrying about creating
 // the inner map if it doesn't exist.
-type TypedNestedSyncMap[K1 constraints.Ordered, K2 constraints.Ordered, V any] struct {
+type TypedNestedSyncMap[K1 cmp.Ordered, K2 cmp.Ordered, V any] struct {
 	*TypedSyncMap[K1, *TypedSyncMap[K2, V]]
 	mu *sync.Mutex // XXXNested methods have write operations outside sync.Map
 }
 
-func NewTypedNestedSyncMap[K1 constraints.Ordered, K2 constraints.Ordered, V any]() *TypedNestedSyncMap[K1, K2, V] {
+func NewTypedNestedSyncMap[K1 cmp.Ordered, K2 cmp.Ordered, V any]() *TypedNestedSyncMap[K1, K2, V] {
 	return &TypedNestedSyncMap[K1, K2, V]{
 		TypedSyncMap: NewTypedSyncMap[K1, *TypedSyncMap[K2, V]](),
 		mu:           &sync.Mutex{},

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -39,13 +40,13 @@ var flushHookForTest atomic.Pointer[func(string)]
 // and flushes (commit + LtHash update) when the buffer is full or the
 // channel is closed.
 type dbWorker struct {
-	ctx     context.Context
-	dir     string
-	db      seidbtypes.KeyValueDB
-	ch      chan rawKVPair
-	batch   seidbtypes.Batch
-	ltPairs []lthash.KVPairWithLastValue
-	ltHash  *lthash.LtHash
+	ctx         context.Context
+	dir         string
+	db          seidbtypes.KeyValueDB
+	ch          chan rawKVPair
+	batch       seidbtypes.Batch
+	ltMutations []lthash.KeyMutation
+	ltHash      *lthash.LtHash
 	// moduleLtHash tracks the per-module decomposition of ltHash, keyed by the
 	// "<module>/" physical-key prefix. Its homomorphic sum equals ltHash.
 	moduleLtHash map[string]*lthash.LtHash
@@ -53,26 +54,41 @@ type dbWorker struct {
 	// alongside moduleLtHash, keyed the same way. Mirrors the live commit path
 	// so an imported store carries identical per-module stats metadata.
 	moduleStats map[string]lthash.ModuleStats
-	// calc is the shared lattice-hash calculator. Its worker pool is used to
-	// distribute this worker's flushed pairs and compute per-module deltas —
-	// the same path the live commit uses (see HashCalculator.ComputeModuleHashInfos).
-	calc    *lthash.HashCalculator
-	flushes int64
-	pairs   int64
+	// pool distributes this worker's flushed mutations across every core to compute per-module deltas —
+	// the same path the live commit uses (see lthash.ComputeModuleHashInfos).
+	pool threading.Pool
+	// moduleOf names the module a physical key belongs to, for bucketing this worker's mutations.
+	moduleOf lthash.ModuleParser
+	// chunkSize is how many KV pairs each leaf-hash task carries.
+	chunkSize uint32
+	flushes   int64
+	pairs     int64
 }
 
-func newDBWorker(ctx context.Context, dir string, db seidbtypes.KeyValueDB, calc *lthash.HashCalculator, ltHash *lthash.LtHash, moduleLtHash map[string]*lthash.LtHash, moduleStats map[string]lthash.ModuleStats) *dbWorker {
+func newDBWorker(
+	ctx context.Context,
+	dir string,
+	db seidbtypes.KeyValueDB,
+	pool threading.Pool,
+	moduleOf lthash.ModuleParser,
+	ltHash *lthash.LtHash,
+	moduleLtHash map[string]*lthash.LtHash,
+	moduleStats map[string]lthash.ModuleStats,
+	chunkSize uint32,
+) *dbWorker {
 	return &dbWorker{
 		ctx:          ctx,
 		dir:          dir,
 		db:           db,
 		ch:           make(chan rawKVPair, workerChanSize),
 		batch:        db.NewBatch(),
-		ltPairs:      make([]lthash.KVPairWithLastValue, 0, importBatchSize),
+		ltMutations:  make([]lthash.KeyMutation, 0, importBatchSize),
 		ltHash:       ltHash,
 		moduleLtHash: moduleLtHash,
 		moduleStats:  moduleStats,
-		calc:         calc,
+		pool:         pool,
+		moduleOf:     moduleOf,
+		chunkSize:    chunkSize,
 	}
 }
 
@@ -94,11 +110,11 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 			if err := w.batch.Set(kv.Key, kv.Value); err != nil {
 				return fmt.Errorf("%s set: %w", w.dir, err)
 			}
-			w.ltPairs = append(w.ltPairs, lthash.KVPairWithLastValue{
+			w.ltMutations = append(w.ltMutations, lthash.KeyMutation{
 				Key:   kv.Key,
 				Value: kv.Value,
 			})
-			if len(w.ltPairs) >= importBatchSize {
+			if len(w.ltMutations) >= importBatchSize {
 				if err := w.flush(); err != nil {
 					return err
 				}
@@ -111,14 +127,14 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 
 // flush commits the current PebbleDB batch and updates the running LtHash.
 func (w *dbWorker) flush() (err error) {
-	if len(w.ltPairs) == 0 {
+	if len(w.ltMutations) == 0 {
 		return nil
 	}
 	if hook := flushHookForTest.Load(); hook != nil {
 		(*hook)(w.dir)
 	}
 	start := time.Now()
-	pairCount := len(w.ltPairs)
+	pairCount := len(w.ltMutations)
 	defer func() {
 		otelMetrics.ImportWorkerFlushLatency.Record(w.ctx, secondsSince(start),
 			metric.WithAttributes(dbAttr(w.dir), successAttr(err)))
@@ -132,7 +148,8 @@ func (w *dbWorker) flush() (err error) {
 	// per-module metadata and identical per-DB root a natively-committed store
 	// would — and it lets a single large DB's batch fan out across every core
 	// instead of being pinned to one import worker goroutine.
-	deltas, err := w.calc.ComputeModuleHashInfos([]lthash.DBPairs{{Dir: w.dir, Pairs: w.ltPairs}})
+	deltas, err := lthash.ComputeModuleHashInfos(
+		w.pool, w.moduleOf, []lthash.DatabaseMutations{{DBName: w.dir, Mutations: w.ltMutations}}, w.chunkSize)
 	if err != nil {
 		return fmt.Errorf("%s compute module deltas: %w", w.dir, err)
 	}
@@ -157,7 +174,7 @@ func (w *dbWorker) flush() (err error) {
 	w.flushes++
 	w.pairs += int64(pairCount)
 	w.batch = w.db.NewBatch()
-	w.ltPairs = w.ltPairs[:0]
+	w.ltMutations = w.ltMutations[:0]
 	return nil
 }
 
@@ -201,10 +218,12 @@ func NewKVImporter(store *CommitStore, version int64, dbs rawDBs) types.Importer
 			store.ctx,
 			dir,
 			dbs.forDir(dir),
-			store.ltCalc,
-			store.perDBWorkingLtHash[dir],
-			cloneModuleHashes(store.perDBModuleWorkingLtHash[dir]),
-			cloneModuleStats(store.perDBModuleWorkingStats[dir]),
+			store.ltHashPool,
+			store.moduleOf,
+			store.loadedHashes.PerDB[dir],
+			cloneModuleHashes(store.loadedHashes.PerModule[dir]),
+			cloneModuleStats(store.loadedHashes.PerModuleStats[dir]),
+			store.config.HashEngineConfig.ChunkSize,
 		)
 		imp.workers[dir] = w
 	}
@@ -362,9 +381,9 @@ func (imp *KVImporter) Close() error {
 		}
 
 		for _, w := range imp.workers {
-			imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
-			imp.store.perDBModuleWorkingLtHash[w.dir] = w.moduleLtHash
-			imp.store.perDBModuleWorkingStats[w.dir] = w.moduleStats
+			imp.store.loadedHashes.PerDB[w.dir] = w.ltHash
+			imp.store.loadedHashes.PerModule[w.dir] = w.moduleLtHash
+			imp.store.loadedHashes.PerModuleStats[w.dir] = w.moduleStats
 		}
 
 		if err = imp.store.FinalizeImport(imp.version); err != nil {

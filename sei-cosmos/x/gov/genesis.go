@@ -10,10 +10,15 @@ import (
 
 // InitGenesis - store genesis parameters
 func InitGenesis(ctx sdk.Context, ak types.AccountKeeper, bk types.BankKeeper, k keeper.Keeper, data *types.GenesisState) {
+	k.EnableIncrementalTally(ctx)
 	k.SetProposalID(ctx, data.StartingProposalId)
 	k.SetDepositParams(ctx, data.DepositParams)
 	k.SetVotingParams(ctx, data.VotingParams)
 	k.SetTallyParams(ctx, data.TallyParams)
+	if data.VoteDelegationBackfillCutoff != 0 {
+		k.SetVoteDelegationBackfillCutoff(ctx, data.VoteDelegationBackfillCutoff)
+	}
+	k.InitializeDeadlineBoundaryClock(ctx)
 
 	// check if the deposits pool account exists
 	moduleAcc := k.GetGovernanceAccount(ctx)
@@ -30,13 +35,41 @@ func InitGenesis(ctx sdk.Context, ak types.AccountKeeper, bk types.BankKeeper, k
 	for _, vote := range data.Votes {
 		k.SetVote(ctx, vote)
 	}
+	for _, snapshot := range data.VoteDelegationSnapshots {
+		k.SetVoteDelegationSnapshot(ctx, snapshot)
+	}
+	proposalsByID := make(map[uint64]types.Proposal, len(data.Proposals))
+	for _, proposal := range data.Proposals {
+		proposalsByID[proposal.ProposalId] = proposal
+	}
+	for _, proposalID := range data.ModernTallyRoundProposalIds {
+		if _, found := proposalsByID[proposalID]; !found {
+			panic(fmt.Sprintf("modern tally round for proposal %d does not exist", proposalID))
+		}
+		k.SetModernTallyRound(ctx, proposalID)
+	}
+	for _, electorate := range data.TallyElectorates {
+		proposal, found := proposalsByID[electorate.ProposalId]
+		if !found || proposal.Status != types.StatusVotingPeriod || proposal.VotingEndTime.After(ctx.BlockTime()) {
+			panic(fmt.Sprintf("tally electorate for proposal %d precedes its voting end time", electorate.ProposalId))
+		}
+		k.SetTallyElectorate(ctx, electorate)
+		k.CompleteVoteDelegationBackfill(ctx, electorate.ProposalId)
+	}
 
 	for _, proposal := range data.Proposals {
 		switch proposal.Status {
 		case types.StatusDepositPeriod:
 			k.InsertInactiveProposalQueue(ctx, proposal.ProposalId, proposal.DepositEndTime)
 		case types.StatusVotingPeriod:
-			k.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+			if k.IsModernTallyRound(ctx, proposal.ProposalId) {
+				k.InsertActiveProposalQueueForModernTallyRound(ctx, proposal.ProposalId, proposal.VotingEndTime)
+			} else {
+				k.InsertActiveProposalQueue(ctx, proposal.ProposalId, proposal.VotingEndTime)
+			}
+			if !proposal.VotingEndTime.After(ctx.BlockTime()) && !k.VoteDelegationBackfillRequired(ctx, proposal.ProposalId) {
+				k.InitializeTally(ctx, proposal)
+			}
 		}
 		k.SetProposal(ctx, proposal)
 	}
@@ -56,6 +89,7 @@ func InitGenesis(ctx sdk.Context, ak types.AccountKeeper, bk types.BankKeeper, k
 // ExportGenesis - output genesis parameters
 func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 	startingProposalID, _ := k.GetProposalID(ctx)
+	voteDelegationBackfillCutoff, _ := k.GetVoteDelegationBackfillCutoff(ctx)
 	depositParams := k.GetDepositParams(ctx)
 	votingParams := k.GetVotingParams(ctx)
 	tallyParams := k.GetTallyParams(ctx)
@@ -63,21 +97,35 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 
 	var proposalsDeposits types.Deposits
 	var proposalsVotes types.Votes
+	voteDelegationSnapshots := make([]types.VoteDelegationSnapshot, 0, len(proposals))
+	tallyElectorates := make([]types.TallyElectorate, 0, len(proposals))
+	modernTallyRoundProposalIDs := make([]uint64, 0, len(proposals))
 	for _, proposal := range proposals {
 		deposits := k.GetDeposits(ctx, proposal.ProposalId)
 		proposalsDeposits = append(proposalsDeposits, deposits...)
 
 		votes := k.GetVotes(ctx, proposal.ProposalId)
 		proposalsVotes = append(proposalsVotes, votes...)
+		voteDelegationSnapshots = append(voteDelegationSnapshots, k.GetVoteDelegationSnapshots(ctx, proposal)...)
+		if electorate, found := k.ExportTallyElectorate(ctx, proposal); found {
+			tallyElectorates = append(tallyElectorates, electorate)
+		}
+		if k.IsModernTallyRound(ctx, proposal.ProposalId) {
+			modernTallyRoundProposalIDs = append(modernTallyRoundProposalIDs, proposal.ProposalId)
+		}
 	}
 
 	return &types.GenesisState{
-		StartingProposalId: startingProposalID,
-		Deposits:           proposalsDeposits,
-		Votes:              proposalsVotes,
-		Proposals:          proposals,
-		DepositParams:      depositParams,
-		VotingParams:       votingParams,
-		TallyParams:        tallyParams,
+		StartingProposalId:           startingProposalID,
+		Deposits:                     proposalsDeposits,
+		Votes:                        proposalsVotes,
+		Proposals:                    proposals,
+		DepositParams:                depositParams,
+		VotingParams:                 votingParams,
+		TallyParams:                  tallyParams,
+		VoteDelegationSnapshots:      voteDelegationSnapshots,
+		TallyElectorates:             tallyElectorates,
+		VoteDelegationBackfillCutoff: voteDelegationBackfillCutoff,
+		ModernTallyRoundProposalIds:  modernTallyRoundProposalIDs,
 	}
 }

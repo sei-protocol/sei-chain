@@ -203,8 +203,8 @@ func NewViewManager(
 	// cancellation — see the Close contract on ViewManager.
 	shards := make([]*shard, config.ShardCount)
 	for i := uint64(0); i < config.ShardCount; i++ {
-		shards[i], err = NewShard(
-			childCtx, config, db, readPool, sizePerShard, c.shutdownError, c.reportReadFailure)
+		shards[i], err = NewShard(childCtx, config, db, readPool, sizePerShard,
+			c.shutdownError, c.reportReadFailure, c.reportFoldFailure)
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to create shard: %w", err)
@@ -229,7 +229,7 @@ func NewViewManager(
 
 func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	for _, s := range c.shards {
-		b, e := s.getSizeInfo()
+		b, e := s.GetSizeInfo()
 		bytes += b
 		entries += e
 	}
@@ -269,6 +269,71 @@ func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
 		}
 	}
 	return nil
+}
+
+func (c *viewManager) BatchUpdate(keys []string, updater BatchUpdater) error {
+	work := c.partitionIndicesByShard(keys)
+	version := c.currentVersion
+
+	// Staging is synchronous, and it is all this call does on the caller's thread: one lock hold per
+	// shard that reads no database and folds nothing. It is what makes the keys read as their new
+	// values before any fold has run.
+	staged := make([][]stagedFold, len(c.shards))
+	for shardIndex := range work {
+		if len(work[shardIndex]) == 0 {
+			continue
+		}
+		folds, err := c.shards[shardIndex].StageUpdates(keys, work[shardIndex], version)
+		if err != nil {
+			// The shards that already staged are holding values nothing will ever fold, and a reader
+			// would park on one forever. Fail them before reporting.
+			c.abandonStaged(staged, version, err)
+			return fmt.Errorf("failed to stage update in shard: %w", err)
+		}
+		staged[shardIndex] = folds
+	}
+
+	// Folding happens here, off this thread, and nothing waits for it: whatever reads, hashes or
+	// flushes one of these keys is what waits.
+	for shardIndex, folds := range staged {
+		if len(folds) == 0 {
+			continue
+		}
+		shard := c.shards[shardIndex]
+		c.miscPool.Submit(func() {
+			shard.FoldStagedValues(folds, updater, version)
+		})
+	}
+	return nil
+}
+
+// abandonStaged fails every fold staged so far, for a BatchUpdate that could not finish staging.
+func (c *viewManager) abandonStaged(staged [][]stagedFold, version uint64, err error) {
+	for shardIndex, folds := range staged {
+		if len(folds) == 0 {
+			continue
+		}
+		c.shards[shardIndex].FailStagedFolds(folds, version, err)
+	}
+}
+
+// partitionIndicesByShard groups the positions of keys by the shard each key belongs to, so each
+// shard is visited once. The returned slice is indexed by shard, and a shard no key landed in holds
+// an empty bucket.
+//
+// Buckets start out sized for an even spread, which is what the seeded hash produces; a bucket that
+// lands above its share still grows on demand.
+func (c *viewManager) partitionIndicesByShard(keys []string) [][]int {
+	work := make([][]int, len(c.shards))
+	perShard := len(keys)/len(c.shards) + 1
+	for index, key := range keys {
+		shardIndex := c.shardManager.ShardString(key)
+		if work[shardIndex] == nil {
+			work[shardIndex] = make([]int, 0, perShard)
+		}
+		work[shardIndex] = append(work[shardIndex], index)
+	}
+	return work
 }
 
 func (c *viewManager) BatchGet(keys [][]byte) (map[string][]byte, error) {
@@ -369,9 +434,9 @@ func (c *viewManager) Commit() (View, error) {
 	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
 	// would discard it silently.
 	for i, s := range c.shards {
-		s.lock.Lock()
-		err := s.cache.outOfServiceLocked()
-		s.lock.Unlock()
+		s.lock.RLock()
+		err := s.cache.ErrIfOutOfServiceRLocked()
+		s.lock.RUnlock()
 		if err != nil {
 			return nil, fmt.Errorf("cannot create view, shard %d: %w", i, err)
 		}
@@ -401,8 +466,16 @@ func (c *viewManager) Commit() (View, error) {
 
 	c.metrics.setViewPhase("shards_view")
 
-	for _, shard := range c.shards {
-		shardVersion := shard.Commit()
+	for i, shard := range c.shards {
+		shardVersion, err := shard.Commit()
+		if err != nil {
+			// The shard sealed its version but its read cache could not be maintained, which means the
+			// cache can no longer account for its own contents. Bricked for the same reason as below:
+			// the failure must be latched rather than leaving the manager callable.
+			err = fmt.Errorf("failed to maintain the read cache of shard %d: %w", i, err)
+			c.brickLocked(err)
+			return nil, err
+		}
 		if shardVersion != c.currentVersion {
 			// Should be impossible. The manager is now inconsistent (some shards committed, some
 			// not), so brick it: the failure must be latched and every subsequent call must fail,
@@ -658,7 +731,7 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// that moved data out of versionedData and into the DB between the two steps would drop those
 	// keys entirely if the DB view were taken first. In this order the same race can only yield a
 	// key twice, which the merge resolves in favor of the override.
-	overrides, err := c.materializeCurrentOverrides(opts)
+	overrides, err := c.MaterializeCurrentOverrides(opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to materialize current overrides: %w", err)
 	}
@@ -682,7 +755,7 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	// Register the iterator only now that construction has fully succeeded, so a failed construction
 	// cannot leave a phantom entry behind.
 	for _, s := range c.shards {
-		s.iteratorOpened()
+		s.IteratorOpened()
 	}
 	return &trackedIterator{Iterator: iter, manager: c}, nil
 }
@@ -700,7 +773,7 @@ func (w *trackedIterator) Close() error {
 	w.closeOnce.Do(func() {
 		errs := make([]error, 0, len(w.manager.shards)+1)
 		for _, s := range w.manager.shards {
-			errs = append(errs, s.iteratorClosed())
+			errs = append(errs, s.IteratorClosed())
 		}
 		errs = append(errs, w.Iterator.Close())
 		err = errors.Join(errs...)
@@ -708,12 +781,12 @@ func (w *trackedIterator) Close() error {
 	return err
 }
 
-// materializeCurrentOverrides gathers the in-memory overrides at the current version from every
+// MaterializeCurrentOverrides gathers the in-memory overrides at the current version from every
 // shard and returns them sorted ascending by key. Each shard is responsible for its own locking;
 // here we just stitch the results together, and the sort runs without any shard lock held.
 // The overrides are sorted into iteration order — ascending, or descending when reverse is set — so
 // the merge in viewIterator can walk them and the DB iterator in lockstep.
-func (c *viewManager) materializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
+func (c *viewManager) MaterializeCurrentOverrides(opts *types.IterOptions) ([]kvPair, error) {
 	var lowerBound, upperBound []byte
 	reverse := false
 	if opts != nil {
@@ -722,7 +795,7 @@ func (c *viewManager) materializeCurrentOverrides(opts *types.IterOptions) ([]kv
 
 	var all []kvPair
 	for i, s := range c.shards {
-		shardOverrides, err := s.materializeCurrentOverrides(lowerBound, upperBound)
+		shardOverrides, err := s.MaterializeCurrentOverrides(lowerBound, upperBound)
 		if err != nil {
 			return nil, fmt.Errorf("shard %d: %w", i, err)
 		}
@@ -787,6 +860,15 @@ func (c *viewManager) reportReadFailure(err error) {
 	c.brick(fmt.Errorf("failed to read from the underlying database: %w", err))
 }
 
+// reportFoldFailure handles a fold that could not produce its value by bricking the manager. The
+// latched error names the fold rather than the read that may have fed it.
+//
+// Must be called without the shard lock held: it acquires versionLock, and the established order is
+// versionLock before any shard lock.
+func (c *viewManager) reportFoldFailure(err error) {
+	c.brick(fmt.Errorf("failed to fold a staged value: %w", err))
+}
+
 // brickLocked latches the fatal error, cancels the manager context, wakes backpressure waiters, and
 // takes every shard out of service, so callers observe the failure immediately rather than waiting
 // for Close.
@@ -807,7 +889,7 @@ func (c *viewManager) brickLocked(err error) {
 	// established order (see Commit), and nothing acquires versionLock while holding a shard lock
 	// (see the cache field on shard).
 	for _, s := range c.shards {
-		s.takeOutOfService(err)
+		s.TakeOutOfService(err)
 	}
 }
 
@@ -1123,12 +1205,27 @@ func (c *viewManager) Close() error {
 	return c.closeErr
 }
 
+// awaitOutstandingFolds blocks until every fold staged by BatchUpdate has resolved in every shard.
+//
+// A fold is the manager's only background work that no caller waits for: it runs on a pool, reads
+// through to the database the manager owns, and submits that read to a pool the manager's owner
+// closes once Close returns. Close calls this before cancelling, so that a fold in flight resolves
+// against an open database instead of abandoning a read that would then race db.Close, and outside
+// versionLock, which a failing fold takes to brick the manager.
+func (c *viewManager) awaitOutstandingFolds() {
+	for _, s := range c.shards {
+		s.AwaitOutstandingFolds()
+	}
+}
+
 func (c *viewManager) closeInternal() error {
 	// Tell the lifecycle runner to exit, then wait for it to report offline. The send is
 	// buffered, so it does not block when the runner has already exited (manager failure), and
 	// the runner is guaranteed to close lifecycleExited (its defer runs even on panic).
 	c.lifecycleExit <- struct{}{}
 	<-c.lifecycleExited
+
+	c.awaitOutstandingFolds()
 
 	// Release everyone blocked on the manager's future: AwaitFlush, backpressured
 	// View callers, and reads still awaiting results. The cancel happens under versionLock
@@ -1142,7 +1239,7 @@ func (c *viewManager) closeInternal() error {
 	// write accepted from here on could never be flushed. First failure wins inside the shard, so a
 	// brick that already ran keeps reporting its own cause rather than ErrViewManagerClosed.
 	for _, s := range c.shards {
-		s.takeOutOfService(ErrViewManagerClosed)
+		s.TakeOutOfService(ErrViewManagerClosed)
 	}
 	c.versionLock.Unlock()
 	c.lifecycleBackpressureCond.Broadcast()
@@ -1177,9 +1274,9 @@ func (c *viewManager) closeInternal() error {
 // is read under its own lock. The manager always has at least one shard (the config requires it).
 func (c *viewManager) assertNoLeakedIterators() error {
 	s := c.shards[0]
-	s.lock.Lock()
+	s.lock.RLock()
 	open := s.openIterators
-	s.lock.Unlock()
+	s.lock.RUnlock()
 
 	if open == 0 {
 		return nil

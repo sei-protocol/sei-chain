@@ -477,9 +477,9 @@ func TestAFileKeyIsMatchedRegardlessOfCase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(got.Unknown) != 0 {
+	if len(got.UnknownInFile) != 0 {
 		t.Errorf("the file's key was reported unknown %v; an operator whose only mistake was case would "+
-			"be told their key does not exist", got.Unknown)
+			"be told their key does not exist", got.UnknownInFile)
 	}
 	if got.Values["giga_executor.occ_enabled"] != "written" {
 		t.Errorf("the key resolved to %#v, want the file's value", got.Values["giga_executor.occ_enabled"])
@@ -504,9 +504,9 @@ func TestAKeyNoSectionDeclaresIsReportedNotDropped(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	if !reflect.DeepEqual(got.Unknown, []string{"giga_executor.typo"}) {
-		t.Errorf("Unknown is %v, want the one undeclared key. Dropped silently, an operator's typo is "+
-			"invisible and their intended value never applies", got.Unknown)
+	if !reflect.DeepEqual(got.UnknownInFile, []string{"giga_executor.typo"}) {
+		t.Errorf("UnknownInFile is %v, want the one undeclared key. Dropped silently, an operator's typo "+
+			"is invisible and their intended value never applies", got.UnknownInFile)
 	}
 	if _, ok := got.Values["giga_executor.typo"]; ok {
 		t.Error("the undeclared key resolved anyway, so it would reach a consumer that cannot use it")
@@ -548,8 +548,10 @@ func TestTheEnvironmentIsReadByTheDeclaredSet(t *testing.T) {
 	if !reflect.DeepEqual(asked, want) {
 		t.Errorf("the environment was asked for %v, want the declared spellings %v", asked, want)
 	}
-	if len(got.Unknown) != 0 {
-		t.Errorf("the environment produced unknown keys %v", got.Unknown)
+	if len(got.UnknownInFile) != 0 || len(got.UnknownFromFlags) != 0 {
+		t.Errorf("the environment produced undeclared keys, in the file's set %v and the flags' set %v. "+
+			"It is asked only for names derived from declared keys, so it can produce neither",
+			got.UnknownInFile, got.UnknownFromFlags)
 	}
 	if !reflect.DeepEqual(got.Overrides, []string{"giga_executor.occ_enabled"}) {
 		t.Errorf("Overrides is %v, want the one declared key the environment supplied", got.Overrides)
@@ -886,24 +888,29 @@ func TestRegistrationAndResolutionAreConcurrencySafe(t *testing.T) {
 		if _, ok := res.Values["first.a"]; !ok {
 			t.Fatalf("round %d: first.a was registered before the call and did not resolve", round)
 		}
-		if len(res.Unknown) != 0 {
-			t.Fatalf("round %d: no source was passed and %v is reported unknown", round, res.Unknown)
+		if len(res.UnknownInFile) != 0 || len(res.UnknownFromFlags) != 0 {
+			t.Fatalf("round %d: no source was passed and %v / %v are reported undeclared",
+				round, res.UnknownInFile, res.UnknownFromFlags)
 		}
 	}
 }
 
-// TestNoUnknownKeyIsOneTheRegistryDeclares holds every source against one snapshot of the registry.
+// TestNoUndeclaredKeyIsOneTheSameAnswerResolved holds a resolution to being consistent with itself.
 //
-// Resolve derives the declared set once and checks every source against it. A source built from a
-// second read of the registry can carry a key the first read did not hold, and that key comes back
-// reported as one no section declares. An operator whose environment variable is real would be told it
-// matches nothing, and their value would be dropped.
+// Resolve derives the declared set once and checks every source against that one set. What that buys is
+// an answer whose halves agree: a key it reports as one nothing declares is not a key it also resolved a
+// value for. An operator told their key matches nothing, for a key the same answer applied, has no way to
+// find out which half is true.
+//
+// Held against the answer rather than against the registry, because a section that registers after the
+// snapshot is declared by a later read and was never part of this resolution. Comparing the two would
+// report that as a defect when it is the snapshot doing its job.
 //
 // The trigger is a section registering while Resolve runs, which is deterministic here rather than
 // raced: Resolve calls each section's Defaults between reading the registry and reading the
 // environment, and Defaults is caller-supplied code. A goroutine cannot be relied on to land in that
 // window, so a concurrent version of this test passes whether the defect is present or not.
-func TestNoUnknownKeyIsOneTheRegistryDeclares(t *testing.T) {
+func TestNoUndeclaredKeyIsOneTheSameAnswerResolved(t *testing.T) {
 	type one struct {
 		A string `mapstructure:"a"`
 	}
@@ -924,7 +931,10 @@ func TestNoUnknownKeyIsOneTheRegistryDeclares(t *testing.T) {
 		registry.EnvName("first.a"):  "from the environment",
 		registry.EnvName("second.a"): "from the environment",
 	}
+	// A file as well as the environment. The environment is asked only for names the snapshot declared, so
+	// it cannot carry the late section's key; a file is read as written and can.
 	res, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		File: map[string]any{"first.a": "from the file", "second.a": "from the file"},
 		LookupEnv: func(name string) (string, bool) {
 			v, ok := env[name]
 			return v, ok
@@ -941,10 +951,16 @@ func TestNoUnknownKeyIsOneTheRegistryDeclares(t *testing.T) {
 	if !declared["second.a"] {
 		t.Fatal("the late section did not register, so this test cannot see the defect it exists for")
 	}
-	for _, key := range res.Unknown {
-		if declared[key] {
-			t.Errorf("%q is reported as a key no section declares, and the registry declares it. An "+
-				"operator setting it would be told it matches nothing and their value would be dropped", key)
+	if !slices.Contains(res.UnknownInFile, "second.a") {
+		t.Fatalf("the file wrote second.a for a section that registered after the snapshot and the "+
+			"undeclared keys are %v. Without it reported there is nothing here to be consistent with",
+			res.UnknownInFile)
+	}
+
+	for _, key := range append(append([]string(nil), res.UnknownInFile...), res.UnknownFromFlags...) {
+		if _, resolved := res.Values[key]; resolved {
+			t.Errorf("%q is reported as a key no section declares and the same answer resolved a value "+
+				"for it. One of the two is wrong and an operator is told whichever they read first", key)
 		}
 	}
 }
@@ -1568,5 +1584,42 @@ func TestANestedFileSourceIsRefusedRatherThanResolvedPast(t *testing.T) {
 	}
 	if !slices.Contains(resolved.Overrides, "net.persistent-peers") {
 		t.Errorf("Overrides is %v, so an install would skip the one key the file wrote", resolved.Overrides)
+	}
+}
+
+// TestAFlagNamingNoKeyIsNotReportedAsTheFilesMistake separates two sources of the same shape.
+//
+// A caller passes its whole flag set, because a flag is a channel an operator uses and leaving it out
+// installs a lower layer over the top of what they chose. Most of those flags name no setting at all:
+// --home says where the files are, --trace says how errors print. They arrive here exactly as a mistyped
+// key in the file does, and only one of the two is a mistake.
+//
+// Counted together, the report an operator reads about their file names flags their file does not contain,
+// and it says so on every invocation whether or not they typed anything wrong. That is the one signal
+// there is for a typo, and a signal that fires every time carries nothing.
+func TestAFlagNamingNoKeyIsNotReportedAsTheFilesMistake(t *testing.T) {
+	type one struct {
+		A string `mapstructure:"a"`
+	}
+	registry.Reset()
+	registry.RegisterSection("probe", &one{}, func(registry.Mode) any { return one{A: "from the default"} })
+	requireNoDefects(t)
+
+	got, err := registry.Resolve(registry.ModeFull, registry.Sources{
+		File:  map[string]any{"probe.a": "from the file", "probe.typo": "from the file"},
+		Flags: map[string]any{"home": "/var/lib/sei", "trace": "true"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if !reflect.DeepEqual(got.UnknownInFile, []string{"probe.typo"}) {
+		t.Errorf("the file's undeclared keys are %v, want the typo alone. A flag counted here puts a "+
+			"warning about the file on every boot and buries the typo it exists to surface",
+			got.UnknownInFile)
+	}
+	if !reflect.DeepEqual(got.UnknownFromFlags, []string{"home", "trace"}) {
+		t.Errorf("the flags matching no key are %v, want home and trace. A caller that cannot tell them "+
+			"from the file's keys has to either report both or neither", got.UnknownFromFlags)
 	}
 }

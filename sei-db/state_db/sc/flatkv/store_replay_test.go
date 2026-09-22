@@ -51,7 +51,12 @@ func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	addr := ktype.Address{0xAB}
 	slot := ktype.Slot{0xCD}
 	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	cs := makeChangeSet(key, padLeft32(0x11), false)
+	balanceKey := keys.BuildEVMKey(keys.EVMKeyBalance, addr[:])
+	balanceVal := balanceN(0x6D)
+	cs := namedCS(
+		&proto.KVPair{Key: key, Value: padLeft32(0x11)},
+		&proto.KVPair{Key: balanceKey, Value: balanceVal[:]},
+	)
 
 	// History legally begins at 10, so this is a lagging watermark rather than a store that skipped
 	// blocks 1-9.
@@ -71,10 +76,16 @@ func TestCatchupReplaysAlreadyAppliedBlockOnSeededStore(t *testing.T) {
 	require.Equal(t, int64(10), reopened.Version())
 	require.Equal(t, hashAfterCommit, rootHash(reopened))
 
-	height, found, err := reopened.GetBlockHeightModified(keys.EVMStoreKey, key)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, int64(10), height)
+	for _, replayed := range [][]byte{key, balanceKey} {
+		height, found, err := reopened.GetBlockHeightModified(keys.EVMStoreKey, replayed)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, int64(10), height)
+	}
+
+	got, found := reopened.Get(keys.EVMStoreKey, balanceKey)
+	require.True(t, found, "balance should survive WAL replay")
+	require.Equal(t, balanceVal[:], got)
 }
 
 // gappedWALStore returns a store whose WAL holds exactly one block, at firstBlock, with nothing before it.
@@ -358,7 +369,7 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 	require.Equal(t, int64(4), s.Version())
 
 	// What each database recorded at block 4, which is the state it must keep.
-	before := make(map[string]*ktype.LocalMeta, len(dataDBDirs))
+	before := make(map[string]*LocalMeta, len(dataDBDirs))
 	for _, dir := range dataDBDirs {
 		meta, err := loadLocalMeta(s.rawDBFor(dir))
 		require.NoError(t, err)
@@ -400,7 +411,7 @@ func TestReplaySkipDoesNotRewindRecordedHeight(t *testing.T) {
 
 // TestReplayConvergesOnPartialAccountFieldWrites pins the one case where replaying
 // a block into a DB that already holds it is not obviously a no-op. An account row
-// is a merge, not an overwrite: deriveNewAccountValues folds a nonce-only or
+// is a merge, not an overwrite: accountUpdater folds a nonce-only or
 // codehash-only update onto whatever is currently on disk. Replaying a range where
 // different blocks touch different fields therefore rebuilds the row field by field
 // through intermediate values that were never on-chain. It converges because the
@@ -459,4 +470,46 @@ func TestReplayConvergesOnPartialAccountFieldWrites(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, wantAccount, gotAccount)
 	require.NoError(t, VerifyLtHash(s3))
+}
+
+// TestReplayDrainsHashStreamPastItsDepth pins the drain that keeps a writable WAL replay from wedging.
+//
+// Replay seals a block per WAL record and every sealed block publishes a hash, but the store is still
+// inside open(), so nothing outside it is reading the stream yet. Left unread, a replay longer than the
+// stream is deep blocks in Offer and never returns.
+func TestReplayDrainsHashStreamPastItsDepth(t *testing.T) {
+	dir := t.TempDir()
+
+	// The WAL is built at the default stream depth: the setup commits have no consumer either, and they
+	// are not what this test is about.
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
+
+	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, s.LoadLatest())
+
+	const blocks = 24
+	for i := byte(1); i <= blocks; i++ {
+		commitStorageEntry(t, s, ktype.Address{i}, ktype.Slot{i}, []byte{i})
+	}
+	require.Equal(t, int64(blocks), s.Version())
+	expected := append([]byte(nil), rootHash(s)...)
+
+	// Lower the watermark far enough that replay has many more blocks to re-apply than the stream below
+	// can hold.
+	rewindVersionRecords(t, s, 4)
+	require.NoError(t, s.Close())
+
+	replayCfg := config.DefaultTestConfig(t)
+	replayCfg.DataDir = cfg.DataDir
+	replayCfg.FinalizationQueueSize = 2
+
+	reopened, err := newCommitStoreWithWAL(t.Context(), replayCfg)
+	require.NoError(t, err)
+	defer reopened.Close()
+
+	require.NoError(t, reopened.LoadLatest())
+	require.Equal(t, int64(blocks), reopened.Version())
+	require.Equal(t, expected, rootHash(reopened))
 }

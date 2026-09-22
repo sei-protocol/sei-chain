@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashlog"
 )
@@ -55,11 +56,11 @@ func (rs *Store) SetNextResultHash(resultHash []byte) {
 // hashLogDir returns the directory hash log files are written to, defaulting to a "hash.log" directory
 // under the state-commit store's data directory (sibling of committer.db / receipt.db). The ".log"
 // suffix mirrors the data/ naming convention (.db, .wal); the files inside keep the .hlog format.
-func (rs *Store) hashLogDir() string {
-	if rs.hashLoggerConfig.Directory != "" {
-		return rs.hashLoggerConfig.Directory
+func hashLogDir(scDir string, cfg config.HashLoggerConfig) string {
+	if cfg.Directory != "" {
+		return cfg.Directory
 	}
-	return filepath.Join(rs.scDir, "data", "hash.log")
+	return filepath.Join(scDir, "data", "hash.log")
 }
 
 // desiredHashCategories computes the full caller-reported category set for the current backend state:
@@ -83,29 +84,30 @@ func (rs *Store) desiredHashCategories() map[string]struct{} {
 	return categories
 }
 
-// openHashLogger constructs the logger once. It starts with no caller columns (just the changeset
-// column); syncHashCategories then registers the live categories, which the logger handles as runtime
-// column changes (each new column rotates to a fresh file, but the empty initial files are dropped and
-// their indexes reused, so the first file with data starts at index 0).
-func (rs *Store) openHashLogger() error {
-	loggerVersion := rs.hashLoggerConfig.Version
+// openHashLogger constructs the logger once, with no caller columns beyond the changeset column.
+//
+// The columns arrive afterwards, from two directions: a backend registers the ones it reports when it is
+// handed this logger, and syncHashCategories registers whatever else the live backend set calls for and
+// removes what it drops. The logger treats each change as a file rotation, but an empty file is dropped
+// and its index reused, so the first file with data still starts at index 0.
+func openHashLogger(scDir string, hashLoggerConfig config.HashLoggerConfig) (hashlog.HashLogger, error) {
+	loggerVersion := hashLoggerConfig.Version
 	if loggerVersion == "" {
 		loggerVersion = "unknown"
 	}
-	cfg := hashlog.DefaultHashLoggerConfig(rs.hashLogDir(), loggerVersion)
+	cfg := hashlog.DefaultHashLoggerConfig(hashLogDir(scDir, hashLoggerConfig), loggerVersion)
 	// Propagate the operator-configured retention tunables verbatim. A configured 0 must reach the logger
 	// (where it disables that dimension); the old `if > 0` guards swallowed it. Defaults are applied at
 	// config construction (config.DefaultHashLoggerConfig), so these always carry a meaningful value.
-	cfg.BlocksToRetain = rs.hashLoggerConfig.BlocksToRetain
-	cfg.TargetFileSize = rs.hashLoggerConfig.TargetFileSize
-	cfg.MaxDiskSize = rs.hashLoggerConfig.MaxDiskSize
+	cfg.BlocksToRetain = hashLoggerConfig.BlocksToRetain
+	cfg.TargetFileSize = hashLoggerConfig.TargetFileSize
+	cfg.MaxDiskSize = hashLoggerConfig.MaxDiskSize
 
 	hl, err := hashlog.NewHashLogger(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create hash logger: %w", err)
+		return nil, fmt.Errorf("failed to create hash logger: %w", err)
 	}
-	rs.hashLogger = hl
-	return nil
+	return hl, nil
 }
 
 // syncHashCategories brings the logger's column set in line with the desired set for the current backend
@@ -145,20 +147,11 @@ func (rs *Store) disableHashLogger() {
 	}
 }
 
-// recordBlockHashes reports every hash for the just-committed block at the given version. It opens the
-// logger on first use and keeps its column set in sync with the live backends. On open failure it
-// disables hash logging rather than disrupting commit. Must be called with rs.mtx held (from Commit).
+// recordBlockHashes reports every hash for the just-committed block at the given version, keeping the
+// logger's column set in sync with the live backends. Must be called with rs.mtx held (from Commit).
 func (rs *Store) recordBlockHashes(version int64) {
 	if rs.hashLoggerDisabled {
 		return
-	}
-
-	if rs.hashLogger == nil {
-		if err := rs.openHashLogger(); err != nil {
-			logger.Error("failed to open hash logger; disabling hash logging", "err", err)
-			rs.disableHashLogger()
-			return
-		}
 	}
 	rs.syncHashCategories()
 

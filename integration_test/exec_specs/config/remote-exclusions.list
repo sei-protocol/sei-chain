@@ -1,0 +1,58 @@
+# Requires a synthetic chain executing close to block zero. On a live remote
+# chain, genesis is outside BLOCKHASH's 256-block lookback window.
+tests/frontier/opcodes/test_blockhash.py::test_genesis_hash_available
+
+# EEST remote mode cannot construct these intentionally invalid transactions.
+tests/prague/eip7702_set_code_tx/test_set_code_txs.py::test_empty_authorization_list[fork_Prague-state_test]
+tests/prague/eip7702_set_code_tx/test_set_code_txs.py::test_set_code_transaction_fee_validations[fork_Prague-state_test-priority_greater_than_max_fee_per_gas]
+
+# This transaction exceeds Sei/Cosmos admission-size limits.
+tests/prague/eip7702_set_code_tx/test_set_code_txs.py::test_many_delegations[fork_Prague-state_test-empty_balance]
+
+# Receipt visibility can precede Sei account-sequence visibility. These behaviors
+# pass in the focused TypeScript suite after waiting for latest nonce convergence.
+tests/prague/eip7702_set_code_tx/test_set_code_txs.py::test_creating_tx_to_contract_creator[fork_Prague-create_opcode_CREATE2-state_test]
+tests/prague/eip7702_set_code_tx/test_set_code_txs.py::test_creating_tx_to_contract_creator[fork_Prague-create_opcode_CREATE-state_test]
+tests/prague/eip7702_set_code_tx/test_set_code_txs.py::test_delegation_clearing[fork_Prague-state_test-delegated_account-self_sponsored]
+tests/prague/eip7702_set_code_tx/test_set_code_txs.py::test_delegation_clearing_tx_to[fork_Prague-state_test-delegated_account-self_sponsored]
+tests/prague/eip7702_set_code_tx/test_set_code_txs_2.py::test_eoa_init_as_pointer[fork_Prague-state_test]
+tests/prague/eip7702_set_code_tx/test_set_code_txs_2.py::test_call_to_precompile_in_pointer_context[fork_Prague-precompile_0x0000000000000000000000000000000000000004-state_test-sender_is_auth_signer_False-sender_delegated_True]
+
+# These fixtures require synthetic block context or legacy block-test envelopes
+# that cannot be represented through Sei's live remote RPC.
+tests/frontier/opcodes/test_blockhash_state_test_recency.py::test_blockhash_zero_out_of_window
+tests/frontier/scenarios/test_scenarios.py::test_scenarios
+
+# EEST execute-remote cannot submit unwrapped blob transactions.
+tests/prague/eip7623_increase_calldata_cost/test_transaction_validity.py::test_transaction_validity_type_3
+
+# This fixture assumes Ethereum system-contract code at a fixed address.
+tests/tangerine_whistle/eip150_operation_gas_costs/test_eip150_selfdestruct.py::test_selfdestruct_to_system_contract
+
+# These vectors require excessive transaction gas or oversized setup initcode.
+tests/cancun/eip5656_mcopy/test_mcopy_memory_expansion.py::test_mcopy_huge_memory_expansion
+tests/frontier/precompiles/test_precompile_absence.py::test_precompile_absence
+
+# These individual vectors exceed Sei's transaction gas limit.
+tests/prague/eip2537_bls_12_381_precompiles/test_bls12_pairing.py::test_valid_multi_inf[fork_Prague-state_test---]
+tests/prague/eip2537_bls_12_381_precompiles/test_bls12_pairing.py::test_invalid_multi_inf[fork_Prague-state_test---]
+tests/prague/eip2537_bls_12_381_precompiles/test_bls12_variable_length_input_contracts.py::test_valid_gas_g2msm[fork_Prague-full_discount_table-state_test-precompile_address_14--exact_gas]
+tests/prague/eip2537_bls_12_381_precompiles/test_bls12_variable_length_input_contracts.py::test_valid_gas_g1msm[fork_Prague-full_discount_table-state_test-precompile_address_12--exact_gas]
+
+# These fixtures require synthetic fee, timestamp, or exact sender-balance
+# context that execute-remote cannot reproduce on a live Sei chain.
+tests/ported_static/stCallCreateCallCodeTest/test_create_js_no_collision.py::test_create_js_no_collision
+tests/ported_static/stEIP1559/test_sender_balance.py::test_sender_balance
+tests/ported_static/stRandom/test_random_statetest347.py::test_random_statetest347
+tests/ported_static/stEIP3860_limitmeterinitcode/test_creation_tx_init_code_size_limit.py::test_creation_tx_init_code_size_limit[fork_Prague-state_test-valid]
+tests/ported_static/stTransactionTest/test_transaction_to_itself.py::test_transaction_to_itself
+tests/homestead/coverage/test_coverage.py::test_coverage
+
+# Funding a precompile invokes it rather than establishing the fixture balance;
+# the uint256-max funding vector also exceeds the seed account's finite balance.
+tests/constantinople/eip1052_extcodehash/test_extcodehash.py::test_extcodehash_dynamic_argument[fork_Prague-state_test-target_type_precompile_with_balance]
+tests/ported_static/stTransactionTest/test_overflow_gas_require2.py::test_overflow_gas_require2
+
+# Requires deploying a contract with nonce 2^64-1, which execute-remote cannot
+# establish through ordinary transactions.
+tests/berlin/eip2929_gas_cost_increases/test_create.py::test_create_nonce_overflow

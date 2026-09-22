@@ -75,8 +75,7 @@ func DeserializeCodeData(data []byte) (*CodeData, error) {
 			version, codeBytecodeStart, len(data))
 	}
 
-	bytecode := make([]byte, len(data)-codeBytecodeStart)
-	copy(bytecode, data[codeBytecodeStart:])
+	bytecode := data[codeBytecodeStart:]
 
 	return &CodeData{
 		version:     version,

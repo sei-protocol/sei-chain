@@ -18,11 +18,11 @@ import (
 	"github.com/cockroachdb/pebble/v2/sstable"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -103,6 +103,13 @@ type Database struct {
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
 
+	// Guards the one close of pendingChanges, so Close stays idempotent.
+	drainOnce sync.Once
+
+	// Reports pendingChanges from the writer's side: how full it was when a write needed room, and how
+	// long writes waited when it had none.
+	pendingChangesQueue *seidbmetrics.QueueMeter
+
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
 
@@ -145,7 +152,7 @@ func newPebbleOptions(config config.StateStoreConfig, cache *pebble.Cache) *pebb
 		FormatMajorVersion:          pebble.FormatVirtualSSTables,
 		L0CompactionThreshold:       2,
 		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               64 << 20, // 64 MB
+		LBaseMaxBytes:               64 << 20, // 64 MiB
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		// Let Pebble run several compactions in parallel so it can keep up with
@@ -225,6 +232,8 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		pendingChanges:   make(chan VersionedChangesets, config.AsyncWriteBuffer),
 		dbName:           dbName,
 		operationMetrics: pebbledbmetrics.NewOperationMetrics(config.EnableReadWriteMetrics, dbName),
+		pendingChangesQueue: seidbmetrics.NewQueueMeter(
+			meter, "pebble_pending_changes", attribute.String("db", dbName)),
 	}
 	database.latestVersion.Store(latestVersion)
 	database.earliestVersion.Store(earliestVersion)
@@ -233,34 +242,47 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		_ = db.Close()
 		return nil, errors.New("KeepRecent must be non-negative")
 	}
-	walKeepRecent := changelogKeepRecent(config)
-	// Snapshot rollback replays the changelog forward from the oldest retained
-	// snapshot, so count-based pruning must not cut inside that span. The
-	// snapshot manager prunes this changelog by snapshot version after every
-	// retention pass and is what actually holds it down; the count below is the
-	// ceiling for the states that pass does not cover — external snapshot
-	// pruning, and the stretch before enough snapshots exist to prune. Raising
-	// the ceiling is what a rollback window costs on disk: roughly one snapshot
-	// interval of changelog per retained snapshot.
-	streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
-		KeepRecent:    walKeepRecent,
-		PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
-	})
-	if err != nil {
-		return nil, err
+	// An owner that logs every block replays it into this store, leaving the changelog here written
+	// and never read.
+	if !config.DisableInternalWAL {
+		walKeepRecent := changelogKeepRecent(config)
+		// Snapshot rollback replays the changelog forward from the oldest retained
+		// snapshot, so count-based pruning must not cut inside that span. The
+		// snapshot manager prunes this changelog by snapshot version after every
+		// retention pass and is what actually holds it down; the count below is the
+		// ceiling for the states that pass does not cover — external snapshot
+		// pruning, and the stretch before enough snapshots exist to prune. Raising
+		// the ceiling is what a rollback window costs on disk: roughly one snapshot
+		// interval of changelog per retained snapshot.
+		streamHandler, err := wal.NewChangelogWAL(utils.GetChangelogPath(dataDir), wal.Config{
+			KeepRecent:    walKeepRecent,
+			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		})
+		if err != nil {
+			return nil, err
+		}
+		database.streamHandler = streamHandler
 	}
-	database.streamHandler = streamHandler
 	database.asyncWriteWG.Add(1)
 	go database.writeAsyncInBackground()
 
-	// Start background metrics collection for Pebble-internal stats
-	// (compaction, flush, sstable, memtable, WAL, cache).
-	metricsCtx, metricsCancel := context.WithCancel(context.Background())
-	database.metricsCancel = metricsCancel
-	pebbledbmetrics.NewPebbleMetrics(metricsCtx, db, dbName, 10*time.Second)
+	// Refresh Pebble-internal stats (compaction, flush, sstable, memtable, WAL, cache).
+	stopPebbleStats := pebbledbmetrics.NewPebbleMetrics(db, dbName, metricsRefreshInterval)
+
+	samplingCtx, stopSampling := context.WithCancel(context.Background())
+	database.pendingChangesQueue.SampleDepth(samplingCtx, int(metricsRefreshInterval.Seconds()),
+		func() int { return len(database.pendingChanges) })
+	database.metricsCancel = func() {
+		stopPebbleStats()
+		stopSampling()
+	}
 
 	return database, nil
 }
+
+// metricsRefreshInterval is how often the background collectors resample, covering both Pebble's own
+// stats and the write queue's depth.
+const metricsRefreshInterval = 10 * time.Second
 
 func changelogKeepRecent(cfg config.StateStoreConfig) uint64 {
 	keepRecent := uint64(math.Max(MinWALEntriesToKeep, float64(cfg.AsyncWriteBuffer+1)))
@@ -380,12 +402,15 @@ func (db *Database) Close() error {
 		db.metricsCancel()
 	}
 
-	if db.streamHandler != nil {
+	// Owed whether or not a changelog is kept, the queued blocks being only in memory. The channel
+	// is left in place so a send after close still panics rather than blocking on a nil one.
+	db.drainOnce.Do(func() {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
 		// Wait for the async writes to finish
 		db.asyncWriteWG.Wait()
-		// Now close the WAL stream
+	})
+	if db.streamHandler != nil {
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 	}
@@ -713,14 +738,9 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 				attribute.String("db", db.dbName),
 			),
 		)
-		// Record pending queue depth
-		otelMetrics.pendingChangesQueueDepth.Record(
-			context.Background(),
-			int64(len(db.pendingChanges)),
-			metric.WithAttributes(attribute.String("db", db.dbName)),
-		)
 	}()
-	// Write to WAL
+	// Write to WAL. This is synchronous, unlike the queueing below, so an "async" apply that is slow is
+	// usually slow here rather than behind a full queue.
 	if db.streamHandler != nil {
 		entry := proto.ChangelogEntry{
 			Version: version,
@@ -732,11 +752,11 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			return err
 		}
 	}
-	// Add to pending changes first
-	db.pendingChanges <- VersionedChangesets{
+
+	seidbmetrics.Send(db.pendingChangesQueue, db.pendingChanges, VersionedChangesets{
 		Version:    version,
 		Changesets: changesets,
-	}
+	})
 	return nil
 }
 
@@ -803,7 +823,7 @@ func (db *Database) compactPrunedRange(first, last []byte) error {
 	// start < end. Appending a zero byte extends the user-key portion of last,
 	// yielding a key strictly greater than it under both the MVCC and default
 	// comparers, so the entire deleted span is covered.
-	end := append(slices.Clone(last), 0)
+	end := append(bytes.Clone(last), 0)
 	return db.storage.Compact(context.Background(), first, end, true)
 }
 
@@ -949,7 +969,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 	for itr.First(); itr.Valid(); {
 		scanReads++
-		currKeyEncoded := slices.Clone(itr.Key())
+		currKeyEncoded := bytes.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
 		if isMetadataKey(currKeyEncoded) {
@@ -988,7 +1008,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 
 		// Reset per-logical-key state when the logical key changes.
 		if !bytes.Equal(prevKey, currKey) {
-			prevKey = slices.Clone(currKey)
+			prevKey = bytes.Clone(currKey)
 			keptBelowPrune = false
 
 			// Fast path: under descending encoding, versions of a key are stored
@@ -1178,7 +1198,7 @@ func decodeMVCCEntryDescending(rawIterKey, rawIterValue, prefixedKey []byte, ver
 	if keyVersion > version {
 		return nil, errorutils.ErrRecordNotFound
 	}
-	return slices.Clone(rawIterValue), nil
+	return bytes.Clone(rawIterValue), nil
 }
 
 func visibleValueAtVersionDescending(prefixedVal []byte, targetVersion int64) ([]byte, error) {

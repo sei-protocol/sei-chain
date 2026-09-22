@@ -31,6 +31,8 @@ func createValidators(t *testing.T, ctx sdk.Context, app *seiapp.App, powers []i
 		app.BankKeeper,
 		app.GetSubspace(stakingtypes.ModuleName),
 	)
+	stakingHooks := stakingtypes.NewMultiStakingHooks(app.GovKeeper.StakingHooks())
+	app.StakingKeeper.SetHooks(&stakingHooks)
 
 	val1, err := stakingtypes.NewValidator(valAddrs[0], pks[0], stakingtypes.Description{})
 	require.NoError(t, err)

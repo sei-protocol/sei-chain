@@ -22,10 +22,14 @@ import (
 
 // checkpointState holds what a snapshot in flight needs to outlive the commit that requested it.
 type checkpointState struct {
-	// mu guards scheduler and stopped.
+	// mu guards scheduler, stopped and lastOffered.
 	mu        sync.Mutex
 	scheduler *controller.CheckpointScheduler
 	stopped   bool
+
+	// lastOffered is the newest version handed to the schedule. The commit path may revisit a
+	// version, and a second offer of one would stage a checkpoint the first is already writing.
+	lastOffered int64
 
 	// publishing tracks the goroutines finishing accepted snapshots off. Close waits for them,
 	// because publishing reads and stamps the databases Close is about to shut.
@@ -33,7 +37,7 @@ type checkpointState struct {
 }
 
 // SetCheckpointScheduler hands this store the schedule it takes its checkpoint heights from. Until it
-// has one, ScheduleSnapshot does nothing and the store takes no snapshots at all.
+// has one, CommitBlock takes no snapshot and the store snapshots nothing.
 //
 // A nil scheduler stands the store's snapshotting down. Safe to call on an open store.
 func (s *EVMStateStore) SetCheckpointScheduler(scheduler *controller.CheckpointScheduler) {
@@ -42,16 +46,16 @@ func (s *EVMStateStore) SetCheckpointScheduler(scheduler *controller.CheckpointS
 	s.checkpoint.scheduler = scheduler
 }
 
-// ScheduleSnapshot offers version to the checkpoint schedule and takes a snapshot when the schedule
+// scheduleSnapshot offers version to the checkpoint schedule and takes a snapshot when the schedule
 // picks it. It returns as soon as the checkpoint is queued, without waiting for it to be written.
 //
-// Call it from the live commit path for every committed version, once that version has been enqueued
-// on every managed database and before any later one is: that is what makes the snapshot's label
-// exact, since each database's checkpoint barrier then lands after this version and before the next.
-// Import, recovery, prune and direct version-marker writes bypass those queues and must not call it.
-func (s *EVMStateStore) ScheduleSnapshot(version int64) {
-	scheduler := s.currentCheckpointScheduler()
-	if scheduler == nil || s.snapshotMgr == nil || version <= 0 {
+// CommitBlock reaches it once version has been enqueued on every managed database and before any
+// later one is: that is what makes the snapshot's label exact, since each database's checkpoint
+// barrier then lands after this version and before the next. Nothing else offers a version, since
+// the apply methods are shared with import, recovery, prune and the benchmark harness.
+func (s *EVMStateStore) scheduleSnapshot(version int64) {
+	scheduler := s.acceptCheckpointOffer(version)
+	if scheduler == nil {
 		return
 	}
 	if !scheduler.ShouldCheckpoint(prunableStoreName, version) {
@@ -119,11 +123,18 @@ func (s *EVMStateStore) publishCheckpoint(staged *sssnapshot.Staged, version int
 	}
 }
 
-// currentCheckpointScheduler returns the schedule in force, or nil when this store is not
-// checkpointing.
-func (s *EVMStateStore) currentCheckpointScheduler() *controller.CheckpointScheduler {
+// acceptCheckpointOffer returns the schedule in force, or nil when this store is not checkpointing
+// or has been offered version already.
+func (s *EVMStateStore) acceptCheckpointOffer(version int64) *controller.CheckpointScheduler {
+	if s.snapshotMgr == nil || version <= 0 {
+		return nil
+	}
 	s.checkpoint.mu.Lock()
 	defer s.checkpoint.mu.Unlock()
+	if s.checkpoint.scheduler == nil || version <= s.checkpoint.lastOffered {
+		return nil
+	}
+	s.checkpoint.lastOffered = version
 	return s.checkpoint.scheduler
 }
 

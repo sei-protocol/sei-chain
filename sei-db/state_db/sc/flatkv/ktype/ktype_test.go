@@ -3,6 +3,7 @@ package ktype
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,6 +16,40 @@ func TestStorageKey(t *testing.T) {
 	require.Len(t, sk, AddressLen+SlotLen)
 	require.Equal(t, byte(0x01), sk[0])
 	require.Equal(t, byte(0x02), sk[AddressLen])
+}
+
+func TestAppendPhysicalKeysMatchAllocating(t *testing.T) {
+	moduleCases := []struct {
+		moduleName string
+		key        []byte
+	}{
+		{moduleName: "evm", key: []byte{0x01, 0x02}},
+		{moduleName: "", key: []byte{0x03}},
+		{moduleName: "bank", key: []byte{}},
+		{moduleName: "", key: nil},
+	}
+	for _, tc := range moduleCases {
+		require.Equal(t, ModulePhysicalKey(tc.moduleName, tc.key),
+			AppendModulePhysicalKey(nil, tc.moduleName, tc.key))
+	}
+
+	kinds := []keys.EVMKeyKind{
+		keys.EVMKeyStorage,
+		keys.EVMKeyCode,
+		keys.EVMKeyNonce,
+		keys.EVMKeyCodeHash,
+		keys.EVMKeyBalance,
+	}
+	key := []byte{0x04, 0x05}
+	for _, kind := range kinds {
+		require.Equal(t, EVMPhysicalKey(kind, key), AppendEVMPhysicalKey(nil, kind, key))
+	}
+
+	prefix := []byte("prefix")
+	require.Equal(t, append(append([]byte{}, prefix...), ModulePhysicalKey("module", key)...),
+		AppendModulePhysicalKey(prefix, "module", key))
+	require.Equal(t, append(append([]byte{}, prefix...), EVMPhysicalKey(keys.EVMKeyCode, key)...),
+		AppendEVMPhysicalKey(prefix, keys.EVMKeyCode, key))
 }
 
 func TestPrefixEnd(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 type occTxExecution struct {
@@ -249,7 +250,7 @@ func (e *Executor) executeTxSpeculative(
 		txIndexUint,
 		baseFee,
 	)
-	readSet, writeSet := stateDB.accessSets()
+	readSet, writeSet := stateDB.takeAccessSets()
 	result := occTxExecution{
 		txResult:                 txResult,
 		receipt:                  receipt,
@@ -398,6 +399,7 @@ func newSTMRerunTask(
 		return occExecutionTask{}, errOCCMaxIncarnation
 	}
 	validation.rerunCount++
+	validation.maxIncarnation = max(validation.maxIncarnation, utils.Clamp[uint64](nextIncarnation))
 	return occExecutionTask{
 		txIndex:      txIndex,
 		txIndexUint:  txIndexUint,
@@ -431,6 +433,7 @@ type occExecutionTask struct {
 type occValidationResult struct {
 	fallbackReason  string
 	rerunCount      uint64
+	maxIncarnation  uint64
 	conflictCount   uint64
 	validationCount uint64
 	conflicts       map[occConflictAggregationKey]uint64
@@ -507,6 +510,7 @@ func (r occValidationResult) stats(fallback bool) OCCStats {
 		Attempted:       true,
 		Fallback:        fallback,
 		RerunCount:      r.rerunCount,
+		MaxIncarnation:  r.maxIncarnation,
 		ConflictCount:   r.conflictCount,
 		ValidationCount: r.validationCount,
 	}

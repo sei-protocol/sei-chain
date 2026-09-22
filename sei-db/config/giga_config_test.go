@@ -34,11 +34,20 @@ func TestDefaultGigaStorageConfigDirectories(t *testing.T) {
 	)
 }
 
-func defaultGigaConfig(t *testing.T) GigaStorageConfig {
+func defaultGigaConfig(t *testing.T) *GigaStorageConfig {
 	t.Helper()
 	cfg, err := DefaultGigaStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	return cfg
+}
+
+func TestAutobahnStorageConfig(t *testing.T) {
+	storageConfig, err := AutobahnStorageConfig(t.TempDir())
+	require.NoError(t, err)
+	require.NotNil(t, storageConfig.FlatKVConfig)
+	require.False(t, storageConfig.SSConfig.Enable)
+	require.True(t, storageConfig.ReceiptDBConfig.Enable)
+	require.NotNil(t, storageConfig.BlockDBConfig)
 }
 
 func TestTheDefaultConfigValidates(t *testing.T) {

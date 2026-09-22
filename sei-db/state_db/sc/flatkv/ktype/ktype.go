@@ -42,7 +42,7 @@ func StorageKey(addr Address, slot Slot) []byte {
 // ---------------------------------------------------------------------------
 
 // EVMKeyAccount is the canonical EVMKeyKind for the merged account row in
-// accountDB. FlatKV merges nonce (0x0a), codehash (0x08), and future balance
+// accountDB. FlatKV merges nonce (0x0a), codehash (0x08), and balance (0x21)
 // into one physical row. The nonce prefix byte (0x0a) is reused as the
 // canonical type byte so the physical key is "evm/" + 0x0a + addr.
 //
@@ -67,6 +67,14 @@ func ModulePhysicalKey(moduleName string, key []byte) []byte {
 	return result
 }
 
+// AppendModulePhysicalKey appends the physical key ModulePhysicalKey would build for moduleName
+// and key to dst and returns the extended slice.
+func AppendModulePhysicalKey(dst []byte, moduleName string, key []byte) []byte {
+	dst = append(dst, moduleName...)
+	dst = append(dst, '/')
+	return append(dst, key...)
+}
+
 // StripModulePrefix splits a module-prefixed physical key into its module name
 // and original key. Returns an error if no "/" separator is found.
 func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byte, err error) {
@@ -79,10 +87,10 @@ func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byt
 
 // EVMPhysicalKey returns the physical DB key for an EVM key kind.
 // Format: "evm/" + type_prefix_byte + stripped_key.
-// For account keys (nonce, codehash), canonicalizes to EVMKeyAccount (0x0a)
-// because these fields are merged into one physical row.
+// For account keys (nonce, codehash, balance), canonicalizes to EVMKeyAccount
+// (0x0a) because these fields are merged into one physical row.
 func EVMPhysicalKey(kind keys.EVMKeyKind, strippedKey []byte) []byte {
-	if kind == keys.EVMKeyCodeHash {
+	if kind == keys.EVMKeyCodeHash || kind == keys.EVMKeyBalance {
 		kind = EVMKeyAccount
 	}
 	prefixByte, ok := keys.EVMKeyPrefixByte(kind)
@@ -126,4 +134,19 @@ func PrefixEnd(prefix []byte) []byte {
 		}
 	}
 	return nil
+}
+
+// AppendEVMPhysicalKey appends the physical key EVMPhysicalKey would build for kind and strippedKey
+// to dst and returns the extended slice.
+func AppendEVMPhysicalKey(dst []byte, kind keys.EVMKeyKind, strippedKey []byte) []byte {
+	if kind == keys.EVMKeyCodeHash || kind == keys.EVMKeyBalance {
+		kind = EVMKeyAccount
+	}
+	prefixByte, ok := keys.EVMKeyPrefixByte(kind)
+	if !ok {
+		return nil
+	}
+	dst = append(dst, keys.EVMStoreKey...)
+	dst = append(dst, '/', prefixByte)
+	return append(dst, strippedKey...)
 }

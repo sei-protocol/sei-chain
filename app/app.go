@@ -11,7 +11,6 @@ import (
 	"io"
 	"math"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -98,8 +97,6 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/gorilla/mux"
-	"github.com/rakyll/statik/fs"
 	appante "github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/app/benchmark"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
@@ -113,7 +110,6 @@ import (
 	evmrpcconfig "github.com/sei-protocol/sei-chain/evmrpc/config"
 	gigaexecutor "github.com/sei-protocol/sei-chain/giga/executor"
 	gigaconfig "github.com/sei-protocol/sei-chain/giga/executor/config"
-	gigalib "github.com/sei-protocol/sei-chain/giga/executor/lib"
 	gigaprecompiles "github.com/sei-protocol/sei-chain/giga/executor/precompiles"
 	gigautils "github.com/sei-protocol/sei-chain/giga/executor/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -162,8 +158,6 @@ import (
 	wasmclient "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/client"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 
-	// unnamed import of statik for openapi/swagger UI support
-	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
 	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
@@ -583,9 +577,8 @@ func New(
 
 	// register the staking hooks
 	// NOTE: stakingKeeper above is passed by reference, so that it will contain these hooks
-	app.StakingKeeper = *stakingKeeper.SetHooks(
-		stakingtypes.NewMultiStakingHooks(app.DistrKeeper.Hooks(), app.SlashingKeeper.Hooks()),
-	)
+	stakingHooks := stakingtypes.NewMultiStakingHooks(app.DistrKeeper.Hooks(), app.SlashingKeeper.Hooks())
+	app.StakingKeeper = *stakingKeeper.SetHooks(&stakingHooks)
 
 	// ... other modules keepers
 
@@ -758,12 +751,6 @@ func New(
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
-		// evmone is loaded best-effort
-		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
-			app.GigaEvmKeeper.EvmoneVM = evmoneVM
-		} else {
-			logger.Debug("failed to load evmone VM", "error", err)
-		}
 		// evm_giga_mixed_tests.sh matches these ENABLED/DISABLED strings to guard node roles; keep them in sync.
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
@@ -797,7 +784,7 @@ func New(
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
-		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
+		AddRoute(evmtypes.RouterKey, evm.ProposalHandler)
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
@@ -806,6 +793,7 @@ func New(
 		appCodec, keys[govtypes.StoreKey], app.GetSubspace(govtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
 		&stakingKeeper, app.ParamsKeeper, govRouter,
 	)
+	stakingHooks.AddHooks(app.GovKeeper.StakingHooks())
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
 
@@ -848,6 +836,7 @@ func New(
 		DistrKeeper:    &app.DistrKeeper,
 		SlashingKeeper: &app.SlashingKeeper,
 		EvidenceKeeper: &app.EvidenceKeeper,
+		GovKeeper:      &app.GovKeeper,
 		StakingKeeper:  &app.StakingKeeper,
 		EvmKeeper:      &app.EvmKeeper,
 	}
@@ -1769,6 +1758,14 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
+// flushCommittedStateForUpgradeExit waits for the last committed block to reach
+// every backend's log before the process exits for an upgrade.
+func (app *App) flushCommittedStateForUpgradeExit() {
+	if err := app.rootStore.Flush(); err != nil {
+		logger.Error("failed to flush commit store before upgrade exit", "err", err)
+	}
+}
+
 // ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
 // those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
 // on the block context.
@@ -1780,6 +1777,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
 			if upgradePanicRe.MatchString(panicMsg) {
 				logger.Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				app.flushCommittedStateForUpgradeExit()
 				panic(r) // Re-panic to trigger upgrade mechanism
 			}
 			stack := string(debug.Stack())
@@ -2491,11 +2489,6 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
 
-	// register swagger API from root so that other applications can override easily
-	if apiConfig.Swagger {
-		RegisterSwaggerAPI(apiSvr.Router)
-	}
-
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
@@ -2620,17 +2613,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	} else {
 		logger.Debug("Admin gRPC server is disabled")
 	}
-}
-
-// RegisterSwaggerAPI registers swagger route with API Server
-func RegisterSwaggerAPI(rtr *mux.Router) {
-	statikFS, err := fs.NewWithNamespace("swagger")
-	if err != nil {
-		panic(err)
-	}
-
-	staticServer := http.FileServer(statikFS)
-	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of

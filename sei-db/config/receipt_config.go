@@ -28,6 +28,10 @@ const (
 // littidx eth_getLogs (see ReceiptStoreConfig.LogFilterParallelism).
 const DefaultReceiptLogFilterParallelism = 16
 
+// DefaultReceiptAsyncWriteBuffer is the default queue depth for receipt writes. It is small because
+// the depth is also how far an unclean exit sets recovery back.
+const DefaultReceiptAsyncWriteBuffer = 10
+
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
 	// Enable reports whether the receipt store is opened. A node with it off keeps no receipt
@@ -46,10 +50,15 @@ type ReceiptStoreConfig struct {
 	// defaults to pebbledb
 	Backend string `mapstructure:"rs-backend"`
 
-	// AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store
-	// Applies only to the pebbledb backend.
+	// AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
+	// It bounds how many blocks the store may fall behind the chain before a write blocks.
+	//
+	// Raising it costs more than memory. The queue is not on disk, so an unclean exit loses it and
+	// the store comes back that far behind, dragging recovery of every other store down with it;
+	// the EVM RPC head also trails by the queue's depth. Size it for the burst the writer absorbs.
+	//
 	// Set <= 0 for synchronous writes.
-	// defaults to 100
+	// defaults to 10
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
 	// KeepRecent defines the number of versions to keep in receipt store.
@@ -76,6 +85,13 @@ type ReceiptStoreConfig struct {
 	// Not written to app.toml; ReadReceiptConfig still honors receipt-store.enable-read-write-metrics.
 	EnableReadWriteMetrics bool `mapstructure:"-"`
 
+	// LittMetricsEnabled has the littidx backend record its litt_* instruments into the process-wide
+	// OTel MeterProvider, which the embedding application is responsible for exporting.
+	//
+	// Like ExternalPruning this is not read from the receipt-store config, since it is only useful to a
+	// process that serves a metrics endpoint. Only the littidx backend reads it.
+	LittMetricsEnabled bool `mapstructure:"-"`
+
 	// LogFilterParallelism bounds how many blocks a single eth_getLogs query
 	// scans concurrently in the littidx backend; per-block tag scans and litt
 	// body reads are independent, so a range fans across this many workers.
@@ -91,7 +107,7 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 	return ReceiptStoreConfig{
 		Enable:               true,
 		Backend:              "pebbledb",
-		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
+		AsyncWriteBuffer:     DefaultReceiptAsyncWriteBuffer,
 		KeepRecent:           0,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		LogFilterParallelism: DefaultReceiptLogFilterParallelism,

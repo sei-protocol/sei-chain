@@ -15,7 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
@@ -26,8 +27,10 @@ type Executor struct {
 	resultPool       *blockResultPool
 	stateDBPool      sync.Pool
 	storeMu          sync.Mutex
-	store            gigastore.StateDB
+	stateStore       gigatypes.StateDB
+	receiptStore     receipt.ReceiptStore
 	changeSetEncoder NamedChangeSetEncoder
+	missingState     StateReader
 	closed           atomic.Bool
 }
 
@@ -39,13 +42,11 @@ func WithResultSink(sink ResultSink) Option {
 	}
 }
 
-// WithStore selects the giga store implementation used for all state reads and
-// commits. The encoder owns the implementation-specific conversion from the
-// executor's EVM-native StateChangeSet to the store's protobuf changesets.
-func WithStore(store gigastore.StateDB, encoder NamedChangeSetEncoder) Option {
+// WithMissingAccountState supplies state for accounts absent from the
+// persistent state snapshot.
+func WithMissingAccountState(state StateReader) Option {
 	return func(e *Executor) {
-		e.store = store
-		e.changeSetEncoder = encoder
+		e.missingState = state
 	}
 }
 
@@ -118,6 +119,8 @@ func (e *Executor) ExecutePreparedBlock(ctx context.Context, req PreparedBlock) 
 	if err != nil {
 		return nil, err
 	}
+	recordOCCStats(ctx, len(req.Txs), result.OCCStats)
+	recordTxExecutionStats(ctx, result.Txs)
 	if err := e.sinkBlockResult(ctx, req.Context.Number, result); err != nil {
 		result.Release()
 		return nil, err
@@ -250,7 +253,7 @@ func (e *Executor) executeTx(
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
 		// MinGasPrice is block-validity policy; unlike EVM call failures, it
 		// does not produce a receipt for an otherwise invalid block.
-		if effectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
+		if EffectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
 			return TxResult{Hash: tx.Hash(), Sender: p.Sender, To: tx.To(), Err: errInsufficientGasPrice},
 				nil,
 				errInsufficientGasPrice
@@ -291,7 +294,7 @@ func (e *Executor) executeTx(
 		Logs:              txLogs,
 		TxHash:            tx.Hash(),
 		GasUsed:           execResult.UsedGas,
-		EffectiveGasPrice: effectiveGasPrice(tx, baseFee),
+		EffectiveGasPrice: EffectiveGasPrice(tx, baseFee),
 		BlockHash:         block.BlockHash,
 		BlockNumber:       new(big.Int).SetUint64(block.Number),
 		TransactionIndex:  txIndexUint,
@@ -438,7 +441,11 @@ func validateBlockContext(chainConfig *params.ChainConfig, ctx BlockContext) err
 	return nil
 }
 
-func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
+// EffectiveGasPrice is what a transaction actually pays per gas at this base
+// fee. Exported because admission has to price on the same quantity block
+// validity does; comparing tx.GasPrice() instead admits a dynamic-fee tx on its
+// fee cap, and the executor then refuses it fatally.
+func EffectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return tx.GasPrice()
 	}

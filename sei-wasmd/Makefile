@@ -66,7 +66,7 @@ ifeq ($(WITH_CLEVELDB),yes)
   ldflags += -X github.com/cosmos/cosmos-sdk/types.DBBackend=cleveldb
 endif
 ifeq ($(LINK_STATICALLY),true)
-	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static"
+	ldflags += -linkmode=external -extldflags "-static"
 endif
 ldflags += $(LDFLAGS)
 ldflags := $(strip $(ldflags))

@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,15 +21,15 @@ import (
 // Interface Compliance Tests
 // =============================================================================
 
-// TestCommitStoreImplementsStore verifies that CommitStore implements giga.LiveStateStore
+// TestCommitStoreImplementsStore verifies that CommitStore implements gigatypes.LiveStateStore
 func TestCommitStoreImplementsStore(t *testing.T) {
-	// Compile-time check is in store.go: var _ giga.LiveStateStore = (*CommitStore)(nil)
+	// Compile-time check is in store.go: var _ gigatypes.LiveStateStore = (*CommitStore)(nil)
 	// This test verifies runtime behavior of interface methods
 
 	s := setupTestStore(t)
 	defer s.Close()
 
-	// Verify giga.LiveStateStore interface methods
+	// Verify gigatypes.LiveStateStore interface methods
 	require.Equal(t, int64(0), s.Version())
 	require.NotNil(t, rootHash(s))
 	require.Len(t, rootHash(s), 32)
@@ -377,7 +378,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1, version1 := s.RootHash()
+	hash1, version1 := rootHashAndVersion(s)
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 	require.Equal(t, int64(0), version1)
@@ -393,7 +394,7 @@ func TestStoreRootHashChanges(t *testing.T) {
 	committed := commitAndCheck(t, s)
 
 	// Committing a block that changes state changes the hash, and the height moves with it.
-	hash2, version2 := s.RootHash()
+	hash2, version2 := rootHashAndVersion(s)
 	require.NotEqual(t, hash1, hash2)
 	require.Equal(t, committed, version2)
 }
@@ -403,7 +404,7 @@ func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	defer s.Close()
 
 	// Initial hash
-	hash1, version1 := s.RootHash()
+	hash1, version1 := rootHashAndVersion(s)
 	require.NotNil(t, hash1)
 	require.Equal(t, 32, len(hash1)) // Blake3-256
 
@@ -416,7 +417,7 @@ func TestStoreRootHashUnchangedByApply(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	// A block that has not been sealed has no hash, so the store still describes the previous height.
-	hash2, version2 := s.RootHash()
+	hash2, version2 := rootHashAndVersion(s)
 	require.Equal(t, hash1, hash2, "staging a block must not move the hash")
 	require.Equal(t, version1, version2)
 }
@@ -433,14 +434,14 @@ func TestStoreRootHashStableAfterCommit(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{cs}))
 
 	committed := commitAndCheck(t, s)
-	committedHash, committedVersion := s.RootHash()
+	committedHash, committedVersion := rootHashAndVersion(s)
 	require.Equal(t, committed, committedVersion)
 
 	// Staging the next block must leave the committed hash exactly where it is.
 	next := makeChangeSet(key, padLeft32(0x78), false)
 	require.NoError(t, s.ApplyChangeSets(s.Version()+1, []*proto.NamedChangeSet{next}))
 
-	stagedHash, stagedVersion := s.RootHash()
+	stagedHash, stagedVersion := rootHashAndVersion(s)
 	require.Equal(t, committedHash, stagedHash)
 	require.Equal(t, committedVersion, stagedVersion)
 }
@@ -1282,13 +1283,16 @@ func TestCrashRecoverySkewedPerDBVersions(t *testing.T) {
 	require.Equal(t, int64(6), s.Version())
 
 	// Save the correct per-DB LtHash for accountDB before skewing version.
-	savedAccountLtHash := s.perDBWorkingLtHash[accountDBDir].Clone()
+	savedAccountLtHash := s.maintainedHashes().PerDB[accountDBDir].Clone()
 
 	// Skew accountDB's local meta version to 4 while keeping the correct
 	// LtHash. This simulates a crash where the version watermark wasn't
 	// persisted but the actual data and hash are intact.
 	batch := s.rawDBFor(accountDBDir).NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 4, savedAccountLtHash, s.perDBModuleWorkingLtHash[accountDBDir], s.perDBModuleWorkingStats[accountDBDir]))
+	maintained := s.maintainedHashes()
+	require.NoError(t, writeLocalMetaToBatch(
+		batch, 4, savedAccountLtHash,
+		maintained.PerModule[accountDBDir], maintained.PerModuleStats[accountDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1338,11 +1342,14 @@ func TestCrashRecoveryGlobalMetadataAheadOfDataDBs(t *testing.T) {
 	}
 
 	// Save the correct storageDB per-DB LtHash before skewing.
-	savedStorageLtHash := s.perDBWorkingLtHash[storageDBDir].Clone()
+	savedStorageLtHash := s.maintainedHashes().PerDB[storageDBDir].Clone()
 
 	// Simulate crash: storageDB only flushed v3 (version watermark behind).
 	batch := s.rawDBFor(storageDBDir).NewBatch()
-	require.NoError(t, writeLocalMetaToBatch(batch, 3, savedStorageLtHash, s.perDBModuleWorkingLtHash[storageDBDir], s.perDBModuleWorkingStats[storageDBDir]))
+	maintained := s.maintainedHashes()
+	require.NoError(t, writeLocalMetaToBatch(
+		batch, 3, savedStorageLtHash,
+		maintained.PerModule[storageDBDir], maintained.PerModuleStats[storageDBDir]))
 	require.NoError(t, batch.Commit(types.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
@@ -1590,15 +1597,31 @@ func TestCrashRecoveryCorruptedAccountValueInDB(t *testing.T) {
 	defer s2.Close()
 	require.NoError(t, s2.LoadLatest())
 
-	// Applying a partial nonce update reads the old account back to merge onto it, and must reject the
-	// corrupted row instead of merging onto garbage.
+	// A partial nonce update has to be folded onto the account already stored, which the account store
+	// does off this thread. Applying the block therefore succeeds: the corrupted row has not been read
+	// yet, and nothing waits for it to be.
 	cs2 := &proto.NamedChangeSet{
 		Name:      "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{noncePair(addr, 99)}},
 	}
-	err = s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs2})
-	require.Error(t, err, "should fail on corrupted AccountValue")
-	require.Contains(t, err.Error(), "unsupported serialization version")
+	require.NoError(t, s2.ApplyChangeSets(s2.Version()+1, []*proto.NamedChangeSet{cs2}),
+		"the fold is scheduled, not performed, so applying the block cannot meet the corruption")
+
+	// The read is what meets it. It waits for the fold rather than racing it, so this is not timing
+	// dependent: the account either folds before the read arrives or the read waits for it, and both
+	// end at the same failure. Reads report a corrupted row by panicking (see CommitStore.Get).
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	cause := func() (recovered string) {
+		defer func() {
+			if r := recover(); r != nil {
+				recovered = fmt.Sprint(r)
+			}
+		}()
+		s2.Get("evm", nonceKey)
+		return ""
+	}()
+	require.Contains(t, cause, "unsupported serialization version",
+		"reading the folded account must report the corrupted row it was folded onto")
 }
 
 func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
@@ -1627,7 +1650,6 @@ func TestCrashRecoveryCrashAfterWALBeforeDBCommit(t *testing.T) {
 
 	// Write v2 to the WAL manually (like Commit step 1) without committing to the DBs.
 	require.NoError(t, s.wal.Write(2, s.pendingChangeSets))
-	require.NoError(t, s.wal.SignalEndOfBlock())
 	require.NoError(t, s.wal.Flush())
 
 	// Do NOT seal the block on the stores. Reset in-memory state to v1 to simulate a crash.

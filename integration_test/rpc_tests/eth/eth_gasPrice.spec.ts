@@ -5,8 +5,10 @@ import { EvmAccount } from '../utils/evmUtils';
 import { burnGasBurst } from '../utils/txUtils';
 import { HEX_QUANTITY } from '../utils/format';
 import {
+    atStableHead,
     gasPrice,
     gasPriceAtStableBlock,
+    maxPriorityFeePerGas,
     assertSeiGasPriceTracks,
     DEFAULT_PRIORITY_FEE_WEI,
     isCongested,
@@ -48,11 +50,11 @@ describe('eth_gasPrice', function () {
         });
 
         it('is at least the current base fee, so a tx priced at it is includable (both)', async () => {
-            const [sGas, sBlk, gGas, gBlk] = await Promise.all([
-                gasPrice(sei),
-                blockGasInfo(sei, 'latest'),
-                gasPrice(geth),
-                blockGasInfo(geth, 'latest'),
+            const priceAndBase = (p: typeof sei) =>
+                atStableHead(p, () => Promise.all([gasPrice(p), blockGasInfo(p, 'latest')]), 'gasPrice vs base fee');
+            const [{ value: [sGas, sBlk] }, { value: [gGas, gBlk] }] = await Promise.all([
+                priceAndBase(sei),
+                priceAndBase(geth),
             ]);
             expect(sGas >= sBlk.baseFee, `sei gasPrice ${sGas} < base ${sBlk.baseFee}`).to.equal(true);
             expect(gGas >= gBlk.baseFee, `geth gasPrice ${gGas} < base ${gBlk.baseFee}`).to.equal(true);
@@ -66,12 +68,16 @@ describe('eth_gasPrice', function () {
         });
 
         it('[geth] the gas price equals the base fee plus the suggested priority fee (exact)', async () => {
-            const [price, tip, blk] = await Promise.all([
-                gasPrice(geth),
-                BigInt(await geth.send('eth_maxPriorityFeePerGas', [])),
-                blockGasInfo(geth, 'latest'),
-            ]);
-            expect(price, 'geth gasPrice = baseFee + tip').to.equal(blk.baseFee + tip);
+            const {
+                value: [price, tip, blk],
+                block,
+            } = await atStableHead(
+                geth,
+                () => Promise.all([gasPrice(geth), maxPriorityFeePerGas(geth), blockGasInfo(geth, 'latest')]),
+                'geth gasPrice = baseFee + tip',
+            );
+            expect(blk.number, 'latest block read at the pinned head').to.equal(block);
+            expect(price, `geth gasPrice = baseFee + tip at block ${block}`).to.equal(blk.baseFee + tip);
         });
 
         it('[Sei] maxPriorityFeePerGas defaults to 1 gwei while the chain is uncongested', async () => {

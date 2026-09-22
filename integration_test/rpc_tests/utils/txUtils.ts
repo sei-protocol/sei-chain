@@ -4,7 +4,7 @@ import { EvmAccount, abiOf, bytecodeOf, selfAuthorize } from './evmUtils';
 import { RuntimeState, claimPool } from './testUtils';
 import { generateSeiAddress } from './cosmosUtils';
 import { prepareCw20Transfer } from './wasmUtils';
-import { waitUntil } from './chainUtils';
+import { sleep, waitUntil } from './chainUtils';
 import { HASH32, BLOOM256, NONCE8, HEX_QUANTITY, HEX_DATA, ADDRESS } from './format';
 import { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH } from './constants';
 export { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH };
@@ -86,7 +86,6 @@ export type TxKind =
     | 'deploy'
     | 'erc20'
     | 'precompile'
-    | 'cw20Pointer'
     | 'outOfGas'
     | 'revertErc20';
 
@@ -116,13 +115,6 @@ export interface RichBlock {
     number: number;
     hash: string;
     txs: SentTx[];
-    /**
-     * Gas used by the co-located pointer-backed CW20 transfer (a pure Cosmos tx). Sei folds
-     * this into the EVM receipts' cumulativeGasUsed (in tx-index order) but excludes it from
-     * block.gasUsed; gas-accounting assertions use it to reconcile the one cumulative jump.
-     * Absent on wasm-disabled chains.
-     */
-    cosmosShellGas?: bigint;
 }
 
 export interface RpcTx {
@@ -233,48 +225,93 @@ async function pricing(
     return { maxFeePerGas, maxPriorityFeePerGas: tip, gasPrice: maxFeePerGas };
 }
 
-async function waitForNextBlock(provider: ethers.JsonRpcProvider, label: string): Promise<void> {
+async function waitForNextBlock(
+    provider: ethers.JsonRpcProvider,
+    label: string,
+    blocks = 1,
+): Promise<void> {
     const start = await provider.getBlockNumber();
     await waitUntil(
-        async () => ((await provider.getBlockNumber()) > start ? true : null),
-        { timeoutMs: 10_000, intervalMs: 25, label },
+        async () => ((await provider.getBlockNumber()) >= start + blocks ? true : null),
+        { timeoutMs: 10_000 * blocks, intervalMs: 25, label },
     );
 }
+
+/** Average wall-clock spacing of the last `window` blocks, from the Sei `milliTimestamp` header field. */
+async function blockIntervalMs(provider: ethers.JsonRpcProvider, window = 10): Promise<number> {
+    const head = await provider.getBlockNumber();
+    const span = Math.min(window, head);
+    if (span < 1) return 0;
+    const [newest, oldest] = await Promise.all(
+        [head, head - span].map(n =>
+            provider.send('eth_getBlockByNumber', [ethers.toQuantity(n), false]),
+        ),
+    );
+    if (!newest?.milliTimestamp || !oldest?.milliTimestamp) return 0;
+    return Number(BigInt(newest.milliTimestamp) - BigInt(oldest.milliTimestamp)) / span;
+}
+
+/**
+ * How long after observing a new block head to wait before broadcasting a batch that has
+ * to land together. The proposer reaps the mempool for the next height a few tens of
+ * milliseconds after commit, so a batch fired the instant a block is seen straddles that
+ * reap: the cheap txs are sealed at once while the ones whose CheckTx simulation takes
+ * longer roll over to the following height. Waiting a fraction of the block interval
+ * lets the reap pass, and leaves the rest of the interval for every tx to be admitted
+ * before the next one.
+ */
+function batchSettleMs(intervalMs: number): number {
+    return Math.min(250, Math.max(100, Math.round(intervalMs * 0.4)));
+}
+
+/** Wall-clock budget for packing the rich block; well under the 300s `before` hooks that build it. */
+const RICH_BLOCK_BUDGET_MS = 120_000;
+/** Attempt index past which fee/tip escalation and the per-attempt block back-off stop growing. */
+const RICH_BLOCK_MAX_ESCALATION = 5;
+/** Attempt ceiling so a deterministic (fast-throwing) breakage fails fast instead of spinning out the budget. */
+const RICH_BLOCK_MAX_ATTEMPTS = 30;
+/** Number of most recent attempt placements kept in the terminal error. */
+const RICH_BLOCK_HISTORY_TAIL = 10;
 
 const TRANSFER_VALUE = ethers.parseEther('0.001');
 const rand = (): string => ethers.Wallet.createRandom().address;
 
-/** Minimal ERC20 ABI for calling a CW20's EVM pointer. */
-const ERC20_POINTER_IFACE = new ethers.Interface([
-    'function transfer(address to, uint256 amount) returns (bool)',
-]);
-
 /**
  * Broadcast one transaction of every kind, each from its own signer, and wait for
- * them to land in a single block. Retries the whole batch if the chain happens to
- * split them across blocks — each retry re-prices with a higher fee multiplier and
- * tip so the batch outbids its way into one block on a congested chain instead of
- * waiting the chain out. `signers` must hold at least 7 funded accounts.
+ * them to land in a single block.
+ *
+ * Whether one broadcast burst lands in one block is a race the client cannot win
+ * deterministically: the cluster seals a block every ~200ms while the RPC node
+ * simulates, CheckTx-es and gossips each of the ~10 txs, so a proposer regularly
+ * cuts a block in the middle of the burst. The fixture therefore keeps retrying the
+ * whole batch until it packs, bounded by a wall-clock budget rather than a fixed
+ * attempt count — a run only fails when the chain cannot pack one block within
+ * `budgetMs`, which is a real cluster problem, not an unlucky sequence of coin
+ * flips. Early retries re-price with a higher fee multiplier and tip so the batch
+ * outbids its way into one block on a congested chain, and back off by one more
+ * block per attempt (both capped) so a transient stall on the cluster (a slow
+ * proposer, a backlog left by a preceding load test) has time to clear. Each attempt
+ * broadcasts a settle delay after a fresh block head (see `batchSettleMs`) so the
+ * whole batch is admitted to the mempool inside one proposal window. `signers`
+ * must hold at least 9 funded accounts.
  *
  * When the chain has wasm enabled (runtime.wasm is populated by the bootstrap), the
- * block additionally carries a dual-VM pair for the same CW20 token: an EVM `transfer`
- * through the token's ERC20 pointer (a real EVM tx, returned in `txs`) and a pure
- * Cosmos `MsgExecuteContract` CW20 transfer (NOT returned — it never surfaces over EVM
- * JSON-RPC — but required to co-locate in the same block). The batch retries until both
- * the EVM txs and the Cosmos tx land together.
+ * block additionally carries a pure Cosmos `MsgExecuteContract` CW20 transfer. It is
+ * NOT returned in `txs` — it never surfaces over EVM JSON-RPC — but it is required to
+ * co-locate in the same block, so the EVM views of this block are asserted against a
+ * genuinely mixed-VM block. The batch retries until both sides land together.
  */
 export async function buildRichSeiBlock(
     provider: ethers.JsonRpcProvider,
     runtime: RuntimeState,
     signers: EvmAccount[],
-    attempts = 6,
+    budgetMs = RICH_BLOCK_BUDGET_MS,
 ): Promise<RichBlock> {
     if (signers.length < 9) {
         throw new Error(`buildRichSeiBlock needs >= 9 signers, got ${signers.length}`);
     }
 
     const wasm = runtime.wasm;
-    const wasmActor = wasm ? EvmAccount.fromPrivateKey(wasm.actor.privateKey, provider) : undefined;
     // One throw-away recipient for the Cosmos CW20 transfer, reused across retries.
     const cosmosRecipient = wasm ? await generateSeiAddress() : undefined;
     const erc20Iface = new ethers.Interface(abiOf('TestERC20.sol', 'TestERC20'));
@@ -284,9 +321,17 @@ export async function buildRichSeiBlock(
         'function validators(string status, bytes pagination) returns (bytes,bytes)',
     ]).encodeFunctionData('validators', ['BOND_STATUS_BONDED', '0x']);
 
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-        const p = await pricing(provider, BigInt(3 + attempt * 2), BigInt(1 + attempt));
+    const settleMs = batchSettleMs(await blockIntervalMs(provider));
+
+    const deadline = Date.now() + budgetMs;
+    const history: string[] = [];
+    for (
+        let attempt = 0;
+        attempt === 0 || (attempt < RICH_BLOCK_MAX_ATTEMPTS && Date.now() < deadline);
+        attempt++
+    ) {
+        const escalation = Math.min(attempt, RICH_BLOCK_MAX_ESCALATION);
+        const p = await pricing(provider, BigInt(3 + escalation * 2), BigInt(1 + escalation));
         const [sLegacy, sAccess, s1559, sSetCode, sDeploy, sErc20, sPrecompile, sOutOfGas, sRevert] =
             signers;
         const [nLegacy, nAccess, n1559, nSetCode, nDeploy, nErc20, nPrecompile, nOutOfGas, nRevert] =
@@ -410,22 +455,6 @@ export async function buildRichSeiBlock(
             },
         ];
 
-        if (wasm && wasmActor) {
-            const nActor = await wasmActor.nonce('pending');
-            specs.push({
-                kind: 'cw20Pointer',
-                signer: wasmActor,
-                req: {
-                    type: 2,
-                    to: wasm.cw20Pointer,
-                    data: ERC20_POINTER_IFACE.encodeFunctionData('transfer', [runtime.funded.admin, 1n]),
-                    gasLimit: 1_000_000n,
-                    nonce: nActor,
-                    ...dynFee,
-                },
-            });
-        }
-
         try {
             const preparedCosmos = wasm
                 ? await prepareCw20Transfer(
@@ -442,16 +471,15 @@ export async function buildRichSeiBlock(
                 populated.map((tx, i) => specs[i].signer.wallet.signTransaction(tx)),
             );
 
-            // Stage both sides before a fresh block boundary, then broadcast the pure Cosmos
-            // CW20 transfer and the EVM batch together. Broadcasting the EVM txs first lets a
-            // fast proposer seal them one height before the Cosmos tx, which made the rich-block
-            // fixture flaky.
-            if (wasm) {
-                await waitForNextBlock(
-                    provider,
-                    `next Sei block before rich batch attempt ${attempt + 1}`,
-                );
-            }
+            // Stage both sides before a fresh block boundary, let the proposer's reap for the
+            // very next height pass, then broadcast the pure Cosmos CW20 transfer and the EVM
+            // batch together so every tx is admitted within the same mempool window.
+            await waitForNextBlock(
+                provider,
+                `next Sei block before rich batch attempt ${attempt + 1}`,
+                1 + escalation,
+            );
+            await sleep(settleMs);
             const cosmosPending = preparedCosmos
                 ? preparedCosmos
                       .broadcast()
@@ -505,21 +533,27 @@ export async function buildRichSeiBlock(
                     number: blockNumber,
                     hash: block!.hash!,
                     txs,
-                    cosmosShellGas: wasm && cosmos ? cosmos.gasUsed : undefined,
                 };
             }
-            lastErr = new Error(
-                `attempt ${attempt + 1}: EVM blocks ${[...uniqueBlocks].join(',')}` +
+            const placement = specs
+                .map((s, i) => `${s.kind}@${receipts[i]?.blockNumber ?? 'none'}:${receipts[i]?.status ?? '?'}`)
+                .join(' ');
+            history.push(
+                `attempt ${attempt + 1}: EVM blocks ${[...uniqueBlocks].join(',')} [${placement}]` +
                     (wasm
                         ? `, cosmos cw20 ${cosmos ? `code ${cosmos.code} @ block ${cosmos.height}` : 'failed'} ` +
                           `(EVM block ${blockNumbers[0]})`
                         : ''),
             );
         } catch (e) {
-            lastErr = e;
+            history.push(`attempt ${attempt + 1}: ${e instanceof Error ? e.message : String(e)}`);
         }
     }
-    throw new Error(`buildRichSeiBlock: could not pack one block after ${attempts} attempts: ${lastErr}`);
+    throw new Error(
+        `buildRichSeiBlock: could not pack one block within ${budgetMs}ms (${history.length} attempts, ` +
+            `showing last ${Math.min(history.length, RICH_BLOCK_HISTORY_TAIL)}):\n  ` +
+            history.slice(-RICH_BLOCK_HISTORY_TAIL).join('\n  '),
+    );
 }
 
 // The serial runner (.mocharc.run.json) loads every spec into a single process, so this
@@ -535,16 +569,15 @@ export async function sharedRichBlock(
     runtime: RuntimeState,
 ): Promise<RichBlock> {
     if (cachedRichBlock) return cachedRichBlock;
-    // Guard against two specs' `before` hooks racing the first build in the same process.
+    // Guard against two specs' `before` hooks racing the first build in the same process. The
+    // promise is kept on rejection too: the build already retried for its whole budget, so a
+    // failure is a cluster problem every dependent spec should fail on once, not re-spend on.
     if (!cachedRichBlockPromise) {
         cachedRichBlockPromise = (async () => {
             const signers = claimPool(runtime, provider, 9, 'shared-rich-block');
             cachedRichBlock = await buildRichSeiBlock(provider, runtime, signers);
             return cachedRichBlock;
-        })().catch(e => {
-            cachedRichBlockPromise = undefined;
-            throw e;
-        });
+        })();
     }
     return cachedRichBlockPromise;
 }
@@ -853,71 +886,37 @@ function receiptsForBlock(
  * Reconcile the EVM-visible (eth_*) cumulativeGasUsed series of a single block.
  *
  * Receipts must be the eth-visible ones (EVM txs only), pre-mapped to native bigints and
- * sorted by transaction index. `blockGasUsed` is the eth block.gasUsed (which sums ONLY
- * EVM receipt gas). `cosmosShellGas`, when given, is the gas of a co-located pointer-backed
- * CW20 transfer (a pure Cosmos tx): Sei folds that Cosmos-unit gas into the EVM receipts'
- * cumulativeGasUsed in tx-index order, but NOT into block.gasUsed.
- *
- * The series therefore tracks the running Σ of EVM gasUsed exactly, EXCEPT for a single
- * step where the shell receipt sits just before an EVM tx — there cumulativeGasUsed jumps
- * by an extra `cosmosShellGas`. We assert that jump equals the Cosmos tx's gas exactly,
- * that it happens at most once (the rich block has one CW20 tx; it may instead sort last,
- * in which case no jump appears), and that every other step accumulates cleanly.
+ * sorted by transaction index. `blockGasUsed` is the eth block.gasUsed. A Cosmos tx
+ * co-located in the same block burns its own gas but reaches neither the series nor
+ * block.gasUsed, so the series is exactly the running Σ of EVM receipt gasUsed.
  */
 export function assertCumulativeGasSeries(
     ordered: { index: number; gasUsed: bigint; cumulativeGasUsed: bigint }[],
     blockGasUsed: bigint,
-    cosmosShellGas?: bigint,
 ): void {
-    let prevCumulative = 0n;
-    let runningOwn = 0n;
-    let shellOffset = 0n;
-    let jumps = 0;
+    let running = 0n;
     for (const r of ordered) {
         expect(r.gasUsed > 0n, `receipt ${r.index} burned gas`).to.equal(true);
-        runningOwn += r.gasUsed;
-        const expected = runningOwn + shellOffset;
-        if (r.cumulativeGasUsed !== expected) {
-            // The only legitimate perturbation is the shell receipt of the co-located CW20
-            // transfer folded in just before this EVM tx. Pin the jump to that exact gas.
-            const extra = r.cumulativeGasUsed - expected;
-            expect(
-                cosmosShellGas !== undefined,
-                `unexpected cumulativeGasUsed jump of ${extra} at idx ${r.index} with no CW20 shell tx`,
-            ).to.equal(true);
-            expect(extra, `cumulative jump at idx ${r.index} == co-located CW20 shell gas`).to.equal(
-                cosmosShellGas,
-            );
-            shellOffset += extra;
-            jumps++;
-        }
-        expect(r.cumulativeGasUsed > prevCumulative, `cumulativeGasUsed strictly increasing at idx ${r.index}`).to.equal(
-            true,
-        );
-        prevCumulative = r.cumulativeGasUsed;
+        running += r.gasUsed;
+        expect(
+            r.cumulativeGasUsed,
+            `cumulativeGasUsed at idx ${r.index} == Σ gasUsed up to and including it`,
+        ).to.equal(running);
     }
-    expect(jumps, 'at most one CW20 shell receipt perturbs the EVM cumulative series').to.be.at.most(1);
-    
-    expect(
-        prevCumulative,
-        'final cumulativeGasUsed == block.gasUsed + any folded CW20 shell gas',
-    ).to.equal(blockGasUsed + shellOffset);
-    
+    expect(running, 'final cumulativeGasUsed == block.gasUsed').to.equal(blockGasUsed);
 }
 
 /**
  * Verify a Sei block's gas accounting against the EVM-visible (eth_*) receipts.
  *
- * `block.gasUsed` on the eth namespace sums ONLY EVM-transaction receipt gas (evmrpc
- * excludes shell receipts from the block), so `block.gasUsed == Σ eth-visible gasUsed`
- * holds exactly. The cumulativeGasUsed series is reconciled via assertCumulativeGasSeries,
- * which also asserts that a co-located CW20 transfer's gas (`cosmosShellGas`) is exactly
- * what perturbs the series — proving the Cosmos tx's gas does reach EVM cumulativeGasUsed.
+ * `block.gasUsed` on the eth namespace sums ONLY EVM-transaction receipt gas, so
+ * `block.gasUsed == Σ eth-visible gasUsed` holds exactly even for a block that also
+ * carries Cosmos transactions. The cumulativeGasUsed series is reconciled via
+ * assertCumulativeGasSeries.
  */
 export async function assertGasAccounting(
     provider: ethers.JsonRpcProvider,
     block: Pick<RpcBlock, 'transactions' | 'gasUsed'>,
-    cosmosShellGas?: bigint,
 ): Promise<void> {
     const receipts = await receiptsForBlock(provider, block);
     const summed = receipts.reduce((acc, r) => acc + r!.gasUsed, 0n);
@@ -926,7 +925,7 @@ export async function assertGasAccounting(
     const ordered = [...receipts]
         .sort((a, b) => a!.index - b!.index)
         .map(r => ({ index: r!.index, gasUsed: r!.gasUsed, cumulativeGasUsed: r!.cumulativeGasUsed }));
-    assertCumulativeGasSeries(ordered, BigInt(block.gasUsed), cosmosShellGas);
+    assertCumulativeGasSeries(ordered, BigInt(block.gasUsed));
 }
 
 const BASE_TX_GAS = 21_000n;

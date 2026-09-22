@@ -42,6 +42,9 @@ type testDB struct {
 	commitBlock   chan struct{}
 	getGate       chan struct{}
 	closed        atomic.Bool
+	// Incremented when a Get reaches the store after Close. Lets tests assert that nothing read the
+	// database once it was released.
+	getsAfterClose atomic.Int64
 	// Batch lifecycle counters: batchesCreated increments in NewBatch, batchesClosed on a
 	// batch's first Close. Lets tests assert every created batch is released (types.Batch
 	// requires Close even after a successful Commit).
@@ -61,6 +64,9 @@ func (d *testDB) Get(key []byte) ([]byte, error) {
 	d.getCalls.Add(1)
 	if d.getGate != nil {
 		<-d.getGate
+	}
+	if d.closed.Load() {
+		d.getsAfterClose.Add(1)
 	}
 	if d.getErr != nil {
 		return nil, d.getErr
@@ -313,9 +319,10 @@ func newTestShard(t *testing.T, maxSize uint64, db *testDB) *shard {
 	config := DefaultTestViewManagerConfig()
 	config.EstimatedOverheadPerEntry = 0
 	// A standalone shard has no manager to brick, and it takes itself out of service on a failed read
-	// without help, so reporting is a no-op here.
+	// or fold without help, so both reports are no-ops here.
 	s, err := NewShard(context.Background(), config, db, threading.NewAdHocPool(), maxSize,
 		func() error { return ErrViewManagerClosed },
+		func(error) {},
 		func(error) {})
 	require.NoError(t, err)
 	return s
@@ -377,6 +384,15 @@ func awaitRetired(t *testing.T, manager ViewManager, version uint64) {
 		_, tracked := e.versionMap[version]
 		return !tracked
 	}, 2*time.Second, 2*time.Millisecond, "version %d was not retired in time", version)
+}
+
+// commitShard seals the shard's current version, failing the test if its once-per-block cache
+// maintenance reported a failure. Returns the new version number.
+func commitShard(t *testing.T, s *shard) uint64 {
+	t.Helper()
+	version, err := s.Commit()
+	require.NoError(t, err)
+	return version
 }
 
 // openIteratorCount reports how many iterators are currently open on the manager. Every iterator

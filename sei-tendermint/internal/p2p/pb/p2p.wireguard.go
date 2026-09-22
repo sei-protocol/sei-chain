@@ -7,6 +7,14 @@ import (
 	reflect "reflect"
 )
 
+func (*NodePublicKey) MaxSize() int {
+	return 34
+}
+
+func (*Handshake) MaxSize() int {
+	return 34878
+}
+
 func init() {
 	// Register the wireguard.Schema generated for p2p.PacketPing.
 	runtime.MustRegister[*PacketPing](runtime.Schema{})
@@ -30,7 +38,7 @@ func init() {
 
 	// Register the wireguard.Schema generated for p2p.NodePublicKey.
 	runtime.MustRegister[*NodePublicKey](runtime.Schema{
-		1: {MaxCount: 1},
+		1: {MaxCount: 1, MaxSize: 32},
 	})
 
 	// Register the wireguard.Schema generated for p2p.Preface.
@@ -41,9 +49,13 @@ func init() {
 	// Register the wireguard.Schema generated for p2p.Handshake.
 	runtime.MustRegister[*Handshake](runtime.Schema{
 		1: {MaxCount: 1, Nested: utils.Some(reflect.TypeFor[*NodePublicKey]())},
-		2: {MaxCount: 1},
-		4: {MaxCount: 1},
+		2: {MaxCount: 1, MaxSize: 64},
+		4: {MaxCount: 1, MaxSize: 320},
+		5: {MaxCount: 100, MaxSize: 320},
 		3: {MaxCount: 1},
+		6: {MaxCount: 1, MaxSize: 32},
+		7: {MaxCount: 1, MaxSize: 64},
+		8: {MaxCount: 1, MaxSize: 2048},
 	})
 
 }

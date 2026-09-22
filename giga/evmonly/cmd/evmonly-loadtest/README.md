@@ -1,8 +1,12 @@
 # evmonly-loadtest
 
 `evmonly-loadtest` is a standalone executable for feeding synthetic blocks to
-the EVM-only executor through an in-memory `giga.StateDB`, without Cosmos SDK
-state, mempool, RPC, or production SC/SS persistence.
+the EVM-only executor through the disk-backed Giga state and receipt stores,
+without Cosmos SDK state, mempool, or RPC. It opens the validator-mode Giga
+storage manager with FlatKV state, littidx receipts, and the block store. The
+default home is a temporary directory removed on exit; `--storage-dir` keeps
+those stores in a directory you name. GigaSS remains disabled because EVM-only
+execution does not use it.
 
 The synthetic workload defaults to local EVM chain ID `1337`; override it with
 `--chain-id` when testing another signing domain.
@@ -11,18 +15,36 @@ It currently generates pure EVM legacy transfer transactions, ERC20 transfer
 transactions using `sei-load`'s compiled contract runtime, and a contract-call
 workload that exercises nested StateDB
 snapshot/revert behavior. By default, each generated sender account has one
-nonce-0 transaction and is funded in the command's in-memory genesis state
-before its block is queued. Recipients are unique by default so the transfer
-workloads exercise the optimistic no-overlap case. Pass
+nonce-0 transaction and is funded in generated genesis state. Non-balance
+genesis state is committed to FlatKV before the measured blocks run. Recipients
+are unique by default so the transfer workloads exercise the optimistic
+no-overlap case. Pass
 `--recipient-conflict-rate=<0..1>` to pair that fraction of each block's
 transactions onto shared recipients, or pass `--recipient=0x...` to force all
 transactions to a single recipient. Pass `--same-sender` to use one sender per
 block with sequential transaction nonces.
 
+Build the binary:
+
+```bash
+make build-evmonly-loadtest
+```
+
+This writes `./build/evmonly-loadtest`. `go run ./giga/evmonly/cmd/evmonly-loadtest` is equivalent when you do not want a binary.
+
 Run a bounded prebuilt test:
 
 ```bash
-go run ./giga/evmonly/cmd/evmonly-loadtest --blocks=1000 --txs-per-block=1000
+./build/evmonly-loadtest --blocks=1000 --txs-per-block=1000
+```
+
+Keep the GigaStorageManager home after the run:
+
+```bash
+./build/evmonly-loadtest \
+  --blocks=1000 \
+  --txs-per-block=1000 \
+  --storage-dir=/tmp/evmonly-storage
 ```
 
 Example local saturation run:
@@ -121,6 +143,10 @@ update the same coinbase balance, which is a real intra-block conflict.
 
 Useful knobs:
 
+- `--storage-dir`: GigaStorageManager home. Empty uses a temporary directory
+  that is removed on exit. A set path is created if missing and is left in
+  place; a second run against a populated directory will fail at genesis
+  commit.
 - `--blocks`: number of blocks to prebuild and execute. This is required and
   must be greater than `0`.
 - `--workers`: ordered block executor workers. This must be `1` because each
@@ -178,14 +204,16 @@ The command reports these saturation signals on stdout and at `/metrics`:
 
 Every run uses the Giga executor lifecycle:
 
-- `generatedState` implements `evmonly.StateReader` and supplies immutable
-  generated genesis balances, nonces, code, and storage.
-- `evmonly.MemoryStore` opens versioned snapshots over that genesis state and
-  applies the executor's encoded output through `CommitStateChanges`.
+- `generatedState` builds deterministic genesis balances, nonces, code, and
+  storage. The harness commits that state to FlatKV at height 1.
+- The measured workload begins at height 2 and commits state and receipts
+  through the real Giga storage manager. The manager also opens the
+  production block store; the standalone harness has no consensus layer to
+  populate it.
 - `discardResultSink` discards the already-committed block result and receipts;
   it is not responsible for state persistence.
 
-With `--result-sink=file`, after the in-memory Giga commit succeeds the loadtest
+With `--result-sink=file`, after the Giga commit succeeds the loadtest
 harness hands pooled `evmonly.BlockResult` values to an async writer through the
 executor's `evmonly.ResultSink` interface. The writer appends changesets to
 `changesets.rlp` and receipts to `receipts.rlp` under `--persist-dir`; each

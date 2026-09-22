@@ -452,6 +452,59 @@ func (m *Manager) PruneSnapshots(cutLine int64) error {
 	return nil
 }
 
+// RewindTo puts the snapshots under root on version and reports the version the current link ends up
+// naming: the newest snapshot at or below version, or 0 when root holds none, which is a store with
+// nothing to restore from. Every snapshot above version is deleted.
+//
+// It works on the directory alone, for the rollback that runs before the store and its Manager open. A
+// rollback discards the history the deleted snapshots were taken from, so leaving them would let a
+// later restore resolve through state that was already rejected.
+func RewindTo(root string, version int64) (landed int64, err error) {
+	versions, err := ListSnapshotVersions(root)
+	if err != nil {
+		return 0, fmt.Errorf("list the snapshots under %q: %w", root, err)
+	}
+	var base int64
+	for _, v := range versions {
+		if v <= version {
+			base = v
+		}
+	}
+
+	// current moves off the branch before the branch goes: an open resolves a dangling link as an
+	// absent snapshot rather than as a failure, so the window in the other order is a silent one.
+	if err := repointCurrent(root, base); err != nil {
+		return 0, err
+	}
+	var errs []error
+	for _, v := range versions {
+		if v <= version {
+			continue
+		}
+		dir := filepath.Join(root, SnapshotDirName(v))
+		if err := os.RemoveAll(dir); err != nil {
+			errs = append(errs, fmt.Errorf("remove snapshot %q above the rollback target %d: %w",
+				dir, version, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return 0, err
+	}
+	return base, nil
+}
+
+// repointCurrent points the current link under root at base, and removes the link when base is 0,
+// which is the store that has no snapshot left to resolve to.
+func repointCurrent(root string, base int64) error {
+	if base == 0 {
+		if err := os.Remove(filepath.Join(root, snapshotCurrentLink)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove the current snapshot link under %q: %w", root, err)
+		}
+		return nil
+	}
+	return updateCurrentLink(root, SnapshotDirName(base))
+}
+
 // removeSnapshots deletes each candidate except the current snapshot and the shared floor. Every
 // candidate is attempted, the removals being independent of each other.
 func (m *Manager) removeSnapshots(candidates []int64) error {
@@ -505,15 +558,19 @@ func (m *Manager) removeStaleTmpDirs() {
 }
 
 func (m *Manager) updateCurrentLink(name string) error {
-	tmpLink := filepath.Join(m.root, snapshotCurrentTmpLink)
+	return updateCurrentLink(m.root, name)
+}
+
+func updateCurrentLink(root, name string) error {
+	tmpLink := filepath.Join(root, snapshotCurrentTmpLink)
 	_ = os.Remove(tmpLink)
 	if err := os.Symlink(name, tmpLink); err != nil {
 		return fmt.Errorf("create snapshot current symlink: %w", err)
 	}
-	if err := os.Rename(tmpLink, filepath.Join(m.root, snapshotCurrentLink)); err != nil {
+	if err := os.Rename(tmpLink, filepath.Join(root, snapshotCurrentLink)); err != nil {
 		return fmt.Errorf("swap snapshot current symlink: %w", err)
 	}
-	return syncDir(m.root)
+	return syncDir(root)
 }
 
 func (m *Manager) prune() {

@@ -368,3 +368,39 @@ func TestNew_InvalidCIDR_ReturnsError(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "bad")
 }
+
+func TestAllow_GRPCRejectionRecordsFullMethodMetric(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	registryMetrics.rejectedCounter = must(provider.Meter("ratelimiter").Int64Counter(
+		"rpc_rate_limit_rejected_total",
+	))
+
+	r := mustNew(t, cfg(0.001, 1))
+	r.SetKnownGRPCMethods([]string{"/cosmos.bank.v1beta1.Query/Balance"})
+	ip := "10.0.0.42"
+	require.True(t, r.Allow(t.Context(), ip, PlaneGRPC, "/cosmos.bank.v1beta1.Query/Balance"))
+	require.False(t, r.Allow(t.Context(), ip, PlaneGRPC, "/cosmos.bank.v1beta1.Query/Balance"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	found := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "rpc_rate_limit_rejected_total" {
+				continue
+			}
+			sum := m.Data.(metricdata.Sum[int64])
+			require.Equal(t, int64(1), sum.DataPoints[0].Value)
+			attrs := sum.DataPoints[0].Attributes.ToSlice()
+			require.Contains(t, attrs, attribute.String("plane", PlaneGRPC))
+			require.Contains(t, attrs, attribute.String("method_namespace", "cosmos.bank.v1beta1.Query/Balance"))
+			found = true
+		}
+	}
+	require.True(t, found, "expected rpc_rate_limit_rejected_total metric")
+}

@@ -148,9 +148,9 @@ fast-check-tx = {{ .BaseConfig.FastCheckTx }}
 # TEST-ONLY
 mock-app = {{ .BaseConfig.MockApp }}
 
-# EVMOnlyInMemory replaces the provided ABCI application with an ephemeral EVM executor.
+# EVMOnly replaces the provided ABCI application with the disk-backed EVM-only executor.
 # TEST-ONLY
-evm-only-in-memory = {{ .BaseConfig.EVMOnlyInMemory }}
+evm-only = {{ .BaseConfig.EVMOnly }}
 
 #######################################################################
 ###                   Autobahn Configuration                        ###
@@ -437,7 +437,7 @@ duplicate-txs-cache-size = "{{ .Mempool.DuplicateTxsCacheSize }}"
 keep-invalid-txs-in-cache = {{ .Mempool.KeepInvalidTxsInCache }}
 
 # Maximum size of a single transaction.
-# NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+# XXX: Unused. Admission uses the protocol gossip limit. A different value logs a warning.
 max-tx-bytes = {{ .Mempool.MaxTxBytes }}
 
 # Maximum size of a batch of transactions to send to a peer

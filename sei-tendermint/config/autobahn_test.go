@@ -27,6 +27,11 @@ func TestURLJSONReencode(t *testing.T) {
 	require.Equal(t, want.String(), got.String())
 }
 
+func TestURLUnmarshalRejectsNonHTTP(t *testing.T) {
+	var got URL
+	require.Error(t, json.Unmarshal([]byte(`"ws://example.com:8545"`), &got))
+}
+
 func TestAutobahnBlockDBConfig_LittBlockConfig(t *testing.T) {
 	dir := t.TempDir()
 	const (

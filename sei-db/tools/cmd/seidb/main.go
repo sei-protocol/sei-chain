@@ -34,7 +34,9 @@ func main() {
 		operations.EvmLogicalDigestCmd(),
 		operations.HashLogCmd())
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		// Subcommands with a --json mode make stdout a machine-readable channel, so a
+		// bare error line there would corrupt the report a caller is parsing.
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }

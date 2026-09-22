@@ -16,11 +16,14 @@ type URL struct{ *url.URL }
 
 func (u URL) MarshalText() ([]byte, error) { return []byte(u.String()), nil }
 func (u *URL) UnmarshalText(text []byte) error {
-	url, err := url.Parse(string(text))
+	parsed, err := url.Parse(string(text))
 	if err != nil {
 		return err
 	}
-	u.URL = url
+	if err := utils.CheckHTTPURL(*parsed); err != nil {
+		return err
+	}
+	u.URL = parsed
 	return nil
 }
 
@@ -57,14 +60,19 @@ type AutobahnBlockDBConfig struct {
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
-	Validators         []AutobahnValidator  `json:"validators"`
-	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
-	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
-	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
-	BlockInterval      utils.Duration       `json:"block_interval"`
-	ViewTimeout        utils.Duration       `json:"view_timeout"`
-	PersistentStateDir utils.Option[string] `json:"persistent_state_dir,omitzero"`
-	DialInterval       utils.Duration       `json:"dial_interval"`
+	Validators       []AutobahnValidator  `json:"validators"`
+	MaxTxsPerBlock   uint64               `json:"max_txs_per_block"`
+	MaxTxsPerSecond  utils.Option[uint64] `json:"max_txs_per_second"`
+	AllowEmptyBlocks bool                 `json:"allow_empty_blocks"`
+	BlockInterval    utils.Duration       `json:"block_interval"`
+	ViewTimeout      utils.Duration       `json:"view_timeout"`
+	// PersistentStateDir is the on-disk root for Autobahn's durable state
+	// (Giga storage, BlockDB, hashvault, epoch snapshots, and the validator's
+	// consensus persister, each in a subdirectory). A relative path is
+	// resolved against the node's home dir. Required: every Autobahn node
+	// runs on on-disk storage.
+	PersistentStateDir string         `json:"persistent_state_dir"`
+	DialInterval       utils.Duration `json:"dial_interval"`
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync from
 	// non-committee peers, applied on both validators and fullnodes (relay
 	// fullnodes serving downstream block-sync are subject to the same
@@ -77,15 +85,14 @@ type AutobahnFileConfig struct {
 	// Useful for loadtesting (to compare enabled/disabled performance).
 	// Defaults to true.
 	EnableEvmProxy utils.Option[bool] `json:"enable_evm_proxy,omitzero"`
-	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig
-	// when PersistentStateDir is set. Zero value ⇒ littblock.DefaultConfig unchanged
-	// (see AutobahnBlockDBConfig for field semantics). Ignored when
-	// PersistentStateDir is absent (memblock). Omitted from JSON when empty.
+	// BlockDB optionally overlays AutobahnBlockDBConfig onto littblock.DefaultConfig.
+	// Zero value ⇒ littblock.DefaultConfig unchanged (see AutobahnBlockDBConfig
+	// for field semantics). Omitted from JSON when empty.
 	BlockDB AutobahnBlockDBConfig `json:"block_db,omitzero"`
 }
 
-// AutobahnEVMOnlyInMemoryChainID is the chain ID of the test-only EVM executor.
-const AutobahnEVMOnlyInMemoryChainID uint64 = 713715
+// AutobahnEVMOnlyChainID is the chain ID of the test-only EVM executor.
+const AutobahnEVMOnlyChainID uint64 = 713715
 
 func (c *AutobahnFileConfig) GetEnableEvmProxy() bool {
 	return c.EnableEvmProxy.Or(true)
@@ -107,6 +114,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 		if v.EVMRPC.URL == nil {
 			return fmt.Errorf("validator %s is missing evmrpc URL", v.ValidatorKey)
 		}
+		if err := utils.CheckHTTPURL(*v.EVMRPC.URL); err != nil {
+			return fmt.Errorf("validator %s evmrpc: %w", v.ValidatorKey, err)
+		}
 	}
 	if fc.MaxTxsPerBlock == 0 {
 		return errors.New("max_txs_per_block must be > 0")
@@ -119,6 +129,9 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.DialInterval <= 0 {
 		return errors.New("dial_interval must be > 0")
+	}
+	if fc.PersistentStateDir == "" {
+		return errors.New("persistent_state_dir must not be empty")
 	}
 	if err := fc.BlockDB.Validate(); err != nil {
 		return fmt.Errorf("block_db: %w", err)

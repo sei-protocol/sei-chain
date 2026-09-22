@@ -260,7 +260,7 @@ func (r *statefulUnpacker) UnpackAny(any *Any, iface interface{}) error {
 	r.maxCalls.count--
 
 	rv := reflect.ValueOf(iface)
-	if rv.Kind() != reflect.Ptr {
+	if rv.Kind() != reflect.Pointer {
 		return errors.New("UnpackAny expects a pointer")
 	}
 

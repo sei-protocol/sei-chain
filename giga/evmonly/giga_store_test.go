@@ -11,11 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	gigastore "github.com/sei-protocol/sei-chain/sei-db/state_db/giga"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
 type recordingGigaStore struct {
-	snapshot    gigastore.StateView
+	snapshot    gigatypes.StateView
 	openCount   int
 	commitErr   error
 	commitBlock []int64
@@ -28,14 +29,20 @@ func (s *recordingGigaStore) CommitStateChanges(blockNum int64, changeset []*pro
 	return s.commitErr
 }
 
-func (s *recordingGigaStore) OpenView() gigastore.StateView {
+func (s *recordingGigaStore) OpenView() gigatypes.StateView {
 	s.openCount++
 	return s.snapshot
 }
 
-func (s *recordingGigaStore) OpenViewAt(int64) (gigastore.StateView, bool) {
+func (s *recordingGigaStore) RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error) {
+	return lthash.BlockHash{}, nil
+}
+
+func (s *recordingGigaStore) OpenViewAt(int64) (gigatypes.StateView, bool) {
 	return nil, false
 }
+
+func (s *recordingGigaStore) Close() error { return nil }
 
 type memoryGigaSnapshot struct {
 	height     int64
@@ -61,7 +68,7 @@ func newMemoryGigaSnapshot(height int64) *memoryGigaSnapshot {
 	}
 }
 
-func (s *memoryGigaSnapshot) AccountExists(address gigastore.Address) bool {
+func (s *memoryGigaSnapshot) AccountExists(address gigatypes.Address) bool {
 	if s.balances[address] != (common.Hash{}) || s.nonces[address] != 0 || len(s.code[address]) != 0 {
 		return true
 	}
@@ -73,30 +80,30 @@ func (s *memoryGigaSnapshot) AccountExists(address gigastore.Address) bool {
 	return false
 }
 
-func (s *memoryGigaSnapshot) GetStorage(address gigastore.Address, slot gigastore.Hash) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetStorage(address gigatypes.Address, slot gigatypes.Hash) gigatypes.Hash {
 	return s.storage[gigaStorageKey{address: address, key: slot}]
 }
 
-func (s *memoryGigaSnapshot) GetBalance(address gigastore.Address) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetBalance(address gigatypes.Address) gigatypes.Hash {
 	return s.balances[address]
 }
 
-func (s *memoryGigaSnapshot) GetNonce(address gigastore.Address) uint64 {
+func (s *memoryGigaSnapshot) GetNonce(address gigatypes.Address) uint64 {
 	return s.nonces[address]
 }
 
-func (s *memoryGigaSnapshot) GetCodeSize(address gigastore.Address) int {
+func (s *memoryGigaSnapshot) GetCodeSize(address gigatypes.Address) int {
 	return len(s.code[address])
 }
 
-func (s *memoryGigaSnapshot) GetCodeHash(address gigastore.Address) gigastore.Hash {
+func (s *memoryGigaSnapshot) GetCodeHash(address gigatypes.Address) gigatypes.Hash {
 	if !s.AccountExists(address) {
-		return gigastore.Hash{}
+		return gigatypes.Hash{}
 	}
 	return crypto.Keccak256Hash(s.code[address])
 }
 
-func (s *memoryGigaSnapshot) GetCode(address gigastore.Address) []byte {
+func (s *memoryGigaSnapshot) GetCode(address gigatypes.Address) []byte {
 	return s.code[address]
 }
 
@@ -142,6 +149,45 @@ func TestGigaSnapshotStateReader(t *testing.T) {
 	require.Equal(t, byte(0x60), snapshot.code[addr][0])
 }
 
+func TestGigaSnapshotStateReaderMissingStateFallback(t *testing.T) {
+	present := testAddress(0xb0)
+	nonceOnly := testAddress(0xb1)
+	absent := testAddress(0xb2)
+	slot := common.HexToHash("0x01")
+
+	snapshot := newMemoryGigaSnapshot(3)
+	snapshot.setBalance(present, big.NewInt(5))
+	snapshot.nonces[nonceOnly] = 2
+
+	fallback := NewMemoryState()
+	for _, addr := range []common.Address{present, nonceOnly, absent} {
+		fallback.SetBalance(addr, big.NewInt(1000))
+		fallback.SetNonce(addr, 77)
+		fallback.SetCode(addr, []byte{0xfe})
+		fallback.SetState(addr, slot, common.HexToHash("0x99"))
+	}
+	reader := gigaSnapshotStateReader{snapshot: snapshot, missingState: fallback}
+
+	require.Equal(t, big.NewInt(5), reader.GetBalance(present))
+	require.Equal(t, uint64(0), reader.GetNonce(present))
+	require.Empty(t, reader.GetCode(present))
+	require.Equal(t, common.Hash{}, reader.GetState(present, slot))
+
+	require.Zero(t, reader.GetBalance(nonceOnly).Sign())
+	require.Equal(t, uint64(2), reader.GetNonce(nonceOnly))
+
+	require.Equal(t, big.NewInt(1000), reader.GetBalance(absent))
+	require.Equal(t, uint64(77), reader.GetNonce(absent))
+	require.Equal(t, []byte{0xfe}, reader.GetCode(absent))
+	require.Equal(t, common.HexToHash("0x99"), reader.GetState(absent, slot))
+
+	noFallback := gigaSnapshotStateReader{snapshot: snapshot}
+	require.Zero(t, noFallback.GetBalance(absent).Sign())
+	require.Equal(t, uint64(0), noFallback.GetNonce(absent))
+	require.Empty(t, noFallback.GetCode(absent))
+	require.Equal(t, common.Hash{}, noFallback.GetState(absent, slot))
+}
+
 func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	chainID := big.NewInt(testChainID)
 	key, err := crypto.GenerateKey()
@@ -170,7 +216,7 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	blockCtx := blockContext(chainID)
 	blockCtx.Number = 41
-	executor := NewExecutor(Config{}, WithStore(store, encoder))
+	executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), encoder))
 	result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
 		Context: blockCtx,
 		Txs:     [][]byte{rawTx},
@@ -215,7 +261,7 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 	}
 	executor := NewExecutor(
 		Config{MinGasPrice: big.NewInt(0), OCCWorkers: 2},
-		WithStore(store, encoder),
+		withTestStores(store, NewMemoryReceiptStore(), encoder),
 	)
 	defer executor.Close()
 	blockCtx := blockContext(chainID)
@@ -234,19 +280,38 @@ func TestExecutorGigaStoreSnapshotFeedsOCCExecution(t *testing.T) {
 }
 
 func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
-	t.Run("missing store", func(t *testing.T) {
+	t.Run("missing stores", func(t *testing.T) {
 		executor := NewExecutor(Config{})
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
-		require.ErrorIs(t, err, errMissingStore)
+		require.ErrorIs(t, err, errMissingStateStore)
+		require.Nil(t, result)
+	})
+
+	t.Run("missing state store", func(t *testing.T) {
+		executor := NewExecutor(Config{}, WithReceiptStore(NewMemoryReceiptStore()))
+
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+
+		require.ErrorIs(t, err, errMissingStateStore)
+		require.Nil(t, result)
+	})
+
+	t.Run("missing receipt store", func(t *testing.T) {
+		store := NewMemoryStore(NewMemoryState())
+		executor := NewExecutor(Config{}, WithStore(store, store.EncodeChangeSet))
+
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+
+		require.ErrorIs(t, err, errMissingReceiptStore)
 		require.Nil(t, result)
 	})
 
 	t.Run("missing encoder", func(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
-		executor := NewExecutor(Config{}, WithStore(store, nil))
+		executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), nil))
 
 		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
 
@@ -258,7 +323,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 
 	t.Run("nil snapshot", func(t *testing.T) {
 		store := &recordingGigaStore{}
-		executor := NewExecutor(Config{}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return nil, nil
 		}))
 
@@ -273,7 +338,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
 		encodeErr := errors.New("encode failed")
-		executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return nil, encodeErr
 		}))
 
@@ -295,7 +360,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
 		encodeCalls := 0
-		executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{MinGasPrice: big.NewInt(0)}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			encodeCalls++
 			return nil, nil
 		}))
@@ -316,7 +381,7 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
 		ctx, cancel := context.WithCancel(t.Context())
-		executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{BlockResultPoolSize: 1}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			cancel()
 			return []*proto.NamedChangeSet{}, nil
 		}))
@@ -331,26 +396,44 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 	})
 
 	t.Run("commit error", func(t *testing.T) {
+		chainID := big.NewInt(testChainID)
+		key, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		sender := crypto.PubkeyToAddress(key.PublicKey)
+		recipient := testAddress(0xad)
+		initialBalance := big.NewInt(1_000_000_000)
 		snapshot := newMemoryGigaSnapshot(0)
+		snapshot.setBalance(sender, initialBalance)
 		commitErr := errors.New("commit failed")
 		store := &recordingGigaStore{snapshot: snapshot, commitErr: commitErr}
-		executor := NewExecutor(Config{BlockResultPoolSize: 1}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
-			return []*proto.NamedChangeSet{}, nil
-		}))
+		receiptStore := NewMemoryReceiptStore()
+		executor := NewExecutor(
+			Config{BlockResultPoolSize: 1, MinGasPrice: big.NewInt(0)},
+			withTestStores(store, receiptStore, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+				return []*proto.NamedChangeSet{}, nil
+			}),
+		)
+		rawTx := signLegacyTxWithGasPrice(
+			t, key, chainID, 0, &recipient, big.NewInt(7), nil, 100_000, big.NewInt(0),
+		)
 
-		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{Context: blockContext(big.NewInt(testChainID))})
+		result, err := executor.ExecuteBlock(t.Context(), BlockRequest{
+			Context: blockContext(chainID),
+			Txs:     [][]byte{rawTx},
+		})
 
 		require.ErrorIs(t, err, commitErr)
 		require.Nil(t, result)
 		require.Len(t, store.commits, 1)
 		require.Equal(t, 1, snapshot.closeCount)
 		require.Equal(t, BlockResultPoolStats{Capacity: 1, Available: 1}, executor.ResultPoolStats())
+		require.Equal(t, int64(blockContext(big.NewInt(testChainID)).Number), receiptStore.LatestVersion())
 	})
 
 	t.Run("block number overflow", func(t *testing.T) {
 		snapshot := newMemoryGigaSnapshot(0)
 		store := &recordingGigaStore{snapshot: snapshot}
-		executor := NewExecutor(Config{}, WithStore(store, func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		executor := NewExecutor(Config{}, withTestStores(store, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
 			return nil, nil
 		}))
 		blockCtx := blockContext(big.NewInt(testChainID))

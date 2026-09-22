@@ -53,8 +53,8 @@ type Config struct {
 	// valid again in the future.
 	KeepInvalidTxsInCache bool
 
-	// Maximum size of a single transaction
-	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
+	// Maximum size of a single transaction.
+	// XXX: Unused. Admission uses the protocol gossip limit. A different value logs a warning.
 	MaxTxBytes int
 
 	// time after which transaction is removed from mempool.
@@ -129,7 +129,7 @@ func DefaultConfig() *Config {
 		MaxTxsBytes:               1024 * 1024 * 1024, // 1GB
 		CacheSize:                 10000,
 		DuplicateTxsCacheSize:     100000,
-		MaxTxBytes:                1024 * 1024,                 // 1MB
+		MaxTxBytes:                types.MaxGossipTxBytes,
 		TTLDuration:               utils.Some(5 * time.Second), // prevent stale txs from filling mempool
 		TTLNumBlocks:              utils.Some(int64(10)),       // remove txs after 10 blocks
 		TxNotifyThreshold:         0,
@@ -209,6 +209,11 @@ func NewTxMempool(
 	app *proxy.Proxy,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
+	if cfg.MaxTxBytes != types.MaxGossipTxBytes {
+		logger.Warn("mempool max-tx-bytes differs from the protocol gossip limit; admission uses the protocol limit",
+			"max-tx-bytes", cfg.MaxTxBytes,
+			"protocol", types.MaxGossipTxBytes)
+	}
 	txmp := &TxMempool{
 		config:               cfg,
 		app:                  app,
@@ -291,8 +296,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	defer txmp.mtx.RUnlock()
 
 	// Early exit if tx is too large.
-	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
+	if txSize := len(tx); txSize > types.MaxGossipTxBytes {
+		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, types.MaxGossipTxBytes, txSize)
 	}
 	hTx := newHashedTx(tx)
 

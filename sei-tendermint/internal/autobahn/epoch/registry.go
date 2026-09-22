@@ -304,6 +304,7 @@ func (r *Registry) Pending() utils.Option[types.EpochIndex] {
 // PruneBefore drops epochs in [live.First, keep). Epochs 0 and 1 and the
 // latest live epoch are kept. keep is exclusive and only moves live.First
 // forward. Staged committees are not dropped.
+// TODO: archive nodes need special handling (never prune epochs).
 func (r *Registry) PruneBefore(keep types.EpochIndex) error {
 	for s, ctrl := range r.state.Lock() {
 		if s.live.First == s.live.Next {

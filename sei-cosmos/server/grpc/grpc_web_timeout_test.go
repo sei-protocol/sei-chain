@@ -29,7 +29,7 @@ func TestStartGRPCWebTimeouts(t *testing.T) {
 		},
 	}
 
-	srv, err := srvgrpc.StartGRPCWeb(grpcSrv, cfg)
+	srv, err := srvgrpc.StartGRPCWeb(grpcSrv, nil, cfg)
 	require.NoError(t, err)
 	require.NotNil(t, srv)
 	defer func() {

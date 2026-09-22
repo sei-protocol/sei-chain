@@ -1,6 +1,9 @@
 apiVersion: 1
 datasources:
+  # The uid is pinned because the dashboards in ../dashboards reference it directly. Left unset,
+  # Grafana generates one and every panel binds to a datasource that does not exist.
   - name: Prometheus
+    uid: PBFA97CFB590B2093
     type: prometheus
     access: proxy
     url: http://host.docker.internal:9091

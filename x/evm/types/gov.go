@@ -1,16 +1,17 @@
 package types
 
 import (
-	"errors"
 	"fmt"
-	"math"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 )
 
+// Names of the retired pointer governance proposals. Pointers can no longer be
+// created, so each type below refuses both submission and execution. They remain
+// registered because gov keeps a proposal in state once its vote has ended, and a
+// content type missing from the registry fails the Any unpack inside
+// MustUnmarshalProposal, which panics.
 const (
 	ProposalTypeAddERCNativePointer   = "AddERCNativePointer"
 	ProposalTypeAddERCCW20Pointer     = "AddERCCW20Pointer"
@@ -48,33 +49,28 @@ func (p *AddERCNativePointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddERCNativePointerProposal) GetDescription() string { return p.Description }
 
-func (p *AddERCNativePointerProposal) ProposalRoute() string { return RouterKey }
+func (*AddERCNativePointerProposal) ProposalRoute() string { return RouterKey }
 
-func (p *AddERCNativePointerProposal) ProposalType() string {
+func (*AddERCNativePointerProposal) ProposalType() string {
 	return ProposalTypeAddERCNativePointer
 }
 
-func (p *AddERCNativePointerProposal) ValidateBasic() error {
-	if p.Pointer != "" && !common.IsHexAddress(p.Pointer) {
-		return errors.New("pointer address must be either empty or a valid hex-encoded string")
-	}
+func (*AddERCNativePointerProposal) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new ERC native pointer proposals.
+func (*AddERCNativePointerProposal) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddERCNativePointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC native pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC native pointer Proposal:
   Title:       %s
   Description: %s
   Token:       %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Token, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Token, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -82,37 +78,28 @@ func (p *AddERCCW20PointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddERCCW20PointerProposal) GetDescription() string { return p.Description }
 
-func (p *AddERCCW20PointerProposal) ProposalRoute() string { return RouterKey }
+func (*AddERCCW20PointerProposal) ProposalRoute() string { return RouterKey }
 
-func (p *AddERCCW20PointerProposal) ProposalType() string {
+func (*AddERCCW20PointerProposal) ProposalType() string {
 	return ProposalTypeAddERCCW20Pointer
 }
 
-func (p *AddERCCW20PointerProposal) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(p.Pointee); err != nil {
-		return err
-	}
+func (*AddERCCW20PointerProposal) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	if p.Pointer != "" && !common.IsHexAddress(p.Pointer) {
-		return errors.New("pointer address must be either empty or a valid hex-encoded string")
-	}
-
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new ERC CW20 pointer proposals.
+func (*AddERCCW20PointerProposal) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddERCCW20PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC CW20 pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC CW20 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -120,37 +107,28 @@ func (p *AddERCCW721PointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddERCCW721PointerProposal) GetDescription() string { return p.Description }
 
-func (p *AddERCCW721PointerProposal) ProposalRoute() string { return RouterKey }
+func (*AddERCCW721PointerProposal) ProposalRoute() string { return RouterKey }
 
-func (p *AddERCCW721PointerProposal) ProposalType() string {
+func (*AddERCCW721PointerProposal) ProposalType() string {
 	return ProposalTypeAddERCCW721Pointer
 }
 
-func (p *AddERCCW721PointerProposal) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(p.Pointee); err != nil {
-		return err
-	}
+func (*AddERCCW721PointerProposal) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	if p.Pointer != "" && !common.IsHexAddress(p.Pointer) {
-		return errors.New("pointer address must be either empty or a valid hex-encoded string")
-	}
-
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new ERC CW721 pointer proposals.
+func (*AddERCCW721PointerProposal) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddERCCW721PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC CW721 pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC CW721 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -158,37 +136,28 @@ func (p *AddERCCW1155PointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddERCCW1155PointerProposal) GetDescription() string { return p.Description }
 
-func (p *AddERCCW1155PointerProposal) ProposalRoute() string { return RouterKey }
+func (*AddERCCW1155PointerProposal) ProposalRoute() string { return RouterKey }
 
-func (p *AddERCCW1155PointerProposal) ProposalType() string {
+func (*AddERCCW1155PointerProposal) ProposalType() string {
 	return ProposalTypeAddERCCW1155Pointer
 }
 
-func (p *AddERCCW1155PointerProposal) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(p.Pointee); err != nil {
-		return err
-	}
+func (*AddERCCW1155PointerProposal) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	if p.Pointer != "" && !common.IsHexAddress(p.Pointer) {
-		return errors.New("pointer address must be either empty or a valid hex-encoded string")
-	}
-
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new ERC CW1155 pointer proposals.
+func (*AddERCCW1155PointerProposal) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddERCCW1155PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC CW1155 pointer Proposal:
+	fmt.Fprintf(&b, `Add ERC CW1155 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -196,38 +165,28 @@ func (p *AddCWERC20PointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddCWERC20PointerProposal) GetDescription() string { return p.Description }
 
-func (p *AddCWERC20PointerProposal) ProposalRoute() string { return RouterKey }
+func (*AddCWERC20PointerProposal) ProposalRoute() string { return RouterKey }
 
-func (p *AddCWERC20PointerProposal) ProposalType() string {
+func (*AddCWERC20PointerProposal) ProposalType() string {
 	return ProposalTypeAddCWERC20Pointer
 }
 
-func (p *AddCWERC20PointerProposal) ValidateBasic() error {
-	if p.Pointer != "" {
-		if _, err := sdk.AccAddressFromBech32(p.Pointer); err != nil {
-			return err
-		}
-	}
-	if !common.IsHexAddress(p.Pointee) {
-		return errors.New("pointee address must be either empty or a valid hex-encoded string")
-	}
+func (*AddCWERC20PointerProposal) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new CW ERC20 pointer proposals.
+func (*AddCWERC20PointerProposal) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddCWERC20PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add CW ERC20 pointer Proposal:
+	fmt.Fprintf(&b, `Add CW ERC20 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -235,38 +194,28 @@ func (p *AddCWERC721PointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddCWERC721PointerProposal) GetDescription() string { return p.Description }
 
-func (p *AddCWERC721PointerProposal) ProposalRoute() string { return RouterKey }
+func (*AddCWERC721PointerProposal) ProposalRoute() string { return RouterKey }
 
-func (p *AddCWERC721PointerProposal) ProposalType() string {
+func (*AddCWERC721PointerProposal) ProposalType() string {
 	return ProposalTypeAddCWERC721Pointer
 }
 
-func (p *AddCWERC721PointerProposal) ValidateBasic() error {
-	if p.Pointer != "" {
-		if _, err := sdk.AccAddressFromBech32(p.Pointer); err != nil {
-			return err
-		}
-	}
-	if !common.IsHexAddress(p.Pointee) {
-		return errors.New("pointee address must be either empty or a valid hex-encoded string")
-	}
+func (*AddCWERC721PointerProposal) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new CW ERC721 pointer proposals.
+func (*AddCWERC721PointerProposal) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddCWERC721PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add CW ERC721 pointer Proposal:
+	fmt.Fprintf(&b, `Add CW ERC721 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -274,38 +223,28 @@ func (p *AddCWERC1155PointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddCWERC1155PointerProposal) GetDescription() string { return p.Description }
 
-func (p *AddCWERC1155PointerProposal) ProposalRoute() string { return RouterKey }
+func (*AddCWERC1155PointerProposal) ProposalRoute() string { return RouterKey }
 
-func (p *AddCWERC1155PointerProposal) ProposalType() string {
+func (*AddCWERC1155PointerProposal) ProposalType() string {
 	return ProposalTypeAddCWERC1155Pointer
 }
 
-func (p *AddCWERC1155PointerProposal) ValidateBasic() error {
-	if p.Pointer != "" {
-		if _, err := sdk.AccAddressFromBech32(p.Pointer); err != nil {
-			return err
-		}
-	}
-	if !common.IsHexAddress(p.Pointee) {
-		return errors.New("pointee address must be either empty or a valid hex-encoded string")
-	}
+func (*AddCWERC1155PointerProposal) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new CW ERC1155 pointer proposals.
+func (*AddCWERC1155PointerProposal) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddCWERC1155PointerProposal) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add CW ERC1155 pointer Proposal:
+	fmt.Fprintf(&b, `Add CW ERC1155 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s
   Pointer:     %s
   Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version)
 	return b.String()
 }
 
@@ -313,29 +252,28 @@ func (p *AddERCNativePointerProposalV2) GetTitle() string { return p.Title }
 
 func (p *AddERCNativePointerProposalV2) GetDescription() string { return p.Description }
 
-func (p *AddERCNativePointerProposalV2) ProposalRoute() string { return RouterKey }
+func (*AddERCNativePointerProposalV2) ProposalRoute() string { return RouterKey }
 
-func (p *AddERCNativePointerProposalV2) ProposalType() string {
+func (*AddERCNativePointerProposalV2) ProposalType() string {
 	return ProposalTypeAddERCNativePointerV2
 }
 
-func (p *AddERCNativePointerProposalV2) ValidateBasic() error {
-	if p.Decimals > math.MaxUint8 {
-		return errors.New("pointer version must be <= 255")
-	}
+func (*AddERCNativePointerProposalV2) ValidateBasic() error { return ErrPointerProposalDeprecated }
 
-	return govtypes.ValidateAbstract(p)
+// ValidateProposalSubmission rejects new ERC native pointer proposals.
+func (*AddERCNativePointerProposalV2) ValidateProposalSubmission() error {
+	return ErrPointerProposalDeprecated
 }
 
 func (p AddERCNativePointerProposalV2) String() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC native pointer Proposal V2:
+	fmt.Fprintf(&b, `Add ERC native pointer Proposal V2:
   Title:       %s
   Description: %s
   Token:       %s
   Name:        %s
   Symbol:      %s
   Decimals:    %d
-`, p.Title, p.Description, p.Token, p.Name, p.Symbol, p.Decimals))
+`, p.Title, p.Description, p.Token, p.Name, p.Symbol, p.Decimals)
 	return b.String()
 }

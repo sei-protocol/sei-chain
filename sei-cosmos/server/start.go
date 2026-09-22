@@ -418,14 +418,14 @@ func startInProcess(
 	}
 
 	if config.GRPC.Enable {
-		grpcSrv, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
+		grpcSrv, rateLimitRegistry, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC)
 		if err != nil {
 			return err
 		}
 		defer grpcSrv.Stop()
 
 		if config.GRPCWeb.Enable {
-			grpcWebSrv, err := servergrpc.StartGRPCWeb(grpcSrv, config)
+			grpcWebSrv, err := servergrpc.StartGRPCWeb(grpcSrv, rateLimitRegistry, config)
 			if err != nil {
 				logger.Error("failed to start grpc-web http server", "err", err)
 				return err

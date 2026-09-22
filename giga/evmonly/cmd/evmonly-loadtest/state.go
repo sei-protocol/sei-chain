@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"math/big"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -159,6 +161,64 @@ func (s *generatedState) requireMutable() {
 	if s.frozen.Load() {
 		panic("generated state is frozen")
 	}
+}
+
+func (s *generatedState) changeSet() evmonly.StateChangeSet {
+	if !s.frozen.Load() {
+		panic("generated state must be frozen before encoding")
+	}
+	addresses := make(map[common.Address]struct{}, len(s.balances)+len(s.nonces)+len(s.code)+len(s.storage))
+	for address := range s.balances {
+		addresses[address] = struct{}{}
+	}
+	for address := range s.nonces {
+		addresses[address] = struct{}{}
+	}
+	for address := range s.code {
+		addresses[address] = struct{}{}
+	}
+	for address := range s.storage {
+		addresses[address] = struct{}{}
+	}
+	ordered := make([]common.Address, 0, len(addresses))
+	for address := range addresses {
+		ordered = append(ordered, address)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		return bytes.Compare(ordered[i][:], ordered[j][:]) < 0
+	})
+
+	var changes evmonly.StateChangeSet
+	for _, address := range ordered {
+		if balance, ok := s.balances[address]; ok {
+			changes.Balances = append(changes.Balances, evmonly.BalanceChange{
+				Address: address,
+				Balance: new(big.Int).Set(balance),
+			})
+		}
+		if nonce, ok := s.nonces[address]; ok {
+			changes.Nonces = append(changes.Nonces, evmonly.NonceChange{Address: address, Nonce: nonce})
+		}
+		if code, ok := s.code[address]; ok {
+			changes.Code = append(changes.Code, evmonly.CodeChange{Address: address, Code: cloneBytes(code)})
+		}
+		slots := s.storage[address]
+		orderedSlots := make([]common.Hash, 0, len(slots))
+		for slot := range slots {
+			orderedSlots = append(orderedSlots, slot)
+		}
+		sort.Slice(orderedSlots, func(i, j int) bool {
+			return bytes.Compare(orderedSlots[i][:], orderedSlots[j][:]) < 0
+		})
+		for _, slot := range orderedSlots {
+			changes.Storage = append(changes.Storage, evmonly.StorageChange{
+				Address: address,
+				Key:     slot,
+				Value:   slots[slot],
+			})
+		}
+	}
+	return changes
 }
 
 func cloneBytes(v []byte) []byte {

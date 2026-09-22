@@ -11,8 +11,7 @@
 # Output is build/seid-<arch>, so the two architectures do not overwrite each other.
 #
 # Ubuntu's musl-gcc can't fully static-link on 24.04 (glibc libgcc needs _dl_find_object,
-# absent in musl) and zig cc rejects the -z muldefs flag needed for the libwasmvm
-# v152/v155 archives; Alpine's GNU ld + musl links cleanly. The pinned golang image
+# absent in musl); Alpine's GNU ld + musl links cleanly. The pinned golang image
 # digest is a multi-arch index, so the same pin serves both targets. Building a
 # non-native architecture needs binfmt registered on the host.
 #
@@ -52,7 +51,7 @@ esac
 
 echo "build-static: target linux/$ARCH, libgcc pin $LIBGCC_DIR"
 
-docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src golang:1.25.6-alpine@sha256:98e6cffc31ccc44c7c15d83df1d69891efee8115a5bb7ede2bf30a38af3e3c92 sh -c '
+docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 sh -c '
   set -e
   apk add --no-cache build-base git
   git config --global --add safe.directory /src

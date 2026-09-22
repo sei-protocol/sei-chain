@@ -6,7 +6,6 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -22,8 +21,8 @@ const (
 )
 
 // bankMetrics.newAccount mirrors sei-cosmos/x/bank/keeper/metrics.go's
-// instrument of the same name/scope so the two dual-emit paths merge into a
-// single bank_new_account series.
+// instrument of the same name/scope so the mirrored OTel counters merge into
+// a single bank_new_account series.
 var (
 	meter = otel.Meter(BankNewAccountMeter)
 
@@ -45,9 +44,9 @@ func must[V any](v V, err error) V {
 	return v
 }
 
-// recordNewAccounts dual-emits the legacy new-account counter and its OTel
-// counterpart (bank_new_account). Runs from consensus-critical send paths, so
-// a telemetry fault here must not panic into the caller.
+// recordNewAccounts increments the bank_new_account counter. Runs from
+// consensus-critical send paths, so a telemetry fault here must not panic
+// into the caller.
 func recordNewAccounts(ctx context.Context, count int64) {
 	if count <= 0 {
 		return
@@ -57,7 +56,5 @@ func recordNewAccounts(ctx context.Context, count int64) {
 			fmt.Fprintf(os.Stderr, "telemetry panic: %v\n%s", e, debug.Stack())
 		}
 	}()
-	// TODO(PLT-353): remove once bank_new_account verified
-	telemetry.IncrCounter(float32(count), "new", "account")
 	bankMetrics.newAccount.Add(ctx, count)
 }

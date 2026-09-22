@@ -14,6 +14,15 @@ import (
 // closed normally rather than failed. Detect it with errors.Is.
 var ErrViewManagerClosed = errors.New("view manager closed")
 
+// BatchUpdater produces the value to write for each of a batch's keys, from the value that key
+// currently holds. One BatchUpdater serves every key in a BatchUpdate call.
+type BatchUpdater interface {
+	// NewValueFor returns the value to write for key, or nil to delete it. priorValue is the value
+	// key currently holds, or nil if it holds none. Called concurrently, after BatchUpdate has
+	// returned, and must neither retain nor mutate priorValue.
+	NewValueFor(key string, priorValue []byte) ([]byte, error)
+}
+
 // ViewManager provides a read-through cache and efficient point-in-time views on top of a basic
 // key-value database. It also coordinates writes to the database, since efficient views require
 // careful staging of inserts.
@@ -46,7 +55,8 @@ type ViewManager interface {
 	// Get returns the value for the given key at the manager's current (mutable) version, or
 	// (nil, false, nil) if not found. On a miss the value is read through from the backing store.
 	//
-	// It is not safe to mutate the key slice after calling this method, nor the returned value slice.
+	// The key is read only for the duration of the call; the caller may reuse the slice once Get
+	// returns. The returned value slice must not be mutated.
 	Get(key []byte, updateLru bool) ([]byte, bool, error)
 
 	// BatchGet reads the given keys against the current (mutable) version and returns a map, keyed by
@@ -71,12 +81,25 @@ type ViewManager interface {
 	// Iterator).
 	BatchSet(updates []*proto.KVPair) error
 
+	// BatchUpdate stages a value for every key in keys, to be produced later by handing that key's
+	// prior value to updater. Where BatchSet takes the values, this takes a function of the values
+	// already stored.
+	//
+	// It returns as soon as the keys are staged, before any prior value has been read and before any
+	// value has been produced. From that moment the keys read as their new values: a read of one
+	// blocks until its value is available. A failure to produce a value is reported to whatever
+	// reads, hashes or flushes that key, and bricks the manager.
+	//
+	// keys must not repeat. Not visible to iterators created earlier (see Iterator).
+	BatchUpdate(keys []string, updater BatchUpdater) error
+
 	// Commit seals the current version as an immutable, point-in-time View and advances the
 	// manager to a fresh mutable version. The returned View is safe to read for as long as the
 	// caller holds a reservation on it; see View for the full lifecycle contract.
 	//
 	// Commit must not be called concurrently with operations on the current (mutable)
-	// version — Get, BatchGet, Set, Delete, BatchSet, or the construction of an Iterator. Reads of
+	// version — Get, BatchGet, Set, Delete, BatchSet, BatchUpdate, or the construction of an
+	// Iterator. Reads of
 	// sealed views may proceed concurrently with it, and so may reads through an already-constructed
 	// Iterator: an iterator is fixed at its creation instant, so a seal cannot disturb it.
 	//
@@ -98,7 +121,7 @@ type ViewManager interface {
 	// Equally, it will never show them — a caller that wants later writes needs a new iterator.
 	// Holding one is therefore safe from another thread, and does not block writes.
 	//
-	// Constructing an iterator must NOT race a BatchSet. Each shard's overrides are copied under that
+	// Constructing an iterator must NOT race a BatchSet or a BatchUpdate. Each shard's overrides are copied under that
 	// shard's own lock, so a batch spanning two shards during construction can leave the iterator
 	// holding part of it — a state belonging to no single instant, reported without an error. Serialize
 	// construction against BatchSet. Set and Delete each touch a single shard and so are seen either
@@ -173,13 +196,15 @@ type View interface {
 	// Name returns the name of the manager this view was taken from.
 	Name() string
 
-	// Get returns the value for the given key, or (nil, false, nil) if not found.
+	// Get returns the value for the given key, or (nil, false, nil) if not found. The key is read only
+	// for the duration of the call; the caller may reuse the slice once Get returns. The returned value
+	// slice must not be mutated.
 	Get(
 		// The entry to fetch.
 		key []byte,
-		// If true, the LRU queue will be updated. If false, the LRU queue will not be updated.
-		// Useful for when an operation is performed multiple times in close succession on the same key,
-		// since it requires non-zero overhead to do so with little benefit.
+		// If true, the entry's recency is recorded, making it a later candidate for cache eviction.
+		// Useful to set false when an operation is performed multiple times in close succession on the
+		// same key, since it requires non-zero overhead to do so with little benefit.
 		updateLru bool,
 	) ([]byte, bool, error)
 
