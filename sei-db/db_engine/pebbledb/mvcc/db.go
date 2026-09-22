@@ -698,7 +698,7 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+	b, err := NewBatch(db.storage, version, changesetPairs(changeset), db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return err
 	}
@@ -1268,7 +1268,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+		batch, err := NewBatch(db.storage, version, ImportCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
 		if err != nil {
 			panic(err)
 		}
@@ -1289,7 +1289,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, ImportCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					panic(err)
 				}
@@ -1374,7 +1374,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 
 func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 
-	batch, err := NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+	batch, err := NewBatch(db.storage, version, DeleteCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
@@ -1394,7 +1394,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 					return true
 				}
 				deleteCounter = 0
-				batch, err = NewBatch(db.storage, version, db.descending, db.dbName, db.operationMetrics)
+				batch, err = NewBatch(db.storage, version, DeleteCommitBatchSize, db.descending, db.dbName, db.operationMetrics)
 				if err != nil {
 					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
 					return true
@@ -1420,15 +1420,25 @@ func isMetadataKey(key []byte) bool {
 	return bytes.HasPrefix(key, []byte("s/_"))
 }
 
+// storePrefix returns the "s/k:<storeKey>/" prefix every key in a store carries.
 func storePrefix(storeKey string) []byte {
-	return []byte(fmt.Sprintf(StorePrefixTpl, storeKey))
+	dst := make([]byte, 0, len(PrefixStore)+len(storeKey)+1)
+	dst = append(dst, PrefixStore...)
+	dst = append(dst, storeKey...)
+	return append(dst, '/')
 }
 
+// prependStoreKey returns key behind its store's prefix, sized so the whole
+// result is one allocation. An empty storeKey returns key untouched.
 func prependStoreKey(storeKey string, key []byte) []byte {
 	if storeKey == "" {
 		return key
 	}
-	return append(storePrefix(storeKey), key...)
+	dst := make([]byte, 0, len(PrefixStore)+len(storeKey)+1+len(key))
+	dst = append(dst, PrefixStore...)
+	dst = append(dst, storeKey...)
+	dst = append(dst, '/')
+	return append(dst, key...)
 }
 
 // Parses store from key with format "s/k:{store}/..."
