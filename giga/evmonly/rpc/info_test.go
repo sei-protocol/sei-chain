@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -189,36 +192,51 @@ func TestFeeHistoryRewardFromStoredPercentiles(t *testing.T) {
 	require.Equal(t, []*big.Int{big.NewInt(100), big.NewInt(100), big.NewInt(100)}, toBigInts(result.Reward[0]))
 }
 
-func TestFeeHistoryFallsBackToFixedRewardForAnUnstoredPercentile(t *testing.T) {
+// TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts guards the feeHistory contract: a
+// percentile the cache doesn't cover must be recomputed from receipts, never guessed.
+func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	setBlockReceipt(t, store, 1, 10, 999) // reward value is irrelevant to the fallback slot
-	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+	tx, raw := testSignedTransaction(t)
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash:  tx.Hash(),
+		Receipt: &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 999},
+		Reward:  big.NewInt(999),
+	}}))
+	backend := testInfoBackend(1000, 1_000_000_000)
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{Block: &tmtypes.Block{Data: tmtypes.Data{Txs: tmtypes.Txs{tmtypes.Tx(raw)}}}}, nil
+	}
+	api := &infoAPI{backend: backend, store: store}
 
-	// 33 is not in receipt.DefaultRewardPercentiles, so its slot falls back to the fixed
-	// suggested price.
+	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes from receipts.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
-	require.Equal(t, []*big.Int{big.NewInt(1_100_000_000)}, toBigInts(result.Reward[0]))
+	require.Equal(t, []*big.Int{big.NewInt(999)}, toBigInts(result.Reward[0]))
 }
 
-// TestFeeHistoryPerPercentileFallbackKeepsStoredValuesForOthers guards the fix for a real review
-// finding: a miss on one requested percentile must not discard the real stored values for the
-// others in the same row.
-func TestFeeHistoryPerPercentileFallbackKeepsStoredValuesForOthers(t *testing.T) {
+// TestFeeHistoryRecomputesWholeRowWhenOnePercentileIsUncached guards the coverage rule: a miss on
+// one percentile recomputes the whole row from receipts, not a mix of cached and guessed values.
+func TestFeeHistoryRecomputesWholeRowWhenOnePercentileIsUncached(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
+	tx1, raw1 := testSignedTransactionWithNonce(t, 0)
+	tx2, raw2 := testSignedTransactionWithNonce(t, 1)
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
-		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 10}, Reward: big.NewInt(100)},
-		{TxHash: [32]byte{2}, Receipt: &evmtypes.Receipt{TxHashHex: "0x2", BlockNumber: 1, GasUsed: 10}, Reward: big.NewInt(300)},
+		{TxHash: tx1.Hash(), Receipt: &evmtypes.Receipt{TxHashHex: tx1.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 100}, Reward: big.NewInt(100)},
+		{TxHash: tx2.Hash(), Receipt: &evmtypes.Receipt{TxHashHex: tx2.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 300}, Reward: big.NewInt(300)},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+	backend := testInfoBackend(1000, 1_000_000_000)
+	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{Block: &tmtypes.Block{Data: tmtypes.Data{Txs: tmtypes.Txs{tmtypes.Tx(raw1), tmtypes.Tx(raw2)}}}}, nil
+	}
+	api := &infoAPI{backend: backend, store: store}
 
-	// 0 and 100 are stored (min/max); 33 is not.
+	// 0 and 100 are cached (min/max); 33 is not, so the whole row recomputes from receipts.
 	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{0, 33, 100})
 	require.NoError(t, err)
 	require.Len(t, result.Reward, 1)
 	require.Equal(t,
-		[]*big.Int{big.NewInt(100), big.NewInt(1_100_000_000), big.NewInt(300)},
+		[]*big.Int{big.NewInt(100), big.NewInt(100), big.NewInt(300)},
 		toBigInts(result.Reward[0]))
 }
 

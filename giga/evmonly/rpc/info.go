@@ -8,9 +8,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gmath "github.com/ethereum/go-ethereum/common/math"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 // maxFeeHistoryBlockCount caps a single eth_feeHistory request, matching
@@ -117,11 +119,8 @@ func emptyFeeHistoryResult() *FeeHistoryResult {
 	return &FeeHistoryResult{OldestBlock: (*hexutil.Big)(new(big.Int)), GasUsedRatio: []float64{}}
 }
 
-// FeeHistory returns gas-used ratios and base fees for the blockCount blocks ending at lastBlock.
-// baseFeePerGas is always zero, matching this application's fixed base fee. reward is per
-// percentile: the stored aggregate (see receipt.BlockStats) when that percentile was recorded for
-// the height, the suggested gas price otherwise — a real per-transaction reward needs a receipt
-// per transaction across the range, which this executor's receipt store has no bulk read for.
+// FeeHistory returns gas-used ratios, base fees, and reward percentiles for the blockCount blocks
+// ending at lastBlock. baseFeePerGas is always zero; see rewardRow for reward.
 func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock ethrpc.BlockNumber, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	if blockCount < 1 {
 		return emptyFeeHistoryResult(), nil
@@ -138,10 +137,6 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 		return nil, err
 	}
 
-	floor, err := api.backend.EvmMinGasPrice()
-	if err != nil {
-		return nil, err
-	}
 	// The current gas limit is applied to every block in the range; a gasUsedRatio for a block
 	// committed under a different limit would be wrong, but this executor has no record of a
 	// block's own limit to use instead.
@@ -150,7 +145,7 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 		return nil, err
 	}
 
-	return api.walkFeeHistoryRange(ctx, end, int64(blockCount), gasLimit, floor, rewardPercentiles)
+	return api.walkFeeHistoryRange(ctx, end, int64(blockCount), gasLimit, rewardPercentiles)
 }
 
 // resolveEndHeight turns lastBlock's tag or explicit height into a concrete, committed height.
@@ -180,7 +175,7 @@ func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error
 // walkFeeHistoryRange collects gasUsedRatio, baseFee, and (when requested) reward entries for the
 // blockCount blocks ending at end, oldest first, skipping heights below 1 and heights with no
 // recorded stats (pruned, or a block this store never wrote stats for).
-func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, floor *big.Int, rewardPercentiles []float64) (*FeeHistoryResult, error) {
+func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	result := &FeeHistoryResult{GasUsedRatio: []float64{}}
 	// lastGoodResult is the most recent contiguous run completed before a hole. If a hole is the
 	// last thing the loop sees (nothing after it has stats either), this is returned instead of
@@ -215,7 +210,11 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		result.GasUsedRatio = append(result.GasUsedRatio, gasUsedRatio(stats.TotalGasUsed, gasLimit))
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(new(big.Int)))
 		if len(rewardPercentiles) > 0 {
-			result.Reward = append(result.Reward, api.rewardRow(stats, floor, rewardPercentiles))
+			row, err := api.rewardRow(ctx, height, stats, rewardPercentiles)
+			if err != nil {
+				return nil, err
+			}
+			result.Reward = append(result.Reward, row)
 		}
 	}
 	if result.OldestBlock == nil {
@@ -246,30 +245,74 @@ func gasUsedRatio(totalGasUsed, gasLimit uint64) float64 {
 	return float64(ratioInt) / 10000.0
 }
 
-// rewardRow answers rewardPercentiles for stats, per percentile: the stored value when present,
-// the suggested gas price as a placeholder when a percentile wasn't precomputed, or zero for
-// every percentile when the block has no reward-eligible tx at all.
-func (api *infoAPI) rewardRow(stats receiptpkg.BlockStats, floor *big.Int, rewardPercentiles []float64) []*hexutil.Big {
+// rewardRow answers rewardPercentiles for the block at height: cached values when they cover
+// every percentile requested, otherwise an exact recomputation from that block's receipts.
+func (api *infoAPI) rewardRow(ctx context.Context, height int64, stats receiptpkg.BlockStats, rewardPercentiles []float64) ([]*hexutil.Big, error) {
+	if row, ok := cachedRewardRow(stats, rewardPercentiles); ok {
+		return row, nil
+	}
+	return api.recomputeRewardRow(ctx, height, rewardPercentiles)
+}
+
+// cachedRewardRow answers rewardPercentiles from stats, succeeding when it covers every
+// percentile requested (a block with no reward-eligible receipts always succeeds, at zero).
+func cachedRewardRow(stats receiptpkg.BlockStats, rewardPercentiles []float64) ([]*hexutil.Big, bool) {
 	row := make([]*hexutil.Big, len(rewardPercentiles))
 	if len(stats.RewardPercentiles) == 0 {
-		// No reward-eligible tx at all (including an empty block): every percentile is zero,
 		for i := range row {
 			row[i] = (*hexutil.Big)(new(big.Int))
 		}
-		return row
+		return row, true
 	}
-	guess := suggestedGasPrice(floor)
 	for i, p := range rewardPercentiles {
 		reward, ok := stats.RewardAt(p)
 		if !ok {
-			// This percentile wasn't precomputed, but others in the same row may have been — a
-			// miss on one must not discard the real values this block does have.
-			row[i] = (*hexutil.Big)(new(big.Int).Set(guess))
+			return nil, false
+		}
+		row[i] = (*hexutil.Big)(new(big.Int).SetUint64(reward))
+	}
+	return row, true
+}
+
+// recomputeRewardRow answers rewardPercentiles for height by reading its receipts directly and
+// running receiptpkg.ComputeBlockStats over exactly those percentiles.
+func (api *infoAPI) recomputeRewardRow(ctx context.Context, height int64, rewardPercentiles []float64) ([]*hexutil.Big, error) {
+	blockHeight := coretypes.Int64(height)
+	block, err := api.backend.Block(ctx, &coretypes.RequestBlockInfo{Height: &blockHeight})
+	if err != nil {
+		return nil, fmt.Errorf("read block %d to recompute reward percentiles: %w", height, err)
+	}
+	records := make([]receiptpkg.ReceiptRecord, 0, len(block.Block.Txs))
+	for _, txbz := range block.Block.Txs {
+		tx := new(ethtypes.Transaction)
+		if err := tx.UnmarshalBinary(txbz); err != nil {
+			return nil, fmt.Errorf("decode transaction in block %d: %w", height, err)
+		}
+		hash := tx.Hash()
+		stored, err := api.store.GetReceipt(receiptContext(ctx), hash)
+		if err != nil {
+			return nil, fmt.Errorf("read receipt %s for block %d: %w", hash, height, err)
+		}
+		var reward *big.Int
+		if stored.EffectiveGasPrice != 0 {
+			// giga's base fee is always zero, so the priority fee is the raw effective gas price.
+			reward = new(big.Int).SetUint64(stored.EffectiveGasPrice)
+		}
+		records = append(records, receiptpkg.ReceiptRecord{TxHash: hash, Receipt: stored, Reward: reward})
+	}
+
+	recomputed := receiptpkg.ComputeBlockStats(records, rewardPercentiles)
+	row := make([]*hexutil.Big, len(rewardPercentiles))
+	for i, p := range rewardPercentiles {
+		reward, ok := recomputed.RewardAt(p)
+		if !ok {
+			// No receipt in this block was reward-eligible: zero is exact here too.
+			row[i] = (*hexutil.Big)(new(big.Int))
 			continue
 		}
 		row[i] = (*hexutil.Big)(new(big.Int).SetUint64(reward))
 	}
-	return row
+	return row, nil
 }
 
 // validateRewardPercentiles rejects a percentiles list that is not strictly
