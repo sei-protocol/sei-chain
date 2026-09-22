@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"math"
 	"math/big"
 	"runtime/debug"
@@ -14,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -67,6 +67,8 @@ type Keepers struct {
 // QueryContextFunc returns a read-only context over the latest committed state.
 type QueryContextFunc func() (sdk.Context, error)
 
+var logger = seilog.NewLogger("cosmosmetrics")
+
 // maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
 const maxWalletEntries = 100
 
@@ -76,7 +78,6 @@ type Reporter struct {
 	cfg      Config
 	keepers  Keepers
 	queryCtx QueryContextFunc
-	logger   *slog.Logger
 	wallets  []sdk.AccAddress
 	scale    float64
 
@@ -96,7 +97,7 @@ type sample struct {
 }
 
 // NewReporter returns a Reporter for cfg. cfg must have passed ReadConfig.
-func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc, logger *slog.Logger) (*Reporter, error) {
+func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc) (*Reporter, error) {
 	wallets := make([]sdk.AccAddress, 0, len(cfg.WalletAddresses))
 	for _, addr := range cfg.WalletAddresses {
 		acc, err := sdk.AccAddressFromBech32(addr)
@@ -109,7 +110,6 @@ func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc, logger 
 		cfg:       cfg,
 		keepers:   keepers,
 		queryCtx:  queryCtx,
-		logger:    logger,
 		wallets:   wallets,
 		scale:     math.Pow10(int(cfg.DenomExponent)),
 		inst:      cosmosMetrics,
@@ -143,7 +143,7 @@ func (r *Reporter) Start() error {
 		close(stop)
 		<-stopped
 		if err := reg.Unregister(); err != nil {
-			r.logger.Error("cosmos metrics: unregister", "err", err)
+			logger.Error("cosmos metrics: unregister", "err", err)
 		}
 	})
 	return nil
@@ -176,13 +176,13 @@ func (r *Reporter) refresh() {
 func (r *Reporter) read() (samples []sample, ok bool) {
 	defer func() {
 		if p := recover(); p != nil {
-			r.logger.Error("cosmos metrics read panicked", "panic", p, "stack", string(debug.Stack()))
+			logger.Error("cosmos metrics read panicked", "panic", p, "stack", string(debug.Stack()))
 			samples, ok = nil, false
 		}
 	}()
 	ctx, err := r.queryCtx()
 	if err != nil {
-		r.logger.Error("cosmos metrics: no query context", "err", err)
+		logger.Error("cosmos metrics: no query context", "err", err)
 		return nil, false
 	}
 	b := &builder{inst: r.inst}
@@ -192,7 +192,7 @@ func (r *Reporter) read() (samples []sample, ok bool) {
 	r.readValidators(ctx, b, bondDenom)
 	r.readWallets(ctx, b, bondDenom)
 	for _, err := range b.errs {
-		r.logger.Error("cosmos metrics: metric skipped", "err", err)
+		logger.Error("cosmos metrics: metric skipped", "err", err)
 	}
 	return b.samples, true
 }

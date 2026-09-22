@@ -724,7 +724,7 @@ func New(
 			Slashing:     app.SlashingKeeper,
 			Distribution: app.DistrKeeper,
 			Bank:         app.BankKeeper,
-		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) }, logger)
+		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) })
 		if err != nil {
 			panic(fmt.Sprintf("error creating cosmos metrics reporter due to %s", err))
 		}

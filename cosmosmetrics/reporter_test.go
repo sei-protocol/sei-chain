@@ -132,6 +132,9 @@ func newTestReader(t *testing.T) *sdkmetric.ManualReader {
 func newTestReporter(t *testing.T, staking *fakeStaking, distribution fakeDistribution) (*Reporter, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
+	prev := logger
+	logger = slog.New(slog.NewTextHandler(logs, nil))
+	t.Cleanup(func() { logger = prev })
 	wallet := sdk.AccAddress(bytes.Repeat([]byte{9}, 20)).String()
 	cfg := DefaultConfig
 	cfg.Enabled = true
@@ -142,7 +145,7 @@ func newTestReporter(t *testing.T, staking *fakeStaking, distribution fakeDistri
 		Slashing:     fakeSlashing{},
 		Distribution: distribution,
 		Bank:         fakeBank{},
-	}, func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil }, slog.New(slog.NewTextHandler(logs, nil)))
+	}, func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil })
 	require.NoError(t, err)
 	return c, logs
 }
