@@ -527,7 +527,8 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 	oracleQuery := chain.Seid("", "q", "oracle", "exchange-rates", "--output", "json")
 	chain.WriteDiagnostic(t, "v67-oracle-query.stdout", []byte(oracleQuery.Stdout))
 	chain.WriteDiagnostic(t, "v67-oracle-query.stderr", []byte(oracleQuery.Stderr))
-	require.Contains(t, oracleQuery.Combined(), "oracle module is deprecated")
+	require.Error(t, oracleQuery.Err, "v6.7 still exposes the retired oracle query command")
+	require.Contains(t, oracleQuery.Combined(), `unknown command "oracle"`)
 
 	requireV67EscrowShapedBankState(t, chain)
 	requireV67IBCTransferQueriesGone(t, chain)
