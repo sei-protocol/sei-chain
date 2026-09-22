@@ -64,6 +64,7 @@ func (f *failingEVMStore) HashCategories() []string                      { retur
 func (f *failingEVMStore) RecordHashes(hashlog.HashLogger, uint64) error { return nil }
 func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error            { return nil }
 func (f *failingEVMStore) Close() error                                  { return nil }
+func (f *failingEVMStore) Flush() error                                  { return nil }
 
 func padLeft32(val ...byte) []byte {
 	var b [32]byte

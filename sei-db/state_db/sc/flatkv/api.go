@@ -130,6 +130,10 @@ type Store interface {
 	// RecordHashes reports this store's hashes (root + per-DB) for blockNumber. Call right after Commit.
 	RecordHashes(hl hashlog.HashLogger, blockNumber uint64) error
 
+	// Flush blocks until every block committed so far has been written to the store's WAL. It does not
+	// fsync. A store whose Commit writes the WAL synchronously returns immediately.
+	Flush() error
+
 	// Version returns the latest committed version.
 	Version() int64
 
