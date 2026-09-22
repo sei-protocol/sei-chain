@@ -24,8 +24,12 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
-// maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
-const maxWalletEntries = 100
+const (
+	// maxValidators bounds the validators read per refresh; anyone can create a validator.
+	maxValidators = 1000
+	// maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
+	maxWalletEntries = 100
+)
 
 var logger = seilog.NewLogger("cosmosmetrics")
 
@@ -33,7 +37,7 @@ var logger = seilog.NewLogger("cosmosmetrics")
 type StakingKeeper interface {
 	GetParams(sdk.Context) stakingtypes.Params
 	BondDenom(sdk.Context) string
-	GetAllValidators(sdk.Context) []stakingtypes.Validator
+	GetValidators(sdk.Context, uint32) []stakingtypes.Validator
 	GetValidator(sdk.Context, sdk.ValAddress) (stakingtypes.Validator, bool)
 	GetBondedPool(sdk.Context) authtypes.ModuleAccountI
 	GetNotBondedPool(sdk.Context) authtypes.ModuleAccountI
@@ -231,7 +235,10 @@ func (r *Reporter) readGeneral(ctx sdk.Context, b *builder, bondDenom string) {
 }
 
 func (r *Reporter) readValidators(ctx sdk.Context, b *builder, bondDenom string) {
-	validators := r.keepers.Staking.GetAllValidators(ctx)
+	validators := r.keepers.Staking.GetValidators(ctx, maxValidators)
+	if len(validators) >= maxValidators {
+		b.errs = append(b.errs, fmt.Errorf("validators truncated at %d entries", maxValidators))
+	}
 	sort.SliceStable(validators, func(i, j int) bool {
 		return validators[i].Tokens.GT(validators[j].Tokens)
 	})

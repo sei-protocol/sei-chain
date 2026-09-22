@@ -3,6 +3,7 @@ package cosmosmetrics
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"log/slog"
@@ -55,8 +56,8 @@ func (f *fakeStaking) BondDenom(sdk.Context) string {
 	}
 	return testDenom
 }
-func (f *fakeStaking) GetAllValidators(sdk.Context) []stakingtypes.Validator {
-	return append([]stakingtypes.Validator(nil), f.validators...)
+func (f *fakeStaking) GetValidators(_ sdk.Context, maxRetrieve uint32) []stakingtypes.Validator {
+	return append([]stakingtypes.Validator(nil), f.validators[:min(len(f.validators), int(maxRetrieve))]...)
 }
 func (f *fakeStaking) GetValidator(_ sdk.Context, addr sdk.ValAddress) (stakingtypes.Validator, bool) {
 	for _, v := range f.validators {
@@ -329,6 +330,27 @@ func TestReadLogsTruncatedWalletEntries(t *testing.T) {
 	c.refresh()
 	require.Contains(t, logs.String(), "redelegations truncated", "the truncated read was not logged")
 	require.NotNil(t, c.snapshot.Load(), "a truncated read must still publish a snapshot")
+}
+
+func TestReadLogsTruncatedValidators(t *testing.T) {
+	newTestReader(t)
+	validators := make([]stakingtypes.Validator, 0, maxValidators+5)
+	for i := range cap(validators) {
+		v := newValidator(t, 1, 1, stakingtypes.Unbonded)
+		v.OperatorAddress = sdk.ValAddress(binary.BigEndian.AppendUint32(bytes.Repeat([]byte{1}, 16), uint32(i))).String()
+		validators = append(validators, v)
+	}
+	staking := &fakeStaking{validators: validators}
+	c, logs := newTestReporter(t, staking, fakeDistribution{})
+	c.refresh()
+	require.Contains(t, logs.String(), "validators truncated", "the truncated read was not logged")
+	ranks := 0
+	for _, s := range *c.snapshot.Load() {
+		if s.inst == cosmosMetrics.validatorsRank {
+			ranks++
+		}
+	}
+	require.Equal(t, maxValidators, ranks, "the snapshot must hold only the capped validators")
 }
 
 func TestRefreshSurvivesAFailedRead(t *testing.T) {
