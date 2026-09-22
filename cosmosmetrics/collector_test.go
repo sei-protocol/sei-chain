@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/testutil"
-	dto "github.com/prometheus/client_model/go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -20,7 +22,6 @@ import (
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 const testDenom = "usei"
@@ -101,12 +102,6 @@ func (fakeBank) GetSupply(_ sdk.Context, denom string) sdk.Coin {
 	return sdk.NewInt64Coin(denom, 10_000_000_000)
 }
 
-type fakeOracle struct{}
-
-func (fakeOracle) GetVotePenaltyCounter(sdk.Context, sdk.ValAddress) oracletypes.VotePenaltyCounter {
-	return oracletypes.VotePenaltyCounter{MissCount: 1, AbstainCount: 2, SuccessCount: 3}
-}
-
 func newValidator(t *testing.T, seed byte, tokens int64, status stakingtypes.BondStatus) stakingtypes.Validator {
 	t.Helper()
 	pk := ed25519.GenPrivKeyFromSecret([]byte{seed}).PubKey()
@@ -121,19 +116,29 @@ func newValidator(t *testing.T, seed byte, tokens int64, status stakingtypes.Bon
 	return v
 }
 
+// newTestReader installs a manual OTel reader as the global provider for the test.
+func newTestReader(t *testing.T) *sdkmetric.ManualReader {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+	return reader
+}
+
 func newTestCollector(t *testing.T, staking *fakeStaking, distribution fakeDistribution) (*Collector, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
 	wallet := sdk.AccAddress(bytes.Repeat([]byte{9}, 20)).String()
 	cfg := DefaultConfig
 	cfg.Enabled = true
+	cfg.RefreshInterval = time.Hour
 	cfg.WalletAddresses = []string{wallet}
 	c, err := NewCollector(cfg, Keepers{
 		Staking:      staking,
 		Slashing:     fakeSlashing{},
 		Distribution: distribution,
 		Bank:         fakeBank{},
-		Oracle:       fakeOracle{},
 	}, func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil }, slog.New(slog.NewTextHandler(logs, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -141,33 +146,69 @@ func newTestCollector(t *testing.T, staking *fakeStaking, distribution fakeDistr
 	return c, logs
 }
 
-func TestCollectReportsTheExporterGauges(t *testing.T) {
+func collect(t *testing.T, reader *sdkmetric.ManualReader) []metricdata.Metrics {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var out []metricdata.Metrics
+	for _, sm := range rm.ScopeMetrics {
+		out = append(out, sm.Metrics...)
+	}
+	return out
+}
+
+// gaugeValue finds the gauge of name whose attribute set equals attrs.
+func gaugeValue(metrics []metricdata.Metrics, name string, attrs map[string]string) (float64, bool) {
+	want := make([]attribute.KeyValue, 0, len(attrs))
+	for k, v := range attrs {
+		want = append(want, attribute.String(k, v))
+	}
+	wantSet := attribute.NewSet(want...)
+	for _, m := range metrics {
+		if m.Name != name {
+			continue
+		}
+		g, ok := m.Data.(metricdata.Gauge[float64])
+		if !ok {
+			continue
+		}
+		for _, dp := range g.DataPoints {
+			if dp.Attributes.Equals(&wantSet) {
+				return dp.Value, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func TestStartReportsTheExporterGauges(t *testing.T) {
+	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{
 		newValidator(t, 1, 4_000_000, stakingtypes.Bonded),
 		newValidator(t, 2, 9_000_000, stakingtypes.Unbonded),
 	}}
 	c, logs := newTestCollector(t, staking, fakeDistribution{})
-	reg := prometheus.NewPedanticRegistry()
-	if err := c.Register(reg); err != nil {
+	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(c.Stop)
+	waitForSnapshot(t, c)
 
-	families, err := reg.Gather()
-	if err != nil {
-		t.Fatal(err)
-	}
+	metrics := collect(t, reader)
 	got := map[string]bool{}
-	for _, f := range families {
-		got[f.GetName()] = true
+	for _, m := range metrics {
+		got[m.Name] = true
 	}
 	for _, name := range []string{
 		"cosmos_params_max_validators", "cosmos_params_signed_blocks_window", "cosmos_params_community_tax",
 		"cosmos_general_bonded_tokens", "cosmos_general_community_pool", "cosmos_general_supply_total",
 		"cosmos_validators_active", "cosmos_validators_rank", "cosmos_validators_missed_blocks",
-		"cosmos_wallet_balance", "cosmos_wallet_delegations", "cosmos_oracle_vote_penalty_count",
+		"cosmos_wallet_balance", "cosmos_wallet_delegations",
 	} {
 		if !got[name] {
-			t.Errorf("%s was not gathered", name)
+			t.Errorf("%s was not collected", name)
 		}
 	}
 	if logs.Len() != 0 {
@@ -177,9 +218,9 @@ func TestCollectReportsTheExporterGauges(t *testing.T) {
 	bonded, unbonded := staking.validators[0], staking.validators[1]
 	wallet := c.wallets[0].String()
 	for _, tc := range []struct {
-		name   string
-		labels map[string]string
-		want   float64
+		name  string
+		attrs map[string]string
+		want  float64
 	}{
 		{"cosmos_params_max_validators", nil, 50},
 		{"cosmos_general_bonded_tokens", nil, 700},
@@ -193,19 +234,34 @@ func TestCollectReportsTheExporterGauges(t *testing.T) {
 		{"cosmos_validators_active", map[string]string{"address": unbonded.OperatorAddress, "moniker": "valc", "pubkey_hash": strings.ToUpper(hex.EncodeToString(unbondedCons(t, unbonded)))}, 0},
 		{"cosmos_wallet_balance", map[string]string{"address": wallet, "denom": "usei"}, 2.5},
 		{"cosmos_wallet_delegations", map[string]string{"address": wallet, "denom": "usei", "delegated_to": bonded.OperatorAddress}, 3},
-		{"cosmos_oracle_vote_penalty_count", map[string]string{"address": bonded.OperatorAddress, "moniker": "valb", "type": "abstain"}, 2},
 	} {
-		got, ok := sampleValue(families, tc.name, tc.labels)
+		got, ok := gaugeValue(metrics, tc.name, tc.attrs)
 		if !ok {
-			t.Errorf("%s%v has no sample", tc.name, tc.labels)
+			t.Errorf("%s%v has no data point", tc.name, tc.attrs)
 			continue
 		}
 		if got != tc.want {
-			t.Errorf("%s%v = %v, want %v", tc.name, tc.labels, got, tc.want)
+			t.Errorf("%s%v = %v, want %v", tc.name, tc.attrs, got, tc.want)
 		}
 	}
-	if _, ok := sampleValue(families, "cosmos_validators_missed_blocks", map[string]string{"address": unbonded.OperatorAddress, "moniker": "valc"}); ok {
+	if _, ok := gaugeValue(metrics, "cosmos_validators_missed_blocks", map[string]string{"address": unbonded.OperatorAddress, "moniker": "valc"}); ok {
 		t.Error("missed blocks reported for a validator outside the active set")
+	}
+
+	c.Stop()
+	if len(collect(t, reader)) != 0 {
+		t.Error("gauges still observed after Stop")
+	}
+}
+
+func waitForSnapshot(t *testing.T, c *Collector) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for c.snapshot.Load() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the first refresh did not complete")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -218,86 +274,69 @@ func unbondedCons(t *testing.T, v stakingtypes.Validator) sdk.ConsAddress {
 	return addr
 }
 
-// sampleValue finds the gauge of name whose label set equals labels.
-func sampleValue(families []*dto.MetricFamily, name string, labels map[string]string) (float64, bool) {
-	for _, f := range families {
-		if f.GetName() != name {
-			continue
-		}
-		for _, m := range f.GetMetric() {
-			if len(m.GetLabel()) != len(labels) {
-				continue
-			}
-			match := true
-			for _, l := range m.GetLabel() {
-				if labels[l.GetName()] != l.GetValue() {
-					match = false
-					break
-				}
-			}
-			if match {
-				return m.GetGauge().GetValue(), true
-			}
-		}
-	}
-	return 0, false
-}
-
-func TestCollectServesTheCacheWithinTheRefreshInterval(t *testing.T) {
+func TestObserveServesTheSnapshotBetweenRefreshes(t *testing.T) {
+	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, _ := newTestCollector(t, staking, fakeDistribution{})
-	now := time.Unix(1000, 0)
-	c.now = func() time.Time { return now }
-
-	gather := func() {
-		if _, err := testutil.CollectAndLint(c); err != nil {
-			t.Fatal(err)
-		}
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
 	}
-	gather()
-	gather()
+	t.Cleanup(c.Stop)
+	waitForSnapshot(t, c)
+
+	collect(t, reader)
+	collect(t, reader)
 	if staking.calls != 1 {
 		t.Fatalf("state was read %d times within one refresh interval, want 1", staking.calls)
 	}
-	now = now.Add(c.cfg.RefreshInterval)
-	gather()
+	c.refresh()
 	if staking.calls != 2 {
-		t.Fatalf("state was read %d times after the refresh interval elapsed, want 2", staking.calls)
+		t.Fatalf("state was read %d times after a refresh, want 2", staking.calls)
 	}
 }
 
-func TestCollectSurvivesAFailedRead(t *testing.T) {
+func TestRefreshSurvivesAFailedRead(t *testing.T) {
+	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, logs := newTestCollector(t, staking, fakeDistribution{rewardsErr: errors.New("boom")})
-	if _, err := testutil.CollectAndLint(c); err != nil {
+	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(c.Stop)
+	waitForSnapshot(t, c)
 	if !strings.Contains(logs.String(), "boom") {
 		t.Fatalf("the rewards failure was not logged: %s", logs.String())
 	}
+	before := len(collect(t, reader))
+	if before == 0 {
+		t.Fatal("a failed rewards read must not drop the other gauges")
+	}
 
 	c.queryCtx = func() (sdk.Context, error) { return sdk.Context{}, errors.New("no state") }
-	c.cached = nil
-	c.now = func() time.Time { return time.Now().Add(time.Hour) }
-	n, err := testutil.GatherAndCount(collectorGatherer{c})
-	if err != nil || n != 0 {
-		t.Fatalf("a failed read must yield no samples, got %d, %v", n, err)
+	c.refresh()
+	if !strings.Contains(logs.String(), "no state") {
+		t.Fatalf("the missing query context was not logged: %s", logs.String())
+	}
+	if after := len(collect(t, reader)); after != before {
+		t.Fatalf("a failed read replaced the snapshot: %d metrics, want %d", after, before)
 	}
 
 	c.queryCtx = func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil }
 	c.keepers.Staking = nil
-	if n, err := testutil.GatherAndCount(collectorGatherer{c}); err != nil || n != 0 {
-		t.Fatalf("a panicking read must be recovered and yield no samples, got %d, %v", n, err)
-	}
+	c.refresh()
 	if !strings.Contains(logs.String(), "panicked") {
 		t.Fatalf("the panic was not logged: %s", logs.String())
+	}
+	if after := len(collect(t, reader)); after != before {
+		t.Fatalf("a panicking read replaced the snapshot: %d metrics, want %d", after, before)
 	}
 }
 
 func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
+	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, _ := newTestCollector(t, staking, fakeDistribution{})
-	c.transfers = newTransferGauge(1_000, 50*time.Millisecond)
+	c.transfers = newTransferRecorder(c.inst.bankTransferAmount, 1_000)
 
 	transfer := func(amount string) abci.Event {
 		return abci.Event{Type: "transfer", Attributes: []abci.EventAttribute{
@@ -306,35 +345,24 @@ func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 			{Key: []byte("amount"), Value: []byte(amount)},
 		}}
 	}
-	c.ObserveTxResults([]*abci.ExecTxResult{
+	c.ObserveTxResults(context.Background(), []*abci.ExecTxResult{
 		{Code: 0, Events: []abci.Event{transfer("999usei"), transfer("5000usei,20factory/x/y")}},
 		{Code: 1, Events: []abci.Event{transfer("7000usei")}},
 		nil,
 	})
 
-	if n := testutil.CollectAndCount(c.transfers.gauge); n != 1 {
-		t.Fatalf("got %d transfer samples, want 1", n)
-	}
-	got := testutil.ToFloat64(c.transfers.gauge.WithLabelValues("usei", "sei1from", "sei1to"))
-	if got != 5000 {
-		t.Fatalf("transfer amount = %v, want 5000", got)
-	}
-
-	deadline := time.Now().Add(5 * time.Second)
-	for testutil.CollectAndCount(c.transfers.gauge) != 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the transfer sample was not expired")
+	metrics := collect(t, reader)
+	var points int
+	for _, m := range metrics {
+		if m.Name == "cosmos_bank_transfer_amount" {
+			points += len(m.Data.(metricdata.Gauge[float64]).DataPoints)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-}
-
-type collectorGatherer struct{ c *Collector }
-
-func (g collectorGatherer) Gather() ([]*dto.MetricFamily, error) {
-	reg := prometheus.NewPedanticRegistry()
-	if err := reg.Register(g.c); err != nil {
-		return nil, err
+	if points != 1 {
+		t.Fatalf("got %d transfer data points, want 1", points)
 	}
-	return reg.Gather()
+	got, ok := gaugeValue(metrics, "cosmos_bank_transfer_amount", map[string]string{"denom": "usei", "sender": "sei1from", "recipient": "sei1to"})
+	if !ok || got != 5000 {
+		t.Fatalf("transfer amount = %v (%v), want 5000", got, ok)
+	}
 }

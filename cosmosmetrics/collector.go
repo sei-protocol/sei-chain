@@ -11,15 +11,18 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	distrtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/types"
 	slashingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/slashing/types"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 // StakingKeeper is the staking state the collector reads.
@@ -54,18 +57,12 @@ type BankKeeper interface {
 	GetSupply(ctx sdk.Context, denom string) sdk.Coin
 }
 
-// OracleKeeper is the oracle state the collector reads.
-type OracleKeeper interface {
-	GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) oracletypes.VotePenaltyCounter
-}
-
 // Keepers groups the module state the collector reads.
 type Keepers struct {
 	Staking      StakingKeeper
 	Slashing     SlashingKeeper
 	Distribution DistributionKeeper
 	Bank         BankKeeper
-	Oracle       OracleKeeper
 }
 
 // QueryContextFunc returns a read-only context over the latest committed state.
@@ -74,7 +71,8 @@ type QueryContextFunc func() (sdk.Context, error)
 // maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
 const maxWalletEntries = 100
 
-// Collector is a prometheus.Collector for the cosmos_* gauges, read from the node's own keepers.
+// Collector reports the cosmos_* gauges from the node's own keepers as OTel observables
+// over a periodically refreshed snapshot of committed state.
 type Collector struct {
 	cfg      Config
 	keepers  Keepers
@@ -83,12 +81,19 @@ type Collector struct {
 	wallets  []sdk.AccAddress
 	scale    float64
 
-	mu          sync.Mutex
-	lastRefresh time.Time
-	cached      []prometheus.Metric
+	inst     *instruments
+	snapshot atomic.Pointer[[]sample]
 
-	transfers *transferGauge
-	now       func() time.Time
+	transfers *transferRecorder
+
+	stop func()
+}
+
+// sample is one observed value of an asynchronous gauge.
+type sample struct {
+	inst  metric.Float64Observable
+	value float64
+	attrs metric.ObserveOption
 }
 
 // NewCollector returns a Collector for cfg. cfg must have passed ReadConfig.
@@ -101,6 +106,10 @@ func NewCollector(cfg Config, keepers Keepers, queryCtx QueryContextFunc, logger
 		}
 		wallets = append(wallets, acc)
 	}
+	inst, err := newInstruments(otel.Meter(meterName))
+	if err != nil {
+		return nil, err
+	}
 	return &Collector{
 		cfg:       cfg,
 		keepers:   keepers,
@@ -108,56 +117,72 @@ func NewCollector(cfg Config, keepers Keepers, queryCtx QueryContextFunc, logger
 		logger:    logger,
 		wallets:   wallets,
 		scale:     math.Pow10(int(cfg.DenomExponent)),
-		transfers: newTransferGauge(cfg.BankTransferThreshold, transferTTL),
-		now:       time.Now,
+		inst:      inst,
+		transfers: newTransferRecorder(inst.bankTransferAmount, cfg.BankTransferThreshold),
+		stop:      func() {},
 	}, nil
 }
 
-// Register adds the collector and the bank transfer gauge to reg.
-func (c *Collector) Register(reg prometheus.Registerer) error {
-	if err := reg.Register(c); err != nil {
+// Start registers the observables and begins refreshing the snapshot every RefreshInterval.
+func (c *Collector) Start() error {
+	reg, err := otel.Meter(meterName).RegisterCallback(c.observe, c.inst.observables()...)
+	if err != nil {
 		return err
 	}
-	if err := reg.Register(c.transfers.gauge); err != nil {
-		reg.Unregister(c)
-		return err
+	ticker := time.NewTicker(c.cfg.RefreshInterval)
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		defer ticker.Stop()
+		c.refresh()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				c.refresh()
+			}
+		}
+	}()
+	c.stop = sync.OnceFunc(func() {
+		close(stop)
+		<-stopped
+		if err := reg.Unregister(); err != nil {
+			c.logger.Error("cosmos metrics: unregister", "err", err)
+		}
+	})
+	return nil
+}
+
+// Stop ends refreshing and unregisters the observables. It waits for an in-flight refresh.
+func (c *Collector) Stop() {
+	c.stop()
+}
+
+func (c *Collector) observe(_ context.Context, o metric.Observer) error {
+	if samples := c.snapshot.Load(); samples != nil {
+		for _, s := range *samples {
+			o.ObserveFloat64(s.inst, s.value, s.attrs)
+		}
 	}
 	return nil
 }
 
-// Unregister removes what Register added.
-func (c *Collector) Unregister(reg prometheus.Registerer) {
-	reg.Unregister(c)
-	reg.Unregister(c.transfers.gauge)
-}
-
-// Describe implements prometheus.Collector as an unchecked collector, since the set of label values
-// is only known once state has been read.
-func (c *Collector) Describe(chan<- *prometheus.Desc) {}
-
-// Collect implements prometheus.Collector. State is re-read at most once per RefreshInterval.
-func (c *Collector) Collect(ch chan<- prometheus.Metric) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	now := c.now()
-	if c.cached == nil || now.Sub(c.lastRefresh) >= c.cfg.RefreshInterval {
-		if metrics, ok := c.read(); ok {
-			c.cached = metrics
-			c.lastRefresh = now
-		}
-	}
-	for _, m := range c.cached {
-		ch <- m
+// refresh replaces the snapshot with a fresh read of committed state, keeping the previous one
+// if the read fails.
+func (c *Collector) refresh() {
+	if samples, ok := c.read(); ok {
+		c.snapshot.Store(&samples)
 	}
 }
 
 // read collects every gauge from the latest committed state. A panic in any keeper read is
-// recovered and reported as a failed read so a scrape never takes the node down.
-func (c *Collector) read() (metrics []prometheus.Metric, ok bool) {
+// recovered and reported as a failed read so a refresh never takes the node down.
+func (c *Collector) read() (samples []sample, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.logger.Error("cosmos metrics read panicked", "panic", r, "stack", string(debug.Stack()))
-			metrics, ok = nil, false
+			samples, ok = nil, false
 		}
 	}()
 	ctx, err := c.queryCtx()
@@ -165,7 +190,7 @@ func (c *Collector) read() (metrics []prometheus.Metric, ok bool) {
 		c.logger.Error("cosmos metrics: no query context", "err", err)
 		return nil, false
 	}
-	b := &builder{}
+	b := &builder{inst: c.inst}
 	bondDenom := c.keepers.Staking.BondDenom(ctx)
 	c.readParams(ctx, b)
 	c.readGeneral(ctx, b, bondDenom)
@@ -174,37 +199,37 @@ func (c *Collector) read() (metrics []prometheus.Metric, ok bool) {
 	for _, err := range b.errs {
 		c.logger.Error("cosmos metrics: metric skipped", "err", err)
 	}
-	return b.metrics, true
+	return b.samples, true
 }
 
 func (c *Collector) readParams(ctx sdk.Context, b *builder) {
 	staking := c.keepers.Staking.GetParams(ctx)
-	b.gauge(descParamsMaxValidators, float64(staking.MaxValidators))
-	b.gauge(descParamsUnbondingTime, staking.UnbondingTime.Seconds())
+	b.gauge(b.inst.paramsMaxValidators, float64(staking.MaxValidators))
+	b.gauge(b.inst.paramsUnbondingTime, staking.UnbondingTime.Seconds())
 
 	slashing := c.keepers.Slashing.GetParams(ctx)
-	b.gauge(descParamsDowntimeJailDuration, slashing.DowntimeJailDuration.Seconds())
-	b.gauge(descParamsSignedBlocksWindow, float64(slashing.SignedBlocksWindow))
-	b.dec(descParamsMinSignedPerWindow, slashing.MinSignedPerWindow)
-	b.dec(descParamsSlashFractionDoubleSign, slashing.SlashFractionDoubleSign)
-	b.dec(descParamsSlashFractionDowntime, slashing.SlashFractionDowntime)
+	b.gauge(b.inst.paramsDowntimeJailDuration, slashing.DowntimeJailDuration.Seconds())
+	b.gauge(b.inst.paramsSignedBlocksWindow, float64(slashing.SignedBlocksWindow))
+	b.dec(b.inst.paramsMinSignedPerWindow, slashing.MinSignedPerWindow)
+	b.dec(b.inst.paramsSlashFractionDoubleSign, slashing.SlashFractionDoubleSign)
+	b.dec(b.inst.paramsSlashFractionDowntime, slashing.SlashFractionDowntime)
 
 	distr := c.keepers.Distribution.GetParams(ctx)
-	b.dec(descParamsBaseProposerReward, distr.BaseProposerReward)
-	b.dec(descParamsBonusProposerReward, distr.BonusProposerReward)
-	b.dec(descParamsCommunityTax, distr.CommunityTax)
+	b.dec(b.inst.paramsBaseProposerReward, distr.BaseProposerReward)
+	b.dec(b.inst.paramsBonusProposerReward, distr.BonusProposerReward)
+	b.dec(b.inst.paramsCommunityTax, distr.CommunityTax)
 }
 
 func (c *Collector) readGeneral(ctx sdk.Context, b *builder, bondDenom string) {
 	bonded := c.keepers.Bank.GetBalance(ctx, c.keepers.Staking.GetBondedPool(ctx).GetAddress(), bondDenom)
 	notBonded := c.keepers.Bank.GetBalance(ctx, c.keepers.Staking.GetNotBondedPool(ctx).GetAddress(), bondDenom)
-	b.int(descGeneralBondedTokens, bonded.Amount, 1)
-	b.int(descGeneralNotBondedTokens, notBonded.Amount, 1)
+	b.int(b.inst.generalBondedTokens, bonded.Amount, 1)
+	b.int(b.inst.generalNotBondedTokens, notBonded.Amount, 1)
 	for _, coin := range c.keepers.Distribution.GetFeePoolCommunityCoins(ctx) {
-		b.decScaled(descGeneralCommunityPool, coin.Amount, c.scaleFor(coin.Denom, bondDenom), coin.Denom)
+		b.decScaled(b.inst.generalCommunityPool, coin.Amount, c.scaleFor(coin.Denom, bondDenom), denomAttr(coin.Denom))
 	}
 	supply := c.keepers.Bank.GetSupply(ctx, bondDenom)
-	b.int(descGeneralSupplyTotal, supply.Amount, c.scale, bondDenom)
+	b.int(b.inst.generalSupplyTotal, supply.Amount, c.scale, denomAttr(bondDenom))
 }
 
 func (c *Collector) readValidators(ctx sdk.Context, b *builder, bondDenom string) {
@@ -213,70 +238,72 @@ func (c *Collector) readValidators(ctx sdk.Context, b *builder, bondDenom string
 		return validators[i].Tokens.GT(validators[j].Tokens)
 	})
 	for rank, v := range validators {
-		addr, moniker := v.OperatorAddress, v.Description.Moniker
-		b.dec(descValidatorsCommission, v.Commission.Rate, addr, moniker)
-		b.gauge(descValidatorsStatus, float64(v.Status), addr, moniker)
-		b.gauge(descValidatorsJailed, boolToFloat(v.Jailed), addr, moniker)
-		b.int(descValidatorsTokens, v.Tokens, c.scale, addr, moniker, bondDenom)
-		b.decScaled(descValidatorsDelegatorShares, v.DelegatorShares, c.scale, addr, moniker, bondDenom)
-		b.int(descValidatorsMinSelfDelegation, v.MinSelfDelegation, c.scale, addr, moniker, bondDenom)
-		b.gauge(descValidatorsRank, float64(rank+1), addr, moniker)
+		addr, moniker := addressAttr(v.OperatorAddress), attribute.String("moniker", v.Description.Moniker)
+		denom := denomAttr(bondDenom)
+		b.dec(b.inst.validatorsCommission, v.Commission.Rate, addr, moniker)
+		b.gauge(b.inst.validatorsStatus, float64(v.Status), addr, moniker)
+		b.gauge(b.inst.validatorsJailed, boolToFloat(v.Jailed), addr, moniker)
+		b.int(b.inst.validatorsTokens, v.Tokens, c.scale, addr, moniker, denom)
+		b.decScaled(b.inst.validatorsDelegatorShares, v.DelegatorShares, c.scale, addr, moniker, denom)
+		b.int(b.inst.validatorsMinSelfDelegation, v.MinSelfDelegation, c.scale, addr, moniker, denom)
+		b.gauge(b.inst.validatorsRank, float64(rank+1), addr, moniker)
 
 		consAddr, err := v.GetConsAddr()
 		if err != nil {
-			b.errs = append(b.errs, fmt.Errorf("validator %s: consensus address: %w", addr, err))
+			b.errs = append(b.errs, fmt.Errorf("validator %s: consensus address: %w", v.OperatorAddress, err))
 			continue
 		}
-		b.gauge(descValidatorsActive, boolToFloat(v.IsBonded()), addr, strings.ToUpper(hex.EncodeToString(consAddr)), moniker)
+		pubkeyHash := attribute.String("pubkey_hash", strings.ToUpper(hex.EncodeToString(consAddr)))
+		b.gauge(b.inst.validatorsActive, boolToFloat(v.IsBonded()), addr, pubkeyHash, moniker)
 		if !v.IsBonded() {
 			continue
 		}
 		if info, found := c.keepers.Slashing.GetValidatorSigningInfo(ctx, consAddr); found {
-			b.gauge(descValidatorsMissedBlocks, float64(info.MissedBlocksCounter), addr, moniker)
+			b.gauge(b.inst.validatorsMissedBlocks, float64(info.MissedBlocksCounter), addr, moniker)
 		}
-		penalty := c.keepers.Oracle.GetVotePenaltyCounter(ctx, v.GetOperator())
-		b.gauge(descOracleVotePenaltyCount, float64(penalty.MissCount), addr, moniker, "miss")
-		b.gauge(descOracleVotePenaltyCount, float64(penalty.AbstainCount), addr, moniker, "abstain")
-		b.gauge(descOracleVotePenaltyCount, float64(penalty.SuccessCount), addr, moniker, "success")
 	}
 }
 
 func (c *Collector) readWallets(ctx sdk.Context, b *builder, bondDenom string) {
+	denom := denomAttr(bondDenom)
 	for _, acc := range c.wallets {
-		addr := acc.String()
+		addr := addressAttr(acc.String())
 		balance := c.keepers.Bank.GetBalance(ctx, acc, bondDenom)
-		b.int(descWalletBalance, balance.Amount, c.scale, addr, bondDenom)
+		b.int(b.inst.walletBalance, balance.Amount, c.scale, addr, denom)
 
 		for _, d := range c.keepers.Staking.GetAllDelegatorDelegations(ctx, acc) {
 			validator, found := c.keepers.Staking.GetValidator(ctx, d.GetValidatorAddr())
 			if !found {
 				continue
 			}
-			b.decScaled(descWalletDelegations, validator.TokensFromShares(d.Shares), c.scale, addr, bondDenom, d.ValidatorAddress)
+			b.decScaled(b.inst.walletDelegations, validator.TokensFromShares(d.Shares), c.scale,
+				addr, denom, attribute.String("delegated_to", d.ValidatorAddress))
 		}
 		for _, u := range c.keepers.Staking.GetUnbondingDelegations(ctx, acc, maxWalletEntries) {
 			sum := sdk.ZeroInt()
 			for _, e := range u.Entries {
 				sum = sum.Add(e.Balance)
 			}
-			b.int(descWalletUnbondings, sum, c.scale, addr, bondDenom, u.ValidatorAddress)
+			b.int(b.inst.walletUnbondings, sum, c.scale, addr, denom, attribute.String("unbonded_from", u.ValidatorAddress))
 		}
 		for _, r := range c.keepers.Staking.GetRedelegations(ctx, acc, maxWalletEntries) {
 			sum := sdk.ZeroInt()
 			for _, e := range r.Entries {
 				sum = sum.Add(e.InitialBalance)
 			}
-			b.int(descWalletRedelegations, sum, c.scale, addr, bondDenom, r.ValidatorSrcAddress, r.ValidatorDstAddress)
+			b.int(b.inst.walletRedelegations, sum, c.scale, addr, denom,
+				attribute.String("redelegated_from", r.ValidatorSrcAddress), attribute.String("redelegated_to", r.ValidatorDstAddress))
 		}
 
-		rewards, err := c.keepers.Distribution.DelegationTotalRewards(sdk.WrapSDKContext(ctx), &distrtypes.QueryDelegationTotalRewardsRequest{DelegatorAddress: addr})
+		rewards, err := c.keepers.Distribution.DelegationTotalRewards(sdk.WrapSDKContext(ctx), &distrtypes.QueryDelegationTotalRewardsRequest{DelegatorAddress: acc.String()})
 		if err != nil {
-			b.errs = append(b.errs, fmt.Errorf("wallet %s: rewards: %w", addr, err))
+			b.errs = append(b.errs, fmt.Errorf("wallet %s: rewards: %w", acc, err))
 			continue
 		}
 		for _, r := range rewards.Rewards {
 			for _, coin := range r.Reward {
-				b.decScaled(descWalletRewards, coin.Amount, c.scaleFor(coin.Denom, bondDenom), addr, coin.Denom, r.ValidatorAddress)
+				b.decScaled(b.inst.walletRewards, coin.Amount, c.scaleFor(coin.Denom, bondDenom),
+					addr, denomAttr(coin.Denom), attribute.String("validator_address", r.ValidatorAddress))
 			}
 		}
 	}
@@ -291,37 +318,36 @@ func (c *Collector) scaleFor(denom, bondDenom string) float64 {
 	return 1
 }
 
-// builder accumulates constant gauges and the errors of the ones it could not build.
+func addressAttr(addr string) attribute.KeyValue { return attribute.String("address", addr) }
+func denomAttr(denom string) attribute.KeyValue  { return attribute.String("denom", denom) }
+
+// builder accumulates samples and the errors of the ones it could not build.
 type builder struct {
-	metrics []prometheus.Metric
+	inst    *instruments
+	samples []sample
 	errs    []error
 }
 
-func (b *builder) gauge(desc *prometheus.Desc, value float64, labels ...string) {
-	m, err := prometheus.NewConstMetric(desc, prometheus.GaugeValue, value, labels...)
-	if err != nil {
-		b.errs = append(b.errs, err)
-		return
-	}
-	b.metrics = append(b.metrics, m)
+func (b *builder) gauge(inst metric.Float64Observable, value float64, attrs ...attribute.KeyValue) {
+	b.samples = append(b.samples, sample{inst: inst, value: value, attrs: metric.WithAttributes(attrs...)})
 }
 
-func (b *builder) int(desc *prometheus.Desc, value sdk.Int, scale float64, labels ...string) {
+func (b *builder) int(inst metric.Float64Observable, value sdk.Int, scale float64, attrs ...attribute.KeyValue) {
 	f, _ := new(big.Float).SetInt(value.BigInt()).Float64()
-	b.gauge(desc, f/scale, labels...)
+	b.gauge(inst, f/scale, attrs...)
 }
 
-func (b *builder) dec(desc *prometheus.Desc, value sdk.Dec, labels ...string) {
-	b.decScaled(desc, value, 1, labels...)
+func (b *builder) dec(inst metric.Float64Observable, value sdk.Dec, attrs ...attribute.KeyValue) {
+	b.decScaled(inst, value, 1, attrs...)
 }
 
-func (b *builder) decScaled(desc *prometheus.Desc, value sdk.Dec, scale float64, labels ...string) {
+func (b *builder) decScaled(inst metric.Float64Observable, value sdk.Dec, scale float64, attrs ...attribute.KeyValue) {
 	f, err := value.Float64()
 	if err != nil {
-		b.errs = append(b.errs, fmt.Errorf("%s: %w", desc, err))
+		b.errs = append(b.errs, fmt.Errorf("%v: %w", attrs, err))
 		return
 	}
-	b.gauge(desc, f/scale, labels...)
+	b.gauge(inst, f/scale, attrs...)
 }
 
 func boolToFloat(v bool) float64 {

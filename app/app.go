@@ -28,7 +28,6 @@ import (
 	ethparams "github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/admin"
 	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
@@ -725,13 +724,12 @@ func New(
 			Slashing:     app.SlashingKeeper,
 			Distribution: app.DistrKeeper,
 			Bank:         app.BankKeeper,
-			Oracle:       app.OracleKeeper,
 		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) }, logger)
 		if err != nil {
 			panic(fmt.Sprintf("error creating cosmos metrics collector due to %s", err))
 		}
-		if err := app.cosmosMetrics.Register(prometheus.DefaultRegisterer); err != nil {
-			panic(fmt.Sprintf("error registering cosmos metrics due to %s", err))
+		if err := app.cosmosMetrics.Start(); err != nil {
+			panic(fmt.Sprintf("error starting cosmos metrics due to %s", err))
 		}
 	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
@@ -1065,7 +1063,7 @@ func (app *App) HandleClose() error {
 	}
 
 	if app.cosmosMetrics != nil {
-		app.cosmosMetrics.Unregister(prometheus.DefaultRegisterer)
+		app.cosmosMetrics.Stop()
 	}
 
 	// Note: stateStore (ssStore) is already closed by cms.Close() in BaseApp.Close()
@@ -2352,7 +2350,7 @@ func (app *App) getFinalizeBlockResponse(
 		return abci.ResponseFinalizeBlock{}
 	}
 	if app.cosmosMetrics != nil {
-		app.cosmosMetrics.ObserveTxResults(txResults)
+		app.cosmosMetrics.ObserveTxResults(context.Background(), txResults)
 	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,

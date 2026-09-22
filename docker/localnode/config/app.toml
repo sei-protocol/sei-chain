@@ -311,13 +311,12 @@ admin_address = "127.0.0.1:9095"
 
 [cosmos_metrics]
 
-# Serve cosmos_params_*, cosmos_general_*, cosmos_validators_*, cosmos_wallet_*,
-# cosmos_oracle_* and cosmos_bank_* gauges on the Tendermint Prometheus endpoint
-# ([instrumentation] in config.toml). Off by default.
+# Report cosmos_params_*, cosmos_general_*, cosmos_validators_*, cosmos_wallet_*
+# and cosmos_bank_* gauges alongside the node's other OTel metrics on the Tendermint
+# Prometheus endpoint ([instrumentation] in config.toml). Off by default.
 enabled = false
 
-# Minimum time between two reads of committed state; scrapes in between are served
-# from the previous read.
+# How often committed state is re-read into the reported snapshot.
 refresh_interval = "15s"
 
 # Bond-denom amounts are divided by 10^denom_exponent before being reported.
@@ -327,6 +326,6 @@ denom_exponent = 6
 # rewards are reported under cosmos_wallet_*.
 wallet_addresses = []
 
-# Bank transfers of at least this many base units are reported for five minutes
-# under cosmos_bank_transfer_amount.
+# Bank transfers of at least this many base units are reported under
+# cosmos_bank_transfer_amount.
 bank_transfer_threshold = 1000000000000
