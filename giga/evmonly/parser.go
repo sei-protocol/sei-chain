@@ -96,8 +96,10 @@ func parsePreparedTx(raw []byte, signer ethtypes.Signer, known utils.Option[comm
 
 // signerAccepts reports whether signer recovers senders for tx: the transaction
 // is bound to signer's chain and its type is enabled by signer's fork schedule.
+// Signers without a chain ID (pre-EIP-155) never accept, so the sender is recovered.
 func signerAccepts(signer ethtypes.Signer, tx *ethtypes.Transaction) bool {
-	if !tx.Protected() || tx.ChainId().Cmp(signer.ChainID()) != 0 {
+	chainID := signer.ChainID()
+	if chainID == nil || !tx.Protected() || tx.ChainId().Cmp(chainID) != 0 {
 		return false
 	}
 	// SignatureValues rejects types the signer's forks do not enable before it
