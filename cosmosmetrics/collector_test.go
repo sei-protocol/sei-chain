@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,14 +117,16 @@ func newValidator(t *testing.T, seed byte, tokens int64, status stakingtypes.Bon
 	return v
 }
 
-// newTestReader installs a manual OTel reader as the global provider for the test.
+var testReader = sync.OnceValue(func() *sdkmetric.ManualReader {
+	reader := sdkmetric.NewManualReader()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	return reader
+})
+
+// newTestReader returns the manual OTel reader that the package-level instruments report to.
 func newTestReader(t *testing.T) *sdkmetric.ManualReader {
 	t.Helper()
-	reader := sdkmetric.NewManualReader()
-	prev := otel.GetMeterProvider()
-	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
-	t.Cleanup(func() { otel.SetMeterProvider(prev) })
-	return reader
+	return testReader()
 }
 
 func newTestCollector(t *testing.T, staking *fakeStaking, distribution fakeDistribution) (*Collector, *bytes.Buffer) {
@@ -195,12 +198,13 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 	for _, m := range metrics {
 		names[m.Name] = true
 	}
-	for _, name := range []string{
+	expected := []string{
 		"cosmos_params_max_validators", "cosmos_params_signed_blocks_window", "cosmos_params_community_tax",
 		"cosmos_general_bonded_tokens", "cosmos_general_community_pool", "cosmos_general_supply_total",
 		"cosmos_validators_active", "cosmos_validators_rank", "cosmos_validators_missed_blocks",
 		"cosmos_wallet_balance", "cosmos_wallet_delegations",
-	} {
+	}
+	for _, name := range expected {
 		assert.True(t, names[name], "%s was not collected", name)
 	}
 	assert.Empty(t, logs.String(), "unexpected log output")
@@ -234,7 +238,13 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 	assert.False(t, ok, "missed blocks reported for a validator outside the active set")
 
 	c.Stop()
-	assert.Empty(t, collect(t, reader), "gauges still observed after Stop")
+	names = map[string]bool{}
+	for _, m := range collect(t, reader) {
+		names[m.Name] = true
+	}
+	for _, name := range expected {
+		assert.False(t, names[name], "%s still observed after Stop", name)
+	}
 }
 
 func waitForSnapshot(t *testing.T, c *Collector) {

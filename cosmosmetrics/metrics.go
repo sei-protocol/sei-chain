@@ -1,10 +1,15 @@
 package cosmosmetrics
 
 import (
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
 
-const meterName = "cosmosmetrics"
+var (
+	meter = otel.Meter("cosmosmetrics")
+
+	cosmosMetrics = newInstruments()
+)
 
 // instruments are the gauges the collector reports, all under one meter.
 type instruments struct {
@@ -43,17 +48,12 @@ type instruments struct {
 	bankTransferAmount metric.Float64Gauge
 }
 
-func newInstruments(meter metric.Meter) (*instruments, error) {
-	var err error
+func newInstruments() *instruments {
 	gauge := func(name, description string, opts ...metric.Float64ObservableGaugeOption) metric.Float64ObservableGauge {
-		g, gerr := meter.Float64ObservableGauge(name, append([]metric.Float64ObservableGaugeOption{metric.WithDescription(description)}, opts...)...)
-		if gerr != nil && err == nil {
-			err = gerr
-		}
-		return g
+		return must(meter.Float64ObservableGauge(name, append([]metric.Float64ObservableGaugeOption{metric.WithDescription(description)}, opts...)...))
 	}
 	seconds := metric.WithUnit("s")
-	i := &instruments{
+	return &instruments{
 		paramsMaxValidators:           gauge("cosmos_params_max_validators", "Active set length"),
 		paramsUnbondingTime:           gauge("cosmos_params_unbonding_time", "Unbonding time", seconds),
 		paramsDowntimeJailDuration:    gauge("cosmos_params_downtime_jail_duration", "Downtime jail duration", seconds),
@@ -85,18 +85,19 @@ func newInstruments(meter metric.Meter) (*instruments, error) {
 		walletUnbondings:    gauge("cosmos_wallet_unbondings", "Unbondings of the wallet by validator"),
 		walletRedelegations: gauge("cosmos_wallet_redelegations", "Redelegations of the wallet by validator pair"),
 		walletRewards:       gauge("cosmos_wallet_rewards", "Pending rewards of the wallet by validator and denom"),
+
+		bankTransferAmount: must(meter.Float64Gauge(
+			"cosmos_bank_transfer_amount",
+			metric.WithDescription("Amount of the last bank transfer at or above the configured threshold, in base units"),
+		)),
 	}
+}
+
+func must[V any](v V, err error) V {
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	i.bankTransferAmount, err = meter.Float64Gauge(
-		"cosmos_bank_transfer_amount",
-		metric.WithDescription("Amount of the last bank transfer at or above the configured threshold, in base units"),
-	)
-	if err != nil {
-		return nil, err
-	}
-	return i, nil
+	return v
 }
 
 // observables lists every asynchronous instrument, for RegisterCallback.

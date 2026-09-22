@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
@@ -106,10 +105,6 @@ func NewCollector(cfg Config, keepers Keepers, queryCtx QueryContextFunc, logger
 		}
 		wallets = append(wallets, acc)
 	}
-	inst, err := newInstruments(otel.Meter(meterName))
-	if err != nil {
-		return nil, err
-	}
 	return &Collector{
 		cfg:       cfg,
 		keepers:   keepers,
@@ -117,15 +112,15 @@ func NewCollector(cfg Config, keepers Keepers, queryCtx QueryContextFunc, logger
 		logger:    logger,
 		wallets:   wallets,
 		scale:     math.Pow10(int(cfg.DenomExponent)),
-		inst:      inst,
-		transfers: newTransferRecorder(inst.bankTransferAmount, cfg.BankTransferThreshold),
+		inst:      cosmosMetrics,
+		transfers: newTransferRecorder(cosmosMetrics.bankTransferAmount, cfg.BankTransferThreshold),
 		stop:      func() {},
 	}, nil
 }
 
 // Start registers the observables and begins refreshing the snapshot every RefreshInterval.
 func (c *Collector) Start() error {
-	reg, err := otel.Meter(meterName).RegisterCallback(c.observe, c.inst.observables()...)
+	reg, err := meter.RegisterCallback(c.observe, c.inst.observables()...)
 	if err != nil {
 		return err
 	}
