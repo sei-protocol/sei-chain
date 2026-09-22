@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -106,9 +108,7 @@ func newValidator(t *testing.T, seed byte, tokens int64, status stakingtypes.Bon
 	t.Helper()
 	pk := ed25519.GenPrivKeyFromSecret([]byte{seed}).PubKey()
 	v, err := stakingtypes.NewValidator(sdk.ValAddress(bytes.Repeat([]byte{seed}, 20)), pk, stakingtypes.Description{Moniker: "val" + string(rune('a'+seed))})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	v.Tokens = sdk.NewInt(tokens)
 	v.DelegatorShares = sdk.NewDec(tokens)
 	v.Status = status
@@ -140,18 +140,14 @@ func newTestCollector(t *testing.T, staking *fakeStaking, distribution fakeDistr
 		Distribution: distribution,
 		Bank:         fakeBank{},
 	}, func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil }, slog.New(slog.NewTextHandler(logs, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return c, logs
 }
 
 func collect(t *testing.T, reader *sdkmetric.ManualReader) []metricdata.Metrics {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, reader.Collect(context.Background(), &rm))
 	var out []metricdata.Metrics
 	for _, sm := range rm.ScopeMetrics {
 		out = append(out, sm.Metrics...)
@@ -190,16 +186,14 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 		newValidator(t, 2, 9_000_000, stakingtypes.Unbonded),
 	}}
 	c, logs := newTestCollector(t, staking, fakeDistribution{})
-	if err := c.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, c.Start())
 	t.Cleanup(c.Stop)
 	waitForSnapshot(t, c)
 
 	metrics := collect(t, reader)
-	got := map[string]bool{}
+	names := map[string]bool{}
 	for _, m := range metrics {
-		got[m.Name] = true
+		names[m.Name] = true
 	}
 	for _, name := range []string{
 		"cosmos_params_max_validators", "cosmos_params_signed_blocks_window", "cosmos_params_community_tax",
@@ -207,13 +201,9 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 		"cosmos_validators_active", "cosmos_validators_rank", "cosmos_validators_missed_blocks",
 		"cosmos_wallet_balance", "cosmos_wallet_delegations",
 	} {
-		if !got[name] {
-			t.Errorf("%s was not collected", name)
-		}
+		assert.True(t, names[name], "%s was not collected", name)
 	}
-	if logs.Len() != 0 {
-		t.Errorf("unexpected log output: %s", logs.String())
-	}
+	assert.Empty(t, logs.String(), "unexpected log output")
 
 	bonded, unbonded := staking.validators[0], staking.validators[1]
 	wallet := c.wallets[0].String()
@@ -236,41 +226,27 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 		{"cosmos_wallet_delegations", map[string]string{"address": wallet, "denom": "usei", "delegated_to": bonded.OperatorAddress}, 3},
 	} {
 		got, ok := gaugeValue(metrics, tc.name, tc.attrs)
-		if !ok {
-			t.Errorf("%s%v has no data point", tc.name, tc.attrs)
-			continue
-		}
-		if got != tc.want {
-			t.Errorf("%s%v = %v, want %v", tc.name, tc.attrs, got, tc.want)
+		if assert.True(t, ok, "%s%v has no data point", tc.name, tc.attrs) {
+			assert.Equal(t, tc.want, got, "%s%v", tc.name, tc.attrs)
 		}
 	}
-	if _, ok := gaugeValue(metrics, "cosmos_validators_missed_blocks", map[string]string{"address": unbonded.OperatorAddress, "moniker": "valc"}); ok {
-		t.Error("missed blocks reported for a validator outside the active set")
-	}
+	_, ok := gaugeValue(metrics, "cosmos_validators_missed_blocks", map[string]string{"address": unbonded.OperatorAddress, "moniker": "valc"})
+	assert.False(t, ok, "missed blocks reported for a validator outside the active set")
 
 	c.Stop()
-	if len(collect(t, reader)) != 0 {
-		t.Error("gauges still observed after Stop")
-	}
+	assert.Empty(t, collect(t, reader), "gauges still observed after Stop")
 }
 
 func waitForSnapshot(t *testing.T, c *Collector) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for c.snapshot.Load() == nil {
-		if time.Now().After(deadline) {
-			t.Fatal("the first refresh did not complete")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	require.Eventually(t, func() bool { return c.snapshot.Load() != nil }, 5*time.Second, 5*time.Millisecond,
+		"the first refresh did not complete")
 }
 
 func unbondedCons(t *testing.T, v stakingtypes.Validator) sdk.ConsAddress {
 	t.Helper()
 	addr, err := v.GetConsAddr()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return addr
 }
 
@@ -278,58 +254,38 @@ func TestObserveServesTheSnapshotBetweenRefreshes(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, _ := newTestCollector(t, staking, fakeDistribution{})
-	if err := c.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, c.Start())
 	t.Cleanup(c.Stop)
 	waitForSnapshot(t, c)
 
 	collect(t, reader)
 	collect(t, reader)
-	if staking.calls != 1 {
-		t.Fatalf("state was read %d times within one refresh interval, want 1", staking.calls)
-	}
+	require.Equal(t, 1, staking.calls, "state reads within one refresh interval")
 	c.refresh()
-	if staking.calls != 2 {
-		t.Fatalf("state was read %d times after a refresh, want 2", staking.calls)
-	}
+	require.Equal(t, 2, staking.calls, "state reads after a refresh")
 }
 
 func TestRefreshSurvivesAFailedRead(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, logs := newTestCollector(t, staking, fakeDistribution{rewardsErr: errors.New("boom")})
-	if err := c.Start(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, c.Start())
 	t.Cleanup(c.Stop)
 	waitForSnapshot(t, c)
-	if !strings.Contains(logs.String(), "boom") {
-		t.Fatalf("the rewards failure was not logged: %s", logs.String())
-	}
+	require.Contains(t, logs.String(), "boom", "the rewards failure was not logged")
 	before := len(collect(t, reader))
-	if before == 0 {
-		t.Fatal("a failed rewards read must not drop the other gauges")
-	}
+	require.NotZero(t, before, "a failed rewards read must not drop the other gauges")
 
 	c.queryCtx = func() (sdk.Context, error) { return sdk.Context{}, errors.New("no state") }
 	c.refresh()
-	if !strings.Contains(logs.String(), "no state") {
-		t.Fatalf("the missing query context was not logged: %s", logs.String())
-	}
-	if after := len(collect(t, reader)); after != before {
-		t.Fatalf("a failed read replaced the snapshot: %d metrics, want %d", after, before)
-	}
+	require.Contains(t, logs.String(), "no state", "the missing query context was not logged")
+	require.Len(t, collect(t, reader), before, "a failed read replaced the snapshot")
 
 	c.queryCtx = func() (sdk.Context, error) { return sdk.Context{}.WithContext(context.Background()), nil }
 	c.keepers.Staking = nil
 	c.refresh()
-	if !strings.Contains(logs.String(), "panicked") {
-		t.Fatalf("the panic was not logged: %s", logs.String())
-	}
-	if after := len(collect(t, reader)); after != before {
-		t.Fatalf("a panicking read replaced the snapshot: %d metrics, want %d", after, before)
-	}
+	require.Contains(t, logs.String(), "panicked", "the panic was not logged")
+	require.Len(t, collect(t, reader), before, "a panicking read replaced the snapshot")
 }
 
 func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
@@ -358,11 +314,8 @@ func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 			points += len(m.Data.(metricdata.Gauge[float64]).DataPoints)
 		}
 	}
-	if points != 1 {
-		t.Fatalf("got %d transfer data points, want 1", points)
-	}
+	require.Equal(t, 1, points, "transfer data points")
 	got, ok := gaugeValue(metrics, "cosmos_bank_transfer_amount", map[string]string{"denom": "usei", "sender": "sei1from", "recipient": "sei1to"})
-	if !ok || got != 5000 {
-		t.Fatalf("transfer amount = %v (%v), want 5000", got, ok)
-	}
+	require.True(t, ok, "the large transfer has no data point")
+	require.Equal(t, 5000.0, got)
 }
