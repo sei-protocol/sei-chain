@@ -9,6 +9,27 @@ To run this benchmark, execute the following from within the cryptosim directory
 ./cryptosim.sh ./config/basic-config.json
 ```
 
+# Hashing Kernel
+
+`cryptosim.sh` builds with `GOEXPERIMENT=simd`, which compiles in the AVX-512 LtHash kernel. The
+kernel is selected automatically on a host with AVX-512F and VBMI2, and the portable Go kernel is used
+everywhere else. The run prints which one it got:
+
+```
+lthash backend: simd
+```
+
+To measure against the portable kernel, pin it at run time — both are in the binary, so no rebuild is
+needed:
+
+```
+SEI_LTHASH_BACKEND=default ./cryptosim.sh ./config/basic-config.json
+```
+
+Building through the Makefile directly rather than through `cryptosim.sh` sets no experiment, and
+produces a binary that only has the portable kernel. `seid` is built that way too: production does not
+run the AVX-512 kernel.
+
 # Configuring Cryptosim
 
 You can modify or provide a different config file for this benchmark. Available configuration options and their

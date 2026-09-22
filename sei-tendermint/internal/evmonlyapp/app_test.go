@@ -308,3 +308,29 @@ func TestEVMOnlyApplicationReturnsConfiguredValidators(t *testing.T) {
 	first[0].Power = 13
 	require.Equal(t, []abci.ValidatorUpdate{{Power: 7}}, app.GetValidators())
 }
+
+// evmGasLimiter is implemented by an application that exposes its committed
+// block gas limit, matching proxy.evmGasLimitProvider.
+type evmGasLimiter interface {
+	EvmGasLimit() uint64
+}
+
+func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	gasLimiter, ok := app.(evmGasLimiter)
+	require.True(t, ok)
+	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
+
+	_, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
+}
