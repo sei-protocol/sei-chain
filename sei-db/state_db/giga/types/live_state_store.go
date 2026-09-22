@@ -139,6 +139,10 @@ type LiveStateStore interface {
 	// every registered listener.
 	FlushHashes() error
 
+	// Flush blocks until every block committed so far has been written to the store's WAL. It does not
+	// fsync. A store whose Commit writes the WAL synchronously returns immediately.
+	Flush() error
+
 	// CommitPendingBlock commits the block currently being applied, if any, so that it has a hash. A
 	// no-op on a store with no pending writes.
 	//

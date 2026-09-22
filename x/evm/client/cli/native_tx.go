@@ -5,19 +5,12 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/precompiles"
-	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cobra"
-)
-
-const (
-	FlagCwAddress = "cw-address"
 )
 
 func NativeSendTxCmd() *cobra.Command {
@@ -52,72 +45,6 @@ func NativeSendTxCmd() *cobra.Command {
 		},
 	}
 
-	flags.AddTxFlagsToCmd(cmd)
-
-	return cmd
-}
-
-func RegisterEvmPointerCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "register-evm-pointer [pointer type] [cw-address] --gas-fee-cap=<cap> --gas-limit=<limit> --evm-rpc=<url>",
-		Short: `Register an EVM pointer for a CosmWasm contract. Pointer type is either CW20, CW721, CW1155, or NATIVE.`,
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			pInfo := precompiles.GetPrecompileInfo(pointer.PrecompileName)
-			var payload []byte
-			var err error
-			switch args[0] {
-			case "CW20":
-				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW20Pointer, args[1]})
-			case "CW721":
-				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW721Pointer, args[1]})
-			case "CW1155":
-				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW1155Pointer, args[1]})
-			case "NATIVE":
-				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddNativePointer, args[1]})
-			default:
-				return fmt.Errorf("invalid pointer type: %s", args[0])
-			}
-			if err != nil {
-				return err
-			}
-			txData, err := getTxData(cmd)
-			if err != nil {
-				return err
-			}
-			key, err := getPrivateKey(cmd)
-			if err != nil {
-				return err
-			}
-
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
-			}
-
-			txData.Nonce = nonce
-			txData.Data = payload
-			addr := common.HexToAddress(pointer.PointerAddress)
-			txData.To = &addr
-
-			resp, err := sendTx(txData, rpc, key)
-			if err != nil {
-				return err
-			}
-
-			fmt.Println("Transaction hash:", resp.Hex())
-			return nil
-		},
-	}
-
-	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
-	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
-	cmd.Flags().String(FlagCwAddress, "", "CosmWasm contract address")
-	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd

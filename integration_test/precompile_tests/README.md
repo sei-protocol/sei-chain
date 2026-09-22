@@ -57,13 +57,12 @@ chain binary embeds), so specs can never drift from the deployed interface.
 | distribution (0x…1007) | `precompiles/distribution.spec.ts` |
 | oracle (0x…1008) | `precompiles/oracle.spec.ts` (retirement assertion) |
 | pointerview (0x…100A) | `precompiles/pointerview.spec.ts` |
-| pointer (0x…100b) | `precompiles/pointer.spec.ts` (`addNativePointer`; CW methods are wasm-gated) |
+| pointer (0x…100b) | `precompiles/pointer.spec.ts` (retirement assertion) |
 | p256 (0x…1011) | `precompiles/p256.spec.ts` |
 
-Planned next: wasm-gated flows (wasmd, pointer `addCW*`, solo CW claims) in a
-separate `wasm/` spec dir behind a live `isWasmEnabled()` check, since wasm
-deployments are blocked on production chains. The ibc precompile is out of
-scope.
+Planned next: wasm-gated flows (wasmd, solo CW claims) in a separate `wasm/`
+spec dir behind a live `isWasmEnabled()` check, since wasm deployments are
+blocked on production chains. The ibc precompile is out of scope.
 
 Hard-won facts encoded in these specs (read before writing a new one):
 
@@ -75,8 +74,8 @@ Hard-won facts encoded in these specs (read before writing a new one):
 - **Mining a tx auto-associates its sender**, so "unassociated caller" errors
   can only be exercised via `eth_call`/`staticCall`, never a real tx.
 - **Guard tables differ per precompile** — e.g. json and pointerview accept
-  DELEGATECALL, staking/gov/distribution/pointer reject it precompile-wide,
-  and `distribution.rewards` accepts value (no non-payable check). Don't
+  DELEGATECALL, staking/gov/distribution reject it precompile-wide, and
+  `distribution.rewards` accepts value (no non-payable check). Don't
   generalize dispatch tests; copy the per-method guards from the Go source.
 - **Staking `delegate`/`createValidator` and gov `deposit`/`submitProposal`
   take whole-usei values**: `msg.value` must be a multiple of 10^12 wei or the

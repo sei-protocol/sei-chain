@@ -28,7 +28,7 @@ type options struct {
 	freezeHeight uint64
 }
 
-var errEVMOnlySeed = errors.New("evm-only is not supported in seed mode")
+var errAutobahnSeed = errors.New("autobahn is not supported in seed mode")
 
 // Option configures optional node behavior.
 type Option func(*options)
@@ -140,8 +140,8 @@ func validateFreezeMode(mode string, freezeHeight uint64) error {
 }
 
 func validateNodeSetupConfig(conf *config.Config) error {
-	if conf.EVMOnly && conf.Mode == config.ModeSeed {
-		return errEVMOnlySeed
+	if conf.AutobahnConfigFile != "" && conf.Mode == config.ModeSeed {
+		return errAutobahnSeed
 	}
 	if conf.MockApp && conf.AutobahnConfigFile == "" {
 		return fmt.Errorf("mock-app requires autobahn-config-file")
@@ -158,35 +158,62 @@ func prepareApplication(
 	app abci.Application,
 ) (abci.Application, utils.Option[*bootstrap.GigaStorageManager], error) {
 	noStorage := utils.None[*bootstrap.GigaStorageManager]()
-	if conf.EVMOnly {
+	storage := noStorage
+	var committee *config.AutobahnFileConfig
+	if conf.AutobahnConfigFile != "" {
 		fc, _, err := loadAutobahnCommittee(conf.AutobahnConfigFile)
 		if err != nil {
-			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
+			return nil, noStorage, fmt.Errorf("load Autobahn committee: %w", err)
 		}
-		validators, err := evmOnlyValidatorUpdates(fc)
+		manager, err := openAutobahnStorageManager(ctx, conf.RootDir, fc)
 		if err != nil {
-			return nil, noStorage, fmt.Errorf("load EVM-only validator set: %w", err)
+			return nil, noStorage, fmt.Errorf("open Autobahn storage: %w", err)
 		}
-		manager, err := openEVMOnlyStorageManager(ctx, conf.RootDir, fc)
+		storage = utils.Some(manager)
+		committee = fc
+	}
+	app, err := wrapApplication(conf, app, storage, committee)
+	if err != nil {
+		if manager, ok := storage.Get(); ok {
+			err = errors.Join(err, manager.Close())
+		}
+		return nil, noStorage, err
+	}
+	return app, storage, nil
+}
+
+// wrapApplication returns the EVM-only, mock, or FastCheckTx application when
+// those flags are set, otherwise the app that was passed in.
+func wrapApplication(
+	conf *config.Config,
+	app abci.Application,
+	storage utils.Option[*bootstrap.GigaStorageManager],
+	committee *config.AutobahnFileConfig,
+) (abci.Application, error) {
+	if conf.EVMOnly {
+		manager, ok := storage.Get()
+		if !ok {
+			return nil, fmt.Errorf("evm-only requires Autobahn storage")
+		}
+		validators, err := evmOnlyValidatorUpdates(committee)
 		if err != nil {
-			return nil, noStorage, fmt.Errorf("open EVM-only storage: %w", err)
+			return nil, fmt.Errorf("load EVM-only validator set: %w", err)
 		}
 		logger.Info("Autobahn EVM-only execution enabled with disk-backed Giga storage")
-		prepared := evmonlyapp.NewEVMOnlyApplication(
+		return evmonlyapp.NewEVMOnlyApplication(
 			config.AutobahnEVMOnlyChainID,
 			validators,
 			manager,
 			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
-		)
-		return prepared, utils.Some(manager), nil
+		), nil
 	}
 	if conf.MockApp {
-		return NewMockApp(app), noStorage, nil
+		return NewMockApp(app), nil
 	}
 	if conf.FastCheckTx {
-		return fastCheckTxApplication{Application: app}, noStorage, nil
+		return fastCheckTxApplication{Application: app}, nil
 	}
-	return app, noStorage, nil
+	return app, nil
 }
 
 func evmOnlyValidatorUpdates(fc *config.AutobahnFileConfig) ([]abci.ValidatorUpdate, error) {
