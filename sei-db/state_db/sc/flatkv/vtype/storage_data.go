@@ -112,12 +112,7 @@ func (s *StorageData) IsDelete() bool {
 	if s == nil {
 		return true
 	}
-	for i := storageValueStart; i < storageDataLength; i++ {
-		if s.data[i] != 0 {
-			return false
-		}
-	}
-	return true
+	return [StorageValueLength]byte(s.data[storageValueStart:storageDataLength]) == [StorageValueLength]byte{}
 }
 
 // Set the block height when this storage slot was last modified/touched. Returns self (or a new StorageData if nil).
