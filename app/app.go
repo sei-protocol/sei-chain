@@ -28,7 +28,9 @@ import (
 	ethparams "github.com/ethereum/go-ethereum/params"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/admin"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -436,6 +438,7 @@ type App struct {
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
+	cosmosMetrics         *cosmosmetrics.Collector
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
@@ -711,6 +714,25 @@ func New(
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading admin config due to %s", err))
+	}
+	cosmosMetricsConfig, err := cosmosmetrics.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading cosmos metrics config due to %s", err))
+	}
+	if cosmosMetricsConfig.Enabled {
+		app.cosmosMetrics, err = cosmosmetrics.NewCollector(cosmosMetricsConfig, cosmosmetrics.Keepers{
+			Staking:      app.StakingKeeper,
+			Slashing:     app.SlashingKeeper,
+			Distribution: app.DistrKeeper,
+			Bank:         app.BankKeeper,
+			Oracle:       app.OracleKeeper,
+		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) }, logger)
+		if err != nil {
+			panic(fmt.Sprintf("error creating cosmos metrics collector due to %s", err))
+		}
+		if err := app.cosmosMetrics.Register(prometheus.DefaultRegisterer); err != nil {
+			panic(fmt.Sprintf("error registering cosmos metrics due to %s", err))
+		}
 	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
@@ -1040,6 +1062,10 @@ func (app *App) HandleClose() error {
 	// Stop admin gRPC server
 	if app.adminServer != nil {
 		app.adminServer.GracefulStop()
+	}
+
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.Unregister(prometheus.DefaultRegisterer)
 	}
 
 	// Note: stateStore (ssStore) is already closed by cms.Close() in BaseApp.Close()
@@ -2324,6 +2350,9 @@ func (app *App) getFinalizeBlockResponse(
 ) abci.ResponseFinalizeBlock {
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
+	}
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.ObserveTxResults(txResults)
 	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
