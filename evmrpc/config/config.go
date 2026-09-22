@@ -323,14 +323,11 @@ type Config struct {
 	// eth_getBlockByNumber. Zero disables the default (no deadline applied).
 	RPCDefaultTimeout time.Duration `mapstructure:"rpc_default_timeout"`
 
-	// RPCBatchTimeouts bounds, per method name, the whole request for an RPC
-	// method that internally drives a batch of already individually-timed
-	// sub-calls (for example eth_estimateGasAfterCalls, whose per-call
-	// simulation_evm_timeout already bounds each entry, but not the batch as a
-	// whole).
-	// Each entry is a "method=duration" string (for example
-	// "eth_estimateGasAfterCalls=5m").
-	RPCBatchTimeouts []string `mapstructure:"rpc_batch_timeouts"`
+	// RPCMethodTimeouts overrides RPCDefaultTimeout for individual RPC methods
+	// (both HTTP and WS), taking precedence over it. A method with no entry here
+	// falls back to RPCDefaultTimeout. Each entry is a "method=duration" string
+	// (for example "eth_call=60s").
+	RPCMethodTimeouts []string `mapstructure:"rpc_method_timeouts"`
 }
 
 const defaultBatchRequestLimit = 1000
@@ -400,7 +397,12 @@ var DefaultConfig = Config{
 	MaxOpenConnections:        2000,
 	BodyReadIdleTimeout:       10 * time.Second,
 	RPCDefaultTimeout:         30 * time.Second,
-	RPCBatchTimeouts:          []string{"eth_estimateGasAfterCalls=5m"},
+	RPCMethodTimeouts: []string{
+		"eth_call=60s",
+		"eth_estimateGas=60s",
+		"eth_createAccessList=60s",
+		"eth_estimateGasAfterCalls=5m",
+	},
 }
 
 const (
@@ -464,7 +466,7 @@ const (
 	flagMaxOpenConnections           = "evm.max_open_connections"
 	flagBodyReadIdleTimeout          = "evm.body_read_idle_timeout"
 	flagRPCDefaultTimeout            = "evm.rpc_default_timeout"
-	flagRPCBatchTimeouts             = "evm.rpc_batch_timeouts"
+	flagRPCMethodTimeouts            = "evm.rpc_method_timeouts"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -791,13 +793,13 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(flagRPCBatchTimeouts); v != nil {
-		if cfg.RPCBatchTimeouts, err = cast.ToStringSliceE(v); err != nil {
+	if v := opts.Get(flagRPCMethodTimeouts); v != nil {
+		if cfg.RPCMethodTimeouts, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
 		}
 	}
-	if _, err = ParseBatchTimeouts(cfg.RPCBatchTimeouts); err != nil {
-		return cfg, fmt.Errorf("%s: %w", flagRPCBatchTimeouts, err)
+	if _, err = ParseMethodTimeouts(cfg.RPCMethodTimeouts); err != nil {
+		return cfg, fmt.Errorf("%s: %w", flagRPCMethodTimeouts, err)
 	}
 	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
 		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
@@ -830,10 +832,9 @@ func normalizeNativeTracerNames(flagName string, names []string) ([]string, erro
 	return out, nil
 }
 
-// ParseBatchTimeouts parses RPCBatchTimeouts' "method=duration" entries (for
-// example "eth_estimateGasAfterCalls=5m") into a map. Returns an error naming the
-// malformed entry.
-func ParseBatchTimeouts(entries []string) (map[string]time.Duration, error) {
+// ParseMethodTimeouts parses RPCMethodTimeouts' "method=duration" entries (for
+// example "eth_call=60s") into a map. Returns an error naming the malformed entry.
+func ParseMethodTimeouts(entries []string) (map[string]time.Duration, error) {
 	out := make(map[string]time.Duration, len(entries))
 	for _, entry := range entries {
 		method, raw, ok := strings.Cut(entry, "=")
@@ -861,22 +862,22 @@ func (c Config) RateLimiterConfig() ratelimiter.Config {
 // DeadlineEnforcerConfig builds the ratelimiter.DeadlineConfig used by RPC methods with
 // no existing Sei-specific timeout, ceilinged by writeTimeout, which callers must pass as
 // the sanitized value their listener was built with.
-// eth_call, eth_estimateGas, and eth_createAccessList resolve to SimulationEVMTimeout
-// rather than RPCDefaultTimeout. eth_sendRawTransaction, eth_sendTransaction,
-// eth_getTransactionCount (methodTimeout) and debug_trace* (TraceTimeout) already carry
-// their own deadline and are never passed through this enforcer, so they need no entry.
-func (c Config) DeadlineEnforcerConfig(writeTimeout time.Duration) ratelimiter.DeadlineConfig {
+// RPCMethodTimeouts entries take precedence over RPCDefaultTimeout. eth_sendRawTransaction,
+// eth_sendTransaction, eth_getTransactionCount (methodTimeout) and debug_trace*
+// (TraceTimeout) already carry their own deadline and are never passed through this
+// enforcer, so they need no entry.
+func (c Config) DeadlineEnforcerConfig(writeTimeout time.Duration) (ratelimiter.DeadlineConfig, error) {
+	overrides, err := ParseMethodTimeouts(c.RPCMethodTimeouts)
+	if err != nil {
+		return ratelimiter.DeadlineConfig{}, err
+	}
 	return ratelimiter.DeadlineConfig{
-		Default: c.RPCDefaultTimeout,
-		Overrides: map[string]time.Duration{
-			"eth_call":             c.SimulationEVMTimeout,
-			"eth_estimateGas":      c.SimulationEVMTimeout,
-			"eth_createAccessList": c.SimulationEVMTimeout,
-		},
+		Default:   c.RPCDefaultTimeout,
+		Overrides: overrides,
 		// Using the handler's own deadline as a clamp, which means a method neither outlives the HTTP response
 		// it is producing nor runs longer over WebSocket than it does over HTTP.
 		Ceiling: writeTimeout,
-	}
+	}, nil
 }
 
 // ConfigTemplate defines the TOML configuration template for EVM RPC
@@ -1142,18 +1143,14 @@ body_read_idle_timeout = "{{ .EVM.BodyReadIdleTimeout }}"
 max_open_connections = {{ .EVM.MaxOpenConnections }}
 
 # rpc_default_timeout is the deadline applied (on both HTTP and WebSocket) to an
-# RPC method with no existing Sei-specific timeout, such as eth_getBalance or
-# eth_getBlockByNumber. Set to 0 to disable. Every deadline it resolves, including
-# eth_call / eth_estimateGas / eth_createAccessList's own simulation_evm_timeout, is
-# capped at write_timeout so a method behaves the same way on HTTP and WebSocket.
+# RPC method with no entry in rpc_method_timeouts, such as eth_getBalance or
+# eth_getBlockByNumber. Set to 0 to disable. Every deadline it resolves is capped
+# at write_timeout so a method behaves the same way on HTTP and WebSocket.
 rpc_default_timeout = "{{ .EVM.RPCDefaultTimeout }}"
 
-# rpc_batch_timeouts bounds, per method name, the whole request for an RPC method
-# that internally drives a batch of already individually-timed sub-calls (for
-# example eth_estimateGasAfterCalls, whose per-call simulation_evm_timeout already
-# bounds each entry, but not the batch as a whole).
-# A method with no entry gets no outer bound beyond its own per-call
-# timeouts. Each entry is "method=duration", e.g. "eth_estimateGasAfterCalls=5m".
-rpc_batch_timeouts = [{{- range $i, $e := .EVM.RPCBatchTimeouts }}{{- if $i }}, {{ end }}"{{ $e }}"{{- end }}]
+# rpc_method_timeouts overrides rpc_default_timeout for individual RPC methods
+# (both HTTP and WebSocket). A method with no entry here falls back to
+# rpc_default_timeout. Each entry is "method=duration", e.g. "eth_call=60s".
+rpc_method_timeouts = [{{- range $i, $e := .EVM.RPCMethodTimeouts }}{{- if $i }}, {{ end }}"{{ $e }}"{{- end }}]
 
 `

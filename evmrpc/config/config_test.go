@@ -67,7 +67,7 @@ type opts struct {
 	maxStateOverrideAccounts     interface{}
 	maxStateOverrideSlots        interface{}
 	rpcDefaultTimeout            interface{}
-	rpcBatchTimeouts             interface{}
+	rpcMethodTimeouts            interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -244,8 +244,8 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.rpc_default_timeout" {
 		return o.rpcDefaultTimeout
 	}
-	if k == "evm.rpc_batch_timeouts" {
-		return o.rpcBatchTimeouts
+	if k == "evm.rpc_method_timeouts" {
+		return o.rpcMethodTimeouts
 	}
 	panic("unknown key")
 }
@@ -627,26 +627,25 @@ func TestReadConfigDeadlineEnforcer(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts{})
 	require.NoError(t, err)
 	require.Equal(t, config.DefaultConfig.RPCDefaultTimeout, cfg.RPCDefaultTimeout)
-	require.Equal(t, config.DefaultConfig.RPCBatchTimeouts, cfg.RPCBatchTimeouts)
+	require.Equal(t, config.DefaultConfig.RPCMethodTimeouts, cfg.RPCMethodTimeouts)
 
 	o := getDefaultOpts()
 	o.rpcDefaultTimeout = 10 * time.Second
-	o.rpcBatchTimeouts = []string{"eth_estimateGasAfterCalls=1m"}
+	o.rpcMethodTimeouts = []string{"eth_call=1m"}
 	cfg, err = config.ReadConfig(&o)
 	require.NoError(t, err)
 	require.Equal(t, 10*time.Second, cfg.RPCDefaultTimeout)
-	require.Equal(t, []string{"eth_estimateGasAfterCalls=1m"}, cfg.RPCBatchTimeouts)
+	require.Equal(t, []string{"eth_call=1m"}, cfg.RPCMethodTimeouts)
 
-	batchTimeouts, err := config.ParseBatchTimeouts(cfg.RPCBatchTimeouts)
+	methodTimeouts, err := config.ParseMethodTimeouts(cfg.RPCMethodTimeouts)
 	require.NoError(t, err)
-	require.Equal(t, time.Minute, batchTimeouts["eth_estimateGasAfterCalls"])
+	require.Equal(t, time.Minute, methodTimeouts["eth_call"])
 
-	deadlineCfg := cfg.DeadlineEnforcerConfig(20 * time.Second)
+	deadlineCfg, err := cfg.DeadlineEnforcerConfig(20 * time.Second)
+	require.NoError(t, err)
 	require.Equal(t, 10*time.Second, deadlineCfg.Default)
 	require.Equal(t, 20*time.Second, deadlineCfg.Ceiling, "the write timeout the listener enforces is the ceiling")
-	require.Equal(t, cfg.SimulationEVMTimeout, deadlineCfg.Overrides["eth_call"])
-	require.Equal(t, cfg.SimulationEVMTimeout, deadlineCfg.Overrides["eth_estimateGas"])
-	require.Equal(t, cfg.SimulationEVMTimeout, deadlineCfg.Overrides["eth_createAccessList"])
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_call"])
 
 	badOpts := o
 	badOpts.rpcDefaultTimeout = "bad"
@@ -654,23 +653,25 @@ func TestReadConfigDeadlineEnforcer(t *testing.T) {
 	require.Error(t, err)
 
 	badOpts = o
-	badOpts.rpcBatchTimeouts = []string{"not-formatted-as-method-and-duration"}
+	badOpts.rpcMethodTimeouts = []string{"not-formatted-as-method-and-duration"}
 	_, err = config.ReadConfig(&badOpts)
 	require.Error(t, err)
 
 	badOpts = o
-	badOpts.rpcBatchTimeouts = []string{"eth_estimateGasAfterCalls=not-a-duration"}
+	badOpts.rpcMethodTimeouts = []string{"eth_call=not-a-duration"}
 	_, err = config.ReadConfig(&badOpts)
 	require.Error(t, err)
 }
 
-func TestDeadlineEnforcerConfigHoldsSimulationToTheWriteTimeout(t *testing.T) {
+func TestDeadlineEnforcerConfigCapsMethodOverridesAtTheWriteTimeout(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts{})
 	require.NoError(t, err)
 	require.Greater(t, cfg.SimulationEVMTimeout, cfg.WriteTimeout,
-		"the clamp below is only meaningful while simulation is configured to outlast a response")
+		"the clamp below is only meaningful while the default eth_call override outlasts a response")
 
-	enforcer := ratelimiter.NewDeadlineEnforcer(cfg.DeadlineEnforcerConfig(cfg.WriteTimeout))
+	deadlineCfg, err := cfg.DeadlineEnforcerConfig(cfg.WriteTimeout)
+	require.NoError(t, err)
+	enforcer := ratelimiter.NewDeadlineEnforcer(deadlineCfg)
 	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_call"),
 		"eth_call gets the same budget on WebSocket as the HTTP listener allows it")
 	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_estimateGas"))

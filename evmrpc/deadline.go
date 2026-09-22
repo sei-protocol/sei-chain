@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"sync/atomic"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 )
@@ -31,29 +30,4 @@ func withDeadline(ctx context.Context, method string) (context.Context, context.
 		return context.WithCancel(ctx)
 	}
 	return enforcer.WithDeadline(ctx, method)
-}
-
-// globalBatchTimeouts holds evmrpc/config.Config.RPCBatchTimeouts, consulted by
-// withBatchTimeout.
-var globalBatchTimeouts atomic.Pointer[map[string]time.Duration]
-
-// InitGlobalBatchTimeouts installs timeouts as the map withBatchTimeout consults.
-func InitGlobalBatchTimeouts(timeouts map[string]time.Duration) {
-	globalBatchTimeouts.Store(&timeouts)
-}
-
-// withBatchTimeout bounds ctx by method's entry in the installed RPCBatchTimeouts
-// map, if any. The returned CancelFunc must always be called. A missing entry, a
-// non-positive duration, or no map installed all mean the same thing: no outer
-// bound beyond whatever per-call timeouts the method already applies internally.
-func withBatchTimeout(ctx context.Context, method string) (context.Context, context.CancelFunc) {
-	timeouts := globalBatchTimeouts.Load()
-	if timeouts == nil {
-		return context.WithCancel(ctx)
-	}
-	timeout, ok := (*timeouts)[method]
-	if !ok || timeout <= 0 {
-		return context.WithCancel(ctx)
-	}
-	return context.WithTimeout(ctx, timeout)
 }

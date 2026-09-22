@@ -164,7 +164,7 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	// Outer deadline over the whole call batch, layered on top of the per-call
 	// RPCEVMTimeout doCall already applies to each entry in calls.
 	var cancel context.CancelFunc
-	ctx, cancel = withBatchTimeout(ctx, "eth_estimateGasAfterCalls")
+	ctx, cancel = withDeadline(ctx, "eth_estimateGasAfterCalls")
 	defer cancel()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {

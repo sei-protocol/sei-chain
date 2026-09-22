@@ -41,7 +41,7 @@ func TestDeclaredKeysAreTheOnesItsReaderResolves(t *testing.T) {
 		flagIPRateLimitRPS, flagIPRateLimitBurst, flagRateLimitingEnabled, flagTrustedProxyCIDRs,
 		flagBatchRequestLimit, flagBatchResponseMaxSize, flagMaxRequestBodyBytes,
 		flagMaxConcurrentRequestBytes, flagWSAdmissionTimeout, flagMaxOpenConnections,
-		flagBodyReadIdleTimeout, flagRPCDefaultTimeout, flagRPCBatchTimeouts,
+		flagBodyReadIdleTimeout, flagRPCDefaultTimeout, flagRPCMethodTimeouts,
 	}
 	sort.Strings(want)
 
