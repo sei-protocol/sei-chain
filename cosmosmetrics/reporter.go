@@ -123,22 +123,22 @@ func (r *Reporter) Start() error {
 		return err
 	}
 	ticker := time.NewTicker(r.cfg.RefreshInterval)
-	stop, stopped := make(chan struct{}), make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
 		defer ticker.Stop()
 		r.refresh()
-		for {
+		for ctx.Err() == nil {
 			select {
-			case <-stop:
-				return
+			case <-ctx.Done():
 			case <-ticker.C:
 				r.refresh()
 			}
 		}
 	}()
 	r.stop = sync.OnceFunc(func() {
-		close(stop)
+		cancel()
 		<-stopped
 		if err := reg.Unregister(); err != nil {
 			logger.Error("cosmos metrics: unregister", "err", err)
