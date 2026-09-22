@@ -82,6 +82,9 @@ func getTransactionReceipt(
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionReceipt", t.connectionType, startTime, returnErr, recover())
 	}()
+	var cancel context.CancelFunc
+	ctx, cancel = withDeadline(ctx, "eth_getTransactionReceipt")
+	defer cancel()
 	sdkctx := t.ctxProvider(LatestCtxHeight)
 
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
@@ -142,6 +145,9 @@ func (t *TransactionAPI) GetVMError(ctx context.Context, hash common.Hash) (resu
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getVMError", t.connectionType, startTime, returnErr, recover())
 	}()
+	var cancel context.CancelFunc
+	ctx, cancel = withDeadline(ctx, "eth_getVMError")
+	defer cancel()
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
@@ -158,6 +164,9 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 			_err = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
 		}
 	}()
+	var cancel context.CancelFunc
+	ctx, cancel = withDeadline(ctx, "eth_getTransactionByBlockNumberAndIndex")
+	defer cancel()
 
 	var idx uint32
 	idx, err := txIndexToUint32(txIndex)
@@ -192,6 +201,9 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 			_err = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
 		}
 	}()
+	var cancel context.CancelFunc
+	ctx, cancel = withDeadline(ctx, "eth_getTransactionByBlockHashAndIndex")
+	defer cancel()
 	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
 	block, err := blockByHashOrNullForJSONRPC(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
@@ -215,6 +227,9 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionByHash", t.connectionType, startTime, returnErr, recover())
 	}()
+	var cancel context.CancelFunc
+	ctx, cancel = withDeadline(ctx, "eth_getTransactionByHash")
+	defer cancel()
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	if tx, ok := t.tmClient.EvmTxByHash(hash); ok {
@@ -283,6 +298,9 @@ func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash com
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionErrorByHash", t.connectionType, startTime, returnErr, recover())
 	}()
+	var cancel context.CancelFunc
+	ctx, cancel = withDeadline(ctx, "eth_getTransactionErrorByHash")
+	defer cancel()
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/evmrpc/config"
+	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,6 +66,8 @@ type opts struct {
 	traceBakeTracers             interface{}
 	maxStateOverrideAccounts     interface{}
 	maxStateOverrideSlots        interface{}
+	rpcDefaultTimeout            interface{}
+	rpcBatchTimeouts             interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -238,6 +241,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_state_override_slots" {
 		return o.maxStateOverrideSlots
 	}
+	if k == "evm.rpc_default_timeout" {
+		return o.rpcDefaultTimeout
+	}
+	if k == "evm.rpc_batch_timeouts" {
+		return o.rpcBatchTimeouts
+	}
 	panic("unknown key")
 }
 
@@ -297,6 +306,8 @@ func getDefaultOpts() opts {
 		nil,
 		7,
 		9,
+		30 * time.Second,
+		[]string{"eth_estimateGasAfterCalls=5m"},
 	}
 }
 
@@ -609,6 +620,61 @@ func TestReadConfigMaxOpenConnections(t *testing.T) {
 	o.maxOpenConnections = -1
 	_, err = config.ReadConfig(&o)
 	require.Error(t, err)
+}
+
+func TestReadConfigDeadlineEnforcer(t *testing.T) {
+	// Defaults flow through when not overridden.
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Equal(t, config.DefaultConfig.RPCDefaultTimeout, cfg.RPCDefaultTimeout)
+	require.Equal(t, config.DefaultConfig.RPCBatchTimeouts, cfg.RPCBatchTimeouts)
+
+	o := getDefaultOpts()
+	o.rpcDefaultTimeout = 10 * time.Second
+	o.rpcBatchTimeouts = []string{"eth_estimateGasAfterCalls=1m"}
+	cfg, err = config.ReadConfig(&o)
+	require.NoError(t, err)
+	require.Equal(t, 10*time.Second, cfg.RPCDefaultTimeout)
+	require.Equal(t, []string{"eth_estimateGasAfterCalls=1m"}, cfg.RPCBatchTimeouts)
+
+	batchTimeouts, err := config.ParseBatchTimeouts(cfg.RPCBatchTimeouts)
+	require.NoError(t, err)
+	require.Equal(t, time.Minute, batchTimeouts["eth_estimateGasAfterCalls"])
+
+	deadlineCfg := cfg.DeadlineEnforcerConfig(20 * time.Second)
+	require.Equal(t, 10*time.Second, deadlineCfg.Default)
+	require.Equal(t, 20*time.Second, deadlineCfg.Ceiling, "the write timeout the listener enforces is the ceiling")
+	require.Equal(t, cfg.SimulationEVMTimeout, deadlineCfg.Overrides["eth_call"])
+	require.Equal(t, cfg.SimulationEVMTimeout, deadlineCfg.Overrides["eth_estimateGas"])
+	require.Equal(t, cfg.SimulationEVMTimeout, deadlineCfg.Overrides["eth_createAccessList"])
+
+	badOpts := o
+	badOpts.rpcDefaultTimeout = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.Error(t, err)
+
+	badOpts = o
+	badOpts.rpcBatchTimeouts = []string{"not-formatted-as-method-and-duration"}
+	_, err = config.ReadConfig(&badOpts)
+	require.Error(t, err)
+
+	badOpts = o
+	badOpts.rpcBatchTimeouts = []string{"eth_estimateGasAfterCalls=not-a-duration"}
+	_, err = config.ReadConfig(&badOpts)
+	require.Error(t, err)
+}
+
+func TestDeadlineEnforcerConfigHoldsSimulationToTheWriteTimeout(t *testing.T) {
+	cfg, err := config.ReadConfig(&opts{})
+	require.NoError(t, err)
+	require.Greater(t, cfg.SimulationEVMTimeout, cfg.WriteTimeout,
+		"the clamp below is only meaningful while simulation is configured to outlast a response")
+
+	enforcer := ratelimiter.NewDeadlineEnforcer(cfg.DeadlineEnforcerConfig(cfg.WriteTimeout))
+	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_call"),
+		"eth_call gets the same budget on WebSocket as the HTTP listener allows it")
+	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_estimateGas"))
+	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_createAccessList"))
 }
 
 func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {

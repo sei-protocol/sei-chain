@@ -62,6 +62,11 @@ func NewEVMHTTPServer(
 
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+	batchTimeouts, err := evmrpcconfig.ParseBatchTimeouts(config.RPCBatchTimeouts)
+	if err != nil {
+		return nil, err
+	}
+	InitGlobalBatchTimeouts(batchTimeouts)
 
 	// Get pool for logging and DB semaphore setup
 	pool := GetGlobalWorkerPool()
@@ -87,7 +92,11 @@ func NewEVMHTTPServer(
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	})
-	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	// NewHTTPServer sanitizes the timeouts it was handed, so this is the write timeout
+	// the listener actually enforces rather than the one config asked for.
+	writeTimeout := httpServer.timeouts.WriteTimeout
+	methodTimeout := tmutils.Some(writeTimeout)
+	InitGlobalDeadlineEnforcer(ratelimiter.NewDeadlineEnforcer(config.DeadlineEnforcerConfig(writeTimeout)))
 	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
@@ -259,6 +268,11 @@ func NewEVMWebSocketServer(
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	// This is idempotent - if HTTP server already initialized it, this is a no-op
 	InitGlobalWorkerPool(config.WorkerPoolSize, config.WorkerQueueSize)
+	batchTimeouts, err := evmrpcconfig.ParseBatchTimeouts(config.RPCBatchTimeouts)
+	if err != nil {
+		return nil, err
+	}
+	InitGlobalBatchTimeouts(batchTimeouts)
 
 	// Initialize WebSocket tracker.
 	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), config.RPCStatsInterval)
@@ -269,7 +283,10 @@ func NewEVMWebSocketServer(
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	})
-	methodTimeout := tmutils.Some(httpServer.timeouts.WriteTimeout)
+	// Use the server's effective write timeout to give WS RPC methods the same deadline as HTTP methods.
+	writeTimeout := httpServer.timeouts.WriteTimeout
+	methodTimeout := tmutils.Some(writeTimeout)
+	InitGlobalDeadlineEnforcer(ratelimiter.NewDeadlineEnforcer(config.DeadlineEnforcerConfig(writeTimeout)))
 	httpServer.SetMaxOpenConns(config.MaxOpenConnections)
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
