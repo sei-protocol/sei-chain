@@ -26,34 +26,34 @@ import (
 
 // StakingKeeper is the staking state the reporter reads.
 type StakingKeeper interface {
-	GetParams(ctx sdk.Context) stakingtypes.Params
-	BondDenom(ctx sdk.Context) string
-	GetAllValidators(ctx sdk.Context) []stakingtypes.Validator
-	GetValidator(ctx sdk.Context, addr sdk.ValAddress) (stakingtypes.Validator, bool)
-	GetBondedPool(ctx sdk.Context) authtypes.ModuleAccountI
-	GetNotBondedPool(ctx sdk.Context) authtypes.ModuleAccountI
-	GetAllDelegatorDelegations(ctx sdk.Context, delegator sdk.AccAddress) []stakingtypes.Delegation
-	GetUnbondingDelegations(ctx sdk.Context, delegator sdk.AccAddress, maxRetrieve uint16) []stakingtypes.UnbondingDelegation
-	GetRedelegations(ctx sdk.Context, delegator sdk.AccAddress, maxRetrieve uint16) []stakingtypes.Redelegation
+	GetParams(sdk.Context) stakingtypes.Params
+	BondDenom(sdk.Context) string
+	GetAllValidators(sdk.Context) []stakingtypes.Validator
+	GetValidator(sdk.Context, sdk.ValAddress) (stakingtypes.Validator, bool)
+	GetBondedPool(sdk.Context) authtypes.ModuleAccountI
+	GetNotBondedPool(sdk.Context) authtypes.ModuleAccountI
+	GetAllDelegatorDelegations(sdk.Context, sdk.AccAddress) []stakingtypes.Delegation
+	GetUnbondingDelegations(sdk.Context, sdk.AccAddress, uint16) []stakingtypes.UnbondingDelegation
+	GetRedelegations(sdk.Context, sdk.AccAddress, uint16) []stakingtypes.Redelegation
 }
 
 // SlashingKeeper is the slashing state the reporter reads.
 type SlashingKeeper interface {
-	GetParams(ctx sdk.Context) slashingtypes.Params
-	GetValidatorSigningInfo(ctx sdk.Context, address sdk.ConsAddress) (slashingtypes.ValidatorSigningInfo, bool)
+	GetParams(sdk.Context) slashingtypes.Params
+	GetValidatorSigningInfo(sdk.Context, sdk.ConsAddress) (slashingtypes.ValidatorSigningInfo, bool)
 }
 
 // DistributionKeeper is the distribution state the reporter reads.
 type DistributionKeeper interface {
-	GetParams(ctx sdk.Context) distrtypes.Params
-	GetFeePoolCommunityCoins(ctx sdk.Context) sdk.DecCoins
-	DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error)
+	GetParams(sdk.Context) distrtypes.Params
+	GetFeePoolCommunityCoins(sdk.Context) sdk.DecCoins
+	DelegationTotalRewards(context.Context, *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error)
 }
 
 // BankKeeper is the bank state the reporter reads.
 type BankKeeper interface {
-	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
-	GetSupply(ctx sdk.Context, denom string) sdk.Coin
+	GetBalance(sdk.Context, sdk.AccAddress, string) sdk.Coin
+	GetSupply(sdk.Context, string) sdk.Coin
 }
 
 // Keepers groups the module state the reporter reads.
