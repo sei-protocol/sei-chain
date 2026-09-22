@@ -498,15 +498,19 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 	return entry
 }
 
-// PutRetiredWLocked installs data retired out of the shard's MVCC layer. A nil value marks the
-// key as known-deleted (the manager-wide tombstone convention); any other value is cached as
-// available. Inserts everything, then evicts overflow once at the end.
-func (c *readCache) PutRetiredWLocked(data map[string][]byte) error {
-	for k, v := range data {
-		if v == nil {
-			c.deleteRetiredWLocked([]byte(k))
-		} else {
-			c.setRetiredWLocked([]byte(k), v)
+// PutRetiredWLocked installs the diffs retired out of the shard's MVCC layer, oldest version first, so
+// that a key several of them wrote is left holding the newest value. A nil value marks the key as
+// known-deleted (the manager-wide tombstone convention); any other value is cached as available.
+// Inserts everything, then evicts overflow once at the end.
+func (c *readCache) PutRetiredWLocked(diffs [][]diffEntry) error {
+	// Replayed in the order given, so that where diffs overlap on a key the last one wins.
+	for _, diff := range diffs {
+		for _, entry := range diff {
+			if entry.value == nil {
+				c.deleteRetiredWLocked([]byte(entry.key))
+			} else {
+				c.setRetiredWLocked([]byte(entry.key), entry.value)
+			}
 		}
 	}
 

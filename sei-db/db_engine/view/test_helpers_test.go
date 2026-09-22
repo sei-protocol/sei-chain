@@ -50,6 +50,9 @@ type testDB struct {
 	// requires Close even after a successful Commit).
 	batchesCreated atomic.Int64
 	batchesClosed  atomic.Int64
+	// The ops of every committed batch, oldest batch first, in the order the flush appended them.
+	// Recorded because the store is a map and cannot show the order keys arrived in. Guarded by mu.
+	committedOps [][]testBatchOp
 }
 
 func newTestDB(seed map[string][]byte) *testDB {
@@ -165,6 +168,13 @@ func (d *testDB) Close() error {
 
 func (d *testDB) isClosed() bool { return d.closed.Load() }
 
+// committedBatches returns the ops of every batch committed so far, oldest batch first.
+func (d *testDB) committedBatches() [][]testBatchOp {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return append([][]testBatchOp(nil), d.committedOps...)
+}
+
 func (d *testDB) has(key string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -218,6 +228,14 @@ func (b *testBatch) Delete(key []byte) error {
 	return nil
 }
 
+func (b *testBatch) SetString(key string, value []byte) error {
+	return b.Set([]byte(key), value)
+}
+
+func (b *testBatch) DeleteString(key string) error {
+	return b.Delete([]byte(key))
+}
+
 func (b *testBatch) Commit(_ types.WriteOptions) error {
 	b.db.commitEntered.Add(1)
 	if b.db.commitBlock != nil {
@@ -229,6 +247,7 @@ func (b *testBatch) Commit(_ types.WriteOptions) error {
 	b.db.commitCount.Add(1)
 	b.db.mu.Lock()
 	defer b.db.mu.Unlock()
+	b.db.committedOps = append(b.db.committedOps, append([]testBatchOp(nil), b.ops...))
 	for _, op := range b.ops {
 		if op.delete {
 			delete(b.db.store, string(op.key))
@@ -302,7 +321,7 @@ func newTestManagerWithDB(t *testing.T, db *testDB, shardCount, maxSize uint64) 
 func newTestManagerWithConfig(t *testing.T, config *ViewManagerConfig, db *testDB) ViewManager {
 	t.Helper()
 	pool := threading.NewAdHocPool()
-	manager, err := NewViewManager(config, db, pool, pool)
+	manager, err := NewViewManager(config, db, pool, pool, pool)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = manager.Close()
@@ -340,6 +359,18 @@ const testHashKey = "_meta/hash"
 // what a real consumer emits.
 func hashWrites(hash []byte) []*proto.KVPair {
 	return []*proto.KVPair{{Key: []byte(testHashKey), Value: hash}}
+}
+
+// collectDiff gathers a view's writes into a map, for tests that assert on the whole set rather than on
+// the order it arrives in.
+func collectDiff(t *testing.T, view View) map[string][]byte {
+	t.Helper()
+	diff := make(map[string][]byte)
+	require.NoError(t, view.ForEachDiff(func(key string, value []byte) error {
+		diff[key] = value
+		return nil
+	}))
+	return diff
 }
 
 func finalizeAndRelease(t *testing.T, view View) {
