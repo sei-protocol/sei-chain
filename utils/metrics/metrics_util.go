@@ -27,6 +27,10 @@ const (
 	BankNewAccountName        = "bank_new_account"
 	BankNewAccountDescription = "Number of new accounts created during bank transfers"
 	BankNewAccountUnit        = "{count}"
+
+	// cardinalityLimit caps the attribute sets each instrument keeps; further sets are
+	// aggregated into the SDK's overflow series.
+	cardinalityLimit = 2000
 )
 
 // bankNewAccountCounter mirrors sei-cosmos/x/bank/keeper/metrics.go's
@@ -75,6 +79,7 @@ func SetupOtelMetricsProvider(chainID string) error {
 	otel.SetMeterProvider(sdk.NewMeterProvider(
 		sdk.WithResource(res),
 		sdk.WithReader(metricsExporter),
+		sdk.WithCardinalityLimit(cardinalityLimit),
 	))
 	return nil
 }

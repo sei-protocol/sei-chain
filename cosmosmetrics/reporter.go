@@ -113,7 +113,7 @@ func NewReporter(cfg Config, keepers Keepers, queryCtx QueryContextFunc, logger 
 		wallets:   wallets,
 		scale:     math.Pow10(int(cfg.DenomExponent)),
 		inst:      cosmosMetrics,
-		transfers: newTransferRecorder(cosmosMetrics.bankTransferAmount, cfg.BankTransferThreshold),
+		transfers: newTransferRecorder(cosmosMetrics.bankTransferAmount, sdk.DefaultBondDenom, cfg.BankTransferThreshold),
 		stop:      func() {},
 	}, nil
 }

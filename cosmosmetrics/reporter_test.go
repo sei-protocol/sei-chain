@@ -302,7 +302,7 @@ func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
 	c, _ := newTestReporter(t, staking, fakeDistribution{})
-	c.transfers = newTransferRecorder(c.inst.bankTransferAmount, 1_000)
+	c.transfers = newTransferRecorder(c.inst.bankTransferAmount, "usei", 1_000)
 
 	transfer := func(amount string) abci.Event {
 		return abci.Event{Type: "transfer", Attributes: []abci.EventAttribute{
@@ -312,7 +312,7 @@ func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 		}}
 	}
 	c.ObserveTxResults(context.Background(), []*abci.ExecTxResult{
-		{Code: 0, Events: []abci.Event{transfer("999usei"), transfer("5000usei,20factory/x/y")}},
+		{Code: 0, Events: []abci.Event{transfer("999usei"), transfer("5000usei,20factory/x/y"), transfer("9000factory/x/y")}},
 		{Code: 1, Events: []abci.Event{transfer("7000usei")}},
 		nil,
 	})
@@ -325,7 +325,7 @@ func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, points, "transfer data points")
-	got, ok := gaugeValue(metrics, "cosmos_bank_transfer_amount", map[string]string{"denom": "usei", "sender": "sei1from", "recipient": "sei1to"})
+	got, ok := gaugeValue(metrics, "cosmos_bank_transfer_amount", map[string]string{"denom": "usei"})
 	require.True(t, ok, "the large transfer has no data point")
 	require.Equal(t, 5000.0, got)
 }

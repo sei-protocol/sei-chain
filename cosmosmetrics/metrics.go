@@ -88,7 +88,7 @@ func newInstruments() *instruments {
 
 		bankTransferAmount: must(meter.Float64Gauge(
 			"cosmos_bank_transfer_amount",
-			metric.WithDescription("Amount of the last bank transfer at or above the configured threshold, in base units"),
+			metric.WithDescription("Bond-denom amount of the last bank transfer at or above the configured threshold, in base units"),
 		)),
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -12,15 +11,15 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
-// transferRecorder records bank transfers at or above a threshold on a gauge keyed by
-// denom, sender and recipient.
+// transferRecorder records bond-denom bank transfers at or above a threshold.
 type transferRecorder struct {
 	gauge     metric.Float64Gauge
+	denom     string
 	threshold *big.Int
 }
 
-func newTransferRecorder(gauge metric.Float64Gauge, threshold uint64) *transferRecorder {
-	return &transferRecorder{gauge: gauge, threshold: new(big.Int).SetUint64(threshold)}
+func newTransferRecorder(gauge metric.Float64Gauge, denom string, threshold uint64) *transferRecorder {
+	return &transferRecorder{gauge: gauge, denom: denom, threshold: new(big.Int).SetUint64(threshold)}
 }
 
 // ObserveTxResults records every transfer event in a block's transaction results whose amount
@@ -40,32 +39,22 @@ func (r *transferRecorder) observeEvent(ctx context.Context, ev *abci.Event) {
 	if ev.Type != banktypes.EventTypeTransfer {
 		return
 	}
-	var amount, sender, recipient string
+	var amount string
 	for _, attr := range ev.Attributes {
-		switch string(attr.Key) {
-		case sdk.AttributeKeyAmount:
+		if string(attr.Key) == sdk.AttributeKeyAmount {
 			amount = string(attr.Value)
-		case banktypes.AttributeKeySender:
-			sender = string(attr.Value)
-		case banktypes.AttributeKeyRecipient:
-			recipient = string(attr.Value)
 		}
 	}
 	coins, err := sdk.ParseCoinsNormalized(amount)
 	if err != nil {
 		return
 	}
-	for _, coin := range coins {
-		if coin.Amount.BigInt().Cmp(r.threshold) < 0 {
-			continue
-		}
-		value, _ := new(big.Float).SetInt(coin.Amount.BigInt()).Float64()
-		r.gauge.Record(ctx, value, metric.WithAttributes(
-			denomAttr(coin.Denom),
-			attribute.String("sender", sender),
-			attribute.String("recipient", recipient),
-		))
+	amt := coins.AmountOf(r.denom)
+	if amt.BigInt().Cmp(r.threshold) < 0 {
+		return
 	}
+	value, _ := new(big.Float).SetInt(amt.BigInt()).Float64()
+	r.gauge.Record(ctx, value, metric.WithAttributes(denomAttr(r.denom)))
 }
 
 // ObserveTxResults records the bank transfers in a finalized block's transaction results.
