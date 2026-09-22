@@ -156,6 +156,24 @@ func TestEVMOnlyApplicationEvmCallRefusesDuringPendingCommit(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEVMOnlyApplicationExposesChainMetadata(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	evmApp := app.(*evmOnlyApplication)
+
+	// Test: the chain-id / config / fee / gas-limit accessors used by RPC.
+	chainID := evmApp.EvmChainID()
+	chainConfig := evmApp.EvmChainConfig()
+	baseFee := evmApp.EvmBaseFee()
+	gasLimit := evmApp.EvmGasLimit()
+
+	// Verify: InitChain values, not the BaseApplication zeros.
+	require.Equal(t, evmOnlyTestChainID, chainID)
+	require.NotNil(t, chainConfig)
+	require.Equal(t, new(big.Int).SetUint64(evmOnlyTestChainID), chainConfig.ChainID)
+	require.Equal(t, big.NewInt(0), baseFee)
+	require.Equal(t, uint64(30_000_000), gasLimit)
+}
+
 func TestEVMOnlyApplicationEvmCallRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 	evmApp := app.(*evmOnlyApplication)

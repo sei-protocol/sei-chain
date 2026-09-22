@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http/httptest"
@@ -346,4 +347,208 @@ func TestGetBlockByNumberEndToEnd(t *testing.T) {
 	}
 	require.NoError(t, client.CallContext(t.Context(), &missing, "eth_getBlockByHash", common.Hash{9}, false))
 	require.Nil(t, missing)
+}
+
+func TestGetBlockByNumberPropagatesUnexpectedBackendError(t *testing.T) {
+	want := errors.New("block store unavailable")
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return nil, want
+	})
+
+	// Test: Block fails with an error other than the pruned/future sentinels.
+	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.BlockNumber(3), false)
+
+	// Verify: that error is returned as-is, not mapped to null.
+	require.Nil(t, got)
+	require.ErrorIs(t, err, want)
+}
+
+func TestGetBlockByNumberReturnsNullForANilBlock(t *testing.T) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return nil, nil
+	})
+
+	// Test: Block returns a nil result without error.
+	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+	// Verify: treated as a miss.
+	require.NoError(t, err)
+	require.Nil(t, got)
+}
+
+func TestGetBlockByHashPropagatesBackendError(t *testing.T) {
+	want := errors.New("hash index unavailable")
+	backend := &testBackend{
+		blockByHash: func(context.Context, *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+			return nil, want
+		},
+	}
+
+	// Test: BlockByHash fails.
+	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByHash(t.Context(), common.Hash{9}, false)
+
+	// Verify: that error is returned as-is.
+	require.Nil(t, got)
+	require.ErrorIs(t, err, want)
+}
+
+func TestEncodeBlockRejectsNegativeTime(t *testing.T) {
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{
+			Block: &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(-1, 0)}},
+		}, nil
+	})
+
+	// Test: block timestamp cannot be a uint64.
+	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+	// Verify: negative time is rejected.
+	require.Nil(t, got)
+	require.ErrorContains(t, err, "time is negative")
+}
+
+func TestEncodeBlockSurfacesGasLimitAndBaseFeeErrors(t *testing.T) {
+	block := func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{
+			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+			Block:   &tmtypes.Block{Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)}},
+		}, nil
+	}
+
+	t.Run("gas limit", func(t *testing.T) {
+		want := errors.New("no gas limit")
+		backend := fixedGasLimitBackend(t, 35_000_000, block)
+		backend.gasLimit = func() (uint64, error) { return 0, want }
+
+		// Test: EvmGasLimit fails.
+		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+		// Verify: that error is returned as-is.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+	})
+
+	t.Run("base fee", func(t *testing.T) {
+		want := errors.New("no base fee")
+		backend := fixedGasLimitBackend(t, 35_000_000, block)
+		backend.baseFee = func() (*big.Int, error) { return nil, want }
+
+		// Test: EvmBaseFee fails after a valid gas limit.
+		got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+		// Verify: that error is returned as-is.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+	})
+}
+
+func TestEncodeBlockFullTxChainConfigError(t *testing.T) {
+	want := errors.New("no chain config")
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
+				Data:   tmtypes.Data{Txs: tmtypes.Txs{[]byte("tx")}},
+			},
+		}, nil
+	})
+	backend.chainConfig = func() (*params.ChainConfig, error) { return nil, want }
+
+	// Test: full-tx encoding needs a chain config.
+	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
+
+	// Verify: that error is returned as-is.
+	require.Nil(t, got)
+	require.ErrorIs(t, err, want)
+}
+
+func TestEncodeBlockRejectsUndecodableTransactions(t *testing.T) {
+	garbage := []byte("not-an-rlp-tx")
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
+				Data:   tmtypes.Data{Txs: tmtypes.Txs{garbage}},
+			},
+		}, nil
+	})
+	api := &blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}
+
+	t.Run("hash only", func(t *testing.T) {
+		// Test: hash-only encoding still has to decode each tx to hash it.
+		got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+		// Verify: decode error names the block and index.
+		require.Nil(t, got)
+		require.ErrorContains(t, err, "decode transaction at block 4 index 0")
+	})
+
+	t.Run("full tx", func(t *testing.T) {
+		// Test: full-tx encoding hits the same bad bytes.
+		got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
+
+		// Verify: same decode error.
+		require.Nil(t, got)
+		require.ErrorContains(t, err, "decode transaction at block 4 index 0")
+	})
+}
+
+func TestEncodeBlockReceiptReadError(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	want := errors.New("receipt db closed")
+	store := stubReceiptStore{
+		ReceiptStore: evmonly.NewMemoryReceiptStore(),
+		get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
+			return nil, want
+		},
+	}
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
+				Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+			},
+		}, nil
+	})
+	api := &blockAPI{backend: backend, store: store}
+
+	t.Run("hash only", func(t *testing.T) {
+		// Test: hash-only encoding reads the last tx's receipt for gasUsed.
+		got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+		// Verify: wrapped receipt error.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+		require.ErrorContains(t, err, "read last transaction receipt for block 4")
+	})
+
+	t.Run("full tx", func(t *testing.T) {
+		// Test: full-tx encoding reads a receipt per transaction.
+		got, err := api.GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, true)
+
+		// Verify: wrapped receipt error names the index.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+		require.ErrorContains(t, err, "read transaction receipt at block 4 index 0")
+	})
+}
+
+func TestEncodeBlockMissingReceiptLeavesGasUsedZero(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	backend := fixedGasLimitBackend(t, 35_000_000, func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{
+			Block: &tmtypes.Block{
+				Header: tmtypes.Header{Height: 4, Time: time.Unix(1_700_000_000, 0)},
+				Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+			},
+		}, nil
+	})
+
+	// Test: the last tx has no stored receipt.
+	got, err := (&blockAPI{backend: backend, store: evmonly.NewMemoryReceiptStore()}).GetBlockByNumber(t.Context(), ethrpc.LatestBlockNumber, false)
+
+	// Verify: block is still returned, with gasUsed left at zero.
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, hexutil.Uint64(0), got["gasUsed"])
 }

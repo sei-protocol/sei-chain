@@ -10,8 +10,11 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type testBackend struct {
@@ -75,4 +78,15 @@ func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
 	return b.transactionCount(address)
+}
+
+// stubReceiptStore overrides GetReceipt on an otherwise real store so tests can
+// inject a store error or a nil receipt without ErrNotFound.
+type stubReceiptStore struct {
+	receipt.ReceiptStore
+	get func(sdk.Context, common.Hash) (*evmtypes.Receipt, error)
+}
+
+func (s stubReceiptStore) GetReceipt(ctx sdk.Context, hash common.Hash) (*evmtypes.Receipt, error) {
+	return s.get(ctx, hash)
 }

@@ -191,3 +191,13 @@ func TestEvmGasLimitDelegatesToASupportingApplication(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(35_000_000), got)
 }
+
+func TestEvmChainIDDelegatesToApplication(t *testing.T) {
+	proxyApp := New(testApp{})
+
+	// Test: EvmChainID is on Application, so every wrapped app exposes it.
+	got := proxyApp.EvmChainID()
+
+	// Verify: BaseApplication's zero chain ID is returned.
+	require.Equal(t, uint64(0), got)
+}

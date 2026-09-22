@@ -188,3 +188,65 @@ func TestHandlerServesCall(t *testing.T) {
 	require.NoError(t, client.CallContext(t.Context(), &got, "eth_call", map[string]any{"to": to}, "latest"))
 	require.Equal(t, hexutil.Bytes{0x01, 0x02}, got)
 }
+
+func TestCallBaseFeeError(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	want := errors.New("no base fee")
+	backend := &testBackend{
+		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return nil, want },
+		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
+			t.Fatal("call reached the backend after a base-fee error")
+			return nil, nil
+		},
+	}
+
+	// Test: EvmBaseFee fails before defaults are applied.
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+
+	// Verify: that error is returned as-is.
+	require.Nil(t, got)
+	require.ErrorIs(t, err, want)
+}
+
+func TestCallBackendError(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	want := errors.New("executor unavailable")
+	backend := &testBackend{
+		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
+			return nil, want
+		},
+	}
+
+	// Test: EvmCall itself fails.
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+
+	// Verify: that error is returned as-is.
+	require.Nil(t, got)
+	require.ErrorIs(t, err, want)
+}
+
+func TestCallUndecodableRevertKeepsGenericMessage(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	revert := []byte{0xff, 0xff, 0xff, 0xff}
+	backend := &testBackend{
+		chainID: func() uint64 { return 713715 },
+		baseFee: func() (*big.Int, error) { return new(big.Int), nil },
+		call: func(context.Context, *core.Message) (*core.ExecutionResult, error) {
+			return &core.ExecutionResult{Err: vm.ErrExecutionReverted, ReturnData: revert}, nil
+		},
+	}
+
+	// Test: revert payload is not ABI Error(string).
+	got, err := (&callAPI{backend: backend}).Call(t.Context(), export.TransactionArgs{To: &to}, ethrpc.BlockNumberOrHashWithNumber(ethrpc.LatestBlockNumber))
+
+	// Verify: generic revert message, raw data still in ErrorData.
+	require.Nil(t, got)
+	require.EqualError(t, err, "execution reverted")
+	var revertErr *revertError
+	require.ErrorAs(t, err, &revertErr)
+	require.Equal(t, 3, revertErr.ErrorCode())
+	require.Equal(t, hexutil.Encode(revert), revertErr.ErrorData())
+}

@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net/http/httptest"
 	"testing"
@@ -423,4 +425,294 @@ func TestGetTransactionByHashEndToEnd(t *testing.T) {
 func TestHandlerRequiresReceiptStore(t *testing.T) {
 	_, err := newHandler(&testBackend{}, nil)
 	require.EqualError(t, err, "EVM-only RPC requires a receipt store")
+}
+
+func TestLookupFinalizedTxSurfacesStoreAndBlockErrors(t *testing.T) {
+	txHash := common.Hash{1}
+	// Setup: one real receipt so overflow/lookup cases have something to find.
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash: txHash,
+		Receipt: &evmtypes.Receipt{
+			TxHashHex:   txHash.Hex(),
+			BlockNumber: 7,
+		},
+	}}))
+
+	t.Run("store error", func(t *testing.T) {
+		want := errors.New("receipt db closed")
+		api := &txAPI{
+			backend: &testBackend{},
+			store: stubReceiptStore{
+				ReceiptStore: store,
+				get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
+					return nil, want
+				},
+			},
+		}
+
+		// Test: lookup hits a store failure that is not ErrNotFound.
+		got, err := api.GetTransactionReceipt(t.Context(), txHash)
+
+		// Verify: wrapped store error, no receipt.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+		require.ErrorContains(t, err, "read transaction receipt")
+	})
+
+	t.Run("nil receipt without ErrNotFound", func(t *testing.T) {
+		api := &txAPI{
+			backend: &testBackend{},
+			store: stubReceiptStore{
+				ReceiptStore: store,
+				get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
+					return nil, nil
+				},
+			},
+		}
+
+		// Test: store returns a nil receipt with a nil error.
+		got, err := api.GetTransactionReceipt(t.Context(), txHash)
+
+		// Verify: that combination is treated as a store bug, not a miss.
+		require.Nil(t, got)
+		require.EqualError(t, err, "receipt store returned a nil receipt")
+	})
+
+	t.Run("block number exceeds int64", func(t *testing.T) {
+		overflowHash := common.Hash{2}
+		api := &txAPI{
+			backend: &testBackend{},
+			store: stubReceiptStore{
+				ReceiptStore: store,
+				get: func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
+					return &evmtypes.Receipt{
+						TxHashHex:   overflowHash.Hex(),
+						BlockNumber: math.MaxInt64 + 1,
+					}, nil
+				},
+			},
+		}
+
+		// Test: receipt's height cannot be passed to Block().
+		got, err := api.GetTransactionReceipt(t.Context(), overflowHash)
+
+		// Verify: overflow is an error, not a null result.
+		require.Nil(t, got)
+		require.ErrorContains(t, err, "exceeds int64")
+	})
+
+	t.Run("block lookup error", func(t *testing.T) {
+		want := errors.New("block store unavailable")
+		api := &txAPI{
+			backend: &testBackend{
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					return nil, want
+				},
+			},
+			store: store,
+		}
+
+		// Test: Block fails with an error other than height-exceeds-head.
+		got, err := api.GetTransactionReceipt(t.Context(), txHash)
+
+		// Verify: wrapped block-store error.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+		require.ErrorContains(t, err, "read receipt block 7")
+	})
+
+	t.Run("nil block", func(t *testing.T) {
+		api := &txAPI{
+			backend: &testBackend{
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					return nil, nil
+				},
+			},
+			store: store,
+		}
+
+		// Test: Block returns a nil result without error.
+		got, err := api.GetTransactionReceipt(t.Context(), txHash)
+
+		// Verify: treated as not-yet-finalized, same as a height miss.
+		require.NoError(t, err)
+		require.Nil(t, got)
+	})
+}
+
+func TestGetTransactionByHashRejectsMismatchedIndexAndUndecodableTx(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash: tx.Hash(),
+		Receipt: &evmtypes.Receipt{
+			TxHashHex:        tx.Hash().Hex(),
+			BlockNumber:      4,
+			TransactionIndex: 3,
+			From:             common.HexToAddress("0x1000000000000000000000000000000000000001").Hex(),
+		},
+	}}))
+
+	t.Run("index exceeds block txs", func(t *testing.T) {
+		api := &txAPI{
+			backend: &testBackend{
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					return &coretypes.ResultBlock{
+						Block: &tmtypes.Block{Data: tmtypes.Data{Txs: tmtypes.Txs{raw}}},
+					}, nil
+				},
+			},
+			store: store,
+		}
+
+		// Test: receipt index 3 into a one-transaction block.
+		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
+
+		// Verify: index mismatch is an error, not a truncated decode.
+		require.Nil(t, got)
+		require.ErrorContains(t, err, "exceeds block 4 transaction count 1")
+	})
+
+	t.Run("undecodable tx bytes", func(t *testing.T) {
+		api := &txAPI{
+			backend: &testBackend{
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					return &coretypes.ResultBlock{
+						Block: &tmtypes.Block{
+							Header: tmtypes.Header{Height: 4},
+							Data:   tmtypes.Data{Txs: tmtypes.Txs{[]byte("not-an-rlp-tx"), []byte("x"), []byte("y"), []byte("z")}},
+						},
+					}, nil
+				},
+			},
+			store: store,
+		}
+
+		// Test: the bytes at the receipt index are not a transaction.
+		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
+
+		// Verify: decode error names the block and index.
+		require.Nil(t, got)
+		require.ErrorContains(t, err, "decode transaction at block 4 index 3")
+	})
+}
+
+func TestGetTransactionByHashSurfacesBackendErrors(t *testing.T) {
+	tx, raw := testSignedTransaction(t)
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash: tx.Hash(),
+		Receipt: &evmtypes.Receipt{
+			TxHashHex:        tx.Hash().Hex(),
+			BlockNumber:      4,
+			TransactionIndex: 0,
+		},
+	}}))
+	block := func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+		return &coretypes.ResultBlock{
+			BlockID: tmtypes.BlockID{Hash: common.HexToHash("0xabcd").Bytes()},
+			Block: &tmtypes.Block{
+				Header: tmtypes.Header{Time: time.Unix(1_700_000_000, 0)},
+				Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+			},
+		}, nil
+	}
+
+	t.Run("chain config", func(t *testing.T) {
+		want := errors.New("no chain config")
+		api := &txAPI{
+			backend: &testBackend{
+				block:       block,
+				chainConfig: func() (*params.ChainConfig, error) { return nil, want },
+			},
+			store: store,
+		}
+
+		// Test: EvmChainConfig fails after a successful decode.
+		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
+
+		// Verify: that error is returned as-is.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+	})
+
+	t.Run("negative block time", func(t *testing.T) {
+		api := &txAPI{
+			backend: &testBackend{
+				block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+					return &coretypes.ResultBlock{
+						Block: &tmtypes.Block{
+							Header: tmtypes.Header{Time: time.Unix(-1, 0)},
+							Data:   tmtypes.Data{Txs: tmtypes.Txs{raw}},
+						},
+					}, nil
+				},
+				chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
+			},
+			store: store,
+		}
+
+		// Test: block timestamp cannot be a uint64.
+		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
+
+		// Verify: negative time is rejected.
+		require.Nil(t, got)
+		require.ErrorContains(t, err, "time is negative")
+	})
+
+	t.Run("base fee", func(t *testing.T) {
+		want := errors.New("no base fee")
+		api := &txAPI{
+			backend: &testBackend{
+				block:       block,
+				chainConfig: func() (*params.ChainConfig, error) { return testChainConfig(big.NewInt(713715)), nil },
+				baseFee:     func() (*big.Int, error) { return nil, want },
+			},
+			store: store,
+		}
+
+		// Test: EvmBaseFee fails after a valid timestamp.
+		got, err := api.GetTransactionByHash(t.Context(), tx.Hash())
+
+		// Verify: that error is returned as-is.
+		require.Nil(t, got)
+		require.ErrorIs(t, err, want)
+	})
+}
+
+func TestGetTransactionReceiptIncludesContractAddressAndSkipsNilLogs(t *testing.T) {
+	txHash := common.Hash{1}
+	blockHash := common.HexToHash("0xabcd")
+	created := common.HexToAddress("0x4000000000000000000000000000000000000004")
+	store := evmonly.NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash: txHash,
+		Receipt: &evmtypes.Receipt{
+			TxHashHex:        txHash.Hex(),
+			BlockNumber:      7,
+			ContractAddress:  created.Hex(),
+			Logs:             []*evmtypes.Log{nil},
+			TransactionIndex: 0,
+		},
+	}}))
+	api := &txAPI{
+		backend: &testBackend{
+			block: func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+				return &coretypes.ResultBlock{
+					BlockID: tmtypes.BlockID{Hash: blockHash.Bytes()},
+					Block:   &tmtypes.Block{},
+				}, nil
+			},
+		},
+		store: store,
+	}
+
+	// Test: receipt with a contract address and a nil log slot.
+	got, err := api.GetTransactionReceipt(t.Context(), txHash)
+
+	// Verify: contract address is set and the nil log is dropped.
+	require.NoError(t, err)
+	require.Equal(t, &created, got["contractAddress"])
+	require.Empty(t, got["logs"])
 }

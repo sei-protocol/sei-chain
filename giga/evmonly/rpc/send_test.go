@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"net/http/httptest"
 	"testing"
@@ -73,6 +74,94 @@ func TestReturnsCheckTxRejection(t *testing.T) {
 	require.EqualError(t, err, "bad nonce")
 }
 
+func TestSendRawTransactionBroadcastError(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	want := errors.New("mempool full")
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			return nil, want
+		},
+		proxy: utils.None[*ethrpc.Client](),
+	}
+
+	// Test: BroadcastTx fails.
+	_, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+
+	// Verify: that error is returned as-is.
+	require.ErrorIs(t, err, want)
+}
+
+func TestSendRawTransactionMissingBroadcastResponse(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			return nil, nil
+		},
+		proxy: utils.None[*ethrpc.Client](),
+	}
+
+	// Test: BroadcastTx returns a nil result without error.
+	_, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+
+	// Verify: treated as a missing response, not a success.
+	require.EqualError(t, err, "missing broadcast response")
+}
+
+func TestSendRawTransactionRejectedWithoutLog(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			return &coretypes.ResultBroadcastTx{Code: 7}, nil
+		},
+		proxy: utils.None[*ethrpc.Client](),
+	}
+
+	// Test: CheckTx rejection with an empty log.
+	_, err := (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+
+	// Verify: the numeric code is used as the message.
+	require.EqualError(t, err, "transaction rejected with code 7")
+}
+
+func TestSendRawTransactionSurfacesProxyError(t *testing.T) {
+	_, raw := testSignedTransaction(t)
+	remoteHandler := ethrpc.NewServer()
+	require.NoError(t, remoteHandler.RegisterName("eth", &testRemoteSendAPI{
+		sendErr: errors.New("shard owner rejected"),
+	}))
+	t.Cleanup(remoteHandler.Stop)
+	remoteServer := httptest.NewServer(remoteHandler)
+	t.Cleanup(remoteServer.Close)
+	remoteClient, err := ethrpc.DialHTTP(remoteServer.URL)
+	require.NoError(t, err)
+	t.Cleanup(remoteClient.Close)
+	backend := &testBackend{
+		broadcast: func(context.Context, *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+			t.Fatal("failed proxy reached local broadcaster")
+			return nil, nil
+		},
+		proxy: utils.Some(remoteClient),
+	}
+
+	// Test: the shard-owner eth_sendRawTransaction call fails.
+	_, err = (&sendAPI{backend: backend}).SendRawTransaction(t.Context(), raw)
+
+	// Verify: that remote error is returned.
+	require.ErrorContains(t, err, "shard owner rejected")
+}
+
+type testRemoteSendAPI struct {
+	send    func(hexutil.Bytes) common.Hash
+	sendErr error
+}
+
+func (api *testRemoteSendAPI) SendRawTransaction(input hexutil.Bytes) (common.Hash, error) {
+	if api.sendErr != nil {
+		return common.Hash{}, api.sendErr
+	}
+	return api.send(input), nil
+}
+
 func TestProxiesTransactionToShardOwner(t *testing.T) {
 	tx, raw := testSignedTransaction(t)
 	var proxiedRaw hexutil.Bytes
@@ -101,14 +190,6 @@ func TestProxiesTransactionToShardOwner(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, hexutil.Bytes(raw), proxiedRaw)
-}
-
-type testRemoteSendAPI struct {
-	send func(hexutil.Bytes) common.Hash
-}
-
-func (api *testRemoteSendAPI) SendRawTransaction(input hexutil.Bytes) common.Hash {
-	return api.send(input)
 }
 
 func testSignedTransaction(t *testing.T) (*ethtypes.Transaction, []byte) {

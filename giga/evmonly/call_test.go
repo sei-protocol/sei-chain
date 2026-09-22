@@ -1,6 +1,7 @@
 package evmonly
 
 import (
+	"context"
 	"math/big"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 func callMessage(from common.Address, to *common.Address) *core.Message {
@@ -244,4 +247,40 @@ func TestExecutorCallRejectsMissingStateStore(t *testing.T) {
 	_, err := executor.Call(t.Context(), blockContext(big.NewInt(testChainID)), callMessage(testAddress(0x01), nil))
 
 	require.ErrorIs(t, err, errMissingStateStore)
+}
+
+func TestExecutorCallHonorsCanceledContext(t *testing.T) {
+	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// Test: Call with an already-canceled context.
+	_, err := executor.Call(ctx, blockContext(big.NewInt(testChainID)), callMessage(testAddress(0x01), nil))
+
+	// Verify: the canceled context is returned before a snapshot is opened.
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestExecutorCallRejectsNilSnapshot(t *testing.T) {
+	executor := NewExecutor(Config{}, withTestStores(&recordingGigaStore{}, NewMemoryReceiptStore(), func(StateChangeSet) ([]*proto.NamedChangeSet, error) {
+		return nil, nil
+	}))
+
+	// Test: the store's OpenView returns nil.
+	_, err := executor.Call(t.Context(), blockContext(big.NewInt(testChainID)), callMessage(testAddress(0x01), nil))
+
+	// Verify: that is an error, not a panic on the snapshot.
+	require.EqualError(t, err, "giga store returned a nil snapshot")
+}
+
+func TestExecutorCallRejectsZeroGasLimit(t *testing.T) {
+	executor := NewExecutor(Config{}, withTestState(NewMemoryState()))
+	ctx := blockContext(big.NewInt(testChainID))
+	ctx.GasLimit = 0
+
+	// Test: Call with a zero block gas limit.
+	_, err := executor.Call(t.Context(), ctx, callMessage(testAddress(0x01), nil))
+
+	// Verify: rejected before a snapshot is opened.
+	require.ErrorIs(t, err, errInvalidBlockGasLimit)
 }
