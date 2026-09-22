@@ -211,6 +211,56 @@ func TestEVMOnlyApplicationProducesDeterministicRoot(t *testing.T) {
 	require.Equal(t, firstResponse.AppHash, secondResponse.AppHash)
 }
 
+func TestEVMOnlyApplicationFeedsPrevRandaoThePriorAppHash(t *testing.T) {
+	// Setup: an initialized app and a key for a contract creation.
+	app := newInitializedEVMOnlyTestApp(t)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(evmOnlyMinGasPrice),
+		Gas:      100_000,
+		Value:    new(big.Int),
+		// PREVRANDAO; PUSH1 0; SSTORE — init code stores the opcode's value in slot 0.
+		Data: common.FromHex("0x44600055"),
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(evmOnlyTestChainID)), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+
+	// Test: commit an empty block, then the creation in the next one.
+	prior, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("block-2")),
+		Header: &tmproto.Header{
+			Height: 2,
+			Time:   time.Unix(1_700_000_002, 0),
+		},
+	})
+	require.NoError(t, err)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	// Verify: slot 0 is the prior block's app hash.
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	contract := crypto.CreateAddress(sender, 0)
+	snapshot := app.(*evmOnlyApplication).storage.StateDB().OpenView()
+	defer snapshot.Close()
+	require.NotEmpty(t, prior.AppHash)
+	require.Equal(t, common.BytesToHash(prior.AppHash), snapshot.GetStorage(evmOnlyStoreAddress(contract), common.Hash{}))
+}
+
 func TestEVMOnlyApplicationRequiresInitChain(t *testing.T) {
 	app := newEVMOnlyTestApp(t, nil)
 
