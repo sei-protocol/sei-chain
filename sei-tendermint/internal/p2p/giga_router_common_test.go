@@ -2,6 +2,8 @@ package p2p
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/url"
@@ -11,6 +13,8 @@ import (
 
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/blockstore"
@@ -112,6 +116,155 @@ func TestFinalizeBlockGasUsed(t *testing.T) {
 	require.Equal(t, int64(30), finalizeBlockGasUsed(resp))
 }
 
+func TestAppHashFromState(t *testing.T) {
+	rng := utils.TestRng()
+	block := &atypes.GlobalBlock{
+		Header:       atypes.GenBlockHeader(rng),
+		GlobalNumber: 42,
+	}
+	stateHash := lthash.NewBlockHash(nil)
+	stateHash.BlockNumber = 42
+
+	got, err := appHashFromState(block, stateHash)
+	require.NoError(t, err)
+
+	blockHash := block.Header.Hash()
+	checksum := stateHash.Global.Checksum()
+	h := sha256.New()
+	_, _ = h.Write(binary.BigEndian.AppendUint64(nil, 42))
+	_, _ = h.Write(blockHash[:])
+	_, _ = h.Write(checksum[:])
+	require.Equal(t, h.Sum(nil), got)
+
+	stateHash.BlockNumber++
+	_, err = appHashFromState(block, stateHash)
+	require.Error(t, err)
+}
+
+// manualHashStore is an AppHashStore the test publishes through, so a
+// committed block's state hash reaches the router only when the test says so.
+type manualHashStore struct {
+	state utils.Watch[*manualHashStoreState]
+}
+
+type manualHashStoreState struct {
+	listener utils.Option[gigatypes.HashListener]
+}
+
+func newManualHashStore() *manualHashStore {
+	return &manualHashStore{state: utils.NewWatch(&manualHashStoreState{})}
+}
+
+func (s *manualHashStore) RegisterHashListener(listener gigatypes.HashListener) (lthash.BlockHash, error) {
+	for state, ctrl := range s.state.Lock() {
+		state.listener = utils.Some(listener)
+		ctrl.Updated()
+	}
+	return *lthash.NewBlockHash(nil), nil
+}
+
+// publish hands the router the state hash of block n, as the state store does
+// once n's writes are committed.
+func (s *manualHashStore) publish(ctx context.Context, n atypes.GlobalBlockNumber) error {
+	var listener gigatypes.HashListener
+	for state, ctrl := range s.state.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool { return state.listener.IsPresent() }); err != nil {
+			return err
+		}
+		listener = state.listener.OrPanic("listener registered")
+	}
+	hash := lthash.NewBlockHash(nil)
+	hash.BlockNumber = int64(n)
+	return listener(ctx, hash.BlockNumber, hash)
+}
+
+// TestExecuteWaitsForAppHashOfPreviousBlock pins the ordering restart depends
+// on: a block is committed only once the AppHash of the block before it has
+// reached the data layer. Committing further ahead lets a crash strand the
+// block closing a CommitQC range with its AppHash unrecorded, which restart
+// cannot repair — the state store hands out the hash of its own tip, never
+// that of an earlier height, and data.State rejects an AppHash that skips a
+// range.
+//
+// The test feeds the whole CommitQC range in first, then publishes each state
+// hash by hand. After each commit, execute must already have taken the
+// predecessor's AppHash slot — a leftover token is the run-ahead that restart
+// cannot repair.
+func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+
+	genDoc := &tmtypes.GenesisDoc{
+		ChainID:         "apphash-handoff-test",
+		InitialHeight:   1,
+		GenesisTime:     time.Now(),
+		AppState:        testAppStateJSON(rng),
+		ConsensusParams: tmtypes.DefaultConsensusParams(),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	app := newTestApp()
+	hashStore := newManualHashStore()
+	db, err := blockstore.New(memblock.NewBlockDB())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	cfg := &GigaRouterCommonConfig{
+		DialInterval:       time.Second,
+		ValidatorAddrs:     map[atypes.PublicKey]GigaNodeAddr{key.Public(): {}},
+		PersistentStateDir: t.TempDir(),
+		GenDoc:             genDoc,
+		App:                proxy.New(app),
+		AppHashStore:       hashStore,
+	}
+	state, err := BuildDataState(cfg, db)
+	require.NoError(t, err)
+	router := &gigaRouterCommon{cfg: cfg, data: state, app: cfg.App}
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	require.Equal(t, state.Registry().FirstBlock(), gr.First)
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("state.PushQC(): %w", err)
+		}
+		appHashes, err := registerAppHashListener(ctx, hashStore)
+		if err != nil {
+			return err
+		}
+		handoff := newExecuteHandoff()
+		hashVault := hashvault.NewNoopHashVault()
+		s.SpawnBgNamed("appHashes", func() error {
+			return utils.IgnoreCancel(router.runAppHashes(ctx, hashVault, handoff, appHashes.hashes))
+		})
+		s.SpawnBgNamed("execute", func() error {
+			defer close(handoff.committed)
+			return utils.IgnoreCancel(router.executeBlocks(ctx, hashVault, appHashes.tip, handoff))
+		})
+		for n := gr.First; n < gr.Next; n++ {
+			want := int(n-gr.First) + 1
+			got, err := app.WaitForBlocks(ctx, want)
+			if err != nil {
+				return err
+			}
+			if got != want {
+				return fmt.Errorf("app executed %v blocks while the AppHash of block %v was unpublished, want %v", got, n-1, want)
+			}
+			// Execute takes this slot before committing; the hash loop returns it
+			// only after publish. A leftover token means execute did not wait.
+			if len(handoff.recorded) != 0 {
+				return fmt.Errorf("execute committed block %v without waiting for the previous AppHash", n)
+			}
+			if err := hashStore.publish(ctx, n); err != nil {
+				return fmt.Errorf("publish(%v): %w", n, err)
+			}
+		}
+		return nil
+	}))
+}
+
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 	rng := utils.TestRng()
 	key := atypes.GenSecretKey(rng)
@@ -150,6 +303,7 @@ func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: int64(last)}),
+		AppHashStore:       newTestApp(),
 	}, db)
 	require.NoError(t, err)
 	got, err := state.TryBlock(last)
@@ -246,6 +400,7 @@ func testGigaRouterWithData(t *testing.T, addrs map[atypes.PublicKey]GigaNodeAdd
 		PersistentStateDir: t.TempDir(),
 		GenDoc:             genDoc,
 		App:                proxy.New(&fixedHeightApp{height: 1}),
+		AppHashStore:       newTestApp(),
 	}, db)
 	require.NoError(t, err)
 	return &gigaRouterCommon{
