@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sei-protocol/sei-chain/sei-db/bench/cryptosim"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"go.opentelemetry.io/otel"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	otelmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -146,6 +147,10 @@ func run() error {
 		return fmt.Errorf("failed to stringify config: %w", err)
 	}
 	fmt.Printf("%s\n", configString)
+
+	// Which kernel produced a run's numbers, since the selector falls back to the portable
+	// one on a CPU without AVX-512 and says nothing about it.
+	fmt.Printf("lthash backend: %s\n", lthash.ActiveBackend())
 
 	if config.DeleteDataDirOnStartup {
 		if config.DataDir == "" {
