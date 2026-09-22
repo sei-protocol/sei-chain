@@ -19,8 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
 	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 
-	"github.com/sei-protocol/sei-chain/x/oracle/client/cli"
-	"github.com/sei-protocol/sei-chain/x/oracle/client/rest"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/simulation"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -79,9 +77,8 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 	return nil
 }
 
-// RegisterRESTRoutes registers the REST routes for the oracle module.
-func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Router) {
-	rest.RegisterRoutes(clientCtx, rtr)
+// RegisterRESTRoutes registers no REST routes for the oracle module.
+func (AppModuleBasic) RegisterRESTRoutes(_ client.Context, _ *mux.Router) {
 }
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the oracle module.
@@ -89,14 +86,14 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *r
 	_ = types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
 }
 
-// GetTxCmd returns the root tx command for the oracle module.
+// GetTxCmd returns no transaction command for the oracle module.
 func (AppModuleBasic) GetTxCmd() *cobra.Command {
-	return cli.GetTxCmd()
+	return nil
 }
 
-// GetQueryCmd returns no root query command for the oracle module.
+// GetQueryCmd returns no query command for the oracle module.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	return cli.GetQueryCmd()
+	return nil
 }
 
 // ___________________________

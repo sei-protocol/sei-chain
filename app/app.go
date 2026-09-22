@@ -621,7 +621,6 @@ func New(
 	supportedFeatures := "iterator,staking,stargate,sei"
 	wasmOpts = append(
 		wasmbinding.RegisterCustomPlugins(
-			&app.OracleKeeper,
 			&app.EpochKeeper,
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
