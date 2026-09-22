@@ -327,15 +327,19 @@ func serializeAndPut[T vtype.VType](store view.ViewManager, values map[string]T)
 	if len(values) == 0 {
 		return nil
 	}
-	pairs := make([]*proto.KVPair, 0, len(values))
+	// One slice of values rather than a slice of pointers, and the physical keys handed over as the
+	// strings they already are: the store keys its own structures by string, so converting them to
+	// []byte here only to have them converted back is the whole cost of this loop.
+	writes := make([]view.Write, 0, len(values))
 	for key, value := range values {
 		if value.IsDelete() {
-			pairs = append(pairs, &proto.KVPair{Key: []byte(key), Delete: true})
+			// A nil value is the manager's tombstone.
+			writes = append(writes, view.Write{Key: key})
 			continue
 		}
-		pairs = append(pairs, &proto.KVPair{Key: []byte(key), Value: value.Serialize()})
+		writes = append(writes, view.Write{Key: key, Value: value.Serialize()})
 	}
-	if err := store.BatchSet(pairs); err != nil {
+	if err := store.BatchSet(writes); err != nil {
 		return fmt.Errorf("batch write: %w", err)
 	}
 	return nil

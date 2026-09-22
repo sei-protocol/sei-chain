@@ -19,8 +19,8 @@ func (c *viewManager) materializeDiffAtVersion(version uint64) {
 
 // materializeSortedDiffs materializes one version on every shard and collects the resulting diffs,
 // waiting for any shard another caller is already materializing.
-func (c *viewManager) materializeSortedDiffs(version uint64) ([][]diffEntry, error) {
-	shardDiffs := make([][]diffEntry, len(c.shards))
+func (c *viewManager) materializeSortedDiffs(version uint64) ([][]Write, error) {
+	shardDiffs := make([][]Write, len(c.shards))
 	for i, shard := range c.shards {
 		if err := shard.MaterializeSortedDiff(version); err != nil {
 			return nil, fmt.Errorf("failed to materialize shard %d at version %d: %w", i, version, err)
@@ -35,7 +35,7 @@ func (c *viewManager) materializeSortedDiffs(version uint64) ([][]diffEntry, err
 }
 
 // forEachMergedEntry walks every entry across a version's per-shard diffs in ascending key order.
-func forEachMergedEntry(shardDiffs [][]diffEntry, visit func(entry diffEntry) error) error {
+func forEachMergedEntry(shardDiffs [][]Write, visit func(entry Write) error) error {
 	cursors := make([]int, len(shardDiffs))
 
 	for {
@@ -47,7 +47,7 @@ func forEachMergedEntry(shardDiffs [][]diffEntry, visit func(entry diffEntry) er
 			if cursors[i] >= len(diff) {
 				continue
 			}
-			if next == -1 || diff[cursors[i]].key < shardDiffs[next][cursors[next]].key {
+			if next == -1 || diff[cursors[i]].Key < shardDiffs[next][cursors[next]].Key {
 				next = i
 			}
 		}

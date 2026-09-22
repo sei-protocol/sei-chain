@@ -249,12 +249,19 @@ func (c *viewManager) getCacheSizeInfo() (bytes uint64, entries uint64) {
 	return bytes, entries
 }
 
-func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
-	// Sort entries by shard index so each shard is locked only once.
-	shardMap := make(map[uint64][]*proto.KVPair)
-	for i := range updates {
-		idx := c.shardManager.Shard(updates[i].Key)
-		shardMap[idx] = append(shardMap[idx], updates[i])
+func (c *viewManager) BatchSet(writes []Write) error {
+	// Bucket by shard so each shard is locked only once. Indexed by shard rather than keyed by it:
+	// shard indices are dense and known, so this needs no hashing and no map growth. Buckets hold
+	// indices into writes rather than copies, because an index is a word where a Write is forty
+	// bytes, and these buffers are rebuilt for every batch.
+	buckets := make([][]int, len(c.shards))
+	bucketHint := 2*len(writes)/len(c.shards) + 1
+	for i := range writes {
+		shardIndex := c.shardManager.ShardString(writes[i].Key)
+		if buckets[shardIndex] == nil {
+			buckets[shardIndex] = make([]int, 0, bucketHint)
+		}
+		buckets[shardIndex] = append(buckets[shardIndex], i)
 	}
 
 	// Fan out to shards. A shard refusing the write — it is out of service, so the manager is closed or
@@ -262,16 +269,15 @@ func (c *viewManager) BatchSet(updates []*proto.KVPair) error {
 	// the batch is not atomic across shards in that case. That is acceptable because the manager contract
 	// makes any error fatal.
 	var wg sync.WaitGroup
-	shardIndices := make([]uint64, 0, len(shardMap))
-	for shardIndex := range shardMap {
-		shardIndices = append(shardIndices, shardIndex)
-	}
-	errs := make([]error, len(shardIndices))
-	for i, shardIndex := range shardIndices {
+	errs := make([]error, len(buckets))
+	for shardIndex := range buckets {
+		if len(buckets[shardIndex]) == 0 {
+			continue
+		}
 		wg.Add(1)
 		c.miscPool.Submit(func() {
 			defer wg.Done()
-			errs[i] = c.shards[shardIndex].BatchSet(shardMap[shardIndex])
+			errs[shardIndex] = c.shards[shardIndex].batchSetAt(writes, buckets[shardIndex])
 		})
 	}
 	wg.Wait()
@@ -756,7 +762,7 @@ func (c *viewManager) ForEachDiffAtVersion(version uint64, visit func(key string
 			return fmt.Errorf("failed to get the diff of shard %d at version %d: %w", i, version, err)
 		}
 		for _, entry := range diff {
-			if err := visit(entry.key, entry.value); err != nil {
+			if err := visit(entry.Key, entry.Value); err != nil {
 				return err
 			}
 		}
@@ -1076,11 +1082,11 @@ func (c *viewManager) flushViews(
 		if err != nil {
 			return err
 		}
-		err = forEachMergedEntry(shardDiffs, func(entry diffEntry) error {
-			if entry.value == nil {
-				return batch.DeleteString(entry.key)
+		err = forEachMergedEntry(shardDiffs, func(entry Write) error {
+			if entry.Value == nil {
+				return batch.DeleteString(entry.Key)
 			}
-			return batch.SetString(entry.key, entry.value)
+			return batch.SetString(entry.Key, entry.Value)
 		})
 		if err != nil {
 			return fmt.Errorf("flush failed to write the diff at version %d: %w", version, err)
