@@ -24,6 +24,11 @@ import (
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 )
 
+// maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
+const maxWalletEntries = 100
+
+var logger = seilog.NewLogger("cosmosmetrics")
+
 // StakingKeeper is the staking state the reporter reads.
 type StakingKeeper interface {
 	GetParams(sdk.Context) stakingtypes.Params
@@ -66,11 +71,6 @@ type Keepers struct {
 
 // QueryContextFunc returns a read-only context over the latest committed state.
 type QueryContextFunc func() (sdk.Context, error)
-
-var logger = seilog.NewLogger("cosmosmetrics")
-
-// maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
-const maxWalletEntries = 100
 
 // Reporter reports the cosmos_* gauges from the node's own keepers as OTel observables
 // over a periodically refreshed snapshot of committed state.

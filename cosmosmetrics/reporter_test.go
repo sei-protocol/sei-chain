@@ -29,6 +29,12 @@ import (
 
 const testDenom = "usei"
 
+var testReader = sync.OnceValue(func() *sdkmetric.ManualReader {
+	reader := sdkmetric.NewManualReader()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	return reader
+})
+
 type fakeStaking struct {
 	validators []stakingtypes.Validator
 	calls      int
@@ -116,12 +122,6 @@ func newValidator(t *testing.T, seed byte, tokens int64, status stakingtypes.Bon
 	v.Commission.Rate = sdk.NewDecWithPrec(5, 2)
 	return v
 }
-
-var testReader = sync.OnceValue(func() *sdkmetric.ManualReader {
-	reader := sdkmetric.NewManualReader()
-	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
-	return reader
-})
 
 // newTestReader returns the manual OTel reader that the package-level instruments report to.
 func newTestReader(t *testing.T) *sdkmetric.ManualReader {

@@ -18,6 +18,42 @@ const (
 	flagBankTransferThreshold = "cosmos_metrics.bank_transfer_threshold"
 )
 
+// ConfigTemplate is the TOML template for the [cosmos_metrics] section of app.toml.
+const ConfigTemplate = `
+###############################################################################
+###                  Cosmos Metrics Configuration (Auto-managed)            ###
+###############################################################################
+
+[cosmos_metrics]
+
+# Report cosmos_params_*, cosmos_general_*, cosmos_validators_*, cosmos_wallet_*
+# and cosmos_bank_* gauges alongside the node's other OTel metrics on the Tendermint
+# Prometheus endpoint ([instrumentation] in config.toml). Off by default.
+enabled = {{ .CosmosMetrics.Enabled }}
+
+# How often committed state is re-read into the reported snapshot.
+refresh_interval = "{{ .CosmosMetrics.RefreshInterval }}"
+
+# Bond-denom amounts are divided by 10^denom_exponent before being reported.
+denom_exponent = {{ .CosmosMetrics.DenomExponent }}
+
+# Bech32 accounts whose balances, delegations, unbondings, redelegations and
+# rewards are reported under cosmos_wallet_*.
+wallet_addresses = [{{ range $i, $a := .CosmosMetrics.WalletAddresses }}{{ if $i }}, {{ end }}"{{ $a }}"{{ end }}]
+
+# Bank transfers of at least this many base units are reported under
+# cosmos_bank_transfer_amount.
+bank_transfer_threshold = {{ .CosmosMetrics.BankTransferThreshold }}
+`
+
+var DefaultConfig = Config{
+	Enabled:               false,
+	RefreshInterval:       15 * time.Second,
+	DenomExponent:         6,
+	WalletAddresses:       nil,
+	BankTransferThreshold: 1_000_000_000_000,
+}
+
 // Config defines configuration for the in-process cosmos_* metrics.
 type Config struct {
 	// Enabled controls whether the cosmos_* gauges are reported.
@@ -31,14 +67,6 @@ type Config struct {
 	// BankTransferThreshold is the base-unit amount a transfer must reach to be reported as a
 	// cosmos_bank_transfer_amount sample.
 	BankTransferThreshold uint64 `mapstructure:"bank_transfer_threshold"`
-}
-
-var DefaultConfig = Config{
-	Enabled:               false,
-	RefreshInterval:       15 * time.Second,
-	DenomExponent:         6,
-	WalletAddresses:       nil,
-	BankTransferThreshold: 1_000_000_000_000,
 }
 
 // ReadConfig reads the cosmos_metrics section from app options.
@@ -89,31 +117,3 @@ func (c Config) validate() error {
 	}
 	return nil
 }
-
-// ConfigTemplate is the TOML template for the [cosmos_metrics] section of app.toml.
-const ConfigTemplate = `
-###############################################################################
-###                  Cosmos Metrics Configuration (Auto-managed)            ###
-###############################################################################
-
-[cosmos_metrics]
-
-# Report cosmos_params_*, cosmos_general_*, cosmos_validators_*, cosmos_wallet_*
-# and cosmos_bank_* gauges alongside the node's other OTel metrics on the Tendermint
-# Prometheus endpoint ([instrumentation] in config.toml). Off by default.
-enabled = {{ .CosmosMetrics.Enabled }}
-
-# How often committed state is re-read into the reported snapshot.
-refresh_interval = "{{ .CosmosMetrics.RefreshInterval }}"
-
-# Bond-denom amounts are divided by 10^denom_exponent before being reported.
-denom_exponent = {{ .CosmosMetrics.DenomExponent }}
-
-# Bech32 accounts whose balances, delegations, unbondings, redelegations and
-# rewards are reported under cosmos_wallet_*.
-wallet_addresses = [{{ range $i, $a := .CosmosMetrics.WalletAddresses }}{{ if $i }}, {{ end }}"{{ $a }}"{{ end }}]
-
-# Bank transfers of at least this many base units are reported under
-# cosmos_bank_transfer_amount.
-bank_transfer_threshold = {{ .CosmosMetrics.BankTransferThreshold }}
-`
