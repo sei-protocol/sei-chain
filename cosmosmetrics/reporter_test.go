@@ -129,7 +129,7 @@ func newTestReader(t *testing.T) *sdkmetric.ManualReader {
 	return testReader()
 }
 
-func newTestCollector(t *testing.T, staking *fakeStaking, distribution fakeDistribution) (*Collector, *bytes.Buffer) {
+func newTestReporter(t *testing.T, staking *fakeStaking, distribution fakeDistribution) (*Reporter, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
 	wallet := sdk.AccAddress(bytes.Repeat([]byte{9}, 20)).String()
@@ -137,7 +137,7 @@ func newTestCollector(t *testing.T, staking *fakeStaking, distribution fakeDistr
 	cfg.Enabled = true
 	cfg.RefreshInterval = time.Hour
 	cfg.WalletAddresses = []string{wallet}
-	c, err := NewCollector(cfg, Keepers{
+	c, err := NewReporter(cfg, Keepers{
 		Staking:      staking,
 		Slashing:     fakeSlashing{},
 		Distribution: distribution,
@@ -188,7 +188,7 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 		newValidator(t, 1, 4_000_000, stakingtypes.Bonded),
 		newValidator(t, 2, 9_000_000, stakingtypes.Unbonded),
 	}}
-	c, logs := newTestCollector(t, staking, fakeDistribution{})
+	c, logs := newTestReporter(t, staking, fakeDistribution{})
 	require.NoError(t, c.Start())
 	t.Cleanup(c.Stop)
 	waitForSnapshot(t, c)
@@ -247,7 +247,7 @@ func TestStartReportsTheExporterGauges(t *testing.T) {
 	}
 }
 
-func waitForSnapshot(t *testing.T, c *Collector) {
+func waitForSnapshot(t *testing.T, c *Reporter) {
 	t.Helper()
 	require.Eventually(t, func() bool { return c.snapshot.Load() != nil }, 5*time.Second, 5*time.Millisecond,
 		"the first refresh did not complete")
@@ -263,7 +263,7 @@ func unbondedCons(t *testing.T, v stakingtypes.Validator) sdk.ConsAddress {
 func TestObserveServesTheSnapshotBetweenRefreshes(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
-	c, _ := newTestCollector(t, staking, fakeDistribution{})
+	c, _ := newTestReporter(t, staking, fakeDistribution{})
 	require.NoError(t, c.Start())
 	t.Cleanup(c.Stop)
 	waitForSnapshot(t, c)
@@ -278,7 +278,7 @@ func TestObserveServesTheSnapshotBetweenRefreshes(t *testing.T) {
 func TestRefreshSurvivesAFailedRead(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
-	c, logs := newTestCollector(t, staking, fakeDistribution{rewardsErr: errors.New("boom")})
+	c, logs := newTestReporter(t, staking, fakeDistribution{rewardsErr: errors.New("boom")})
 	require.NoError(t, c.Start())
 	t.Cleanup(c.Stop)
 	waitForSnapshot(t, c)
@@ -301,7 +301,7 @@ func TestRefreshSurvivesAFailedRead(t *testing.T) {
 func TestObserveTxResultsReportsLargeTransfersOnly(t *testing.T) {
 	reader := newTestReader(t)
 	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded)}}
-	c, _ := newTestCollector(t, staking, fakeDistribution{})
+	c, _ := newTestReporter(t, staking, fakeDistribution{})
 	c.transfers = newTransferRecorder(c.inst.bankTransferAmount, 1_000)
 
 	transfer := func(amount string) abci.Event {

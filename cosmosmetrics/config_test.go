@@ -12,7 +12,7 @@ import (
 )
 
 // TestReadConfigAbsentKeysKeepDefaults pins the section baseline: no [cosmos_metrics] section means the
-// collectors are off.
+// gauges are off.
 func TestReadConfigAbsentKeysKeepDefaults(t *testing.T) {
 	cfg, err := cosmosmetrics.ReadConfig(configtest.AppOpts{})
 	require.NoError(t, err, "an absent [cosmos_metrics] section must read cleanly")

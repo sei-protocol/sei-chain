@@ -437,7 +437,7 @@ type App struct {
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
-	cosmosMetrics         *cosmosmetrics.Collector
+	cosmosMetrics         *cosmosmetrics.Reporter
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
@@ -719,14 +719,14 @@ func New(
 		panic(fmt.Sprintf("error reading cosmos metrics config due to %s", err))
 	}
 	if cosmosMetricsConfig.Enabled {
-		app.cosmosMetrics, err = cosmosmetrics.NewCollector(cosmosMetricsConfig, cosmosmetrics.Keepers{
+		app.cosmosMetrics, err = cosmosmetrics.NewReporter(cosmosMetricsConfig, cosmosmetrics.Keepers{
 			Staking:      app.StakingKeeper,
 			Slashing:     app.SlashingKeeper,
 			Distribution: app.DistrKeeper,
 			Bank:         app.BankKeeper,
 		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) }, logger)
 		if err != nil {
-			panic(fmt.Sprintf("error creating cosmos metrics collector due to %s", err))
+			panic(fmt.Sprintf("error creating cosmos metrics reporter due to %s", err))
 		}
 		if err := app.cosmosMetrics.Start(); err != nil {
 			panic(fmt.Sprintf("error starting cosmos metrics due to %s", err))

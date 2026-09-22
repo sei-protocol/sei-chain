@@ -69,6 +69,6 @@ func (r *transferRecorder) observeEvent(ctx context.Context, ev *abci.Event) {
 }
 
 // ObserveTxResults records the bank transfers in a finalized block's transaction results.
-func (c *Collector) ObserveTxResults(ctx context.Context, results []*abci.ExecTxResult) {
-	c.transfers.ObserveTxResults(ctx, results)
+func (r *Reporter) ObserveTxResults(ctx context.Context, results []*abci.ExecTxResult) {
+	r.transfers.ObserveTxResults(ctx, results)
 }

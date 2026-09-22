@@ -11,7 +11,7 @@ var (
 	cosmosMetrics = newInstruments()
 )
 
-// instruments are the gauges the collector reports, all under one meter.
+// instruments are the gauges the reporter reports, all under one meter.
 type instruments struct {
 	paramsMaxValidators           metric.Float64ObservableGauge
 	paramsUnbondingTime           metric.Float64ObservableGauge
