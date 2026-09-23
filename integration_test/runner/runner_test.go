@@ -27,6 +27,13 @@ func TestStartup(t *testing.T) {
 	runner.RunFile(t, "../startup/startup_test.yaml")
 }
 
+// TestAutobahnStartup is the startup gate for AUTOBAHN=true clusters. Autobahn
+// serves the EVM JSON-RPC only, so the Tendermint RPC queries TestStartup makes
+// have nothing to answer them.
+func TestAutobahnStartup(t *testing.T) {
+	runner.RunFile(t, "../startup/startup_autobahn_test.yaml")
+}
+
 // Tests are declared in the order the CI matrix ran them as Python scripts
 // (go test executes tests in declaration order): staking, then bank, then mint.
 
@@ -38,14 +45,6 @@ func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
 	runner.RunFile(t, "../bank_module/multi_sig_send_test.yaml")
 	runner.RunFile(t, "../bank_module/simulation_tx.yaml")
-}
-
-// TestAutobahnBankModule is the Autobahn-matrix bank slice. It runs only
-// send_funds_test.yaml because the multi_sig and simulation cases broadcast
-// with -b block, which Autobahn's KV indexer doesn't support (BroadcastTxCommit
-// hangs to its timeout).
-func TestAutobahnBankModule(t *testing.T) {
-	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
 }
 
 func TestMintModule(t *testing.T) {

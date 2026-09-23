@@ -98,18 +98,6 @@
     ]
   },
   {
-    "_comment": "Suites: Autobahn SeiDB State Store, Autobahn Mint & Staking & Bank, Autobahn Gov & Oracle & Authz. SeiDB State Store runs first because it asserts absolute wasm code counts. TestMintModule and TestGovModule (burn case) assert absolute usei total supply, so nothing upstream of them in this row may mint or burn usei (SeiDB SS, Staking and Bank are safe today: fees are not burned and tokenfactory creation does not burn usei).",
-    "name": "Autobahn Cosmos Modules",
-    "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-    "scripts": [
-      "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-      "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestSeiDBStateStore",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestAutobahnBankModule\"",
-      "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestGovModule|TestOracleModule|TestAuthzModule\""
-    ]
-  },
-  {
     "name": "dApp Tests (Uniswap)",
     "env": "GIGA_STORAGE=true",
     "scripts": [
@@ -167,7 +155,9 @@
     ]
   },
   {
+    "_comment": "Disabled: the upgrade suite drives a Cosmos gov proposal over Tendermint RPC, and Autobahn now runs the EVM-only executor, which serves neither. TODO(autobahn): re-enable once the EVM-only path has an upgrade boundary this suite can drive.",
     "name": "Autobahn Upgrade Module (Major)",
+    "disabled": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
     "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMajor"
@@ -181,7 +171,9 @@
     ]
   },
   {
+    "_comment": "Disabled for the same reason as Autobahn Upgrade Module (Major). TODO(autobahn): re-enable with it.",
     "name": "Autobahn Upgrade Module (Minor)",
+    "disabled": true,
     "env": "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
     "scripts": [
       "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run TestUpgradeMinor"

@@ -696,7 +696,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 	if n.config.AutobahnConfigFile != "" {
 		storage, ok := n.gigaStorageManager.Get()
 		if !ok {
-			return errors.New("Autobahn EVM RPC requires Giga storage")
+			return errors.New("serving the Autobahn EVM RPC requires Giga storage")
 		}
 		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB())
 		if err != nil {
