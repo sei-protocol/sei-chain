@@ -146,8 +146,9 @@ The operational EVM-only configuration is:
 | BlockDB minimum retention age | `30s` |
 
 The node binary is `seid`. Each node first runs the normal `seid init` and
-genesis scripts, then deployment enables `evm-only = true` in `config.toml` and
-starts the node with:
+genesis scripts, then deployment points `autobahn-config-file` at the generated
+committee config. Autobahn serves the EVM JSON-RPC only and runs the EVM-only
+executor unless `mock-app` is set. Nodes start with:
 
 ```sh
 seid start --chain-id sei --inv-check-period 0 --freeze-height 0
@@ -155,7 +156,7 @@ seid start --chain-id sei --inv-check-period 0 --freeze-height 0
 
 The shared genesis document contains four gentxs and four validators with raw
 genesis power 10. On startup, `seid` replaces the Cosmos application with the
-EVM-only application and derives its active four-validator set from
+EVM-only application (unless `mock-app` is set) and derives its active four-validator set from
 `autobahn.json`, assigning unit power to every committee member. Cosmos auth,
 bank, staking, mint, and test-account state in `genesis.json` is therefore not
 the EVM execution genesis.

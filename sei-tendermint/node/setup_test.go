@@ -361,29 +361,38 @@ func TestValidateNodeSetupConfigRejectsAutobahnSeed(t *testing.T) {
 	require.ErrorIs(t, err, errAutobahnSeed)
 }
 
-func TestPrepareApplicationAutobahnOpensStorage(t *testing.T) {
+func TestPrepareApplicationAutobahnUsesEVMOnly(t *testing.T) {
 	app := abci.BaseApplication{}
 	validator := makeValidator([]byte("autobahn-validator"), []byte("autobahn-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
+		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, app)
 	require.NoError(t, err)
 	manager, ok := storage.Get()
 	require.True(t, ok)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
-	require.Equal(t, app, prepared)
 	require.NotNil(t, manager.BlockStore())
+	require.NotNil(t, manager.StateDB())
+	require.NotNil(t, manager.SC())
+	require.Nil(t, manager.SS())
+	require.NotNil(t, manager.ReceiptDB())
+	require.Equal(t, "evmonly", prepared.Info().Data)
+	validators := prepared.GetValidators()
+	require.Len(t, validators, 1)
+	require.Equal(t, int64(1), validators[0].Power)
+	require.Equal(t, validator.ValidatorKey.Bytes(), validators[0].PubKey.GetEd25519())
 }
 
-func TestPrepareApplicationEVMOnlyRequiresStorage(t *testing.T) {
-	_, storage, err := prepareApplication(t.Context(), &config.Config{
-		BaseConfig: config.BaseConfig{EVMOnly: true},
-	}, abci.BaseApplication{})
-	require.Error(t, err)
+func TestPrepareApplicationWithoutAutobahnLeavesAppUnchanged(t *testing.T) {
+	app := abci.BaseApplication{}
+	prepared, storage, err := prepareApplication(t.Context(), &config.Config{}, app)
+	require.NoError(t, err)
 	_, ok := storage.Get()
 	require.False(t, ok)
+	require.Equal(t, app, prepared)
 }
 
 // Every other RouterOptions construction site substitutes rate.Inf, so this
