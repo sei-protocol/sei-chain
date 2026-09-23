@@ -47,6 +47,16 @@ type FeeHistoryResult struct {
 	GasUsedRatio []float64        `json:"gasUsedRatio"`
 }
 
+func requestCancellationError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return nil
+}
+
 func (i *InfoAPI) BlockNumber(ctx context.Context) hexutil.Uint64 {
 	startTime := time.Now()
 	defer recordMetrics(ctx, "eth_BlockNumber", i.connectionType, startTime)
@@ -211,6 +221,10 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	lastBlockHeaderBaseFeeAppended := false
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		var gasUsedRatio float64
 
 		sdkCtx := i.ctxProvider(blockNum)
@@ -223,6 +237,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			// Calculate actual gas used ratio for this block
 			calculatedRatio, err := i.calculateGasUsedRatio(ctx, blockNum)
 			if err != nil {
+				if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+					return nil, ctxErr
+				}
 				if errors.Is(err, receipt.ErrNotConfigured) {
 					return nil, err
 				}
@@ -252,6 +269,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		height := blockNum
 		block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &height, 1)
 		if err != nil {
+			if ctxErr := requestCancellationError(ctx, err); ctxErr != nil {
+				return nil, ctxErr
+			}
 			// block pruned from tendermint store. Skipping
 			continue
 		}
