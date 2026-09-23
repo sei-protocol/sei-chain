@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // Shutdown contract under test: when Close returns, no manager-owned goroutine will touch the
@@ -199,7 +198,7 @@ func TestMethodsAfterCloseReportManagerClosed(t *testing.T) {
 	// flush, and reads must not keep serving from a closed manager.
 	require.ErrorIs(t, manager.Set([]byte("k"), []byte("v")), ErrViewManagerClosed)
 	require.ErrorIs(t, manager.Delete([]byte("k")), ErrViewManagerClosed)
-	require.ErrorIs(t, manager.BatchSet([]*proto.KVPair{{Key: []byte("k"), Value: []byte("v")}}), ErrViewManagerClosed)
+	require.ErrorIs(t, manager.BatchSet([]Write{{Key: "k", Value: []byte("v")}}), ErrViewManagerClosed)
 
 	_, _, err = manager.Get([]byte("k"), true)
 	require.ErrorIs(t, err, ErrViewManagerClosed)

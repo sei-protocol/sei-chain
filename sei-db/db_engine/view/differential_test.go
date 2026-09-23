@@ -9,7 +9,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
 // TestDifferentialAgainstModel drives randomized operation sequences through both the real
@@ -270,15 +269,15 @@ func pick(rng *testutil.TestRandom, keys [][]byte) []byte {
 	return keys[rng.IntRange(0, len(keys))]
 }
 
-func randMuts(rng *testutil.TestRandom, keys [][]byte) []*proto.KVPair {
+func randMuts(rng *testutil.TestRandom, keys [][]byte) []Write {
 	n := rng.IntRange(1, 9)
-	muts := make([]*proto.KVPair, n)
+	muts := make([]Write, n)
 	for i := range muts {
-		k := pick(rng, keys)
+		k := string(pick(rng, keys))
 		if rng.BoolWithProbability(0.25) {
-			muts[i] = &proto.KVPair{Key: k, Delete: true} // delete
+			muts[i] = Write{Key: k} // a nil value is a delete
 		} else {
-			muts[i] = &proto.KVPair{Key: k, Value: randVal(rng)}
+			muts[i] = Write{Key: k, Value: randVal(rng)}
 		}
 	}
 	return muts

@@ -502,14 +502,14 @@ func (c *readCache) entryOrCreateWLocked(key []byte) *cacheEntry {
 // that a key several of them wrote is left holding the newest value. A nil value marks the key as
 // known-deleted (the manager-wide tombstone convention); any other value is cached as available.
 // Inserts everything, then evicts overflow once at the end.
-func (c *readCache) PutRetiredWLocked(diffs [][]diffEntry) error {
+func (c *readCache) PutRetiredWLocked(diffs [][]Write) error {
 	// Replayed in the order given, so that where diffs overlap on a key the last one wins.
 	for _, diff := range diffs {
 		for _, entry := range diff {
-			if entry.value == nil {
-				c.deleteRetiredWLocked([]byte(entry.key))
+			if entry.Value == nil {
+				c.deleteRetiredWLocked([]byte(entry.Key))
 			} else {
-				c.setRetiredWLocked([]byte(entry.key), entry.value)
+				c.setRetiredWLocked([]byte(entry.Key), entry.Value)
 			}
 		}
 	}

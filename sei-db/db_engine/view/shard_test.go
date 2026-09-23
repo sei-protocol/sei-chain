@@ -62,12 +62,12 @@ func TestShardSortedDiffCarriesEachSealedVersion(t *testing.T) {
 
 	first, err := s.SortedDiff(1)
 	require.NoError(t, err)
-	require.Equal(t, []diffEntry{{key: "a", value: []byte("1")}, {key: "b", value: []byte("1")}}, first,
+	require.Equal(t, []Write{{Key: "a", Value: []byte("1")}, {Key: "b", Value: []byte("1")}}, first,
 		"a version's diff must be ordered by key")
 
 	second, err := s.SortedDiff(2)
 	require.NoError(t, err)
-	require.Equal(t, []diffEntry{{key: "c", value: []byte("2")}}, second)
+	require.Equal(t, []Write{{Key: "c", Value: []byte("2")}}, second)
 }
 
 // Materializing replaces the map the version was accumulated in, and says so: a second call has nothing
@@ -87,7 +87,7 @@ func TestShardMaterializeIsIdempotentAndDropsTheMap(t *testing.T) {
 	require.NoError(t, s.MaterializeSortedDiff(1))
 	entries, err := s.SortedDiff(1)
 	require.NoError(t, err)
-	require.Equal(t, []diffEntry{{key: "k", value: []byte("v")}}, entries)
+	require.Equal(t, []Write{{Key: "k", Value: []byte("v")}}, entries)
 }
 
 func TestShardSortedDiffRejectsUnsealedVersions(t *testing.T) {
