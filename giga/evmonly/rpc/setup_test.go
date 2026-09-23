@@ -27,6 +27,7 @@ type testBackend struct {
 	call             func(context.Context, *core.Message) (*core.ExecutionResult, error)
 	chainConfig      func() (*params.ChainConfig, error)
 	chainID          func() uint64
+	code             func(common.Address) ([]byte, error)
 	gasLimit         func() (uint64, error)
 	proxy            utils.Option[*ethrpc.Client]
 	proxyCalls       int
@@ -67,6 +68,10 @@ func (b *testBackend) EvmChainConfig() (*params.ChainConfig, error) {
 
 func (b *testBackend) EvmChainID() uint64 {
 	return b.chainID()
+}
+
+func (b *testBackend) EvmCode(address common.Address) ([]byte, error) {
+	return b.code(address)
 }
 
 func (b *testBackend) EvmGasLimit() (uint64, error) {

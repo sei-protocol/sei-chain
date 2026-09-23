@@ -301,6 +301,7 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_getTransactionByHash`, for a finalized transaction's decoded fields;
 - `eth_getBalance`, for the current committed EVM balance;
 - `eth_getTransactionCount`, for the current committed nonce;
+- `eth_getCode`, for the current committed contract code at an address;
 - `eth_blockNumber`, for the current committed block height;
 - `eth_chainId`, for the configured EVM chain ID;
 - `eth_call`, for a read-only message call against current committed state;
@@ -429,6 +430,17 @@ gas limit defaults to a fixed cap rather than the block gas limit, and an
 explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
 go-ethereum's own `eth_call` behavior.
+
+### Fetch contract code with `cast code`
+
+```sh
+cast code --rpc-url http://127.0.0.1:8545 0xYOUR_CONTRACT_ADDRESS
+```
+
+`eth_getCode` accepts the same `latest`/`safe`/`finalized`/`pending` block tags
+as `eth_getBalance`; an explicit height, an explicit hash, or `earliest`
+returns the same historical-state error. An address with no code, including an
+EOA or an address that was never touched, returns `0x`, as go-ethereum does.
 
 Block context for a call is a mix of real and best-effort values: `Number` and
 `GasLimit` are the actual current committed values, but `Coinbase` is always
