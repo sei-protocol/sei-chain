@@ -659,6 +659,22 @@ func TestReadConfigDeadlineEnforcer(t *testing.T) {
 	badOpts.rpcMethodTimeouts = []string{"eth_call=not-a-duration"}
 	_, err = config.ReadConfig(&badOpts)
 	require.Error(t, err)
+
+	badOpts = o
+	badOpts.rpcDefaultTimeout = -time.Second
+	_, err = config.ReadConfig(&badOpts)
+	require.ErrorContains(t, err, "evm.rpc_default_timeout must be >= 0")
+
+	badOpts = o
+	badOpts.rpcMethodTimeouts = []string{"eth_call=-1s"}
+	_, err = config.ReadConfig(&badOpts)
+	require.ErrorContains(t, err, `"eth_call=-1s" duration must be >= 0`)
+
+	zeroOpts := o
+	zeroOpts.rpcDefaultTimeout = time.Duration(0)
+	zeroOpts.rpcMethodTimeouts = []string{"eth_call=0"}
+	_, err = config.ReadConfig(&zeroOpts)
+	require.NoError(t, err)
 }
 
 func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
@@ -671,6 +687,10 @@ func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
 	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_estimateGas"])
 	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_createAccessList"])
 	require.Equal(t, 5*time.Minute, deadlineCfg.Overrides["eth_estimateGasAfterCalls"])
+
+	cfg.RPCDefaultTimeout = -time.Second
+	_, err = cfg.DeadlineEnforcerConfig()
+	require.ErrorContains(t, err, "evm.rpc_default_timeout must be >= 0")
 }
 
 func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {

@@ -668,6 +668,9 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
+	method := fmt.Sprintf("%s_getLogs", a.namespace)
+	ctx, cancel := withDeadline(ctx, method)
+	defer cancel()
 
 	latest, err := a.logFetcher.latestHeight(ctx)
 	if err != nil {

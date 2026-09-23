@@ -798,8 +798,8 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if _, err = ParseMethodTimeouts(cfg.RPCMethodTimeouts); err != nil {
-		return cfg, fmt.Errorf("%s: %w", flagRPCMethodTimeouts, err)
+	if _, err = cfg.DeadlineEnforcerConfig(); err != nil {
+		return cfg, err
 	}
 	if cfg.RateLimitingEnabled && cfg.IPRateLimitBurst > 0 && cfg.BatchRequestLimit > 0 &&
 		cfg.IPRateLimitBurst < cfg.BatchRequestLimit {
@@ -845,6 +845,9 @@ func ParseMethodTimeouts(entries []string) (map[string]time.Duration, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%q: %w", entry, err)
 		}
+		if d < 0 {
+			return nil, fmt.Errorf("%q duration must be >= 0 (0 disables the method deadline), got %s", entry, d)
+		}
 		out[method] = d
 	}
 	return out, nil
@@ -866,9 +869,12 @@ func (c Config) RateLimiterConfig() ratelimiter.Config {
 // (TraceTimeout) already carry their own deadline and are never passed through this
 // enforcer, so they need no entry.
 func (c Config) DeadlineEnforcerConfig() (ratelimiter.DeadlineConfig, error) {
+	if c.RPCDefaultTimeout < 0 {
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s must be >= 0 (0 disables the default deadline), got %s", flagRPCDefaultTimeout, c.RPCDefaultTimeout)
+	}
 	overrides, err := ParseMethodTimeouts(c.RPCMethodTimeouts)
 	if err != nil {
-		return ratelimiter.DeadlineConfig{}, err
+		return ratelimiter.DeadlineConfig{}, fmt.Errorf("%s: %w", flagRPCMethodTimeouts, err)
 	}
 	return ratelimiter.DeadlineConfig{
 		Default:   c.RPCDefaultTimeout,
