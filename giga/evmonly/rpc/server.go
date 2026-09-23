@@ -57,8 +57,8 @@ type Server struct {
 }
 
 // Start binds the EVM-only JSON-RPC listener and returns its server.
-func Start(backend Backend, receiptStore receipt.ReceiptStore, config Config) (*Server, error) {
-	rpcServer, err := newHandler(backend, receiptStore, config)
+func Start(backend Backend, receiptStore receipt.ReceiptStore) (*Server, error) {
+	rpcServer, err := newHandler(backend, receiptStore)
 	if err != nil {
 		return nil, err
 	}
@@ -77,12 +77,9 @@ func Start(backend Backend, receiptStore receipt.ReceiptStore, config Config) (*
 	}, nil
 }
 
-func newHandler(backend Backend, receiptStore receipt.ReceiptStore, config Config) (*ethrpc.Server, error) {
+func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Server, error) {
 	if receiptStore == nil {
 		return nil, errors.New("EVM-only RPC requires a receipt store")
-	}
-	if config.MaxBlocksForLogs == 0 || config.MaxLogsPerQuery == 0 {
-		return nil, errors.New("EVM-only RPC requires positive eth_getLogs bounds")
 	}
 	rpcServer := ethrpc.NewServer()
 	if err := rpcServer.RegisterName("eth", &sendAPI{backend: backend}); err != nil {
@@ -103,7 +100,7 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore, config Confi
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
 	}
-	if err := rpcServer.RegisterName("eth", &filterAPI{backend: backend, store: receiptStore, config: config}); err != nil {
+	if err := rpcServer.RegisterName("eth", &filterAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only filter RPC: %w", err)
 	}
 	return rpcServer, nil

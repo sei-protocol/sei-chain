@@ -698,10 +698,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) (err error) {
 		if !ok {
 			return errors.New("EVM-only RPC requires Giga storage")
 		}
-		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB(), evmonlyrpc.Config{
-			MaxBlocksForLogs: n.config.EVMOnlyRPC.MaxBlocksForLogs,
-			MaxLogsPerQuery:  n.config.EVMOnlyRPC.MaxLogsPerQuery,
-		})
+		n.evmOnlyRPC, err = evmonlyrpc.Start(n.rpcEnv, storage.ReceiptDB())
 		if err != nil {
 			return err
 		}

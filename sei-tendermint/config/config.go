@@ -76,7 +76,6 @@ type Config struct {
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
-	EVMOnlyRPC      *EVMOnlyRPCConfig      `mapstructure:"evm-only-rpc"`
 
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
 	// configuration. Leave empty to disable Autobahn. The autobahn role
@@ -105,7 +104,6 @@ func DefaultConfig() *Config {
 		Instrumentation:         DefaultInstrumentationConfig(),
 		PrivValidator:           DefaultPrivValidatorConfig(),
 		SelfRemediation:         DefaultSelfRemediationConfig(),
-		EVMOnlyRPC:              DefaultEVMOnlyRPCConfig(),
 		HashVaultDisabledUnsafe: false,
 	}
 }
@@ -131,7 +129,6 @@ func TestConfig() *Config {
 		Instrumentation: TestInstrumentationConfig(),
 		PrivValidator:   DefaultPrivValidatorConfig(),
 		SelfRemediation: DefaultSelfRemediationConfig(),
-		EVMOnlyRPC:      DefaultEVMOnlyRPCConfig(),
 	}
 }
 
@@ -172,9 +169,6 @@ func (cfg *Config) ValidateBasic() error {
 	}
 	if err := cfg.SelfRemediation.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [self-remediation] section: %w", err)
-	}
-	if err := cfg.EVMOnlyRPC.ValidateBasic(); err != nil {
-		return fmt.Errorf("error in [evm-only-rpc] section: %w", err)
 	}
 	return nil
 }
@@ -1504,41 +1498,6 @@ func getDefaultMoniker() string {
 		moniker = "anonymous"
 	}
 	return moniker
-}
-
-//-----------------------------------------------------------------------------
-// EVMOnlyRPCConfig
-
-// EVMOnlyRPCConfig bounds the queries the EVM-only JSON-RPC server accepts.
-type EVMOnlyRPCConfig struct {
-	// Widest inclusive block range a single eth_getLogs call may cover.
-	MaxBlocksForLogs uint64 `mapstructure:"max-blocks-for-logs"`
-
-	// Most logs a single eth_getLogs call may return.
-	MaxLogsPerQuery uint64 `mapstructure:"max-logs-per-query"`
-}
-
-// DefaultEVMOnlyRPCConfig returns the default EVM-only RPC query bounds.
-func DefaultEVMOnlyRPCConfig() *EVMOnlyRPCConfig {
-	return &EVMOnlyRPCConfig{
-		MaxBlocksForLogs: 2000,
-		MaxLogsPerQuery:  10000,
-	}
-}
-
-// ValidateBasic performs basic validation (checking param bounds, etc.) and
-// returns an error if any check fails.
-func (cfg *EVMOnlyRPCConfig) ValidateBasic() error {
-	if cfg == nil {
-		return nil
-	}
-	if cfg.MaxBlocksForLogs == 0 {
-		return errors.New("max-blocks-for-logs must be positive")
-	}
-	if cfg.MaxLogsPerQuery == 0 {
-		return errors.New("max-logs-per-query must be positive")
-	}
-	return nil
 }
 
 //-----------------------------------------------------------------------------

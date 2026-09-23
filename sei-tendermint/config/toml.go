@@ -670,17 +670,6 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
-
-#######################################################################
-###       EVM-only RPC Configuration (Auto-managed)                 ###
-#######################################################################
-[evm-only-rpc]
-
-# Widest inclusive block range a single eth_getLogs call may cover
-max-blocks-for-logs = {{ .EVMOnlyRPC.MaxBlocksForLogs }}
-
-# Most logs a single eth_getLogs call may return
-max-logs-per-query = {{ .EVMOnlyRPC.MaxLogsPerQuery }}
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility
