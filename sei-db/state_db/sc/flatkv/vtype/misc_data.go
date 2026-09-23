@@ -75,7 +75,8 @@ func (l *MiscData) Serialize() []byte {
 	return l.data
 }
 
-// Deserialize the misc data from the given byte slice.
+// Deserialize the misc data from the given byte slice. The result borrows data rather than copying
+// it, so data must outlive the returned MiscData and must not be modified.
 func DeserializeMiscData(data []byte) (*MiscData, error) {
 	if len(data) == 0 {
 		return nil, errors.New("data is empty")
@@ -91,11 +92,7 @@ func DeserializeMiscData(data []byte) (*MiscData, error) {
 			version, miscHeaderLength, len(data))
 	}
 
-	// Copied rather than aliased: Serialize now hands back whatever is held here, and the caller's
-	// buffer on the read path is commonly borrowed from the storage engine or an iterator.
-	owned := make([]byte, len(data))
-	copy(owned, data)
-	return &MiscData{data: owned}, nil
+	return &MiscData{data: data}, nil
 }
 
 // Get the serialization version for this MiscData instance.

@@ -39,7 +39,7 @@ var _ VType = (*StorageData)(nil)
 // are not safe to modify without first copying them.
 type StorageData struct {
 	// data is the serialized form.
-	data [storageDataLength]byte
+	data []byte
 
 	// valueZero reports whether the value is all 0s, which is what IsDelete answers. Maintained by
 	// every method that writes the value region, and computed once at deserialization.
@@ -52,7 +52,10 @@ type StorageData struct {
 
 // Create a new StorageData initialized to all 0s.
 func NewStorageData() *StorageData {
-	return &StorageData{valueZero: true}
+	return &StorageData{
+		data:      make([]byte, storageDataLength),
+		valueZero: true,
+	}
 }
 
 // NewStorageDataFrom returns the storage data for a raw 32-byte slot value written at blockHeight.
@@ -62,15 +65,14 @@ func NewStorageDataFrom(blockHeight int64, rawValue []byte) (*StorageData, error
 		return nil, fmt.Errorf("invalid storage value length: got %d, expected %d",
 			len(rawValue), StorageValueLength)
 	}
-	storageData := &StorageData{}
-	storageData.data[storageVersionStart] = byte(StorageDataVersion0)
-	heightBytes := storageData.data[storageBlockHeightStart:storageValueStart]
+	data := make([]byte, storageDataLength)
+	data[storageVersionStart] = byte(StorageDataVersion0)
+	heightBytes := data[storageBlockHeightStart:storageValueStart]
 	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
-	copy(storageData.data[storageValueStart:], rawValue)
+	copy(data[storageValueStart:], rawValue)
 	// Read back out of the destination, which the copy above just left in cache, rather than out of
 	// rawValue.
-	storageData.valueZero = isZero(storageData.data[storageValueStart:])
-	return storageData, nil
+	return &StorageData{data: data, valueZero: isZero(data[storageValueStart:])}, nil
 }
 
 // Serialize the storage data to a byte slice.
@@ -80,30 +82,31 @@ func (s *StorageData) Serialize() []byte {
 	if s == nil {
 		return make([]byte, storageDataLength)
 	}
-	return s.data[:]
+	return s.data
 }
 
-// Deserialize the storage data from the given byte slice.
+// Deserialize the storage data from the given byte slice. The result borrows data rather than
+// copying it, so data must outlive the returned StorageData and must not be modified.
 func DeserializeStorageData(data []byte) (*StorageData, error) {
 	if len(data) == 0 {
 		return nil, errors.New("data is empty")
 	}
 
-	// Length is checked before any field is read: the fixed-size buffer cannot hold a short input,
-	// so reading the version out of one would be out of bounds.
-	if len(data) != storageDataLength {
-		return nil, fmt.Errorf("data length should be %d, got %d", storageDataLength, len(data))
+	storageData := &StorageData{
+		data: data,
 	}
-
-	storageData := &StorageData{}
-	copy(storageData.data[:], data)
 
 	serializationVersion := storageData.GetSerializationVersion()
 	if serializationVersion != StorageDataVersion0 {
 		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
 	}
 
-	storageData.valueZero = isZero(storageData.data[storageValueStart:])
+	if len(data) != storageDataLength {
+		return nil, fmt.Errorf("data length at version %d should be %d, got %d",
+			serializationVersion, storageDataLength, len(data))
+	}
+
+	storageData.valueZero = isZero(data[storageValueStart:storageDataLength])
 	return storageData, nil
 }
 
@@ -130,7 +133,7 @@ func (s *StorageData) GetValue() *[32]byte {
 		var zero [32]byte
 		return &zero
 	}
-	return (*[32]byte)(s.data[storageValueStart:])
+	return (*[32]byte)(s.data[storageValueStart:storageDataLength])
 }
 
 // Check if this storage data signifies a deletion operation. A deletion operation is automatically
