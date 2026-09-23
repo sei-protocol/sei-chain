@@ -305,6 +305,8 @@ The public EVM JSON-RPC surface intentionally contains only:
 - `eth_blockNumber`, for the current committed block height;
 - `eth_chainId`, for the configured EVM chain ID;
 - `eth_call`, for a read-only message call against current committed state;
+- `eth_estimateGas`, for the gas a message needs against current committed
+  state;
 - `eth_getBlockByNumber` and `eth_getBlockByHash`, for a finalized block, by
   height (including any height still within the node's retention window) or
   by hash.
@@ -430,6 +432,25 @@ gas limit defaults to a fixed cap rather than the block gas limit, and an
 explicit limit above that cap is silently lowered to it. A reverted call
 returns a JSON-RPC error carrying the ABI-decoded revert reason, matching
 go-ethereum's own `eth_call` behavior.
+
+### Estimate gas with `cast estimate`
+
+```sh
+cast estimate \
+  --rpc-url http://127.0.0.1:8545 \
+  0xYOUR_CONTRACT_ADDRESS \
+  "transfer(address,uint256)" 0xYOUR_ADDRESS 1
+```
+
+`eth_estimateGas` runs the same read-only execution as `eth_call` and searches
+for the lowest gas limit at which it succeeds, to within 1.5% as go-ethereum
+does. The upper bound is the caller's `gas` if given, otherwise the same fixed
+cap `eth_call` applies, lowered further to what the sender's balance can pay
+for when a non-zero `gasPrice`/`maxFeePerGas` is supplied. A message that
+reverts even at that bound returns the revert error (code 3, ABI-decoded
+reason); one that only runs out of gas returns "gas required exceeds
+allowance". The block selector is optional and accepts the same tags as
+`eth_call`, with the same historical-state error otherwise.
 
 ### Fetch contract code with `cast code`
 

@@ -43,9 +43,9 @@ func TestSendRawTransaction(t *testing.T) {
 	require.Equal(t, tx.Hash(), got)
 	require.Equal(t, raw, broadcastRaw)
 
-	var estimateResult hexutil.Uint64
-	err = client.CallContext(t.Context(), &estimateResult, "eth_estimateGas")
-	require.ErrorContains(t, err, "method eth_estimateGas does not exist")
+	var storage hexutil.Bytes
+	err = client.CallContext(t.Context(), &storage, "eth_getStorageAt")
+	require.ErrorContains(t, err, "method eth_getStorageAt does not exist")
 	err = client.CallContext(t.Context(), nil, "status")
 	require.ErrorContains(t, err, "method status does not exist")
 }
