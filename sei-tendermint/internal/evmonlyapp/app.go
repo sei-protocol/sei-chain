@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
@@ -30,6 +31,41 @@ func evmOnlyBaseFee() *big.Int { return new(big.Int) }
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
+// checkedSendersCap bounds the senders remembered from CheckTx per generation.
+// Entries are dropped as their transactions execute; the cap only guards against
+// admitted transactions that never reach a block.
+const checkedSendersCap = 1 << 18
+
+// senderCache remembers the sender recovered for each transaction hash. It keeps
+// two generations: inserts go to fresh, and once fresh reaches the cap it
+// becomes stale and the previous stale generation is forgotten, so the most
+// recent entries always survive a rollover.
+type senderCache struct {
+	fresh, stale map[common.Hash]common.Address
+}
+
+func newSenderCache() senderCache {
+	return senderCache{fresh: map[common.Hash]common.Address{}}
+}
+
+func (c *senderCache) put(hash common.Hash, sender common.Address) {
+	if len(c.fresh) >= checkedSendersCap {
+		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, len(c.fresh))
+	}
+	c.fresh[hash] = sender
+}
+
+// take returns the sender remembered for hash, if any, and forgets it.
+func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
+	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
+		if sender, ok := gen[hash]; ok {
+			delete(gen, hash)
+			return utils.Some(sender)
+		}
+	}
+	return utils.None[common.Address]()
+}
+
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
@@ -39,6 +75,10 @@ type evmOnlyApplication struct {
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
 	state            utils.Mutex[*evmOnlyState]
+	// checkedSenders maps the hash of every transaction this process admitted
+	// in CheckTx to the sender recovered there, so execution does not recover
+	// it again.
+	checkedSenders utils.Mutex[*senderCache]
 }
 
 type evmOnlyState struct {
@@ -49,6 +89,12 @@ type evmOnlyState struct {
 	appHash         common.Hash
 	parentHash      common.Hash
 	pending         utils.Option[evmOnlyPending]
+	// lastBlockTime is the Time of the most recently committed block, used by
+	// EvmCall to reproduce that block's execution context for a read-only call.
+	lastBlockTime uint64
+	// pendingBlockTime is the Time of the block staged in pending; Commit
+	// promotes it to lastBlockTime.
+	pendingBlockTime uint64
 }
 
 type evmOnlyPending struct {
@@ -76,6 +122,7 @@ func NewEVMOnlyApplication(
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
+		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 	}
 }
 
@@ -159,6 +206,16 @@ func (a *evmOnlyApplication) LastBlockHeight() int64 {
 	panic("unreachable")
 }
 
+// EvmGasLimit returns the gas limit of the most recently committed block.
+// This application never changes it after InitChain, so it is also the gas
+// limit of every earlier committed block.
+func (a *evmOnlyApplication) EvmGasLimit() uint64 {
+	for state := range a.state.Lock() {
+		return state.gasLimit
+	}
+	panic("unreachable")
+}
+
 func (a *evmOnlyApplication) GetValidators() []abci.ValidatorUpdate {
 	return slices.Clone(a.validators)
 }
@@ -174,6 +231,7 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 	if !ok {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
+	a.rememberSender(tx.Hash(), sender)
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:         abci.CodeTypeOK,
@@ -186,6 +244,26 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
+}
+
+func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {
+	for senders := range a.checkedSenders.Lock() {
+		senders.put(hash, sender)
+	}
+}
+
+// takeSenders returns, aligned with txs, the sender CheckTx recovered for each
+// transaction this process admitted, and forgets those entries. The hash of a
+// raw transaction is the keccak of its bytes for every transaction type, so no
+// decoding is needed.
+func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
+	out := make([]utils.Option[common.Address], len(txs))
+	for senders := range a.checkedSenders.Lock() {
+		for i, raw := range txs {
+			out[i] = senders.take(crypto.Keccak256Hash(raw))
+		}
+	}
+	return out
 }
 
 func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.Address, error) {
@@ -238,6 +316,60 @@ func (a *evmOnlyApplication) EvmBalance(address common.Address, _ []byte) uint25
 	return *new(uint256.Int).SetBytes(balance[:])
 }
 
+func (a *evmOnlyApplication) EvmChainID() uint64 {
+	return a.chainID.Uint64()
+}
+
+// EvmChainConfig returns the EVM chain configuration this node executes against.
+func (a *evmOnlyApplication) EvmChainConfig() *params.ChainConfig {
+	return a.chainConfig
+}
+
+// EvmBaseFee returns the base fee this application executes every block at.
+func (a *evmOnlyApplication) EvmBaseFee() *big.Int {
+	return evmOnlyBaseFee()
+}
+
+// evmOnlyPrevRandao derives a deterministic PrevRandao from a block timestamp.
+func evmOnlyPrevRandao(timestamp uint64) common.Hash {
+	return crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp))
+}
+
+// EvmCall executes msg as a read-only call against the most recently
+// committed EVM state and returns the execution result.
+func (a *evmOnlyApplication) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {
+	var executor *evmonly.Executor
+	var blockCtx evmonly.BlockContext
+	for state := range a.state.Lock() {
+		got, ok := state.executor.Get()
+		if !ok {
+			return nil, fmt.Errorf("EVM-only call attempted before InitChain")
+		}
+		if state.pending.IsPresent() {
+			// The store already has this block's writes; NUMBER/TIMESTAMP/PrevRandao advance only on Commit.
+			return nil, fmt.Errorf("EVM-only call attempted before committing the finalized block")
+		}
+		number, ok := utils.SafeCast[uint64](state.committedHeight)
+		if !ok {
+			return nil, fmt.Errorf("EVM-only committed height exceeds uint64: %d", state.committedHeight)
+		}
+		executor = got
+		// Coinbase and ParentHash are left zero: no coinbase is tracked outside
+		// FinalizeBlock, and only the current block's hash is tracked at all.
+		blockCtx = evmonly.BlockContext{
+			Number:      number,
+			Time:        state.lastBlockTime,
+			GasLimit:    state.gasLimit,
+			ChainID:     new(big.Int).Set(a.chainID),
+			BaseFee:     evmOnlyBaseFee(),
+			BlobBaseFee: new(big.Int),
+			BlockHash:   state.parentHash,
+			PrevRandao:  evmOnlyPrevRandao(state.lastBlockTime),
+		}
+	}
+	return executor.Call(ctx, blockCtx, msg)
+}
+
 func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	height := req.Header.Height
 	if height <= 0 {
@@ -273,9 +405,10 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlobBaseFee: new(big.Int),
 				ParentHash:  state.parentHash,
 				BlockHash:   blockHash,
-				PrevRandao:  crypto.Keccak256Hash(binary.BigEndian.AppendUint64(nil, timestamp)),
+				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
-			Txs: req.Txs,
+			Txs:     req.Txs,
+			Senders: a.takeSenders(req.Txs),
 		})
 		if err != nil {
 			return nil, err
@@ -286,6 +419,7 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 			return nil, err
 		}
 		state.pending = utils.Some(evmOnlyPending{height: height, appHash: appHash, blockHash: blockHash})
+		state.pendingBlockTime = timestamp
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   append([]byte(nil), appHash[:]...),
 			TxResults: evmOnlyABCIResults(result),
@@ -304,6 +438,7 @@ func (a *evmOnlyApplication) Commit(context.Context) (*abci.ResponseCommit, erro
 		state.nextHeight = pending.height + 1
 		state.appHash = pending.appHash
 		state.parentHash = pending.blockHash
+		state.lastBlockTime = state.pendingBlockTime
 		state.pending = utils.None[evmOnlyPending]()
 		return &abci.ResponseCommit{}, nil
 	}

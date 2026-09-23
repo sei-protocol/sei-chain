@@ -11,14 +11,11 @@ import (
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 )
 
 func RegisterCustomPlugins(
-	oracle *oraclekeeper.Keeper,
 	epoch *epochkeeper.Keeper,
 	tokenfactory *tokenfactorykeeper.Keeper,
 	_ *authkeeper.AccountKeeper,
@@ -28,11 +25,10 @@ func RegisterCustomPlugins(
 	evmKeeper *evmkeeper.Keeper,
 	stakingKeeper stakingkeeper.Keeper,
 ) []wasmkeeper.Option {
-	oracleHandler := oraclewasm.NewOracleWasmQueryHandler(oracle)
 	epochHandler := epochwasm.NewEpochWasmQueryHandler(epoch)
 	tokenfactoryHandler := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(tokenfactory)
 	evmHandler := evmwasm.NewEVMQueryHandler(evmKeeper)
-	wasmQueryPlugin := NewQueryPlugin(oracleHandler, epochHandler, tokenfactoryHandler, evmHandler, stakingKeeper)
+	wasmQueryPlugin := NewQueryPlugin(epochHandler, tokenfactoryHandler, evmHandler, stakingKeeper)
 
 	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
 		Custom: CustomQuerier(wasmQueryPlugin),

@@ -29,6 +29,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/admin"
+	"github.com/sei-protocol/sei-chain/cosmosmetrics"
 	"github.com/sei-protocol/sei-chain/giga/deps/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -436,6 +437,7 @@ type App struct {
 	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
+	cosmosMetrics         *cosmosmetrics.Reporter
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
@@ -621,7 +623,6 @@ func New(
 	supportedFeatures := "iterator,staking,stargate,sei"
 	wasmOpts = append(
 		wasmbinding.RegisterCustomPlugins(
-			&app.OracleKeeper,
 			&app.EpochKeeper,
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
@@ -711,6 +712,21 @@ func New(
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading admin config due to %s", err))
+	}
+	cosmosMetricsConfig, err := cosmosmetrics.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading cosmos metrics config due to %s", err))
+	}
+	if cosmosMetricsConfig.Enabled {
+		app.cosmosMetrics, err = cosmosmetrics.NewReporter(cosmosMetricsConfig, cosmosmetrics.Keepers{
+			Staking:      app.StakingKeeper,
+			Slashing:     app.SlashingKeeper,
+			Distribution: app.DistrKeeper,
+			Bank:         app.BankKeeper,
+		}, func() (sdk.Context, error) { return app.CreateQueryContext(0, false) })
+		if err != nil {
+			panic(fmt.Sprintf("error creating cosmos metrics reporter due to %s", err))
+		}
 	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
@@ -994,6 +1010,12 @@ func New(
 		panic(err)
 	}
 
+	if app.cosmosMetrics != nil {
+		if err := app.cosmosMetrics.Start(); err != nil {
+			panic(fmt.Sprintf("error starting cosmos metrics due to %s", err))
+		}
+	}
+
 	// Create hard fork manager and register all hard fork upgrade handlers. Note,
 	// when creating the manager, BaseApp must already be instantiated.
 	//
@@ -1014,7 +1036,15 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 	return app.EvmKeeper.FlushTransientReceipts(ctx)
 }
 
-// Close closes all items that needs closing (called by baseapp)
+// Close stops readers of committed state before baseapp closes the stores.
+func (app *App) Close() error {
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.Stop()
+	}
+	return app.BaseApp.Close()
+}
+
+// HandleClose closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
 	var errs []error
 
@@ -1316,7 +1346,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp, consensusParamUpdates)
+			resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txRes, endBlockResp, consensusParamUpdates)
 			if hasHeadNotifier {
 				headNotifier.Stash(req, &resp)
 			}
@@ -1346,7 +1376,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	cms := app.WriteState()
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp, consensusParamUpdates)
+	resp := app.getFinalizeBlockResponse(ctx.Context(), appHash, events, txResults, endBlockResp, consensusParamUpdates)
 	if hasHeadNotifier {
 		headNotifier.Stash(req, &resp)
 	}
@@ -2316,6 +2346,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 }
 
 func (app *App) getFinalizeBlockResponse(
+	ctx context.Context,
 	appHash []byte,
 	events []abci.Event,
 	txResults []*abci.ExecTxResult,
@@ -2324,6 +2355,9 @@ func (app *App) getFinalizeBlockResponse(
 ) abci.ResponseFinalizeBlock {
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
+	}
+	if app.cosmosMetrics != nil {
+		app.cosmosMetrics.ObserveTxResults(ctx, txResults)
 	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
