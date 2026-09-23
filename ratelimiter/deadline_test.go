@@ -31,38 +31,6 @@ func TestDeadlineEnforcer_Deadline_NoDefaultNoOverride(t *testing.T) {
 	require.Equal(t, time.Duration(0), e.Deadline("eth_getBalance"))
 }
 
-func TestDeadlineEnforcer_Deadline_CeilingClampsOverride(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Overrides: map[string]time.Duration{"eth_call": 60 * time.Second},
-		Ceiling:   30 * time.Second,
-	})
-	require.Equal(t, 30*time.Second, e.Deadline("eth_call"), "resolves the HTTP(30s)/WS(60s) eth_call inconsistency to one value")
-}
-
-func TestDeadlineEnforcer_Deadline_CeilingClampsDefault(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Default: 60 * time.Second,
-		Ceiling: 30 * time.Second,
-	})
-	require.Equal(t, 30*time.Second, e.Deadline("eth_getBalance"))
-}
-
-func TestDeadlineEnforcer_Deadline_CeilingNeverRaisesASmallerValue(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Default: 5 * time.Second,
-		Ceiling: 30 * time.Second,
-	})
-	require.Equal(t, 5*time.Second, e.Deadline("eth_getBalance"))
-}
-
-func TestDeadlineEnforcer_Deadline_CeilingNeverBoundsAnUnboundedMethod(t *testing.T) {
-	e := NewDeadlineEnforcer(DeadlineConfig{
-		Overrides: map[string]time.Duration{"eth_subscribe": 0},
-		Ceiling:   30 * time.Second,
-	})
-	require.Equal(t, time.Duration(0), e.Deadline("eth_subscribe"), "a deliberately unbounded method stays unbounded despite a Ceiling")
-}
-
 func TestDeadlineEnforcer_WithDeadline_NoEffectiveDeadlineLeavesCtxUnchanged(t *testing.T) {
 	e := NewDeadlineEnforcer(DeadlineConfig{})
 	ctx, cancel := e.WithDeadline(t.Context(), "eth_subscribe")

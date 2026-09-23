@@ -17,22 +17,9 @@ type DeadlineConfig struct {
 	// Default. A zero entry marks that method as deliberately unbounded (for
 	// example a long-poll subscription), overriding Default for it.
 	Overrides map[string]time.Duration
-	// Ceiling caps every positive resolved deadline, from Default or
-	// Overrides, to at most this duration. Zero means no ceiling. It never
-	// turns a zero (unbounded) resolved deadline into a positive one.
-	//
-	// This is what makes one method behave the same way on every transport: a
-	// method whose own configured timeout differs by transport (for example
-	// eth_call, which today gets an accidental ~30s ceiling on HTTP from
-	// WriteTimeout but a genuine 60s on WS from SimulationEVMTimeout) gets a
-	// single effective deadline once its configured value is routed through
-	// Overrides and clamped by the same Ceiling on both transports.
-	Ceiling time.Duration
 }
 
-// DeadlineEnforcer resolves and applies a request deadline for RPC methods that
-// have no existing Sei-specific timeout, and clamps configured method deadlines
-// to a shared ceiling so the same method behaves the same way across transports.
+// DeadlineEnforcer resolves and applies configured request deadlines for RPC methods.
 type DeadlineEnforcer struct {
 	cfg DeadlineConfig
 }
@@ -43,18 +30,13 @@ func NewDeadlineEnforcer(cfg DeadlineConfig) *DeadlineEnforcer {
 	return &DeadlineEnforcer{cfg: cfg}
 }
 
-// Deadline returns the effective deadline for method: its entry in Overrides if
-// present, else Default, clamped to Ceiling when both the resolved deadline and
-// Ceiling are positive. Zero means no deadline should be applied.
+// Deadline returns the override for method when present and Default otherwise.
+// Zero means no deadline should be applied.
 func (e *DeadlineEnforcer) Deadline(method string) time.Duration {
-	d := e.cfg.Default
 	if override, ok := e.cfg.Overrides[method]; ok {
-		d = override
+		return override
 	}
-	if d > 0 && e.cfg.Ceiling > 0 && d > e.cfg.Ceiling {
-		d = e.cfg.Ceiling
-	}
-	return d
+	return e.cfg.Default
 }
 
 // WithDeadline returns a context bounded by the effective deadline for method,

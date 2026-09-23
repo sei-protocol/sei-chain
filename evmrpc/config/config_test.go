@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/evmrpc/config"
-	"github.com/sei-protocol/sei-chain/ratelimiter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -641,10 +640,9 @@ func TestReadConfigDeadlineEnforcer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, time.Minute, methodTimeouts["eth_call"])
 
-	deadlineCfg, err := cfg.DeadlineEnforcerConfig(20 * time.Second)
+	deadlineCfg, err := cfg.DeadlineEnforcerConfig()
 	require.NoError(t, err)
 	require.Equal(t, 10*time.Second, deadlineCfg.Default)
-	require.Equal(t, 20*time.Second, deadlineCfg.Ceiling, "the write timeout the listener enforces is the ceiling")
 	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_call"])
 
 	badOpts := o
@@ -663,19 +661,16 @@ func TestReadConfigDeadlineEnforcer(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDeadlineEnforcerConfigCapsMethodOverridesAtTheWriteTimeout(t *testing.T) {
+func TestDeadlineEnforcerConfigPreservesMethodOverrides(t *testing.T) {
 	cfg, err := config.ReadConfig(&opts{})
 	require.NoError(t, err)
-	require.Greater(t, cfg.SimulationEVMTimeout, cfg.WriteTimeout,
-		"the clamp below is only meaningful while the default eth_call override outlasts a response")
 
-	deadlineCfg, err := cfg.DeadlineEnforcerConfig(cfg.WriteTimeout)
+	deadlineCfg, err := cfg.DeadlineEnforcerConfig()
 	require.NoError(t, err)
-	enforcer := ratelimiter.NewDeadlineEnforcer(deadlineCfg)
-	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_call"),
-		"eth_call gets the same budget on WebSocket as the HTTP listener allows it")
-	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_estimateGas"))
-	require.Equal(t, cfg.WriteTimeout, enforcer.Deadline("eth_createAccessList"))
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_call"])
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_estimateGas"])
+	require.Equal(t, time.Minute, deadlineCfg.Overrides["eth_createAccessList"])
+	require.Equal(t, 5*time.Minute, deadlineCfg.Overrides["eth_estimateGasAfterCalls"])
 }
 
 func TestReadConfigEnableParallelizedBlockTrace(t *testing.T) {

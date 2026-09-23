@@ -860,13 +860,12 @@ func (c Config) RateLimiterConfig() ratelimiter.Config {
 }
 
 // DeadlineEnforcerConfig builds the ratelimiter.DeadlineConfig used by RPC methods with
-// no existing Sei-specific timeout, ceilinged by writeTimeout, which callers must pass as
-// the sanitized value their listener was built with.
+// no existing Sei-specific timeout.
 // RPCMethodTimeouts entries take precedence over RPCDefaultTimeout. eth_sendRawTransaction,
 // eth_sendTransaction, eth_getTransactionCount (methodTimeout) and debug_trace*
 // (TraceTimeout) already carry their own deadline and are never passed through this
 // enforcer, so they need no entry.
-func (c Config) DeadlineEnforcerConfig(writeTimeout time.Duration) (ratelimiter.DeadlineConfig, error) {
+func (c Config) DeadlineEnforcerConfig() (ratelimiter.DeadlineConfig, error) {
 	overrides, err := ParseMethodTimeouts(c.RPCMethodTimeouts)
 	if err != nil {
 		return ratelimiter.DeadlineConfig{}, err
@@ -874,9 +873,6 @@ func (c Config) DeadlineEnforcerConfig(writeTimeout time.Duration) (ratelimiter.
 	return ratelimiter.DeadlineConfig{
 		Default:   c.RPCDefaultTimeout,
 		Overrides: overrides,
-		// Using the handler's own deadline as a clamp, which means a method neither outlives the HTTP response
-		// it is producing nor runs longer over WebSocket than it does over HTTP.
-		Ceiling: writeTimeout,
 	}, nil
 }
 
@@ -1144,8 +1140,8 @@ max_open_connections = {{ .EVM.MaxOpenConnections }}
 
 # rpc_default_timeout is the deadline applied (on both HTTP and WebSocket) to an
 # RPC method with no entry in rpc_method_timeouts, such as eth_getBalance or
-# eth_getBlockByNumber. Set to 0 to disable. Every deadline it resolves is capped
-# at write_timeout so a method behaves the same way on HTTP and WebSocket.
+# eth_getBlockByNumber. Set to 0 to disable. HTTP requests are also bounded by
+# write_timeout; raise it to permit a longer method timeout over HTTP.
 rpc_default_timeout = "{{ .EVM.RPCDefaultTimeout }}"
 
 # rpc_method_timeouts overrides rpc_default_timeout for individual RPC methods

@@ -91,7 +91,7 @@ func NewEVMHTTPServer(
 	// the listener actually enforces rather than the one config asked for.
 	writeTimeout := httpServer.timeouts.WriteTimeout
 	methodTimeout := tmutils.Some(writeTimeout)
-	deadlineCfg, err := config.DeadlineEnforcerConfig(writeTimeout)
+	deadlineCfg, err := config.DeadlineEnforcerConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -277,10 +277,9 @@ func NewEVMWebSocketServer(
 		WriteTimeout:      config.WriteTimeout,
 		IdleTimeout:       config.IdleTimeout,
 	})
-	// Use the server's effective write timeout to give WS RPC methods the same deadline as HTTP methods.
 	writeTimeout := httpServer.timeouts.WriteTimeout
 	methodTimeout := tmutils.Some(writeTimeout)
-	deadlineCfg, err := config.DeadlineEnforcerConfig(writeTimeout)
+	deadlineCfg, err := config.DeadlineEnforcerConfig()
 	if err != nil {
 		return nil, err
 	}
