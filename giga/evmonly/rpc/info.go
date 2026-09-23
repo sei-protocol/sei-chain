@@ -287,7 +287,7 @@ func (api *infoAPI) receiptRecordsFromIterator(ctx context.Context, height int64
 	if err != nil {
 		return nil, err
 	}
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 	var records []receiptpkg.ReceiptRecord
 	for {
 		ok, err := it.Next()
