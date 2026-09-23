@@ -163,6 +163,8 @@ func (s *manualHashStore) RegisterHashListener(listener gigatypes.HashListener) 
 	return *lthash.NewBlockHash(nil), nil
 }
 
+func (s *manualHashStore) FlushHashes() error { return nil }
+
 // publish hands the router the state hash of block n, as the state store does
 // once n's writes are committed.
 func (s *manualHashStore) publish(ctx context.Context, n atypes.GlobalBlockNumber) error {
@@ -230,6 +232,16 @@ func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
 		if err := state.PushQC(ctx, qc, blocks); err != nil {
 			return fmt.Errorf("state.PushQC(): %w", err)
 		}
+		next, lastBlock, err := router.openApp(ctx)
+		if err != nil {
+			return err
+		}
+		if lastBlock != nil {
+			return fmt.Errorf("fresh app returned last block %d", lastBlock.GlobalNumber)
+		}
+		if err := hashStore.FlushHashes(); err != nil {
+			return err
+		}
 		appHashes, err := registerAppHashListener(ctx, hashStore)
 		if err != nil {
 			return err
@@ -237,11 +249,11 @@ func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
 		handoff := newExecuteHandoff()
 		hashVault := hashvault.NewNoopHashVault()
 		s.SpawnBgNamed("appHashes", func() error {
-			return utils.IgnoreCancel(router.runAppHashes(ctx, hashVault, handoff, appHashes.hashes))
+			return utils.IgnoreCancel(router.runAppHashes(ctx, hashVault, handoff, appHashes.hashes, next))
 		})
 		s.SpawnBgNamed("execute", func() error {
 			defer close(handoff.committed)
-			return utils.IgnoreCancel(router.executeBlocks(ctx, hashVault, appHashes.tip, handoff))
+			return utils.IgnoreCancel(router.executeBlocks(ctx, handoff, next))
 		})
 		for n := gr.First; n < gr.Next; n++ {
 			want := int(n-gr.First) + 1
@@ -263,6 +275,34 @@ func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
 		}
 		return nil
 	}))
+}
+
+func TestReplayLastAppHashRequiresStoreTipAtAppLast(t *testing.T) {
+	router := &gigaRouterCommon{}
+	last := atypes.GlobalBlockNumber(5)
+	tip := lthash.NewBlockHash(nil)
+	tip.BlockNumber = int64(last) - 1
+	err := router.replayLastAppHash(
+		t.Context(),
+		hashvault.NewNoopHashVault(),
+		&atypes.GlobalBlock{GlobalNumber: last},
+		tip,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "hashing has not caught up")
+}
+
+func TestRecvHashAtLeastSkipsHeightsBelowFirst(t *testing.T) {
+	hashes := make(chan *lthash.BlockHash, 2)
+	seed := lthash.NewBlockHash(nil)
+	seed.BlockNumber = 0
+	live := lthash.NewBlockHash(nil)
+	live.BlockNumber = 1
+	hashes <- seed
+	hashes <- live
+	got, err := recvHashAtLeast(t.Context(), hashes, 1)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), got.BlockNumber)
 }
 
 func TestBuildDataStateStartsRecoveryAtAppTip(t *testing.T) {
