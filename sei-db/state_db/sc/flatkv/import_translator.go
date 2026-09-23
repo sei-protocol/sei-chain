@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/view"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
@@ -98,19 +99,19 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	if err != nil {
 		return nil, fmt.Errorf("failed to process storage changes: %w", err)
 	}
-	out = appendNonDeletes(out, storageChanges)
+	out = appendWrites(out, storageChanges)
 
 	codeChanges, err := toCodeValues(changesByType[keys.EVMKeyCode], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process code changes: %w", err)
 	}
-	out = appendNonDeletes(out, codeChanges)
+	out = appendWrites(out, codeChanges)
 
 	miscChanges, err := toMiscValues(changesByType[keys.EVMKeyMisc], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process misc changes: %w", err)
 	}
-	out = appendNonDeletes(out, miscChanges)
+	out = appendWrites(out, miscChanges)
 
 	// Accumulate nonce + codeHash + balance entries from this batch into the
 	// translator-level pending account map, so that several Translate calls
@@ -157,6 +158,18 @@ func (t *ImportTranslator) Finalize() []PhysicalKVPair {
 	}
 	t.pendingAccts = nil
 	return appendNonDeletes(make([]PhysicalKVPair, 0, len(merged)), merged)
+}
+
+// appendWrites appends every write that is not a deletion to out. A nil Value is the store's
+// tombstone, and an import target starts empty, so there is nothing for one to delete.
+func appendWrites(out []PhysicalKVPair, writes []view.Write) []PhysicalKVPair {
+	for _, w := range writes {
+		if w.Value == nil {
+			continue
+		}
+		out = append(out, PhysicalKVPair{Key: []byte(w.Key), Value: w.Value})
+	}
+	return out
 }
 
 // appendNonDeletes serializes every non-delete entry in m and appends the resulting
