@@ -147,6 +147,31 @@ type CryptoSimConfig struct {
 	// Address for the Prometheus metrics HTTP server (e.g. ":9090"). If empty, metrics are disabled.
 	MetricsAddr string
 
+	// Address for the pprof HTTP server (e.g. ":6060"). If empty, no pprof server is started.
+	//
+	// Its own address rather than MetricsAddr's, because the two servers start at different times:
+	// pprof comes up before setup so that setup is profilable, while the metrics server waits until
+	// setup is done so that account creation stays out of the series.
+	//
+	// Serving it costs nothing while nothing is scraping it, so the CPU, heap and goroutine profiles
+	// are available in any run. The mutex and block profiles additionally need the two sample rates
+	// below.
+	PprofAddr string
+
+	// The sampling rate of the mutex profile: 1 records every contention event, N records on average
+	// one in N, and 0 leaves the profile off.
+	//
+	// Recording costs time inside the lock handoff it measures, so a run with this on is a diagnostic
+	// run and its throughput is not comparable to a run without it.
+	MutexProfileFraction int
+
+	// The sampling rate of the block profile, in nanoseconds of blocked time per sample: 1 records
+	// every blocking event, and 0 leaves the profile off.
+	//
+	// This carries the same caveat as MutexProfileFraction: it charges the events it samples, so it
+	// buys attribution at the cost of the number being measured.
+	BlockProfileRate int
+
 	// The probability of capturing detailed metrics about a transaction. Should be a value between 0.0 and 1.0.
 	TransactionMetricsSampleRate float64
 
@@ -284,6 +309,9 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ExecutorQueueSize:                 1024,
 		MaxRuntimeSeconds:                 0,
 		MetricsAddr:                       ":9090",
+		PprofAddr:                         ":6060",
+		MutexProfileFraction:              0,
+		BlockProfileRate:                  0,
 		TransactionMetricsSampleRate:      0.001,
 		BackgroundMetricsScrapeInterval:   60,
 		EnableSuspension:                  true,
@@ -465,6 +493,18 @@ func (c *CryptoSimConfig) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
+	}
+	if c.MutexProfileFraction < 0 {
+		return fmt.Errorf("MutexProfileFraction must not be negative (got %d)", c.MutexProfileFraction)
+	}
+	if c.BlockProfileRate < 0 {
+		return fmt.Errorf("BlockProfileRate must not be negative (got %d)", c.BlockProfileRate)
+	}
+	if c.PprofAddr == "" && (c.MutexProfileFraction > 0 || c.BlockProfileRate > 0) {
+		// Both profiles accumulate in memory and are only readable over the pprof endpoint, so enabling
+		// one without a server pays their cost and discards the result.
+		return fmt.Errorf("MutexProfileFraction (%d) and BlockProfileRate (%d) require PprofAddr to be set",
+			c.MutexProfileFraction, c.BlockProfileRate)
 	}
 	return nil
 }

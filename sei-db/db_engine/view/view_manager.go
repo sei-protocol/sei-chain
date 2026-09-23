@@ -216,10 +216,8 @@ type View interface {
 	// recoverable.
 	BatchGet(keys [][]byte) (map[string][]byte, error)
 
-	// GetDiff returns the set of key-value mutations contained in this view, relative to the
-	// previous view. The result reflects only this view's writes (including deletes,
-	// represented as nil values); to reconstruct earlier state, read from earlier views.
-	GetDiff() (map[string][]byte, error)
+	// ForEachDiff visits every key-value mutation contained in this view.
+	ForEachDiff(visit func(key string, value []byte) error) error
 
 	// Reserve increments this view's reservation count. While the count is greater than zero,
 	// the view is safe to read and its internal data is protected from cleanup. Each Reserve

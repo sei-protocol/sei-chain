@@ -121,6 +121,24 @@ func (_m *Application) EvmBalance(_a0 common.Address, _a1 []byte) uint256.Int {
 	return r0
 }
 
+// EvmChainID provides a mock function with no fields
+func (_m *Application) EvmChainID() uint64 {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for EvmChainID")
+	}
+
+	var r0 uint64
+	if rf, ok := ret.Get(0).(func() uint64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	return r0
+}
+
 // EvmNonce provides a mock function with given fields: _a0
 func (_m *Application) EvmNonce(_a0 common.Address) uint64 {
 	ret := _m.Called(_a0)

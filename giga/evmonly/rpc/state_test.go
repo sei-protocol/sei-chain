@@ -22,7 +22,7 @@ func TestGetBalance(t *testing.T) {
 			return *want
 		},
 	}
-	api := &balanceAPI{backend: backend}
+	api := &stateAPI{backend: backend}
 
 	for _, tag := range []ethrpc.BlockNumber{
 		ethrpc.LatestBlockNumber,
@@ -43,7 +43,7 @@ func TestGetBalanceRejectsHistoricalState(t *testing.T) {
 			return uint256.Int{}
 		},
 	}
-	api := &balanceAPI{backend: backend}
+	api := &stateAPI{backend: backend}
 	address := common.Address{1}
 
 	for _, block := range []ethrpc.BlockNumberOrHash{

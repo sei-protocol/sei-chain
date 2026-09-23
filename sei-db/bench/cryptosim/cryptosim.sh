@@ -11,6 +11,12 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 BINARY="${SCRIPT_DIR}/bin/cryptosim"
 
+# The LtHash AVX-512 kernel is compiled in only under the simd experiment, and the
+# backend selector prefers it over the portable kernel wherever the CPU supports it.
+# The benchmark measures the fastest kernel available; production builds set no
+# experiment and stay on the portable one.
+export GOEXPERIMENT=simd
+
 # Build binaries (no-op if already up to date; Go's build cache handles staleness).
 make -C "$SCRIPT_DIR" build
 

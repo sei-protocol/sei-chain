@@ -1,10 +1,9 @@
 The .abi and .bin files here are frozen. They are the ERC20/721/1155 pointer contracts
-deployed on chain before pointer creation was retired, and the WSEI contract that
-`seid tx evm deploy-wsei` still deploys. The pointer bytecode is embedded so that
+deployed on chain before pointer creation was retired. The bytecode is embedded so that
 `debug_trace*` can replay historical pointer creation, and the ABIs so that the
 registry queries and the CosmWasm ERC helpers can call a pointer that is already
 deployed.
 
-Nothing regenerates the pointer artifacts. Their Solidity sources are not in the tree:
+Nothing regenerates these artifacts. Their Solidity sources are not in the tree:
 a rebuild could only produce bytecode that differs from what is deployed, which would
 break the replay these files exist for.
