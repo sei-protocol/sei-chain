@@ -58,9 +58,17 @@ case "$LIBGCC_ARCH" in
     ;;
 esac
 
-echo "build-static: target linux/$ARCH, libgcc pin $LIBGCC_DIR"
+# Both architectures build with the Go version go.mod declares, whatever their image
+# ships, the same way offline-upgrade-test.sh and release-upgrade-test.sh pin theirs.
+# GOTOOLCHAIN defaults to auto and auto never downgrades, so without this an image
+# carrying a newer Go than the directive would silently win, and the two GO_IMAGE pins
+# above could drift onto different compilers without anything noticing.
+GO_TOOLCHAIN="$(bash "$(dirname "$0")/go-toolchain.sh")"
 
-docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src "$GO_IMAGE" sh -c '
+echo "build-static: target linux/$ARCH, libgcc pin $LIBGCC_DIR, toolchain $GO_TOOLCHAIN"
+
+docker run --rm --platform "linux/$ARCH" -v "$PWD":/src -w /src \
+  -e "GOTOOLCHAIN=$GO_TOOLCHAIN" "$GO_IMAGE" sh -c '
   set -e
   apk add --no-cache build-base git
   git config --global --add safe.directory /src
