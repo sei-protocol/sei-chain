@@ -101,7 +101,7 @@ func TestGetLogsAddressRangeQuery(t *testing.T) {
 	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{
 		FromBlock: big.NewInt(1),
-		ToBlock:   big.NewInt(2000),
+		ToBlock:   big.NewInt(9),
 		Addresses: []common.Address{filterContractA},
 	})
 	require.NoError(t, err)
@@ -163,21 +163,24 @@ func TestGetLogsBlockHashForm(t *testing.T) {
 	require.ErrorContains(t, err, "not found")
 }
 
-func TestGetLogsDefaultsToLatestAndClampsToStore(t *testing.T) {
+func TestGetLogsResolvesTagsAgainstIndexedRange(t *testing.T) {
 	store := filterFixtureStore(t)
+	// The committed head (20) is ahead of the store's indexed head (9).
 	api := &filterAPI{backend: filterFixtureBackend(t, 20), store: store}
 
-	// Neither bound set: latest..latest, clamped to the store's version 9.
+	// Neither bound set: latest indexed..latest indexed.
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{})
 	require.NoError(t, err)
 	require.Empty(t, logs)
 
-	// Explicit range beyond the store's head is clamped rather than rejected.
-	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(8), ToBlock: big.NewInt(500)})
+	// Head tags resolve to the indexed head, not the committed one.
+	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{
+		FromBlock: big.NewInt(8), ToBlock: big.NewInt(ethrpc.LatestBlockNumber.Int64()),
+	})
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 
-	// Earliest tag with an open upper bound, then pruned history is skipped.
+	// Earliest tag follows the retention floor as history is pruned.
 	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(ethrpc.EarliestBlockNumber.Int64())})
 	require.NoError(t, err)
 	require.Len(t, logs, 4)
@@ -185,11 +188,34 @@ func TestGetLogsDefaultsToLatestAndClampsToStore(t *testing.T) {
 	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(ethrpc.EarliestBlockNumber.Int64())})
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
+}
 
-	// A fromBlock past the head yields no logs.
-	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(50)})
+func TestGetLogsRejectsBoundsOutsideIndexedRange(t *testing.T) {
+	store := filterFixtureStore(t)
+	api := &filterAPI{backend: filterFixtureBackend(t, 20), store: store}
+
+	// An explicit toBlock between the indexed head and the committed head must
+	// not be answered partially: the caller would advance past unseen logs.
+	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(8), ToBlock: big.NewInt(10)})
+	require.ErrorIs(t, err, errLogRangeNotIndexed)
+	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(50)})
+	require.ErrorIs(t, err, errLogRangeInverted)
+	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(50), ToBlock: big.NewInt(60)})
+	require.ErrorIs(t, err, errLogRangeNotIndexed)
+	blockHash := filterBlockHash(12)
+	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{BlockHash: &blockHash})
+	require.ErrorIs(t, err, errLogRangeNotIndexed)
+
+	// A pruned fromBlock is reported rather than silently skipped.
+	require.NoError(t, store.PruneHistory(6))
+	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(5), ToBlock: big.NewInt(8)})
+	require.ErrorIs(t, err, errLogRangePruned)
+	blockHash = filterBlockHash(5)
+	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{BlockHash: &blockHash})
+	require.ErrorIs(t, err, errLogRangePruned)
+	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(6), ToBlock: big.NewInt(9)})
 	require.NoError(t, err)
-	require.Empty(t, logs)
+	require.Len(t, logs, 1)
 }
 
 func TestGetLogsRejectsBadRanges(t *testing.T) {
@@ -204,6 +230,10 @@ func TestGetLogsRejectsBadRanges(t *testing.T) {
 	require.ErrorIs(t, err, errLogRangeTooWide)
 	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(2000)})
 	require.NoError(t, err)
+
+	tooBig := new(big.Int).Lsh(big.NewInt(1), 70)
+	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: tooBig})
+	require.ErrorContains(t, err, "exceeds int64")
 }
 
 func TestGetLogsEnforcesLogBudget(t *testing.T) {
