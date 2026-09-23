@@ -631,6 +631,9 @@ func (a *FilterAPI) GetFilterLogs(
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
+	method := fmt.Sprintf("%s_getFilterLogs", a.namespace)
+	ctx, cancel := withDeadline(ctx, method)
+	defer cancel()
 
 	// Read filter with read lock
 	a.filtersMu.RLock()
