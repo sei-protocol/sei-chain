@@ -572,17 +572,13 @@ func mergeAccountUpdates(
 	}
 
 	for key, codeHashChange := range codeHashChanges {
-		// Deletion is equivalent to setting the code hash to a zero hash
-		var codeHash *vtype.CodeHash
-		if codeHashChange != nil {
-			parsed, err := vtype.ParseCodeHash(codeHashChange)
-			if err != nil {
-				return nil, fmt.Errorf("invalid codehash value: %w", err)
-			}
-			codeHash = parsed
-		}
 		pending := updates[key]
-		pending.SetCodeHash(codeHash)
+		if codeHashChange == nil {
+			// Deletion is equivalent to setting the code hash to a zero hash
+			pending.SetCodeHash(nil)
+		} else if _, err := pending.SetCodeHashBytes(codeHashChange); err != nil {
+			return nil, fmt.Errorf("invalid codehash value: %w", err)
+		}
 		updates[key] = pending
 	}
 
