@@ -17,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
@@ -84,9 +85,12 @@ type littReceiptStore struct {
 	pruneInterval        int64
 	externalPruning      bool
 	logFilterParallelism int
-	stopBackground       chan struct{}
-	backgroundWg         sync.WaitGroup
-	closeOnce            sync.Once
+	// rewardPercentiles is the gas-weighted eth_feeHistory percentile set computed and stored
+	// alongside each block's receipts (see ReceiptStoreConfig.RewardPercentiles).
+	rewardPercentiles []float64
+	stopBackground    chan struct{}
+	backgroundWg      sync.WaitGroup
+	closeOnce         sync.Once
 
 	// Breaks a write into its stages. Only the writer goroutine records, so one timer serves the store.
 	writePhases *seidbmetrics.PhaseTimer
@@ -208,6 +212,10 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	if logFilterParallelism <= 0 {
 		logFilterParallelism = dbconfig.DefaultReceiptLogFilterParallelism
 	}
+	rewardPercentiles := cfg.RewardPercentiles
+	if len(rewardPercentiles) == 0 {
+		rewardPercentiles = DefaultRewardPercentiles
+	}
 
 	// Built before its table, because the table's GC filter is a method on it.
 	s := &littReceiptStore{
@@ -217,6 +225,7 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 		pruneInterval:        int64(cfg.PruneIntervalSeconds),
 		externalPruning:      cfg.ExternalPruning,
 		logFilterParallelism: logFilterParallelism,
+		rewardPercentiles:    rewardPercentiles,
 		stopBackground:       make(chan struct{}),
 	}
 
@@ -341,6 +350,28 @@ func (s *littReceiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash
 func (s *littReceiptStore) belowRetentionFloor(blockNumber uint64) bool {
 	earliest := s.earliestVersion.Load()
 	return earliest > 0 && blockNumber < uint64(earliest) //nolint:gosec // earliest is non-negative
+}
+
+// GetBlockStats returns the aggregate stats staged alongside blockNumber's receipts, or
+// ErrBlockStatsNotSupported when none was recorded.
+func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (BlockStats, error) {
+	if s.belowRetentionFloor(blockNumber) {
+		return BlockStats{}, ErrNotFound
+	}
+	val, err := s.index.Get(blockStatsKey(blockNumber))
+	if err != nil {
+		if errorutils.IsNotFound(err) {
+			return BlockStats{}, ErrBlockStatsNotSupported
+		}
+		return BlockStats{}, err
+	}
+	stats, err := decodeBlockStats(val)
+	if err != nil {
+		// A decode failure here reports ErrBlockStatsNotSupported, not the raw error.
+		logger.Error("failed to decode block stats, falling back", "block", blockNumber, "err", err)
+		return BlockStats{}, ErrBlockStatsNotSupported
+	}
+	return stats, nil
 }
 
 // SetReceipts hands the block's receipts to the writer, blocking only when the queue is full, or
@@ -483,7 +514,18 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 	}
 
 	s.writePhases.SetPhase("stage_tag_keys")
-	return s.stageTagKeys(batch, blockNumber, records)
+	if err := s.stageTagKeys(batch, blockNumber, records); err != nil {
+		return err
+	}
+
+	s.writePhases.SetPhase("stage_block_stats")
+	if partIndex > 0 {
+		// A block written across multiple parts (legacy migration) has no aggregate any single
+		// call can compute; delete whatever an earlier part wrote instead.
+		return batch.Delete(blockStatsKey(blockNumber))
+	}
+	stats := ComputeBlockStats(records, s.rewardPercentiles)
+	return batch.Set(blockStatsKey(blockNumber), encodeBlockStats(stats))
 }
 
 // requireNoSkippedBlock refuses a write that would leave a block unrecorded between the store's
@@ -694,6 +736,9 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	}
 
 	if err := s.deleteIndexRange(littTagBlockKey(floor), littTagBlockKey(cutoff)); err != nil {
+		return err
+	}
+	if err := s.deleteIndexRange(blockStatsKey(floor), blockStatsKey(cutoff)); err != nil {
 		return err
 	}
 	if err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff), dbtypes.WriteOptions{}); err != nil {

@@ -3,6 +3,7 @@ package receipt
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"strings"
 	"sync"
@@ -31,6 +32,9 @@ var (
 	ErrNotFound               = errors.New("receipt not found")
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
+	// ErrBlockStatsNotSupported is returned by GetBlockStats when the backend never recorded
+	// block stats for that block; the caller falls back to summing its receipts.
+	ErrBlockStatsNotSupported = errors.New("block stats not supported")
 	// ErrTooManyLogs is returned by FilterLogs when a query matches more logs
 	// than the caller-supplied limit. It lets callers cap peak memory by
 	// aborting a query instead of materializing an unbounded result set.
@@ -67,6 +71,10 @@ type ReceiptStore interface {
 	// Every block must be written, one that produced no receipts included; an implementation may
 	// refuse a write that skips a block.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
+
+	// GetBlockStats returns the aggregate stats recorded when the block's receipts were written.
+	// See ErrNotFound and ErrBlockStatsNotSupported.
+	GetBlockStats(ctx sdk.Context, blockNumber uint64) (BlockStats, error)
 
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.
@@ -148,6 +156,9 @@ type ReceiptRecord struct {
 	// unknown.
 	TxOffset uint32
 	TxLength uint32
+	// Reward is this tx's priority fee (EffectiveGasPrice - base fee), or nil to exclude it from
+	// the block's reward aggregates.
+	Reward *big.Int
 }
 
 // ReceiptReadMetrics records cache hits, misses, and timing for cached receipt
@@ -385,6 +396,12 @@ func (s *receiptStore) applyChangeset(ctx sdk.Context, ncs *proto.NamedChangeSet
 // Callers should fall back to fetching receipts individually via GetReceipt.
 func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCriteria, _ *LogBudget) ([]*ethtypes.Log, error) {
 	return nil, ErrRangeQueryNotSupported
+}
+
+// GetBlockStats always reports unsupported: this backend indexes receipts by tx hash only, with
+// no per-block grouping to aggregate at write time. Callers fall back to summing receipts.
+func (s *receiptStore) GetBlockStats(_ sdk.Context, _ uint64) (BlockStats, error) {
+	return BlockStats{}, ErrBlockStatsNotSupported
 }
 
 // IterateReceipts is not supported by the pebble backend: receipts are keyed by tx hash, so

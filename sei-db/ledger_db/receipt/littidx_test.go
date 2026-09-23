@@ -389,6 +389,10 @@ func TestLittIdxMultiPart(t *testing.T) {
 	logs, err := store.FilterLogs(ctx, 4, 4, filters.FilterCriteria{Addresses: []common.Address{addr}}, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
+
+	// The second part's write must delete the first's stats entry rather than leave a partial one.
+	_, err = store.GetBlockStats(ctx, 4)
+	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
 }
 
 // TestLittIdxLegacyFallback covers GetReceipt falling back to the legacy KV

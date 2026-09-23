@@ -356,6 +356,19 @@ func TestEVMOnlyApplicationEvmGasLimitReflectsConsensusParams(t *testing.T) {
 	require.Equal(t, uint64(30_000_000), gasLimiter.EvmGasLimit())
 }
 
+// evmMinGasPricer is implemented by an application that exposes its
+// admission gas-price floor, matching proxy.evmMinGasPriceProvider.
+type evmMinGasPricer interface {
+	EvmMinGasPrice() *big.Int
+}
+
+func TestEVMOnlyApplicationEvmMinGasPrice(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	minGasPricer, ok := app.(evmMinGasPricer)
+	require.True(t, ok)
+	require.Equal(t, big.NewInt(evmOnlyMinGasPrice), minGasPricer.EvmMinGasPrice())
+}
+
 func TestEVMOnlyApplicationServesDeployedCode(t *testing.T) {
 	app := newInitializedEVMOnlyTestApp(t)
 	raw, sender := signedEVMOnlyTestCreateTx(t, evmOnlyTestChainID)

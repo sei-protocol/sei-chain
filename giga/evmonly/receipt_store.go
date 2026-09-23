@@ -28,13 +28,15 @@ type MemoryReceiptStore struct {
 	earliestVersion int64
 	blocks          map[uint64]map[common.Hash]*evmtypes.Receipt
 	byTxHash        map[common.Hash]memoryReceiptEntry
+	blockStats      map[uint64]receipt.BlockStats
 }
 
 // NewMemoryReceiptStore returns an empty MemoryReceiptStore.
 func NewMemoryReceiptStore() *MemoryReceiptStore {
 	return &MemoryReceiptStore{
-		blocks:   make(map[uint64]map[common.Hash]*evmtypes.Receipt),
-		byTxHash: make(map[common.Hash]memoryReceiptEntry),
+		blocks:     make(map[uint64]map[common.Hash]*evmtypes.Receipt),
+		byTxHash:   make(map[common.Hash]memoryReceiptEntry),
+		blockStats: make(map[uint64]receipt.BlockStats),
 	}
 }
 
@@ -115,6 +117,7 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	}
 
 	stored := make([]receipt.ReceiptRecord, 0, len(records))
+	byBlock := make(map[uint64][]receipt.ReceiptRecord)
 	latestVersion := ctx.BlockHeight()
 	for _, record := range records {
 		if record.Receipt == nil {
@@ -130,6 +133,7 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 			TxHash:  record.TxHash,
 			Receipt: cloneStoredReceipt(record.Receipt),
 		})
+		byBlock[record.Receipt.BlockNumber] = append(byBlock[record.Receipt.BlockNumber], record)
 	}
 	if err := receiptContextError(ctx); err != nil {
 		return err
@@ -137,8 +141,35 @@ func (s *MemoryReceiptStore) SetReceipts(ctx sdk.Context, records []receipt.Rece
 	if err := s.storeRecords(ctx, stored, latestVersion); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	for blockNumber, blockRecords := range byBlock {
+		s.blockStats[blockNumber] = receipt.ComputeBlockStats(blockRecords, receipt.DefaultRewardPercentiles)
+	}
+	if len(byBlock) == 0 && ctx.BlockHeight() > 0 {
+		// An empty block still executed; record it as a real, zero-stat block rather than leaving
+		// it unrecorded, which GetBlockStats would otherwise report as ErrBlockStatsNotSupported.
+		blockNumber := uint64(ctx.BlockHeight()) //nolint:gosec // guarded non-negative above
+		if _, exists := s.blockStats[blockNumber]; !exists {
+			s.blockStats[blockNumber] = receipt.BlockStats{}
+		}
+	}
+	s.mu.Unlock()
 	receipt.RecordReceiptsWritten(ctx.Context(), stored)
 	return nil
+}
+
+// GetBlockStats returns the aggregate stats recorded for blockNumber when its receipts were set.
+func (s *MemoryReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (receipt.BlockStats, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.earliestVersion > 0 && blockNumber < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
+		return receipt.BlockStats{}, receipt.ErrNotFound
+	}
+	stats, ok := s.blockStats[blockNumber]
+	if !ok {
+		return receipt.BlockStats{}, receipt.ErrBlockStatsNotSupported
+	}
+	return stats, nil
 }
 
 // storeRecords installs a block's receipt records and advances the store version.
@@ -153,6 +184,12 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 			delete(s.blocks[previous.blockNumber], record.TxHash)
 			if len(s.blocks[previous.blockNumber]) == 0 {
 				delete(s.blocks, previous.blockNumber)
+				// A block a moved receipt vacates entirely gets a real, zero-stat entry.
+				s.blockStats[previous.blockNumber] = receipt.BlockStats{}
+			} else {
+				// A block that still has other receipts after one moves away has its cached
+				// stats invalidated, not recomputed.
+				delete(s.blockStats, previous.blockNumber)
 			}
 		}
 		blockNumber := record.Receipt.BlockNumber
@@ -214,6 +251,14 @@ func (s *MemoryReceiptStore) PruneHistory(blockNumber uint64) error {
 			delete(s.byTxHash, txHash)
 		}
 		delete(s.blocks, height)
+		delete(s.blockStats, height)
+	}
+	// A stats entry can outlive its s.blocks entry (an empty block, or a receipt moved away by
+	// storeRecords), so it needs its own pass rather than piggybacking on the loop above.
+	for height := range s.blockStats {
+		if height < blockNumber {
+			delete(s.blockStats, height)
+		}
 	}
 	if blockNumber <= maxGigaStoreBlockNumber && int64(blockNumber) > s.earliestVersion { //nolint:gosec // bounded above.
 		s.earliestVersion = int64(blockNumber) //nolint:gosec // bounded above.
