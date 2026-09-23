@@ -37,26 +37,34 @@ var _ VType = (*CodeData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type CodeData struct {
-	version     CodeDataVersion
-	blockHeight int64
-	bytecode    []byte
+	// data is the serialized form.
+	data []byte
 }
 
-// Create a new CodeData with the given bytecode.
+// Create a new CodeData with no bytecode.
 func NewCodeData() *CodeData {
-	return &CodeData{version: CodeDataVersion0}
+	return &CodeData{data: make([]byte, codeBytecodeStart)}
+}
+
+// NewCodeDataFrom returns the code data for bytecode written at blockHeight. bytecode is copied, so
+// the caller may reuse it.
+func NewCodeDataFrom(blockHeight int64, bytecode []byte) *CodeData {
+	data := make([]byte, codeBytecodeStart+len(bytecode))
+	data[codeVersionStart] = byte(CodeDataVersion0)
+	heightBytes := data[codeBlockHeightStart:codeBytecodeStart]
+	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	copy(data[codeBytecodeStart:], bytecode)
+	return &CodeData{data: data}
 }
 
 // Serialize the code data to a byte slice.
+//
+// The returned byte slice is not safe to modify without first copying it.
 func (c *CodeData) Serialize() []byte {
 	if c == nil {
 		return make([]byte, codeBytecodeStart)
 	}
-	data := make([]byte, codeBytecodeStart+len(c.bytecode))
-	data[codeVersionStart] = byte(c.version)
-	binary.BigEndian.PutUint64(data[codeBlockHeightStart:codeBytecodeStart], uint64(c.blockHeight)) //nolint:gosec
-	copy(data[codeBytecodeStart:], c.bytecode)
-	return data
+	return c.data
 }
 
 // Deserialize the code data from the given byte slice.
@@ -75,13 +83,11 @@ func DeserializeCodeData(data []byte) (*CodeData, error) {
 			version, codeBytecodeStart, len(data))
 	}
 
-	bytecode := data[codeBytecodeStart:]
-
-	return &CodeData{
-		version:     version,
-		blockHeight: int64(binary.BigEndian.Uint64(data[codeBlockHeightStart:codeBytecodeStart])), //nolint:gosec
-		bytecode:    bytecode,
-	}, nil
+	// Copied rather than aliased: Serialize now hands back whatever is held here, and the caller's
+	// buffer on the read path is commonly borrowed from the storage engine or an iterator.
+	owned := make([]byte, len(data))
+	copy(owned, data)
+	return &CodeData{data: owned}, nil
 }
 
 // Get the serialization version for this CodeData instance.
@@ -89,7 +95,7 @@ func (c *CodeData) GetSerializationVersion() CodeDataVersion {
 	if c == nil {
 		return CodeDataVersion0
 	}
-	return c.version
+	return CodeDataVersion(c.data[codeVersionStart])
 }
 
 // Get the block height when this code was last modified.
@@ -97,7 +103,8 @@ func (c *CodeData) GetBlockHeight() int64 {
 	if c == nil {
 		return 0
 	}
-	return c.blockHeight
+	heightBytes := c.data[codeBlockHeightStart:codeBytecodeStart]
+	return int64(binary.BigEndian.Uint64(heightBytes)) //nolint:gosec // height fits in int64
 }
 
 // Get the contract bytecode.
@@ -105,7 +112,7 @@ func (c *CodeData) GetBytecode() []byte {
 	if c == nil {
 		return []byte{}
 	}
-	return c.bytecode
+	return c.data[codeBytecodeStart:]
 }
 
 // Set the contract bytecode. Returns self (or a new CodeData if nil).
@@ -113,7 +120,10 @@ func (c *CodeData) SetBytecode(bytecode []byte) *CodeData {
 	if c == nil {
 		c = NewCodeData()
 	}
-	c.bytecode = append([]byte(nil), bytecode...)
+	next := make([]byte, codeBytecodeStart+len(bytecode))
+	copy(next, c.data[:codeBytecodeStart])
+	copy(next[codeBytecodeStart:], bytecode)
+	c.data = next
 	return c
 }
 
@@ -123,7 +133,7 @@ func (c *CodeData) IsDelete() bool {
 	if c == nil {
 		return true
 	}
-	return len(c.bytecode) == 0
+	return len(c.data) == codeBytecodeStart
 }
 
 // Set the block height when this code was last modified/touched. Returns self (or a new CodeData if nil).
@@ -131,6 +141,7 @@ func (c *CodeData) SetBlockHeight(blockHeight int64) *CodeData {
 	if c == nil {
 		c = NewCodeData()
 	}
-	c.blockHeight = blockHeight
+	heightBytes := c.data[codeBlockHeightStart:codeBytecodeStart]
+	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
 	return c
 }

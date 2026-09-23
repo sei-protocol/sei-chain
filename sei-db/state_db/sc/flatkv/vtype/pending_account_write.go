@@ -1,5 +1,7 @@
 package vtype
 
+import "fmt"
+
 // PendingAccountWrite tracks field-level changes to an account that have not yet been committed.
 // Each field has a value and a flag indicating whether it has been set. Only set fields are
 // applied when merging into a base AccountData.
@@ -104,6 +106,22 @@ func (p *PendingAccountWrite) SetCodeHash(codeHash *CodeHash) *PendingAccountWri
 	}
 	p.codeHash = codeHash
 	return p
+}
+
+// SetCodeHashBytes marks the code hash as changed, taking it as raw bytes so a caller holding a
+// serialized value does not have to parse it into a CodeHash first. Returns self.
+func (p *PendingAccountWrite) SetCodeHashBytes(codeHash []byte) (*PendingAccountWrite, error) {
+	if len(codeHash) != CodeHashLen {
+		return p, fmt.Errorf("invalid codehash value length: got %d, expected %d",
+			len(codeHash), CodeHashLen)
+	}
+	if p == nil {
+		p = NewPendingAccountWrite()
+	}
+	var parsed CodeHash
+	copy(parsed[:], codeHash)
+	p.codeHash = &parsed
+	return p, nil
 }
 
 // Merge applies the pending field changes onto a copy of the base AccountData, updating the
