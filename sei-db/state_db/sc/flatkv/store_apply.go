@@ -110,43 +110,77 @@ func (s *CommitStore) prepareWrites(
 	changesByType map[keys.EVMKeyKind]map[string][]byte,
 	blockHeight int64,
 ) (preparedWrites, error) {
-	var out preparedWrites
-
 	s.phaseTimer.SetPhase("apply_change_sets_gather_values")
 
-	// Only the changeset's own field values are parsed here. Folding them onto the rows those
-	// accounts already hold is left to the account store, which does it off this thread; see
-	// accountUpdater.
-	accountWrites, err := newAccountUpdater(
-		changesByType[keys.EVMKeyNonce],
-		changesByType[keys.EVMKeyCodeHash],
-		changesByType[keys.EVMKeyBalance],
-		blockHeight,
-	)
-	if err != nil {
-		return out, fmt.Errorf("prepare account writes for block %d: %w", blockHeight, err)
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	var accountWrites *accountUpdater
+	var accountErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := newAccountUpdater(
+			changesByType[keys.EVMKeyNonce],
+			changesByType[keys.EVMKeyCodeHash],
+			changesByType[keys.EVMKeyBalance],
+			blockHeight,
+		)
+		if err != nil {
+			accountErr = fmt.Errorf("prepare account writes for block %d: %w", blockHeight, err)
+			return
+		}
+		accountWrites = writes
+	})
+
+	var storageWrites map[string]*vtype.StorageData
+	var storageErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
+		if err != nil {
+			storageErr = fmt.Errorf("failed to parse storage changes: %w", err)
+			return
+		}
+		storageWrites = writes
+	})
+
+	var codeWrites map[string]*vtype.CodeData
+	var codeErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := toCodeValues(changesByType[keys.EVMKeyCode], blockHeight)
+		if err != nil {
+			codeErr = fmt.Errorf("failed to parse code changes: %w", err)
+			return
+		}
+		codeWrites = writes
+	})
+
+	var miscWrites map[string]*vtype.MiscData
+	var miscErr error
+	s.miscPool.Submit(func() {
+		defer wg.Done()
+		writes, err := toMiscValues(changesByType[keys.EVMKeyMisc], blockHeight)
+		if err != nil {
+			miscErr = fmt.Errorf("failed to parse misc changes: %w", err)
+			return
+		}
+		miscWrites = writes
+	})
+
+	// Every kind has to validate before any of them is returned: writeToStores stages rows, so a parse
+	// failure discovered after it ran would leave part of a block behind.
+	wg.Wait()
+	if err := errors.Join(accountErr, storageErr, codeErr, miscErr); err != nil {
+		return preparedWrites{}, err
 	}
 
-	storageWrites, err := toStorageValues(changesByType[keys.EVMKeyStorage], blockHeight)
-	if err != nil {
-		return out, fmt.Errorf("failed to parse storage changes: %w", err)
-	}
-
-	codeWrites, err := toCodeValues(changesByType[keys.EVMKeyCode], blockHeight)
-	if err != nil {
-		return out, fmt.Errorf("failed to parse code changes: %w", err)
-	}
-
-	miscWrites, err := toMiscValues(changesByType[keys.EVMKeyMisc], blockHeight)
-	if err != nil {
-		return out, fmt.Errorf("failed to parse misc changes: %w", err)
-	}
-
-	out.accounts = accountWrites
-	out.storage = storageWrites
-	out.code = codeWrites
-	out.misc = miscWrites
-	return out, nil
+	return preparedWrites{
+		accounts: accountWrites,
+		storage:  storageWrites,
+		code:     codeWrites,
+		misc:     miscWrites,
+	}, nil
 }
 
 var _ view.BatchUpdater = (*accountUpdater)(nil)
