@@ -246,6 +246,9 @@ func storedLogMatches(lg *evmtypes.Log, crit filters.FilterCriteria) bool {
 		if len(topics) == 0 {
 			continue
 		}
+		// Stored topics are hex strings while crit holds common.Hash, so each
+		// comparison decodes a topic. Watch this for performance regressions;
+		// a criteria type keyed on the stored representation would avoid it.
 		if i >= len(lg.Topics) || !slices.Contains(topics, common.HexToHash(lg.Topics[i])) {
 			return false
 		}
