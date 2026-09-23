@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -56,8 +58,29 @@ func (f *fakeStaking) BondDenom(sdk.Context) string {
 	}
 	return testDenom
 }
-func (f *fakeStaking) GetValidators(_ sdk.Context, maxRetrieve uint32) []stakingtypes.Validator {
-	return append([]stakingtypes.Validator(nil), f.validators[:min(len(f.validators), int(maxRetrieve))]...)
+
+// ValidatorsPowerStoreIterator yields the unjailed validators' operator addresses, highest tokens
+// first, like the staking power index.
+func (f *fakeStaking) ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator {
+	var byPower []stakingtypes.Validator
+	for _, v := range f.validators {
+		if !v.Jailed {
+			byPower = append(byPower, v)
+		}
+	}
+	sort.SliceStable(byPower, func(i, j int) bool { return byPower[i].Tokens.GT(byPower[j].Tokens) })
+	it := &fakeIterator{}
+	for _, v := range byPower {
+		it.values = append(it.values, v.GetOperator())
+	}
+	return it
+}
+func (f *fakeStaking) IterateValidators(_ sdk.Context, fn func(int64, stakingtypes.ValidatorI) bool) {
+	for i, v := range f.validators {
+		if fn(int64(i), v) {
+			return
+		}
+	}
 }
 func (f *fakeStaking) GetValidator(_ sdk.Context, addr sdk.ValAddress) (stakingtypes.Validator, bool) {
 	for _, v := range f.validators {
@@ -92,6 +115,19 @@ func (f *fakeStaking) GetRedelegations(_ sdk.Context, d sdk.AccAddress, limit ui
 	}
 	return reds
 }
+
+type fakeIterator struct {
+	values [][]byte
+	i      int
+}
+
+func (it *fakeIterator) Domain() ([]byte, []byte) { return nil, nil }
+func (it *fakeIterator) Valid() bool              { return it.i < len(it.values) }
+func (it *fakeIterator) Next()                    { it.i++ }
+func (it *fakeIterator) Key() []byte              { return it.values[it.i] }
+func (it *fakeIterator) Value() []byte            { return it.values[it.i] }
+func (it *fakeIterator) Error() error             { return nil }
+func (it *fakeIterator) Close() error             { return nil }
 
 type fakeSlashing struct{}
 
@@ -332,25 +368,66 @@ func TestReadLogsTruncatedWalletEntries(t *testing.T) {
 	require.NotNil(t, c.snapshot.Load(), "a truncated read must still publish a snapshot")
 }
 
-func TestReadLogsTruncatedValidators(t *testing.T) {
-	newTestReader(t)
-	validators := make([]stakingtypes.Validator, 0, maxValidators+5)
-	for i := range cap(validators) {
-		v := newValidator(t, 1, 1, stakingtypes.Unbonded)
+// manyValidators returns n validators with distinct operator addresses and tokens n..1, so the
+// address order and the power order disagree.
+func manyValidators(t *testing.T, n int, jailed bool) []stakingtypes.Validator {
+	t.Helper()
+	validators := make([]stakingtypes.Validator, 0, n)
+	for i := range n {
+		v := newValidator(t, 1, int64(n-i), stakingtypes.Unbonded)
+		v.Jailed = jailed
 		v.OperatorAddress = sdk.ValAddress(binary.BigEndian.AppendUint32(bytes.Repeat([]byte{1}, 16), uint32(i))).String()
 		validators = append(validators, v)
 	}
+	return validators
+}
+
+func rankedOperators(t *testing.T, c *Reporter) []string {
+	t.Helper()
+	var ranked []string
+	for _, s := range *c.snapshot.Load() {
+		if s.inst != cosmosMetrics.validatorsRank {
+			continue
+		}
+		attrs := metric.NewObserveConfig([]metric.ObserveOption{s.attrs}).Attributes()
+		addr, ok := attrs.Value("address")
+		require.True(t, ok, "rank sample without an address attribute")
+		ranked = append(ranked, addr.AsString())
+	}
+	return ranked
+}
+
+func TestReadKeepsTheHighestPowerValidatorsWhenTruncated(t *testing.T) {
+	newTestReader(t)
+	validators := manyValidators(t, maxValidators+5, false)
 	staking := &fakeStaking{validators: validators}
 	c, logs := newTestReporter(t, staking, fakeDistribution{})
 	c.refresh()
 	require.Contains(t, logs.String(), "validators truncated", "the truncated read was not logged")
-	ranks := 0
-	for _, s := range *c.snapshot.Load() {
-		if s.inst == cosmosMetrics.validatorsRank {
-			ranks++
-		}
+	ranked := rankedOperators(t, c)
+	require.Len(t, ranked, maxValidators, "the snapshot must hold only the capped validators")
+	for i, addr := range ranked {
+		require.Equal(t, validators[i].OperatorAddress, addr, "rank %d is not the validator with the %d-th most tokens", i+1, i+1)
 	}
-	require.Equal(t, maxValidators, ranks, "the snapshot must hold only the capped validators")
+}
+
+func TestReadIncludesJailedValidators(t *testing.T) {
+	newTestReader(t)
+	jailed := newValidator(t, 2, 5, stakingtypes.Unbonding)
+	jailed.Jailed = true
+	staking := &fakeStaking{validators: []stakingtypes.Validator{newValidator(t, 1, 1, stakingtypes.Bonded), jailed}}
+	c, _ := newTestReporter(t, staking, fakeDistribution{})
+	c.refresh()
+	require.Equal(t, []string{jailed.OperatorAddress, staking.validators[0].OperatorAddress}, rankedOperators(t, c), "jailed validators must be reported and ranked by tokens")
+}
+
+func TestReadLogsTruncatedJailedValidators(t *testing.T) {
+	newTestReader(t)
+	staking := &fakeStaking{validators: manyValidators(t, maxValidators+5, true)}
+	c, logs := newTestReporter(t, staking, fakeDistribution{})
+	c.refresh()
+	require.Contains(t, logs.String(), "jailed validators truncated", "the truncated read was not logged")
+	require.Len(t, rankedOperators(t, c), maxValidators, "the snapshot must hold only the capped validators")
 }
 
 func TestRefreshSurvivesAFailedRead(t *testing.T) {

@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	// maxValidators bounds the validators read per refresh; anyone can create a validator.
+	// maxValidators bounds the unjailed validators, taken by power, and the jailed validators
+	// read per refresh; anyone can create a validator.
 	maxValidators = 1000
 	// maxWalletEntries bounds the unbonding and redelegation entries read per wallet.
 	maxWalletEntries = 100
@@ -37,7 +38,8 @@ var logger = seilog.NewLogger("cosmosmetrics")
 type StakingKeeper interface {
 	GetParams(sdk.Context) stakingtypes.Params
 	BondDenom(sdk.Context) string
-	GetValidators(sdk.Context, uint32) []stakingtypes.Validator
+	ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator
+	IterateValidators(sdk.Context, func(int64, stakingtypes.ValidatorI) bool)
 	GetValidator(sdk.Context, sdk.ValAddress) (stakingtypes.Validator, bool)
 	GetBondedPool(sdk.Context) authtypes.ModuleAccountI
 	GetNotBondedPool(sdk.Context) authtypes.ModuleAccountI
@@ -235,10 +237,10 @@ func (r *Reporter) readGeneral(ctx sdk.Context, b *builder, bondDenom string) {
 }
 
 func (r *Reporter) readValidators(ctx sdk.Context, b *builder, bondDenom string) {
-	validators := r.keepers.Staking.GetValidators(ctx, maxValidators)
-	if len(validators) >= maxValidators {
-		b.errs = append(b.errs, fmt.Errorf("validators truncated at %d entries", maxValidators))
-	}
+	validators := r.topValidators(ctx, b)
+	validators = append(validators, r.jailedValidators(ctx, b)...)
+	// Ranks are by tokens over what was read; once either read is truncated they only order that
+	// subset, and the truncation is in the log rather than the samples.
 	sort.SliceStable(validators, func(i, j int) bool {
 		return validators[i].Tokens.GT(validators[j].Tokens)
 	})
@@ -267,6 +269,50 @@ func (r *Reporter) readValidators(ctx sdk.Context, b *builder, bondDenom string)
 			b.gauge(cosmosMetrics.validatorsMissedBlocks, float64(info.MissedBlocksCounter), addr, moniker)
 		}
 	}
+}
+
+// topValidators returns up to maxValidators unjailed validators, highest power first. Jailing
+// removes a validator from the power index, so jailed validators are read separately.
+func (r *Reporter) topValidators(ctx sdk.Context, b *builder) []stakingtypes.Validator {
+	validators := make([]stakingtypes.Validator, 0, maxValidators)
+	iter := r.keepers.Staking.ValidatorsPowerStoreIterator(ctx)
+	defer func() { _ = iter.Close() }()
+	for ; iter.Valid(); iter.Next() {
+		if len(validators) == maxValidators {
+			b.errs = append(b.errs, fmt.Errorf("validators truncated at %d entries by power", maxValidators))
+			break
+		}
+		v, found := r.keepers.Staking.GetValidator(ctx, iter.Value())
+		if !found {
+			b.errs = append(b.errs, fmt.Errorf("validator %s: in power index but not found", sdk.ValAddress(iter.Value())))
+			continue
+		}
+		validators = append(validators, v)
+	}
+	return validators
+}
+
+// jailedValidators returns up to maxValidators jailed validators in operator-address order. There
+// is no index of jailed validators, so this walks the validator set but holds only the jailed ones.
+func (r *Reporter) jailedValidators(ctx sdk.Context, b *builder) []stakingtypes.Validator {
+	var validators []stakingtypes.Validator
+	r.keepers.Staking.IterateValidators(ctx, func(_ int64, vi stakingtypes.ValidatorI) bool {
+		if !vi.IsJailed() {
+			return false
+		}
+		if len(validators) == maxValidators {
+			b.errs = append(b.errs, fmt.Errorf("jailed validators truncated at %d entries", maxValidators))
+			return true
+		}
+		v, ok := vi.(stakingtypes.Validator)
+		if !ok {
+			b.errs = append(b.errs, fmt.Errorf("validator %s: unexpected type %T", vi.GetOperator(), vi))
+			return false
+		}
+		validators = append(validators, v)
+		return false
+	})
+	return validators
 }
 
 func (r *Reporter) readWallets(ctx sdk.Context, b *builder, bondDenom string) {
