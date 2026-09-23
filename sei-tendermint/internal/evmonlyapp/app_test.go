@@ -49,6 +49,27 @@ func signedEVMOnlyTestTx(t *testing.T, chainID uint64, nonce uint64) ([]byte, co
 	return raw, crypto.PubkeyToAddress(key.PublicKey)
 }
 
+// evmOnlyTestInitCode deploys a contract whose runtime code is the single
+// INVALID opcode 0xfe: PUSH1 0xfe, PUSH1 0, MSTORE8, PUSH1 1, PUSH1 0, RETURN.
+var evmOnlyTestInitCode = []byte{0x60, 0xfe, 0x60, 0x00, 0x53, 0x60, 0x01, 0x60, 0x00, 0xf3}
+
+func signedEVMOnlyTestCreateTx(t *testing.T, chainID uint64) ([]byte, common.Address) {
+	t.Helper()
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(evmOnlyMinGasPrice),
+		Gas:      100_000,
+		Data:     evmOnlyTestInitCode,
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+	return raw, crypto.PubkeyToAddress(key.PublicKey)
+}
+
 func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 	t.Helper()
 	app := newEVMOnlyTestApp(t, nil)
@@ -346,4 +367,34 @@ func TestEVMOnlyApplicationEvmMinGasPrice(t *testing.T) {
 	minGasPricer, ok := app.(evmMinGasPricer)
 	require.True(t, ok)
 	require.Equal(t, big.NewInt(evmOnlyMinGasPrice), minGasPricer.EvmMinGasPrice())
+}
+
+func TestEVMOnlyApplicationServesDeployedCode(t *testing.T) {
+	app := newInitializedEVMOnlyTestApp(t)
+	raw, sender := signedEVMOnlyTestCreateTx(t, evmOnlyTestChainID)
+	contract := crypto.CreateAddress(sender, 0)
+	codeReader := app.(*evmOnlyApplication)
+	require.Empty(t, codeReader.EvmCode(contract))
+	require.Empty(t, codeReader.EvmCode(sender))
+
+	response, err := app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, response.TxResults, 1)
+	require.Equal(t, uint32(0), response.TxResults[0].Code)
+	_, err = app.Commit(t.Context())
+	require.NoError(t, err)
+
+	got := codeReader.EvmCode(contract)
+	require.Equal(t, []byte{0xfe}, got)
+	// The returned slice is a copy: mutating it must not alter the next read.
+	got[0] = 0x00
+	require.Equal(t, []byte{0xfe}, codeReader.EvmCode(contract))
+	require.Empty(t, codeReader.EvmCode(sender))
 }

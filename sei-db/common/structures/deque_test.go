@@ -20,10 +20,12 @@ func TestNewWithCapacityRoundsUpToPowerOf2(t *testing.T) {
 		requested int
 		expected  int
 	}{
-		{0, minDequeCapacity},
-		{1, minDequeCapacity},
-		{7, minDequeCapacity},
-		{8, minDequeCapacity},
+		{0, 1},
+		{1, 1},
+		{2, 2},
+		{3, 4},
+		{7, 8},
+		{8, 8},
 		{9, 16},
 		{10, 16},
 		{16, 16},
@@ -64,10 +66,10 @@ func TestNewWithCapacityIsFunctional(t *testing.T) {
 	require.Equal(t, 2047, d.mask)
 }
 
-func TestDefaultConstructorMatchesMinCapacity(t *testing.T) {
+func TestDefaultConstructorUsesTheDefaultCapacity(t *testing.T) {
 	d := NewDeque[int]()
-	require.Equal(t, minDequeCapacity, len(d.data))
-	require.Equal(t, minDequeCapacity-1, d.mask)
+	require.Equal(t, defaultDequeCapacity, len(d.data))
+	require.Equal(t, defaultDequeCapacity-1, d.mask)
 }
 
 func TestMaskStaysConsistentThroughGrowth(t *testing.T) {
@@ -147,20 +149,20 @@ func TestMixedPushFrontAndBack(t *testing.T) {
 func TestGrowthDoublesCapacity(t *testing.T) {
 	d := NewDeque[int]()
 	initial := len(d.data)
-	require.Equal(t, minDequeCapacity, initial)
+	require.Equal(t, defaultDequeCapacity, initial)
 
-	for i := 0; i < minDequeCapacity; i++ {
+	for i := 0; i < defaultDequeCapacity; i++ {
 		d.PushBack(i)
 	}
-	require.Equal(t, minDequeCapacity, len(d.data))
+	require.Equal(t, defaultDequeCapacity, len(d.data))
 
 	d.PushBack(999)
-	require.Equal(t, minDequeCapacity*2, len(d.data))
+	require.Equal(t, defaultDequeCapacity*2, len(d.data))
 
-	for i := 0; i < minDequeCapacity; i++ {
+	for i := 0; i < defaultDequeCapacity; i++ {
 		require.Equal(t, i, d.Get(i))
 	}
-	require.Equal(t, 999, d.Get(minDequeCapacity))
+	require.Equal(t, 999, d.Get(defaultDequeCapacity))
 }
 
 func TestCapacityNeverShrinks(t *testing.T) {
@@ -187,13 +189,13 @@ func TestGrowthWithWrappedBuffer(t *testing.T) {
 	}
 	// firstIndex is now 4, size is 2, elements [4, 5]
 	// Fill to capacity to force a grow while wrapped
-	for i := 10; i < 10+minDequeCapacity-2; i++ {
+	for i := 10; i < 10+defaultDequeCapacity-2; i++ {
 		d.PushBack(i)
 	}
-	require.Equal(t, minDequeCapacity, d.Len())
+	require.Equal(t, defaultDequeCapacity, d.Len())
 
 	d.PushBack(99)
-	require.Equal(t, minDequeCapacity+1, d.Len())
+	require.Equal(t, defaultDequeCapacity+1, d.Len())
 	require.Equal(t, 4, d.PeekFront())
 	require.Equal(t, 99, d.PeekBack())
 }

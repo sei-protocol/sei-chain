@@ -11,16 +11,16 @@ import (
 // interleave them by key rather than concatenate them, and it has to cope with diffs that are empty or
 // exhausted at different points.
 func TestForEachMergedEntryInterleavesRunsByKey(t *testing.T) {
-	shardDiffs := [][]diffEntry{
-		{{key: "a"}, {key: "d"}, {key: "z"}},
+	shardDiffs := [][]Write{
+		{{Key: "a"}, {Key: "d"}, {Key: "z"}},
 		{},
-		{{key: "b"}, {key: "e"}},
-		{{key: "c"}},
+		{{Key: "b"}, {Key: "e"}},
+		{{Key: "c"}},
 	}
 
 	var got []string
-	require.NoError(t, forEachMergedEntry(shardDiffs, func(entry diffEntry) error {
-		got = append(got, entry.key)
+	require.NoError(t, forEachMergedEntry(shardDiffs, func(entry Write) error {
+		got = append(got, entry.Key)
 		return nil
 	}))
 
@@ -30,14 +30,14 @@ func TestForEachMergedEntryInterleavesRunsByKey(t *testing.T) {
 // Values ride along with their keys, tombstones included: a nil value is what tells the encoder to
 // write a delete rather than a set.
 func TestForEachMergedEntryCarriesValuesAndTombstones(t *testing.T) {
-	shardDiffs := [][]diffEntry{
-		{{key: "gone", value: nil}},
-		{{key: "empty", value: []byte{}}, {key: "set", value: []byte("v")}},
+	shardDiffs := [][]Write{
+		{{Key: "gone", Value: nil}},
+		{{Key: "empty", Value: []byte{}}, {Key: "set", Value: []byte("v")}},
 	}
 
 	got := make(map[string][]byte)
-	require.NoError(t, forEachMergedEntry(shardDiffs, func(entry diffEntry) error {
-		got[entry.key] = entry.value
+	require.NoError(t, forEachMergedEntry(shardDiffs, func(entry Write) error {
+		got[entry.Key] = entry.Value
 		return nil
 	}))
 
@@ -49,11 +49,11 @@ func TestForEachMergedEntryCarriesValuesAndTombstones(t *testing.T) {
 }
 
 func TestForEachMergedEntryHandlesNothingToMerge(t *testing.T) {
-	require.NoError(t, forEachMergedEntry(nil, func(diffEntry) error {
+	require.NoError(t, forEachMergedEntry(nil, func(Write) error {
 		t.Fatal("nothing to visit")
 		return nil
 	}))
-	require.NoError(t, forEachMergedEntry([][]diffEntry{{}, {}}, func(diffEntry) error {
+	require.NoError(t, forEachMergedEntry([][]Write{{}, {}}, func(Write) error {
 		t.Fatal("nothing to visit")
 		return nil
 	}))
@@ -62,11 +62,11 @@ func TestForEachMergedEntryHandlesNothingToMerge(t *testing.T) {
 // The encoder reports a failed write through the visitor, and the merge has to stop there rather than
 // carry on filling a batch that is already broken.
 func TestForEachMergedEntryStopsAtTheFirstVisitError(t *testing.T) {
-	shardDiffs := [][]diffEntry{{{key: "a"}, {key: "c"}}, {{key: "b"}}}
+	shardDiffs := [][]Write{{{Key: "a"}, {Key: "c"}}, {{Key: "b"}}}
 	failure := errors.New("encode failed")
 
 	visited := 0
-	err := forEachMergedEntry(shardDiffs, func(diffEntry) error {
+	err := forEachMergedEntry(shardDiffs, func(Write) error {
 		visited++
 		if visited == 2 {
 			return failure

@@ -43,6 +43,7 @@ type Backend interface {
 	EvmCall(context.Context, *core.Message) (*core.ExecutionResult, error)
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
+	EvmCode(common.Address) ([]byte, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.

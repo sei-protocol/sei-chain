@@ -347,6 +347,12 @@ func (env *Environment) EvmChainConfig() (*params.ChainConfig, error) {
 	return env.App.EvmChainConfig()
 }
 
+// EvmCode returns the contract code at address in the current committed EVM
+// state.
+func (env *Environment) EvmCode(address common.Address) ([]byte, error) {
+	return env.App.EvmCode(address)
+}
+
 // EvmCall executes msg as a read-only call against the current committed EVM
 // state, without creating a transaction or persisting any state change.
 func (env *Environment) EvmCall(ctx context.Context, msg *ethcore.Message) (*ethcore.ExecutionResult, error) {

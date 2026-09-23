@@ -322,6 +322,14 @@ func (a *evmOnlyApplication) EvmMinGasPrice() *big.Int {
 	return big.NewInt(evmOnlyMinGasPrice)
 }
 
+// EvmCode returns the contract code at address in the most recently committed
+// EVM state, or nil when the account holds none.
+func (a *evmOnlyApplication) EvmCode(address common.Address) []byte {
+	snapshot := a.storage.StateDB().OpenView()
+	defer snapshot.Close()
+	return slices.Clone(snapshot.GetCode(evmOnlyStoreAddress(address)))
+}
+
 func (a *evmOnlyApplication) EvmChainID() uint64 {
 	return a.chainID.Uint64()
 }

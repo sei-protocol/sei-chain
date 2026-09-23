@@ -58,22 +58,70 @@ type ReceiptStore interface {
 	// LatestVersion is the highest block whose receipts are queryable. A write may land after
 	// SetReceipts returns, so a reader follows this rather than the height it last wrote.
 	LatestVersion() int64
+
 	EarliestVersion() int64
+
 	GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
+
 	GetReceiptFromStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error)
+
 	// SetReceipts writes the block's receipts, carrying the version markers with them. An
 	// implementation may apply the write in the background; LatestVersion reports when it lands.
+	//
+	// Every block must be written, one that produced no receipts included; an implementation may
+	// refuse a write that skips a block.
 	SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error
+
 	// GetBlockStats returns the aggregate stats recorded when the block's receipts were written.
 	// See ErrNotFound and ErrBlockStatsNotSupported.
 	GetBlockStats(ctx sdk.Context, blockNumber uint64) (BlockStats, error)
+
 	// FilterLogs queries logs across a range of blocks.
 	// For single-block queries, set fromBlock == toBlock.
 	// budget is charged per matched log via Reserve and aborts once either
 	// configured ceiling is exceeded; nil disables all caps. Callers on the
 	// eth range path typically pass a byte-only budget (maxLog=0) here and
 	// enforce the matched-log count on the normalized result separately.
-	FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria, budget *LogBudget) ([]*ethtypes.Log, error)
+	//
+	// A store that cannot answer a range query returns ErrRangeQueryNotSupported.
+	FilterLogs(
+		ctx sdk.Context,
+		fromBlock uint64,
+		toBlock uint64,
+		crit filters.FilterCriteria,
+		budget *LogBudget,
+	) ([]*ethtypes.Log, error)
+
+	// IterateReceipts walks every receipt stored at or above startBlock, in ascending block
+	// order and by transaction index within a block. A startBlock below the oldest receipt the
+	// store holds begins at the oldest receipt it holds.
+	//
+	// A backend that cannot walk its receipts returns
+	// ErrRangeQueryNotSupported.
+	IterateReceipts(startBlock uint64) (ReceiptIterator, error)
+
+	Close() error
+}
+
+// ReceiptIterator walks stored receipts. It is not safe for concurrent use.
+type ReceiptIterator interface {
+	// Next advances to the next receipt, reporting false once the walk is complete. After it
+	// returns false or an error, only Close may be called.
+	Next() (bool, error)
+
+	// BlockNumber returns the block holding the current receipt. Valid only after Next
+	// returned true.
+	BlockNumber() uint64
+
+	// TxHash returns the hash of the current receipt's transaction. Valid only after Next
+	// returned true.
+	TxHash() common.Hash
+
+	// Receipt decodes the current receipt. Valid only after Next returned true.
+	Receipt() (*types.Receipt, error)
+
+	// Close releases the iterator's resources. It MUST be called; failing to do so pins
+	// segment files on disk.
 	Close() error
 }
 
@@ -354,6 +402,12 @@ func (s *receiptStore) FilterLogs(_ sdk.Context, _, _ uint64, _ filters.FilterCr
 // no per-block grouping to aggregate at write time. Callers fall back to summing receipts.
 func (s *receiptStore) GetBlockStats(_ sdk.Context, _ uint64) (BlockStats, error) {
 	return BlockStats{}, ErrBlockStatsNotSupported
+}
+
+// IterateReceipts is not supported by the pebble backend: receipts are keyed by tx hash, so
+// there is no block-ordered walk to offer. Returns ErrRangeQueryNotSupported.
+func (s *receiptStore) IterateReceipts(_ uint64) (ReceiptIterator, error) {
+	return nil, ErrRangeQueryNotSupported
 }
 
 func (s *receiptStore) Close() error {

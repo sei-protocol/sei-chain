@@ -221,6 +221,11 @@ func (*MemoryReceiptStore) FilterLogs(
 	return nil, receipt.ErrRangeQueryNotSupported
 }
 
+// IterateReceipts reports that the in-memory backend does not support walking its receipts.
+func (*MemoryReceiptStore) IterateReceipts(_ uint64) (receipt.ReceiptIterator, error) {
+	return nil, receipt.ErrRangeQueryNotSupported
+}
+
 // Close closes the receipt store.
 func (*MemoryReceiptStore) Close() error {
 	return nil

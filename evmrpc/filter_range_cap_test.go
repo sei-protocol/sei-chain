@@ -134,6 +134,10 @@ func (s *rangeCapReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint
 	return out, nil
 }
 
+func (s *rangeCapReceiptStore) IterateReceipts(uint64) (receipt.ReceiptIterator, error) {
+	return nil, receipt.ErrRangeQueryNotSupported
+}
+
 func (s *rangeCapReceiptStore) Close() error { return nil }
 
 func (s *rangeCapReceiptStore) Name() string                    { return "range-cap-receipts" }

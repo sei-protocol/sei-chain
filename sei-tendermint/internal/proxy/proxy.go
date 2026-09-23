@@ -80,6 +80,23 @@ func (app *Proxy) EvmCall(ctx context.Context, msg *core.Message) (*core.Executi
 	return caller.EvmCall(ctx, msg)
 }
 
+// evmCodeReader is implemented by applications that can read contract code
+// from their current EVM state.
+type evmCodeReader interface {
+	EvmCode(common.Address) []byte
+}
+
+// EvmCode returns the contract code at addr in the wrapped application's
+// current EVM state. It errors if that application does not expose EVM code.
+func (app *Proxy) EvmCode(addr common.Address) ([]byte, error) {
+	defer addTimeSample(Global.MethodTimingAt("evm_code", "sync"))()
+	reader, ok := app.app.(evmCodeReader)
+	if !ok {
+		return nil, fmt.Errorf("application does not expose EVM code")
+	}
+	return reader.EvmCode(addr), nil
+}
+
 // evmChainConfigProvider is implemented by applications that expose the EVM
 // chain configuration they execute against.
 type evmChainConfigProvider interface {
