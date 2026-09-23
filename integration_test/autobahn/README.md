@@ -141,7 +141,7 @@ The operational EVM-only configuration is:
 | Consensus block gas limit | `35,000,000` |
 | Autobahn transaction limit | `2,000` transactions per block |
 | Block interval | `400ms` |
-| Empty blocks | disabled |
+| Empty blocks | enabled |
 | Persistent state directory | `data/autobahn` under each node home |
 | BlockDB minimum retention age | `30s` |
 

@@ -168,7 +168,7 @@ if [ "$AUTOBAHN" = "true" ]; then
     NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
   done
 
-  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG" --allow-empty-blocks
   # Autobahn serves the EVM JSON-RPC only: clear the Tendermint RPC and Cosmos
   # query surfaces it does not serve.
   sed -i '/^\[rpc\]/,/^\[/ s|^laddr = .*|laddr = ""|' ~/.sei/config/config.toml

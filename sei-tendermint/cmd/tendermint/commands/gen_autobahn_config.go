@@ -37,6 +37,7 @@ Output is written to the file specified by --output.`,
 			if persistentStateDir == "" {
 				return fmt.Errorf("persistent-state-dir is required")
 			}
+			allowEmptyBlocks, _ := cmd.Flags().GetBool("allow-empty-blocks")
 			blockDBRetention, _ := cmd.Flags().GetString("blockdb-retention")
 			blockDBGCPeriod, _ := cmd.Flags().GetString("blockdb-gc-period")
 
@@ -89,7 +90,7 @@ Output is written to the file specified by --output.`,
 			cfg := config.AutobahnFileConfig{
 				Validators:       validators,
 				MaxTxsPerBlock:   2_000,
-				AllowEmptyBlocks: false,
+				AllowEmptyBlocks: allowEmptyBlocks,
 				BlockInterval:    utils.Duration(400 * time.Millisecond),
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
 				// node/setup.go rootifies a relative path against cfg.RootDir at load time.
@@ -115,6 +116,9 @@ Output is written to the file specified by --output.`,
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
 	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus state and BlockDB across restarts; relative paths are resolved against the node's --home dir")
+	// Docker/CI clusters need empty blocks so a startup gate can watch height
+	// advance without first submitting a transaction.
+	cmd.Flags().Bool("allow-empty-blocks", false, "write allow_empty_blocks=true so the producer seals blocks with an empty mempool")
 	// Default 30s: this helper is used by docker/local clusters, not production
 	// node bring-up. Pass --blockdb-retention= (empty) to omit block_db and keep
 	// littblock's production default (24h).
