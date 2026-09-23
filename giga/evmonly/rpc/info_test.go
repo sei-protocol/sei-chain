@@ -340,6 +340,35 @@ func TestFeeHistoryRewardFromStoredPercentiles(t *testing.T) {
 	require.Equal(t, []*big.Int{big.NewInt(100), big.NewInt(100), big.NewInt(100)}, toBigInts(result.Reward[0]))
 }
 
+// TestFeeHistoryRecomputesViaIterateReceiptsWhenSupported verifies the recompute path prefers
+// IterateReceipts over decoding the block and fetching receipts one at a time: backend.block is
+// left nil, so a fall-through to that path would panic.
+func TestFeeHistoryRecomputesViaIterateReceiptsWhenSupported(t *testing.T) {
+	baseStore := evmonly.NewMemoryReceiptStore()
+	tx, _ := testSignedTransaction(t)
+	receiptRecord := &evmtypes.Receipt{TxHashHex: tx.Hash().Hex(), BlockNumber: 1, GasUsed: 10, EffectiveGasPrice: 999}
+	require.NoError(t, baseStore.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
+		TxHash:  tx.Hash(),
+		Receipt: receiptRecord,
+		Reward:  big.NewInt(999),
+	}}))
+	store := stubIteratingReceiptStore{
+		ReceiptStore: baseStore,
+		iterate: func(uint64) (receipt.ReceiptIterator, error) {
+			return &fakeReceiptIterator{entries: []fakeReceiptEntry{
+				{blockNumber: 1, txHash: tx.Hash(), receipt: receiptRecord},
+			}}, nil
+		},
+	}
+	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+
+	// 33 is not in receipt.DefaultRewardPercentiles, so this recomputes.
+	result, err := api.FeeHistory(t.Context(), 1, ethrpc.LatestBlockNumber, []float64{33})
+	require.NoError(t, err)
+	require.Len(t, result.Reward, 1)
+	require.Equal(t, []*big.Int{big.NewInt(999)}, toBigInts(result.Reward[0]))
+}
+
 // TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts guards the feeHistory contract: a
 // percentile the cache doesn't cover must be recomputed from receipts, never guessed.
 func TestFeeHistoryRecomputesAnUncachedPercentileFromReceipts(t *testing.T) {

@@ -120,3 +120,48 @@ func (s stubBlockStatsStore) GetBlockStats(ctx sdk.Context, blockNumber uint64) 
 	}
 	return s.ReceiptStore.GetBlockStats(ctx, blockNumber)
 }
+
+// stubIteratingReceiptStore overrides IterateReceipts on an otherwise real store, so tests can
+// exercise the iterator path without a real block-ordered backend.
+type stubIteratingReceiptStore struct {
+	receipt.ReceiptStore
+	iterate func(startBlock uint64) (receipt.ReceiptIterator, error)
+}
+
+func (s stubIteratingReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
+	return s.iterate(startBlock)
+}
+
+// fakeReceiptEntry is one row a fakeReceiptIterator replays.
+type fakeReceiptEntry struct {
+	blockNumber uint64
+	txHash      common.Hash
+	receipt     *evmtypes.Receipt
+}
+
+// fakeReceiptIterator replays a fixed list of entries as a receipt.ReceiptIterator.
+type fakeReceiptIterator struct {
+	entries []fakeReceiptEntry
+	i       int
+}
+
+func (it *fakeReceiptIterator) Next() (bool, error) {
+	it.i++
+	return it.i <= len(it.entries), nil
+}
+
+func (it *fakeReceiptIterator) BlockNumber() uint64 {
+	return it.entries[it.i-1].blockNumber
+}
+
+func (it *fakeReceiptIterator) TxHash() common.Hash {
+	return it.entries[it.i-1].txHash
+}
+
+func (it *fakeReceiptIterator) Receipt() (*evmtypes.Receipt, error) {
+	return it.entries[it.i-1].receipt, nil
+}
+
+func (it *fakeReceiptIterator) Close() error {
+	return nil
+}
