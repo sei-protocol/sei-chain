@@ -2,6 +2,7 @@ package ratelimiter
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -55,6 +56,18 @@ func (e *DeadlineEnforcer) WithDeadline(ctx context.Context, method string) (con
 		return context.WithCancel(ctx)
 	}
 	return context.WithDeadline(ctx, deadline)
+}
+
+// WithDeadlineAndRecord returns a context bounded by the effective deadline for
+// method and a cleanup function that records when the deadline was exceeded.
+func (e *DeadlineEnforcer) WithDeadlineAndRecord(ctx context.Context, plane, method string) (context.Context, context.CancelFunc) {
+	deadlineCtx, cancel := e.WithDeadline(ctx, method)
+	return deadlineCtx, func() {
+		if errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
+			e.RecordExceeded(deadlineCtx, plane, method)
+		}
+		cancel()
+	}
 }
 
 // RecordExceeded increments rpc_deadline_exceeded_total{plane, method_namespace}.

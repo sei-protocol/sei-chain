@@ -7,6 +7,8 @@ import (
 	"github.com/sei-protocol/sei-chain/ratelimiter"
 )
 
+const evmDeadlinePlane = "evm"
+
 // globalDeadlineEnforcer is installed by InitGlobalDeadlineEnforcer and consulted by
 // withDeadline. It is package-level, not threaded through every API struct, because it
 // applies uniformly across every registered API and both the HTTP and WebSocket servers
@@ -20,14 +22,13 @@ func InitGlobalDeadlineEnforcer(enforcer *ratelimiter.DeadlineEnforcer) {
 	globalDeadlineEnforcer.Store(enforcer)
 }
 
-// withDeadline bounds ctx by method's effective deadline, as resolved by the installed
-// DeadlineEnforcer. The returned CancelFunc must always be called. Before
-// InitGlobalDeadlineEnforcer runs (for example in tests that construct an API struct
-// directly) no enforcer is installed and no deadline is applied.
+// withDeadline bounds ctx by method's effective deadline and records when it is
+// exceeded. The returned CancelFunc must always be called. Before
+// InitGlobalDeadlineEnforcer runs, no deadline is applied or recorded.
 func withDeadline(ctx context.Context, method string) (context.Context, context.CancelFunc) {
 	enforcer := globalDeadlineEnforcer.Load()
 	if enforcer == nil {
 		return context.WithCancel(ctx)
 	}
-	return enforcer.WithDeadline(ctx, method)
+	return enforcer.WithDeadlineAndRecord(ctx, evmDeadlinePlane, method)
 }

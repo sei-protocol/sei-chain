@@ -82,7 +82,7 @@ func TestDeadlineEnforcer_WithDeadline_ActuallyExpires(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
 }
 
-func TestDeadlineEnforcer_RecordExceeded_IncrementsMetric(t *testing.T) {
+func TestDeadlineEnforcer_WithDeadlineAndRecord_IncrementsMetric(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	prev := otel.GetMeterProvider()
@@ -94,7 +94,16 @@ func TestDeadlineEnforcer_RecordExceeded_IncrementsMetric(t *testing.T) {
 	))
 
 	e := NewDeadlineEnforcer(DeadlineConfig{Default: time.Millisecond})
-	e.RecordExceeded(t.Context(), "evm", "eth_getBalance")
+	ctx, cleanup := e.WithDeadlineAndRecord(t.Context(), "evm", "eth_getBalance")
+	<-ctx.Done()
+	cleanup()
+
+	parent, parentCancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer parentCancel()
+	inherited := NewDeadlineEnforcer(DeadlineConfig{Default: time.Hour})
+	ctx, cleanup = inherited.WithDeadlineAndRecord(parent, "evm", "eth_getBalance")
+	<-ctx.Done()
+	cleanup()
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(t.Context(), &rm))
@@ -106,7 +115,7 @@ func TestDeadlineEnforcer_RecordExceeded_IncrementsMetric(t *testing.T) {
 				continue
 			}
 			sum := m.Data.(metricdata.Sum[int64])
-			require.Equal(t, int64(1), sum.DataPoints[0].Value)
+			require.Equal(t, int64(2), sum.DataPoints[0].Value)
 			attrs := sum.DataPoints[0].Attributes.ToSlice()
 			require.Contains(t, attrs, attribute.String("plane", "evm"))
 			require.Contains(t, attrs, attribute.String("method_namespace", "eth"))
