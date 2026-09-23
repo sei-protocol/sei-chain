@@ -195,7 +195,7 @@ var _ view.BatchUpdater = (*accountUpdater)(nil)
 type accountUpdater struct {
 	// pending is the fields this block set, keyed by physical key. Parsed up front, so a fold can
 	// never fail on a malformed change.
-	pending map[string]*vtype.PendingAccountWrite
+	pending map[string]vtype.PendingAccountWrite
 
 	// keys names every account the block touched, in the form BatchUpdate takes them.
 	keys []string
@@ -243,9 +243,11 @@ func (u *accountUpdater) NewValueFor(key string, priorValue []byte) ([]byte, err
 		stored = parsed
 	}
 
+	// Copied out of the map so the pointer-receiver methods have something addressable to work on.
+	pending := u.pending[key]
 	// Merge copies rather than writing through, so the value handed back does not alias the row the
 	// store still holds for earlier versions.
-	merged := u.pending[key].Merge(stored, u.blockHeight)
+	merged := pending.Merge(stored, u.blockHeight)
 	if merged.IsDelete() {
 		return nil, nil
 	}
@@ -549,50 +551,54 @@ func mergeAccountUpdates(
 	nonceChanges map[string][]byte,
 	codeHashChanges map[string][]byte,
 	balanceChanges map[string][]byte,
-) (map[string]*vtype.PendingAccountWrite, error) {
+) (map[string]vtype.PendingAccountWrite, error) {
 
-	updates := make(map[string]*vtype.PendingAccountWrite,
+	updates := make(map[string]vtype.PendingAccountWrite,
 		len(nonceChanges)+len(codeHashChanges)+len(balanceChanges))
 
 	for key, nonceChange := range nonceChanges {
-		if nonceChange == nil {
-			// Deletion is equivalent to setting the nonce to 0
-			updates[key] = updates[key].SetNonce(0)
-		} else {
-			nonce, err := vtype.ParseNonce(nonceChange)
+		// Deletion is equivalent to setting the nonce to 0
+		var nonce uint64
+		if nonceChange != nil {
+			parsed, err := vtype.ParseNonce(nonceChange)
 			if err != nil {
 				return nil, fmt.Errorf("invalid nonce value: %w", err)
 			}
-			updates[key] = updates[key].SetNonce(nonce)
+			nonce = parsed
 		}
+		pending := updates[key]
+		pending.SetNonce(nonce)
+		updates[key] = pending
 	}
 
 	for key, codeHashChange := range codeHashChanges {
-		if codeHashChange == nil {
-			// Deletion is equivalent to setting the code hash to a zero hash
-			var zero vtype.CodeHash
-			updates[key] = updates[key].SetCodeHash(&zero)
-		} else {
-			codeHash, err := vtype.ParseCodeHash(codeHashChange)
+		// Deletion is equivalent to setting the code hash to a zero hash
+		var codeHash *vtype.CodeHash
+		if codeHashChange != nil {
+			parsed, err := vtype.ParseCodeHash(codeHashChange)
 			if err != nil {
 				return nil, fmt.Errorf("invalid codehash value: %w", err)
 			}
-			updates[key] = updates[key].SetCodeHash(codeHash)
+			codeHash = parsed
 		}
+		pending := updates[key]
+		pending.SetCodeHash(codeHash)
+		updates[key] = pending
 	}
 
 	for key, balanceChange := range balanceChanges {
-		if balanceChange == nil {
-			// Deletion is equivalent to setting the balance to a zero balance
-			var zero vtype.Balance
-			updates[key] = updates[key].SetBalance(&zero)
-		} else {
-			balance, err := vtype.ParseBalance(balanceChange)
+		// Deletion is equivalent to setting the balance to a zero balance
+		var balance *vtype.Balance
+		if balanceChange != nil {
+			parsed, err := vtype.ParseBalance(balanceChange)
 			if err != nil {
 				return nil, fmt.Errorf("invalid balance value: %w", err)
 			}
-			updates[key] = updates[key].SetBalance(balance)
+			balance = parsed
 		}
+		pending := updates[key]
+		pending.SetBalance(balance)
+		updates[key] = pending
 	}
 	return updates, nil
 }
