@@ -100,6 +100,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
 	}
+	if err := rpcServer.RegisterName("eth", &filterAPI{backend: backend, store: receiptStore}); err != nil {
+		return nil, fmt.Errorf("register EVM-only filter RPC: %w", err)
+	}
 	return rpcServer, nil
 }
 

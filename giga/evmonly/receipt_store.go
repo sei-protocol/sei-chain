@@ -2,6 +2,9 @@ package evmonly
 
 import (
 	"fmt"
+	"math"
+	"slices"
+	"sort"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -171,17 +174,82 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 	return nil
 }
 
-// FilterLogs reports that the in-memory backend does not support range queries.
-func (*MemoryReceiptStore) FilterLogs(
+// FilterLogs returns the logs in [fromBlock, toBlock] matching crit, in block
+// then transaction order, with the same field conventions as the disk-backed
+// stores: BlockHash is zero and Index carries the block-wide first-log offset
+// of its transaction on top of the stored index.
+func (s *MemoryReceiptStore) FilterLogs(
 	ctx sdk.Context,
-	_, _ uint64,
-	_ filters.FilterCriteria,
-	_ *receipt.LogBudget,
+	fromBlock, toBlock uint64,
+	crit filters.FilterCriteria,
+	budget *receipt.LogBudget,
 ) ([]*ethtypes.Log, error) {
 	if err := receiptContextError(ctx); err != nil {
 		return nil, err
 	}
-	return nil, receipt.ErrRangeQueryNotSupported
+	if fromBlock > toBlock {
+		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.earliestVersion > 0 && fromBlock < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
+		fromBlock = uint64(s.earliestVersion) //nolint:gosec // earliestVersion is positive.
+	}
+	if s.latestVersion >= 0 && toBlock > uint64(s.latestVersion) { //nolint:gosec // latestVersion is non-negative.
+		toBlock = uint64(s.latestVersion) //nolint:gosec // latestVersion is non-negative.
+	}
+	var logs []*ethtypes.Log
+	for blockNumber := fromBlock; blockNumber <= toBlock; blockNumber++ {
+		receipts := make([]*evmtypes.Receipt, 0, len(s.blocks[blockNumber]))
+		for _, stored := range s.blocks[blockNumber] {
+			receipts = append(receipts, stored)
+		}
+		sort.Slice(receipts, func(i, j int) bool { return receipts[i].TransactionIndex < receipts[j].TransactionIndex })
+		firstLogIndex := uint(0)
+		for _, stored := range receipts {
+			for _, storedLog := range stored.Logs {
+				lg := &ethtypes.Log{
+					Address:     common.HexToAddress(storedLog.Address),
+					Topics:      make([]common.Hash, len(storedLog.Topics)),
+					Data:        append([]byte(nil), storedLog.Data...),
+					BlockNumber: stored.BlockNumber,
+					TxHash:      common.HexToHash(stored.TxHashHex),
+					TxIndex:     uint(stored.TransactionIndex),
+					Index:       uint(storedLog.Index) + firstLogIndex,
+				}
+				for i, topic := range storedLog.Topics {
+					lg.Topics[i] = common.HexToHash(topic)
+				}
+				if !logMatches(lg, crit) {
+					continue
+				}
+				if err := budget.Reserve(lg); err != nil {
+					return nil, err
+				}
+				logs = append(logs, lg)
+			}
+			firstLogIndex += uint(len(stored.Logs))
+		}
+		if blockNumber == math.MaxUint64 {
+			break
+		}
+	}
+	return logs, nil
+}
+
+func logMatches(lg *ethtypes.Log, crit filters.FilterCriteria) bool {
+	if len(crit.Addresses) > 0 && !slices.Contains(crit.Addresses, lg.Address) {
+		return false
+	}
+	for i, topics := range crit.Topics {
+		if len(topics) == 0 {
+			continue
+		}
+		if i >= len(lg.Topics) || !slices.Contains(topics, lg.Topics[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // Close closes the receipt store.
