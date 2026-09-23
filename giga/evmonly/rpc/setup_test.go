@@ -29,6 +29,7 @@ type testBackend struct {
 	chainID          func() uint64
 	gasLimit         func() (uint64, error)
 	proxy            utils.Option[*ethrpc.Client]
+	proxyCalls       int
 	transactionCount func(common.Address) uint64
 }
 
@@ -73,7 +74,12 @@ func (b *testBackend) EvmGasLimit() (uint64, error) {
 }
 
 func (b *testBackend) EvmProxy(common.Address) utils.Option[*ethrpc.Client] {
+	b.proxyCalls++
 	return b.proxy
+}
+
+func (b *testBackend) EvmProxyEnabled() bool {
+	return b.proxy.IsPresent()
 }
 
 func (b *testBackend) EvmTransactionCount(address common.Address) uint64 {
