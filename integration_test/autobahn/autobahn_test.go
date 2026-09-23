@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,6 +60,9 @@ const (
 	fullnodeProbeAddress   = "0x0000000000000000000000000000000000000001"
 	fullnodeReceiptTimeout = 2 * time.Minute
 	fullnodeReceiptPoll    = 1 * time.Second
+	// progressTxAccountBase is past the 4_000 deterministic senders EVMOnlyLoad
+	// uses, so a later progress tx is a nonce-0 transfer from a funded account.
+	progressTxAccountBase = 1_000_000
 	// prebuiltImagesEnv selects run-rpc-node-skipbuild-ci for the sidecar, which
 	// runs the already present sei-chain/rpcnode image instead of rebuilding it.
 	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
@@ -86,8 +90,9 @@ const (
 // clusterSize is set once at TestAutobahn start from the number of running
 // sei-node-* containers. Subtests read it (and maxFaults) from here.
 var (
-	clusterSize int
-	maxFaults   int
+	clusterSize   int
+	maxFaults     int
+	progressTxSeq atomic.Uint64
 )
 
 // listRunningNodes returns the container names of currently-running
@@ -439,20 +444,6 @@ func clusterHeight(t *testing.T) int64 {
 	return height
 }
 
-// waitForHeightAbove polls until a validator executes past base.
-func waitForHeightAbove(t *testing.T, base int64, timeout time.Duration) int64 {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if h := clusterHeight(t); h > base {
-			return h
-		}
-		time.Sleep(heightPoll)
-	}
-	t.Fatalf("no validator executed past height %d within %s", base, timeout)
-	return 0
-}
-
 // waitForStableHeight returns the height once it has stayed constant for at
 // least window. Used after killing validators: the cluster stops accepting new
 // blocks immediately, but blocks already in flight keep draining through
@@ -506,26 +497,128 @@ func restartNode(t *testing.T, i int) {
 	}
 }
 
+func evmOnlyTransferConfig(txs int) scenarios.Config {
+	return scenarios.Config{
+		TxsPerBlock:   txs,
+		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID),
+		GasPrice:      big.NewInt(1_000_000_000),
+		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
+		TransferValue: big.NewInt(1),
+		TxGasLimit:    21_000,
+	}
+}
+
+// buildProgressTx returns one raw transfer from a sender that EVMOnlyLoad
+// never used. SameSender plus a high block number picks DeterministicPrivateKey
+// at progressTxAccountBase+seq, nonce 0.
+func buildProgressTx(t *testing.T) []byte {
+	t.Helper()
+	cfg := evmOnlyTransferConfig(1)
+	cfg.SameSender = true
+	workload, err := scenarios.NewTransferWorkload(cfg, evmOnlyLoadState{})
+	if err != nil {
+		t.Fatalf("create progress-tx workload: %v", err)
+	}
+	block, err := workload.BuildBlock(t.Context(), progressTxAccountBase+progressTxSeq.Add(1))
+	if err != nil {
+		t.Fatalf("build progress tx: %v", err)
+	}
+	if len(block.Txs) != 1 {
+		t.Fatalf("progress tx workload returned %d txs, want 1", len(block.Txs))
+	}
+	return block.Txs[0]
+}
+
+func sendEvmTx(t *testing.T, container string) (common.Hash, []byte) {
+	t.Helper()
+	raw := buildProgressTx(t)
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		t.Fatalf("decode progress tx: %v", err)
+	}
+	response, err := evmRPCInContainer(container, "eth_sendRawTransaction", []any{hexutil.Encode(raw)})
+	if err != nil {
+		t.Fatalf("send progress tx to %s: %v", container, err)
+	}
+	if response.Error != nil {
+		t.Fatalf("send progress tx to %s: rpc %d %s", container, response.Error.Code, response.Error.Message)
+	}
+	return tx.Hash(), raw
+}
+
+// sendEvmTxAndWait submits a raw EVM-only transfer through container and waits
+// until the fullnode has a receipt. That is the liveness signal: height can
+// sit still under allow_empty_blocks=false until a tx seals a block.
+func sendEvmTxAndWait(t *testing.T, container string, timeout time.Duration) int64 {
+	t.Helper()
+	base := clusterHeight(t)
+	hash, raw := sendEvmTx(t, container)
+	waitForEVMReceipt(t, container, hash, timeout)
+	assertFullnodeExecutedTx(t, raw)
+	height := clusterHeight(t)
+	if height <= base {
+		t.Fatalf("expected tx %s to land after height %d, last height %d", hash, base, height)
+	}
+	return height
+}
+
+// sendEvmTxExpectNoInclusion submits a tx after quorum loss. Height must stay
+// at baseHeight and neither the validator nor the fullnode may serve a receipt.
+func sendEvmTxExpectNoInclusion(t *testing.T, container string, baseHeight int64) {
+	t.Helper()
+	hash, _ := sendEvmTx(t, container)
+	hAfter := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
+	if hAfter != baseHeight {
+		t.Fatalf("expected no inclusion after quorum loss, but height advanced from %d to %d", baseHeight, hAfter)
+	}
+	if evmReceiptPresent(container, hash) {
+		t.Fatalf("expected no inclusion after quorum loss, but %s has a receipt for %s", container, hash)
+	}
+	if evmReceiptPresent(fullnodeContainer, hash) {
+		t.Fatalf("expected no inclusion after quorum loss, but fullnode has a receipt for %s", hash)
+	}
+	t.Logf("height stayed at %d after submitted tx %s", hAfter, hash)
+}
+
+func evmReceiptPresent(container string, hash common.Hash) bool {
+	response, err := evmRPCInContainer(container, "eth_getTransactionReceipt", []any{hash})
+	return err == nil && response.Error == nil && len(response.Result) > 0 && string(response.Result) != "null"
+}
+
+func waitForEVMReceipt(t *testing.T, container string, hash common.Hash, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if evmReceiptPresent(container, hash) {
+			return
+		}
+		time.Sleep(fullnodeReceiptPoll)
+	}
+	t.Fatalf("%s served no receipt for %s within %s", container, hash, timeout)
+}
+
 // testLivenessUnderMaxFaults kills f = maxFaults validators (from the highest
-// index downward). With clusterSize - f = 2f + 1 honest validators left, the
-// chain must keep executing blocks.
+// index downward). With clusterSize - f = 2f + 1 honest validators left, a
+// submitted transaction must still finalize.
 func testLivenessUnderMaxFaults(t *testing.T) {
 	assertAutobahnEnabled(t)
 	before := clusterHeight(t)
-	t.Logf("height before: %d (killing %d validator(s), expecting progress)", before, maxFaults)
+	t.Logf("height before: %d (killing %d validator(s), expecting a committed tx)", before, maxFaults)
 	for i := 0; i < maxFaults; i++ {
 		killNode(t, clusterSize-1-i)
 	}
-	t.Logf("height after: %d", waitForHeightAbove(t, before, livenessTimeout))
+	t.Logf("height after: %d", sendEvmTxAndWait(t, "sei-node-0", livenessTimeout))
 }
 
 // testHaltsBeyondMaxFaults kills one validator beyond maxFaults, relying on
 // LivenessUnderMaxFaults having killed the first maxFaults. Quorum is lost, so
-// the chain must stop executing.
+// a submitted transaction must not finalize.
 func testHaltsBeyondMaxFaults(t *testing.T) {
 	assertAutobahnEnabled(t)
 	killNode(t, clusterSize-1-maxFaults)
-	t.Logf("height: %d (halted)", waitForStableHeight(t, haltStableWindow, haltStableTimeout))
+	halted := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
+	t.Logf("height: %d (expecting halt)", halted)
+	sendEvmTxExpectNoInclusion(t, "sei-node-0", halted)
 }
 
 // testRecovery establishes its own halted precondition, then restarts one
@@ -544,7 +637,7 @@ func testRecovery(t *testing.T) {
 	t.Logf("chain halted at height %d; restarting one validator", halted)
 
 	restartNode(t, clusterSize-1-maxFaults)
-	t.Logf("height after restart: %d", waitForHeightAbove(t, halted, recoveryTimeout))
+	t.Logf("height after restart: %d", sendEvmTxAndWait(t, "sei-node-0", recoveryTimeout))
 
 	// assertAutobahnEnabled greps every running container's log. The restarted
 	// node is among them, and start_sei.sh truncates its log on restart (`>`
@@ -567,14 +660,7 @@ func testEVMOnlyLoad(t *testing.T) {
 		t.Fatalf("EVM-only Docker load test requires four validators, got %d", clusterSize)
 	}
 
-	workload, err := scenarios.NewTransferWorkload(scenarios.Config{
-		TxsPerBlock:   evmOnlyLoadTxs,
-		ChainID:       new(big.Int).SetUint64(tmconfig.AutobahnEVMOnlyChainID),
-		GasPrice:      big.NewInt(1_000_000_000),
-		SenderBalance: new(big.Int).Lsh(big.NewInt(1), 200),
-		TransferValue: big.NewInt(1),
-		TxGasLimit:    21_000,
-	}, evmOnlyLoadState{})
+	workload, err := scenarios.NewTransferWorkload(evmOnlyTransferConfig(evmOnlyLoadTxs), evmOnlyLoadState{})
 	if err != nil {
 		t.Fatalf("create EVM-only transfer workload: %v", err)
 	}
@@ -755,16 +841,8 @@ func assertFullnodeExecutedTx(t *testing.T, raw []byte) {
 	if err := tx.UnmarshalBinary(raw); err != nil {
 		t.Fatalf("decode EVM-only transaction: %v", err)
 	}
-	deadline := time.Now().Add(fullnodeReceiptTimeout)
-	for time.Now().Before(deadline) {
-		response, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{tx.Hash()})
-		if err == nil && response.Error == nil && len(response.Result) > 0 && string(response.Result) != "null" {
-			t.Logf("fullnode %s executed %s", fullnodeContainer, tx.Hash())
-			return
-		}
-		time.Sleep(fullnodeReceiptPoll)
-	}
-	t.Fatalf("fullnode %s served no receipt for %s within %s", fullnodeContainer, tx.Hash(), fullnodeReceiptTimeout)
+	waitForEVMReceipt(t, fullnodeContainer, tx.Hash(), fullnodeReceiptTimeout)
+	t.Logf("fullnode %s executed %s", fullnodeContainer, tx.Hash())
 }
 
 // assertTendermintRPCDisabled checks that no validator serves Tendermint RPC:

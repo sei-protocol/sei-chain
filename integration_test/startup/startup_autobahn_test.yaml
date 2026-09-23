@@ -8,17 +8,3 @@
   - type: regex
     result: RESULT
     expr: ^0x[0-9a-f]+$
-
-- name: Test blocks should be confirmed
-  inputs:
-    # next_block at stage=execute is the height the executor will commit next,
-    # so a rising sample means blocks are reaching execution.
-    - cmd: curl -fsS http://127.0.0.1:26660/metrics | grep '^tendermint_internal_autobahn_data_next_block' | grep 'stage="execute"' | awk '{printf "%d", $2}'
-      env: FIRST_NEXT_BLOCK
-    - cmd: sleep 10; curl -fsS http://127.0.0.1:26660/metrics | grep '^tendermint_internal_autobahn_data_next_block' | grep 'stage="execute"' | awk '{printf "%d", $2}'
-      env: SECOND_NEXT_BLOCK
-  verifiers:
-  - type: eval
-    expr: FIRST_NEXT_BLOCK > 1
-  - type: eval
-    expr: SECOND_NEXT_BLOCK > FIRST_NEXT_BLOCK

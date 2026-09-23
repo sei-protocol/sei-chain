@@ -136,7 +136,7 @@ if [ "$AUTOBAHN" = "true" ]; then
     fi
   done
 
-  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG" --allow-empty-blocks
+  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
   # Inject autobahn-config-file as a top-level key in config.toml. It must
   # precede any [section] header so the TOML parser sees it at root scope.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then

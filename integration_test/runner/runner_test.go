@@ -27,13 +27,6 @@ func TestStartup(t *testing.T) {
 	runner.RunFile(t, "../startup/startup_test.yaml")
 }
 
-// TestAutobahnStartup is the startup gate for AUTOBAHN=true clusters. Autobahn
-// serves the EVM JSON-RPC only, so the Tendermint RPC queries TestStartup makes
-// have nothing to answer them.
-func TestAutobahnStartup(t *testing.T) {
-	runner.RunFile(t, "../startup/startup_autobahn_test.yaml")
-}
-
 // Tests are declared in the order the CI matrix ran them as Python scripts
 // (go test executes tests in declaration order): staking, then bank, then mint.
 
