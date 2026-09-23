@@ -18,6 +18,8 @@ const (
 // DefaultRewardPercentiles is applied when ReceiptStoreConfig.RewardPercentiles is empty, and by
 // MemoryReceiptStore (which has no config). It covers the percentile sets real eth_feeHistory
 // callers ask for: MetaMask ([50]), older MetaMask ([20,30,50]), ethers/alloy-style ([20,50,90]),
+// adaptive pricing ([25,50,75,90]), and explorer/dashboard views ([25,50,75]). It covers the percentile sets real eth_feeHistory
+// callers ask for: MetaMask ([50]), older MetaMask ([20,30,50]), ethers/alloy-style ([20,50,90]),
 // adaptive pricing ([25,50,75,90]), and explorer/dashboard views ([25,50,75]).
 var DefaultRewardPercentiles = []float64{0, 10, 20, 25, 30, 50, 75, 90, 100}
 
@@ -28,9 +30,7 @@ type RewardPercentile struct {
 	Reward     uint64
 }
 
-// BlockStats is the block-level aggregate recorded alongside a block's receipts, letting a reader
-// answer eth_gasPrice/eth_feeHistory-style questions with one point query instead of summing
-// every receipt in the block.
+// BlockStats is the block-level aggregate recorded alongside a block's receipts.
 type BlockStats struct {
 	// TotalGasUsed is summed over every receipt in the block, for gasUsedRatio.
 	TotalGasUsed uint64
@@ -62,11 +62,8 @@ type rewardEntry struct {
 	gasUsed uint64
 }
 
-// ComputeBlockStats aggregates one block's receipts: every record contributes to TotalGasUsed and
-// TxCount, and records with a non-nil Reward contribute to the gas-weighted percentile walk —
-// sort ascending by reward, then walk cumulative gas used against each percentile's threshold.
-// Exported so every writer of ReceiptStore.SetReceipts — the litt backend and MemoryReceiptStore
-// alike — computes it the same way.
+// ComputeBlockStats aggregates one block's receipts into TotalGasUsed, TxCount, and a
+// gas-weighted reward-percentile walk over records with a non-nil Reward.
 func ComputeBlockStats(records []ReceiptRecord, percentiles []float64) BlockStats {
 	var stats BlockStats
 	entries := make([]rewardEntry, 0, len(records))

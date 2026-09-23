@@ -184,17 +184,11 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 			delete(s.blocks[previous.blockNumber], record.TxHash)
 			if len(s.blocks[previous.blockNumber]) == 0 {
 				delete(s.blocks, previous.blockNumber)
-				// The block this receipt moved away from (e.g. a nonce-mismatch retry included at
-				// a later height) is now empty, not missing: its stats must read as a real,
-				// zero-stat block rather than the stale ones computed when the receipt still
-				// belonged to it.
+				// A block a moved receipt vacates entirely gets a real, zero-stat entry.
 				s.blockStats[previous.blockNumber] = receipt.BlockStats{}
 			} else {
-				// The block still has other receipts, but its composition changed: the cached
-				// stats no longer reflect what's left, and recomputing them would need each
-				// remaining receipt's Reward, which s.blocks does not retain. Invalidate rather
-				// than serve a now-wrong TotalGasUsed/TxCount or a percentile set covering a
-				// transaction that no longer belongs to this block.
+				// A block that still has other receipts after one moves away has its cached
+				// stats invalidated, not recomputed.
 				delete(s.blockStats, previous.blockNumber)
 			}
 		}

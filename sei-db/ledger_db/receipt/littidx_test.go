@@ -335,9 +335,7 @@ func TestLittIdxMultiPart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, logs, 2)
 
-	// Neither part's SetReceipts call saw the whole block, so no aggregate it wrote is trustworthy;
-	// the second part's write must delete the first's rather than leave a stats entry that reports
-	// only one of the block's two transactions.
+	// The second part's write must delete the first's stats entry rather than leave a partial one.
 	_, err = store.GetBlockStats(ctx, 4)
 	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
 }

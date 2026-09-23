@@ -57,10 +57,8 @@ func TestComputeBlockStatsSkipsNilReceipts(t *testing.T) {
 	require.Equal(t, uint64(10), stats.TotalGasUsed)
 }
 
-// TestBlockStatsRewardAtIsPerEntryNotPositional is the case a partially-stored or reconfigured
-// percentile set depends on: each entry carries its own percentile, so a lookup for a value this
-// block never stored is a clean miss — never a mismatched read against some other percentile's
-// slot — regardless of how many entries are present or in what order.
+// TestBlockStatsRewardAtIsPerEntryNotPositional verifies a percentile lookup matches by value,
+// not position, so a miss is always a clean miss.
 func TestBlockStatsRewardAtIsPerEntryNotPositional(t *testing.T) {
 	stats := BlockStats{RewardPercentiles: []RewardPercentile{
 		{Percentile: 25, Reward: 111},

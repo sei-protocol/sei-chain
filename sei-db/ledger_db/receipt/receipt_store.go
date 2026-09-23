@@ -32,9 +32,8 @@ var (
 	ErrNotFound               = errors.New("receipt not found")
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
-	// ErrBlockStatsNotSupported is returned by GetBlockStats when the backend never records block
-	// stats, or the requested block predates the feature. Either way the caller's remedy is the
-	// same: fall back to computing the aggregate from the block's individual receipts.
+	// ErrBlockStatsNotSupported is returned by GetBlockStats when the backend never recorded
+	// block stats for that block; the caller falls back to summing its receipts.
 	ErrBlockStatsNotSupported = errors.New("block stats not supported")
 	// ErrTooManyLogs is returned by FilterLogs when a query matches more logs
 	// than the caller-supplied limit. It lets callers cap peak memory by
@@ -109,10 +108,8 @@ type ReceiptRecord struct {
 	// unknown.
 	TxOffset uint32
 	TxLength uint32
-	// Reward is this tx's priority fee (EffectiveGasPrice - base fee), or nil if it should be
-	// excluded from the block's reward aggregates (effective gas price below base fee — the same
-	// receipts a caller-side percentile calculation skips). The receipt store has no notion of
-	// base fee itself; the caller computes this before calling SetReceipts.
+	// Reward is this tx's priority fee (EffectiveGasPrice - base fee), or nil to exclude it from
+	// the block's reward aggregates.
 	Reward *big.Int
 }
 

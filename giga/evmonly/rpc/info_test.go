@@ -102,21 +102,53 @@ func TestGasPriceScalesFloorUp(t *testing.T) {
 
 func TestGasPriceEscalatesWithCongestion(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// gasLimit 1000, TotalGasUsed 900 -> gasUsedRatio 0.9, in the >=0.8 tier -> p90.
+	// gasLimit 1000, TotalGasUsed 900 -> 90% > the 80% congestion threshold -> median reward,
+	// which is above the floor here so the escalation is what's under test, not the floor clamp.
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(500)},
 	}))
-	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+	api := &infoAPI{backend: testInfoBackend(1000, 1), store: store}
 
 	price, err := api.GasPrice(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, big.NewInt(500), price.ToInt())
 }
 
-func TestGasPriceFallsBackWhenTheTierPercentileIsntStored(t *testing.T) {
+// TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor verifies GasPrice falls back to the margin
+// when the congested-block median is below the current floor.
+func TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
-	// A congested block (ratio 0.9 -> p90 tier) with no reward-eligible tx, so no percentile was
-	// ever computed for it: GasPrice must fall back rather than guess at a different percentile.
+	// gasLimit 1000, TotalGasUsed 900 -> congested, but the one included tx's reward (50) is
+	// below the current floor (100).
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(50)},
+	}))
+	api := &infoAPI{backend: testInfoBackend(1000, 100), store: store}
+
+	price, err := api.GasPrice(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(110), price.ToInt())
+}
+
+// TestGasPriceNotCongestedAtExactlyTheThreshold verifies a block exactly at the 80% threshold
+// is not treated as congested.
+func TestGasPriceNotCongestedAtExactlyTheThreshold(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	// gasLimit 1000, TotalGasUsed 800 -> exactly 80%, not > the threshold.
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 800}, Reward: big.NewInt(500)},
+	}))
+	api := &infoAPI{backend: testInfoBackend(1000, 1_000_000_000), store: store}
+
+	price, err := api.GasPrice(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(1_100_000_000), price.ToInt())
+}
+
+func TestGasPriceFallsBackWhenTheMedianIsntStored(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	// A congested block (90% > the 80% threshold) with no reward-eligible tx, so no percentile
+	// was ever computed for it: GasPrice must fall back rather than guess at one.
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
 		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}},
 	}))
@@ -184,9 +216,8 @@ func TestFeeHistorySkipsPrunedHeights(t *testing.T) {
 	require.Equal(t, []float64{0.01}, result.GasUsedRatio)
 }
 
-// TestFeeHistoryEarliestRespectsThePruneFloor guards a real review finding: "earliest" resolved
-// to a hardcoded height 1 regardless of retention, so a range ending at "earliest" on a node that
-// had pruned its early history would error instead of resolving to the oldest block still held.
+// TestFeeHistoryEarliestRespectsThePruneFloor verifies "earliest" resolves to the oldest
+// retained height, not a hardcoded 1, once history has been pruned.
 func TestFeeHistoryEarliestRespectsThePruneFloor(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	for h := uint64(1); h <= 5; h++ {
@@ -200,10 +231,8 @@ func TestFeeHistoryEarliestRespectsThePruneFloor(t *testing.T) {
 	require.Equal(t, big.NewInt(3), result.OldestBlock.ToInt())
 }
 
-// TestFeeHistoryRestartsAfterAGenuineInteriorHole exercises walkFeeHistoryRange's restart-on-hole
-// logic directly, via stubBlockStatsStore: a real ErrNotFound in the interior of the range (not
-// reachable through MemoryReceiptStore's own pruning, which only removes a leading prefix) must
-// restart the accumulation, not misattribute block 4's data to block 3.
+// TestFeeHistoryRestartsAfterAGenuineInteriorHole verifies an interior ErrNotFound hole restarts
+// the accumulation instead of misattributing a later block's data.
 func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	for h := uint64(1); h <= 4; h++ {
@@ -219,9 +248,8 @@ func TestFeeHistoryRestartsAfterAGenuineInteriorHole(t *testing.T) {
 	require.Equal(t, []float64{0.04}, result.GasUsedRatio)
 }
 
-// TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole exercises the lastGoodResult
-// fallback directly, via stubBlockStatsStore: a real ErrNotFound hole running through end must
-// fall back to the last good contiguous prefix rather than error.
+// TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole verifies a trailing ErrNotFound
+// hole through end falls back to the last good prefix instead of erroring.
 func TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	for h := uint64(1); h <= 4; h++ {
@@ -236,10 +264,8 @@ func TestFeeHistoryFallsBackToLastGoodRunOnAGenuineTrailingHole(t *testing.T) {
 	require.Equal(t, []float64{0.01, 0.02}, result.GasUsedRatio)
 }
 
-// TestFeeHistoryRecomputesATrailingUnstatedHeight guards a real bugbot finding: GetBlockStats's
-// ErrBlockStatsNotSupported (no aggregate ever recorded — e.g. the pebble backend, which never
-// writes one) was being treated as an unrecoverable hole, so eth_feeHistory failed outright
-// wherever it occurred. It must instead recompute from that height's receipts.
+// TestFeeHistoryRecomputesATrailingUnstatedHeight verifies an ErrBlockStatsNotSupported height
+// recomputes from receipts instead of failing as an unrecoverable hole.
 func TestFeeHistoryRecomputesATrailingUnstatedHeight(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	setBlockReceipt(t, store, 1, 10, 100)
@@ -253,9 +279,8 @@ func TestFeeHistoryRecomputesATrailingUnstatedHeight(t *testing.T) {
 	require.Equal(t, []float64{0.01, 0.02, 0, 0}, result.GasUsedRatio)
 }
 
-// TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone guards a recompute path that once
-// dereferenced block.Block unconditionally: a backend answering a nil block, or a nil
-// block.Block, for a height with no cached stats must produce an error, not a nil-pointer panic.
+// TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone verifies a nil block or block.Block
+// during recompute returns an error, not a panic.
 func TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	setBlockReceipt(t, store, 2, 20, 100) // pushes LatestVersion to 2; block 1 has no BlockStats
@@ -270,10 +295,8 @@ func TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone(t *testing.T) {
 	require.ErrorContains(t, err, "not available")
 }
 
-// TestFeeHistoryRecomputesAnInteriorUnstatedHeight is the same finding for a height in the
-// middle of the range: it must recompute and take its own place in the row, rather than being
-// skipped and misattributing block 4's data to block 3 (eth_feeHistory's row i is block
-// oldestBlock+i).
+// TestFeeHistoryRecomputesAnInteriorUnstatedHeight verifies an interior unstated height
+// recomputes and takes its own row instead of being skipped.
 func TestFeeHistoryRecomputesAnInteriorUnstatedHeight(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	setBlockReceipt(t, store, 1, 10, 100)
@@ -349,10 +372,8 @@ func TestFeeHistoryRecomputesWholeRowWhenOnePercentileIsUncached(t *testing.T) {
 		toBigInts(result.Reward[0]))
 }
 
-// TestFeeHistoryEmptyBlockReturnsZeros is the case an executed block with no transactions must
-// still answer correctly: zero gasUsedRatio and zero reward for every requested percentile
-// (go-ethereum's eth_feeHistory: "all zeroes are returned if the block is empty"), not an error
-// and not the guessed price.
+// TestFeeHistoryEmptyBlockReturnsZeros verifies an empty block answers zero gasUsedRatio and
+// zero reward for every requested percentile.
 func TestFeeHistoryEmptyBlockReturnsZeros(t *testing.T) {
 	store := evmonly.NewMemoryReceiptStore()
 	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()).WithBlockHeight(1), nil))

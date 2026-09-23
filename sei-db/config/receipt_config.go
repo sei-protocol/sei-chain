@@ -101,12 +101,8 @@ type ReceiptStoreConfig struct {
 	// defaults to 16
 	LogFilterParallelism int `mapstructure:"log-filter-parallelism"`
 
-	// RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles computed and
-	// stored per block, letting a reward query for exactly one of these percentiles answer from a
-	// single point query instead of a per-caller fallback. Changing this only affects blocks
-	// written after the change; a block written under an older list is read exactly as it was
-	// written, never migrated. Each entry must be in [0, 100], with no duplicates.
-	// Applies only to the littidx backend. Empty defaults to receipt.DefaultRewardPercentiles.
+	// RewardPercentiles is the set of gas-weighted eth_feeHistory reward percentiles stored per
+	// block ([0, 100], no duplicates). littidx only; empty defaults to receipt.DefaultRewardPercentiles.
 	RewardPercentiles []float64 `mapstructure:"rs-reward-percentiles"`
 }
 

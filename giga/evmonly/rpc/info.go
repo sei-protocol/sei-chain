@@ -19,16 +19,12 @@ import (
 // go-ethereum's own default block-count cap.
 const maxFeeHistoryBlockCount = 1024
 
-// earliestCommittedHeight is what "earliest" resolves to for eth_feeHistory. It is a fixed
-// contract of this RPC surface, not a read of the running chain's actual genesis: every giga
-// deployment today starts at height 1, and InitChain's InitialHeight isn't recoverable after a
-// restart to check that assumption at runtime. A chain genesis'd above height 1 would have
-// "earliest" resolve to a height that never existed.
+// earliestCommittedHeight is what "earliest" resolves to for eth_feeHistory: a fixed genesis of
+// 1, not a runtime read — wrong for an Autobahn-migrated shard (see autobahn/types.Epoch.FirstBlock).
 const earliestCommittedHeight = int64(1)
 
-// gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the
-// admission gas-price floor up for eth_gasPrice, so a client using the
-// suggested price sits above the rejection boundary rather than on it.
+// gasPriceSuggestionNumerator and gasPriceSuggestionDenominator scale the admission floor up for
+// eth_gasPrice's suggestion.
 const (
 	gasPriceSuggestionNumerator   = 110
 	gasPriceSuggestionDenominator = 100
@@ -51,35 +47,29 @@ func (api *infoAPI) ChainId(_ context.Context) *hexutil.Big {
 	return (*hexutil.Big)(new(big.Int).SetUint64(api.backend.EvmChainID()))
 }
 
-// gasPriceCongestionTiers maps the latest block's gasUsedRatio to the reward percentile GasPrice
-// escalates toward under load, in descending order of minRatio: a fuller block suggests a price
-// closer to what its higher-paying transactions actually paid, rather than a flat margin over the
-// admission floor.
-var gasPriceCongestionTiers = []struct {
-	minRatio   float64
-	percentile float64
-}{
-	{minRatio: 0.8, percentile: 90},
-	{minRatio: 0.5, percentile: 75},
-	{minRatio: 0, percentile: 25},
-}
+// gasPriceCongestionThresholdPercent is the gasUsedRatio above which GasPrice escalates to the
+// congested-chain reward, matching v2's eth_gasPrice.
+const gasPriceCongestionThresholdPercent = 80
 
-// GasPrice returns a suggested gas price: the latest block's gasUsedRatio picks a reward
-// percentile from gasPriceCongestionTiers, escalating the suggestion as the chain gets busier.
-// It falls back to a fixed margin over the admission floor when there is no latest block yet, its
-// gas limit is unknown, or the tier's percentile was never precomputed for it.
+// gasPriceCongestionPercentile is the reward percentile GasPrice escalates to once the chain is
+// congested, matching v2's eth_gasPrice (evmrpc.InfoAPI.gasPriceHelper).
+const gasPriceCongestionPercentile = 50
+
+// GasPrice returns a suggested gas price, matching v2's eth_gasPrice: a margin over the
+// admission floor, or the latest congested block's median reward when that's higher and available.
 func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 	floor, err := api.backend.EvmMinGasPrice()
 	if err != nil {
 		return nil, err
 	}
-	if reward, ok := api.congestionReward(ctx); ok {
+	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(floor) >= 0 {
 		return (*hexutil.Big)(reward), nil
 	}
 	return (*hexutil.Big)(suggestedGasPrice(floor)), nil
 }
 
-// congestionReward answers GasPrice's escalated suggestion from the latest block's stored stats.
+// congestionReward answers GasPrice's escalated suggestion: the latest block's median reward, but
+// only once its gasUsedRatio exceeds gasPriceCongestionThresholdPercent.
 func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	current := api.store.LatestVersion()
 	if current <= 0 {
@@ -93,18 +83,14 @@ func (api *infoAPI) congestionReward(ctx context.Context) (*big.Int, bool) {
 	if err != nil {
 		return nil, false
 	}
-	ratio := gasUsedRatio(stats.TotalGasUsed, gasLimit)
-	for _, tier := range gasPriceCongestionTiers {
-		if ratio < tier.minRatio {
-			continue
-		}
-		reward, ok := stats.RewardAt(tier.percentile)
-		if !ok {
-			return nil, false
-		}
-		return new(big.Int).SetUint64(reward), true
+	if stats.TotalGasUsed <= gasLimit*gasPriceCongestionThresholdPercent/100 {
+		return nil, false
 	}
-	return nil, false
+	reward, ok := stats.RewardAt(gasPriceCongestionPercentile)
+	if !ok {
+		return nil, false
+	}
+	return new(big.Int).SetUint64(reward), true
 }
 
 // suggestedGasPrice scales floor up by the gas-price suggestion margin,
@@ -123,10 +109,8 @@ type FeeHistoryResult struct {
 	GasUsedRatio []float64        `json:"gasUsedRatio"`
 }
 
-// emptyFeeHistoryResult is the "no retrievable blocks" response: oldestBlock
-// 0 and an empty gasUsedRatio, matching go-ethereum's shape rather than a
-// zero-value struct's nil fields, which a strict client's unconditional
-// BigInt(oldestBlock) would reject.
+// emptyFeeHistoryResult is the "no retrievable blocks" response: oldestBlock 0 and an empty
+// gasUsedRatio.
 func emptyFeeHistoryResult() *FeeHistoryResult {
 	return &FeeHistoryResult{OldestBlock: (*hexutil.Big)(new(big.Int)), GasUsedRatio: []float64{}}
 }
@@ -149,9 +133,7 @@ func (api *infoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecima
 		return nil, err
 	}
 
-	// The current gas limit is applied to every block in the range; a gasUsedRatio for a block
-	// committed under a different limit would be wrong, but this executor has no record of a
-	// block's own limit to use instead.
+	// gasLimit is applied to every block in the range, not looked up per height.
 	gasLimit, err := api.backend.EvmGasLimit()
 	if err != nil {
 		return nil, err
@@ -184,14 +166,12 @@ func (api *infoAPI) resolveEndHeight(lastBlock ethrpc.BlockNumber) (int64, error
 	}
 }
 
-// walkFeeHistoryRange collects gasUsedRatio, baseFee, and (when requested) reward entries for the
-// blockCount blocks ending at end, oldest first, skipping heights below 1 and heights pruned
-// below the store's retention floor.
+// walkFeeHistoryRange collects gasUsedRatio, baseFee, and reward entries for the blockCount
+// blocks ending at end, oldest first, skipping heights below 1 or pruned below the retention floor.
 func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int64, gasLimit uint64, rewardPercentiles []float64) (*FeeHistoryResult, error) {
 	result := &FeeHistoryResult{GasUsedRatio: []float64{}}
-	// lastGoodResult is the most recent contiguous run completed before a hole. If a hole is the
-	// last thing the loop sees (nothing after it has stats either), this is returned instead of
-	// discarding a real, usable prefix just because it doesn't reach end.
+	// lastGoodResult is the most recent contiguous run completed before a hole, returned if
+	// nothing follows the hole.
 	var lastGoodResult *FeeHistoryResult
 	start := end - blockCount + 1
 	for height := start; height <= end; height++ {
@@ -205,10 +185,8 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		if err != nil {
 			if errors.Is(err, receiptpkg.ErrNotFound) {
 				if result.OldestBlock != nil {
-					// A hole after rows have already been emitted would otherwise misattribute
-					// every later row to the wrong height — eth_feeHistory's row i describes block
-					// oldestBlock+i, and skipping in place shifts that mapping silently. Restart
-					// the accumulation instead, so the returned range stays a contiguous run.
+					// A hole after rows are emitted restarts the accumulation, keeping the
+					// result a contiguous run.
 					lastGoodResult = result
 					result = &FeeHistoryResult{GasUsedRatio: []float64{}}
 				}
@@ -226,9 +204,7 @@ func (api *infoAPI) walkFeeHistoryRange(ctx context.Context, end, blockCount int
 		}
 	}
 	if result.OldestBlock == nil {
-		// The run since the last hole (if any) never got started either: fall back to the
-		// contiguous run that preceded it rather than discarding a usable prefix that just
-		// doesn't happen to reach end.
+		// Nothing followed the last hole either: fall back to the contiguous run before it.
 		if lastGoodResult != nil {
 			result = lastGoodResult
 		} else {
@@ -323,9 +299,8 @@ func rewardRow(stats receiptpkg.BlockStats, rewardPercentiles []float64) []*hexu
 	return row
 }
 
-// validateRewardPercentiles rejects a percentiles list that is not strictly
-// ascending or leaves the [0, 100] range, matching go-ethereum's own
-// eth_feeHistory validation.
+// validateRewardPercentiles rejects a percentiles list that is not strictly ascending or leaves
+// the [0, 100] range.
 func validateRewardPercentiles(percentiles []float64) error {
 	if len(percentiles) > 100 {
 		return errors.New("rewardPercentiles length must be less than or equal to 100")

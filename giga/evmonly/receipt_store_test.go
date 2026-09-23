@@ -124,10 +124,8 @@ func TestMemoryReceiptStoreComputesBlockStats(t *testing.T) {
 	require.ErrorIs(t, err, receipt.ErrBlockStatsNotSupported)
 }
 
-// TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove guards a real review finding: a receipt
-// moving to a later height (e.g. a nonce-mismatch retry) must invalidate the vacated block's
-// cached stats even when that block still holds other receipts — the earlier fix only handled the
-// case where the move emptied the block out entirely.
+// TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove verifies a moved receipt invalidates its
+// old block's cached stats even when other receipts remain there.
 func TestMemoryReceiptStoreInvalidatesStatsOnAPartialMove(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	hashA, hashB := common.Hash{1}, common.Hash{2}

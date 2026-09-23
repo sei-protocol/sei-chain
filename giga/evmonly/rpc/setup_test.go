@@ -96,10 +96,8 @@ func (s stubReceiptStore) GetReceipt(ctx sdk.Context, hash common.Hash) (*evmtyp
 	return s.get(ctx, hash)
 }
 
-// stubBlockStatsStore overrides GetBlockStats on an otherwise real store, answering a genuine
-// ErrNotFound for each height in holeHeights regardless of what the wrapped store holds for it.
-// Real pruning can only remove a leading prefix, so this is the only way to construct an interior
-// or trailing ErrNotFound hole to test walkFeeHistoryRange's restart-on-hole logic directly.
+// stubBlockStatsStore overrides GetBlockStats to answer ErrNotFound for each height in
+// holeHeights, regardless of the wrapped store's real data.
 type stubBlockStatsStore struct {
 	receipt.ReceiptStore
 	holeHeights map[uint64]bool

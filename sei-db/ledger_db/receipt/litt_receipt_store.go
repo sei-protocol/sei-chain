@@ -346,10 +346,8 @@ func (s *littReceiptStore) belowRetentionFloor(blockNumber uint64) bool {
 	return earliest > 0 && blockNumber < uint64(earliest) //nolint:gosec // earliest is non-negative
 }
 
-// GetBlockStats returns the aggregate stats staged in writeBlock's index batch alongside
-// blockNumber's receipts. A missing key means the block predates this feature (or was written by
-// a build that lacked it), reported as ErrBlockStatsNotSupported rather than ErrNotFound so a
-// caller doesn't confuse it with a pruned block.
+// GetBlockStats returns the aggregate stats staged alongside blockNumber's receipts, or
+// ErrBlockStatsNotSupported when none was recorded.
 func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (BlockStats, error) {
 	if s.belowRetentionFloor(blockNumber) {
 		return BlockStats{}, ErrNotFound
@@ -363,10 +361,7 @@ func (s *littReceiptStore) GetBlockStats(_ sdk.Context, blockNumber uint64) (Blo
 	}
 	stats, err := decodeBlockStats(val)
 	if err != nil {
-		// A blob this package itself wrote should always decode. Anything that doesn't (a stray
-		// short write, a future format change reading old data) is exactly what
-		// ErrBlockStatsNotSupported exists for: the caller falls back to summing receipts rather
-		// than surfacing a decode error to an RPC client.
+		// A decode failure here reports ErrBlockStatsNotSupported, not the raw error.
 		logger.Error("failed to decode block stats, falling back", "block", blockNumber, "err", err)
 		return BlockStats{}, ErrBlockStatsNotSupported
 	}
@@ -451,10 +446,8 @@ func (s *littReceiptStore) writeReceipts(height int64, receipts []ReceiptRecord)
 	return nil
 }
 
-// writeEmptyBlockStats records a zero-value BlockStats for a block that produced no receipts, so
-// GetBlockStats still answers it (zero gasUsedRatio, zero reward) instead of reporting
-// ErrBlockStatsNotSupported: an empty block is a real, committed block. height at or below the
-// current head is a no-op, matching SetLatestVersion's own guard (covers height 0, e.g. genesis).
+// writeEmptyBlockStats records a zero-value BlockStats for a block with no receipts. height at
+// or below the current head is a no-op.
 func (s *littReceiptStore) writeEmptyBlockStats(height int64) error {
 	if height <= s.latestVersion.Load() {
 		return nil
@@ -537,11 +530,8 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 
 	s.writePhases.SetPhase("stage_block_stats")
 	if partIndex > 0 {
-		// A block written across multiple parts (legacy migration) has no single call whose
-		// records are the whole block, so no call can compute an accurate aggregate — write one
-		// from only this part's records and it would silently misreport the block forever after.
-		// Delete whatever an earlier part wrote instead: GetBlockStats' ErrBlockStatsNotSupported
-		// fallback already covers exactly this case.
+		// A block written across multiple parts (legacy migration) has no aggregate any single
+		// call can compute; delete whatever an earlier part wrote instead.
 		return batch.Delete(blockStatsKey(blockNumber))
 	}
 	stats := ComputeBlockStats(records, s.rewardPercentiles)

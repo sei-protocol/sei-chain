@@ -69,9 +69,8 @@ func TestLittGetBlockStatsBelowRetentionFloorIsNotFound(t *testing.T) {
 	require.Equal(t, uint32(1), stats.TxCount)
 }
 
-// TestLittGetBlockStatsCorruptDataFallsBack is the tolerance a reader relies on: a stats entry
-// that doesn't decode (truncated, or written by an incompatible future version) must fall back
-// to summing receipts rather than surface a raw decode error to an RPC caller.
+// TestLittGetBlockStatsCorruptDataFallsBack verifies an undecodable stats entry answers
+// ErrBlockStatsNotSupported instead of a raw decode error.
 func TestLittGetBlockStatsCorruptDataFallsBack(t *testing.T) {
 	s, cleanup := setupLittCtxStore(t)
 	defer cleanup()
