@@ -25,7 +25,7 @@ var DefaultRewardPercentiles = []float64{0, 10, 20, 25, 30, 50, 75, 90, 100}
 
 // RewardPercentile is one gas-weighted reward percentile computed at block-write time.
 type RewardPercentile struct {
-	// Percentile is matched against a request rounded to 2 decimal places; no interpolation.
+	// Percentile is matched exactly against a request; no rounding or interpolation.
 	Percentile float64
 	Reward     uint64
 }
@@ -42,11 +42,11 @@ type BlockStats struct {
 	RewardPercentiles []RewardPercentile
 }
 
-// RewardAt returns the stored reward for percentile p and whether it was found.
+// RewardAt returns the stored reward for percentile p and whether it was found, matching
+// exactly: a near-miss (e.g. 50.004 against a stored 50) is a miss, not a match.
 func (s BlockStats) RewardAt(p float64) (uint64, bool) {
-	target := roundPercentile(p)
 	for _, rp := range s.RewardPercentiles {
-		if roundPercentile(rp.Percentile) == target {
+		if rp.Percentile == p {
 			return rp.Reward, true
 		}
 	}

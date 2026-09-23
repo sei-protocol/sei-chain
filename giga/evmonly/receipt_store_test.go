@@ -164,6 +164,21 @@ func TestMemoryReceiptStorePruneHistoryRemovesBlockStats(t *testing.T) {
 	require.Equal(t, uint64(2), stats.TotalGasUsed)
 }
 
+// TestMemoryReceiptStorePruneHistoryRemovesOrphanedBlockStats verifies a stats entry with no
+// matching s.blocks entry (an empty block) is still removed by pruning, not leaked.
+func TestMemoryReceiptStorePruneHistoryRemovesOrphanedBlockStats(t *testing.T) {
+	store := NewMemoryReceiptStore()
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 3), nil)) // empty block
+	require.NoError(t, store.SetReceipts(newReceiptContext(t.Context(), 4),
+		[]receipt.ReceiptRecord{{TxHash: common.Hash{1}, Receipt: &evmtypes.Receipt{TxHashHex: common.Hash{1}.Hex(), BlockNumber: 4}}}))
+	require.NotContains(t, store.blocks, uint64(3), "sanity: an empty block has no blocks entry")
+	require.Contains(t, store.blockStats, uint64(3), "sanity: an empty block still has a stats entry")
+
+	require.NoError(t, store.PruneHistory(4))
+
+	require.NotContains(t, store.blockStats, uint64(3))
+}
+
 func TestMemoryReceiptStoreHonorsCanceledContext(t *testing.T) {
 	store := NewMemoryReceiptStore()
 	ctx, cancel := context.WithCancel(t.Context())

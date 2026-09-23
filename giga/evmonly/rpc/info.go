@@ -62,10 +62,11 @@ func (api *infoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 	if err != nil {
 		return nil, err
 	}
-	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(floor) >= 0 {
+	margin := suggestedGasPrice(floor)
+	if reward, ok := api.congestionReward(ctx); ok && reward.Cmp(margin) >= 0 {
 		return (*hexutil.Big)(reward), nil
 	}
-	return (*hexutil.Big)(suggestedGasPrice(floor)), nil
+	return (*hexutil.Big)(margin), nil
 }
 
 // congestionReward answers GasPrice's escalated suggestion: the latest block's median reward, but

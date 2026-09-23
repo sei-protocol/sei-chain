@@ -248,6 +248,13 @@ func (s *MemoryReceiptStore) PruneHistory(blockNumber uint64) error {
 		delete(s.blocks, height)
 		delete(s.blockStats, height)
 	}
+	// A stats entry can outlive its s.blocks entry (an empty block, or a receipt moved away by
+	// storeRecords), so it needs its own pass rather than piggybacking on the loop above.
+	for height := range s.blockStats {
+		if height < blockNumber {
+			delete(s.blockStats, height)
+		}
+	}
 	if blockNumber <= maxGigaStoreBlockNumber && int64(blockNumber) > s.earliestVersion { //nolint:gosec // bounded above.
 		s.earliestVersion = int64(blockNumber) //nolint:gosec // bounded above.
 	}

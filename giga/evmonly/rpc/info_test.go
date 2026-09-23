@@ -130,6 +130,22 @@ func TestGasPriceFallsBackWhenTheMedianIsBelowTheFloor(t *testing.T) {
 	require.Equal(t, big.NewInt(110), price.ToInt())
 }
 
+// TestGasPriceCongestionNeverAnswersBelowTheMargin verifies a congested reward equal to the
+// floor falls back to the margin instead of answering below it.
+func TestGasPriceCongestionNeverAnswersBelowTheMargin(t *testing.T) {
+	store := evmonly.NewMemoryReceiptStore()
+	// gasLimit 1000, TotalGasUsed 900 -> congested; the one included tx's reward (1000) equals
+	// the floor (1000), which is below the floor's own 10% margin (1100).
+	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{
+		{TxHash: [32]byte{1}, Receipt: &evmtypes.Receipt{TxHashHex: "0x1", BlockNumber: 1, GasUsed: 900}, Reward: big.NewInt(1000)},
+	}))
+	api := &infoAPI{backend: testInfoBackend(1000, 1000), store: store}
+
+	price, err := api.GasPrice(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, big.NewInt(1100), price.ToInt())
+}
+
 // TestGasPriceNotCongestedAtExactlyTheThreshold verifies a block exactly at the 80% threshold
 // is not treated as congested.
 func TestGasPriceNotCongestedAtExactlyTheThreshold(t *testing.T) {
