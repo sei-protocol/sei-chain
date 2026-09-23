@@ -8,8 +8,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -27,13 +29,11 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 	}
 	hash := tx.Hash()
 
-	if sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx); err == nil {
-		if client, ok := api.backend.EvmProxy(sender).Get(); ok {
-			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-				return hash, err
-			}
-			return hash, nil
+	if client, ok := api.shardProxy(tx).Get(); ok {
+		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
+			return hash, err
 		}
+		return hash, nil
 	}
 
 	result, err := api.backend.BroadcastTx(ctx, &coretypes.RequestBroadcastTx{
@@ -53,4 +53,18 @@ func (api *sendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes)
 		return hash, errors.New(message)
 	}
 	return hash, nil
+}
+
+// shardProxy returns the RPC client of the validator owning tx's sender shard,
+// or None when the transaction is handled locally. Sender recovery is skipped
+// entirely when the backend has no proxies, since CheckTx recovers it anyway.
+func (api *sendAPI) shardProxy(tx *ethtypes.Transaction) utils.Option[*ethrpc.Client] {
+	if !api.backend.EvmProxyEnabled() {
+		return utils.None[*ethrpc.Client]()
+	}
+	sender, err := ethtypes.Sender(ethtypes.LatestSignerForChainID(tx.ChainId()), tx)
+	if err != nil {
+		return utils.None[*ethrpc.Client]()
+	}
+	return api.backend.EvmProxy(sender)
 }

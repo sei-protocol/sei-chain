@@ -16,8 +16,6 @@ import (
 	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
-	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
-	oraclebinding "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorybinding "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
@@ -31,27 +29,24 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
-	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
 	eh := epochwasm.NewEpochWasmQueryHandler(&testWrapper.App.EpochKeeper)
 	th := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(&testWrapper.App.TokenFactoryKeeper)
 	evmh := evmwasm.NewEVMQueryHandler(&testWrapper.App.EvmKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh, eh, th, evmh, testWrapper.App.StakingKeeper)
+	qp := wasmbinding.NewQueryPlugin(eh, th, evmh, testWrapper.App.StakingKeeper)
 	return testWrapper, wasmbinding.CustomQuerier(qp)
 }
 
 func TestWasmUnknownQuery(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
-	oracle_req := oraclebinding.SeiOracleQuery{}
-	queryData, err := json.Marshal(oracle_req)
-	require.NoError(t, err)
+	queryData := json.RawMessage(`{"exchange_rates":{}}`)
 	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
 	rawQuery, err := json.Marshal(query)
 	require.NoError(t, err)
 
 	_, err = customQuerier(testWrapper.Ctx, rawQuery)
 	require.Error(t, err)
-	require.Equal(t, err, oracletypes.ErrUnknownSeiOracleQuery)
+	require.ErrorIs(t, err, oracletypes.ErrOracleDeprecated)
 
 	epoch_req := epochbinding.SeiEpochQuery{}
 	queryData, err = json.Marshal(epoch_req)
@@ -68,9 +63,7 @@ func TestWasmUnknownQuery(t *testing.T) {
 func TestWasmGetOracleExchangeRates(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
-	req := oraclebinding.SeiOracleQuery{ExchangeRates: &oracletypes.QueryExchangeRatesRequest{}}
-	queryData, err := json.Marshal(req)
-	require.NoError(t, err)
+	queryData := json.RawMessage(`{"exchange_rates":{}}`)
 	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
 
 	rawQuery, err := json.Marshal(query)
@@ -83,9 +76,7 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 func TestWasmGetOracleTwaps(t *testing.T) {
 	testWrapper, customQuerier := SetupWasmbindingTest(t)
 
-	req := oraclebinding.SeiOracleQuery{OracleTwaps: &oracletypes.QueryTwapsRequest{LookbackSeconds: 200}}
-	queryData, err := json.Marshal(req)
-	require.NoError(t, err)
+	queryData := json.RawMessage(`{"oracle_twaps":{"lookback_seconds":200}}`)
 	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.OracleRoute, QueryData: queryData}
 
 	rawQuery, err := json.Marshal(query)

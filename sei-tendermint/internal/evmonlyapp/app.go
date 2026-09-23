@@ -31,6 +31,41 @@ func evmOnlyBaseFee() *big.Int { return new(big.Int) }
 
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
+// checkedSendersCap bounds the senders remembered from CheckTx per generation.
+// Entries are dropped as their transactions execute; the cap only guards against
+// admitted transactions that never reach a block.
+const checkedSendersCap = 1 << 18
+
+// senderCache remembers the sender recovered for each transaction hash. It keeps
+// two generations: inserts go to fresh, and once fresh reaches the cap it
+// becomes stale and the previous stale generation is forgotten, so the most
+// recent entries always survive a rollover.
+type senderCache struct {
+	fresh, stale map[common.Hash]common.Address
+}
+
+func newSenderCache() senderCache {
+	return senderCache{fresh: map[common.Hash]common.Address{}}
+}
+
+func (c *senderCache) put(hash common.Hash, sender common.Address) {
+	if len(c.fresh) >= checkedSendersCap {
+		c.stale, c.fresh = c.fresh, make(map[common.Hash]common.Address, len(c.fresh))
+	}
+	c.fresh[hash] = sender
+}
+
+// take returns the sender remembered for hash, if any, and forgets it.
+func (c *senderCache) take(hash common.Hash) utils.Option[common.Address] {
+	for _, gen := range [...]map[common.Hash]common.Address{c.fresh, c.stale} {
+		if sender, ok := gen[hash]; ok {
+			delete(gen, hash)
+			return utils.Some(sender)
+		}
+	}
+	return utils.None[common.Address]()
+}
+
 type evmOnlyApplication struct {
 	abci.BaseApplication
 
@@ -40,6 +75,10 @@ type evmOnlyApplication struct {
 	changeSetEncoder evmonly.NamedChangeSetEncoder
 	validators       []abci.ValidatorUpdate
 	state            utils.Mutex[*evmOnlyState]
+	// checkedSenders maps the hash of every transaction this process admitted
+	// in CheckTx to the sender recovered there, so execution does not recover
+	// it again.
+	checkedSenders utils.Mutex[*senderCache]
 }
 
 type evmOnlyState struct {
@@ -83,6 +122,7 @@ func NewEVMOnlyApplication(
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
 		state:            utils.NewMutex(&evmOnlyState{}),
+		checkedSenders:   utils.NewMutex(utils.Alloc(newSenderCache())),
 	}
 }
 
@@ -191,6 +231,7 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 	if !ok {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1, Log: "transaction gas limit exceeds int64"}}
 	}
+	a.rememberSender(tx.Hash(), sender)
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:         abci.CodeTypeOK,
@@ -203,6 +244,26 @@ func (a *evmOnlyApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx
 		EVMSenderAddress: sender,
 		SeiSenderAddress: append([]byte(nil), sender[:]...),
 	}
+}
+
+func (a *evmOnlyApplication) rememberSender(hash common.Hash, sender common.Address) {
+	for senders := range a.checkedSenders.Lock() {
+		senders.put(hash, sender)
+	}
+}
+
+// takeSenders returns, aligned with txs, the sender CheckTx recovered for each
+// transaction this process admitted, and forgets those entries. The hash of a
+// raw transaction is the keccak of its bytes for every transaction type, so no
+// decoding is needed.
+func (a *evmOnlyApplication) takeSenders(txs [][]byte) []utils.Option[common.Address] {
+	out := make([]utils.Option[common.Address], len(txs))
+	for senders := range a.checkedSenders.Lock() {
+		for i, raw := range txs {
+			out[i] = senders.take(crypto.Keccak256Hash(raw))
+		}
+	}
+	return out
 }
 
 func (a *evmOnlyApplication) parseTx(raw []byte) (*ethtypes.Transaction, common.Address, error) {
@@ -352,7 +413,8 @@ func (a *evmOnlyApplication) FinalizeBlock(ctx context.Context, req *abci.Reques
 				BlockHash:   blockHash,
 				PrevRandao:  evmOnlyPrevRandao(timestamp),
 			},
-			Txs: req.Txs,
+			Txs:     req.Txs,
+			Senders: a.takeSenders(req.Txs),
 		})
 		if err != nil {
 			return nil, err
