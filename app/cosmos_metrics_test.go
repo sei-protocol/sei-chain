@@ -48,12 +48,25 @@ func TestCosmosMetricsStartAfterLoadAndStopOnClose(t *testing.T) {
 	require.NoError(t, err)
 	testApp.Commit(context.Background())
 
-	require.Eventually(t, func() bool {
-		return slices.Contains(gatheredMetricNames(t), cosmosMetricsProbe)
-	}, 5*time.Second, 10*time.Millisecond, "cosmos metrics were not started")
+	requireMetricGathered(t, cosmosMetricsProbe)
 
 	require.NoError(t, testApp.Close())
 	require.NotContains(t, gatheredMetricNames(t), cosmosMetricsProbe, "cosmos metrics were not stopped")
+}
+
+// requireMetricGathered fails unless name is gathered within 30s. Each gather collects from every
+// exporter this process has created, which takes seconds under the race detector, so the deadline
+// is only checked between gathers rather than cutting one short.
+func requireMetricGathered(t *testing.T, name string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if slices.Contains(gatheredMetricNames(t), name) {
+			return
+		}
+		require.False(t, time.Now().After(deadline), "cosmos metrics were not started")
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func gatheredMetricNames(t *testing.T) []string {
