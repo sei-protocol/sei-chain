@@ -67,8 +67,7 @@ func (c *CodeData) Serialize() []byte {
 	return c.data
 }
 
-// Deserialize the code data from the given byte slice. The result borrows data rather than copying
-// it, so data must outlive the returned CodeData and must not be modified.
+// Deserialize the code data from the given byte slice.
 func DeserializeCodeData(data []byte) (*CodeData, error) {
 	if len(data) == 0 {
 		return nil, errors.New("data is empty")
@@ -84,7 +83,11 @@ func DeserializeCodeData(data []byte) (*CodeData, error) {
 			version, codeBytecodeStart, len(data))
 	}
 
-	return &CodeData{data: data}, nil
+	// Copied rather than aliased: Serialize now hands back whatever is held here, and the caller's
+	// buffer on the read path is commonly borrowed from the storage engine or an iterator.
+	owned := make([]byte, len(data))
+	copy(owned, data)
+	return &CodeData{data: owned}, nil
 }
 
 // Get the serialization version for this CodeData instance.
