@@ -18,16 +18,22 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-const (
-	// maxBlocksForLogs is the widest inclusive block range one eth_getLogs
+// Config bounds the queries the EVM-only RPC server accepts.
+type Config struct {
+	// MaxBlocksForLogs is the widest inclusive block range one eth_getLogs
 	// query may cover.
-	maxBlocksForLogs = 2000
-	// maxLogsPerQuery is the most logs one eth_getLogs query may return.
-	maxLogsPerQuery = 10000
-)
+	MaxBlocksForLogs uint64
+	// MaxLogsPerQuery is the most logs one eth_getLogs query may return.
+	MaxLogsPerQuery uint64
+}
+
+// DefaultConfig returns the query bounds used when an operator sets none.
+func DefaultConfig() Config {
+	return Config{MaxBlocksForLogs: 2000, MaxLogsPerQuery: 10000}
+}
 
 var (
-	errLogRangeTooWide    = fmt.Errorf("eth_getLogs block range exceeds %d blocks", maxBlocksForLogs)
+	errLogRangeTooWide    = errors.New("eth_getLogs block range exceeds the configured maximum")
 	errLogRangeInverted   = errors.New("eth_getLogs fromBlock is after toBlock")
 	errLogRangePruned     = errors.New("eth_getLogs block is pruned")
 	errLogRangeNotIndexed = errors.New("eth_getLogs block is not yet indexed")
@@ -36,6 +42,7 @@ var (
 type filterAPI struct {
 	backend Backend
 	store   receiptpkg.ReceiptStore
+	config  Config
 }
 
 // GetLogs returns the logs matching crit from finalized blocks. Open and tag
@@ -47,11 +54,12 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 	if err != nil {
 		return nil, err
 	}
-	if toBlock-fromBlock+1 > maxBlocksForLogs {
-		return nil, errLogRangeTooWide
+	if toBlock-fromBlock+1 > api.config.MaxBlocksForLogs {
+		return nil, fmt.Errorf("%w: %d blocks requested, %d allowed", errLogRangeTooWide, toBlock-fromBlock+1, api.config.MaxBlocksForLogs)
 	}
 
-	budget := receiptpkg.NewLogBudget(maxLogsPerQuery, receiptpkg.DefaultMaxLogBytes)
+	maxLogs := min(api.config.MaxLogsPerQuery, math.MaxInt64)
+	budget := receiptpkg.NewLogBudget(int64(maxLogs), receiptpkg.DefaultMaxLogBytes) //nolint:gosec // clamped above
 	logs, err := api.store.FilterLogs(receiptContext(ctx), fromBlock, toBlock, crit, budget)
 	if err != nil {
 		return nil, fmt.Errorf("filter logs: %w", err)

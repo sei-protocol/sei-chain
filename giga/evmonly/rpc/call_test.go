@@ -175,7 +175,7 @@ func TestHandlerServesCall(t *testing.T) {
 			return &core.ExecutionResult{ReturnData: []byte{0x01, 0x02}}, nil
 		},
 	}
-	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore())
+	handler, err := newHandler(backend, evmonly.NewMemoryReceiptStore(), DefaultConfig())
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)

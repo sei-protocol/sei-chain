@@ -98,7 +98,7 @@ func filterFixtureBackend(t *testing.T, head uint64) *testBackend {
 }
 
 func TestGetLogsAddressRangeQuery(t *testing.T) {
-	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
+	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t), config: DefaultConfig()}
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{
 		FromBlock: big.NewInt(1),
 		ToBlock:   big.NewInt(9),
@@ -126,7 +126,7 @@ func TestGetLogsAddressRangeQuery(t *testing.T) {
 }
 
 func TestGetLogsTopicFilter(t *testing.T) {
-	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
+	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t), config: DefaultConfig()}
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{
 		FromBlock: big.NewInt(5),
 		ToBlock:   big.NewInt(5),
@@ -148,7 +148,7 @@ func TestGetLogsTopicFilter(t *testing.T) {
 }
 
 func TestGetLogsBlockHashForm(t *testing.T) {
-	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
+	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t), config: DefaultConfig()}
 	blockHash := filterBlockHash(5)
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{BlockHash: &blockHash})
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestGetLogsBlockHashForm(t *testing.T) {
 func TestGetLogsResolvesTagsAgainstIndexedRange(t *testing.T) {
 	store := filterFixtureStore(t)
 	// The committed head (20) is ahead of the store's indexed head (9).
-	api := &filterAPI{backend: filterFixtureBackend(t, 20), store: store}
+	api := &filterAPI{backend: filterFixtureBackend(t, 20), store: store, config: DefaultConfig()}
 
 	// Neither bound set: latest indexed..latest indexed.
 	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{})
@@ -192,7 +192,7 @@ func TestGetLogsResolvesTagsAgainstIndexedRange(t *testing.T) {
 
 func TestGetLogsRejectsBoundsOutsideIndexedRange(t *testing.T) {
 	store := filterFixtureStore(t)
-	api := &filterAPI{backend: filterFixtureBackend(t, 20), store: store}
+	api := &filterAPI{backend: filterFixtureBackend(t, 20), store: store, config: DefaultConfig()}
 
 	// An explicit toBlock between the indexed head and the committed head must
 	// not be answered partially: the caller would advance past unseen logs.
@@ -219,17 +219,17 @@ func TestGetLogsRejectsBoundsOutsideIndexedRange(t *testing.T) {
 }
 
 func TestGetLogsRejectsBadRanges(t *testing.T) {
-	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
+	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t), config: DefaultConfig()}
 	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(8), ToBlock: big.NewInt(7)})
 	require.ErrorIs(t, err, errLogRangeInverted)
 
-	store := filterFixtureStore(t)
-	require.NoError(t, store.SetLatestVersion(5000))
-	api = &filterAPI{backend: filterFixtureBackend(t, 5000), store: store}
-	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(2001)})
+	// The configured range cap is inclusive.
+	api.config.MaxBlocksForLogs = 3
+	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(5), ToBlock: big.NewInt(8)})
 	require.ErrorIs(t, err, errLogRangeTooWide)
-	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(2000)})
+	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(6), ToBlock: big.NewInt(8)})
 	require.NoError(t, err)
+	require.Len(t, logs, 1)
 
 	tooBig := new(big.Int).Lsh(big.NewInt(1), 70)
 	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: tooBig})
@@ -237,20 +237,17 @@ func TestGetLogsRejectsBadRanges(t *testing.T) {
 }
 
 func TestGetLogsEnforcesLogBudget(t *testing.T) {
-	store := evmonly.NewMemoryReceiptStore()
-	logs := make([]*evmtypes.Log, maxLogsPerQuery+1)
-	for i := range logs {
-		logs[i] = &evmtypes.Log{Address: filterContractA.Hex(), Index: uint32(i)} //nolint:gosec // small test count
-	}
-	hash := filterTxHash(1, 0)
-	require.NoError(t, store.SetReceipts(sdk.Context{}.WithContext(t.Context()), []receipt.ReceiptRecord{{
-		TxHash:  hash,
-		Receipt: &evmtypes.Receipt{TxHashHex: hash.Hex(), BlockNumber: 1, Logs: logs},
-	}}))
-	api := &filterAPI{backend: filterFixtureBackend(t, 1), store: store}
-	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(1), ToBlock: big.NewInt(1)})
+	// The fixture holds four logs across blocks 5..9.
+	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t), config: DefaultConfig()}
+	api.config.MaxLogsPerQuery = 3
+	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(5), ToBlock: big.NewInt(9)})
 	require.Error(t, err)
 	require.ErrorContains(t, err, "filter logs")
+
+	api.config.MaxLogsPerQuery = 4
+	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(5), ToBlock: big.NewInt(9)})
+	require.NoError(t, err)
+	require.Len(t, logs, 4)
 }
 
 func TestGetLogsSurfacesStoreAndBlockErrors(t *testing.T) {
@@ -259,20 +256,20 @@ func TestGetLogsSurfacesStoreAndBlockErrors(t *testing.T) {
 	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return nil, boom
 	}
-	api := &filterAPI{backend: backend, store: filterFixtureStore(t)}
+	api := &filterAPI{backend: backend, store: filterFixtureStore(t), config: DefaultConfig()}
 	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(5), ToBlock: big.NewInt(5)})
 	require.ErrorIs(t, err, boom)
 
 	api = &filterAPI{backend: filterFixtureBackend(t, 9), store: stubReceiptStore{
 		ReceiptStore: filterFixtureStore(t),
 		get:          func(sdk.Context, common.Hash) (*evmtypes.Receipt, error) { return nil, boom },
-	}}
+	}, config: DefaultConfig()}
 	_, err = api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(5), ToBlock: big.NewInt(5)})
 	require.ErrorIs(t, err, boom)
 }
 
 func TestGetLogsEndToEnd(t *testing.T) {
-	handler, err := newHandler(filterFixtureBackend(t, 9), filterFixtureStore(t))
+	handler, err := newHandler(filterFixtureBackend(t, 9), filterFixtureStore(t), DefaultConfig())
 	require.NoError(t, err)
 	t.Cleanup(handler.Stop)
 	server := httptest.NewServer(handler)
