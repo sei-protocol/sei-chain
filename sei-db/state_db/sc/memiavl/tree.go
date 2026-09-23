@@ -339,10 +339,16 @@ func (t *Tree) hasNoLock(key []byte) bool {
 	return value != nil
 }
 
+// Iterator returns an iterator over the tree's current contents. The caller must
+// Close it: it holds a reference on the tree's snapshot, so an iterator left open
+// keeps that snapshot's blob files mapped.
 func (t *Tree) Iterator(start, end []byte, ascending bool) dbm.Iterator {
+	// The read lock also makes the reference safe to take: ReplaceWith and Close
+	// swap and close t.snapshot under the write lock, so the snapshot read here
+	// cannot already have reached a zero refcount.
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
-	return NewIterator(start, end, ascending, t.root, t.zeroCopy)
+	return NewIterator(start, end, ascending, t.root, t.zeroCopy, t.snapshot)
 }
 
 // ScanPostOrder scans the tree in post-order, and call the callback function on each node.
