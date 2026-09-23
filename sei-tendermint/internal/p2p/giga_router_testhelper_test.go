@@ -70,6 +70,8 @@ func (a *testApp) RegisterHashListener(listener gigatypes.HashListener) (lthash.
 	return *lthash.NewBlockHash(nil), nil
 }
 
+func (a *testApp) FlushHashes() error { return nil }
+
 func (a *testApp) GetValidators() []abci.ValidatorUpdate {
 	for state := range a.state.Lock() {
 		return slices.Clone(state.Validators)
@@ -136,6 +138,15 @@ func (a *testApp) InitChain(req *abci.RequestInitChain) (*abci.ResponseInitChain
 		state.Validators = utils.Slice(val)
 		state.Committed = true
 		ctrl.Updated()
+		for listener := range a.hashListener.Lock() {
+			if f, ok := listener.listener.Get(); ok {
+				hash := lthash.NewBlockHash(nil)
+				hash.BlockNumber = req.InitialHeight - 1
+				if err := f(context.Background(), hash.BlockNumber, hash); err != nil {
+					return nil, err
+				}
+			}
+		}
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
 			Validators: slices.Clone(state.Validators),

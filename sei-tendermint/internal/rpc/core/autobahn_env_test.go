@@ -34,6 +34,8 @@ func (stubAppHashStore) RegisterHashListener(gigatypes.HashListener) (lthash.Blo
 	return lthash.BlockHash{}, nil
 }
 
+func (stubAppHashStore) FlushHashes() error { return nil }
+
 func newAutobahnBroadcastEnv(t *testing.T) *Environment {
 	t.Helper()
 	rng := utils.TestRng()

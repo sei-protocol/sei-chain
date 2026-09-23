@@ -22,6 +22,8 @@ import (
 // AppHashStore publishes each committed block's state hash.
 type AppHashStore interface {
 	RegisterHashListener(gigatypes.HashListener) (lthash.BlockHash, error)
+	// FlushHashes waits until every block committed so far has been hashed.
+	FlushHashes() error
 }
 
 type GigaNodeAddr struct {
