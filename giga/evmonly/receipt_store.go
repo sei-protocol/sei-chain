@@ -208,6 +208,9 @@ func (s *MemoryReceiptStore) FilterLogs(
 		firstLogIndex := uint(0)
 		for _, stored := range receipts {
 			for _, storedLog := range stored.Logs {
+				if !storedLogMatches(storedLog, crit) {
+					continue
+				}
 				lg := &ethtypes.Log{
 					Address:     common.HexToAddress(storedLog.Address),
 					Topics:      make([]common.Hash, len(storedLog.Topics)),
@@ -219,9 +222,6 @@ func (s *MemoryReceiptStore) FilterLogs(
 				}
 				for i, topic := range storedLog.Topics {
 					lg.Topics[i] = common.HexToHash(topic)
-				}
-				if !logMatches(lg, crit) {
-					continue
 				}
 				if err := budget.Reserve(lg); err != nil {
 					return nil, err
@@ -237,15 +237,16 @@ func (s *MemoryReceiptStore) FilterLogs(
 	return logs, nil
 }
 
-func logMatches(lg *ethtypes.Log, crit filters.FilterCriteria) bool {
-	if len(crit.Addresses) > 0 && !slices.Contains(crit.Addresses, lg.Address) {
+// storedLogMatches applies crit to a stored log without materializing it.
+func storedLogMatches(lg *evmtypes.Log, crit filters.FilterCriteria) bool {
+	if len(crit.Addresses) > 0 && !slices.Contains(crit.Addresses, common.HexToAddress(lg.Address)) {
 		return false
 	}
 	for i, topics := range crit.Topics {
 		if len(topics) == 0 {
 			continue
 		}
-		if i >= len(lg.Topics) || !slices.Contains(topics, lg.Topics[i]) {
+		if i >= len(lg.Topics) || !slices.Contains(topics, common.HexToHash(lg.Topics[i])) {
 			return false
 		}
 	}

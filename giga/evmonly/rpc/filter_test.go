@@ -307,4 +307,12 @@ func TestGetLogsEndToEnd(t *testing.T) {
 	}))
 	require.NotNil(t, got)
 	require.Empty(t, got)
+
+	err = client.CallContext(t.Context(), &got, "eth_getLogs", map[string]any{
+		"fromBlock": "0x8",
+		"toBlock":   "0x7",
+	})
+	var rpcErr ethrpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	require.Equal(t, -32602, rpcErr.ErrorCode())
 }

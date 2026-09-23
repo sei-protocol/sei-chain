@@ -33,6 +33,21 @@ var (
 	errLogRangeNotIndexed = errors.New("eth_getLogs block is not yet indexed")
 )
 
+// invalidParamsError is a JSON-RPC error reporting that the request's
+// parameters are invalid.
+type invalidParamsError struct {
+	error
+}
+
+// ErrorCode returns the JSON-RPC invalid params error code.
+func (*invalidParamsError) ErrorCode() int {
+	return -32602
+}
+
+func (e *invalidParamsError) Unwrap() error {
+	return e.error
+}
+
 type filterAPI struct {
 	backend Backend
 	store   receiptpkg.ReceiptStore
@@ -48,7 +63,7 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 		return nil, err
 	}
 	if toBlock-fromBlock+1 > maxBlocksForLogs {
-		return nil, errLogRangeTooWide
+		return nil, &invalidParamsError{error: errLogRangeTooWide}
 	}
 
 	budget := receiptpkg.NewLogBudget(maxLogsPerQuery, receiptpkg.DefaultMaxLogBytes)
@@ -91,7 +106,7 @@ func (api *filterAPI) resolveLogRange(ctx context.Context, crit filters.FilterCr
 		return 0, 0, err
 	}
 	if fromBlock > toBlock {
-		return 0, 0, errLogRangeInverted
+		return 0, 0, &invalidParamsError{error: errLogRangeInverted}
 	}
 	return fromBlock, toBlock, checkIndexed(fromBlock, toBlock, earliest, latest)
 }
@@ -132,7 +147,7 @@ func resolveLogBound(bound *big.Int, earliest, latest uint64) (uint64, error) {
 		return latest, nil
 	}
 	if !bound.IsUint64() || bound.Uint64() > math.MaxInt64 {
-		return 0, fmt.Errorf("eth_getLogs block number %s exceeds int64", bound)
+		return 0, &invalidParamsError{error: fmt.Errorf("eth_getLogs block number %s exceeds int64", bound)}
 	}
 	if bound.Int64() == ethrpc.EarliestBlockNumber.Int64() {
 		return earliest, nil
