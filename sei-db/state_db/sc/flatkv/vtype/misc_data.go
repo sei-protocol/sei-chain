@@ -37,42 +37,27 @@ var _ VType = (*MiscData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type MiscData struct {
-	// data is the serialized form.
-	data []byte
-
-	// isDelete reports whether this entry is marked for removal.
-	isDelete bool
+	version     MiscDataVersion
+	blockHeight int64
+	value       []byte
+	isDelete    bool
 }
 
-// Create a new MiscData with an empty value.
+// Create a new MiscData with the given value.
 func NewMiscData() *MiscData {
-	return &MiscData{data: make([]byte, miscHeaderLength)}
-}
-
-// NewMiscDataFrom returns the misc data for value written at blockHeight. value is copied, so the
-// caller may reuse it.
-func NewMiscDataFrom(blockHeight int64, value []byte) *MiscData {
-	data := make([]byte, miscHeaderLength+len(value))
-	data[miscVersionStart] = byte(MiscDataVersion0)
-	heightBytes := data[miscBlockHeightStart:miscValueStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
-	copy(data[miscValueStart:], value)
-	return &MiscData{data: data}
-}
-
-// NewDeletedMiscData returns misc data marking its key for removal at blockHeight.
-func NewDeletedMiscData(blockHeight int64) *MiscData {
-	return NewMiscDataFrom(blockHeight, nil).MarkDeleted()
+	return &MiscData{version: MiscDataVersion0}
 }
 
 // Serialize the misc data to a byte slice.
-//
-// The returned byte slice is not safe to modify without first copying it.
 func (l *MiscData) Serialize() []byte {
 	if l == nil {
 		return make([]byte, miscHeaderLength)
 	}
-	return l.data
+	data := make([]byte, miscHeaderLength+len(l.value))
+	data[miscVersionStart] = byte(l.version)
+	binary.BigEndian.PutUint64(data[miscBlockHeightStart:miscValueStart], uint64(l.blockHeight)) //nolint:gosec
+	copy(data[miscValueStart:], l.value)
+	return data
 }
 
 // Deserialize the misc data from the given byte slice.
@@ -91,11 +76,14 @@ func DeserializeMiscData(data []byte) (*MiscData, error) {
 			version, miscHeaderLength, len(data))
 	}
 
-	// Copied rather than aliased: Serialize now hands back whatever is held here, and the caller's
-	// buffer on the read path is commonly borrowed from the storage engine or an iterator.
-	owned := make([]byte, len(data))
-	copy(owned, data)
-	return &MiscData{data: owned}, nil
+	value := make([]byte, len(data)-miscHeaderLength)
+	copy(value, data[miscValueStart:])
+
+	return &MiscData{
+		version:     version,
+		blockHeight: int64(binary.BigEndian.Uint64(data[miscBlockHeightStart:miscValueStart])), //nolint:gosec
+		value:       value,
+	}, nil
 }
 
 // Get the serialization version for this MiscData instance.
@@ -103,7 +91,7 @@ func (l *MiscData) GetSerializationVersion() MiscDataVersion {
 	if l == nil {
 		return MiscDataVersion0
 	}
-	return MiscDataVersion(l.data[miscVersionStart])
+	return l.version
 }
 
 // Get the block height when this misc entry was last modified.
@@ -111,8 +99,7 @@ func (l *MiscData) GetBlockHeight() int64 {
 	if l == nil {
 		return 0
 	}
-	heightBytes := l.data[miscBlockHeightStart:miscValueStart]
-	return int64(binary.BigEndian.Uint64(heightBytes)) //nolint:gosec // height fits in int64
+	return l.blockHeight
 }
 
 // Get the misc value.
@@ -120,7 +107,7 @@ func (l *MiscData) GetValue() []byte {
 	if l == nil {
 		return []byte{}
 	}
-	return l.data[miscValueStart:]
+	return l.value
 }
 
 // Set the block height when this misc entry was last modified/touched. Returns self (or a new MiscData if nil).
@@ -128,8 +115,7 @@ func (l *MiscData) SetBlockHeight(blockHeight int64) *MiscData {
 	if l == nil {
 		l = NewMiscData()
 	}
-	heightBytes := l.data[miscBlockHeightStart:miscValueStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	l.blockHeight = blockHeight
 	return l
 }
 
@@ -140,10 +126,8 @@ func (l *MiscData) SetValue(value []byte) *MiscData {
 	if l == nil {
 		l = NewMiscData()
 	}
-	next := make([]byte, miscHeaderLength+len(value))
-	copy(next, l.data[:miscHeaderLength])
-	copy(next[miscValueStart:], value)
-	l.data = next
+	l.value = make([]byte, len(value))
+	copy(l.value, value)
 	l.isDelete = false
 	return l
 }

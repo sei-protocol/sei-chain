@@ -37,34 +37,26 @@ var _ VType = (*CodeData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type CodeData struct {
-	// data is the serialized form.
-	data []byte
+	version     CodeDataVersion
+	blockHeight int64
+	bytecode    []byte
 }
 
-// Create a new CodeData with no bytecode.
+// Create a new CodeData with the given bytecode.
 func NewCodeData() *CodeData {
-	return &CodeData{data: make([]byte, codeBytecodeStart)}
-}
-
-// NewCodeDataFrom returns the code data for bytecode written at blockHeight. bytecode is copied, so
-// the caller may reuse it.
-func NewCodeDataFrom(blockHeight int64, bytecode []byte) *CodeData {
-	data := make([]byte, codeBytecodeStart+len(bytecode))
-	data[codeVersionStart] = byte(CodeDataVersion0)
-	heightBytes := data[codeBlockHeightStart:codeBytecodeStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
-	copy(data[codeBytecodeStart:], bytecode)
-	return &CodeData{data: data}
+	return &CodeData{version: CodeDataVersion0}
 }
 
 // Serialize the code data to a byte slice.
-//
-// The returned byte slice is not safe to modify without first copying it.
 func (c *CodeData) Serialize() []byte {
 	if c == nil {
 		return make([]byte, codeBytecodeStart)
 	}
-	return c.data
+	data := make([]byte, codeBytecodeStart+len(c.bytecode))
+	data[codeVersionStart] = byte(c.version)
+	binary.BigEndian.PutUint64(data[codeBlockHeightStart:codeBytecodeStart], uint64(c.blockHeight)) //nolint:gosec
+	copy(data[codeBytecodeStart:], c.bytecode)
+	return data
 }
 
 // Deserialize the code data from the given byte slice.
@@ -83,11 +75,13 @@ func DeserializeCodeData(data []byte) (*CodeData, error) {
 			version, codeBytecodeStart, len(data))
 	}
 
-	// Copied rather than aliased: Serialize now hands back whatever is held here, and the caller's
-	// buffer on the read path is commonly borrowed from the storage engine or an iterator.
-	owned := make([]byte, len(data))
-	copy(owned, data)
-	return &CodeData{data: owned}, nil
+	bytecode := data[codeBytecodeStart:]
+
+	return &CodeData{
+		version:     version,
+		blockHeight: int64(binary.BigEndian.Uint64(data[codeBlockHeightStart:codeBytecodeStart])), //nolint:gosec
+		bytecode:    bytecode,
+	}, nil
 }
 
 // Get the serialization version for this CodeData instance.
@@ -95,7 +89,7 @@ func (c *CodeData) GetSerializationVersion() CodeDataVersion {
 	if c == nil {
 		return CodeDataVersion0
 	}
-	return CodeDataVersion(c.data[codeVersionStart])
+	return c.version
 }
 
 // Get the block height when this code was last modified.
@@ -103,8 +97,7 @@ func (c *CodeData) GetBlockHeight() int64 {
 	if c == nil {
 		return 0
 	}
-	heightBytes := c.data[codeBlockHeightStart:codeBytecodeStart]
-	return int64(binary.BigEndian.Uint64(heightBytes)) //nolint:gosec // height fits in int64
+	return c.blockHeight
 }
 
 // Get the contract bytecode.
@@ -112,7 +105,7 @@ func (c *CodeData) GetBytecode() []byte {
 	if c == nil {
 		return []byte{}
 	}
-	return c.data[codeBytecodeStart:]
+	return c.bytecode
 }
 
 // Set the contract bytecode. Returns self (or a new CodeData if nil).
@@ -120,10 +113,7 @@ func (c *CodeData) SetBytecode(bytecode []byte) *CodeData {
 	if c == nil {
 		c = NewCodeData()
 	}
-	next := make([]byte, codeBytecodeStart+len(bytecode))
-	copy(next, c.data[:codeBytecodeStart])
-	copy(next[codeBytecodeStart:], bytecode)
-	c.data = next
+	c.bytecode = append([]byte(nil), bytecode...)
 	return c
 }
 
@@ -133,7 +123,7 @@ func (c *CodeData) IsDelete() bool {
 	if c == nil {
 		return true
 	}
-	return len(c.data) == codeBytecodeStart
+	return len(c.bytecode) == 0
 }
 
 // Set the block height when this code was last modified/touched. Returns self (or a new CodeData if nil).
@@ -141,7 +131,6 @@ func (c *CodeData) SetBlockHeight(blockHeight int64) *CodeData {
 	if c == nil {
 		c = NewCodeData()
 	}
-	heightBytes := c.data[codeBlockHeightStart:codeBytecodeStart]
-	binary.BigEndian.PutUint64(heightBytes, uint64(blockHeight)) //nolint:gosec // height is non-negative
+	c.blockHeight = blockHeight
 	return c
 }

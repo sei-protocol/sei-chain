@@ -494,14 +494,14 @@ func toStorageValues(
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
 			// Deletion is equivalent to setting the storage value to a zero value
-			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight)
-			continue
+			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(&[32]byte{})
+		} else {
+			value, err := vtype.ParseStorageValue(rawChange)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse storage value: %w", err)
+			}
+			result[keyStr] = vtype.NewStorageData().SetBlockHeight(blockHeight).SetValue(value)
 		}
-		storageData, err := vtype.NewStorageDataFrom(blockHeight, rawChange)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse storage value: %w", err)
-		}
-		result[keyStr] = storageData
 	}
 
 	return result, nil
@@ -516,8 +516,12 @@ func toCodeValues(
 	result := make(map[string]*vtype.CodeData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
-		// A nil change is a deletion, which for code means empty bytecode.
-		result[keyStr] = vtype.NewCodeDataFrom(blockHeight, rawChange)
+		if rawChange == nil {
+			// Deletion is equivalent to setting the code to a zero value
+			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(nil)
+		} else {
+			result[keyStr] = vtype.NewCodeData().SetBlockHeight(blockHeight).SetBytecode(rawChange)
+		}
 	}
 	return result, nil
 }
@@ -532,10 +536,10 @@ func toMiscValues(
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
-			result[keyStr] = vtype.NewDeletedMiscData(blockHeight)
-			continue
+			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).MarkDeleted()
+		} else {
+			result[keyStr] = vtype.NewMiscData().SetBlockHeight(blockHeight).SetValue(rawChange)
 		}
-		result[keyStr] = vtype.NewMiscDataFrom(blockHeight, rawChange)
 	}
 	return result, nil
 }
@@ -569,11 +573,11 @@ func mergeAccountUpdates(
 			var zero vtype.CodeHash
 			updates[key] = updates[key].SetCodeHash(&zero)
 		} else {
-			pending, err := updates[key].SetCodeHashBytes(codeHashChange)
+			codeHash, err := vtype.ParseCodeHash(codeHashChange)
 			if err != nil {
 				return nil, fmt.Errorf("invalid codehash value: %w", err)
 			}
-			updates[key] = pending
+			updates[key] = updates[key].SetCodeHash(codeHash)
 		}
 	}
 
