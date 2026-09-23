@@ -14,6 +14,7 @@ package autobahn
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -37,9 +38,43 @@ import (
 )
 
 const (
+	// Cluster lifecycle (TestMain).
 	clusterBootTimeout  = 5 * time.Minute
 	clusterBootPoll     = 5 * time.Second
 	autobahnSettleDelay = 30 * time.Second
+
+	// Fullnode sidecar lifecycle (TestMain).
+	fullnodeContainer = "sei-rpc-node"
+	// fullnodeStartTimeout bounds `make` getting the container running (image
+	// build/pull); fullnodeBootTimeout bounds the node's own boot after that.
+	fullnodeStartTimeout = 10 * time.Minute
+	fullnodeBootTimeout  = 5 * time.Minute
+	fullnodeBootPoll     = 5 * time.Second
+	// evmRPCURLOnContainerLocalhost is the EVM RPC address inside the
+	// rpc-node container — used with `docker exec ... curl` for readiness
+	// checks (the rpc-node's 8545 isn't host-published).
+	evmRPCURLOnContainerLocalhost = "http://localhost:8545"
+	// fullnodeProbeAddress is read for readiness. Any address answers: an
+	// address absent from FlatKV reads as the EVM-only default balance.
+	fullnodeProbeAddress   = "0x0000000000000000000000000000000000000001"
+	fullnodeReceiptTimeout = 2 * time.Minute
+	fullnodeReceiptPoll    = 1 * time.Second
+	// prebuiltImagesEnv selects run-rpc-node-skipbuild-ci for the sidecar, which
+	// runs the already present sei-chain/rpcnode image instead of rebuilding it.
+	prebuiltImagesEnv = "AUTOBAHN_PREBUILT_IMAGES"
+
+	// Fault-tolerance subtests. Execution height is read from each
+	// validator's own metrics endpoint, so a killed validator drops out of
+	// the sample rather than stalling the read.
+	heightReadTimeout = 10 * time.Second
+	heightPoll        = 1 * time.Second
+	livenessTimeout   = 2 * time.Minute
+	recoveryTimeout   = 3 * time.Minute
+	// haltStableWindow is how long height must stand still to count as a
+	// halt; the timeout leaves room for in-flight blocks to drain through
+	// runExecute on the validators that are still up.
+	haltStableWindow  = 20 * time.Second
+	haltStableTimeout = 2 * time.Minute
 
 	evmOnlyLoadTxs     = 4_000
 	evmOnlyLoadTimeout = 3 * time.Minute
@@ -49,9 +84,14 @@ const (
 )
 
 // clusterSize is set once at TestAutobahn start from the number of running
-// sei-node-* containers.
-var clusterSize int
+// sei-node-* containers. Subtests read it (and maxFaults) from here.
+var (
+	clusterSize int
+	maxFaults   int
+)
 
+// listRunningNodes returns the container names of currently-running
+// sei-node-* containers.
 func listRunningNodes(t *testing.T) []string {
 	t.Helper()
 	out, err := exec.Command("docker", "ps",
@@ -64,6 +104,10 @@ func listRunningNodes(t *testing.T) []string {
 	return strings.Fields(strings.TrimSpace(string(out)))
 }
 
+// assertAutobahnEnabled checks that "GigaRouter initialized" appears in every
+// currently-running sei-node-* container's logs. Guards against accidental
+// disablement. Scoped to live containers so killed nodes (from earlier tests)
+// don't false-positive on stale host-side log files.
 func assertAutobahnEnabled(t *testing.T) {
 	t.Helper()
 	names := listRunningNodes(t)
@@ -71,6 +115,9 @@ func assertAutobahnEnabled(t *testing.T) {
 		t.Fatalf("no running sei-node-* containers")
 	}
 	for _, name := range names {
+		// seid writes logs to a file inside the container (not stdout), so we
+		// grep via docker exec rather than `docker logs`. Each container only
+		// has its own seid-<id>.log under the repo-relative build/generated/logs.
 		cmd := exec.Command("docker", "exec", name, "sh", "-c",
 			"grep -q 'GigaRouter initialized' build/generated/logs/seid-*.log")
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -106,6 +153,11 @@ func TestMain(m *testing.M) {
 		teardownCluster()
 		os.Exit(1)
 	}
+	if err := setupFullnodeNode(); err != nil {
+		fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
+		teardownCluster()
+		os.Exit(1)
+	}
 	code := m.Run()
 	teardownCluster()
 	os.Exit(code)
@@ -128,6 +180,7 @@ func findRepoRoot() (string, error) {
 	}
 }
 
+// runMake runs `make <target>` from the current directory, streaming output.
 func runMake(env []string, target string) error {
 	cmd := exec.Command("make", target)
 	cmd.Env = append(os.Environ(), env...)
@@ -136,8 +189,11 @@ func runMake(env []string, target string) error {
 	return cmd.Run()
 }
 
+// setupCluster starts the autobahn docker cluster and waits until all nodes
+// have signalled readiness via build/generated/launch.complete.
 func setupCluster() error {
 	fmt.Println("=== Starting Autobahn Integration Tests ===")
+	// Best-effort cleanup of any prior cluster, then wipe generated state.
 	_ = runMake(nil, "docker-cluster-stop")
 	if err := os.RemoveAll("build/generated"); err != nil {
 		return fmt.Errorf("rm -rf build/generated: %w", err)
@@ -166,6 +222,8 @@ func setupCluster() error {
 	return fmt.Errorf("cluster failed to start within %s", clusterBootTimeout)
 }
 
+// countSeiContainers returns the number of sei-node-* containers that exist
+// (running or not yet started).
 func countSeiContainers() (int, error) {
 	out, err := exec.Command("docker", "ps", "-a",
 		"--filter", "name=sei-node-",
@@ -176,11 +234,151 @@ func countSeiContainers() (int, error) {
 	return len(strings.Fields(strings.TrimSpace(string(out)))), nil
 }
 
+func prebuiltImages() bool {
+	return os.Getenv(prebuiltImagesEnv) == "true"
+}
+
+// setupFullnodeNode boots an autobahn fullnode sidecar alongside the validator
+// cluster. Backgrounded via cmd.Start() because `make run-rpc-node-skipbuild`
+// uses `docker run --rm` (foreground until the container exits); the actual
+// container detaches from this process once it starts.
+//
+// Uses run-rpc-node-skipbuild so the rpc-node reuses the seid binary the
+// validator containers already compiled — skips a second multi-minute
+// `go install` cycle. The autobahn role itself comes from mode = "full"
+// in docker/rpcnode/config/config.toml — setup.go picks the fullnode
+// constructor when there's no local validator key.
+func setupFullnodeNode() error {
+	fmt.Println("=== Starting fullnode sidecar ===")
+	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
+
+	// Discover the cluster size from docker so the rpc-node's autobahn config
+	// covers exactly the validators that came up — non-four-node test runs
+	// would otherwise produce a mismatched committee.
+	clusterSize, err := countSeiContainers()
+	if err != nil {
+		return fmt.Errorf("count cluster containers: %w", err)
+	}
+	if clusterSize == 0 {
+		return fmt.Errorf("no sei-node-* containers found; setupCluster must run first")
+	}
+	target := "run-rpc-node-skipbuild"
+	if prebuiltImages() {
+		target += "-ci"
+	}
+	cmd := exec.Command("make", target)
+	cmd.Env = append(os.Environ(), "AUTOBAHN=true", fmt.Sprintf("CLUSTER_SIZE=%d", clusterSize))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start make %s: %w", target, err)
+	}
+	// Reap the process when it eventually exits (e.g. on container kill);
+	// not blocking on Wait here since the container runs for the duration
+	// of the test suite.
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	// Phase 1: wait for the container to exist and run. Anything `make` does
+	// before `docker run` (image build, pull) lands here, not in the boot budget.
+	startDeadline := time.Now().Add(fullnodeStartTimeout)
+	for !fullnodeRunning() {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("make %s exited before %s was running: %v", target, fullnodeContainer, err)
+		default:
+		}
+		if !time.Now().Before(startDeadline) {
+			return fmt.Errorf("fullnode sidecar container didn't start within %s", fullnodeStartTimeout)
+		}
+		time.Sleep(fullnodeBootPoll)
+	}
+
+	// Phase 2: the node's own boot.
+	deadline := time.Now().Add(fullnodeBootTimeout)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-exited:
+			return fmt.Errorf("make %s exited while %s was booting: %v", target, fullnodeContainer, err)
+		default:
+		}
+		if fullnodeRunning() && fullnodeEVMReady() {
+			fmt.Println("fullnode sidecar is ready")
+			return nil
+		}
+		time.Sleep(fullnodeBootPoll)
+	}
+	return fmt.Errorf("fullnode sidecar didn't come up within %s of the container starting", fullnodeBootTimeout)
+}
+
+func fullnodeRunning() bool {
+	out, err := exec.Command("docker", "ps",
+		"--filter", "name="+fullnodeContainer,
+		"--filter", "status=running",
+		"--format", "{{.Names}}").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == fullnodeContainer
+}
+
+// fullnodeEVMReady reports whether the sidecar answers on the EVM-only RPC,
+// which serves eth_getBalance, eth_getTransactionReceipt and
+// eth_sendRawTransaction and nothing else.
+func fullnodeEVMReady() bool {
+	r, err := evmRPCInContainer(fullnodeContainer, "eth_getBalance", []any{fullnodeProbeAddress, "latest"})
+	return err == nil && r.Error == nil && len(r.Result) > 0
+}
+
+type evmRPCResponse struct {
+	Result json.RawMessage `json:"result"`
+	Error  *evmRPCError    `json:"error,omitempty"`
+}
+
+type evmRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// evmRPCInContainer POSTs a JSON-RPC call to the given container's
+// localhost:8545. The fullnode container's 8545 isn't host-published; this
+// is the only way to talk to it without changing the run target.
+func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, error) {
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out, err := exec.Command("docker", "exec", container,
+		"curl", "-sf", "-X", "POST",
+		"-H", "content-type: application/json",
+		"--data", string(body),
+		evmRPCURLOnContainerLocalhost).Output()
+	if err != nil {
+		return nil, fmt.Errorf("docker exec curl: %v", err)
+	}
+	var r evmRPCResponse
+	if err := json.Unmarshal(out, &r); err != nil {
+		return nil, fmt.Errorf("decode (body=%s): %w", out, err)
+	}
+	return &r, nil
+}
+
+// teardownCluster tears down every container TestMain brought up: first
+// the fullnode sidecar (so its run-rpc-node `docker run --rm` process
+// exits cleanly), then the validator cluster. Best-effort — errors are
+// ignored so a partially-failed setupCluster can still clean up. Adding
+// new sidecars later goes here too.
 func teardownCluster() {
+	fmt.Println("=== Stopping fullnode sidecar ===")
+	_ = runMake(nil, "kill-rpc-node")
 	fmt.Println("=== Stopping cluster ===")
 	_ = runMake(nil, "docker-cluster-stop")
 }
 
+// countLaunchComplete returns the number of non-empty lines in the launch
+// marker file (one per node). Returns 0 if the file does not exist.
 func countLaunchComplete(path string) int {
 	f, err := os.Open(path)
 	if err != nil {
@@ -203,7 +401,156 @@ func TestAutobahn(t *testing.T) {
 		t.Fatalf("no running sei-node-* containers")
 	}
 	clusterSize = len(names)
+	// BFT tolerates f faults in a cluster of n = 3f + 1 assuming equal
+	// validator weights.
+	// TODO: derive from stake weights once autobahn supports non-uniform
+	// validator sets.
+	maxFaults = (clusterSize - 1) / 3
+	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
+
+	// EVMOnlyLoad needs every validator, so it runs first. The fault
+	// subtests leave validators dead behind them and run in order:
+	// HaltsBeyondMaxFaults kills one node past the set LivenessUnderMaxFaults
+	// already killed.
 	t.Run("EVMOnlyLoad", testEVMOnlyLoad)
+	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
+	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
+	t.Run("Recovery", testRecovery)
+}
+
+// clusterHeight returns the highest execution height any running validator
+// reports. A validator whose seid was killed stops serving metrics and drops
+// out of the sample; the read fails only when no validator answers at all.
+func clusterHeight(t *testing.T) int64 {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), heightReadTimeout)
+	defer cancel()
+	height := int64(-1)
+	for _, container := range listRunningNodes(t) {
+		executed, _, err := evmOnlyExecutionProgress(ctx, container)
+		if err != nil {
+			continue
+		}
+		height = max(height, executed)
+	}
+	if height < 0 {
+		t.Fatalf("no validator reported an execution height")
+	}
+	return height
+}
+
+// waitForHeightAbove polls until a validator executes past base.
+func waitForHeightAbove(t *testing.T, base int64, timeout time.Duration) int64 {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if h := clusterHeight(t); h > base {
+			return h
+		}
+		time.Sleep(heightPoll)
+	}
+	t.Fatalf("no validator executed past height %d within %s", base, timeout)
+	return 0
+}
+
+// waitForStableHeight returns the height once it has stayed constant for at
+// least window. Used after killing validators: the cluster stops accepting new
+// blocks immediately, but blocks already in flight keep draining through
+// runExecute for a bounded but per-run variable time, so a halt is only
+// observable as height standing still.
+func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	h := clusterHeight(t)
+	stableSince := time.Now()
+	for time.Now().Before(deadline) {
+		if time.Since(stableSince) >= window {
+			return h
+		}
+		time.Sleep(heightPoll)
+		nh := clusterHeight(t)
+		if nh != h {
+			h = nh
+			stableSince = time.Now()
+		}
+	}
+	t.Fatalf("height did not stabilize within %s (last seen %d)", timeout, h)
+	return 0
+}
+
+// killNode kills seid inside sei-node-<i> via pkill. Tolerates non-zero exit
+// (e.g. the process already gone).
+func killNode(t *testing.T, i int) {
+	t.Helper()
+	t.Logf("killing seid on node %d...", i)
+	_ = exec.Command("docker", "exec", fmt.Sprintf("sei-node-%d", i), "sh", "-c", "pkill seid").Run()
+}
+
+// restartNode re-invokes the container's seid-start script inside sei-node-<i>.
+// The script backgrounds seid and exits, so `docker exec -d` is the right mode:
+// it returns immediately while seid keeps running.
+//
+// Precondition: seid must NOT already be running on the target. start_sei.sh
+// unconditionally spawns a new seid process; calling this while one is alive
+// produces two seid instances in the same container (port/CMS-lock conflict).
+// Callers should killNode first.
+func restartNode(t *testing.T, i int) {
+	t.Helper()
+	t.Logf("restarting seid on node %d...", i)
+	name := fmt.Sprintf("sei-node-%d", i)
+	cmd := exec.Command("docker", "exec", "-d",
+		"-e", fmt.Sprintf("ID=%d", i),
+		name, "/usr/bin/start_sei.sh")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restartNode %d: %v\n%s", i, err, out)
+	}
+}
+
+// testLivenessUnderMaxFaults kills f = maxFaults validators (from the highest
+// index downward). With clusterSize - f = 2f + 1 honest validators left, the
+// chain must keep executing blocks.
+func testLivenessUnderMaxFaults(t *testing.T) {
+	assertAutobahnEnabled(t)
+	before := clusterHeight(t)
+	t.Logf("height before: %d (killing %d validator(s), expecting progress)", before, maxFaults)
+	for i := 0; i < maxFaults; i++ {
+		killNode(t, clusterSize-1-i)
+	}
+	t.Logf("height after: %d", waitForHeightAbove(t, before, livenessTimeout))
+}
+
+// testHaltsBeyondMaxFaults kills one validator beyond maxFaults, relying on
+// LivenessUnderMaxFaults having killed the first maxFaults. Quorum is lost, so
+// the chain must stop executing.
+func testHaltsBeyondMaxFaults(t *testing.T) {
+	assertAutobahnEnabled(t)
+	killNode(t, clusterSize-1-maxFaults)
+	t.Logf("height: %d (halted)", waitForStableHeight(t, haltStableWindow, haltStableTimeout))
+}
+
+// testRecovery establishes its own halted precondition, then restarts one
+// validator — the fault count returns to maxFaults, quorum is restored, and
+// the chain must resume. Exercises the autobahn restart path (handshaker
+// skipped, runExecute resumes from app.Info().LastBlockHeight).
+//
+// Self-contained: killNode is idempotent, so this works whether run in
+// isolation or after LivenessUnderMaxFaults / HaltsBeyondMaxFaults.
+func testRecovery(t *testing.T) {
+	assertAutobahnEnabled(t)
+	for i := 0; i <= maxFaults; i++ {
+		killNode(t, clusterSize-1-i)
+	}
+	halted := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
+	t.Logf("chain halted at height %d; restarting one validator", halted)
+
+	restartNode(t, clusterSize-1-maxFaults)
+	t.Logf("height after restart: %d", waitForHeightAbove(t, halted, recoveryTimeout))
+
+	// assertAutobahnEnabled greps every running container's log. The restarted
+	// node is among them, and start_sei.sh truncates its log on restart (`>`
+	// not `>>`), so the match on that one container necessarily comes from a
+	// post-restart GigaRouter init — i.e., the restart reached giga setup.
+	assertAutobahnEnabled(t)
 }
 
 type evmOnlyLoadState struct{}
@@ -274,6 +621,7 @@ func testEVMOnlyLoad(t *testing.T) {
 	assertEVMOnlyTransactionCount(t, ctx, clients, block.Txs)
 	assertEVMOnlyChainID(t, ctx, clients)
 	assertEVMOnlyBlockNumber(t, ctx, clients, lastHeight)
+	assertFullnodeExecutedTx(t, block.Txs[0])
 	elapsed := time.Since(started)
 	t.Logf("Autobahn finalized %d raw EVM transfers through %d validators in %s (%.0f tx/s)",
 		included, clusterSize, elapsed.Round(time.Millisecond), float64(included)/elapsed.Seconds())
@@ -395,6 +743,28 @@ func assertEVMOnlyReceipts(t *testing.T, ctx context.Context, clients []*ethrpc.
 			t.Fatalf("node %d returned transaction hash %s, want %s", nodeIndex, got.TransactionHash, txHash)
 		}
 	}
+}
+
+// assertFullnodeExecutedTx requires the fullnode sidecar to serve a receipt for
+// raw. The sidecar proposes nothing, so a receipt there is the observable proof
+// that Autobahn's fullnode role pulled the committee's blocks and executed
+// them. It trails the validators, hence the poll.
+func assertFullnodeExecutedTx(t *testing.T, raw []byte) {
+	t.Helper()
+	tx := new(ethtypes.Transaction)
+	if err := tx.UnmarshalBinary(raw); err != nil {
+		t.Fatalf("decode EVM-only transaction: %v", err)
+	}
+	deadline := time.Now().Add(fullnodeReceiptTimeout)
+	for time.Now().Before(deadline) {
+		response, err := evmRPCInContainer(fullnodeContainer, "eth_getTransactionReceipt", []any{tx.Hash()})
+		if err == nil && response.Error == nil && len(response.Result) > 0 && string(response.Result) != "null" {
+			t.Logf("fullnode %s executed %s", fullnodeContainer, tx.Hash())
+			return
+		}
+		time.Sleep(fullnodeReceiptPoll)
+	}
+	t.Fatalf("fullnode %s served no receipt for %s within %s", fullnodeContainer, tx.Hash(), fullnodeReceiptTimeout)
 }
 
 // assertTendermintRPCDisabled checks that no validator serves Tendermint RPC:
