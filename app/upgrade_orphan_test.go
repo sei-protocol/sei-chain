@@ -13,13 +13,30 @@ import (
 // stays on this list when its history must remain readable at the store level
 // after its module is gone; dropping it instead is application-hash breaking
 // and needs a StoreUpgrades{Deleted} entry at a specific upgrade height.
-var retainedStores = map[string]string{
-	feegrantModuleName:   "module removed in v6.7; allowances kept for historical state access",
-	capabilityModuleName: "module removed in v6.7; capabilities kept for freeze-mode historical state access",
-	transferModuleName:   "module removed in v6.7; transfer state kept for historical state access",
-	storekeys.IBCStoreKey: "module removed in v6.7; client, connection and channel state kept for " +
-		"historical state access",
-	storekeys.OracleStoreKey: "module removed in v6.8; oracle state kept for historical state access",
+var retainedStores = map[string]struct {
+	upgrade string
+	reason  string
+}{
+	feegrantModuleName: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; allowances kept for historical state access",
+	},
+	capabilityModuleName: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; capabilities kept for freeze-mode historical state access",
+	},
+	transferModuleName: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; transfer state kept for historical state access",
+	},
+	storekeys.IBCStoreKey: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; client, connection and channel state kept for historical state access",
+	},
+	storekeys.OracleStoreKey: {
+		upgrade: "v6.8",
+		reason:  "module removed in v6.8; oracle state kept for historical state access",
+	},
 }
 
 // storeKeyOwners names the owning module for the KV stores whose key differs
@@ -60,8 +77,8 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 	// earlier upgrades, which is what a real node upgrading into this release
 	// has in state.
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(ctx)
-	for name := range retainedStores {
-		if name == storekeys.OracleStoreKey {
+	for name, retained := range retainedStores {
+		if retained.upgrade == LatestUpgrade {
 			versionMap[name] = 1
 		}
 	}
@@ -110,10 +127,10 @@ func TestMountedStoresAreOwnedOrExplicitlyRetained(t *testing.T) {
 func TestRetainedStoresRemainMounted(t *testing.T) {
 	testApp := Setup(t, false, false, false)
 
-	for storeKey, reason := range retainedStores {
+	for storeKey, retained := range retainedStores {
 		require.Contains(t, kvStoreKeyNames, storeKey,
-			"%q is declared retained (%s) but is not mounted", storeKey, reason)
+			"%q is declared retained (%s) but is not mounted", storeKey, retained.reason)
 		require.NotNil(t, testApp.GetKey(storeKey),
-			"%q is declared retained (%s) but has no store key", storeKey, reason)
+			"%q is declared retained (%s) but has no store key", storeKey, retained.reason)
 	}
 }

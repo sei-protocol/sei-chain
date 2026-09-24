@@ -102,7 +102,7 @@ func TestV68RejectsOracleTxsWithoutCharging(t *testing.T) {
 	for i, result := range results {
 		require.Equal(t, uint32(retiredoracle.ErrDeprecated.ABCICode()), result.Code)
 		require.Equal(t, retiredoracle.ErrDeprecated.Codespace(), result.Codespace)
-		require.Contains(t, result.Log, ErrDeprecatedText)
+		require.Contains(t, result.Log, retiredoracle.ErrDeprecated.Error())
 		require.Equal(t, before[i], app.BankKeeper.GetBalance(app.Ctx(), signers[i], "usei"))
 	}
 
@@ -114,8 +114,6 @@ func TestV68RejectsOracleTxsWithoutCharging(t *testing.T) {
 		require.Equal(t, retiredoracle.ErrDeprecated.Codespace(), check.Codespace)
 	}
 }
-
-const ErrDeprecatedText = "oracle module is deprecated"
 
 func TestV68OracleAbsentFromExportedGenesis(t *testing.T) {
 	app := newV68Chain(t)
@@ -146,7 +144,7 @@ func TestV68CrossVersion(t *testing.T) {
 			raw := chain.Binary("", "curl", "-sf",
 				"http://127.0.0.1:26657/abci_query?path=%2Fstore%2Foracle%2Fkey")
 			require.NoError(t, raw.Err)
-			require.Contains(t, raw.Combined(), ErrDeprecatedText)
+			require.Contains(t, raw.Combined(), retiredoracle.ErrDeprecated.Error())
 		},
 	)
 }
