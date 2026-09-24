@@ -123,7 +123,11 @@ func mockStateFromJson(ctx sdk.Context, a *app.App, stateRaw json.RawMessage) {
 		if kvStoreKey != nil {
 			storeKey = kvStoreKey
 		} else {
-			storeKey = a.GetMemKey(moduleName)
+			memStoreKey := a.GetMemKey(moduleName)
+			if memStoreKey == nil {
+				continue
+			}
+			storeKey = memStoreKey
 		}
 		store := ctx.KVStore(storeKey)
 		typedData := data.(map[string]interface{})
