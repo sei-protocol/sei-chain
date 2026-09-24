@@ -317,8 +317,7 @@ func TestEVMTransactionPrecompileOutOfGas(t *testing.T) {
 	require.False(t, receipt.PreExecutionFailure)
 	require.Equal(t, gasLimit, receipt.GasUsed)
 	require.Equal(t, uint64(gasPrice), receipt.EffectiveGasPrice)
-	// The receipt joins the VM error with the error the precompile recorded.
-	require.Equal(t, vm.ErrOutOfGas.Error()+"|"+vm.ErrOutOfGas.Error(), receipt.VmError)
+	require.Equal(t, vm.ErrOutOfGas.Error(), receipt.VmError)
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {

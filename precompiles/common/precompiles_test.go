@@ -13,8 +13,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -95,11 +97,15 @@ func TestPrecompileRun(t *testing.T) {
 type MockDynamicGasPrecompileExecutor struct {
 	throw     bool
 	panicWith interface{}
+	writeSlot *ethcommon.Hash
 	evmKeeper utils.EVMKeeper
 }
 
 func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	ctx.EventManager().EmitEvent(sdk.NewEvent("test"))
+	if e.writeSlot != nil {
+		evm.StateDB.SetState(callingContract, *e.writeSlot, ethcommon.HexToHash("0x1"))
+	}
 	if e.panicWith != nil {
 		panic(e.panicWith)
 	}
@@ -139,6 +145,46 @@ func TestDynamicGasPrecompileRun(t *testing.T) {
 
 // TestDynamicGasPrecompileRepanicsNonGas verifies that only gas-meter panics are
 // converted to reverts: a non-gas panic must propagate rather than be masked.
+// TestDynamicGasPrecompileOutOfGasInCallFrame drives the precompile through a real
+// vm.EVM.Call so the frame-level consequences are pinned: the frame's gas is
+// consumed, its state is reverted, and the caller can continue with a further call.
+func TestDynamicGasPrecompileOutOfGasInCallFrame(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	k := &testApp.EvmKeeper
+	ctx := testApp.GetContextForDeliverTx(nil).WithEventManager(sdk.NewEventManager())
+	abiBz, err := os.ReadFile("erc20_abi.json")
+	require.Nil(t, err)
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	require.Nil(t, err)
+	input, err := newAbi.Pack("decimals")
+	require.Nil(t, err)
+
+	precompileAddr := ethcommon.HexToAddress("0x0000000000000000000000000000000000009999")
+	_, caller := testkeeper.MockAddressPair()
+	slot := ethcommon.HexToHash("0xabc")
+	oog := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{panicWith: sdk.ErrorOutOfGas{Descriptor: "executor"}, writeSlot: &slot, evmKeeper: k}, precompileAddr, "test")
+
+	stateDB := state.NewDBImpl(ctx, k, false)
+	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	blockCtx, err := k.GetVMBlockContext(ctx, core.GasPool(1000000))
+	require.Nil(t, err)
+	evm := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, map[ethcommon.Address]vm.PrecompiledContract{precompileAddr: oog})
+
+	ret, leftover, err := evm.Call(caller, precompileAddr, input, 100000, uint256.NewInt(0))
+	require.Nil(t, ret)
+	require.Equal(t, uint64(0), leftover)
+	require.Equal(t, vm.ErrOutOfGas, err)
+	require.Equal(t, ethcommon.Hash{}, stateDB.GetState(caller, slot))
+	require.Empty(t, stateDB.Ctx().EventManager().Events())
+	require.Nil(t, stateDB.Err())
+
+	// The enclosing frame is unaffected and can keep executing.
+	ret, leftover, err = evm.Call(caller, ethcommon.HexToAddress("0x0000000000000000000000000000000000009998"), nil, 50000, uint256.NewInt(0))
+	require.Nil(t, err)
+	require.Nil(t, ret)
+	require.Equal(t, uint64(50000), leftover)
+}
+
 func TestDynamicGasPrecompileRepanicsNonGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
@@ -219,7 +265,7 @@ func TestDynamicGasPrecompileExecutorOutOfGas(t *testing.T) {
 			require.Nil(t, res)
 			require.Equal(t, uint64(0), remainingGas)
 			require.Equal(t, vm.ErrOutOfGas, err)
-			require.Equal(t, vm.ErrOutOfGas, stateDB.GetPrecompileError())
+			require.Nil(t, stateDB.GetPrecompileError())
 			require.Empty(t, stateDB.Ctx().EventManager().Events())
 		})
 	}

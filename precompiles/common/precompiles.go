@@ -156,8 +156,12 @@ func NewDynamicGasPrecompile(a abi.ABI, executor DynamicGasPrecompileExecutor, a
 func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, isFromDelegateCall bool) (ret []byte, remainingGas uint64, err error) {
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
+		if errors.Is(err, vm.ErrOutOfGas) {
+			metrics.IncrementErrorMetrics(operation, err)
+			return
+		}
 		HandlePrecompileError(err, evm, operation)
-		if err != nil && !errors.Is(err, vm.ErrOutOfGas) {
+		if err != nil {
 			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
 			err = vm.ErrExecutionReverted
 		}
@@ -211,11 +215,8 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	return ret, remainingGas, err
 }
 
-// execute runs the executor and reports a gas-meter exhaustion raised inside it
-// as vm.ErrOutOfGas with no remaining gas, so the call frame fails like any
-// other out-of-gas EVM call: the frame's state is reverted and its gas is
-// consumed, while the enclosing transaction completes normally with an
-// accurate receipt. Any panic other than a gas-meter panic is re-raised.
+// execute runs the executor, reporting a gas-meter panic raised inside it as
+// vm.ErrOutOfGas with zero remaining gas. Any other panic is re-raised.
 func (d DynamicGasPrecompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	defer func() {
 		if r := recover(); r != nil {
