@@ -2596,7 +2596,9 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	headNotifier, _ := app.blockHeaderNotifier.Get()
-	if app.evmRPCConfig.HTTPEnabled {
+	// Autobahn serves the node's EVM-only JSON-RPC. Cosmos evmrpc would bind
+	// the same 8545 once Initialized fires (mock-app forwards InitChain).
+	if app.evmRPCConfig.HTTPEnabled && !app.autobahnEnabled {
 		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier, traceCtxProvider)
 		if err != nil {
 			panic(err)
@@ -2610,7 +2612,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		}()
 	}
 
-	if app.evmRPCConfig.WSEnabled {
+	if app.evmRPCConfig.WSEnabled && !app.autobahnEnabled {
 		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.autobahnEnabled, headNotifier)
 		if err != nil {
 			panic(err)

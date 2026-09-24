@@ -941,12 +941,20 @@ func (s *shard) Delete(key []byte) error {
 	return s.Set(key, nil)
 }
 
-// Commit seals the current version; all future updates will be applied to the next version. It also
-// runs the read cache's once-per-block maintenance, whose failure it returns.
-// The version returned is the new version number (for sanity checking), and is returned even alongside
-// an error so the caller can report both.
+// Commit seals the current version, so that all future updates apply to the next one, and runs the
+// read cache's once-per-block maintenance. It returns the version the shard is now on, which the
+// caller checks against its own, alongside any error.
+//
+// A shard that is out of service seals nothing and reports why, leaving its version unchanged. The
+// check sits under the seal's own lock because a check that releases the lock first is one a shard
+// can fall out of service behind.
 func (s *shard) Commit() (uint64, error) {
 	s.lock.Lock()
+
+	if err := s.cache.ErrIfOutOfServiceRLocked(); err != nil {
+		s.lock.Unlock()
+		return s.currentVersion, fmt.Errorf("seal version %d: %w", s.currentVersion, err)
+	}
 
 	sealedVersion := s.currentVersion
 	newVersion := s.currentVersion + 1
