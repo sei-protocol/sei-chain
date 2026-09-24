@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/big"
 	"sort"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -64,6 +65,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 
 	results := make([]occTxExecution, len(req.Txs))
 	chunkSize := occChunkSize(len(req.Txs), workers)
+	e.blockPhases.SetPhase("occ_speculate")
 	if err := runner.runRanges(ctx, executionPool, occRanges(len(req.Txs), chunkSize), source, runner.blockGasLimit, results); err != nil {
 		if errors.Is(err, errOCCWorkerPoolClosed) {
 			return e.executeBlockOCCSequentialFallback(ctx, req, source, occValidationResult{}, occFallbackReasonWorkerPoolClosed)
@@ -71,6 +73,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 		return nil, err
 	}
 
+	e.blockPhases.SetPhase("occ_validate")
 	results, finalState, validation, err := e.validateBlockSTM(ctx, runner, executionPool, source, results)
 	if errors.Is(err, errOCCMaxIncarnation) || errors.Is(err, errOCCWorkerPoolClosed) {
 		reason := validation.fallbackReason
@@ -85,6 +88,7 @@ func (e *Executor) executeBlockOCC(ctx context.Context, req PreparedBlock, sourc
 	if err != nil {
 		return nil, err
 	}
+	e.blockPhases.SetPhase("occ_merge")
 	result, err := e.mergeOCCResults(ctx, results, finalState)
 	if err != nil {
 		return nil, err
@@ -566,7 +570,91 @@ func (k stateAccessKind) String() string {
 	}
 }
 
+// minPrefetchedAccounts is the point below which resolving rows across the pool costs more in
+// waking workers than the serial reads it saves.
+const minPrefetchedAccounts = 256
+
+// prefetchBaseAccounts resolves, across the worker pool, the account rows the merge will compare
+// against, leaving them for ChangeSetInto to find already read.
+//
+// The merge is the block's largest serial phase and most of it is these reads, one address at a
+// time. They are independent and read-only, and the OCC workers already read this view
+// concurrently during speculation.
+func (s *blockSTMState) prefetchBaseAccounts(ctx context.Context, pool *occWorkerPool) {
+	if pool == nil {
+		return
+	}
+	reader, ok := s.source.(accountSnapshotReader)
+	if !ok {
+		return
+	}
+	addrs := s.touchedAccounts()
+	if len(addrs) < minPrefetchedAccounts {
+		return
+	}
+
+	snapshots := make([]accountSnapshot, len(addrs))
+	served := make([]bool, len(addrs))
+	var next atomic.Int64
+	// A failure here only leaves rows unread, which the merge then reads itself.
+	_ = pool.Run(ctx, len(addrs), func(workerCtx context.Context, _ int, _ int) error {
+		for {
+			i := int(next.Add(1)) - 1
+			if i >= len(addrs) {
+				return nil
+			}
+			if err := workerCtx.Err(); err != nil {
+				return err
+			}
+			if snapshot, hit := reader.ReadAccount(addrs[i]); hit {
+				snapshots[i] = snapshot
+				served[i] = true
+			}
+		}
+	})
+
+	s.prefetched = make(map[common.Address]accountSnapshot, len(addrs))
+	for i, addr := range addrs {
+		if served[i] {
+			s.prefetched[addr] = snapshots[i]
+		}
+	}
+}
+
+// touchedAccounts returns each address the block wrote a balance, nonce, or code for, once.
+func (s *blockSTMState) touchedAccounts() []common.Address {
+	addrs := make([]common.Address, 0, len(s.balances)+len(s.nonces)+len(s.code))
+	seen := make(map[common.Address]struct{}, len(s.balances)+len(s.nonces)+len(s.code))
+	for _, set := range []func(func(common.Address)){
+		func(yield func(common.Address)) {
+			for addr := range s.balances {
+				yield(addr)
+			}
+		},
+		func(yield func(common.Address)) {
+			for addr := range s.nonces {
+				yield(addr)
+			}
+		},
+		func(yield func(common.Address)) {
+			for addr := range s.code {
+				yield(addr)
+			}
+		},
+	} {
+		set(func(addr common.Address) {
+			if _, dup := seen[addr]; dup {
+				return
+			}
+			seen[addr] = struct{}{}
+			addrs = append(addrs, addr)
+		})
+	}
+	return addrs
+}
+
 func (e *Executor) mergeOCCResults(ctx context.Context, results []occTxExecution, finalState *blockSTMState) (*BlockResult, error) {
+	finalState.prefetchBaseAccounts(ctx, e.occPool)
 	blockResult, err := e.acquireBlockResult(ctx, len(results))
 	if err != nil {
 		return nil, err
@@ -595,6 +683,9 @@ type blockSTMState struct {
 	code          map[common.Address][]byte
 	storageClears map[common.Address]struct{}
 	storage       map[storageChangeKey]common.Hash
+
+	// Account rows resolved ahead of the merge by prefetchBaseAccounts, or nil when it did not run.
+	prefetched map[common.Address]accountSnapshot
 }
 
 func newBlockSTMState(source StateReader) *blockSTMState {
@@ -683,19 +774,72 @@ func (s *blockSTMState) ChangeSet() StateChangeSet {
 	return changes
 }
 
+// baseAccounts serves an account's pre-block fields, reading the row once however many fields a
+// caller asks for. It is scoped to one merge and is not safe for concurrent use.
+type baseAccounts struct {
+	source StateReader
+	reader accountSnapshotReader
+	seen   map[common.Address]accountSnapshot
+}
+
+func newBaseAccounts(source StateReader, prefetched map[common.Address]accountSnapshot) *baseAccounts {
+	seen := prefetched
+	if seen == nil {
+		seen = map[common.Address]accountSnapshot{}
+	}
+	b := &baseAccounts{source: source, seen: seen}
+	b.reader, _ = source.(accountSnapshotReader)
+	return b
+}
+
+func (b *baseAccounts) get(addr common.Address) accountSnapshot {
+	if snapshot, ok := b.seen[addr]; ok {
+		return snapshot
+	}
+	var snapshot accountSnapshot
+	if b.reader != nil {
+		if read, served := b.reader.ReadAccount(addr); served {
+			snapshot = read
+			b.seen[addr] = snapshot
+			return snapshot
+		}
+	}
+	snapshot = accountSnapshot{
+		Balance: b.source.GetBalance(addr),
+		Nonce:   b.source.GetNonce(addr),
+		Code:    b.source.GetCode(addr),
+	}
+	b.seen[addr] = snapshot
+	return snapshot
+}
+
+func (b *baseAccounts) balance(addr common.Address) *big.Int {
+	if balance := b.get(addr).Balance; balance != nil {
+		return balance
+	}
+	return new(big.Int)
+}
+
+func (b *baseAccounts) nonce(addr common.Address) uint64 { return b.get(addr).Nonce }
+func (b *baseAccounts) code(addr common.Address) []byte  { return b.get(addr).Code }
+
 func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 	changes.resetForReuse()
+	// The three loops below each compare against the same accounts, and balance, nonce and code hash
+	// share one row. Reading per field would resolve that row three times per address, on the one
+	// goroutine a block's merge runs on.
+	base := newBaseAccounts(s.source, s.prefetched)
 	balanceAddrs := sortedAddressesFromBigMap(s.balances)
 	for _, addr := range balanceAddrs {
 		balance := cloneBig(s.balances[addr])
-		if balance.Cmp(s.source.GetBalance(addr)) == 0 {
+		if balance.Cmp(base.balance(addr)) == 0 {
 			continue
 		}
 		changes.Balances = append(changes.Balances, BalanceChange{Address: addr, Balance: balance})
 	}
 	nonceAddrs := sortedAddressesFromUint64Map(s.nonces)
 	for _, addr := range nonceAddrs {
-		if s.nonces[addr] == s.source.GetNonce(addr) {
+		if s.nonces[addr] == base.nonce(addr) {
 			continue
 		}
 		changes.Nonces = append(changes.Nonces, NonceChange{Address: addr, Nonce: s.nonces[addr]})
@@ -703,7 +847,7 @@ func (s *blockSTMState) ChangeSetInto(changes *StateChangeSet) {
 	codeAddrs := sortedAddressesFromBytesMap(s.code)
 	for _, addr := range codeAddrs {
 		code := cloneBytes(s.code[addr])
-		if bytes.Equal(code, s.source.GetCode(addr)) {
+		if bytes.Equal(code, base.code(addr)) {
 			continue
 		}
 		changes.Code = append(changes.Code, CodeChange{Address: addr, Code: code, Delete: len(code) == 0})

@@ -1114,7 +1114,36 @@ func (s *nativeStateDB) finaliseTxStorage() {
 	clear(s.txStorageClears)
 }
 
+// accountSnapshot is an account's fields read together, for a source that can serve them from one
+// row rather than one lookup per field.
+type accountSnapshot struct {
+	Balance *big.Int
+	Nonce   uint64
+	Code    []byte
+}
+
+// accountSnapshotReader is an optional StateReader capability, reading an account in one go. The
+// per-field accessors each re-resolve the same row, which dominates what a transaction spends on
+// state.
+type accountSnapshotReader interface {
+	ReadAccount(common.Address) (accountSnapshot, bool)
+}
+
 func (s *nativeStateDB) loadAccount(addr common.Address) *nativeAccount {
+	if reader, ok := s.source.(accountSnapshotReader); ok {
+		if snapshot, served := reader.ReadAccount(addr); served {
+			balance, err := uint256FromBig(snapshot.Balance)
+			if err != nil && s.err == nil {
+				s.err = err
+			}
+			return &nativeAccount{
+				Balance: balance,
+				Nonce:   snapshot.Nonce,
+				Code:    snapshot.Code,
+				Storage: map[common.Hash]storageValue{},
+			}
+		}
+	}
 	balance, err := uint256FromBig(s.source.GetBalance(addr))
 	if err != nil && s.err == nil {
 		s.err = err

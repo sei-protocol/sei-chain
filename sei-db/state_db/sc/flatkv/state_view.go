@@ -120,6 +120,24 @@ func (v *flatKVStateView) GetCodeHash(addr gigatypes.Address) gigatypes.Hash {
 	return codeHash
 }
 
+// ReadAccount returns addr's row fields in one read, satisfying gigatypes.AccountReader.
+func (v *flatKVStateView) ReadAccount(addr gigatypes.Address) (gigatypes.AccountSnapshot, bool) {
+	account, ok := v.accountRow(addr)
+	if !ok {
+		return gigatypes.AccountSnapshot{}, false
+	}
+	codeHash := gigatypes.Hash(account.CodeHash())
+	if codeHash == (gigatypes.Hash{}) {
+		// The row exists, so some field is non-zero and it is not this one: no code. See GetCodeHash.
+		codeHash = gigatypes.EmptyCodeHash
+	}
+	return gigatypes.AccountSnapshot{
+		Balance:  gigatypes.Hash(account.Balance()),
+		Nonce:    account.Nonce(),
+		CodeHash: codeHash,
+	}, true
+}
+
 // GetStorage returns the value at key in addr's storage, or the zero hash when the slot is unset.
 func (v *flatKVStateView) GetStorage(addr gigatypes.Address, key gigatypes.Hash) gigatypes.Hash {
 	raw, found := v.readEVMRow(v.blockView.StorageView(), keys.EVMKeyStorage, addr[:], key[:])

@@ -15,9 +15,14 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
+	seidbmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
+	"go.opentelemetry.io/otel"
 )
+
+// executorMeterName is the OTel meter this package's instruments are created on.
+const executorMeterName = "evmonly_executor"
 
 // Executor runs raw EVM transactions against snapshots from a giga store.
 type Executor struct {
@@ -32,6 +37,19 @@ type Executor struct {
 	changeSetEncoder NamedChangeSetEncoder
 	missingState     StateReader
 	closed           atomic.Bool
+
+	// Breaks a store-backed block into its stages. That path is serialized by storeMu, so one timer
+	// serves the executor.
+	blockPhases *seidbmetrics.PhaseTimer
+
+	// The commit running behind the current block, and what it will write. A block reads the latter
+	// through an overlay so it need not wait for the former.
+	pipelineMu      sync.Mutex
+	pipelineDone    chan struct{}
+	pipelineErr     error
+	pipelineChanges *StateChangeSet
+	// The first commit that failed, kept so no caller can miss it.
+	pipelineFailure error
 }
 
 type Option func(*Executor)
@@ -54,8 +72,9 @@ func WithMissingAccountState(state StateReader) Option {
 // execution on this executor.
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
-		cfg:        cfg.WithDefaults(),
-		resultPool: newBlockResultPool(cfg.BlockResultPoolSize),
+		cfg:         cfg.WithDefaults(),
+		resultPool:  newBlockResultPool(cfg.BlockResultPoolSize),
+		blockPhases: seidbmetrics.NewPhaseTimer(otel.Meter(executorMeterName), "evmonly_block"),
 	}
 	if e.cfg.OCCWorkers > 1 {
 		e.occPool = newOCCWorkerPool(e.cfg.OCCWorkers)
@@ -71,6 +90,9 @@ func (e *Executor) Close() {
 		return
 	}
 	e.closed.Store(true)
+	// Land the commit running behind the last block before the pool it may need goes away. The
+	// failure is kept rather than reported, for the next AwaitCommits to return.
+	_ = e.awaitPipelineCommit()
 	if e.occPool != nil {
 		e.occPool.Close()
 	}
@@ -87,12 +109,45 @@ func (e *Executor) ResultPoolStats() BlockResultPoolStats {
 	return e.resultPool.stats()
 }
 
+// waitingForBlockPhase names time an executor loop spends blocked with nothing to run. It is part
+// of the phase totals so they account for the loop's whole wall time.
+const waitingForBlockPhase = "waiting_for_block"
+
+// MarkWaitingForBlock records that the caller's loop is about to block waiting for a block to
+// arrive. The next ExecutePreparedBlock ends the phase.
+//
+// Without it the phase totals only cover time inside a block, and so describe a share of the work
+// rather than a share of the clock.
+//
+// An executor keeps one phase timer, and that timer is not safe for concurrent use: calling this
+// from any goroutine other than the one that drives ExecutePreparedBlock is a data race, not just
+// a muddled measurement.
+func (e *Executor) MarkWaitingForBlock() {
+	if e == nil {
+		return
+	}
+	e.blockPhases.SetPhase(waitingForBlockPhase)
+}
+
+// ExecuteBlock prepares and executes a block, and returns once its state is committed.
+//
+// It is the synchronous entry point. A caller feeding blocks continuously should prepare and
+// execute in separate stages instead, where ExecutePreparedBlock leaves the commit running behind
+// the next block rather than waiting for it here.
 func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
 	prepared, err := e.PrepareBlock(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return e.ExecutePreparedBlock(ctx, prepared)
+	result, err := e.ExecutePreparedBlock(ctx, prepared)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.AwaitCommits(); err != nil {
+		result.Release()
+		return nil, err
+	}
+	return result, nil
 }
 
 func (e *Executor) PrepareBlock(ctx context.Context, req BlockRequest) (PreparedBlock, error) {
