@@ -28,6 +28,17 @@ import (
 // Admission and block validity both price against it, so they cannot diverge.
 func evmOnlyBaseFee() *big.Int { return new(big.Int) }
 
+// evmOnlyBlockMinGasPrice is the effective gas price, in wei, below which a
+// transaction invalidates the block containing it. Every node must agree on
+// it, so it is not an operator setting.
+const evmOnlyBlockMinGasPrice = 1_000_000_000
+
+// evmOnlyAdmissionMinGasPrice returns the local admission floor for a configured
+// value, never below the block-validity floor.
+func evmOnlyAdmissionMinGasPrice(configured uint64) *big.Int {
+	return new(big.Int).SetUint64(max(configured, evmOnlyBlockMinGasPrice))
+}
+
 var evmOnlyBaseBalance = new(big.Int).Lsh(big.NewInt(1), 200)
 
 // checkedSendersCap bounds the senders remembered from CheckTx per generation.
@@ -122,7 +133,7 @@ func NewEVMOnlyApplication(
 		chainID:          new(big.Int).SetUint64(chainID),
 		chainConfig:      &chainConfig,
 		execution:        execution,
-		minGasPrice:      new(big.Int).SetUint64(execution.MinGasPrice),
+		minGasPrice:      evmOnlyAdmissionMinGasPrice(execution.MinGasPrice),
 		storage:          storage,
 		changeSetEncoder: changeSetEncoder,
 		validators:       slices.Clone(validators),
@@ -148,7 +159,7 @@ func (a *evmOnlyApplication) InitChain(req *abci.RequestInitChain) (*abci.Respon
 		}
 		state.executor = utils.Some(evmonly.NewExecutor(evmonly.Config{
 			ChainConfig:         a.chainConfig,
-			MinGasPrice:         a.minGasPrice,
+			MinGasPrice:         big.NewInt(evmOnlyBlockMinGasPrice),
 			OCCWorkers:          workersOrGOMAXPROCS(a.execution.OCCWorkers),
 			ParseWorkers:        workersOrGOMAXPROCS(a.execution.ParseWorkers),
 			BlockResultPoolSize: a.execution.BlockResultPoolSize,

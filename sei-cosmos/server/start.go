@@ -362,9 +362,11 @@ func startInProcess(
 				gen = genDoc
 			}
 		}
-		gigaCfg, err := gigaconfig.ReadConfig(ctx.Viper)
-		if err != nil {
-			return fmt.Errorf("read [giga] config: %w", err)
+		gigaCfg := gigaconfig.DefaultConfig
+		if ctx.Config.AutobahnConfigFile != "" {
+			if gigaCfg, err = gigaconfig.ReadConfig(ctx.Viper); err != nil {
+				return fmt.Errorf("read [giga] config: %w", err)
+			}
 		}
 		tmNode, err := node.New(
 			goCtx,

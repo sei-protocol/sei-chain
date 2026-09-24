@@ -81,7 +81,7 @@ func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	validator := makeValidator([]byte("exec-validator"), []byte("exec-node"), "localhost:26660")
 	autobahnConfigFile := writeAutobahnConfig(t, defaultFileConfig(t, []config.AutobahnValidator{validator}))
 	giga := gigaconfig.DefaultConfig
-	giga.Execution.MinGasPrice = 12345
+	giga.Execution.MinGasPrice = 2_000_000_000
 
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
 		BaseConfig:         config.BaseConfig{FastCheckTx: true},
@@ -94,5 +94,5 @@ func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 
 	provider, ok := prepared.(interface{ EvmMinGasPrice() *big.Int })
 	require.True(t, ok)
-	require.Equal(t, 0, provider.EvmMinGasPrice().Cmp(big.NewInt(12345)))
+	require.Equal(t, 0, provider.EvmMinGasPrice().Cmp(big.NewInt(2_000_000_000)))
 }

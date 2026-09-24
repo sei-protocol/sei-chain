@@ -89,6 +89,15 @@ func newInitializedEVMOnlyTestApp(t *testing.T) abci.Application {
 
 func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.Application {
 	t.Helper()
+	return newEVMOnlyTestAppWithExecution(t, validators, gigaconfig.DefaultConfig.Execution)
+}
+
+func newEVMOnlyTestAppWithExecution(
+	t *testing.T,
+	validators []abci.ValidatorUpdate,
+	execution gigaconfig.ExecutionConfig,
+) abci.Application {
+	t.Helper()
 	storageConfig, err := seidbconfig.AutobahnStorageConfig(t.TempDir())
 	require.NoError(t, err)
 	storage, err := bootstrap.NewGigaStorageManager(t.Context(), storageConfig)
@@ -99,7 +108,7 @@ func newEVMOnlyTestApp(t *testing.T, validators []abci.ValidatorUpdate) abci.App
 		validators,
 		storage,
 		evmonly.NewFlatKVChangeSetEncoder(storage.SC()),
-		gigaconfig.DefaultConfig.Execution,
+		execution,
 	)
 }
 
@@ -377,6 +386,51 @@ func TestEVMOnlyApplicationEvmMinGasPrice(t *testing.T) {
 	minGasPricer, ok := app.(evmMinGasPricer)
 	require.True(t, ok)
 	require.Equal(t, big.NewInt(evmOnlyMinGasPrice), minGasPricer.EvmMinGasPrice())
+}
+
+// A node whose operator raised the admission floor must still execute a block
+// that a node on the default floor proposed, and one that lowered it must not
+// admit what the block would refuse.
+func TestEVMOnlyApplicationMinGasPriceIsAdmissionOnly(t *testing.T) {
+	raw, _ := signedEVMOnlyTestTx(t, evmOnlyTestChainID, 0)
+	block := &abci.RequestFinalizeBlock{
+		Txs:  [][]byte{raw},
+		Hash: crypto.Keccak256([]byte("block-1")),
+		Header: &tmproto.Header{
+			Height: 1,
+			Time:   time.Unix(1_700_000_001, 0),
+		},
+	}
+	initChain := func(app abci.Application) {
+		_, err := app.InitChain(&abci.RequestInitChain{
+			InitialHeight: 1,
+			ConsensusParams: &tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{MaxGas: 30_000_000},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	proposer := newInitializedEVMOnlyTestApp(t)
+	require.True(t, proposer.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).IsOK())
+	proposed, err := proposer.FinalizeBlock(t.Context(), block)
+	require.NoError(t, err)
+
+	raised := gigaconfig.DefaultConfig.Execution
+	raised.MinGasPrice = 2 * evmOnlyMinGasPrice
+	strict := newEVMOnlyTestAppWithExecution(t, nil, raised)
+	initChain(strict)
+	require.Equal(t, big.NewInt(2*evmOnlyMinGasPrice), strict.(evmMinGasPricer).EvmMinGasPrice())
+	require.False(t, strict.CheckTx(t.Context(), &abci.RequestCheckTxV2{Tx: raw}).IsOK())
+	followed, err := strict.FinalizeBlock(t.Context(), block)
+	require.NoError(t, err)
+	require.Equal(t, proposed.AppHash, followed.AppHash)
+
+	lowered := gigaconfig.DefaultConfig.Execution
+	lowered.MinGasPrice = 1
+	lax := newEVMOnlyTestAppWithExecution(t, nil, lowered)
+	initChain(lax)
+	require.Equal(t, big.NewInt(evmOnlyMinGasPrice), lax.(evmMinGasPricer).EvmMinGasPrice())
 }
 
 func TestEVMOnlyApplicationServesDeployedCode(t *testing.T) {
