@@ -45,7 +45,6 @@ type StakingKeeper interface {
 	BondDenom(sdk.Context) string
 	ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator
 	ValidatorQueueIterator(sdk.Context, time.Time, int64) sdk.Iterator
-	GetUnbondingValidators(sdk.Context, time.Time, int64) []string
 	GetValidator(sdk.Context, sdk.ValAddress) (stakingtypes.Validator, bool)
 	GetBondedPool(sdk.Context) authtypes.ModuleAccountI
 	GetNotBondedPool(sdk.Context) authtypes.ModuleAccountI
@@ -304,12 +303,12 @@ func (r *Reporter) jailedValidators(ctx sdk.Context, b *builder) []stakingtypes.
 	iter := r.keepers.Staking.ValidatorQueueIterator(ctx, queueEnd, math.MaxInt64)
 	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
-		endTime, endHeight, err := stakingtypes.ParseValidatorQueueKey(iter.Key())
-		if err != nil {
+		var slot stakingtypes.ValAddresses
+		if err := slot.Unmarshal(iter.Value()); err != nil {
 			b.errs = append(b.errs, fmt.Errorf("unbonding validator queue: %w", err))
 			continue
 		}
-		for _, bech := range r.keepers.Staking.GetUnbondingValidators(ctx, endTime, endHeight) {
+		for _, bech := range slot.Addresses {
 			if len(validators) == maxValidators {
 				b.errs = append(b.errs, fmt.Errorf("jailed validators truncated at %d entries", maxValidators))
 				return validators

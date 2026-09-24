@@ -59,8 +59,9 @@ func (f *fakeStaking) BondDenom(sdk.Context) string {
 	return testDenom
 }
 
-// ValidatorsPowerStoreIterator yields the unjailed validators' operator addresses, highest tokens
-// first, like the staking power index.
+// ValidatorsPowerStoreIterator walks the unjailed validators the way the staking power index
+// does: keyed by consensus power then inverted operator address, highest key first, with the
+// operator address as the value.
 func (f *fakeStaking) ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator {
 	var byPower []stakingtypes.Validator
 	for _, v := range f.validators {
@@ -68,36 +69,46 @@ func (f *fakeStaking) ValidatorsPowerStoreIterator(sdk.Context) sdk.Iterator {
 			byPower = append(byPower, v)
 		}
 	}
-	sort.SliceStable(byPower, func(i, j int) bool { return byPower[i].Tokens.GT(byPower[j].Tokens) })
+	sort.SliceStable(byPower, func(i, j int) bool {
+		return bytes.Compare(stakingtypes.GetValidatorsByPowerIndexKey(byPower[i], sdk.DefaultPowerReduction),
+			stakingtypes.GetValidatorsByPowerIndexKey(byPower[j], sdk.DefaultPowerReduction)) > 0
+	})
 	it := &fakeIterator{}
 	for _, v := range byPower {
+		it.keys = append(it.keys, stakingtypes.GetValidatorsByPowerIndexKey(v, sdk.DefaultPowerReduction))
 		it.values = append(it.values, v.GetOperator())
 	}
 	return it
 }
 
-// ValidatorQueueIterator yields one queue key per unbonding completion slot, like the staking
-// unbonding validator queue; jailed validators that are not unbonding are, as on chain, absent.
+// ValidatorQueueIterator yields one entry per unbonding completion slot holding the slot's
+// validator addresses, like the staking unbonding validator queue; jailed validators that are
+// not unbonding are, as on chain, absent.
 func (f *fakeStaking) ValidatorQueueIterator(sdk.Context, time.Time, int64) sdk.Iterator {
-	it := &fakeIterator{}
-	seen := map[string]bool{}
+	slots := map[string]*stakingtypes.ValAddresses{}
+	var keys []string
 	for _, v := range f.validators {
-		key := stakingtypes.GetValidatorQueueKey(v.UnbondingTime, v.UnbondingHeight)
-		if v.IsUnbonding() && !seen[string(key)] {
-			seen[string(key)] = true
-			it.values = append(it.values, key)
+		if !v.IsUnbonding() {
+			continue
 		}
+		key := string(stakingtypes.GetValidatorQueueKey(v.UnbondingTime, v.UnbondingHeight))
+		if slots[key] == nil {
+			slots[key] = &stakingtypes.ValAddresses{}
+			keys = append(keys, key)
+		}
+		slots[key].Addresses = append(slots[key].Addresses, v.OperatorAddress)
+	}
+	sort.Strings(keys)
+	it := &fakeIterator{}
+	for _, key := range keys {
+		bz, err := slots[key].Marshal()
+		if err != nil {
+			panic(err)
+		}
+		it.keys = append(it.keys, []byte(key))
+		it.values = append(it.values, bz)
 	}
 	return it
-}
-func (f *fakeStaking) GetUnbondingValidators(_ sdk.Context, endTime time.Time, endHeight int64) []string {
-	var addrs []string
-	for _, v := range f.validators {
-		if v.IsUnbonding() && v.UnbondingTime.Equal(endTime) && v.UnbondingHeight == endHeight {
-			addrs = append(addrs, v.OperatorAddress)
-		}
-	}
-	return addrs
 }
 func (f *fakeStaking) GetValidator(_ sdk.Context, addr sdk.ValAddress) (stakingtypes.Validator, bool) {
 	for _, v := range f.validators {
@@ -134,6 +145,7 @@ func (f *fakeStaking) GetRedelegations(_ sdk.Context, d sdk.AccAddress, limit ui
 }
 
 type fakeIterator struct {
+	keys   [][]byte
 	values [][]byte
 	i      int
 }
@@ -141,7 +153,7 @@ type fakeIterator struct {
 func (it *fakeIterator) Domain() ([]byte, []byte) { return nil, nil }
 func (it *fakeIterator) Valid() bool              { return it.i < len(it.values) }
 func (it *fakeIterator) Next()                    { it.i++ }
-func (it *fakeIterator) Key() []byte              { return it.values[it.i] }
+func (it *fakeIterator) Key() []byte              { return it.keys[it.i] }
 func (it *fakeIterator) Value() []byte            { return it.values[it.i] }
 func (it *fakeIterator) Error() error             { return nil }
 func (it *fakeIterator) Close() error             { return nil }
@@ -380,13 +392,14 @@ func TestReadLogsTruncatedWalletEntries(t *testing.T) {
 	require.NotNil(t, c.snapshot.Load(), "a truncated read must still publish a snapshot")
 }
 
-// manyValidators returns n validators with distinct operator addresses and tokens n..1, so the
-// address order and the power order disagree. Jailed ones are unbonding, each at its own height.
+// manyValidators returns n validators with distinct operator addresses and consensus power n..1,
+// so the address order and the power order disagree. Jailed ones are unbonding, each at its own
+// height.
 func manyValidators(t *testing.T, n int, jailed bool) []stakingtypes.Validator {
 	t.Helper()
 	validators := make([]stakingtypes.Validator, 0, n)
 	for i := range n {
-		v := newValidator(t, 1, int64(n-i), stakingtypes.Unbonded)
+		v := newValidator(t, 1, int64(n-i)*sdk.DefaultPowerReduction.Int64(), stakingtypes.Unbonded)
 		if jailed {
 			v.Jailed = true
 			v.Status = stakingtypes.Unbonding
