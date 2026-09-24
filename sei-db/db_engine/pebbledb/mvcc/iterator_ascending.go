@@ -13,6 +13,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
@@ -60,7 +61,7 @@ func newAscendingIterator(
 ) *ascendingIterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &ascendingIterator{
+		itr := &ascendingIterator{
 			source:           src,
 			prefix:           prefix,
 			start:            mvccStart,
@@ -73,6 +74,9 @@ func newAscendingIterator(
 			dbName:           dbName,
 			ctx:              ctx,
 		}
+		utils.MustCloseE(itr, "mvcc ascending iterator",
+			(*ascendingIterator).isClosed, (*ascendingIterator).Close)
+		return itr
 	}
 
 	// move the underlying PebbleDB iterator to the first key
@@ -96,6 +100,7 @@ func newAscendingIterator(
 		dbName:           dbName,
 		ctx:              ctx,
 	}
+	utils.MustCloseE(itr, "mvcc ascending iterator", (*ascendingIterator).isClosed, (*ascendingIterator).Close)
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -438,4 +443,8 @@ func (itr *ascendingIterator) cursorTombstoned() bool {
 	}
 
 	return true
+}
+
+func (itr *ascendingIterator) isClosed() bool {
+	return itr.source == nil
 }

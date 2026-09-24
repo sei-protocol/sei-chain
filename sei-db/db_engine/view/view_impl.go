@@ -59,6 +59,14 @@ func (s *viewImpl) Release() error {
 	return nil
 }
 
+func (s *viewImpl) isReleased() bool {
+	return s.parentManager.isVersionReleased(s.version)
+}
+
+func (s *viewImpl) releaseAll() error {
+	return s.parentManager.releaseAllReservations(s.version)
+}
+
 func (s *viewImpl) Finalize(writes []*proto.KVPair) error {
 	return s.parentManager.FinalizeView(s.version, writes)
 }

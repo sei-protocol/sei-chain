@@ -14,6 +14,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -99,12 +100,14 @@ func Open(
 		metricsCancel = NewPebbleMetrics(db, filepath.Base(config.DataDir), config.MetricsScrapeInterval)
 	}
 
-	return &pebbleDB{
+	p := &pebbleDB{
 		db:               db,
 		metricsCancel:    metricsCancel,
 		operationMetrics: NewOperationMetrics(config.EnableReadWriteMetrics, filepath.Base(config.DataDir)),
 		commitMetrics:    NewCommitMetrics(config.EnableMetrics, filepath.Base(config.DataDir)),
-	}, nil
+	}
+	utils.MustCloseE(p, "pebbledb", (*pebbleDB).isClosed, (*pebbleDB).Close)
+	return p, nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
@@ -217,6 +220,10 @@ func (p *pebbleDB) Close() error {
 	p.db = nil
 
 	return db.Close()
+}
+
+func (p *pebbleDB) isClosed() bool {
+	return p.db == nil
 }
 
 func toPebbleWriteOpts(opts types.WriteOptions) *pebble.WriteOptions {

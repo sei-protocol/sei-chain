@@ -21,6 +21,9 @@ type flatKVStateView struct {
 
 	// Guards the release, so a second Close does not release a reservation this view no longer owns.
 	closeOnce sync.Once
+
+	// Set by Close.
+	closed bool
 }
 
 // GetBlockHeight returns the block height of this view.
@@ -32,10 +35,15 @@ func (v *flatKVStateView) GetBlockHeight() int64 {
 // Idempotent.
 func (v *flatKVStateView) Close() {
 	v.closeOnce.Do(func() {
+		v.closed = true
 		if err := v.blockView.Release(); err != nil {
 			panic(fmt.Sprintf("flatkv: close state view at height %d: %v", v.blockView.BlockHeight(), err))
 		}
 	})
+}
+
+func (v *flatKVStateView) isClosed() bool {
+	return v.closed
 }
 
 func (v *flatKVStateView) Get(module string, key []byte) ([]byte, bool) {

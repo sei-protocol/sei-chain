@@ -3,6 +3,7 @@ package disktable
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
@@ -49,11 +50,13 @@ type reverseIterator struct {
 // newReverseIterator creates a reverse iterator over the given snapshot of sealed segments, owned by a
 // live table.
 func newReverseIterator(table *DiskTable, segs []*segment.Segment) *reverseIterator {
-	return &reverseIterator{
+	it := &reverseIterator{
 		onClose: closeLiveIterator(table, segs),
 		segs:    segs,
 		segPos:  len(segs) - 1,
 	}
+	utils.MustCloseE(it, "littdb reverse iterator", (*reverseIterator).isClosed, (*reverseIterator).Close)
+	return it
 }
 
 // newReverseIteratorAt creates a reverse iterator over the given snapshot positioned so that the first
@@ -67,20 +70,22 @@ func newReverseIteratorAt(
 	keys []*types.ScopedKey,
 	keyPos int,
 ) *reverseIterator {
-	return &reverseIterator{
+	it := &reverseIterator{
 		onClose: closeLiveIterator(table, segs),
 		segs:    segs,
 		segPos:  segPos,
 		keys:    keys,
 		keyPos:  keyPos,
 	}
+	utils.MustCloseE(it, "littdb reverse iterator", (*reverseIterator).isClosed, (*reverseIterator).Close)
+	return it
 }
 
 // NewOfflineReverseIterator creates a reverse iterator over the given snapshot of segments, gathered
 // directly from disk rather than from a live table. release is called once, by Close, in place of the
 // live path's segment-reservation release and control-loop notification.
 func NewOfflineReverseIterator(segs []*segment.Segment, release func()) litt.Iterator {
-	return &reverseIterator{
+	it := &reverseIterator{
 		onClose: func() error {
 			release()
 			return nil
@@ -88,6 +93,8 @@ func NewOfflineReverseIterator(segs []*segment.Segment, release func()) litt.Ite
 		segs:   segs,
 		segPos: len(segs) - 1,
 	}
+	utils.MustCloseE(it, "littdb reverse iterator", (*reverseIterator).isClosed, (*reverseIterator).Close)
+	return it
 }
 
 // Next advances the iterator to the next key in reverse insertion order.
@@ -169,4 +176,8 @@ func (it *reverseIterator) Close() error {
 	closeErr := it.onClose()
 	it.segs = nil
 	return closeErr
+}
+
+func (it *reverseIterator) isClosed() bool {
+	return it.closed
 }

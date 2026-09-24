@@ -14,6 +14,7 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
@@ -75,7 +76,7 @@ func newPebbleDBIterator(
 ) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &iterator{
+		itr := &iterator{
 			source:             src,
 			prefix:             prefix,
 			start:              mvccStart,
@@ -89,6 +90,8 @@ func newPebbleDBIterator(
 			dbName:             dbName,
 			ctx:                ctx,
 		}
+		utils.MustCloseE(itr, "mvcc iterator", (*iterator).isClosed, (*iterator).Close)
+		return itr
 	}
 
 	// move the underlying PebbleDB iterator to the first key
@@ -113,6 +116,7 @@ func newPebbleDBIterator(
 		dbName:             dbName,
 		ctx:                ctx,
 	}
+	utils.MustCloseE(itr, "mvcc iterator", (*iterator).isClosed, (*iterator).Close)
 
 	if valid {
 		currKey, _, ok := SplitMVCCKey(itr.source.Key())
@@ -498,4 +502,8 @@ func (itr *iterator) DebugRawIterate() {
 			continue
 		}
 	}
+}
+
+func (itr *iterator) isClosed() bool {
+	return itr.source == nil
 }

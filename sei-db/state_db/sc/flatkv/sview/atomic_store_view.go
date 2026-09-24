@@ -3,6 +3,8 @@ package sview
 import (
 	"fmt"
 	"sync"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 // AtomicStoreView holds one StoreView and hands it out to readers on any thread. It owns exactly one
@@ -29,7 +31,9 @@ func NewAtomicStoreView(initialView *StoreView) (*AtomicStoreView, error) {
 	if err := initialView.Reserve(); err != nil {
 		return nil, fmt.Errorf("reserve initial view: %w", err)
 	}
-	return &AtomicStoreView{currentView: initialView}, nil
+	asv := &AtomicStoreView{currentView: initialView}
+	utils.MustCloseE(asv, "atomic store view", (*AtomicStoreView).isClosed, (*AtomicStoreView).Close)
+	return asv, nil
 }
 
 // Get() returns the installed view with a reservation the caller owns and must release exactly once.
@@ -100,4 +104,10 @@ func (asv *AtomicStoreView) Close() error {
 		return fmt.Errorf("release view at height %d: %w", previous.blockHeight, err)
 	}
 	return nil
+}
+
+func (asv *AtomicStoreView) isClosed() bool {
+	asv.mu.RLock()
+	defer asv.mu.RUnlock()
+	return asv.currentView == nil
 }

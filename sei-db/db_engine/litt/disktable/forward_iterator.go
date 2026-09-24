@@ -3,6 +3,7 @@ package disktable
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
@@ -69,11 +70,13 @@ type forwardIterator struct {
 // newForwardIterator creates a forward iterator over the given snapshot of sealed segments, owned by a
 // live table.
 func newForwardIterator(table *DiskTable, segs []*segment.Segment) *forwardIterator {
-	return &forwardIterator{
+	it := &forwardIterator{
 		onClose: closeLiveIterator(table, segs),
 		segs:    segs,
 		segPos:  0,
 	}
+	utils.MustCloseE(it, "littdb forward iterator", (*forwardIterator).isClosed, (*forwardIterator).Close)
+	return it
 }
 
 // newForwardIteratorAt creates a forward iterator over the given snapshot positioned so that the first
@@ -87,20 +90,22 @@ func newForwardIteratorAt(
 	keys []*types.ScopedKey,
 	keyPos int,
 ) *forwardIterator {
-	return &forwardIterator{
+	it := &forwardIterator{
 		onClose: closeLiveIterator(table, segs),
 		segs:    segs,
 		segPos:  segPos,
 		keys:    keys,
 		keyPos:  keyPos,
 	}
+	utils.MustCloseE(it, "littdb forward iterator", (*forwardIterator).isClosed, (*forwardIterator).Close)
+	return it
 }
 
 // NewOfflineForwardIterator creates a forward iterator over the given snapshot of segments, gathered
 // directly from disk rather than from a live table. release is called once, by Close, in place of the
 // live path's segment-reservation release and control-loop notification.
 func NewOfflineForwardIterator(segs []*segment.Segment, release func()) litt.Iterator {
-	return &forwardIterator{
+	it := &forwardIterator{
 		onClose: func() error {
 			release()
 			return nil
@@ -108,6 +113,8 @@ func NewOfflineForwardIterator(segs []*segment.Segment, release func()) litt.Ite
 		segs:   segs,
 		segPos: 0,
 	}
+	utils.MustCloseE(it, "littdb forward iterator", (*forwardIterator).isClosed, (*forwardIterator).Close)
+	return it
 }
 
 // Next advances the iterator to the next key in insertion order.
@@ -301,4 +308,8 @@ func closeLiveIterator(table *DiskTable, segs []*segment.Segment) func() error {
 		}
 		return nil
 	}
+}
+
+func (it *forwardIterator) isClosed() bool {
+	return it.closed
 }

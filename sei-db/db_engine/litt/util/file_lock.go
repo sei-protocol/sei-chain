@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 // FileLock represents a file-based lock
@@ -159,11 +161,13 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 		}
 	}
 
-	return &FileLock{
+	lock := &FileLock{
 		logger: logger,
 		path:   path,
 		file:   file,
-	}, nil
+	}
+	utils.MustClose(lock, "littdb file lock", (*FileLock).isReleased, (*FileLock).Release)
+	return lock, nil
 }
 
 // Release releases the file lock by closing and removing the lock file.
@@ -188,6 +192,10 @@ func (fl *FileLock) Release() {
 		fl.logger.Error("failed to remove lock file", "path", fl.path, "error", err)
 		return
 	}
+}
+
+func (fl *FileLock) isReleased() bool {
+	return fl.file == nil
 }
 
 // Path returns the path of the lock file

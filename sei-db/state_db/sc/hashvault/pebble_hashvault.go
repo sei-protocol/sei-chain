@@ -12,6 +12,8 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/ethereum/go-ethereum/common/lru"
 	"github.com/sei-protocol/seilog"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 var _ HashVault = (*PebbleHashVault)(nil)
@@ -92,6 +94,9 @@ func newPebbleHashVault(_ context.Context, config HashVaultConfig) (*PebbleHashV
 			"dataDir", config.DataDir)
 	}
 
+	utils.MustCloseE(p, "hashvault", (*PebbleHashVault).isClosed, func(p *PebbleHashVault) error {
+		return p.Close(context.Background())
+	})
 	return p, nil
 }
 
@@ -236,6 +241,12 @@ func (p *PebbleHashVault) Close(_ context.Context) error {
 		return fmt.Errorf("failed to close hashvault pebble db: %w", err)
 	}
 	return nil
+}
+
+func (p *PebbleHashVault) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closed
 }
 
 func (p *PebbleHashVault) logHashMismatch(blockHeight uint64, existing, incoming []byte) {

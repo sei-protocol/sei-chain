@@ -11,6 +11,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -85,6 +86,7 @@ func newPebbleDBKeymap(
 		syncWrites:            syncWrites,
 	}
 	kmap.alive.Store(true)
+	utils.MustCloseE(kmap, "littdb pebble keymap", (*PebbleDBKeymap).isStopped, (*PebbleDBKeymap).Stop)
 
 	return kmap, requiresReload, nil
 }
@@ -206,6 +208,10 @@ func (p *PebbleDBKeymap) Stop() error {
 		return fmt.Errorf("failed to close PebbleDB: %w", err)
 	}
 	return nil
+}
+
+func (p *PebbleDBKeymap) isStopped() bool {
+	return !p.alive.Load()
 }
 
 func (p *PebbleDBKeymap) Destroy() error {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/seiwal"
 )
@@ -113,6 +114,7 @@ func newStateWAL(wal seiwal.WAL[[]*proto.NamedChangeSet]) (StateWAL, error) {
 		w.lastBlock.Store(last)
 		w.hasBlock = true
 	}
+	utils.MustCloseE(w, "state WAL", (*stateWALImpl).isClosed, (*stateWALImpl).Close)
 	return w, nil
 }
 
@@ -232,6 +234,10 @@ func (w *stateWALImpl) Close() error {
 		return fmt.Errorf("failed to close state WAL: %w", err)
 	}
 	return nil
+}
+
+func (w *stateWALImpl) isClosed() bool {
+	return w.closed
 }
 
 // fail records err as the first fatal error that bricks the WAL and returns it. Once set, every

@@ -9,6 +9,8 @@ import (
 
 	"github.com/linxGnu/grocksdb"
 	dbm "github.com/tendermint/tm-db"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 var _ dbm.Iterator = (*iterator)(nil)
@@ -26,7 +28,7 @@ type iterator struct {
 func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOptions, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
-		return &iterator{
+		itr := &iterator{
 			source:   source,
 			readOpts: readOpts,
 			prefix:   prefix,
@@ -36,6 +38,8 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 			reverse:  reverse,
 			invalid:  true,
 		}
+		utils.MustCloseE(itr, "rocksdb mvcc iterator", (*iterator).isClosed, (*iterator).Close)
+		return itr
 	}
 
 	if reverse {
@@ -61,7 +65,7 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 		}
 	}
 
-	return &iterator{
+	itr := &iterator{
 		source:   source,
 		readOpts: readOpts,
 		prefix:   prefix,
@@ -71,6 +75,8 @@ func NewRocksDBIterator(source *grocksdb.Iterator, readOpts *grocksdb.ReadOption
 		reverse:  reverse,
 		invalid:  !source.Valid(),
 	}
+	utils.MustCloseE(itr, "rocksdb mvcc iterator", (*iterator).isClosed, (*iterator).Close)
+	return itr
 }
 
 // Domain returns the domain of the iterator. The caller must not modify the
@@ -181,4 +187,8 @@ func (itr *iterator) assertIsValid() {
 	if itr.invalid {
 		panic("iterator is invalid")
 	}
+}
+
+func (itr *iterator) isClosed() bool {
+	return itr.source == nil
 }

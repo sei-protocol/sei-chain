@@ -133,6 +133,7 @@ type Staged struct {
 	version  int64
 	tmpDir   string
 	finalDir string
+	finished bool
 }
 
 func (s *Staged) Abort() {
@@ -140,6 +141,10 @@ func (s *Staged) Abort() {
 		return
 	}
 	s.manager.abort(s)
+}
+
+func (s *Staged) isFinished() bool {
+	return s.finished
 }
 
 // SnapshotDirName returns the directory name for a snapshot labeled with the
@@ -260,12 +265,14 @@ func (m *Manager) Prepare(version int64) (*Staged, error) {
 	if err := os.MkdirAll(m.root, 0o750); err != nil {
 		return nil, fmt.Errorf("create %s snapshot root: %w", m.name, err)
 	}
-	return &Staged{
+	staged := &Staged{
 		manager:  m,
 		version:  version,
 		tmpDir:   tmpDir,
 		finalDir: finalDir,
-	}, nil
+	}
+	utils.MustClose(staged, "staged state store snapshot", (*Staged).isFinished, (*Staged).Abort)
+	return staged, nil
 }
 
 // Schedule queues staged's checkpoint behind the writes already enqueued on this member's backend.
@@ -282,6 +289,7 @@ func (m *Manager) Commit(staged *Staged) error {
 	if staged == nil || staged.manager != m {
 		return fmt.Errorf("%s staged snapshot belongs to a different manager", m.name)
 	}
+	staged.finished = true
 	apparentBytes, sizeErr := snapshotDirApparentBytes(staged.tmpDir)
 	if sizeErr != nil {
 		logger.Error("failed to measure state store snapshot",
@@ -328,6 +336,7 @@ func (m *Manager) abort(staged *Staged) {
 	if staged == nil || staged.manager != m {
 		return
 	}
+	staged.finished = true
 	if err := os.RemoveAll(staged.tmpDir); err != nil {
 		logger.Error("failed to remove aborted state store snapshot",
 			"store", m.name, "dir", staged.tmpDir, "error", err)

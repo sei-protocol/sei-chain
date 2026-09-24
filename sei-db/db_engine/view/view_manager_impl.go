@@ -11,6 +11,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -563,6 +564,7 @@ func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 		}
 	}
 
+	utils.MustCloseE(view, "view", (*viewImpl).isReleased, (*viewImpl).releaseAll)
 	return view, sealedVersion, nil
 }
 
@@ -670,6 +672,32 @@ func (c *viewManager) DecrementReferenceCount(version uint64) error {
 
 	c.maybeWakeLifecycleLocked()
 
+	return nil
+}
+
+// isVersionReleased reports whether every reservation on version has been released. Every version of a
+// closed or bricked manager counts as released.
+func (c *viewManager) isVersionReleased(version uint64) bool {
+	c.versionLock.Lock()
+	defer c.versionLock.Unlock()
+
+	if c.ctx.Err() != nil {
+		// A shut-down manager holds nothing on a reservation's behalf.
+		return true
+	}
+	// A retired version is no longer in the map.
+	counter, ok := c.versionMap[version]
+	return !ok || counter.referenceCount == 0
+}
+
+// releaseAllReservations releases every reservation still held on version. Releasing the last one
+// is subject to the same finalization check as DecrementReferenceCount().
+func (c *viewManager) releaseAllReservations(version uint64) error {
+	for !c.isVersionReleased(version) {
+		if err := c.DecrementReferenceCount(version); err != nil {
+			return fmt.Errorf("failed to release version (%d): %w", version, err)
+		}
+	}
 	return nil
 }
 
@@ -830,7 +858,9 @@ func (c *viewManager) Iterator(opts *types.IterOptions) (dbm.Iterator, error) {
 	for _, s := range c.shards {
 		s.IteratorOpened()
 	}
-	return &trackedIterator{Iterator: iter, manager: c}, nil
+	tracked := &trackedIterator{Iterator: iter, manager: c}
+	utils.MustCloseE(tracked, "view manager iterator", (*trackedIterator).isClosed, (*trackedIterator).Close)
+	return tracked, nil
 }
 
 // trackedIterator deregisters itself from every shard when closed, so Close can report the iterators
@@ -839,11 +869,13 @@ type trackedIterator struct {
 	dbm.Iterator
 	manager   *viewManager
 	closeOnce sync.Once
+	closed    bool
 }
 
 func (w *trackedIterator) Close() error {
 	var err error
 	w.closeOnce.Do(func() {
+		w.closed = true
 		errs := make([]error, 0, len(w.manager.shards)+1)
 		for _, s := range w.manager.shards {
 			errs = append(errs, s.IteratorClosed())
@@ -852,6 +884,10 @@ func (w *trackedIterator) Close() error {
 		err = errors.Join(errs...)
 	})
 	return err
+}
+
+func (w *trackedIterator) isClosed() bool {
+	return w.closed
 }
 
 // MaterializeCurrentOverrides gathers the in-memory overrides at the current version from every

@@ -52,6 +52,9 @@ type StateDB struct {
 	// Splits a commit into the three stores it writes. Driven only by CommitStateChanges, which
 	// callers serialize.
 	commitPhases *metrics.PhaseTimer
+
+	// Set by Close().
+	closed bool
 }
 
 // commitPhaseTimerName prefixes the instruments the commit phase breakdown is published on.
@@ -105,6 +108,7 @@ func NewStateDB(
 	if err := s.catchUpToWAL(ctx); err != nil {
 		return nil, err
 	}
+	utils.MustCloseE(s, "giga state DB", (*StateDB).isClosed, (*StateDB).Close)
 	return s, nil
 }
 
@@ -282,6 +286,7 @@ func (s *StateDB) truncateWAL(target int64) error {
 // How long each of the three took is logged, since each drains its own write queue and waits on the
 // compactions behind it, and those dominate the time a shutdown takes.
 func (s *StateDB) Close() error {
+	s.closed = true
 	var errs error
 	var timer utils.CloseTimer
 	if s.ss != nil {
@@ -301,6 +306,10 @@ func (s *StateDB) Close() error {
 	}
 	logger.Info("Closed the state DB", timer.Fields()...)
 	return errs
+}
+
+func (s *StateDB) isClosed() bool {
+	return s.closed
 }
 
 // SC returns the state commit store.
