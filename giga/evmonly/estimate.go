@@ -15,14 +15,15 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// estimateGasErrorRatio matches go-ethereum's own eth_estimateGas: the search
-// stops once the gap between the highest failing and lowest passing gas limit
-// is within this fraction of the true minimum, rather than pinpointing it.
+// estimateGasErrorRatio matches the standard eth_estimateGas library's own
+// tolerance: the search stops once the gap between the highest failing and
+// lowest passing gas limit is within this fraction of the true minimum,
+// rather than pinpointing it.
 const estimateGasErrorRatio = 0.015
 
 // EstimateGas returns the lowest gas limit that lets msg execute successfully
-// against the current committed state, using go-ethereum's gasestimator
-// directly rather than a hand-rolled search. Like Call it creates no
+// against the current committed state, using the standard gasestimator
+// library directly rather than a hand-rolled search. Like Call it creates no
 // transaction and persists no state change. A message that still fails at
 // gasCap returns its execution error, unwrapped; a revert carries its data in
 // the second return value.
