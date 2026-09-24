@@ -23,7 +23,6 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil).WithBlockTime(time.Now().UTC())
 	retained := seedV68OfflineUpgradeState(t, testApp, ctx)
-	stores := snapshotOfflineUpgradeStores(t, testApp, ctx, v68OfflineSourceStores)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
 		Name: "v6.8", Height: upgradeHeight,
@@ -36,6 +35,14 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	require.Equal(t, upgradeHeight, plan.Height)
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, moduleVersions, "oracle")
+	storeNames := make([]string, 0, len(v68OfflineSourceStores))
+	for _, name := range v68OfflineSourceStores {
+		if testApp.GetKey(name) == nil {
+			continue
+		}
+		storeNames = append(storeNames, name)
+	}
+	stores := snapshotOfflineUpgradeStores(t, testApp, ctx, storeNames)
 	closeOfflineUpgradeApp(t, testApp)
 	writeOfflineUpgradeArtifact(t, root, offlineUpgradeArtifact{
 		Upgrade: plan.Name, SourceHeight: sourceHeight, UpgradeHeight: upgradeHeight,

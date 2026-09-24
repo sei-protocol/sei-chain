@@ -128,10 +128,26 @@ func TestV68CrossVersion(t *testing.T) {
 			require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 			require.Contains(t, chain.ModuleVersions(t), "oracle")
 			chain.Record(t, "oracle-present", true)
+			receiver := chain.KeyAddress(t, "sei-node-0", "node_admin")
+			chain.Record(t, "receiver", receiver)
+			chain.RequireDeliverTxSuccess(t, "v6.7 bank send", chain.Seid(
+				"12345678\n",
+				"tx", "bank", "send", "admin", receiver, "1usei",
+				"--from", "admin", "--chain-id", "sei", "--fees", "200000usei",
+				"--gas", "2000000", "--broadcast-mode", "sync", "--yes", "--output", "json",
+			))
 		},
 		func(t *testing.T, chain *upgradetest.CrossVersion) {
 			require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 			require.NotContains(t, chain.ModuleVersions(t), "oracle")
+			var receiver string
+			chain.Replay(t, "receiver", &receiver)
+			chain.RequireDeliverTxSuccess(t, "v6.8 bank send", chain.Seid(
+				"12345678\n",
+				"tx", "bank", "send", "admin", receiver, "1usei",
+				"--from", "admin", "--chain-id", "sei", "--fees", "200000usei",
+				"--gas", "2000000", "--broadcast-mode", "sync", "--yes", "--output", "json",
+			))
 			result := chain.Seid("", "q", "oracle")
 			require.Error(t, result.Err)
 			require.Contains(t, result.Combined(), `unknown command "oracle"`)
