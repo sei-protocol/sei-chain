@@ -100,8 +100,6 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	ctx, cancel := withDeadline(ctx, "eth_getBlockTransactionCountByNumber")
-	defer cancel()
 	if number == 0 {
 		return genesisBlockTxCount, nil
 	}
@@ -128,8 +126,6 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	ctx, cancel := withDeadline(ctx, "eth_getBlockTransactionCountByHash")
-	defer cancel()
 	if blockHash == genesisBlockHash {
 		return genesisBlockTxCount, nil
 	}
@@ -156,8 +152,6 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	ctx, cancel := withDeadline(ctx, "eth_getBlockByHash")
-	defer cancel()
 
 	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
 	if blockHash == (common.Hash{}) {
@@ -193,8 +187,6 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	ctx, cancel := withDeadline(ctx, "eth_getBlockByNumber")
-	defer cancel()
 	return a.getBlockByNumber(ctx, number, fullTx)
 }
 
@@ -239,8 +231,6 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr, recover())
 	}()
-	ctx, cancel := withDeadline(ctx, "eth_getBlockReceipts")
-	defer cancel()
 	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == (common.Hash{}) {
 		return nil, nil

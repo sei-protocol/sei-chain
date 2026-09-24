@@ -141,9 +141,6 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	defer func() {
 		recordMetricsWithError(ctx, "eth_feeHistory", i.connectionType, startTime, returnErr, recover())
 	}()
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_feeHistory")
-	defer cancel()
 	result = &FeeHistoryResult{}
 	if err := requireReceiptStore(i.keeper); err != nil {
 		return nil, err

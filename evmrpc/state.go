@@ -35,9 +35,6 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getBalance", a.connectionType, startTime, returnErr, recover())
 	}()
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_getBalance")
-	defer cancel()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -55,9 +52,6 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getCode", a.connectionType, startTime, returnErr, recover())
 	}()
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_getCode")
-	defer cancel()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -75,9 +69,6 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getStorageAt", a.connectionType, startTime, returnErr, recover())
 	}()
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_getStorageAt")
-	defer cancel()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err

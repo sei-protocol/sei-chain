@@ -89,13 +89,6 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 	defer func() {
 		recordMetricsWithError(ctx, "eth_createAccessList", s.connectionType, startTime, returnErr, recover())
 	}()
-	// export.AccessList only checks ctx.Err() between access-list expansion
-	// iterations, so a deadline here bounds the wait between iterations; it does
-	// not interrupt EVM execution already in progress within one iteration the
-	// way doCall's timeout does for eth_call/eth_estimateGas.
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_createAccessList")
-	defer cancel()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -128,9 +121,6 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 	if returnErr = validateStateOverrides(overrides, s.backend.MaxStateOverrideAccounts(), s.backend.MaxStateOverrideSlots()); returnErr != nil {
 		return
 	}
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_estimateGas")
-	defer cancel()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -163,9 +153,6 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	}
 	// Outer deadline over the whole call batch, layered on top of the per-call
 	// RPCEVMTimeout doCall already applies to each entry in calls.
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_estimateGasAfterCalls")
-	defer cancel()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -191,9 +178,6 @@ func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, b
 	if returnErr = validateStateOverrides(overrides, s.backend.MaxStateOverrideAccounts(), s.backend.MaxStateOverrideSlots()); returnErr != nil {
 		return
 	}
-	var cancel context.CancelFunc
-	ctx, cancel = withDeadline(ctx, "eth_call")
-	defer cancel()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
