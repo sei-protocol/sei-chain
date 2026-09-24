@@ -470,40 +470,6 @@ func appHashFromState(
 	return h.Sum(nil), nil
 }
 
-// recoveredAppHash re-derives the hash of the last committed block from the
-// state store tip, matching the live callback path.
-func recoveredAppHash(
-	block *atypes.GlobalBlock,
-	stateTip *lthash.BlockHash,
-) (atypes.AppHash, error) {
-	return appHashFromState(block, stateTip)
-}
-
-// executeHandoff couples the execute loop to the hash loop: committed carries
-// each block the execute loop has committed, and recorded hands a slot back
-// once that block's AppHash has reached the data layer.
-//
-// The slot is what stops execute from committing a block before its
-// predecessor's AppHash has been recorded. data.State keeps the AppHash of the
-// block closing each CommitQC range and rejects one that skips a range, and a
-// skipped range cannot be repaired on restart: the state store reports the
-// hash of its own tip, never that of an earlier height.
-type executeHandoff struct {
-	committed chan pendingExecution
-	recorded  chan struct{}
-}
-
-// newExecuteHandoff returns a handoff whose slot starts full, so the first
-// block executes without waiting for a predecessor.
-func newExecuteHandoff() executeHandoff {
-	h := executeHandoff{
-		committed: make(chan pendingExecution),
-		recorded:  make(chan struct{}, 1),
-	}
-	h.recorded <- struct{}{}
-	return h
-}
-
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	// runExecute is spawned by both router roles and owns the guard until both
 	// the ABCI execution loop and the hash-processing loop have stopped.
@@ -531,20 +497,22 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		return fmt.Errorf("registerAppHashListener(): %w", err)
 	}
 	if lastBlock != nil {
-		if err := r.replayLastAppHash(ctx, hashVault, lastBlock, appHashes.tip); err != nil {
+		if err := r.backfillAppHashes(ctx, hashVault, lastBlock, appHashes.tip); err != nil {
 			return err
 		}
 	}
-	handoff := newExecuteHandoff()
+	// Unbuffered: execute may commit one block while the hash loop records its
+	// predecessor, and blocks on the handoff rather than running further ahead.
+	committed := make(chan pendingExecution)
 	return scope.Run(ctx, func(scopeCtx context.Context, s scope.Scope) error {
 		// Keep the hash loop on runExecute's context so an execute-loop failure
 		// does not cancel a committed block while it is being recorded.
 		s.SpawnNamed("appHashes", func() error {
-			return r.runAppHashes(ctx, hashVault, handoff, appHashes.hashes, next)
+			return r.runAppHashes(ctx, hashVault, committed, appHashes.hashes, next)
 		})
 		s.SpawnNamed("executeBlocks", func() error {
-			defer close(handoff.committed)
-			return r.executeBlocks(scopeCtx, handoff, next)
+			defer close(committed)
+			return r.executeBlocks(scopeCtx, committed, next)
 		})
 		return nil
 	})
@@ -600,56 +568,85 @@ func (r *gigaRouterCommon) openApp(ctx context.Context) (atypes.GlobalBlockNumbe
 	return last + 1, b, nil
 }
 
-// replayLastAppHash records the store's hash of last onto the vault and data
-// layer. stateTip must already be that height: FlushHashes ran before
-// registration, so a lagging finalizer is a startup error rather than a
-// desynchronised live stream.
-func (r *gigaRouterCommon) replayLastAppHash(
+// backfillAppHashes gives the data layer the AppHash of every block the app has
+// already committed but has not yet proposed, oldest first, so execution resumes
+// at the block after the app tip. PushAppHash rejects an AppHash that skips a
+// CommitQC range, so a height left behind here is not recoverable later.
+func (r *gigaRouterCommon) backfillAppHashes(
 	ctx context.Context,
 	hashVault hashvault.HashVault,
 	lastBlock *atypes.GlobalBlock,
 	stateTip *lthash.BlockHash,
 ) error {
-	last := lastBlock.GlobalNumber
-	if stateTip.BlockNumber != int64(last) {
-		return fmt.Errorf(
-			"state store tip is block %d, app last is %d; hashing has not caught up",
-			stateTip.BlockNumber, last,
-		)
-	}
-	lastAppHash, err := recoveredAppHash(lastBlock, stateTip)
-	if err != nil {
-		return err
-	}
-	if err := commitAppHashToVault(ctx, hashVault, last, lastAppHash); err != nil {
-		return err
-	}
-	// Losing a prefix of appHashes on crash is fine: AppQC is reached
-	// once everyone votes on apphashes of a suffix of finalized blocks.
 	weights, err := committeeWeights(r.app.GetValidators())
 	if err != nil {
 		return err
 	}
-	if err := r.data.PushAppHash(ctx, last, lastAppHash, weights); err != nil {
-		return fmt.Errorf("r.data.PushAppHash(): %w", err)
+	for n := r.data.NextAppProposal(); n <= lastBlock.GlobalNumber; n++ {
+		appHash, err := r.recoverAppHash(ctx, hashVault, n, lastBlock, stateTip)
+		if err != nil {
+			return err
+		}
+		if err := r.data.PushAppHash(ctx, n, appHash, weights); err != nil {
+			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
+		}
 	}
 	return nil
 }
 
+// recoverAppHash returns the AppHash this node committed to at already-executed
+// block n. The hashvault is that record, and holds every height whose hash was
+// recorded before the node stopped.
+//
+// Only the app tip can be missing, because the hash is derived from committed
+// state and so reaches the vault after the commit it describes. That one height
+// is also the only one the state store can still answer for, since it publishes
+// the hash of its own tip.
+func (r *gigaRouterCommon) recoverAppHash(
+	ctx context.Context,
+	hashVault hashvault.HashVault,
+	n atypes.GlobalBlockNumber,
+	lastBlock *atypes.GlobalBlock,
+	stateTip *lthash.BlockHash,
+) (atypes.AppHash, error) {
+	appHash, ok, err := hashVault.CommittedHash(ctx, uint64(n))
+	if err != nil {
+		return nil, fmt.Errorf("hashVault.CommittedHash(%v): %w", n, err)
+	}
+	if ok {
+		return appHash, nil
+	}
+	if n != lastBlock.GlobalNumber {
+		return nil, fmt.Errorf(
+			"hashvault holds no AppHash for committed block %v, and only the app tip %v can be re-derived from state",
+			n, lastBlock.GlobalNumber,
+		)
+	}
+	appHash, err = appHashFromState(lastBlock, stateTip)
+	if err != nil {
+		return nil, err
+	}
+	// Record it now, so the guard covers this height as it would have had the
+	// node not stopped between committing the block and recording its hash.
+	if err := commitAppHashToVault(ctx, hashVault, n, appHash); err != nil {
+		return nil, err
+	}
+	return appHash, nil
+}
+
 // runAppHashes waits for each committed block's store hash, then records,
-// proposes, and prunes that block before handing the execute loop its slot
-// back. It drains every block handed off before the execute loop closes
-// handoff.committed. Hashes below first are leftover seed or replay and are
-// discarded so pairing stays aligned with execute.
+// proposes, and prunes that block. It drains every block handed off before the
+// execute loop closes committed. Hashes below first are leftover seed or replay
+// and are discarded so pairing stays aligned with execute.
 func (r *gigaRouterCommon) runAppHashes(
 	ctx context.Context,
 	hashVault hashvault.HashVault,
-	handoff executeHandoff,
+	committed <-chan pendingExecution,
 	hashes <-chan *lthash.BlockHash,
 	first atypes.GlobalBlockNumber,
 ) error {
 	for {
-		p, ok, err := utils.RecvOrClosed(ctx, handoff.committed)
+		p, ok, err := utils.RecvOrClosed(ctx, committed)
 		if err != nil {
 			return err
 		}
@@ -674,9 +671,6 @@ func (r *gigaRouterCommon) runAppHashes(
 		}
 		if err := r.finishExecuteBlock(ctx, hashVault, n, p, appHash); err != nil {
 			return fmt.Errorf("r.finishExecuteBlock(%v): %w", n, err)
-		}
-		if err := utils.Send(ctx, handoff.recorded, struct{}{}); err != nil {
-			return err
 		}
 		first = n + 1
 	}
@@ -709,11 +703,12 @@ func recvHashAtLeast(
 }
 
 // executeBlocks keeps FinalizeBlock and Commit together on this loop, one
-// block at a time from next: each committed block goes to the hash loop, and
-// the next one waits for its AppHash to be recorded.
+// block at a time from next, handing each committed block to the hash loop.
+// It never waits on the hash loop's progress: a hash that is slow to arrive
+// must not stop the chain from executing.
 func (r *gigaRouterCommon) executeBlocks(
 	ctx context.Context,
-	handoff executeHandoff,
+	committed chan<- pendingExecution,
 	next atypes.GlobalBlockNumber,
 ) error {
 	for n := next; ; n += 1 {
@@ -721,18 +716,12 @@ func (r *gigaRouterCommon) executeBlocks(
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
-		// Fetching b above is the consensus wait, and it overlaps the hash
-		// loop; committing n does not, because the AppHash of n-1 has to be
-		// recorded first.
-		if _, err := utils.Recv(ctx, handoff.recorded); err != nil {
-			return err
-		}
 		opt, err := r.startExecuteBlock(ctx, b)
 		if err != nil {
 			return fmt.Errorf("r.startExecuteBlock(%v): %w", n, err)
 		}
 		p := opt.OrPanic("successful block execution returned no pending block")
-		if err := utils.Send(ctx, handoff.committed, p); err != nil {
+		if err := utils.Send(ctx, committed, p); err != nil {
 			return err
 		}
 	}

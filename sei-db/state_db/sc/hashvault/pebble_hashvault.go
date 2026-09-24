@@ -186,6 +186,44 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 	return nil
 }
 
+// CommittedHash implements HashVault.
+func (p *PebbleHashVault) CommittedHash(ctx context.Context, blockHeight uint64) ([]byte, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.closed {
+		return nil, false, ErrClosed
+	}
+	if blockHeight < p.pruneBoundary {
+		return nil, false, nil
+	}
+	if cached, ok := p.cache.Get(blockHeight); ok {
+		return bytes.Clone(cached), true, nil
+	}
+
+	raw, closer, err := p.db.Get(hashKey(blockHeight))
+	switch {
+	case errors.Is(err, pebble.ErrNotFound):
+		return nil, false, nil
+	case err != nil:
+		return nil, false, fmt.Errorf("failed to read hash for block %d: %w", blockHeight, err)
+	}
+	cloned := bytes.Clone(raw)
+	_ = closer.Close()
+
+	hash, err := decodeHashValue(blockHeight, cloned)
+	if err != nil {
+		logger.Error("hashvault detected on-disk corruption; DO NOT RESTART WITHOUT HUMAN INVESTIGATION",
+			"blockHeight", blockHeight, "rawHex", hex.EncodeToString(cloned), "err", err)
+		return nil, false, err
+	}
+	p.cache.Add(blockHeight, hash)
+	return bytes.Clone(hash), true, nil
+}
+
 // Prune implements HashVault. The boundary advance and range deletion are written in a single
 // atomic Pebble batch: a crash mid-Prune either rolls forward to the new boundary (with the
 // deletions applied) or leaves the old state intact. On return, every height strictly below

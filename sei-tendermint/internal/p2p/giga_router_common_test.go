@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -180,24 +181,16 @@ func (s *manualHashStore) publish(ctx context.Context, n atypes.GlobalBlockNumbe
 	return listener(ctx, hash.BlockNumber, hash)
 }
 
-// TestExecuteWaitsForAppHashOfPreviousBlock pins the ordering restart depends
-// on: a block is committed only once the AppHash of the block before it has
-// reached the data layer. Committing further ahead lets a crash strand the
-// block closing a CommitQC range with its AppHash unrecorded, which restart
-// cannot repair — the state store hands out the hash of its own tip, never
-// that of an earlier height, and data.State rejects an AppHash that skips a
-// range.
-//
-// The test feeds the whole CommitQC range in first, then publishes each state
-// hash by hand. After each commit, execute must already have taken the
-// predecessor's AppHash slot — a leftover token is the run-ahead that restart
-// cannot repair.
-func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
-	rng := utils.TestRng()
-	key := atypes.GenSecretKey(rng)
-
+// newAppHashTestRouter returns a single-validator router over an in-memory
+// block store, with a test app and a hash store the caller publishes by hand.
+func newAppHashTestRouter(
+	t *testing.T,
+	rng utils.Rng,
+	key atypes.SecretKey,
+) (*testApp, *manualHashStore, *data.State, *gigaRouterCommon) {
+	t.Helper()
 	genDoc := &tmtypes.GenesisDoc{
-		ChainID:         "apphash-handoff-test",
+		ChainID:         "apphash-test",
 		InitialHeight:   1,
 		GenesisTime:     time.Now(),
 		AppState:        testAppStateJSON(rng),
@@ -221,7 +214,32 @@ func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
 	}
 	state, err := BuildDataState(cfg, db)
 	require.NoError(t, err)
-	router := &gigaRouterCommon{cfg: cfg, data: state, app: cfg.App}
+	return app, hashStore, state, &gigaRouterCommon{cfg: cfg, data: state, app: cfg.App}
+}
+
+// newTestHashVault returns a real vault on a temporary directory, without the
+// fsync production vaults force.
+func newTestHashVault(t *testing.T) hashvault.HashVault {
+	t.Helper()
+	cfg := hashvault.DefaultHashVaultConfig()
+	cfg.DataDir = t.TempDir()
+	vault, err := hashvault.NewUnsafePebbleHashVault(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, vault.Close(context.Background())) })
+	return vault
+}
+
+// TestExecuteDoesNotWaitForAppHashes pins that a state hash the store has not
+// published yet cannot stop the chain: with nothing published, the execute
+// loop still commits past the first block, and the hash loop then records the
+// whole range in order once the hashes arrive.
+//
+// The test feeds the whole CommitQC range in first, then publishes each state
+// hash by hand.
+func TestExecuteDoesNotWaitForAppHashes(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	app, hashStore, state, router := newAppHashTestRouter(t, rng, key)
 
 	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
 	gr := qc.QC().GlobalRange()
@@ -246,50 +264,111 @@ func TestExecuteWaitsForAppHashOfPreviousBlock(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		handoff := newExecuteHandoff()
+		committed := make(chan pendingExecution)
 		hashVault := hashvault.NewNoopHashVault()
 		s.SpawnBgNamed("appHashes", func() error {
-			return utils.IgnoreCancel(router.runAppHashes(ctx, hashVault, handoff, appHashes.hashes, next))
+			return utils.IgnoreCancel(router.runAppHashes(ctx, hashVault, committed, appHashes.hashes, next))
 		})
 		s.SpawnBgNamed("execute", func() error {
-			defer close(handoff.committed)
-			return utils.IgnoreCancel(router.executeBlocks(ctx, handoff, next))
+			defer close(committed)
+			return utils.IgnoreCancel(router.executeBlocks(ctx, committed, next))
 		})
+		// No state hash has been published, so under a gate on the previous
+		// block's AppHash the app would be stuck on the first block.
+		if _, err := app.WaitForBlocks(ctx, 2); err != nil {
+			return err
+		}
 		for n := gr.First; n < gr.Next; n++ {
-			want := int(n-gr.First) + 1
-			got, err := app.WaitForBlocks(ctx, want)
-			if err != nil {
-				return err
-			}
-			if got != want {
-				return fmt.Errorf("app executed %v blocks while the AppHash of block %v was unpublished, want %v", got, n-1, want)
-			}
-			// Execute takes this slot before committing; the hash loop returns it
-			// only after publish. A leftover token means execute did not wait.
-			if len(handoff.recorded) != 0 {
-				return fmt.Errorf("execute committed block %v without waiting for the previous AppHash", n)
-			}
 			if err := hashStore.publish(ctx, n); err != nil {
 				return fmt.Errorf("publish(%v): %w", n, err)
 			}
+		}
+		if _, err := app.WaitForBlocks(ctx, int(gr.Next-gr.First)); err != nil {
+			return err
 		}
 		return nil
 	}))
 }
 
-func TestReplayLastAppHashRequiresStoreTipAtAppLast(t *testing.T) {
-	router := &gigaRouterCommon{}
-	last := atypes.GlobalBlockNumber(5)
-	tip := lthash.NewBlockHash(nil)
-	tip.BlockNumber = int64(last) - 1
-	err := router.replayLastAppHash(
-		t.Context(),
-		hashvault.NewNoopHashVault(),
-		&atypes.GlobalBlock{GlobalNumber: last},
-		tip,
-	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "hashing has not caught up")
+// TestBackfillAppHashesReadsTheVault pins the restart path: every block the app
+// committed but did not get proposed is recovered from the hashvault, oldest
+// first, so execution can resume at the block after the app tip. A height below
+// the tip that the vault does not hold is unrecoverable and must fail loudly.
+func TestBackfillAppHashesReadsTheVault(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	_, _, state, router := newAppHashTestRouter(t, rng, key)
+	vault := newTestHashVault(t)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	gr := qc.QC().GlobalRange()
+	last := gr.Next - 1
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("state.PushQC(): %w", err)
+		}
+		lastBlock, err := state.GlobalBlock(ctx, last)
+		if err != nil {
+			return fmt.Errorf("state.GlobalBlock(%v): %w", last, err)
+		}
+		tip := lthash.NewBlockHash(nil)
+		tip.BlockNumber = int64(last)
+
+		err = router.backfillAppHashes(ctx, vault, lastBlock, tip)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "hashvault holds no AppHash")
+
+		for n := state.NextAppProposal(); n <= last; n++ {
+			hash := bytes.Repeat([]byte{byte(n)}, hashvault.BlockHashSize)
+			require.NoError(t, vault.CommitToHash(ctx, uint64(n), hash))
+		}
+		require.NoError(t, router.backfillAppHashes(ctx, vault, lastBlock, tip))
+		require.Equal(t, gr.Next, state.NextAppProposal())
+		return nil
+	}))
+}
+
+// TestRecoverAppHashFallsBackToStateAtTheAppTip pins the one height the vault
+// can be missing: the hash is derived from committed state, so it reaches the
+// vault after the commit it describes, and a node stopped in that window finds
+// the tip unrecorded. The state store still has that height as its tip.
+func TestRecoverAppHashFallsBackToStateAtTheAppTip(t *testing.T) {
+	rng := utils.TestRng()
+	key := atypes.GenSecretKey(rng)
+	_, _, state, router := newAppHashTestRouter(t, rng, key)
+	vault := newTestHashVault(t)
+
+	qc, blocks := data.TestCommitQC(rng, state.Registry().MustEpoch(0), []atypes.SecretKey{key}, utils.None[*atypes.CommitQC]())
+	last := qc.QC().GlobalRange().Next - 1
+
+	require.NoError(t, scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("persist", func() error { return utils.IgnoreCancel(state.Run(ctx)) })
+		if err := state.PushQC(ctx, qc, blocks); err != nil {
+			return fmt.Errorf("state.PushQC(): %w", err)
+		}
+		lastBlock, err := state.GlobalBlock(ctx, last)
+		if err != nil {
+			return fmt.Errorf("state.GlobalBlock(%v): %w", last, err)
+		}
+		tip := lthash.NewBlockHash(nil)
+		tip.BlockNumber = int64(last)
+
+		got, err := router.recoverAppHash(ctx, vault, last, lastBlock, tip)
+		require.NoError(t, err)
+		want, err := appHashFromState(lastBlock, tip)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+
+		// The fallback records what it derived, so a second restart reads it
+		// back out of the vault rather than deriving it again.
+		stored, ok, err := vault.CommittedHash(ctx, uint64(last))
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, []byte(want), stored)
+		return nil
+	}))
 }
 
 func TestRecvHashAtLeastSkipsHeightsBelowFirst(t *testing.T) {
