@@ -54,9 +54,9 @@ func (api *callAPI) EstimateGas(ctx context.Context, args export.TransactionArgs
 }
 
 // estimateUpperBound returns the highest gas limit the search may try: the
-// caller's explicit limit or the block gas limit, lowered to what the sender's
-// balance can pay for when the message carries a non-zero fee cap, and never
-// above defaultCallGasCap.
+// message's gas limit, or the block gas limit when that is below params.TxGas,
+// lowered to what the sender's balance can pay for when the message carries a
+// non-zero fee cap, and never above defaultCallGasCap.
 func (api *callAPI) estimateUpperBound(msg *core.Message) (uint64, error) {
 	hi := msg.GasLimit
 	if hi < params.TxGas {
@@ -91,11 +91,9 @@ func (api *callAPI) estimateUpperBound(msg *core.Message) (uint64, error) {
 }
 
 // searchGasLimit finds the lowest gas limit in (params.TxGas-1, hi] at which
-// msg succeeds, to within estimateGasErrorRatio. A plain value transfer to an
-// account without code is tried at params.TxGas first. Otherwise it executes
-// at hi so a message that cannot succeed at all fails fast with its revert
-// reason, then narrows from an optimistic guess derived from that run's usage.
+// msg succeeds, to within estimateGasErrorRatio.
 func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi uint64) (uint64, error) {
+	// A plain transfer costs exactly params.TxGas, so one execution settles it.
 	if plain, err := api.isPlainTransfer(msg); err != nil {
 		return 0, err
 	} else if plain && hi >= params.TxGas {
@@ -108,6 +106,8 @@ func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi ui
 		}
 	}
 	lo := params.TxGas - 1
+	// Executing at hi first lets a message that cannot succeed at any limit
+	// fail fast with its revert reason.
 	failed, result, err := api.executeWithGas(ctx, msg, hi)
 	if err != nil {
 		return 0, err
@@ -116,7 +116,7 @@ func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi ui
 		if len(result.Revert()) > 0 {
 			return 0, newRevertError(result)
 		}
-		if errors.Is(result.Err, vm.ErrOutOfGas) || errors.Is(result.Err, core.ErrIntrinsicGas) {
+		if errors.Is(result.Err, vm.ErrOutOfGas) || errors.Is(result.Err, core.ErrIntrinsicGas) || errors.Is(result.Err, core.ErrFloorDataGas) {
 			return 0, fmt.Errorf("gas required exceeds allowance (%d)", hi)
 		}
 		return 0, result.Err
@@ -162,8 +162,8 @@ func (api *callAPI) searchGasLimit(ctx context.Context, msg *core.Message, hi ui
 	return hi, nil
 }
 
-// isPlainTransfer reports whether msg carries no calldata to an existing
-// account without code, so that it costs exactly params.TxGas.
+// isPlainTransfer reports whether msg carries no calldata to an account
+// without code, so that it costs exactly params.TxGas.
 func (api *callAPI) isPlainTransfer(msg *core.Message) (bool, error) {
 	if len(msg.Data) > 0 || msg.To == nil {
 		return false, nil

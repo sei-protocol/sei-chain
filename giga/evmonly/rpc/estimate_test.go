@@ -176,7 +176,7 @@ func TestEstimateGasRejectsHistoricalState(t *testing.T) {
 	}
 }
 
-func TestEstimateGasUsesBlockGasLimitAsUpperBound(t *testing.T) {
+func TestEstimateGasOmittedGasDefaultsToCallCap(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	backend, tried := gasNeedingBackend(t, 30_000)
 	backend.gasLimit = func() (uint64, error) { return 5_000_000, nil }
@@ -184,9 +184,38 @@ func TestEstimateGasUsesBlockGasLimitAsUpperBound(t *testing.T) {
 	_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
 
 	require.NoError(t, err)
-	// CallDefaults fills an omitted gas with the cap, so the block limit only
-	// applies when it is lower than defaultCallGasCap.
+	// CallDefaults fills an omitted gas with the cap, so the block limit does
+	// not lower the bound.
 	require.Equal(t, uint64(defaultCallGasCap), (*tried)[0])
+}
+
+func TestEstimateGasUsesBlockGasLimitForSubIntrinsicGas(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend, tried := gasNeedingBackend(t, 30_000)
+	backend.gasLimit = func() (uint64, error) { return 5_000_000, nil }
+	small := hexutil.Uint64(params.TxGas - 1)
+
+	got, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to, Gas: &small}, latest())
+
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, uint64(got), uint64(30_000))
+	require.Equal(t, uint64(5_000_000), (*tried)[0])
+}
+
+func TestEstimateGasReturnsUpperBoundWhenOptimisticGuessExceedsIt(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	// Succeeding at exactly the bound with nearly all of it used puts the
+	// optimistic guess above the bound, so it is skipped and only the bisection
+	// between used gas and the bound runs.
+	const need = 40_000
+	backend, tried := gasNeedingBackend(t, need)
+	explicit := hexutil.Uint64(need)
+
+	got, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to, Gas: &explicit}, latest())
+
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(need), got)
+	require.Equal(t, []uint64{need, (need + need - 1_000 - 1) / 2}, *tried)
 }
 
 func TestEstimateGasHonoursExplicitGasAsUpperBound(t *testing.T) {
@@ -291,6 +320,18 @@ func TestEstimateGasSurfacesOutOfGasAtUpperBound(t *testing.T) {
 	require.Zero(t, got)
 	require.EqualError(t, err, "gas required exceeds allowance (10000000)")
 	require.Equal(t, []uint64{defaultCallGasCap}, *tried)
+}
+
+func TestEstimateGasSurfacesFloorDataGasAtUpperBound(t *testing.T) {
+	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	backend, _ := gasNeedingBackend(t, 30_000)
+	backend.call = func(context.Context, *core.Message) (*core.ExecutionResult, error) { return nil, core.ErrFloorDataGas }
+	explicit := hexutil.Uint64(40_000)
+
+	got, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to, Gas: &explicit}, latest())
+
+	require.Zero(t, got)
+	require.EqualError(t, err, "gas required exceeds allowance (40000)")
 }
 
 func TestEstimateGasPassesThroughNonGasExecutionError(t *testing.T) {
