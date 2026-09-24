@@ -26,7 +26,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
 	ctx := testApp.GetContextForDeliverTx(nil)
-	upgradeHeight := ctx.BlockHeight() + 1
+	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
 		Name:   v68OfflineUpgradeName,
 		Height: upgradeHeight,
