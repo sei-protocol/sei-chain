@@ -22,6 +22,9 @@ func v68OfflineStoreNames(testApp *App) []string {
 	keys := testApp.CommitMultiStore().StoreKeys()
 	names := make([]string, 0, len(keys))
 	for _, key := range keys {
+		if testApp.GetKey(key.Name()) == nil {
+			continue
+		}
 		names = append(names, key.Name())
 	}
 	sort.Strings(names)
