@@ -517,7 +517,9 @@ func startReceiptPruning(db seidbtypes.StateStore, keepRecent int64, pruneInterv
 	}()
 }
 
-func getLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
+// LogsForTx converts a stored receipt's logs to go-ethereum logs, offsetting
+// each Index by logStartIndex. BlockHash is left zero.
+func LogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 	return utils.Map(receipt.Logs, func(l *types.Log) *ethtypes.Log { return convertLog(l, receipt, logStartIndex) })
 }
 

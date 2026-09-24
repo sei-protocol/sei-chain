@@ -18,6 +18,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
+// These mirror the legacy evmrpc defaults for evm.max_blocks_for_log and
+// evm.max_log_no_block (evmrpc/config); the EVM-only RPC has no config of its
+// own yet, so keep the two in step when changing either.
 const (
 	// maxBlocksForLogs is the widest inclusive block range one eth_getLogs
 	// query may cover.

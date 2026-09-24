@@ -2,7 +2,6 @@ package evmonly
 
 import (
 	"fmt"
-	"slices"
 	"sort"
 	"sync"
 
@@ -211,9 +210,9 @@ func (s *MemoryReceiptStore) storeRecords(ctx sdk.Context, stored []receipt.Rece
 }
 
 // FilterLogs returns the logs in [fromBlock, toBlock] matching crit, in block
-// then transaction order, with the same field conventions as the disk-backed
-// stores: BlockHash is zero and Index carries the block-wide first-log offset
-// of its transaction on top of the stored index.
+// then transaction order, converted and matched by the same receipt package
+// code as the disk-backed stores: BlockHash is zero and Index carries the
+// block-wide first-log offset of its transaction on top of the stored index.
 func (s *MemoryReceiptStore) FilterLogs(
 	ctx sdk.Context,
 	fromBlock, toBlock uint64,
@@ -251,21 +250,9 @@ func (s *MemoryReceiptStore) FilterLogs(
 		if err != nil {
 			return nil, err
 		}
-		for _, storedLog := range stored.Logs {
-			if !storedLogMatches(storedLog, crit) {
+		for _, lg := range receipt.LogsForTx(stored, firstLogIndex) {
+			if !receipt.MatchLog(lg, crit) {
 				continue
-			}
-			lg := &ethtypes.Log{
-				Address:     common.HexToAddress(storedLog.Address),
-				Topics:      make([]common.Hash, len(storedLog.Topics)),
-				Data:        append([]byte(nil), storedLog.Data...),
-				BlockNumber: stored.BlockNumber,
-				TxHash:      common.HexToHash(stored.TxHashHex),
-				TxIndex:     uint(stored.TransactionIndex),
-				Index:       uint(storedLog.Index) + firstLogIndex,
-			}
-			for i, topic := range storedLog.Topics {
-				lg.Topics[i] = common.HexToHash(topic)
 			}
 			if err := budget.Reserve(lg); err != nil {
 				return nil, err
@@ -274,25 +261,6 @@ func (s *MemoryReceiptStore) FilterLogs(
 		}
 		firstLogIndex += uint(len(stored.Logs))
 	}
-}
-
-// storedLogMatches applies crit to a stored log without materializing it.
-func storedLogMatches(lg *evmtypes.Log, crit filters.FilterCriteria) bool {
-	if len(crit.Addresses) > 0 && !slices.Contains(crit.Addresses, common.HexToAddress(lg.Address)) {
-		return false
-	}
-	for i, topics := range crit.Topics {
-		if len(topics) == 0 {
-			continue
-		}
-		// Stored topics are hex strings while crit holds common.Hash, so each
-		// comparison decodes a topic. Watch this for performance regressions;
-		// a criteria type keyed on the stored representation would avoid it.
-		if i >= len(lg.Topics) || !slices.Contains(topics, common.HexToHash(lg.Topics[i])) {
-			return false
-		}
-	}
-	return true
 }
 
 // IterateReceipts walks a snapshot of the retained receipts at or above

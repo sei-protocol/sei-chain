@@ -147,6 +147,28 @@ func TestGetLogsTopicFilter(t *testing.T) {
 	require.Empty(t, logs)
 }
 
+// TestGetLogsTopicPositionsBeyondLogNeverMatch pins go-ethereum's rule that a
+// filter with more topic positions than a log has topics never matches it,
+// even when the extra positions are wildcards.
+func TestGetLogsTopicPositionsBeyondLogNeverMatch(t *testing.T) {
+	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
+	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{
+		FromBlock: big.NewInt(5),
+		ToBlock:   big.NewInt(5),
+		Topics:    [][]common.Hash{{filterTopicY}, nil},
+	})
+	require.NoError(t, err)
+	require.Empty(t, logs)
+
+	logs, err = api.GetLogs(t.Context(), filters.FilterCriteria{
+		FromBlock: big.NewInt(5),
+		ToBlock:   big.NewInt(5),
+		Topics:    [][]common.Hash{nil},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 3)
+}
+
 func TestGetLogsBlockHashForm(t *testing.T) {
 	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
 	blockHash := filterBlockHash(5)
