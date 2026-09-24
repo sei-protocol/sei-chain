@@ -24,8 +24,9 @@ const (
 	autobahnStartupRPC       = "http://127.0.0.1:8545"
 	autobahnStartupTimeout   = 2 * time.Minute
 	autobahnStartupPoll      = 1 * time.Second
-	// Past the Autobahn load-test sender range so this gate does not collide
-	// with TestAutobahn when both run on the same cluster.
+	// Far from the Autobahn load-test sender range (1..4000). The two
+	// suites use separate clusters in CI; this only matters if someone
+	// points both at one leftover cluster.
 	autobahnStartupSender = uint64(2_000_000)
 )
 
