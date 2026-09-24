@@ -31,6 +31,8 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 		Name:   v68OfflineUpgradeName,
 		Height: upgradeHeight,
 	}))
+	commitOfflineUpgradeApp(t, testApp)
+	sourceHeight := testApp.LastBlockHeight()
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
 	stores := make(map[string]map[string]string)
 	for _, name := range v68OfflineStoreNames(testApp) {
@@ -39,8 +41,6 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	require.NotEmpty(t, moduleVersions)
 	require.NotEmpty(t, stores)
 
-	commitOfflineUpgradeApp(t, testApp)
-	sourceHeight := testApp.LastBlockHeight()
 	closeOfflineUpgradeApp(t, testApp)
 
 	writeOfflineUpgradeArtifact(t, root, offlineUpgradeArtifact{
