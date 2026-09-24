@@ -2,9 +2,7 @@ package keeper
 
 import (
 	"context"
-	"time"
 
-	"github.com/armon/go-metrics"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 
@@ -85,11 +83,6 @@ func (m msgServer) ExecuteContract(goCtx context.Context, msg *types.MsgExecuteC
 	if err != nil {
 		return nil, sdkerrors.Wrap(err, "contract")
 	}
-	defer metrics.MeasureSinceWithLabels(
-		[]string{"wasmd", "execute", "contract", "latency"},
-		time.Now(),
-		[]metrics.Label{{Name: "contract", Value: contractAddr.String()}},
-	)
 
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		sdk.EventTypeMessage,
