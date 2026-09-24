@@ -18,6 +18,7 @@ type GigaStorageConfig struct {
 	BlockDBConfig    *littblock.BlockDBConfig       // required
 	PruningConfig    *StorageGarbageCollectorConfig // required
 	CheckpointConfig CheckpointConfig
+	HashVaultConfig  HashVaultConfig
 }
 
 // gigaReceiptBackend is the receipt backend Giga opens (littidx).
@@ -26,6 +27,7 @@ const gigaReceiptBackend = "littidx"
 // DefaultGigaStorageConfig returns a config rooted at homePath:
 //
 //	data/state_commit/flatkv
+//	data/state_commit/hashvault
 //	data/state_store/evm/{backend}
 //	data/ledger/receipt/{backend}
 //	data/ledger/block
@@ -46,6 +48,9 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 	ssConfig.ExternalPruning = true
 	ssConfig.DisableInternalWAL = true
 
+	hashVaultConfig := DefaultHashVaultConfig()
+	hashVaultConfig.DataDir = utils.GetHashVaultPath(homePath)
+
 	receiptConfig := DefaultReceiptStoreConfig()
 	receiptConfig.Backend = gigaReceiptBackend
 	receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
@@ -59,6 +64,7 @@ func DefaultGigaStorageConfig(homePath string) (*GigaStorageConfig, error) {
 		BlockDBConfig:    blockDBConfig,
 		PruningConfig:    DefaultStorageGarbageCollectorConfig(),
 		CheckpointConfig: DefaultCheckpointConfig(),
+		HashVaultConfig:  hashVaultConfig,
 	}, nil
 }
 
@@ -114,6 +120,10 @@ func (c *GigaStorageConfig) Validate() error {
 	// correct-as-written config fails it. Only DataDir is checked here.
 	if c.FlatKVConfig.DataDir == "" {
 		return fmt.Errorf("flatkv data dir is required")
+	}
+
+	if err := c.HashVaultConfig.Validate(); err != nil {
+		return fmt.Errorf("hash vault config is invalid: %w", err)
 	}
 
 	if c.BlockDBConfig == nil {

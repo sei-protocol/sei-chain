@@ -1,229 +1,274 @@
 package hashvault
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"sync"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	gigatypes "github.com/sei-protocol/sei-chain/sei-db/state_db/giga/types"
 )
 
-// Contract-level tests for HashVault. These exercise the externally-visible behavior promised by
-// the HashVault interface against the PebbleHashVault implementation. Pebble-specific surface
-// (encoding, restart recovery, on-disk inspection, the static rollback function, etc.) is tested
-// per-implementation in pebble_hashvault_test.go and pebble_hashvault_rollback_test.go.
+// testConfig returns a config for a vault in a fresh directory. Fsync is off, since the tests flush after
+// every hash and the durability is LittDB's to prove, not this package's.
+func testConfig(t *testing.T, haltOnMismatch bool) config.HashVaultConfig {
+	t.Helper()
+	cfg := config.DefaultHashVaultConfig()
+	cfg.DataDir = filepath.Join(t.TempDir(), "hashvault")
+	cfg.HaltOnMismatch = haltOnMismatch
+	cfg.Fsync = false
+	return cfg
+}
 
-func bytesOfLen(b byte, n int) []byte {
-	out := make([]byte, n)
-	for i := range out {
-		out[i] = b
+// openVault opens a vault from cfg, closed when the test ends.
+func openVault(t *testing.T, cfg config.HashVaultConfig) *HashVault {
+	t.Helper()
+	v, err := Open(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, v.Close()) })
+	return v
+}
+
+// hashOf returns a hash that differs for every distinct seed.
+func hashOf(seed byte) [32]byte {
+	var hash [32]byte
+	for i := range hash {
+		hash[i] = seed
 	}
-	return out
+	return hash
 }
 
-func TestCommitRejectsInvalidHashLength(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-
-	require.ErrorIs(t, v.CommitToHash(ctx, 1, nil), ErrInvalidHashLength)
-	require.ErrorIs(t, v.CommitToHash(ctx, 1, []byte{}), ErrInvalidHashLength)
-	require.ErrorIs(t, v.CommitToHash(ctx, 1, bytesOfLen(0xAA, 31)), ErrInvalidHashLength)
-	require.ErrorIs(t, v.CommitToHash(ctx, 1, bytesOfLen(0xAA, 33)), ErrInvalidHashLength)
+// commitRange commits the hashes of blocks first to last, each seeded with its own block number.
+func commitRange(t *testing.T, v *HashVault, first uint64, last uint64) {
+	t.Helper()
+	for block := first; block <= last; block++ {
+		require.NoError(t, v.Commit(block, hashOf(byte(block))))
+	}
 }
 
-func TestCommitFirstTime(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-	hash := bytesOfLen(0xAA, 32)
-	require.NoError(t, v.CommitToHash(ctx, 7, hash))
+// requireHash asserts the vault holds want for blockNumber.
+func requireHash(t *testing.T, v *HashVault, blockNumber uint64, want [32]byte) {
+	t.Helper()
+	got, status, err := v.Get(blockNumber)
+	require.NoError(t, err)
+	require.Equal(t, gigatypes.BlockHashStatusFound, status, "block %d", blockNumber)
+	require.Equal(t, want, got, "block %d", blockNumber)
 }
 
-func TestCommitIdempotent(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-	hash := bytesOfLen(0xAB, 32)
-	require.NoError(t, v.CommitToHash(ctx, 7, hash))
-	require.NoError(t, v.CommitToHash(ctx, 7, hash))
-	require.NoError(t, v.CommitToHash(ctx, 7, hash))
+// An empty vault has no range to hold a block to, so the first block may be any height, and nothing is
+// ready to be read until it is recorded.
+func TestAnEmptyVaultTakesAnyFirstBlock(t *testing.T) {
+	v := openVault(t, testConfig(t, true))
+
+	_, recorded := v.Head()
+	require.False(t, recorded)
+	_, status, err := v.Get(5)
+	require.NoError(t, err)
+	require.Equal(t, gigatypes.BlockHashStatusNotReady, status)
+
+	require.NoError(t, v.Commit(100, hashOf(1)))
+	head, recorded := v.Head()
+	require.True(t, recorded)
+	require.Equal(t, uint64(100), head)
+	requireHash(t, v, 100, hashOf(1))
 }
 
-func TestCommitMismatch(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-	a := bytesOfLen(0x01, 32)
-	b := bytesOfLen(0x02, 32)
-	require.NoError(t, v.CommitToHash(ctx, 42, a))
+// Blocks above the newest recorded one are not ready, whether or not they have been committed yet.
+func TestABlockAboveTheHeadIsNotReady(t *testing.T) {
+	v := openVault(t, testConfig(t, true))
+	commitRange(t, v, 1, 3)
 
-	err := v.CommitToHash(ctx, 42, b)
+	_, status, err := v.Get(4)
+	require.NoError(t, err)
+	require.Equal(t, gigatypes.BlockHashStatusNotReady, status)
+}
+
+// The recorded range is contiguous, so a block that would leave a gap is refused whatever the mismatch
+// policy is.
+func TestAGapIsRefused(t *testing.T) {
+	for _, halt := range []bool{true, false} {
+		v := openVault(t, testConfig(t, halt))
+		commitRange(t, v, 1, 3)
+
+		require.ErrorContains(t, v.Commit(5, hashOf(5)), "gap")
+		head, _ := v.Head()
+		require.Equal(t, uint64(3), head, "a refused block must not be recorded")
+	}
+}
+
+// Re-execution reproduces the hashes it recorded before, so committing the same hash again is a check
+// that passes, not a write.
+func TestRecommittingTheSameHashPasses(t *testing.T) {
+	v := openVault(t, testConfig(t, true))
+	commitRange(t, v, 1, 5)
+
+	commitRange(t, v, 2, 5)
+	head, _ := v.Head()
+	require.Equal(t, uint64(5), head)
+	requireHash(t, v, 3, hashOf(3))
+}
+
+// With halting selected, a different hash for a recorded block fails and leaves the record as it was.
+func TestAMismatchHaltsWhenHaltingIsSelected(t *testing.T) {
+	v := openVault(t, testConfig(t, true))
+	commitRange(t, v, 1, 5)
+
+	require.ErrorContains(t, v.Commit(3, hashOf(0xEE)), "mismatch")
+	requireHash(t, v, 3, hashOf(3))
+	head, _ := v.Head()
+	require.Equal(t, uint64(5), head)
+}
+
+// With halting off, a different hash replaces the recorded one, and the hashes above it go with it: they
+// were derived from the state the new hash disowns.
+func TestAMismatchReplacesTheRecordWhenHaltingIsOff(t *testing.T) {
+	v := openVault(t, testConfig(t, false))
+	commitRange(t, v, 1, 5)
+
+	require.NoError(t, v.Commit(3, hashOf(0xEE)))
+	requireHash(t, v, 2, hashOf(2))
+	requireHash(t, v, 3, hashOf(0xEE))
+	head, _ := v.Head()
+	require.Equal(t, uint64(3), head)
+	_, status, err := v.Get(4)
+	require.NoError(t, err)
+	require.Equal(t, gigatypes.BlockHashStatusNotReady, status)
+
+	require.NoError(t, v.Commit(4, hashOf(0xEF)), "commits carry on from the replaced block")
+	requireHash(t, v, 4, hashOf(0xEF))
+}
+
+// A mismatch at the oldest recorded block discards every hash, which the vault survives as an empty one.
+func TestAMismatchAtTheOldestBlockLeavesOnlyTheNewHash(t *testing.T) {
+	v := openVault(t, testConfig(t, false))
+	commitRange(t, v, 10, 12)
+
+	require.NoError(t, v.Commit(10, hashOf(0xEE)))
+	requireHash(t, v, 10, hashOf(0xEE))
+	head, _ := v.Head()
+	require.Equal(t, uint64(10), head)
+}
+
+// What the vault records survives a restart, including a record a mismatch rewrote.
+func TestTheRecordSurvivesAReopen(t *testing.T) {
+	cfg := testConfig(t, false)
+	v, err := Open(cfg)
+	require.NoError(t, err)
+	commitRange(t, v, 1, 5)
+	require.NoError(t, v.Commit(4, hashOf(0xEE)))
+	require.NoError(t, v.Close())
+
+	reopened := openVault(t, cfg)
+	head, recorded := reopened.Head()
+	require.True(t, recorded)
+	require.Equal(t, uint64(4), head)
+	requireHash(t, reopened, 3, hashOf(3))
+	requireHash(t, reopened, 4, hashOf(0xEE))
+	require.ErrorContains(t, reopened.Commit(6, hashOf(6)), "gap", "the reopened vault still refuses gaps")
+}
+
+// Reset leaves the block it is given as the only one recorded, and commits carry on from it.
+func TestResetLeavesOnlyTheGivenBlock(t *testing.T) {
+	v := openVault(t, testConfig(t, true))
+	commitRange(t, v, 1, 5)
+
+	require.NoError(t, v.Reset(1000, hashOf(0xAB)))
+	head, recorded := v.Head()
+	require.True(t, recorded)
+	require.Equal(t, uint64(1000), head)
+	requireHash(t, v, 1000, hashOf(0xAB))
+	require.Equal(t, uint64(1), v.table.KeyCount())
+
+	require.NoError(t, v.Commit(1001, hashOf(0xAC)))
+	requireHash(t, v, 1001, hashOf(0xAC))
+}
+
+// The Pebble vault this one replaced holds app hashes nothing can use, so opening deletes it.
+func TestOpenDeletesTheLegacyPebbleVault(t *testing.T) {
+	cfg := testConfig(t, true)
+	cfg.LegacyPebbleDir = filepath.Join(t.TempDir(), "hashvault")
+	require.NoError(t, os.MkdirAll(cfg.LegacyPebbleDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(cfg.LegacyPebbleDir, "000001.log"), []byte("x"), 0o600))
+
+	openVault(t, cfg)
+	_, err := os.Stat(cfg.LegacyPebbleDir)
+	require.True(t, os.IsNotExist(err), "the legacy vault must be gone, got %v", err)
+}
+
+// A legacy dir that is not there is the common case once the testnet has run this build, not an error.
+func TestOpenWithoutALegacyPebbleVault(t *testing.T) {
+	cfg := testConfig(t, true)
+	cfg.LegacyPebbleDir = filepath.Join(t.TempDir(), "absent")
+	openVault(t, cfg)
+}
+
+// A hash may be deleted only once both the owner and the storage garbage collector permit it, and neither
+// permission is taken back by a later, lower one.
+func TestGCDeletesOnlyBelowBothFloors(t *testing.T) {
+	v := openVault(t, testConfig(t, true))
+	deletable := func(blockNumber uint64) bool {
+		t.Helper()
+		ok, err := v.gcFilter(encodeKey(blockNumber), true)
+		require.NoError(t, err)
+		return ok
+	}
+
+	require.False(t, deletable(0), "nothing is deletable before either floor is raised")
+
+	v.PruneBelow(100)
+	require.False(t, deletable(50), "the owner alone cannot delete a hash")
+
+	require.NoError(t, v.PruneHistory(60))
+	require.True(t, deletable(59))
+	require.False(t, deletable(60), "the lower floor bounds what is deleted")
+	require.False(t, deletable(99))
+
+	require.NoError(t, v.PruneHistory(200))
+	require.True(t, deletable(99))
+	require.False(t, deletable(100), "the owner's floor now bounds what is deleted")
+
+	v.PruneBelow(10)
+	require.NoError(t, v.PruneHistory(10))
+	require.True(t, deletable(99), "a lower floor must not take back a permission already given")
+}
+
+// The vault restores nothing from snapshots, so its rollback floor is its newest block less the window.
+func TestRollbackFloorIsTheHeadLessTheWindow(t *testing.T) {
+	v := openVault(t, testConfig(t, true))
+	require.Equal(t, uint64(0), v.GetRollbackFloor(10), "an empty vault constrains nothing")
+
+	commitRange(t, v, 1, 30)
+	require.Equal(t, uint64(20), v.GetRollbackFloor(10))
+	require.Equal(t, uint64(0), v.GetRollbackFloor(40), "a window deeper than the history floors at 0")
+	latest, err := v.GetLatestBlock()
+	require.NoError(t, err)
+	require.Equal(t, uint64(30), latest)
+}
+
+// A record written in a format this build does not know is refused rather than read as a hash.
+func TestAnUnknownRecordFormatIsRefused(t *testing.T) {
+	value := encodeValue(hashOf(1))
+	value[0] = recordFormatVersion + 1
+	_, err := decodeValue(value)
+	require.ErrorContains(t, err, "format version")
+
+	_, err = decodeValue(value[:10])
+	require.ErrorContains(t, err, "bytes")
+}
+
+// Every method fails once the vault is closed, rather than reading a table that is gone.
+func TestAClosedVaultRefusesEverything(t *testing.T) {
+	v, err := Open(testConfig(t, true))
+	require.NoError(t, err)
+	commitRange(t, v, 1, 2)
+	require.NoError(t, v.Close())
+	require.NoError(t, v.Close(), "closing twice is harmless")
+
+	require.Error(t, v.Commit(3, hashOf(3)))
+	require.Error(t, v.Reset(3, hashOf(3)))
+	_, status, err := v.Get(1)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrHashMismatch)
-}
-
-func TestCommitMismatchAfterRepeatedCommitIsSticky(t *testing.T) {
-	// Even after re-committing the same hash many times, a single mismatch still surfaces. This
-	// is essentially a regression check that the cache fast path also enforces the mismatch.
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-	a := bytesOfLen(0x55, 32)
-	b := bytesOfLen(0x66, 32)
-	for i := 0; i < 10; i++ {
-		require.NoError(t, v.CommitToHash(ctx, 5, a))
-	}
-	err := v.CommitToHash(ctx, 5, b)
-	require.ErrorIs(t, err, ErrHashMismatch)
-}
-
-func TestPruneRemovesData(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-
-	// Commit a handful of heights, prune below 5, then probe around the boundary.
-	for h := uint64(1); h <= 10; h++ {
-		require.NoError(t, v.CommitToHash(ctx, h, bytesOfLen(byte(h), 32)))
-	}
-	require.NoError(t, v.Prune(ctx, 5))
-
-	// Below the boundary is rejected.
-	require.ErrorIs(t,
-		v.CommitToHash(ctx, 3, bytesOfLen(0x03, 32)),
-		ErrBelowPruneBoundary,
-	)
-	// At the boundary is allowed (and the previously-committed hash is still locked in).
-	require.NoError(t, v.CommitToHash(ctx, 5, bytesOfLen(0x05, 32)))
-	require.ErrorIs(t,
-		v.CommitToHash(ctx, 5, bytesOfLen(0x55, 32)),
-		ErrHashMismatch,
-	)
-	// Above the boundary is allowed and still locked.
-	require.NoError(t, v.CommitToHash(ctx, 7, bytesOfLen(0x07, 32)))
-	require.ErrorIs(t,
-		v.CommitToHash(ctx, 7, bytesOfLen(0x77, 32)),
-		ErrHashMismatch,
-	)
-}
-
-func TestCommitBelowPruneBoundary(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-
-	require.NoError(t, v.Prune(ctx, 100))
-	// Strictly below the boundary is rejected.
-	require.ErrorIs(t,
-		v.CommitToHash(ctx, 99, bytesOfLen(0xAA, 32)),
-		ErrBelowPruneBoundary,
-	)
-	require.ErrorIs(t,
-		v.CommitToHash(ctx, 50, bytesOfLen(0xAA, 32)),
-		ErrBelowPruneBoundary,
-	)
-	// At the boundary is allowed: Prune keeps the boundary block per the godoc.
-	require.NoError(t, v.CommitToHash(ctx, 100, bytesOfLen(0xAA, 32)))
-	// Above is also obviously fine.
-	require.NoError(t, v.CommitToHash(ctx, 101, bytesOfLen(0xAA, 32)))
-}
-
-func TestPruneMonotonic(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-
-	require.NoError(t, v.Prune(ctx, 50))
-	require.NoError(t, v.Prune(ctx, 25)) // no-op
-	// Committing at 30 still errors: the effective boundary is still 50.
-	require.ErrorIs(t,
-		v.CommitToHash(ctx, 30, bytesOfLen(0xAA, 32)),
-		ErrBelowPruneBoundary,
-	)
-	// Just below the boundary still errors.
-	require.ErrorIs(t,
-		v.CommitToHash(ctx, 49, bytesOfLen(0xAA, 32)),
-		ErrBelowPruneBoundary,
-	)
-	// At and above the boundary succeed.
-	require.NoError(t, v.CommitToHash(ctx, 50, bytesOfLen(0x50, 32)))
-	require.NoError(t, v.CommitToHash(ctx, 51, bytesOfLen(0xAA, 32)))
-}
-
-func TestCloseIsIdempotent(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-	require.NoError(t, v.Close(ctx))
-	require.NoError(t, v.Close(ctx))
-	require.NoError(t, v.Close(ctx))
-}
-
-func TestCallsAfterCloseError(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-	require.NoError(t, v.Close(ctx))
-	require.ErrorIs(t, v.CommitToHash(ctx, 1, bytesOfLen(0xAA, 32)), ErrClosed)
-	require.ErrorIs(t, v.Prune(ctx, 1), ErrClosed)
-}
-
-func TestConcurrentCommits(t *testing.T) {
-	ctx := context.Background()
-	v := newTestPebbleVault(t)
-
-	// 100 goroutines, each commits a distinct height. All should succeed.
-	var wg sync.WaitGroup
-	const N = 100
-	errs := make(chan error, N)
-	for i := 0; i < N; i++ {
-		wg.Add(1)
-		go func(h uint64) {
-			defer wg.Done()
-			errs <- v.CommitToHash(ctx, h, bytesOfLen(byte(h), 32))
-		}(uint64(i + 1))
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-
-	// Re-committing the same (height, hash) from many goroutines should also all succeed.
-	errs2 := make(chan error, N)
-	for i := 0; i < N; i++ {
-		wg.Add(1)
-		go func(h uint64) {
-			defer wg.Done()
-			errs2 <- v.CommitToHash(ctx, h, bytesOfLen(byte(h), 32))
-		}(uint64(i + 1))
-	}
-	wg.Wait()
-	close(errs2)
-	for err := range errs2 {
-		require.NoError(t, err)
-	}
-
-	// Committing a *different* hash at any of those heights from many goroutines should yield
-	// at least one mismatch error and never a hidden success.
-	errs3 := make(chan error, N)
-	for i := 0; i < N; i++ {
-		wg.Add(1)
-		go func(h uint64) {
-			defer wg.Done()
-			errs3 <- v.CommitToHash(ctx, h, bytesOfLen(0xFF, 32))
-		}(uint64(i + 1))
-	}
-	wg.Wait()
-	close(errs3)
-	mismatches := 0
-	for err := range errs3 {
-		require.Error(t, err)
-		if errors.Is(err, ErrHashMismatch) {
-			mismatches++
-		}
-	}
-	require.Equal(t, N, mismatches, "every concurrent different-hash commit must return ErrHashMismatch")
-}
-
-// Sanity check that fmt.Errorf wrapping of our sentinels via %w stays Is-compatible. Defends
-// against accidental future refactors of the codec or handlers that lose the sentinel.
-func TestErrorWrappingIsCompatible(t *testing.T) {
-	wrapped := fmt.Errorf("outer: %w", ErrCorruption)
-	require.ErrorIs(t, wrapped, ErrCorruption)
-	wrappedLen := fmt.Errorf("outer: %w", ErrInvalidHashLength)
-	require.ErrorIs(t, wrappedLen, ErrInvalidHashLength)
+	require.Equal(t, gigatypes.BlockHashStatusError, status)
 }

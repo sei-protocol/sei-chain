@@ -103,11 +103,11 @@ func TestStateStoreDisabled(t *testing.T) {
 		"SC still needs the schedule that replaces its own interval")
 	require.True(t, manager.SC().ExternalPruning())
 
-	names := make([]string, 0, 4)
+	names := make([]string, 0, 5)
 	for _, store := range manager.prunableStores() {
 		names = append(names, store.Name())
 	}
-	require.Equal(t, []string{"FlatKV", "StateWAL", "ReceiptDB", "BlockDB"}, names,
+	require.Equal(t, []string{"FlatKV", "StateWAL", "HashVault", "ReceiptDB", "BlockDB"}, names,
 		"a store this node never opened must not be offered to the collector")
 }
 
@@ -243,14 +243,14 @@ func TestEveryStoreJoinsThePruneCycle(t *testing.T) {
 	require.True(t, manager.SC().ExternalPruning())
 	require.True(t, manager.SS().ExternalPruning())
 
-	names := make([]string, 0, 5)
+	names := make([]string, 0, 6)
 	for _, store := range manager.prunableStores() {
 		names = append(names, store.Name())
 	}
-	// The three state stores arrive as one group, from the StateDB that owns them. Order carries no
+	// The four state stores arrive as one group, from the StateDB that owns them. Order carries no
 	// meaning to the collector: it fixes both cut lines as a minimum over every store before pruning
 	// any of them.
-	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS", "ReceiptDB", "BlockDB"}, names)
+	require.Equal(t, []string{"FlatKV", "StateWAL", "EVM SS", "HashVault", "ReceiptDB", "BlockDB"}, names)
 }
 
 // TestPrunableStoresOmitsDisabledReceipts pins that a store that was never opened is not offered

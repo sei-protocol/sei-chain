@@ -369,7 +369,7 @@ func (s *CommitStore) FinalizeImport(version int64) error {
 	}
 
 	s.loadedHashes.Global = lthash.SumDBHashes(dataDBDirs, s.loadedHashes.PerDB)
-	s.loadedHashes.BlockNumber = version
+	s.loadedHashes.BlockNumber = uint64(version) //nolint:gosec // an imported version is never negative
 	s.committedVersion = version
 
 	// The engine's accumulator described the databases this import has just replaced wholesale, so it is

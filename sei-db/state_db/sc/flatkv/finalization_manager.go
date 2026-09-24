@@ -222,7 +222,7 @@ func (fm *FinalizationManager) finalize(pending *pendingFinalization) (stopped b
 	if hash.Error != nil {
 		return false, fmt.Errorf("hash block %d: %w", pending.blockNumber, hash.Error)
 	}
-	if hash.BlockNumber != pending.blockNumber {
+	if hash.BlockNumber != uint64(pending.blockNumber) { //nolint:gosec // an offered block is never negative
 		return false, fmt.Errorf("finalization is out of step: holding block %d, hashed block %d",
 			pending.blockNumber, hash.BlockNumber)
 	}

@@ -228,7 +228,7 @@ func (cs *CompositeCommitStore) adoptFlatKV(store gigatypes.LiveStateStore) erro
 
 // recordFlatKVHash keeps flatKVHash current. It is the listener registered on every flatKV instance
 // this store adopts.
-func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ int64, hash *lthash.BlockHash) error {
+func (cs *CompositeCommitStore) recordFlatKVHash(_ context.Context, _ uint64, hash *lthash.BlockHash) error {
 	cs.flatKVHash.Store(hash)
 	return nil
 }
@@ -1210,7 +1210,7 @@ func (cs *CompositeCommitStore) latticeHash(version int64) ([]byte, error) {
 	}
 
 	hash := cs.flatKVHash.Load()
-	if hash.BlockNumber != version {
+	if hash.BlockNumber != uint64(version) { //nolint:gosec // a committed version is never negative
 		// Block version+1 has not been handed to flatKV yet, so the hash just flushed is version's.
 		// Asserted rather than assumed: this value reaches the AppHash, where a hash for the wrong
 		// height is indistinguishable from the right one.

@@ -11,7 +11,23 @@ import (
 )
 
 // A callback function for getting the hash of each block.
-type HashListener func(ctx context.Context, blockNum int64, hash *lthash.BlockHash) error
+type HashListener func(ctx context.Context, blockNum uint64, hash *lthash.BlockHash) error
+
+// BlockHashStatus is the outcome of a block hash lookup.
+type BlockHashStatus uint8
+
+// BlockHashStatusError means the lookup failed, and the accompanying error says why.
+const BlockHashStatusError BlockHashStatus = 0
+
+// BlockHashStatusFound means the hash was found.
+const BlockHashStatusFound BlockHashStatus = 1
+
+// BlockHashStatusTooOld means the block is below the oldest block whose hash is still kept.
+const BlockHashStatusTooOld BlockHashStatus = 2
+
+// BlockHashStatusNotReady means the block's hash is not recorded yet: the block has not been hashed, or
+// has not been committed.
+const BlockHashStatusNotReady BlockHashStatus = 3
 
 // StateDB is the top-level API used by the Giga EVM executor for
 // read and write. Writes commit into both SC and SS; reads can be served for
@@ -39,6 +55,18 @@ type StateDB interface {
 	// first hash the listener observes is for block N, the mostRecentHash returned will have been block N-1.
 	// This may be useful at startup time to determine the initial hash of the database.
 	RegisterHashListener(listener HashListener) (mostRecentHash lthash.BlockHash, err error)
+
+	// GetBlockHeight returns the number of the last block passed to CommitStateChanges, or the block the
+	// StateDB opened on when none has been passed since.
+	GetBlockHeight() uint64
+
+	// GetBlockHash returns the state hash of a recent block without blocking. The hash is valid only when
+	// the status is BlockHashStatusFound, and the error is non-nil exactly when the status is
+	// BlockHashStatusError. A returned hash is crash durable.
+	GetBlockHash(blockNumber uint64) (hash [32]byte, status BlockHashStatus, err error)
+
+	// PruneBlockHashesBelow permits the hashes of blocks below blockNumber to be deleted.
+	PruneBlockHashesBelow(blockNumber uint64) error
 
 	// Close releases everything this StateDB was built over, reporting every failure rather than
 	// stopping at the first.

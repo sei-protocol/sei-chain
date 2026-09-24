@@ -52,7 +52,7 @@ func (m *GigaStorageManager) OpenDBWithRecovery(ctx context.Context) error {
 // State goes first because it is the rollback that refuses: a target its snapshots and WAL cannot span
 // leaves the node down for an operator to retry at a higher one, and receipts cut to the lower target
 // would no longer be there to reach.
-func (m *GigaStorageManager) recoverStores(ctx context.Context, target int64) error {
+func (m *GigaStorageManager) recoverStores(ctx context.Context, target uint64) error {
 	if target == 0 {
 		logger.Info("No height to converge on, opening the state DB where its files sit")
 		return m.openStateDB(ctx)
@@ -100,7 +100,7 @@ func (m *GigaStorageManager) openReceiptStore() error {
 //
 // The state and receipt heads are read from their directories, which takes the locks their open stores
 // hold, so this must run before either of those stores opens.
-func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
+func (m *GigaStorageManager) findTargetRecoveryHeight() (uint64, error) {
 	logger.Info("Reading a store head", "store", "block store")
 	blockHeight, err := m.blockStore.GetLatestBlock()
 	if err != nil {
@@ -125,7 +125,7 @@ func (m *GigaStorageManager) findTargetRecoveryHeight() (int64, error) {
 		"state_wal", stateHeight,
 		"receipt_store", receiptHeight,
 		"target", target)
-	return int64(target), nil //nolint:gosec // heights fit within int64
+	return target, nil
 }
 
 // stateWALHead returns the last block the state WAL holds, or 0 when it holds none.
@@ -162,10 +162,11 @@ func recoveryTarget(blockHeight, stateHeight, receiptHeight uint64) uint64 {
 	return target
 }
 
-// openStateDB opens the state commit store, the EVM state store (when enabled) and the state WAL,
-// leaving them on the height the WAL holds.
+// openStateDB opens the state commit store, the EVM state store (when enabled), the state WAL and the
+// hash vault, leaving the stores on the height the WAL holds.
 func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
-	stateDB, err := giga.NewStateDB(ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig)
+	stateDB, err := giga.NewStateDB(
+		ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, m.cfg.HashVaultConfig, 0)
 	if err != nil {
 		return err
 	}
@@ -173,13 +174,20 @@ func (m *GigaStorageManager) openStateDB(ctx context.Context) error {
 	return nil
 }
 
-// openStateDBAt opens the same three stores on target, rolling them back to it first.
+// openStateDBAt opens the same stores on target, rolling them back to it first. The hash vault is not
+// rolled back.
 //
 // The rollback is part of the open because cutting the state WAL's tail needs the WAL closed, so an
 // already-open state DB would have to close and reopen it.
-func (m *GigaStorageManager) openStateDBAt(ctx context.Context, target int64) error {
-	stateDB, err := giga.NewStateDBWithRollback(
-		ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, target)
+func (m *GigaStorageManager) openStateDBAt(ctx context.Context, target uint64) error {
+	if target == 0 {
+		// The state DB reads a target of 0 as no rollback at all, so without this a caller asking for one
+		// would get a plain open instead.
+		return fmt.Errorf("rollback target %d is invalid: version 0 means no state, so there is "+
+			"nothing to roll back to", target)
+	}
+	stateDB, err := giga.NewStateDB(
+		ctx, m.cfg.FlatKVConfig, m.cfg.SSConfig, m.cfg.CheckpointConfig, m.cfg.HashVaultConfig, target)
 	if err != nil {
 		return err
 	}
@@ -191,12 +199,11 @@ func (m *GigaStorageManager) openStateDBAt(ctx context.Context, target int64) er
 // open store. A store already at or below target is left alone.
 //
 // It takes the locks an open receipt store holds, so it must run before openReceiptStore.
-func (m *GigaStorageManager) recoverReceipt(target int64) error {
+func (m *GigaStorageManager) recoverReceipt(target uint64) error {
 	if !m.cfg.ReceiptDBConfig.Enable {
 		return nil
 	}
-	//nolint:gosec // recoverStores guards target > 0
-	if err := receipt.PruneAfter(m.cfg.ReceiptDBConfig, uint64(target)); err != nil {
+	if err := receipt.PruneAfter(m.cfg.ReceiptDBConfig, target); err != nil {
 		return fmt.Errorf("roll the receipt store back to %d: %w", target, err)
 	}
 	return nil

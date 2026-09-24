@@ -11,7 +11,7 @@ import (
 )
 
 // publish hands the waiter the hash of one block, as the database's dispatch would.
-func publish(t *testing.T, w *blockHashWaiter, blockNumber int64) {
+func publish(t *testing.T, w *blockHashWaiter, blockNumber uint64) {
 	t.Helper()
 	require.NoError(t, w.listen(t.Context(), blockNumber, &lthash.BlockHash{BlockNumber: blockNumber}))
 }
@@ -31,7 +31,7 @@ func TestTheFirstBlocksRunAheadWithoutTakingAHash(t *testing.T) {
 // would let the benchmark drift arbitrarily far ahead of hashing.
 func TestOneHashIsTakenPerBlockAfterTheWindow(t *testing.T) {
 	waiter := newBlockHashWaiter(3, nil)
-	for block := int64(1); block <= 4; block++ {
+	for block := uint64(1); block <= 4; block++ {
 		publish(t, waiter, block)
 	}
 
@@ -40,7 +40,7 @@ func TestOneHashIsTakenPerBlockAfterTheWindow(t *testing.T) {
 		require.NoError(t, waiter.awaitBlock())
 	}
 	require.Len(t, waiter.hashes, 3, "exactly one hash may be taken per block committed")
-	require.Equal(t, int64(2), waiter.nextExpected)
+	require.Equal(t, uint64(2), waiter.nextExpected)
 }
 
 // The wait is the point: a database that cannot hash as fast as the benchmark commits has to slow the

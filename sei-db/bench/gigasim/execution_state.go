@@ -120,6 +120,11 @@ func (s *executionState) commitBlock(blockNum int64, writes blockWrites) error {
 	}
 	s.metrics.ReportStateCommit(int64(len(writes.changeSets[0].Changeset.Pairs)))
 
+	// The same placeholder retention giga execution uses, until a real threshold is wired in there.
+	if err := s.db.PruneBlockHashesBelow(blockHashesPrunedBelow(blockNum)); err != nil {
+		return fmt.Errorf("failed to prune block hashes after committing block %d: %w", blockNum, err)
+	}
+
 	// Committing a block is not finishing it: the hash of a block committed a bounded number of blocks
 	// ago is taken here, and waited for when hashing has fallen behind execution. Reopening the view
 	// is charged here too, being a fraction of a percent that no one reads as a stage of its own.

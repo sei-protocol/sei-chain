@@ -39,7 +39,7 @@ func checksumOf(hash *lthash.LtHash) []byte {
 
 // flatKVBlockHash returns a block hash with a distinct root and a distinct hash for each of flatKV's
 // data databases.
-func flatKVBlockHash(t *testing.T, blockNumber int64) *lthash.BlockHash {
+func flatKVBlockHash(t *testing.T, blockNumber uint64) *lthash.BlockHash {
 	t.Helper()
 	return &lthash.BlockHash{
 		BlockNumber: blockNumber,

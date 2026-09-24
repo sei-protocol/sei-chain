@@ -229,6 +229,10 @@ func (d *Database) FinalizeBlock(
 	if err := d.db.CommitStateChanges(blockNum, changeSets); err != nil {
 		return fmt.Errorf("failed to commit block %d: %w", blockNum, err)
 	}
+	// The same placeholder retention giga execution uses, until a real threshold is wired in there.
+	if err := d.db.PruneBlockHashesBelow(blockHashesPrunedBelow(blockNum)); err != nil {
+		return fmt.Errorf("failed to prune block hashes after committing block %d: %w", blockNum, err)
+	}
 	d.nextBlockNumber++
 	d.metrics.ReportDBCommit()
 	d.reopenView()

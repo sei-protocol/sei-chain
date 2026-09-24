@@ -163,19 +163,20 @@ mock-app = {{ .BaseConfig.MockApp }}
 # would otherwise nest it under the immediately preceding section.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
-# hash-vault-disabled-unsafe disables the app-hash equivocation guard (HashVault).
-# DO NOT set this to true unless you are knowingly running an UNSAFE node as a last-resort
-# recovery measure. A node with this enabled has NO protection against changing its mind about
-# a committed block's app hash, and will log error-level warnings on every startup.
+# hash-vault-halt-on-mismatch selects what an Autobahn node does when the hash vault sees a
+# block's state hash differ from the one it recorded for that block. When true, the node halts;
+# DO NOT RESTART WITHOUT HUMAN INVESTIGATION. When false, the node logs an error, discards the
+# recorded hashes from that block up, and records the new hash in their place.
 #
-# It is safer to leave HashVault enabled: if you hit a startup panic, first remove the HashVault
-# files as instructed in the panic message and let the node run. Only disable HashVault if you are
-# very sure the stored hashes are totally wrong and you keep hitting the same panic on new blocks.
+# hash-vault-empty-rollback-blocks is how many blocks an Autobahn node rewinds and replays when it
+# starts over an empty hash vault, so that the vault holds the hashes of recent blocks again. The
+# rewind is shortened to what the node's snapshots and state WAL can reach.
 #
-# Placed here (as a top-level key, before any [section] header) so the TOML parser sees it at
-# root scope where mapstructure expects it — viper would otherwise nest it under the
+# Placed here (as top-level keys, before any [section] header) so the TOML parser sees them at
+# root scope where mapstructure expects them — viper would otherwise nest them under the
 # immediately preceding section.
-hash-vault-disabled-unsafe = {{ .HashVaultDisabledUnsafe }}
+hash-vault-halt-on-mismatch = {{ .HashVaultHaltOnMismatch }}
+hash-vault-empty-rollback-blocks = {{ .HashVaultEmptyRollbackBlocks }}
 
 #######################################################################
 ###                 Advanced Configuration Options                  ###

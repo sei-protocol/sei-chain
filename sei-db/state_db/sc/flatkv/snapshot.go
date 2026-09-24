@@ -769,6 +769,18 @@ func repointAtSnapshot(dir string, version int64) error {
 	return nil
 }
 
+// SnapshotVersions returns the versions of the snapshots of the closed store under dir, lowest first.
+func SnapshotVersions(dir string) ([]int64, error) {
+	var versions []int64
+	if err := traverseSnapshots(dir, true, func(version int64) (bool, error) {
+		versions = append(versions, version)
+		return false, nil
+	}); err != nil {
+		return nil, fmt.Errorf("list snapshots under %q: %w", dir, err)
+	}
+	return versions, nil
+}
+
 // DiscardStateAbove puts the closed store under dir on its newest snapshot at or below target when it
 // holds any state above target, and reports the version its files hold once it returns. A store holding
 // nothing above target is left alone, reported at the version it opens on, for a replay to carry it

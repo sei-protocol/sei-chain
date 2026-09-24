@@ -21,6 +21,7 @@ type recordingGigaStore struct {
 	commitErr   error
 	commitBlock []int64
 	commits     [][]*proto.NamedChangeSet
+	pruneBelow  []uint64
 }
 
 func (s *recordingGigaStore) CommitStateChanges(blockNum int64, changeset []*proto.NamedChangeSet) error {
@@ -40,6 +41,17 @@ func (s *recordingGigaStore) RegisterHashListener(gigatypes.HashListener) (lthas
 
 func (s *recordingGigaStore) OpenViewAt(int64) (gigatypes.StateView, bool) {
 	return nil, false
+}
+
+func (s *recordingGigaStore) GetBlockHeight() uint64 { return 0 }
+
+func (s *recordingGigaStore) GetBlockHash(uint64) ([32]byte, gigatypes.BlockHashStatus, error) {
+	return [32]byte{}, gigatypes.BlockHashStatusNotReady, nil
+}
+
+func (s *recordingGigaStore) PruneBlockHashesBelow(blockNumber uint64) error {
+	s.pruneBelow = append(s.pruneBelow, blockNumber)
+	return nil
 }
 
 func (s *recordingGigaStore) Close() error { return nil }
@@ -227,6 +239,8 @@ func TestExecutorCommitsGigaStoreStateChanges(t *testing.T) {
 	require.Equal(t, 1, store.openCount)
 	require.Equal(t, 1, snapshot.closeCount)
 	require.Equal(t, []int64{41}, store.commitBlock)
+	require.Equal(t, []uint64{0}, store.pruneBelow,
+		"the block hashes are pruned after the commit, and none are old enough to go yet")
 	require.Equal(t, [][]*proto.NamedChangeSet{wantChangesets}, store.commits)
 	require.Contains(t, result.ChangeSet.Balances, BalanceChange{Address: recipient, Balance: big.NewInt(7)})
 	result.Release()
@@ -446,4 +460,14 @@ func TestExecutorGigaStoreFailuresDoNotCommitPartialState(t *testing.T) {
 		require.Zero(t, store.openCount)
 		require.Empty(t, store.commits)
 	})
+}
+
+// The placeholder retention keeps the newest placeholderBlockHashRetention blocks' hashes, and never wraps
+// below block 0 on a young chain.
+func TestBlockHashesPrunedBelowKeepsThePlaceholderRetention(t *testing.T) {
+	require.Equal(t, uint64(0), blockHashesPrunedBelow(0))
+	require.Equal(t, uint64(0), blockHashesPrunedBelow(placeholderBlockHashRetention-1))
+	require.Equal(t, uint64(0), blockHashesPrunedBelow(placeholderBlockHashRetention))
+	require.Equal(t, uint64(1), blockHashesPrunedBelow(placeholderBlockHashRetention+1))
+	require.Equal(t, uint64(5_000), blockHashesPrunedBelow(placeholderBlockHashRetention+5_000))
 }

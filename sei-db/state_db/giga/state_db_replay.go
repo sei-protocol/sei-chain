@@ -5,174 +5,124 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/statewal"
 )
 
 // replayLogInterval bounds how often a running replay reports how far it has got.
 const replayLogInterval = 30 * time.Second
 
-// rewindTo puts whichever of SC and SS holds state above target on its newest snapshot at or below it,
-// drops every snapshot of both above target, and cuts the WAL's tail to it. All three stores must be
-// closed, and a store holding nothing above target is left where it is, for the replay to carry forward.
-//
-// A target the surviving snapshots and the WAL cannot span is refused before the WAL is cut, so every
-// target this one could reach is still reachable on a retry. SS is asked once SC has moved, so a
-// refusal from SS leaves SC on its snapshot and a retry replays from there.
-func (s *StateDB) rewindTo(target int64) error {
-	wal, err := s.storedWALRange()
-	if err != nil {
-		return err
-	}
-	if wal.last < target {
-		return fmt.Errorf("cannot roll back to %d: the state WAL ends at %d, so no replay reaches the "+
-			"target", target, wal.last)
-	}
-
-	// First, so that a refusal from SC comes back with every snapshot still on disk. Once SC has moved,
-	// its own snapshots above where it landed are gone.
-	if err := s.discardStateAbove(wal, target); err != nil {
-		return fmt.Errorf("cannot roll back to %d: %w", target, err)
-	}
-	if err := s.dropSnapshotsAbove(target); err != nil {
-		return err
-	}
-	// Last, so that an interruption leaves the WAL still above target and a restart comes back here.
-	return s.truncateWAL(target)
-}
-
-// discardStateAboveTheWAL puts each store back on the WAL's head when it sits above it, onto its
-// newest snapshot at or below the head for the replay to carry forward. Every store must be closed.
-//
-// A commit writes the WAL unflushed, so a crash can lose its tail while the state committed above that
-// tail survives. Those blocks are re-executed from the block store, which a store still holding them
-// cannot accept, so the state above the WAL is dropped rather than kept.
-func (s *StateDB) discardStateAboveTheWAL(wal storedWALRange) error {
-	head := wal.last
-	if head == 0 {
-		// An empty WAL says nothing about where state belongs: one pruned away behind a snapshot leaves
-		// the state it covered as the only record of it.
-		return nil
-	}
-	if err := s.discardStateAbove(wal, head); err != nil {
-		// Named for the open, not for a rollback: nobody asked for one, and an operator sent looking for
-		// the rollback they did not run is an operator not looking at the WAL head that refused.
-		return fmt.Errorf("cannot open on the state WAL's head %d: %w", head, err)
-	}
-	return nil
-}
-
-// discardStateAbove puts whichever of SC and SS holds state above target onto its newest snapshot at or
-// below it. Both stores must be closed, and a store holding nothing above target is left where it is,
-// for the replay to carry forward.
-//
-// Each store is handed the WAL's first block and refuses, without moving, a target this WAL cannot
-// replay it back up to. SC is put back first, so a refusal from SS can leave SC already rewound.
-func (s *StateDB) discardStateAbove(wal storedWALRange, target int64) error {
-	if _, err := flatkv.DiscardStateAbove(s.flatkvCfg.DataDir, target, wal.first); err != nil {
-		return fmt.Errorf("the state commit store cannot reach %d: %w", target, err)
-	}
-	if !s.ssCfg.Enable {
-		return nil
-	}
-	if _, err := evm.DiscardStateAbove(
-		s.ssCfg, s.ssSnapshotRoot(), target, wal.first); err != nil {
-		return fmt.Errorf("the EVM state store cannot reach %d: %w", target, err)
-	}
-	return nil
-}
-
-// dropSnapshotsAbove removes the snapshots of SC and SS above target.
+// dropSnapshotsAbove removes the snapshots of SC and SS above target. Both stores must be closed.
 //
 // It runs whether or not either store is above target, because an interrupted rollback leaves exactly a
 // store that is not: it reads as the snapshot it was repointed at, with the branch above it still on
 // disk. Left there, a later rollback lands on a snapshot from the branch this one abandoned.
-func (s *StateDB) dropSnapshotsAbove(target int64) error {
-	if err := flatkv.DropSnapshotsAbove(s.flatkvCfg.DataDir, target); err != nil {
+func dropSnapshotsAbove(flatkvCfg *flatkvconfig.Config, ssCfg config.StateStoreConfig, target uint64) error {
+	//nolint:gosec // a WAL block number never approaches the int64 ceiling
+	if err := flatkv.DropSnapshotsAbove(flatkvCfg.DataDir, int64(target)); err != nil {
 		return fmt.Errorf("cannot roll back the state commit store to %d: %w", target, err)
 	}
-	if !s.ssCfg.Enable {
+	if !ssCfg.Enable {
 		return nil
 	}
-	if err := evm.DropSnapshotsAbove(s.ssSnapshotRoot(), target); err != nil {
+	snapshotRoot := utils.GetStateStoreSnapshotsSiblingPath(ssCfg.EVMDBDirectory)
+	//nolint:gosec // a WAL block number never approaches the int64 ceiling
+	if err := evm.DropSnapshotsAbove(snapshotRoot, int64(target)); err != nil {
 		return fmt.Errorf("cannot roll back the EVM state store to %d: %w", target, err)
 	}
 	return nil
 }
 
 // catchUpToWAL replays the WAL into SC and SS up to the last block it holds, which is the height state
-// committed to. An empty WAL leaves both stores where they are.
+// committed to. ss is nil when SS is disabled. An empty WAL leaves both stores where they are.
 //
 // A commit writes the WAL before either store, so a crash between the two leaves one of them a block
 // behind. Committing from behind the WAL is rejected, so this is what makes an opened StateDB able to
 // commit.
-func (s *StateDB) catchUpToWAL(ctx context.Context) error {
-	wal, err := s.openWALRange()
+func catchUpToWAL(
+	ctx context.Context,
+	sc *flatkv.CommitStore,
+	ss *evm.EVMStateStore,
+	wal statewal.StateWAL,
+) error {
+	stored, _, last, err := wal.GetStoredRange()
 	if err != nil {
-		return err
+		return fmt.Errorf("find the head to catch up to: %w", err)
 	}
-	if wal.last == 0 {
-		// Neither store is carried forward, for the reason discardStateAboveTheWAL gives: with no head to
-		// measure against, a working copy above the current snapshot is the only record of the blocks it
-		// holds, and dropping it on one store alone would leave the two at different heights. A rollback
-		// that empties the WAL brings both down in rewindTo, where the target says where they belong.
+	if !stored {
+		// Neither store is carried forward, for the reason planRecovery gives: with no head to measure
+		// against, a working copy above the current snapshot is the only record of the blocks it holds, and
+		// dropping it on one store alone would leave the two at different heights. A rollback that empties
+		// the WAL brings both down in applyRecoveryPlan, where the target says where they belong.
 		//
 		// An interrupted commit is still repaired, since the disagreement it leaves needs no head to be
 		// recognised. Nothing below reaches the repair catchUpTo runs.
-		if err := s.sc.RebuildIfTorn(); err != nil {
+		if err := sc.RebuildIfTorn(); err != nil {
 			return fmt.Errorf("repair the state commit store's working copy: %w", err)
 		}
 		return nil
 	}
 
-	head := wal.last
-	if err := s.catchUpTo(ctx, head); err != nil {
-		return err
+	head := int64(last) //nolint:gosec // a WAL block number never approaches the int64 ceiling
+	if err := catchUpTo(ctx, sc, ss, wal, head); err != nil {
+		return fmt.Errorf("catch up to the state WAL's head %d: %w", head, err)
 	}
-	if err := s.matchHeight(head); err != nil {
-		// Named for the open, as discardStateAboveTheWAL's refusals are: no rollback ran, and an
-		// operator sent looking for one is an operator not looking at the head that was not reached.
+	if err := matchHeight(sc, ss, wal, head); err != nil {
+		// Named for the open, as a plan's refusals are when no rollback ran: an operator sent looking for
+		// one is an operator not looking at the head that was not reached.
 		return fmt.Errorf("cannot open on the state WAL's head %d: %w", head, err)
 	}
 	return nil
 }
 
-// catchUpTo replays the WAL into SC and SS up to target.
+// catchUpTo replays the WAL into SC and SS up to target. ss is nil when SS is disabled.
 //
 // One pass feeds both. It spans from the lower of their two versions, and each block goes only to the
 // store still below it, so the WAL is read once rather than once per store.
-func (s *StateDB) catchUpTo(ctx context.Context, target int64) error {
+func catchUpTo(
+	ctx context.Context,
+	sc *flatkv.CommitStore,
+	ss *evm.EVMStateStore,
+	wal statewal.StateWAL,
+	target int64,
+) error {
 	// Ahead of the pass, which is what erases the evidence it works from, and here rather than in the
 	// open because every replay of this WAL comes through this function.
-	if err := s.sc.RebuildIfUnreachable(target); err != nil {
+	if err := sc.RebuildIfUnreachable(target); err != nil {
 		return fmt.Errorf("rebuild the state commit store's working copy: %w", err)
 	}
-	scFrom := s.sc.Version()
-	ssFrom, ssReplays, err := s.ssReplayStart(target)
+	scFrom := sc.Version()
+	ssFrom, ssReplays, err := ssReplayStart(ss, wal, target)
 	if err != nil {
-		return err
+		return fmt.Errorf("find where the EVM state store replays from: %w", err)
 	}
 	from := scFrom
 	if ssReplays {
 		from = min(from, ssFrom)
 	}
-	s.logReplayPlan(scFrom, ssFrom, ssReplays, target)
+	logReplayPlan(ss, scFrom, ssFrom, ssReplays, target)
 
-	if err := s.replay(ctx, from, target, func(block int64, changesets []*proto.NamedChangeSet) error {
+	if err := replay(ctx, wal, from, target, func(block int64, changesets []*proto.NamedChangeSet) error {
 		if block > scFrom {
 			// SC owns no WAL, so re-committing a block read from this one appends nothing. It does run
 			// SC's commit path, so the checkpoint schedule is asked at each block SC takes.
-			if err := s.sc.CommitStateChanges(block, changesets); err != nil {
-				return err
+			if err := sc.CommitStateChanges(block, changesets); err != nil {
+				return fmt.Errorf("commit the block to the state commit store: %w", err)
 			}
 		}
 		if ssReplays && block > ssFrom {
-			return s.ss.ApplyReplayedBlock(block, changesets)
+			if err := ss.ApplyReplayedBlock(block, changesets); err != nil {
+				return fmt.Errorf("apply the block to the EVM state store: %w", err)
+			}
 		}
 		return nil
 	}); err != nil {
-		return err
+		return fmt.Errorf("replay the state WAL up to %d: %w", target, err)
 	}
 	return nil
 }
@@ -182,13 +132,13 @@ func (s *StateDB) catchUpTo(ctx context.Context, target int64) error {
 //
 // It is logged even when nothing is replayed, because an open that had no catching up to do is
 // otherwise indistinguishable from one still working through a long pass.
-func (s *StateDB) logReplayPlan(scFrom int64, ssFrom int64, ssReplays bool, target int64) {
+func logReplayPlan(ss *evm.EVMStateStore, scFrom int64, ssFrom int64, ssReplays bool, target int64) {
 	fields := append([]any{"target", target}, replayPlanFields("sc", scFrom, target)...)
-	if s.ss != nil {
+	if ss != nil {
 		// A store left out of the pass replays nothing, which is a range ending where it already sits.
 		to := target
 		if !ssReplays {
-			ssFrom = s.ss.GetLatestVersion()
+			ssFrom = ss.GetLatestVersion()
 			to = ssFrom
 		}
 		fields = append(fields, replayPlanFields("ss", ssFrom, to)...)
@@ -214,12 +164,14 @@ func replayPlanFields(store string, from int64, to int64) []any {
 //
 // A cancelled ctx stops the replay between blocks and is reported as an error. The blocks already
 // applied stay applied, and the next open resumes from the version they left behind.
-func (s *StateDB) replay(
+func replay(
 	ctx context.Context,
-	from, target int64,
+	wal statewal.StateWAL,
+	from int64,
+	target int64,
 	apply func(int64, []*proto.NamedChangeSet) error,
 ) error {
-	stored, first, last, err := s.wal.GetStoredRange()
+	stored, first, last, err := wal.GetStoredRange()
 	if err != nil {
 		return fmt.Errorf("read state WAL range: %w", err)
 	}
@@ -237,7 +189,7 @@ func (s *StateDB) replay(
 			"are missing (data loss or corruption)", first, start, start, first-1)
 	}
 
-	it, err := s.wal.Iterator(start, end)
+	it, err := wal.Iterator(start, end)
 	if err != nil {
 		return fmt.Errorf("state WAL iterator [%d,%d]: %w", start, end, err)
 	}
@@ -318,18 +270,19 @@ func estimate(remaining int64, rate float64) time.Duration {
 }
 
 // ssReplayStart returns the version SS replays forward from, and whether it replays at all. SS is left
-// out when it is disabled, already on target, or empty with a WAL that can no longer rebuild it.
-func (s *StateDB) ssReplayStart(target int64) (from int64, replays bool, err error) {
-	if s.ss == nil {
+// out when it is disabled (ss is nil), already on target, or empty with a WAL that can no longer rebuild
+// it.
+func ssReplayStart(ss *evm.EVMStateStore, wal statewal.StateWAL, target int64) (from int64, replays bool, err error) {
+	if ss == nil {
 		return 0, false, nil
 	}
-	from = s.ss.GetLatestVersion()
+	from = ss.GetLatestVersion()
 	if from >= target {
 		return 0, false, nil
 	}
-	fillForward, err := s.ssFillsForward()
+	fillForward, err := ssFillsForward(ss, wal)
 	if err != nil {
-		return 0, false, err
+		return 0, false, fmt.Errorf("decide whether the EVM state store fills forward: %w", err)
 	}
 	if fillForward {
 		logger.Info("EVM state store left empty to fill forward: it holds no history and the state WAL "+
@@ -343,37 +296,37 @@ func (s *StateDB) ssReplayStart(target int64) (from int64, replays bool, err err
 // treatment recoveryTarget gives an empty receipt store. It covers a store with no history of its own
 // behind a WAL that has had a retention cut, where no replay rebuilds it and the alternative is
 // refusing to start over a store that is merely new.
-func (s *StateDB) ssFillsForward() (bool, error) {
-	if s.ss == nil {
+func ssFillsForward(ss *evm.EVMStateStore, wal statewal.StateWAL) (bool, error) {
+	if ss == nil {
 		return false, nil
 	}
-	wal, err := s.openWALRange()
+	stored, first, _, err := wal.GetStoredRange()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("find whether the state WAL reaches block 1: %w", err)
 	}
-	return s.ss.GetLatestVersion() == 0 && (wal.last == 0 || wal.first > 1), nil
+	return ss.GetLatestVersion() == 0 && (!stored || first > 1), nil
 }
 
-// matchHeight checks SC and SS against blockNum and reports the one that is not on it. An SS left empty
-// to fill forward is not held to blockNum.
+// matchHeight checks SC and SS against blockNum and reports the one that is not on it. ss is nil when SS
+// is disabled, and an SS left empty to fill forward is not held to blockNum.
 //
 // The error names no path, since both the open and a rollback converge here; each caller supplies the
 // height it asked for.
-func (s *StateDB) matchHeight(blockNum int64) error {
-	if got := s.sc.Version(); got != blockNum {
+func matchHeight(sc *flatkv.CommitStore, ss *evm.EVMStateStore, wal statewal.StateWAL, blockNum int64) error {
+	if got := sc.Version(); got != blockNum {
 		return fmt.Errorf("the state commit store landed on %d", got)
 	}
-	if s.ss == nil {
+	if ss == nil {
 		return nil
 	}
-	got := s.ss.GetLatestVersion()
+	got := ss.GetLatestVersion()
 	if got == blockNum {
 		return nil
 	}
 	if got == 0 {
-		fillForward, err := s.ssFillsForward()
+		fillForward, err := ssFillsForward(ss, wal)
 		if err != nil {
-			return err
+			return fmt.Errorf("check the EVM state store's height: %w", err)
 		}
 		if fillForward {
 			return nil

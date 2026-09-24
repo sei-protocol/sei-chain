@@ -54,7 +54,7 @@ func newTestStateDB(t *testing.T) (gigatypes.StateDB, *fakeStateWAL, *flatkv.Com
 	require.NoError(t, liveStateDB.LoadLatest())
 
 	wal := &fakeStateWAL{}
-	return &StateDB{wal: wal, sc: liveStateDB, flatkvCfg: cfg}, wal, liveStateDB
+	return &StateDB{wal: wal, sc: liveStateDB}, wal, liveStateDB
 }
 
 // changeset builds a changeset setting key to value in the test module.

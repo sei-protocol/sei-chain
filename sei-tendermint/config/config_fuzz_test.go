@@ -118,10 +118,10 @@ func TestValidateBasicDistinguishesAnAbsentModeFromAnUnknownOne(t *testing.T) {
 	}
 }
 
-// FuzzRootScopeKeysRequireRootScope pins the placement trap on the two root-scope
+// FuzzRootScopeKeysRequireRootScope pins the placement trap on the root-scope
 // keys.
 //
-// autobahn-config-file and hash-vault-disabled-unsafe are declared at the top level
+// autobahn-config-file and hash-vault-halt-on-mismatch are declared at the top level
 // of the Config struct, so in TOML they must appear before any [section] header.
 // Written after one they become that section's key — p2p.autobahn-config-file —
 // which nothing reads, and the node starts with the subsystem the operator meant to
@@ -152,7 +152,7 @@ func FuzzRootScopeKeysRequireRootScope(f *testing.F) {
 				doc.WriteString("[p2p]\n")
 			}
 			doc.WriteString("autobahn-config-file = \"" + path + "\"\n")
-			doc.WriteString("hash-vault-disabled-unsafe = true\n")
+			doc.WriteString("hash-vault-halt-on-mismatch = false\n")
 		}
 
 		conf, err := unmarshalConfigTOML(t, doc.String())
@@ -161,19 +161,19 @@ func FuzzRootScopeKeysRequireRootScope(f *testing.F) {
 		}
 
 		wantPath := ""
-		wantDisabled := false
+		wantHalt := true
 		if present && !underSection {
 			wantPath = path
-			wantDisabled = true
+			wantHalt = false
 		}
 		if conf.AutobahnConfigFile != wantPath {
 			t.Fatalf("autobahn-config-file resolved to %q, want %q (present=%v underSection=%v); "+
 				"root-scope keys are only read before the first section header",
 				conf.AutobahnConfigFile, wantPath, present, underSection)
 		}
-		if conf.HashVaultDisabledUnsafe != wantDisabled {
-			t.Fatalf("hash-vault-disabled-unsafe resolved to %v, want %v (present=%v underSection=%v)",
-				conf.HashVaultDisabledUnsafe, wantDisabled, present, underSection)
+		if conf.HashVaultHaltOnMismatch != wantHalt {
+			t.Fatalf("hash-vault-halt-on-mismatch resolved to %v, want %v (present=%v underSection=%v)",
+				conf.HashVaultHaltOnMismatch, wantHalt, present, underSection)
 		}
 	})
 }
@@ -295,8 +295,8 @@ func TestAutobahnPointerAbsenceDisablesTheSubsystem(t *testing.T) {
 	if conf.AutobahnConfigFile != "" {
 		t.Fatalf("the default autobahn pointer must be empty, got %q", conf.AutobahnConfigFile)
 	}
-	if conf.HashVaultDisabledUnsafe {
-		t.Fatal("the default must leave the app-hash equivocation guard enabled")
+	if !conf.HashVaultHaltOnMismatch {
+		t.Fatal("the default must leave a hash vault mismatch halting the node")
 	}
 }
 

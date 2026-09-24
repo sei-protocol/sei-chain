@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/ratelimiter"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -87,26 +88,31 @@ type Config struct {
 	// if mode disagrees with address-book membership.
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
-	// HashVaultDisabledUnsafe disables the app-hash equivocation guard (HashVault). The vault is
-	// on by default (false). Setting this to true is an explicit, last-resort operator decision to
-	// run WITHOUT equivocation protection; the node logs loudly that it is unsafe.
-	HashVaultDisabledUnsafe bool `mapstructure:"hash-vault-disabled-unsafe"`
+	// HashVaultHaltOnMismatch selects what an Autobahn node does when the hash vault sees a state hash
+	// differ from the one it recorded for the same block: halt when true, or log an error and replace the
+	// recorded hashes when false.
+	HashVaultHaltOnMismatch bool `mapstructure:"hash-vault-halt-on-mismatch"`
+
+	// HashVaultEmptyRollbackBlocks is how many blocks an Autobahn node rewinds and replays when it starts
+	// over an empty hash vault, to refill it.
+	HashVaultEmptyRollbackBlocks uint64 `mapstructure:"hash-vault-empty-rollback-blocks"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
 func DefaultConfig() *Config {
 	return &Config{
-		BaseConfig:              DefaultBaseConfig(),
-		RPC:                     DefaultRPCConfig(),
-		P2P:                     DefaultP2PConfig(),
-		Mempool:                 DefaultMempoolConfig(),
-		StateSync:               DefaultStateSyncConfig(),
-		Consensus:               DefaultConsensusConfig(),
-		TxIndex:                 DefaultTxIndexConfig(),
-		Instrumentation:         DefaultInstrumentationConfig(),
-		PrivValidator:           DefaultPrivValidatorConfig(),
-		SelfRemediation:         DefaultSelfRemediationConfig(),
-		HashVaultDisabledUnsafe: false,
+		BaseConfig:                   DefaultBaseConfig(),
+		RPC:                          DefaultRPCConfig(),
+		P2P:                          DefaultP2PConfig(),
+		Mempool:                      DefaultMempoolConfig(),
+		StateSync:                    DefaultStateSyncConfig(),
+		Consensus:                    DefaultConsensusConfig(),
+		TxIndex:                      DefaultTxIndexConfig(),
+		Instrumentation:              DefaultInstrumentationConfig(),
+		PrivValidator:                DefaultPrivValidatorConfig(),
+		SelfRemediation:              DefaultSelfRemediationConfig(),
+		HashVaultHaltOnMismatch:      seidbconfig.DefaultHashVaultConfig().HaltOnMismatch,
+		HashVaultEmptyRollbackBlocks: seidbconfig.DefaultHashVaultConfig().EmptyVaultRollbackBlocks,
 	}
 }
 

@@ -323,9 +323,6 @@ func buildGigaRouter(
 			return nil, err
 		}
 		valCfg.PersistentStateDir = stateDir
-		// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-		// enable/disable decision through as plain config.
-		valCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 		logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
 		dataState, err := p2p.BuildDataState(&valCfg.GigaRouterCommonConfig, blockStore)
 		if err != nil {
@@ -346,9 +343,6 @@ func buildGigaRouter(
 		return nil, err
 	}
 	fnCfg.PersistentStateDir = stateDir
-	// The GigaRouter builds and owns the equivocation guard itself; just pass the operator's
-	// enable/disable decision through as plain config.
-	fnCfg.HashVaultDisabledUnsafe = cfg.HashVaultDisabledUnsafe
 	logger.Info("Autobahn: starting as fullnode", "mode", cfg.Mode, "validators", len(validatorAddrs))
 	dataState, err := p2p.BuildDataState(fnCfg, blockStore)
 	if err != nil {
@@ -381,10 +375,10 @@ func resolvePersistentStateDir(rootDir, dir string) (string, error) {
 // persistent-state directory.
 func openAutobahnStorageManager(
 	ctx context.Context,
-	rootDir string,
+	conf *config.Config,
 	fc *config.AutobahnFileConfig,
 ) (*bootstrap.GigaStorageManager, error) {
-	directory, err := resolvePersistentStateDir(rootDir, fc.PersistentStateDir)
+	directory, err := resolvePersistentStateDir(conf.RootDir, fc.PersistentStateDir)
 	if err != nil {
 		return nil, err
 	}
@@ -397,6 +391,10 @@ func openAutobahnStorageManager(
 		return nil, fmt.Errorf("build Autobahn block DB config: %w", err)
 	}
 	storageConfig.BlockDBConfig = &blockConfig
+	storageConfig.HashVaultConfig.HaltOnMismatch = conf.HashVaultHaltOnMismatch
+	storageConfig.HashVaultConfig.EmptyVaultRollbackBlocks = conf.HashVaultEmptyRollbackBlocks
+	// The Pebble-backed vault the giga router kept here before the vault moved into the state DB.
+	storageConfig.HashVaultConfig.LegacyPebbleDir = filepath.Join(directory, "hashvault")
 	return bootstrap.NewGigaStorageManager(ctx, storageConfig)
 }
 
