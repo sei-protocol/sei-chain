@@ -11,15 +11,12 @@ import (
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
-	versioned := utils.VersionedPrecompiles{
+	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-	}
 {{- range .LegacyVersions}}
-	if latestUpgrade != "{{.Tag}}" {
-		versioned["{{.Tag}}"] = check({{$.PackageName}}{{.Folder}}.NewPrecompile(keepers))
-	}
+		"{{.Tag}}":      check({{$.PackageName}}{{.Folder}}.NewPrecompile(keepers)),
 {{- end}}
-	return versioned
+	}
 }
 
 func check(p vm.PrecompiledContract, err error) vm.PrecompiledContract {
