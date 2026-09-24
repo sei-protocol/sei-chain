@@ -58,7 +58,10 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 	versions := offlineUpgradeModuleVersions(t, testApp)
 	require.NotContains(t, versions, "oracle")
 	require.False(t, offlineUpgradeHasModuleVersion(t, testApp, "oracle"))
-	require.Nil(t, testApp.GetKey("oracle"))
+	requireOfflineUpgradeStoresMounted(t, testApp, v68OfflineSourceStores)
+	for storeName, want := range artifact.Stores {
+		require.Equal(t, want, snapshotCommittedOfflineUpgradeStore(t, testApp, storeName))
+	}
 	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
 	lastName, lastHeight := testApp.UpgradeKeeper.GetLastCompletedUpgrade(ctx)
 	require.Equal(t, artifact.Upgrade, lastName)
