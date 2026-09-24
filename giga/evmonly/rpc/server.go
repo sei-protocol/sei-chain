@@ -44,6 +44,9 @@ type Backend interface {
 	EvmChainConfig() (*params.ChainConfig, error)
 	EvmChainID() uint64
 	EvmCode(common.Address) ([]byte, error)
+	// EvmEstimateGas returns the lowest gas limit that lets msg succeed, and
+	// any revert data if it still fails at gasCap.
+	EvmEstimateGas(ctx context.Context, msg *core.Message, gasCap uint64) (uint64, []byte, error)
 	EvmGasLimit() (uint64, error)
 	// EvmMinGasPrice returns the minimum effective gas price this application admits a
 	// transaction at.
@@ -100,6 +103,9 @@ func newHandler(backend Backend, receiptStore receipt.ReceiptStore) (*ethrpc.Ser
 	}
 	if err := rpcServer.RegisterName("eth", &callAPI{backend: backend}); err != nil {
 		return nil, fmt.Errorf("register EVM-only call RPC: %w", err)
+	}
+	if err := rpcServer.RegisterName("eth", &estimateAPI{backend: backend}); err != nil {
+		return nil, fmt.Errorf("register EVM-only estimate RPC: %w", err)
 	}
 	if err := rpcServer.RegisterName("eth", &blockAPI{backend: backend, store: receiptStore}); err != nil {
 		return nil, fmt.Errorf("register EVM-only block RPC: %w", err)
