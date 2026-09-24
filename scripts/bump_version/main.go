@@ -68,9 +68,8 @@ type moduleChange struct {
 }
 
 type TemplateData struct {
-	PackageName       string
-	LegacyVersions    []LegacyVersion
-	TombstoneVersions []string
+	PackageName    string
+	LegacyVersions []LegacyVersion
 }
 
 func main() {
@@ -348,6 +347,14 @@ func archiveCommon(tagFolder string) error {
 }
 
 func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonPkgPath string, isNew bool) error {
+	if !isNew {
+		versionsFile := filepath.Join(moduleDir, "versions")
+		if _, err := os.Stat(versionsFile); os.IsNotExist(err) {
+			fmt.Printf("skipped %s: no versions file\n", moduleName)
+			return nil
+		}
+	}
+
 	targetDir := filepath.Join(moduleDir, "legacy", tagFolder)
 	if err := os.MkdirAll(targetDir, 0750); err != nil {
 		return fmt.Errorf("creating %s: %w", targetDir, err)
@@ -475,31 +482,9 @@ func regenerateAllSetup() error {
 }
 
 func generateSetup(tmpl *template.Template, moduleDir, moduleName string, legacy []LegacyVersion) error {
-	tombstoneVersions := []string(nil)
-	if moduleName == "ibc" {
-		tombstoneVersions = []string{
-			"v5.5.2",
-			"v5.5.5",
-			"v5.6.2",
-			"v5.8.0",
-			"v6.0.1",
-			"v6.0.3",
-			"v6.0.5",
-			"v6.0.6",
-			"v6.1.0",
-			"v6.1.4",
-			"v6.2.0",
-			"v6.3.0",
-			"v6.4.0",
-			"v6.5",
-			"v6.6",
-			"v6.7",
-		}
-	}
 	data := TemplateData{
-		PackageName:       moduleName,
-		LegacyVersions:    legacy,
-		TombstoneVersions: tombstoneVersions,
+		PackageName:    moduleName,
+		LegacyVersions: legacy,
 	}
 
 	var buf strings.Builder
