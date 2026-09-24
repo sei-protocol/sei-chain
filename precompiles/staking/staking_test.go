@@ -297,6 +297,10 @@ func (tq *TestStakingQuerier) ValidatorDelegations(c context.Context, _ *staking
 	return tq.ValidatorDelegationsResponse, tq.Err
 }
 
+func (tq *TestStakingQuerier) ValidatorDelegationsIndexed(c context.Context, _ *stakingtypes.QueryValidatorDelegationsRequest) (*stakingtypes.QueryValidatorDelegationsResponse, error) {
+	return tq.ValidatorDelegationsResponse, tq.Err
+}
+
 func (tq *TestStakingQuerier) ValidatorUnbondingDelegations(c context.Context, _ *stakingtypes.QueryValidatorUnbondingDelegationsRequest) (*stakingtypes.QueryValidatorUnbondingDelegationsResponse, error) {
 	return tq.ValidatorUnbondingDelegationsResponse, tq.Err
 }
