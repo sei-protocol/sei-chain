@@ -417,7 +417,7 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(crand *crand.CannedRandom) 
 }
 
 // convertLogsForTx converts evmtypes.Log entries to ethtypes.Log entries.
-// Mirrors receipt.getLogsForTx.
+// Mirrors receipt.LogsForTx.
 func convertLogsForTx(rcpt *evmtypes.Receipt, logStartIndex uint) []*ethtypes.Log {
 	logs := make([]*ethtypes.Log, 0, len(rcpt.Logs))
 	for _, l := range rcpt.Logs {
