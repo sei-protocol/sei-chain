@@ -71,6 +71,11 @@ func (api *filterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) 
 	if err != nil {
 		return nil, fmt.Errorf("filter logs: %w", err)
 	}
+	// The store clamps to the retention floor it sees at read time. A floor
+	// that rose since resolveLogRange means the answer covers less than asked.
+	if floor := api.store.EarliestVersion(); floor > 0 && fromBlock < uint64(floor) { //nolint:gosec // floor is positive
+		return nil, fmt.Errorf("%w: block %d; earliest available block is %d", errLogRangePruned, fromBlock, floor)
+	}
 	if err := api.normalizeLogs(ctx, logs); err != nil {
 		return nil, err
 	}

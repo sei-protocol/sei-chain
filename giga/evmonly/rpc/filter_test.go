@@ -218,6 +218,36 @@ func TestGetLogsRejectsBoundsOutsideIndexedRange(t *testing.T) {
 	require.Len(t, logs, 1)
 }
 
+// pruningReceiptStore prunes the underlying store the moment FilterLogs is
+// called, after the RPC layer has already validated the range.
+type pruningReceiptStore struct {
+	*evmonly.MemoryReceiptStore
+	pruneTo uint64
+}
+
+func (s pruningReceiptStore) FilterLogs(
+	ctx sdk.Context,
+	fromBlock, toBlock uint64,
+	crit filters.FilterCriteria,
+	budget *receipt.LogBudget,
+) ([]*ethtypes.Log, error) {
+	if err := s.PruneHistory(s.pruneTo); err != nil {
+		return nil, err
+	}
+	return s.MemoryReceiptStore.FilterLogs(ctx, fromBlock, toBlock, crit, budget)
+}
+
+func TestGetLogsRejectsRangePrunedDuringQuery(t *testing.T) {
+	store := pruningReceiptStore{MemoryReceiptStore: filterFixtureStore(t), pruneTo: 7}
+	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: store}
+	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(5), ToBlock: big.NewInt(9)})
+	require.ErrorIs(t, err, errLogRangePruned)
+
+	logs, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(7), ToBlock: big.NewInt(9)})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+}
+
 func TestGetLogsRejectsBadRanges(t *testing.T) {
 	api := &filterAPI{backend: filterFixtureBackend(t, 9), store: filterFixtureStore(t)}
 	_, err := api.GetLogs(t.Context(), filters.FilterCriteria{FromBlock: big.NewInt(8), ToBlock: big.NewInt(7)})

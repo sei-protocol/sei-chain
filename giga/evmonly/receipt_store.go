@@ -2,7 +2,6 @@ package evmonly
 
 import (
 	"fmt"
-	"math"
 	"slices"
 	"sort"
 	"sync"
@@ -227,51 +226,54 @@ func (s *MemoryReceiptStore) FilterLogs(
 	if fromBlock > toBlock {
 		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.earliestVersion > 0 && fromBlock < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
-		fromBlock = uint64(s.earliestVersion) //nolint:gosec // earliestVersion is positive.
+	it, err := s.IterateReceipts(fromBlock)
+	if err != nil {
+		return nil, err
 	}
-	if s.latestVersion >= 0 && toBlock > uint64(s.latestVersion) { //nolint:gosec // latestVersion is non-negative.
-		toBlock = uint64(s.latestVersion) //nolint:gosec // latestVersion is non-negative.
-	}
+	defer func() { _ = it.Close() }()
+
 	var logs []*ethtypes.Log
-	for blockNumber := fromBlock; blockNumber <= toBlock; blockNumber++ {
-		receipts := make([]*evmtypes.Receipt, 0, len(s.blocks[blockNumber]))
-		for _, stored := range s.blocks[blockNumber] {
-			receipts = append(receipts, stored)
+	var currentBlock uint64
+	firstLogIndex := uint(0)
+	for {
+		ok, err := it.Next()
+		if err != nil {
+			return nil, err
 		}
-		sort.Slice(receipts, func(i, j int) bool { return receipts[i].TransactionIndex < receipts[j].TransactionIndex })
-		firstLogIndex := uint(0)
-		for _, stored := range receipts {
-			for _, storedLog := range stored.Logs {
-				if !storedLogMatches(storedLog, crit) {
-					continue
-				}
-				lg := &ethtypes.Log{
-					Address:     common.HexToAddress(storedLog.Address),
-					Topics:      make([]common.Hash, len(storedLog.Topics)),
-					Data:        append([]byte(nil), storedLog.Data...),
-					BlockNumber: stored.BlockNumber,
-					TxHash:      common.HexToHash(stored.TxHashHex),
-					TxIndex:     uint(stored.TransactionIndex),
-					Index:       uint(storedLog.Index) + firstLogIndex,
-				}
-				for i, topic := range storedLog.Topics {
-					lg.Topics[i] = common.HexToHash(topic)
-				}
-				if err := budget.Reserve(lg); err != nil {
-					return nil, err
-				}
-				logs = append(logs, lg)
+		if !ok || it.BlockNumber() > toBlock {
+			return logs, nil
+		}
+		if it.BlockNumber() != currentBlock {
+			currentBlock = it.BlockNumber()
+			firstLogIndex = 0
+		}
+		stored, err := it.Receipt()
+		if err != nil {
+			return nil, err
+		}
+		for _, storedLog := range stored.Logs {
+			if !storedLogMatches(storedLog, crit) {
+				continue
 			}
-			firstLogIndex += uint(len(stored.Logs))
+			lg := &ethtypes.Log{
+				Address:     common.HexToAddress(storedLog.Address),
+				Topics:      make([]common.Hash, len(storedLog.Topics)),
+				Data:        append([]byte(nil), storedLog.Data...),
+				BlockNumber: stored.BlockNumber,
+				TxHash:      common.HexToHash(stored.TxHashHex),
+				TxIndex:     uint(stored.TransactionIndex),
+				Index:       uint(storedLog.Index) + firstLogIndex,
+			}
+			for i, topic := range storedLog.Topics {
+				lg.Topics[i] = common.HexToHash(topic)
+			}
+			if err := budget.Reserve(lg); err != nil {
+				return nil, err
+			}
+			logs = append(logs, lg)
 		}
-		if blockNumber == math.MaxUint64 {
-			break
-		}
+		firstLogIndex += uint(len(stored.Logs))
 	}
-	return logs, nil
 }
 
 // storedLogMatches applies crit to a stored log without materializing it.
@@ -293,9 +295,68 @@ func storedLogMatches(lg *evmtypes.Log, crit filters.FilterCriteria) bool {
 	return true
 }
 
-// IterateReceipts reports that the in-memory backend does not support walking its receipts.
-func (*MemoryReceiptStore) IterateReceipts(_ uint64) (receipt.ReceiptIterator, error) {
-	return nil, receipt.ErrRangeQueryNotSupported
+// IterateReceipts walks a snapshot of the retained receipts at or above
+// startBlock in block then transaction order.
+func (s *MemoryReceiptStore) IterateReceipts(startBlock uint64) (receipt.ReceiptIterator, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.earliestVersion > 0 && startBlock < uint64(s.earliestVersion) { //nolint:gosec // earliestVersion is positive.
+		startBlock = uint64(s.earliestVersion) //nolint:gosec // earliestVersion is positive.
+	}
+	var entries []memoryReceiptEntry
+	for blockNumber, blockReceipts := range s.blocks {
+		if blockNumber < startBlock {
+			continue
+		}
+		for _, stored := range blockReceipts {
+			entries = append(entries, memoryReceiptEntry{blockNumber: blockNumber, receipt: stored})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].blockNumber != entries[j].blockNumber {
+			return entries[i].blockNumber < entries[j].blockNumber
+		}
+		return entries[i].receipt.TransactionIndex < entries[j].receipt.TransactionIndex
+	})
+	return &memoryReceiptIterator{entries: entries, pos: -1}, nil
+}
+
+// memoryReceiptIterator walks a sorted snapshot of MemoryReceiptStore entries.
+type memoryReceiptIterator struct {
+	entries []memoryReceiptEntry
+	pos     int
+}
+
+// Next advances to the next receipt, reporting false once the walk is complete.
+func (it *memoryReceiptIterator) Next() (bool, error) {
+	if it.pos+1 >= len(it.entries) {
+		it.pos = len(it.entries)
+		return false, nil
+	}
+	it.pos++
+	return true, nil
+}
+
+// BlockNumber returns the block holding the current receipt.
+func (it *memoryReceiptIterator) BlockNumber() uint64 {
+	return it.entries[it.pos].blockNumber
+}
+
+// TxHash returns the hash of the current receipt's transaction.
+func (it *memoryReceiptIterator) TxHash() common.Hash {
+	return common.HexToHash(it.entries[it.pos].receipt.TxHashHex)
+}
+
+// Receipt returns a caller-owned copy of the current receipt.
+func (it *memoryReceiptIterator) Receipt() (*evmtypes.Receipt, error) {
+	return cloneStoredReceipt(it.entries[it.pos].receipt), nil
+}
+
+// Close releases the iterator's snapshot.
+func (it *memoryReceiptIterator) Close() error {
+	it.entries = nil
+	it.pos = 0
+	return nil
 }
 
 // Close closes the receipt store.
