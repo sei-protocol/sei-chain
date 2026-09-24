@@ -347,6 +347,14 @@ func archiveCommon(tagFolder string) error {
 }
 
 func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonPkgPath string, isNew bool) error {
+	if !isNew {
+		versionsFile := filepath.Join(moduleDir, "versions")
+		if _, err := os.Stat(versionsFile); os.IsNotExist(err) {
+			fmt.Printf("skipped %s: no versions file\n", moduleName)
+			return nil
+		}
+	}
+
 	targetDir := filepath.Join(moduleDir, "legacy", tagFolder)
 	if err := os.MkdirAll(targetDir, 0750); err != nil {
 		return fmt.Errorf("creating %s: %w", targetDir, err)
