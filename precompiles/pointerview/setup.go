@@ -10,11 +10,16 @@ import (
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
-	return utils.VersionedPrecompiles{
+	versioned := utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
-		"v6.6":        check(pointerviewv66.NewPrecompile(keepers)),
-		"v6.7":        check(pointerviewv67.NewPrecompile(keepers)),
 	}
+	if latestUpgrade != "v6.6" {
+		versioned["v6.6"] = check(pointerviewv66.NewPrecompile(keepers))
+	}
+	if latestUpgrade != "v6.7" {
+		versioned["v6.7"] = check(pointerviewv67.NewPrecompile(keepers))
+	}
+	return versioned
 }
 
 func check(p vm.PrecompiledContract, err error) vm.PrecompiledContract {
