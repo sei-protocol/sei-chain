@@ -48,7 +48,7 @@ func MustCloseE[T any](
 		// Skips runtime.Callers() and MustCloseE() itself.
 		createdAt = createdAt[:runtime.Callers(2, createdAt)]
 	}
-	
+
 	runtime.SetFinalizer(obj, func(o *T) {
 		if isClosed(o) {
 			return

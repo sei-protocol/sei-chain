@@ -1,6 +1,7 @@
 package composite
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -706,6 +707,7 @@ func TestGetVersions(t *testing.T) {
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	defer func() { _ = cs2.Close() }()
 	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey}))
 
 	latestVersion, err := cs2.GetLatestVersion()
@@ -833,6 +835,7 @@ func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 	cfg.WriteMode = types.MigrateEVM
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
 	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
@@ -1203,6 +1206,7 @@ func TestExporterFailsLoudOnFlatKVLoadFailure(t *testing.T) {
 	cfg.WriteMode = types.MigrateEVM
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
 	require.NoError(t, cs.SetMigrationBatchSize(100))
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -1466,7 +1470,9 @@ func setupComposite(t *testing.T, writeMode types.WriteMode) *CompositeCommitSto
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = writeMode
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	cs, err := NewCompositeCommitStore(context.Background(), dir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.StakingStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -1718,7 +1724,9 @@ func TestCompositeEVMMigratedEVMReadsAreVisible(t *testing.T) {
 	dir := t.TempDir()
 	cfg := evmMigratedConfig()
 
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	cs, err := NewCompositeCommitStore(context.Background(), dir, cfg)
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	err = cs.LoadLatest()
@@ -2062,6 +2070,7 @@ func TestInitializeIsNoOpInFlatKVOnly(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
 	require.Nil(t, cs.memIAVL, "FlatKVOnly must not allocate a memIAVL backend")
 	require.NotPanics(t, func() {
 		require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))

@@ -571,7 +571,9 @@ func rollbackFixture(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -634,7 +636,9 @@ func rollbackFixtureEmptyWALAtV2(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -701,7 +705,9 @@ func rollbackFixtureMidChainWALStart(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	err = s.LoadLatest()
 	require.NoError(t, err)
@@ -1188,7 +1194,9 @@ func interruptedRewindFixture(t *testing.T) *CommitStore {
 	t.Helper()
 	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(t.TempDir(), flatkvRootDir)
-	s, err := newCommitStoreWithWAL(t.Context(), cfg)
+	// Not t.Context(): it is cancelled before cleanups run, and a store closed after its context is
+	// cancelled cannot drain its in-flight blocks.
+	s, err := newCommitStoreWithWAL(context.Background(), cfg)
 	require.NoError(t, err)
 	require.NoError(t, s.LoadLatest())
 	t.Cleanup(func() { _ = s.Close() })

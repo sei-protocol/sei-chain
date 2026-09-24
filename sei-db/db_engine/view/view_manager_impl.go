@@ -475,64 +475,34 @@ func (c *viewManager) Set(key []byte, value []byte) error {
 }
 
 func (c *viewManager) Commit() (View, error) {
-	c.metrics.setViewPhase("acquire_version_lock")
 	// Reset the phase on every exit so error returns don't leave the timer stuck on a phase.
 	defer c.metrics.setViewPhase("")
 
-	view, sealedVersion, err := c.commitLocked()
-	if err != nil {
-		return nil, err
-	}
-
-	// Deliberately after the lock is released. Submitting can block when the sort pool's queue is full,
-	// and the queue drains only as the flush consumes results — which needs versionLock. Blocking here
-	// while holding it would deadlock against the very work that would unblock it.
-	c.metrics.setViewPhase("submit_diff_sort")
-	c.materializeDiffAtVersion(sealedVersion)
-
-	return view, nil
-}
-
-// commitLocked performs the version bookkeeping and shard seal for a new view, returning the view and the
-// version it sealed. It takes and releases the versionLock.
-func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
+	c.metrics.setViewPhase("acquire_version_lock")
 	c.versionLock.Lock()
-	defer c.versionLock.Unlock()
 
 	// A bricked manager does no more work. Free to check here: versionLock, which guards fatalErr,
 	// is already held.
 	if c.fatalErr != nil {
-		return nil, 0, fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
-	}
-
-	// Every shard must still be in service. A shard taken out of service (the manager was closed or
-	// bricked) has no lifecycle runner left to flush what a new version would stage, so sealing one
-	// would discard it silently.
-	for i, s := range c.shards {
-		s.lock.RLock()
-		err := s.cache.ErrIfOutOfServiceRLocked()
-		s.lock.RUnlock()
-		if err != nil {
-			return nil, 0, fmt.Errorf("cannot create view, shard %d: %w", i, err)
-		}
+		err := fmt.Errorf("cannot create view: %w", c.shutdownErrorLocked())
+		c.versionLock.Unlock()
+		return nil, err
 	}
 
 	c.metrics.setViewPhase("lifecycle_backpressure")
 
-	err := c.lifecycleBackpressureLocked()
-	if err != nil {
-		return nil, 0, fmt.Errorf("cannot create view: %w", err)
+	if err := c.lifecycleBackpressureLocked(); err != nil {
+		c.versionLock.Unlock()
+		return nil, fmt.Errorf("cannot create view: %w", err)
 	}
 
-	sealedVersion = c.currentVersion
+	sealedVersion := c.currentVersion
 
-	currentVersionRefCounter := &viewReferenceCounter{
+	c.versionMap[sealedVersion] = &viewReferenceCounter{
 		version:        sealedVersion,
 		referenceCount: 1,
 		flushCompleted: make(chan struct{}),
 	}
-
-	c.versionMap[sealedVersion] = currentVersionRefCounter
 
 	view := &viewImpl{
 		version:       sealedVersion,
@@ -543,29 +513,65 @@ func (c *viewManager) commitLocked() (_ View, sealedVersion uint64, _ error) {
 
 	c.metrics.setViewPhase("shards_view")
 
-	for i, shard := range c.shards {
-		shardVersion, err := shard.Commit()
-		if err != nil {
-			// The shard sealed its version but its read cache could not be maintained, which means the
-			// cache can no longer account for its own contents. Bricked for the same reason as below:
-			// the failure must be latched rather than leaving the manager callable.
-			err = fmt.Errorf("failed to maintain the read cache of shard %d: %w", i, err)
-			c.brickLocked(err)
-			return nil, 0, err
-		}
-		if shardVersion != c.currentVersion {
-			// Should be impossible. The manager is now inconsistent (some shards committed, some
-			// not), so brick it: the failure must be latched and every subsequent call must fail,
-			// rather than leaving the manager callable after a fatal error.
-			err := fmt.Errorf("shard (%d) has a different version than the manager (%d)",
-				shardVersion, c.currentVersion)
-			c.brickLocked(err)
-			return nil, 0, err
-		}
+	if err := c.sealShardsLocked(); err != nil {
+		// Any shard failing leaves the shards disagreeing about the current version, so the manager
+		// is bricked rather than left callable.
+		c.brickLocked(err)
+		c.versionLock.Unlock()
+		return nil, err
 	}
 
+	// Unlocked explicitly rather than deferred, because the sort submitted below must not hold the
+	// versionLock: it can block when the sort pool's queue is full, and the queue drains only as the
+	// flush consumes results — which needs the versionLock. Blocking there while holding it would
+	// deadlock against the very work that would unblock it.
+	c.versionLock.Unlock()
+
+	c.metrics.setViewPhase("submit_diff_sort")
+	c.materializeDiffAtVersion(sealedVersion)
+
 	utils.MustCloseE(view, "view", (*viewImpl).isReleased, (*viewImpl).releaseAll)
-	return view, sealedVersion, nil
+	return view, nil
+}
+
+// sealShardsLocked seals on every shard the version the manager has just moved past, reporting what
+// went wrong on any of them.
+//
+// The Locked postfix indicates that the caller must hold the versionLock.
+func (c *viewManager) sealShardsLocked() error {
+	// Read once here rather than from the tasks, which do not hold the versionLock that guards it.
+	expectedVersion := c.currentVersion
+
+	errs := make([]error, len(c.shards))
+	var wg sync.WaitGroup
+	wg.Add(len(c.shards))
+	// One task per shard. Sealing a shard is almost entirely the wait to take its lock from the
+	// readers and folds holding it, and those waits are independent, so overlapping them costs one
+	// wait rather than eight. Holding every shard lock at once is safe because no shard lock holder
+	// reaches back for the versionLock (see the cache field on shard).
+	for i, shard := range c.shards {
+		c.miscPool.Submit(func() {
+			defer wg.Done()
+			shardVersion, err := shard.Commit()
+			if err != nil {
+				// Either the shard was out of service and sealed nothing, or it sealed and then could
+				// not maintain its read cache.
+				errs[i] = fmt.Errorf("seal shard %d: %w", i, err)
+				return
+			}
+			if shardVersion != expectedVersion {
+				// Should be impossible: the manager is now inconsistent, with some shards sealed and
+				// some not.
+				errs[i] = fmt.Errorf("shard %d is at version %d, but the manager is at %d",
+					i, shardVersion, expectedVersion)
+			}
+		})
+	}
+	// Awaited even once a failure is known: a shard still sealing would otherwise write its result
+	// after the caller had bricked the manager.
+	wg.Wait()
+
+	return errors.Join(errs...)
 }
 
 // This method blocks if the lifecycle runner is not keeping up. It is assumed that the caller already holds the
