@@ -130,7 +130,6 @@ func (a *application) deployLocal(ctx context.Context, options deployOptions) er
 		dir: repoRoot,
 		env: []string{
 			"AUTOBAHN=true",
-			"AUTOBAHN_EVMONLY=true",
 			"DOCKER_DETACH=true",
 		},
 		name: "make",

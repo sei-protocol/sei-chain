@@ -159,9 +159,6 @@ func validateNodeSetupConfig(conf *config.Config) error {
 	if conf.MockApp && conf.AutobahnConfigFile == "" {
 		return fmt.Errorf("mock-app requires autobahn-config-file")
 	}
-	if conf.EVMOnly && conf.AutobahnConfigFile == "" {
-		return fmt.Errorf("evm-only requires autobahn-config-file")
-	}
 	return nil
 }
 
@@ -196,8 +193,9 @@ func prepareApplication(
 	return app, storage, nil
 }
 
-// wrapApplication returns the EVM-only, mock, or FastCheckTx application when
-// those flags are set, otherwise the app that was passed in.
+// wrapApplication returns the mock application when mock-app is set, the
+// Autobahn EVM-only application when Autobahn is configured, the FastCheckTx
+// wrapper when that flag is set, or the app that was passed in.
 func wrapApplication(
 	conf *config.Config,
 	app abci.Application,
@@ -205,10 +203,13 @@ func wrapApplication(
 	committee *config.AutobahnFileConfig,
 	execution gigaconfig.ExecutionConfig,
 ) (abci.Application, error) {
-	if conf.EVMOnly {
+	if conf.MockApp {
+		return NewMockApp(app), nil
+	}
+	if conf.AutobahnConfigFile != "" {
 		manager, ok := storage.Get()
 		if !ok {
-			return nil, fmt.Errorf("evm-only requires Autobahn storage")
+			return nil, errors.New("autobahn requires giga storage")
 		}
 		validators, err := evmOnlyValidatorUpdates(committee)
 		if err != nil {
@@ -222,9 +223,6 @@ func wrapApplication(
 			evmonly.NewFlatKVChangeSetEncoder(manager.SC()),
 			execution,
 		), nil
-	}
-	if conf.MockApp {
-		return NewMockApp(app), nil
 	}
 	if conf.FastCheckTx {
 		return fastCheckTxApplication{Application: app}, nil

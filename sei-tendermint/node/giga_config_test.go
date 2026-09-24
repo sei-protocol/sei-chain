@@ -84,7 +84,7 @@ func TestPrepareApplicationEVMOnlyUsesExecutionConfig(t *testing.T) {
 	giga.Execution.MinGasPrice = 12345
 
 	prepared, storage, err := prepareApplication(t.Context(), &config.Config{
-		BaseConfig:         config.BaseConfig{EVMOnly: true, MockApp: true},
+		BaseConfig:         config.BaseConfig{FastCheckTx: true},
 		AutobahnConfigFile: autobahnConfigFile,
 	}, abci.BaseApplication{}, giga)
 	require.NoError(t, err)
