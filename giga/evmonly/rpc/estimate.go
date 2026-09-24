@@ -37,6 +37,11 @@ func (api *callAPI) EstimateGas(ctx context.Context, args export.TransactionArgs
 		return 0, err
 	}
 	chainID := new(big.Int).SetUint64(api.backend.EvmChainID())
+	// A zero gas keeps CallDefaults from filling in the cap, so an omitted gas
+	// falls through to the block gas limit in estimateUpperBound.
+	if args.Gas == nil {
+		args.Gas = new(hexutil.Uint64)
+	}
 	if err := args.CallDefaults(defaultCallGasCap, baseFee, chainID); err != nil {
 		return 0, err
 	}
@@ -54,9 +59,9 @@ func (api *callAPI) EstimateGas(ctx context.Context, args export.TransactionArgs
 }
 
 // estimateUpperBound returns the highest gas limit the search may try: the
-// message's gas limit, or the block gas limit when that is below params.TxGas,
-// lowered to what the sender's balance can pay for when the message carries a
-// non-zero fee cap, and never above defaultCallGasCap.
+// message's gas limit, or the block gas limit when that is omitted or below
+// params.TxGas, lowered to what the sender's balance can pay for when the
+// message carries a non-zero fee cap, and never above defaultCallGasCap.
 func (api *callAPI) estimateUpperBound(msg *core.Message) (uint64, error) {
 	hi := msg.GasLimit
 	if hi < params.TxGas {

@@ -176,17 +176,32 @@ func TestEstimateGasRejectsHistoricalState(t *testing.T) {
 	}
 }
 
-func TestEstimateGasOmittedGasDefaultsToCallCap(t *testing.T) {
+func TestEstimateGasOmittedGasUsesBlockGasLimit(t *testing.T) {
 	to := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	backend, tried := gasNeedingBackend(t, 30_000)
-	backend.gasLimit = func() (uint64, error) { return 5_000_000, nil }
 
-	_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
+	t.Run("below cap", func(t *testing.T) {
+		backend, tried := gasNeedingBackend(t, 30_000)
+		backend.gasLimit = func() (uint64, error) { return 5_000_000, nil }
+		_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
+		require.NoError(t, err)
+		require.Equal(t, uint64(5_000_000), (*tried)[0])
+	})
 
-	require.NoError(t, err)
-	// CallDefaults fills an omitted gas with the cap, so the block limit does
-	// not lower the bound.
-	require.Equal(t, uint64(defaultCallGasCap), (*tried)[0])
+	t.Run("above cap", func(t *testing.T) {
+		backend, tried := gasNeedingBackend(t, 30_000)
+		_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
+		require.NoError(t, err)
+		require.Equal(t, uint64(defaultCallGasCap), (*tried)[0])
+	})
+
+	t.Run("read fails", func(t *testing.T) {
+		want := errors.New("boom")
+		backend, tried := gasNeedingBackend(t, 30_000)
+		backend.gasLimit = func() (uint64, error) { return 0, want }
+		_, err := (&callAPI{backend: backend}).EstimateGas(t.Context(), export.TransactionArgs{To: &to}, latest())
+		require.ErrorIs(t, err, want)
+		require.Empty(t, *tried)
+	})
 }
 
 func TestEstimateGasUsesBlockGasLimitForSubIntrinsicGas(t *testing.T) {

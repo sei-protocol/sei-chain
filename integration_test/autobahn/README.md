@@ -446,12 +446,13 @@ cast estimate \
 for the lowest gas limit at which it succeeds, to within 1.5% as go-ethereum
 does. A plain value transfer to an account without code returns exactly 21000
 after a single execution. The upper bound is the caller's `gas` if given,
-otherwise the same fixed cap `eth_call` applies, lowered further to what the
-sender's balance can pay for when a non-zero `gasPrice`/`maxFeePerGas` is
-supplied. A message that reverts even at that bound returns the revert error
-(code 3, ABI-decoded reason); one that only runs out of gas returns "gas
-required exceeds allowance". The block selector is optional and accepts the
-same tags as `eth_call`, with the same historical-state error otherwise.
+otherwise the block gas limit, never above the same fixed cap `eth_call`
+applies, and lowered further to what the sender's balance can pay for when a
+non-zero `gasPrice`/`maxFeePerGas` is supplied. A message that reverts even at
+that bound returns the revert error (code 3, ABI-decoded reason); one that only
+runs out of gas returns "gas required exceeds allowance". The block selector is
+optional and accepts the same tags as `eth_call`, with the same
+historical-state error otherwise.
 
 ### Fetch contract code with `cast code`
 
