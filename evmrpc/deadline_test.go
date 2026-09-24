@@ -10,10 +10,12 @@ import (
 )
 
 func TestWithDeadlineUninstalledEnforcerAppliesNoDeadline(t *testing.T) {
+	prev := globalDeadlineEnforcer.Load()
 	globalDeadlineEnforcer.Store(nil)
 
 	ctx, cancel := withDeadline(t.Context(), "eth_getBalance")
 	defer cancel()
+	defer globalDeadlineEnforcer.Store(prev)
 
 	_, ok := ctx.Deadline()
 	require.False(t, ok)
