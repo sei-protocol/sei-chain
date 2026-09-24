@@ -131,6 +131,25 @@ func TestV67RemovesRetiredModuleVersions(t *testing.T) {
 	require.NotContains(t, versionMap, "transfer")
 }
 
+func TestV68RemovesOracleModuleVersion(t *testing.T) {
+	t.Setenv("UPGRADE_VERSION_LIST", "v6.8")
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	testWrapper.App.RegisterUpgradeHandlers()
+
+	versionMap := testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx)
+	versionMap[storekeys.OracleStoreKey] = 1
+	testWrapper.App.UpgradeKeeper.SetModuleVersionMap(testWrapper.Ctx, versionMap)
+
+	testWrapper.App.UpgradeKeeper.ApplyUpgrade(testWrapper.Ctx, types.Plan{
+		Name:   "v6.8",
+		Height: testWrapper.Ctx.BlockHeight(),
+	})
+
+	require.NotContains(t, testWrapper.App.UpgradeKeeper.GetModuleVersionMap(testWrapper.Ctx), storekeys.OracleStoreKey)
+}
+
 func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	t.Parallel()
 

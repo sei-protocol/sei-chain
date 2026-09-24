@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	serverconfig "github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
@@ -27,7 +28,6 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/upgradetest"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,22 +90,22 @@ func retiredModuleTxCases() []retiredModuleTx {
 		{
 			name: "oracle aggregate exchange rate vote",
 			sign: func(a *processblock.App, signer, _ sdk.AccAddress) signing.Tx {
-				return a.Sign(signer, txFee, oracletypes.NewMsgAggregateExchangeRateVote(
+				return a.Sign(signer, txFee, retiredoracle.NewMsgAggregateExchangeRateVote(
 					"1.5uatom", signer, sdk.ValAddress(signer)))
 			},
-			code:        uint32(oracletypes.ErrOracleDeprecated.ABCICode()),
-			codespace:   oracletypes.ErrOracleDeprecated.Codespace(),
+			code:        uint32(retiredoracle.ErrDeprecated.ABCICode()),
+			codespace:   retiredoracle.ErrDeprecated.Codespace(),
 			logContains: "oracle module is deprecated",
 			chargesFee:  true,
 		},
 		{
 			name: "oracle delegate feed consent",
 			sign: func(a *processblock.App, signer, _ sdk.AccAddress) signing.Tx {
-				return a.Sign(signer, txFee, oracletypes.NewMsgDelegateFeedConsent(
+				return a.Sign(signer, txFee, retiredoracle.NewMsgDelegateFeedConsent(
 					sdk.ValAddress(signer), signer))
 			},
-			code:        uint32(oracletypes.ErrOracleDeprecated.ABCICode()),
-			codespace:   oracletypes.ErrOracleDeprecated.Codespace(),
+			code:        uint32(retiredoracle.ErrDeprecated.ABCICode()),
+			codespace:   retiredoracle.ErrDeprecated.Codespace(),
 			logContains: "oracle module is deprecated",
 			chargesFee:  true,
 		},
@@ -113,7 +113,7 @@ func retiredModuleTxCases() []retiredModuleTx {
 			name: "transaction nominating a distinct fee granter",
 			sign: func(a *processblock.App, signer, granter sdk.AccAddress) signing.Tx {
 				return a.SignWithFeeGranter(signer, granter, txFee,
-					oracletypes.NewMsgDelegateFeedConsent(sdk.ValAddress(signer), signer))
+					retiredoracle.NewMsgDelegateFeedConsent(sdk.ValAddress(signer), signer))
 			},
 			code:        uint32(sdkerrors.ErrInvalidRequest.ABCICode()),
 			codespace:   sdkerrors.ErrInvalidRequest.Codespace(),
@@ -424,7 +424,7 @@ func seedV66State(t *testing.T, chain *upgradetest.CrossVersion) {
 	seedV66EscrowShapedBankState(t, chain)
 
 	moduleVersions := chain.ModuleVersions(t)
-	for _, module := range append(retiredStoreKeys, oracletypes.ModuleName) {
+	for _, module := range append(retiredStoreKeys, keys.OracleStoreKey) {
 		require.Contains(t, moduleVersions, module,
 			"v6.6 module version map does not contain %s", module)
 		require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey(module)),
@@ -479,11 +479,11 @@ func verifyV67State(t *testing.T, chain *upgradetest.CrossVersion) {
 		stringDifference(beforeVersions, afterVersions),
 		"v6.7 removed an unexpected set of module versions",
 	)
-	require.Contains(t, afterVersions, oracletypes.ModuleName,
+	require.Contains(t, afterVersions, keys.OracleStoreKey,
 		"v6.7 removed oracle even though its blocker is still registered")
 
 	requireV67UpgradeStoreVersions(t, chain)
-	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey(oracletypes.ModuleName)),
+	require.NotEmpty(t, chain.QueryStore(t, upgradetypes.StoreKey, v67ModuleVersionKey(keys.OracleStoreKey)),
 		"v6.7 removed oracle from the upgrade store even though its blocker is still registered")
 
 	var feegrantKey []byte
@@ -1042,12 +1042,12 @@ func TestRetiredOracleTxsAreRejectedButStillCharged(t *testing.T) {
 
 	txs := make([]signing.Tx, spamCount)
 	for i := range txs {
-		txs[i] = a.Sign(spammer, txFee, oracletypes.NewMsgAggregateExchangeRateVote(
+		txs[i] = a.Sign(spammer, txFee, retiredoracle.NewMsgAggregateExchangeRateVote(
 			"1.5uatom", spammer, sdk.ValAddress(spammer)))
 	}
 
 	for i, res := range a.RunBlockDetailed(txs) {
-		require.Equal(t, uint32(oracletypes.ErrOracleDeprecated.ABCICode()), res.Code,
+		require.Equal(t, uint32(retiredoracle.ErrDeprecated.ABCICode()), res.Code,
 			"spam transaction %d: %s", i, res.Log)
 		require.Positive(t, res.GasUsed, "spam transaction %d consumed no gas", i)
 	}
@@ -1057,10 +1057,6 @@ func TestRetiredOracleTxsAreRejectedButStillCharged(t *testing.T) {
 	require.Equal(t, sequenceBefore+spamCount,
 		a.AccountKeeper.GetAccount(a.Ctx(), spammer).GetSequence())
 
-	// Nothing the spam carried reached oracle state.
-	_, err := a.OracleKeeper.GetAggregateExchangeRateVote(a.Ctx(), sdk.ValAddress(spammer))
-	require.ErrorIs(t, err, oracletypes.ErrNoAggregateVote,
-		"a rejected vote must not be recorded")
 }
 
 // TestV67RetainsRetiredModuleStateWrittenBeforeUpgrade pins that v6.7 leaves
@@ -1541,30 +1537,6 @@ func committedModuleVersionExists(t *testing.T, a *processblock.App, module stri
 	store := a.CommitMultiStore().GetCommitKVStore(key)
 	require.NotNil(t, store, "upgrade store is not in the commit multistore")
 	return store.Has(append([]byte{upgradetypes.VersionMapByte}, []byte(module)...))
-}
-
-// TestOracleStopsWritingStateAfterV67 pins that oracle state remains unchanged
-// after the v6.7 upgrade when no oracle blocker runs.
-func TestOracleStopsWritingStateAfterV67(t *testing.T) {
-	a := newV67Chain(t)
-	applyV67(t, a)
-
-	validator := a.GetAllValidators()[0]
-	operator, err := sdk.ValAddressFromBech32(validator.OperatorAddress)
-	require.NoError(t, err)
-
-	require.Zero(t, a.OracleKeeper.GetVotePenaltyCounter(a.Ctx(), operator).AbstainCount)
-
-	// A vote period is two blocks by default, so this spans several of them.
-	for i := 0; i < 8; i++ {
-		a.RunBlock([]signing.Tx{})
-	}
-
-	require.Zero(t, a.OracleKeeper.GetVotePenaltyCounter(a.Ctx(), operator).AbstainCount,
-		"oracle blocker wrote abstention state after v6.7")
-	_, err = a.OracleKeeper.GetAggregateExchangeRateVote(a.Ctx(), operator)
-	require.ErrorIs(t, err, oracletypes.ErrNoAggregateVote,
-		"no aggregate vote should exist after the v6.7 upgrade")
 }
 
 // The retired stores survive the upgrade, but no module claims them, so genesis

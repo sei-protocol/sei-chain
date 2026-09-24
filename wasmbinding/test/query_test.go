@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/retiredoracle"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -16,7 +17,6 @@ import (
 	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorybinding "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -46,7 +46,7 @@ func TestWasmUnknownQuery(t *testing.T) {
 
 	_, err = customQuerier(testWrapper.Ctx, rawQuery)
 	require.Error(t, err)
-	require.ErrorIs(t, err, oracletypes.ErrOracleDeprecated)
+	require.ErrorIs(t, err, retiredoracle.ErrDeprecated)
 
 	epoch_req := epochbinding.SeiEpochQuery{}
 	queryData, err = json.Marshal(epoch_req)
@@ -70,7 +70,7 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.ErrorIs(t, err, oracletypes.ErrOracleDeprecated)
+	require.ErrorIs(t, err, retiredoracle.ErrDeprecated)
 }
 
 func TestWasmGetOracleTwaps(t *testing.T) {
@@ -83,7 +83,7 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = customQuerier(testWrapper.Ctx, rawQuery)
-	require.ErrorIs(t, err, oracletypes.ErrOracleDeprecated)
+	require.ErrorIs(t, err, retiredoracle.ErrDeprecated)
 }
 
 func TestWasmGetEpoch(t *testing.T) {

@@ -19,6 +19,7 @@ var retainedStores = map[string]string{
 	transferModuleName:   "module removed in v6.7; transfer state kept for historical state access",
 	storekeys.IBCStoreKey: "module removed in v6.7; client, connection and channel state kept for " +
 		"historical state access",
+	storekeys.OracleStoreKey: "module removed in v6.8; oracle state kept for historical state access",
 }
 
 // storeKeyOwners names the owning module for the KV stores whose key differs
@@ -60,7 +61,9 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 	// has in state.
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(ctx)
 	for name := range retainedStores {
-		versionMap[name] = 1
+		if name == storekeys.OracleStoreKey {
+			versionMap[name] = 1
+		}
 	}
 	testApp.UpgradeKeeper.SetModuleVersionMap(ctx, versionMap)
 

@@ -4,8 +4,6 @@
       env: PARAMS_QUERY_ERROR
     - cmd: seid q oracle twaps 3600 --output json 2>&1
       env: TWAPS_QUERY_ERROR
-    - cmd: curl -s localhost:1317/sei-protocol/sei-chain/oracle/denoms/exchange_rates 2>&1
-      env: EXCHANGE_RATES_QUERY_ERROR
   verifiers:
     - type: regex
       expr: 'unknown command "oracle"'
@@ -13,6 +11,3 @@
     - type: regex
       expr: 'unknown command "oracle"'
       result: TWAPS_QUERY_ERROR
-    - type: regex
-      expr: oracle module is deprecated
-      result: EXCHANGE_RATES_QUERY_ERROR
