@@ -5,6 +5,7 @@ package json
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	jsonv66 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v66"
+	jsonv67 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(jsonv66.NewPrecompile(keepers)),
+		"v6.7":        check(jsonv67.NewPrecompile(keepers)),
 	}
 }
 

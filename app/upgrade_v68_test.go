@@ -10,9 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/encoding/protowire"
-
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -27,6 +24,8 @@ import (
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/upgradetest"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // v6.8 removes the vesting module. The module owned no store: its state is the
@@ -65,17 +64,17 @@ var v68PostUpgradeBankReceiver = sdk.AccAddress{
 func newV68Chain(t *testing.T) *processblock.App {
 	t.Helper()
 	t.Setenv("UPGRADE_VERSION_LIST", v68UpgradeName)
-	a := processblock.NewTestApp(t)
-	processblock.CommonPreset(a)
-	a.RegisterUpgradeHandlers()
-	return a
+	app := processblock.NewTestApp(t)
+	processblock.CommonPreset(app)
+	app.RegisterUpgradeHandlers()
+	return app
 }
 
-func applyV68(t *testing.T, a *processblock.App) {
+func applyV68(t *testing.T, app *processblock.App) {
 	t.Helper()
-	a.UpgradeKeeper.ApplyUpgrade(a.Ctx(), upgradetypes.Plan{
+	app.UpgradeKeeper.ApplyUpgrade(app.Ctx(), upgradetypes.Plan{
 		Name:   v68UpgradeName,
-		Height: a.Ctx().BlockHeight(),
+		Height: app.Ctx().BlockHeight(),
 	})
 }
 
@@ -176,6 +175,38 @@ func v68BankSupply(a *processblock.App) map[string]string {
 		return false
 	})
 	return supplies
+}
+
+func TestV68Upgrade(t *testing.T) {
+	app := newV68Chain(t)
+	beforeVersions := app.UpgradeKeeper.GetModuleVersionMap(app.Ctx())
+	require.Contains(t, beforeVersions, "oracle")
+	sender := app.NewSignableAccount("v68-sender")
+	receiver := app.NewAccount()
+	app.FundAccount(sender, 1_000_000)
+	require.Equal(t, []uint32{0}, app.RunBlock([]signing.Tx{
+		app.Sign(sender, 0, msgs.Send(sender, receiver, 1)),
+	}))
+
+	applyV68(t, app)
+	require.Equal(t, beforeVersions, app.UpgradeKeeper.GetModuleVersionMap(app.Ctx()))
+	require.Equal(t, []uint32{0}, app.RunBlock([]signing.Tx{
+		app.Sign(sender, 0, msgs.Send(sender, receiver, 1)),
+	}))
+}
+
+func TestV68UnupgradedBinaryHaltsAtPlanHeight(t *testing.T) {
+	t.Setenv("UPGRADE_VERSION_LIST", "v6.7")
+	app := processblock.NewTestApp(t)
+	processblock.CommonPreset(app)
+	app.RegisterUpgradeHandlers()
+	require.False(t, app.UpgradeKeeper.HasHandler(v68UpgradeName))
+	require.NoError(t, app.UpgradeKeeper.ScheduleUpgrade(app.Ctx(), upgradetypes.Plan{
+		Name: v68UpgradeName, Height: 3,
+	}))
+	app.RunBlock(nil)
+	app.RunBlock(nil)
+	require.Panics(t, func() { app.RunBlock(nil) })
 }
 
 // TestV68RewritesVestingAccountsAsBaseAccounts applies v6.8 to an account of
@@ -390,7 +421,8 @@ func TestV68CrossVersion(t *testing.T) {
 }
 
 // seedV67VestingModule records the v6.7 version map, which carries vesting and
-// auth at consensus version 3, and requires v6.7 to serve the vesting command.
+// auth at consensus version 3, requires v6.7 to serve the vesting command, and
+// delivers a bank send before the upgrade.
 func seedV67VestingModule(t *testing.T, chain *upgradetest.CrossVersion) {
 	require.Equal(t, v68UpgradeName, chain.UpgradeName(t))
 
@@ -405,6 +437,17 @@ func seedV67VestingModule(t *testing.T, chain *upgradetest.CrossVersion) {
 	chain.WriteDiagnostic(t, "v67-tx-vesting.stdout", []byte(vestingCommand.Stdout))
 	chain.WriteDiagnostic(t, "v67-tx-vesting.stderr", []byte(vestingCommand.Stderr))
 	require.NoError(t, vestingCommand.Err, "v6.7 must still serve the vesting transaction command")
+
+	chain.RequireDeliverTxSuccess(t, "v6.7 bank send", chain.Seid(v68KeyringPassword,
+		"tx", "bank", "send", "admin", chain.KeyAddress(t, "sei-node-0", "node_admin"), "1usei",
+		"--from", "admin",
+		"--chain-id", "sei",
+		"--fees", "200000usei",
+		"--gas", "2000000",
+		"--broadcast-mode", "sync",
+		"--yes",
+		"--output", "json",
+	))
 }
 
 func verifyV68VestingRemoval(t *testing.T, chain *upgradetest.CrossVersion) {

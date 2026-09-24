@@ -8,11 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
@@ -24,7 +22,13 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
+
+const v68OfflineUpgradeName = "v6.8"
+
+const v68OfflineUpgradeBlockTimeUnix = 1_700_000_000
 
 const (
 	v68OfflineAuthVersionAfter   uint64 = 4
@@ -32,7 +36,20 @@ const (
 	v68OfflineLegacyVestingTypes        = "/cosmos.vesting.v1beta1."
 )
 
-var v68OfflineUpgradeBlockTime = time.Unix(1_700_000_000, 0).UTC()
+var v68OfflineUpgradeBlockTime = time.Unix(v68OfflineUpgradeBlockTimeUnix, 0).UTC()
+
+func v68OfflineStoreNames(testApp *App) []string {
+	keys := testApp.CommitMultiStore().StoreKeys()
+	names := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if testApp.GetKey(key.Name()) == nil {
+			continue
+		}
+		names = append(names, key.Name())
+	}
+	sort.Strings(names)
+	return names
+}
 
 func TestV68OfflineUpgradeTarget(t *testing.T) {
 	t.Run("fixture", testV68OfflineUpgradeTargetFixture)
@@ -42,7 +59,7 @@ func TestV68OfflineUpgradeTarget(t *testing.T) {
 func testV68OfflineUpgradeTargetFixture(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "target")
 	artifact := readOfflineUpgradeArtifact(t, root)
-	require.Equal(t, "v6.8", artifact.Upgrade)
+	require.Equal(t, v68OfflineUpgradeName, artifact.Upgrade)
 	require.NotEmpty(t, artifact.VestingAccounts, "the source phase recorded no vesting accounts")
 	require.NotEmpty(t, artifact.Retained.TxSender)
 	require.NotEmpty(t, artifact.Retained.TxSenderKey)
@@ -77,6 +94,7 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	requireV68OfflinePersistedPlanHasHandler(t, testApp, artifact)
 	require.Equal(t, artifact.ModuleVersions, offlineUpgradeModuleVersions(t, testApp),
 		"v6.8 did not reopen the v6.7 module version map")
+	require.Equal(t, sortedOfflineStoreNames(artifact.Stores), v68OfflineStoreNames(testApp))
 	requireV68OfflineLegacyAccountsStored(t, testApp, artifact)
 
 	finalizeV68OfflineUpgrade(t, testApp, artifact.UpgradeHeight)
@@ -88,6 +106,7 @@ func applyV68OfflineUpgradeClean(t *testing.T, root string, artifact offlineUpgr
 	require.Equal(t, artifact.UpgradeHeight, reopened.LastBlockHeight())
 	requireV68OfflineAppliedName(t, reopened, artifact)
 	requireV68OfflineVersionMap(t, reopened, artifact.ModuleVersions)
+	require.Equal(t, sortedOfflineStoreNames(artifact.Stores), v68OfflineStoreNames(reopened))
 	requireV68OfflineAccountsRewritten(t, reopened, artifact)
 	return committedOfflineUpgradeHash(t, reopened)
 }
@@ -346,7 +365,7 @@ func signV68OfflineBankSend(t *testing.T, testApp *App, priv *secp256k1.PrivKey,
 // home and logs how long the account rewrite took against it.
 func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 	home := requireOfflineUpgradeSnapshotHome(t)
-	t.Setenv("UPGRADE_VERSION_LIST", "v6.8")
+	t.Setenv("UPGRADE_VERSION_LIST", v68OfflineUpgradeName)
 	chainID := readOfflineUpgradeGenesisChainID(t, home)
 
 	testApp := openOfflineUpgradeSnapshotApp(t, home, chainID)
@@ -361,12 +380,12 @@ func testV68OfflineUpgradeTargetSnapshot(t *testing.T) {
 			offlineUpgradeContext(testApp, sourceHeight, chainID), address)
 	}
 
-	require.True(t, testApp.UpgradeKeeper.HasHandler("v6.8"),
+	require.True(t, testApp.UpgradeKeeper.HasHandler(v68OfflineUpgradeName),
 		"v6.8 upgrade handler is not registered; set UPGRADE_VERSION_LIST=v6.8")
 	upgradeHeight := sourceHeight + 1
 	started := time.Now()
 	testApp.UpgradeKeeper.ApplyUpgrade(offlineUpgradeContext(testApp, upgradeHeight, chainID), upgradetypes.Plan{
-		Name:   "v6.8",
+		Name:   v68OfflineUpgradeName,
 		Height: upgradeHeight,
 	})
 	t.Logf("v6.8 rewrote %d vesting accounts of %s in %s", len(legacy), home, time.Since(started))
@@ -403,4 +422,13 @@ func v68OfflineLegacyVestingAccounts(t *testing.T, testApp *App, ctx sdk.Context
 		}
 	}
 	return addresses
+}
+
+func sortedOfflineStoreNames(stores map[string]map[string]string) []string {
+	names := make([]string, 0, len(stores))
+	for name := range stores {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

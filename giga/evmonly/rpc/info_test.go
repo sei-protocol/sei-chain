@@ -305,7 +305,12 @@ func TestFeeHistoryErrorsRatherThanPanicsWhenTheBlockBodyIsGone(t *testing.T) {
 	backend.block = func(context.Context, *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
 		return &coretypes.ResultBlock{Block: nil}, nil
 	}
-	api := &infoAPI{backend: backend, store: store}
+	api := &infoAPI{backend: backend, store: stubIteratingReceiptStore{
+		ReceiptStore: store,
+		iterate: func(uint64) (receipt.ReceiptIterator, error) {
+			return nil, receipt.ErrRangeQueryNotSupported
+		},
+	}}
 
 	_, err := api.FeeHistory(t.Context(), 1, ethrpc.BlockNumber(1), nil)
 	require.ErrorContains(t, err, "not available")

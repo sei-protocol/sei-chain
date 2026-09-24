@@ -13,22 +13,33 @@ import (
 // stays on this list when its history must remain readable at the store level
 // after its module is gone; dropping it instead is application-hash breaking
 // and needs a StoreUpgrades{Deleted} entry at a specific upgrade height.
-var retainedStores = map[string]string{
-	feegrantModuleName:   "module removed in v6.7; allowances kept for historical state access",
-	capabilityModuleName: "module removed in v6.7; capabilities kept for freeze-mode historical state access",
-	transferModuleName:   "module removed in v6.7; transfer state kept for historical state access",
-	storekeys.IBCStoreKey: "module removed in v6.7; client, connection and channel state kept for " +
-		"historical state access",
+var retainedStores = map[string]struct {
+	upgrade string
+	reason  string
+}{
+	feegrantModuleName: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; allowances kept for historical state access",
+	},
+	capabilityModuleName: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; capabilities kept for freeze-mode historical state access",
+	},
+	transferModuleName: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; transfer state kept for historical state access",
+	},
+	storekeys.IBCStoreKey: {
+		upgrade: "v6.7",
+		reason:  "module removed in v6.7; client, connection and channel state kept for historical state access",
+	},
 }
 
-// removedModules maps every module dropped from the manager to the upgrade
-// whose handler deletes its version-map entry.
-var removedModules = map[string]string{
-	feegrantModuleName:    "v6.7",
-	capabilityModuleName:  "v6.7",
-	transferModuleName:    "v6.7",
-	storekeys.IBCStoreKey: "v6.7",
-	vestingModuleName:     "v6.8",
+// removedModulesWithoutStores maps every module dropped from the manager that
+// owned no store to the upgrade whose handler deletes its version-map entry. A
+// removed module that left its store mounted is declared on retainedStores.
+var removedModulesWithoutStores = map[string]string{
+	vestingModuleName: "v6.8",
 }
 
 // storeKeyOwners names the owning module for the KV stores whose key differs
@@ -68,7 +79,12 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 	// The previous release still registered, and so still versions, every
 	// module the latest upgrade removes.
 	versionMap := testApp.UpgradeKeeper.GetModuleVersionMap(ctx)
-	for name, upgrade := range removedModules {
+	for name, retained := range retainedStores {
+		if retained.upgrade == LatestUpgrade {
+			versionMap[name] = 1
+		}
+	}
+	for name, upgrade := range removedModulesWithoutStores {
 		if upgrade == LatestUpgrade {
 			versionMap[name] = 1
 		}
@@ -84,17 +100,6 @@ func TestLatestUpgradeLeavesNoOrphanedModuleVersions(t *testing.T) {
 		require.Contains(t, registered, name,
 			"module version map still carries %q, which no registered module owns; "+
 				"the upgrade handler needs a DeleteModuleVersion call for it", name)
-	}
-}
-
-// A module that leaves its store behind is declared on retainedStores, which
-// the mount checks below force. Requiring every such module on removedModules
-// makes that declaration name the upgrade which deletes its version entry.
-func TestRetainedStoreModulesAreRemovedByAnUpgrade(t *testing.T) {
-	for storeKey := range retainedStores {
-		require.Contains(t, removedModules, owningModuleName(storeKey),
-			"%q is a retained store, so its module was removed; name the upgrade whose "+
-				"handler deletes its version-map entry in removedModules", storeKey)
 	}
 }
 
@@ -129,10 +134,10 @@ func TestMountedStoresAreOwnedOrExplicitlyRetained(t *testing.T) {
 func TestRetainedStoresRemainMounted(t *testing.T) {
 	testApp := Setup(t, false, false, false)
 
-	for storeKey, reason := range retainedStores {
+	for storeKey, retained := range retainedStores {
 		require.Contains(t, kvStoreKeyNames, storeKey,
-			"%q is declared retained (%s) but is not mounted", storeKey, reason)
+			"%q is declared retained (%s) but is not mounted", storeKey, retained.reason)
 		require.NotNil(t, testApp.GetKey(storeKey),
-			"%q is declared retained (%s) but has no store key", storeKey, reason)
+			"%q is declared retained (%s) but has no store key", storeKey, retained.reason)
 	}
 }

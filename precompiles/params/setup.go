@@ -4,12 +4,14 @@ package params
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
+	paramsv67 "github.com/sei-protocol/sei-chain/precompiles/params/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
+		"v6.7":        check(paramsv67.NewPrecompile(keepers)),
 	}
 }
 

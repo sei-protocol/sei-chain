@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const v68OfflineUpgradeName = "v6.8"
+
 const (
 	// v68OfflineVestingEndTime is 3000-01-01, the end time of every vesting
 	// account on pacific-1, so v6.7 locks each fixture's whole balance.
@@ -31,6 +34,19 @@ const (
 	v68OfflineAuthVersion    uint64 = 3
 )
 
+func v68OfflineStoreNames(testApp *App) []string {
+	keys := testApp.CommitMultiStore().StoreKeys()
+	names := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if testApp.GetKey(key.Name()) == nil {
+			continue
+		}
+		names = append(names, key.Name())
+	}
+	sort.Strings(names)
+	return names
+}
+
 func TestV68OfflineUpgradeSource(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "source")
 	testApp := openOfflineUpgradeApp(t, root, true)
@@ -38,10 +54,14 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 
 	vesting, retained := seedV68OfflineVestingAccounts(t, testApp, ctx)
 	requireV68OfflineBalancesLocked(t, testApp, ctx, retained)
-	stores := snapshotOfflineUpgradeStores(t, testApp, ctx, []string{authtypes.StoreKey})
+	stores := make(map[string]map[string]string)
+	for _, name := range v68OfflineStoreNames(testApp) {
+		stores[name] = map[string]string{}
+	}
+	stores[authtypes.StoreKey] = snapshotOfflineUpgradeStore(t, testApp, ctx, authtypes.StoreKey)
 	upgradeHeight := ctx.BlockHeight() + 2
 	require.NoError(t, testApp.UpgradeKeeper.ScheduleUpgrade(ctx, upgradetypes.Plan{
-		Name:   "v6.8",
+		Name:   v68OfflineUpgradeName,
 		Height: upgradeHeight,
 	}))
 
@@ -49,7 +69,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	sourceHeight := testApp.LastBlockHeight()
 	plan, found := committedOfflineUpgradePlan(t, testApp)
 	require.True(t, found, "scheduled upgrade plan was not committed")
-	require.Equal(t, "v6.8", plan.Name)
+	require.Equal(t, v68OfflineUpgradeName, plan.Name)
 	require.Equal(t, upgradeHeight, plan.Height)
 	moduleVersions := offlineUpgradeModuleVersions(t, testApp)
 	require.Contains(t, moduleVersions, "vesting", "v6.7 module version map does not contain vesting")
@@ -58,7 +78,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 	closeOfflineUpgradeApp(t, testApp)
 
 	writeOfflineUpgradeArtifact(t, root, offlineUpgradeArtifact{
-		Upgrade:         plan.Name,
+		Upgrade:         v68OfflineUpgradeName,
 		SourceHeight:    sourceHeight,
 		UpgradeHeight:   upgradeHeight,
 		ModuleVersions:  moduleVersions,
@@ -73,7 +93,7 @@ func TestV68OfflineUpgradeSource(t *testing.T) {
 func TestV68OfflineUpgradeReopen(t *testing.T) {
 	root := requireOfflineUpgradePhase(t, "reopen")
 	artifact := readOfflineUpgradeArtifact(t, root)
-	require.Equal(t, "v6.8", artifact.Upgrade)
+	require.Equal(t, v68OfflineUpgradeName, artifact.Upgrade)
 	require.NotEmpty(t, artifact.UpgradeHash, "target phase did not record the post-upgrade application hash")
 
 	migrated := offlineUpgradeMigratedDatabase(t, root, artifact)
@@ -87,6 +107,7 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 		"v6.7 opened the migrated database at a different height than v6.8 left it")
 	require.NotContains(t, offlineUpgradeModuleVersions(t, testApp), "vesting",
 		"v6.7 still sees a vesting version-map entry after v6.8 deleted it")
+	requireOfflineUpgradeStoresMounted(t, testApp, sortedOfflineStoreNames(artifact.Stores))
 
 	ctx := offlineUpgradeReadContext(testApp, testApp.LastBlockHeight())
 	for _, recorded := range artifact.VestingAccounts {
@@ -105,7 +126,7 @@ func TestV68OfflineUpgradeReopen(t *testing.T) {
 	lastName, lastHeight := testApp.UpgradeKeeper.GetLastCompletedUpgrade(ctx)
 	require.Equal(t, artifact.Upgrade, lastName)
 	require.Equal(t, artifact.UpgradeHeight, lastHeight)
-	require.False(t, testApp.UpgradeKeeper.HasHandler("v6.8"), "v6.7 registered a v6.8 upgrade handler")
+	require.False(t, testApp.UpgradeKeeper.HasHandler(v68OfflineUpgradeName), "v6.7 registered a v6.8 upgrade handler")
 
 	var panicked any
 	func() {
@@ -218,7 +239,7 @@ func requireV68OfflineUnupgradedHalt(t *testing.T, root string, sourceHeight, up
 
 	testApp := openOfflineUpgradeApp(t, haltRoot, false)
 	require.Equal(t, sourceHeight, testApp.LastBlockHeight())
-	require.False(t, testApp.UpgradeKeeper.HasHandler("v6.8"), "v6.7 registered a v6.8 upgrade handler")
+	require.False(t, testApp.UpgradeKeeper.HasHandler(v68OfflineUpgradeName), "v6.7 registered a v6.8 upgrade handler")
 
 	var panicked any
 	func() {
@@ -244,4 +265,13 @@ func requireV68OfflineUnupgradedHalt(t *testing.T, root string, sourceHeight, up
 	defer closeOfflineUpgradeApp(t, reopened)
 	require.Equal(t, sourceHeight, reopened.LastBlockHeight(),
 		"v6.7 left committed state behind after halting at the v6.8 plan height")
+}
+
+func sortedOfflineStoreNames(stores map[string]map[string]string) []string {
+	names := make([]string, 0, len(stores))
+	for name := range stores {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
