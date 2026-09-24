@@ -11,8 +11,18 @@ import (
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
+{{- if .TombstoneVersions}}
+	tombstone := check(NewPrecompile(keepers))
+{{- end}}
 	return utils.VersionedPrecompiles{
+{{- if .TombstoneVersions}}
+		latestUpgrade: tombstone,
+{{- else}}
 		latestUpgrade: check(NewPrecompile(keepers)),
+{{- end}}
+{{- range .TombstoneVersions}}
+		"{{.}}":      tombstone,
+{{- end}}
 {{- range .LegacyVersions}}
 		"{{.Tag}}":      check({{$.PackageName}}{{.Folder}}.NewPrecompile(keepers)),
 {{- end}}

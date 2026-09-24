@@ -68,8 +68,9 @@ type moduleChange struct {
 }
 
 type TemplateData struct {
-	PackageName    string
-	LegacyVersions []LegacyVersion
+	PackageName       string
+	LegacyVersions    []LegacyVersion
+	TombstoneVersions []string
 }
 
 func main() {
@@ -474,9 +475,31 @@ func regenerateAllSetup() error {
 }
 
 func generateSetup(tmpl *template.Template, moduleDir, moduleName string, legacy []LegacyVersion) error {
+	tombstoneVersions := []string(nil)
+	if moduleName == "ibc" {
+		tombstoneVersions = []string{
+			"v5.5.2",
+			"v5.5.5",
+			"v5.6.2",
+			"v5.8.0",
+			"v6.0.1",
+			"v6.0.3",
+			"v6.0.5",
+			"v6.0.6",
+			"v6.1.0",
+			"v6.1.4",
+			"v6.2.0",
+			"v6.3.0",
+			"v6.4.0",
+			"v6.5",
+			"v6.6",
+			"v6.7",
+		}
+	}
 	data := TemplateData{
-		PackageName:    moduleName,
-		LegacyVersions: legacy,
+		PackageName:       moduleName,
+		LegacyVersions:    legacy,
+		TombstoneVersions: tombstoneVersions,
 	}
 
 	var buf strings.Builder
