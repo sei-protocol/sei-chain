@@ -1174,12 +1174,18 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 	response := app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 	app.initializeRetiredTransferModuleAccount(ctx)
+	app.initializeRetiredOracleModuleAccount(ctx)
 	return response
 }
 
 // initializeRetiredTransferModuleAccount materializes the retained transfer module account during genesis.
 func (app *App) initializeRetiredTransferModuleAccount(ctx sdk.Context) {
 	app.AccountKeeper.GetModuleAccount(ctx, transferModuleName)
+}
+
+// initializeRetiredOracleModuleAccount materializes the retained oracle module account during genesis.
+func (app *App) initializeRetiredOracleModuleAccount(ctx sdk.Context) {
+	app.AccountKeeper.GetModuleAccount(ctx, oracleModuleName)
 }
 
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {

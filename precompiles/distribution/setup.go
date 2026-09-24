@@ -5,6 +5,7 @@ package distribution
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	distributionv66 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v66"
+	distributionv67 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v67"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -12,6 +13,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 	return utils.VersionedPrecompiles{
 		latestUpgrade: check(NewPrecompile(keepers)),
 		"v6.6":        check(distributionv66.NewPrecompile(keepers)),
+		"v6.7":        check(distributionv67.NewPrecompile(keepers)),
 	}
 }
 
